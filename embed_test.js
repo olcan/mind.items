@@ -1,1 +1,1 @@
-console.log("hello world (of embedded files)!");
+console.log("hello world! (of embedded files)");
