@@ -1,3 +1,4 @@
+#install_test demonstrates `_install(id)` function evaluated during installation.
 ```js
 function _install(id) {
   const item = _item(id)
