@@ -1,7 +1,5 @@
-#install_test demonstrates `_install(id)` function evaluated during installation.
+#install_test demonstrates `_install(item)` function.
 ```js
-function _install(id) {
-  const item = _item(id)
-  _modal({ content:`Installed ${item.name} from ${item.attr.path}.` })
-}
+const _install = item => 
+  _modal({ content:`Installed ${item} from ${item.attr.path}.` })
 ```
