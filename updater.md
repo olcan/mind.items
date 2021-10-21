@@ -1,5 +1,7 @@
-#updater updates installed items, and can do so automatically upon start or manually using `/update` command.
+#updater updates installed items. It can update automatically upon start or manually using `/update` command. Automatic updating is currently `<<_this.global_store.auto_update?'on':'off'>>`.
 
-#todo implement _command function auto-invoked in all items (in recency order) for unhandled commands.
+```js_removed:updater.js
+updater.js
+```
 
 #_init
