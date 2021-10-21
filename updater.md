@@ -1,4 +1,4 @@
-#updater updates installed items, either automatically at page init/reload, or manually using `/update` command. Automatic updating is currently `<<_this.global_store.manual_update?'off':'on'>>`.
+#updater updates installed items, either automatically at page init (currently _<<_this.global_store.manual_update?'disabled':'enabled'>>_), or manually using `/update` command.
 
 ```js_removed:updater.js
 updater.js
