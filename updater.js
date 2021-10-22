@@ -101,5 +101,5 @@ async function check_updates(item) {
 
 async function update_item(item) {
   console.log(`updating ${item.name} ...`);
-  // TODO: model after /_update command!
+  // TODO: model after /_update command
 }
