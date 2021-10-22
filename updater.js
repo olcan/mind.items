@@ -1,12 +1,15 @@
 function _on_welcome() {
+  init_updater();
+}
+
+async function init_updater() {
   // TODO: prompt for token if missing, strongly recommended for updater
 
   // check for updates on page init
-  installed_named_items().forEach((item) => {
-    check_updates(item).then((has_updates) => {
-      if (has_updates) update_item(item);
-    });
-  });
+  for (let item of installed_named_items()) {
+    const has_updates = await check_updates(item);
+    if (has_updates) await update_item(item);
+  }
 
   // listen for updates through firebase
   console.log(`listening for updates ...`);
@@ -28,7 +31,7 @@ function _on_welcome() {
         if (commits.length == 0) return; // no commits w/ modifications
 
         // scan items for installed items w/ modified paths
-        installed_named_items().forEach((item) => {
+        for (let item of installed_named_items()) {
           if (
             item.attr.owner != owner ||
             item.attr.repo != repo ||
@@ -47,7 +50,7 @@ function _on_welcome() {
             )
           )
             update_item(item);
-        });
+        }
       });
     });
 }
