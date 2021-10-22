@@ -1,4 +1,6 @@
 function _on_welcome() {
+  // TODO: prompt for token if missing
+
   // perform initial updates
   _items().forEach((item) => {
     if (item.attr) update_item(item);
