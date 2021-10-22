@@ -13,10 +13,10 @@ function _on_welcome() {
       snapshot.docChanges().forEach((change) => {
         if (change.type != "added") return; // new documents only
         const body = change.doc.data().body;
-        if (!body?.refs?.startsWith("refs/heads/")) return; // branch updates only
+        if (!body?.ref?.startsWith("refs/heads/")) return; // branch updates only
         console.log("received github_webhooks", change.doc.data());
 
-        const branch = body.refs.replace("refs/heads/", "");
+        const branch = body.ref.replace("refs/heads/", "");
         const repo = body.repository.name;
         const owner = body.repository.owner.login;
         const commits = (body.commits ?? []).filter((c) => c.modified?.length);
