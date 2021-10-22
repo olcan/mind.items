@@ -99,8 +99,4 @@ async function check_updates(item) {
 async function update_item(item) {
   console.log(`updating ${item.name} ...`);
   // TODO: model after /_update command!
-  // get last commit sha
-  // get latest content for item, including any embeds
-  // replace updated item
-  // log the update
 }
