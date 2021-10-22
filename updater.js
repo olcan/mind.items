@@ -1,4 +1,4 @@
-function _welcome() {
+function _on_welcome() {
   _items().forEach(item => { 
     if (item.attr) update_item(item) 
   })
