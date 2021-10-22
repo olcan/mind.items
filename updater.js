@@ -13,6 +13,18 @@ function _on_welcome() {
     snapshot.docChanges().forEach((change) => {
       if (change.type != "added") return; // new documents only
       console.log("received github_webhooks", change.doc.data());
+      // scan commits for modifications to item source paths ...
+      const commits = change.doc.data().body?.commits ?? []
+      commits.forEach(commit => {
+        if (!commit.modified?.length) return; // modified paths only
+        _items().forEach(item => { 
+          // TODO: filter by attr.owner/repo/branch!
+          if (!item.attr?.path) return // not an installed item or missing path
+          const path = item.attr.path.replace(/^\//, "") // drop / prefix to normalize
+          if (commit.modified.includes(path))
+            update_item(item)
+        })
+      })
     });
   });
 }
