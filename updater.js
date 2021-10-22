@@ -54,5 +54,4 @@ async function update_item(item) {
   // get latest content for item, including any embeds
   // replace updated item
   // log the update
-  // small change :)
 }
