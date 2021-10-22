@@ -1,4 +1,4 @@
-#updater auto-updates installed items at page init (or reload)...
+#updater auto-updates installed items.
 
 ```js:js_removed:updater.js
 // updater.js
