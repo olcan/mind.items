@@ -14,7 +14,7 @@ function _on_welcome() {
         if (change.type != "added") return; // new documents only
         const body = change.doc.data().body;
         if (!body?.ref?.startsWith("refs/heads/")) return; // branch updates only
-        console.log("received github_webhooks", change.doc.data());
+        // console.debug("received github_webhooks", change.doc.data());
 
         const branch = body.ref.replace("refs/heads/", "");
         const repo = body.repository.name;
@@ -49,7 +49,8 @@ function _on_welcome() {
 }
 
 async function update_item(item) {
-  console.log(`updating item ${item.name} ..`);
+  console.log(`updating ${item.name} ..`);
+  // TODO: model after /_update command!
   // get last commit sha
   // get latest content for item, including any embeds
   // replace updated item
