@@ -19,6 +19,7 @@ function _on_welcome() {
         if (!commit.modified?.length) return; // modified paths only
         _items().forEach(item => { 
           // TODO: filter by attr.owner/repo/branch!
+          // TODO: test change to embed
           if (!item.attr?.path) return // not an installed item or missing path          
           let paths = [item.attr.path, ...(item.attr.embeds?.map(e => e.path) ?? [])]
           paths = paths.map(path=>path.replace(/^\//, "")) // remove leading slashes
