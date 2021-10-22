@@ -1,9 +1,11 @@
 function _on_welcome() {
-  // TODO: prompt for token if missing
+  // TODO: prompt for token if missing, strongly recommended for updater
 
-  // perform initial updates
-  _items().forEach((item) => {
-    if (item.attr) update_item(item);
+  // check for updates on page init
+  installed_named_items().forEach((item) => {
+    check_updates(item).then((has_updates) => {
+      if (has_updates) update_item(item);
+    });
   });
 
   // listen for updates through firebase
@@ -26,8 +28,7 @@ function _on_welcome() {
         if (commits.length == 0) return; // no commits w/ modifications
 
         // scan items for installed items w/ modified paths
-        _items().forEach((item) => {
-          if (!item.attr) return; // item not installed
+        installed_named_items().forEach((item) => {
           if (
             item.attr.owner != owner ||
             item.attr.repo != repo ||
@@ -51,8 +52,52 @@ function _on_welcome() {
     });
 }
 
+// returns items that are installed and named (i.e. uniquely labeled)
+const installed_named_items = () =>
+  _labels((_, ids) => ids.length == 1)
+    .map(_item)
+    .filter((item) => item.attr);
+
+// checks for updates to item, returning true iff updated
+async function check_updates(item) {
+  console.log(`checking for updates to ${item.name} ...`);
+  const attr = item.attr;
+  // use token used to install item, falling back to localStorage token, or no token
+  const token = attr.token || localStorage.getItem("mindpage_github_token");
+  const github = token ? new Octokit({ auth: token }) : new Octokit();
+  try {
+    // check for change to item
+    const {
+      data: [{ sha }],
+    } = await github.repos.listCommits({
+      ...attr,
+      sha: attr.branch,
+      per_page: 1,
+    });
+    if (sha != attr.sha) return true;
+
+    // check for changes to embeds
+    if (attr.embeds) {
+      for (let embed of attr.embeds) {
+        const {
+          data: [{ sha }],
+        } = await github.repos.listCommits({
+          ...attr,
+          path: embed.path,
+          sha: attr.branch,
+          per_page: 1,
+        });
+        if (sha != embed.sha) return true;
+      }
+    }
+  } catch (e) {
+    console.error(`failed to check for updates to ${item.name}: ` + e);
+  }
+  return false; // no updates
+}
+
 async function update_item(item) {
-  console.log(`updating ${item.name} ..`);
+  console.log(`updating ${item.name} ...`);
   // TODO: model after /_update command!
   // get last commit sha
   // get latest content for item, including any embeds
