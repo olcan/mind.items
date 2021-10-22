@@ -1,2 +1,3 @@
-// TODO: implement updater js
-// ok! :)
+function _init() {
+  alert('hello world')
+}
