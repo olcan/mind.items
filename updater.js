@@ -1,10 +1,11 @@
 function _on_welcome() {
+  // perform initial updates
   _items().forEach((item) => {
     if (item.attr) update_item(item);
   });
 
-  // listen for github webhooks through firebase
-  console.log(`listening for github_webhooks ...`);
+  // listen for updates through firebase
+  console.log(`listening for updates ...`);
   firebase
     .firestore()
     .collection("github_webhooks")
