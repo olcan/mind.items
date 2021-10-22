@@ -30,7 +30,7 @@ function _on_welcome() {
 }
 
 async function update_item(item) {
-  console.log(`updating item ${item.name} ...`)
+  console.log(`updating item ${item.name} ..`)
   // get last commit sha
   // get latest content for item, including any embeds
   // replace updated item
