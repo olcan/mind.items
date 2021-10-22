@@ -1,8 +1,14 @@
-function _init() { update() }
+function _welcome() { update() }
 
 async function update() {
-  // get last commit sha for each installed item (same as _update)
-  // simply replace updated items, no confirmation
-  // just log the update
-  alert('hello world')
+  _items().forEach(item => { 
+    if (item.attr) update_item(item) 
+  })
+}
+
+async function update_item(item) {
+  // get last commit sha
+  // get latest content for item, including any embeds
+  // replace updated item
+  // log the update
 }
