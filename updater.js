@@ -1,5 +1,5 @@
 function _on_welcome() {
-  init_updater();
+  init_updater(); // test comment
 }
 
 async function init_updater() {
