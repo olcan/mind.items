@@ -83,7 +83,7 @@ async function github_token(item) {
     item.attr.token ?? localStorage.getItem("mindpage_github_token");
   if (!token)
     token = await _modal({
-      content: `${_this.name} needs your GitHub [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access strictly throttled by GitHub.`,
+      content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
       confirm: "Use Token",
       cancel: "Skip",
       input: "",
