@@ -17,6 +17,7 @@ async function init_updater() {
     .collection("github_webhooks")
     .where("time", ">", Date.now())
     .onSnapshot((snapshot) => {
+      let modified_items = [];
       snapshot.docChanges().forEach((change) => {
         if (change.type != "added") return; // new documents only
         const body = change.doc.data().body;
@@ -48,9 +49,12 @@ async function init_updater() {
               paths.some((path) => commit.modified.includes(path))
             )
           )
-            update_item(item);
+            modified_items.push(item);
         }
       });
+      (async () => {
+        for (let item of modified_items) await update_item(item);
+      })();
     });
 }
 
