@@ -1,6 +1,6 @@
 // init updater on page init
 function _init() {
-  init_updater(); // test change
+  init_updater();
 }
 
 async function init_updater() {
@@ -79,8 +79,7 @@ function decodeBase64(str) {
 // prompts user for token if none is found
 // returns null if no token is available
 async function github_token(item) {
-  const token =
-    item.attr.token ?? localStorage.getItem("mindpage_github_token");
+  let token = item.attr.token ?? localStorage.getItem("mindpage_github_token");
   if (!token) {
     token = await _modal({
       content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
