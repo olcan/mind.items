@@ -142,6 +142,7 @@ async function check_updates(item) {
 async function update_item(item) {
   console.log(`auto-updating ${item.name} ...`);
   // wait for any pending push to complete to avoid potential feedback loops
+  // window._github_pending_push should be used by other items that push to github
   if (window._github_pending_push) {
     console.log(`pausing auto-update for pending push ...`);
     await _github_pending_push;
