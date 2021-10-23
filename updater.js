@@ -1,6 +1,8 @@
-// init updater on page init
+// init updater on welcome, i.e. after page is fully rendered
+// ensures page is ready to display modals, e.g. for token prompts
+// also allows existing items to initialize before being updated
 function _init() {
-  init_updater(); // test change
+  init_updater();
 }
 
 async function init_updater() {
