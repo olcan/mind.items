@@ -2,7 +2,7 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _init() {
-  init_updater(); // test
+  init_updater();
 }
 
 async function init_updater() {
