@@ -19,7 +19,6 @@ async function init_updater() {
     .collection("github_webhooks")
     .where("time", ">", Date.now())
     .onSnapshot((snapshot) => {
-      let modified_items = [];
       snapshot.docChanges().forEach((change) => {
         if (change.type != "added") return; // new documents only
         const body = change.doc.data().body;
@@ -33,6 +32,7 @@ async function init_updater() {
         if (commits.length == 0) return; // no commits w/ modifications
 
         // scan items for installed items w/ modified paths
+        let modified_items = [];
         for (let item of installed_named_items()) {
           if (
             item.attr.owner != owner ||
@@ -53,10 +53,11 @@ async function init_updater() {
           )
             modified_items.push(item);
         }
+        // update modified items (sequentially)
+        (async () => {
+          for (let item of modified_items) await update_item(item);
+        })();
       });
-      (async () => {
-        for (let item of modified_items) await update_item(item);
-      })();
     });
 }
 
