@@ -144,8 +144,12 @@ async function update_item(item) {
   // wait for any pending push to complete to avoid potential feedback loops
   // window._github_pending_push should be used by other items that push to github
   if (window._github_pending_push) {
-    console.log(`pausing auto-update for pending push ...`);
+    console.log(`pausing auto-update for ${item.name} pending push ...`);
     await _github_pending_push;
+    if (!(await check_updates(item)))
+      console.warn(
+        `cancelled auto-update for ${item.name} as item was up-to-date after push`
+      );
   }
   const start = Date.now();
   const attr = item.attr;
