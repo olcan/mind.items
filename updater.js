@@ -81,7 +81,7 @@ function decodeBase64(str) {
 async function github_token(item) {
   const token =
     item.attr.token ?? localStorage.getItem("mindpage_github_token");
-  if (!token)
+  if (!token) {
     token = await _modal({
       content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
       confirm: "Use Token",
@@ -89,7 +89,8 @@ async function github_token(item) {
       input: "",
       password: false,
     });
-  if (token) localStorage.setItem("mindpage_github_token", token);
+    if (token) localStorage.setItem("mindpage_github_token", token);
+  }
   return token;
 }
 
