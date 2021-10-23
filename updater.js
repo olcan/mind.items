@@ -59,6 +59,20 @@ const installed_named_items = () =>
     .map(_item)
     .filter((item) => item.attr);
 
+// decodes base64 w/ unicode character support (unlike plain atob)
+// from https://stackoverflow.com/a/30106551
+function decodeBase64(str) {
+  // bytestream -> percent-encoding -> original string
+  return decodeURIComponent(
+    atob(str)
+      .split("")
+      .map(function (c) {
+        return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+      })
+      .join("")
+  );
+}
+
 // return auth token for updating item from github source
 // prefers item.attr.token, falls back to localStorage
 // prompts user for token if none is found
