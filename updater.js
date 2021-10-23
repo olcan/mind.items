@@ -1,6 +1,6 @@
 // init updater on page init
 function _init() {
-  init_updater();
+  init_updater(); // test change
 }
 
 async function init_updater() {
