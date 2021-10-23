@@ -1,5 +1,5 @@
 function _on_welcome() {
-  init_updater(); // test comment
+  init_updater();
 }
 
 async function init_updater() {
@@ -228,7 +228,7 @@ async function update_item(item) {
     // log warning if auto-update changed item name
     const prev_name = item.name;
     item.write(text, "");
-    if (!item.name != prev_name)
+    if (item.name != prev_name)
       console.warn(
         `auto-update for ${item.name} (was ${prev_name}) from ${path} renamed item`
       );
