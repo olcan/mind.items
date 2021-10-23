@@ -4,4 +4,4 @@
 // updater.js
 ```
 
-#_init
+#_welcome
