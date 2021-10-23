@@ -1,4 +1,4 @@
-#updater auto-updates installed (and `#named`) items.
+#updater auto-updates installed items.
 
 ```js:js_removed:updater.js
 // updater.js
