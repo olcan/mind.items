@@ -133,7 +133,7 @@ async function check_updates(item) {
 // updates item from github source
 // similar to /_update command defined in index.svelte in mind.page repo
 // main difference is that this is intended as an auto-update in background
-// allow item label to be changed/removed with a warning to console
+// allows item to be renamed with a warning to console
 async function update_item(item) {
   console.log(`auto-updating ${item.name} ...`);
   const start = Date.now();
@@ -224,19 +224,14 @@ async function update_item(item) {
       }
     );
 
-    // warn if auto-update removes/changes item label
-    label = parseLabel(text, true /*keep_case*/);
-    if (!label)
-      console.warn(
-        `auto-update for ${item.name} from ${item.path} removes label`
-      );
-    else if (label != item.label)
-      console.warn(
-        `auto-update for ${item.name} from ${item.path} changes label to ${label}`
-      );
-
     // write new text to item (also triggers save of modified attributes)
+    // log warning if auto-update changed item name
+    const prev_name = item.name;
     item.write(text, "");
+    if (!item.name != prev_name)
+      console.warn(
+        `auto-update for ${item.name} (was ${prev_name}) from ${path} renamed item`
+      );
 
     // invoke _on_update() if it exists
     if (item.text.includes("_on_update")) {
@@ -251,9 +246,9 @@ async function update_item(item) {
     }
 
     console.log(
-      `auto-updated ${item.name} from ${item.path} in ${Date.now() - start}ms`
+      `auto-updated ${item.name} from ${path} in ${Date.now() - start}ms`
     );
   } catch (e) {
-    console.error(`failed to auto-update ${item.name} from ${item.path}: ` + e);
+    console.error(`failed to auto-update ${item.name} from ${path}: ` + e);
   }
 }
