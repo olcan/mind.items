@@ -141,6 +141,11 @@ async function check_updates(item) {
 // allows item to be renamed with a warning to console
 async function update_item(item) {
   console.log(`auto-updating ${item.name} ...`);
+  // wait for any pending push to complete to avoid potential feedback loops
+  if (window._github_pending_push) {
+    console.log(`pausing auto-update for pending push ...`);
+    await _github_pending_push;
+  }
   const start = Date.now();
   const attr = item.attr;
   const token = await github_token(item);
