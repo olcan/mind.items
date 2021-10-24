@@ -2,70 +2,70 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater();
+  init_updater()
 }
 
 async function init_updater() {
   // check for updates on page init
   for (let item of installed_named_items()) {
-    const has_updates = await check_updates(item);
-    if (has_updates) await update_item(item);
+    const has_updates = await check_updates(item)
+    if (has_updates) await update_item(item)
   }
 
   // listen for updates through firebase
-  console.log(`listening for updates ...`);
+  console.log(`listening for updates ...`)
   firebase
     .firestore()
     .collection("github_webhooks")
     .where("time", ">", Date.now())
     .onSnapshot((snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        if (change.type != "added") return; // new documents only
-        const body = change.doc.data().body;
-        if (!body?.ref?.startsWith("refs/heads/")) return; // branch updates only
+        if (change.type != "added") return // new documents only
+        const body = change.doc.data().body
+        if (!body?.ref?.startsWith("refs/heads/")) return // branch updates only
         // console.debug("received github_webhooks", change.doc.data());
 
-        const branch = body.ref.replace("refs/heads/", "");
-        const repo = body.repository.name;
-        const owner = body.repository.owner.login;
-        const commits = (body.commits ?? []).filter((c) => c.modified?.length);
-        if (commits.length == 0) return; // no commits w/ modifications
+        const branch = body.ref.replace("refs/heads/", "")
+        const repo = body.repository.name
+        const owner = body.repository.owner.login
+        const commits = (body.commits ?? []).filter((c) => c.modified?.length)
+        if (commits.length == 0) return // no commits w/ modifications
 
         // scan items for installed items w/ modified paths
-        let modified_items = [];
+        let modified_items = []
         for (let item of installed_named_items()) {
           if (
             item.attr.owner != owner ||
             item.attr.repo != repo ||
             item.attr.branch != branch
           )
-            return; // item not from modified repo/branch
+            return // item not from modified repo/branch
           // calculate item paths, including any embeds, removing slash prefixes
           let paths = [
             item.attr.path,
             ...(item.attr.embeds?.map((e) => e.path) ?? []),
-          ].map((path) => path.replace(/^\//, ""));
+          ].map((path) => path.replace(/^\//, ""))
           // update item if any paths were modified in any commits
           if (
             commits.some((commit) =>
               paths.some((path) => commit.modified.includes(path))
             )
           )
-            modified_items.push(item);
+            modified_items.push(item)
         }
         // update modified items (sequentially)
-        (async () => {
-          for (let item of modified_items) await update_item(item);
-        })();
-      });
-    });
+        ;(async () => {
+          for (let item of modified_items) await update_item(item)
+        })()
+      })
+    })
 }
 
 // returns items that are installed and named (i.e. uniquely labeled)
 const installed_named_items = () =>
   _labels((_, ids) => ids.length == 1)
     .map(_item)
-    .filter((item) => item.attr);
+    .filter((item) => item.attr)
 
 // decodes base64 w/ unicode character support (unlike plain atob)
 // from https://stackoverflow.com/a/30106551
@@ -75,10 +75,10 @@ function decodeBase64(str) {
     atob(str)
       .split("")
       .map(function (c) {
-        return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+        return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)
       })
       .join("")
-  );
+  )
 }
 
 // return auth token for updating item from github source
@@ -86,7 +86,7 @@ function decodeBase64(str) {
 // prompts user for token if none is found
 // returns null if no token is available
 async function github_token(item) {
-  let token = item.attr.token ?? localStorage.getItem("mindpage_github_token");
+  let token = item.attr.token ?? localStorage.getItem("mindpage_github_token")
   if (!token) {
     token = await _modal({
       content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
@@ -94,19 +94,19 @@ async function github_token(item) {
       cancel: "Skip",
       input: "",
       password: false,
-    });
-    if (token) localStorage.setItem("mindpage_github_token", token);
+    })
+    if (token) localStorage.setItem("mindpage_github_token", token)
   }
-  return token;
+  return token
 }
 
 // checks for updates to item, returns true iff updated
 // similar to /_updates command defined in index.svelte in mind.page repo
 async function check_updates(item) {
-  console.log(`checking for updates to ${item.name} ...`);
-  const attr = item.attr;
-  const token = await github_token(item);
-  const github = token ? new Octokit({ auth: token }) : new Octokit();
+  console.log(`checking for updates to ${item.name} ...`)
+  const attr = item.attr
+  const token = await github_token(item)
+  const github = token ? new Octokit({ auth: token }) : new Octokit()
   try {
     // check for change to item
     const {
@@ -115,8 +115,8 @@ async function check_updates(item) {
       ...attr,
       sha: attr.branch,
       per_page: 1,
-    });
-    if (sha != attr.sha) return true;
+    })
+    if (sha != attr.sha) return true
 
     // check for changes to embeds
     if (attr.embeds) {
@@ -128,14 +128,14 @@ async function check_updates(item) {
           path: embed.path,
           sha: attr.branch,
           per_page: 1,
-        });
-        if (sha != embed.sha) return true;
+        })
+        if (sha != embed.sha) return true
       }
     }
   } catch (e) {
-    console.error(`failed to check for updates to ${item.name}: ` + e);
+    console.error(`failed to check for updates to ${item.name}: ` + e)
   }
-  return false; // no updates
+  return false // no updates
 }
 
 // updates item from github source
@@ -143,22 +143,22 @@ async function check_updates(item) {
 // main difference is that this is intended as an auto-update in background
 // allows item to be renamed with a warning to console
 async function update_item(item) {
-  console.log(`auto-updating ${item.name} ...`);
+  console.log(`auto-updating ${item.name} ...`)
   // wait for any pending push to complete to avoid potential feedback loops
   // window._github_pending_push should be used by other items that push to github
   if (window._github_pending_push) {
-    console.log(`pausing auto-update for ${item.name} pending push ...`);
-    await _github_pending_push;
+    console.log(`pausing auto-update for ${item.name} pending push ...`)
+    await _github_pending_push
     if (!(await check_updates(item)))
       console.warn(
         `cancelled auto-update for ${item.name} as item was up-to-date after push`
-      );
+      )
   }
-  const start = Date.now();
-  const attr = item.attr;
-  const token = await github_token(item);
-  const github = token ? new Octokit({ auth: token }) : new Octokit();
-  const { owner, repo, branch, path } = attr;
+  const start = Date.now()
+  const attr = item.attr
+  const token = await github_token(item)
+  const github = token ? new Octokit({ auth: token }) : new Octokit()
+  const { owner, repo, branch, path } = attr
   try {
     // retrieve text
     const { data } = await github.repos.getContent({
@@ -166,8 +166,8 @@ async function update_item(item) {
       repo,
       ref: branch,
       path,
-    });
-    let text = decodeBase64(data.content);
+    })
+    let text = decodeBase64(data.content)
     // retrieve commit sha (allows comparison to later versions)
     const {
       data: [{ sha }],
@@ -177,29 +177,29 @@ async function update_item(item) {
       sha: branch,
       path,
       per_page: 1,
-    });
+    })
     // update attributes, to be saved on item.write below
-    attr.sha = sha; // new commit sha
-    attr.embeds = null; // new embeds filled in below (in case embeds changed)
-    attr.token = token; // token for future updates
+    attr.sha = sha // new commit sha
+    attr.embeds = null // new embeds filled in below (in case embeds changed)
+    attr.token = token // token for future updates
 
     // pre-process text for whitespace and embeds
-    text = text.trim(); // trim any spaces (github likes to add an extra line to files)
+    text = text.trim() // trim any spaces (github likes to add an extra line to files)
     // extract colon-suffixed embed path in block types
-    let embeds = [];
+    let embeds = []
     text = text.replace(/```\S+:(\S+?)\n(.*?)\n```/gs, (m, sfx, body) => {
       if (sfx.includes(".")) {
         // process & drop suffix as embed path
-        let path = sfx; // may be relative to container item path (attr.path)
+        let path = sfx // may be relative to container item path (attr.path)
         if (!path.startsWith("/") && attr.path.includes("/", 1))
-          path = attr.path.substr(0, attr.path.indexOf("/", 1)) + "/" + path;
-        embeds.push(path);
+          path = attr.path.substr(0, attr.path.indexOf("/", 1)) + "/" + path
+        embeds.push(path)
       }
-      return m;
-    });
+      return m
+    })
 
     // fetch embed text and latest commit sha
-    let embed_text = {};
+    let embed_text = {}
     for (let path of _.uniq(embeds)) {
       try {
         const { data } = await github.repos.getContent({
@@ -207,8 +207,8 @@ async function update_item(item) {
           repo,
           ref: branch,
           path,
-        });
-        embed_text[path] = decodeBase64(data.content);
+        })
+        embed_text[path] = decodeBase64(data.content)
 
         const {
           data: [{ sha }],
@@ -218,10 +218,10 @@ async function update_item(item) {
           sha: branch,
           path,
           per_page: 1,
-        });
-        attr.embeds = (attr.embeds ?? []).concat({ path, sha });
+        })
+        attr.embeds = (attr.embeds ?? []).concat({ path, sha })
       } catch (e) {
-        throw new Error(`failed to embed '${path}'; error: ${e}`);
+        throw new Error(`failed to embed '${path}'; error: ${e}`)
       }
     }
 
@@ -230,26 +230,26 @@ async function update_item(item) {
       /```(\S+):(\S+?)\n(.*?)\n```/gs,
       (m, pfx, sfx, body) => {
         if (sfx.includes(".")) {
-          let path = sfx; // may be relative to container item path (attr.path)
+          let path = sfx // may be relative to container item path (attr.path)
           if (!path.startsWith("/") && attr.path.includes("/", 1))
-            path = attr.path.substr(0, attr.path.indexOf("/", 1)) + "/" + path;
+            path = attr.path.substr(0, attr.path.indexOf("/", 1)) + "/" + path
           // store original body in attr.embeds to allow item to be edited and pushed back
           // note if same path is embedded multiple times, only the last body is retained
-          attr.embeds.find((e) => e.path == path).body = body;
-          return "```" + pfx + ":" + sfx + "\n" + embed_text[path] + "\n```";
+          attr.embeds.find((e) => e.path == path).body = body
+          return "```" + pfx + ":" + sfx + "\n" + embed_text[path] + "\n```"
         }
-        return m;
+        return m
       }
-    );
+    )
 
     // write new text to item (also triggers save of modified attributes)
     // log warning if auto-update changed item name
-    const prev_name = item.name;
-    item.write(text, "");
+    const prev_name = item.name
+    item.write(text, "")
     if (item.name != prev_name)
       console.warn(
         `auto-update for ${item.name} (was ${prev_name}) from ${path} renamed item`
-      );
+      )
 
     // invoke _on_update() if it exists
     if (item.text.includes("_on_update")) {
@@ -259,14 +259,14 @@ async function update_item(item) {
           {
             trigger: "updater",
           }
-        );
+        )
       } catch (e) {} // already logged, just continue
     }
 
     console.log(
       `auto-updated ${item.name} from ${path} in ${Date.now() - start}ms`
-    );
+    )
   } catch (e) {
-    console.error(`failed to auto-update ${item.name} from ${path}: ` + e);
+    console.error(`failed to auto-update ${item.name} from ${path}: ` + e)
   }
 }
