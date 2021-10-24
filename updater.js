@@ -269,6 +269,31 @@ async function update_item(item) {
       }
     )
 
+    // trigger install command for missing dependencies based on new text
+    // dependency paths MUST match the (resolved) hidden tags
+    const label = _parse_label(text)
+    if (label) {
+      const deps = _resolve_tags(
+        label,
+        _parse_tags(text).hidden.filter(t => !_special_tag(t))
+      )
+      for (let dep of deps) {
+        if (_exists(dep)) {
+          // ignore existing dep
+          if (!_exists(dep, false /*allow_multiple*/))
+            _this.warn(`invalid (ambiguous) dependency ${dep} for ${label}`)
+          continue
+        }
+        _this.log(`installing dependency ${dep} for ${label} ...`)
+        const dep_path = dep.slice(1) // path assumed same as tag
+        const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
+          token || ''
+        }`
+        // TODO: await for install command!
+        MindBox.create(command) // trigger command
+      }
+    }
+
     // write new text to item (also triggers save of modified attributes)
     // keep_time to avoid bringing up items due to auto-updates
     // note item text/deephash may be unchanged (e.g. if the update was
