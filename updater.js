@@ -26,6 +26,7 @@ async function init_updater() {
         if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
         if (!body?.ref?.startsWith('refs/heads/')) return // branch update only
+        console.debug('received github_webhooks', body)
 
         const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
