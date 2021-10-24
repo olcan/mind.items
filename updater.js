@@ -219,12 +219,18 @@ async function update_item(item) {
       )
       const missing_deps = deps.filter(dep => !_exists(dep))
       if (missing_deps.length) {
+        _this.log(
+          `confirming installation of ${missing_deps.length}` +
+            ` missing dependencies (${missing_deps.join(', ')})` +
+            ` to continue updating ${item.name} from` +
+            ` ${owner}/${repo}/${branch}/${path} ...`
+        )
         const confirmed = await _modal({
-          content: `${_this.name} needs to install ${
-            missing_deps.length
-          } missing dependencies (${missing_deps.join(
-            ', '
-          )}) to continue updating ${item.name} ...`,
+          content:
+            `${_this.name} needs to install ${missing_deps.length}` +
+            ` missing dependencies (${missing_deps.join(', ')})` +
+            ` to continue updating ${item.name} from` +
+            ` ${owner}/${repo}/${branch}/${path} ...`,
           confirm: 'Continue',
           cancel: 'Cancel',
         })
