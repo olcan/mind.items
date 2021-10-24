@@ -289,8 +289,19 @@ async function update_item(item) {
         const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
           token || ''
         }`
-        // TODO: await for install command!
-        MindBox.create(command) // trigger command
+        window._pending_install = null
+        const install = MindBox.create(command) // trigger install
+        if (!(install instanceof Promise))
+          throw new Error(`invalid return from /_install command`)
+        const item = await install
+        if (!item)
+          throw new Error(`failed to install dependency ${dep} for ${label}`)
+        if (item.name.toLowerCase() != dep.toLowerCase())
+          throw new Error(
+            `invalid name ${item.name} for installed ` +
+              `dependency ${dep} of ${label}`
+          )
+        _this.log(`installed dependency ${dep} for ${label}`)
       }
     }
 
