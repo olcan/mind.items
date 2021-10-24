@@ -16,16 +16,16 @@ async function init_updater() {
   console.log(`listening for updates ...`)
   firebase
     .firestore()
-    .collection("github_webhooks")
-    .where("time", ">", Date.now())
+    .collection('github_webhooks')
+    .where('time', '>', Date.now())
     .onSnapshot((snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        if (change.type != "added") return // new documents only
+        if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
-        if (!body?.ref?.startsWith("refs/heads/")) return // branch updates only
+        if (!body?.ref?.startsWith('refs/heads/')) return // branch updates only
         // console.debug("received github_webhooks", change.doc.data());
 
-        const branch = body.ref.replace("refs/heads/", "")
+        const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
         const owner = body.repository.owner.login
         const commits = (body.commits ?? []).filter((c) => c.modified?.length)
@@ -44,7 +44,7 @@ async function init_updater() {
           let paths = [
             item.attr.path,
             ...(item.attr.embeds?.map((e) => e.path) ?? []),
-          ].map((path) => path.replace(/^\//, ""))
+          ].map((path) => path.replace(/^\//, ''))
           // update item if any paths were modified in any commits
           if (
             commits.some((commit) =>
@@ -73,11 +73,11 @@ function decodeBase64(str) {
   // bytestream -> percent-encoding -> original string
   return decodeURIComponent(
     atob(str)
-      .split("")
+      .split('')
       .map(function (c) {
-        return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
       })
-      .join("")
+      .join('')
   )
 }
 
@@ -86,16 +86,16 @@ function decodeBase64(str) {
 // prompts user for token if none is found
 // returns null if no token is available
 async function github_token(item) {
-  let token = item.attr.token ?? localStorage.getItem("mindpage_github_token")
+  let token = item.attr.token ?? localStorage.getItem('mindpage_github_token')
   if (!token) {
     token = await _modal({
       content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
-      confirm: "Use Token",
-      cancel: "Skip",
-      input: "",
+      confirm: 'Use Token',
+      cancel: 'Skip',
+      input: '',
       password: false,
     })
-    if (token) localStorage.setItem("mindpage_github_token", token)
+    if (token) localStorage.setItem('mindpage_github_token', token)
   }
   return token
 }
@@ -188,11 +188,11 @@ async function update_item(item) {
     // extract colon-suffixed embed path in block types
     let embeds = []
     text = text.replace(/```\S+:(\S+?)\n(.*?)\n```/gs, (m, sfx, body) => {
-      if (sfx.includes(".")) {
+      if (sfx.includes('.')) {
         // process & drop suffix as embed path
         let path = sfx // may be relative to container item path (attr.path)
-        if (!path.startsWith("/") && attr.path.includes("/", 1))
-          path = attr.path.substr(0, attr.path.indexOf("/", 1)) + "/" + path
+        if (!path.startsWith('/') && attr.path.includes('/', 1))
+          path = attr.path.substr(0, attr.path.indexOf('/', 1)) + '/' + path
         embeds.push(path)
       }
       return m
@@ -229,14 +229,14 @@ async function update_item(item) {
     text = text.replace(
       /```(\S+):(\S+?)\n(.*?)\n```/gs,
       (m, pfx, sfx, body) => {
-        if (sfx.includes(".")) {
+        if (sfx.includes('.')) {
           let path = sfx // may be relative to container item path (attr.path)
-          if (!path.startsWith("/") && attr.path.includes("/", 1))
-            path = attr.path.substr(0, attr.path.indexOf("/", 1)) + "/" + path
+          if (!path.startsWith('/') && attr.path.includes('/', 1))
+            path = attr.path.substr(0, attr.path.indexOf('/', 1)) + '/' + path
           // store original body in attr.embeds to allow item to be edited and pushed back
           // note if same path is embedded multiple times, only the last body is retained
           attr.embeds.find((e) => e.path == path).body = body
-          return "```" + pfx + ":" + sfx + "\n" + embed_text[path] + "\n```"
+          return '```' + pfx + ':' + sfx + '\n' + embed_text[path] + '\n```'
         }
         return m
       }
@@ -245,19 +245,19 @@ async function update_item(item) {
     // write new text to item (also triggers save of modified attributes)
     // log warning if auto-update changed item name
     const prev_name = item.name
-    item.write(text, "")
+    item.write(text, '')
     if (item.name != prev_name)
       console.warn(
         `auto-update for ${item.name} (was ${prev_name}) from ${path} renamed item`
       )
 
     // invoke _on_update() if it exists
-    if (item.text.includes("_on_update")) {
+    if (item.text.includes('_on_update')) {
       try {
         _item(item.id).eval(
           `if (typeof _on_update == 'function') _on_update(_item('${item.id}'))`,
           {
-            trigger: "updater",
+            trigger: 'updater',
           }
         )
       } catch (e) {} // already logged, just continue
