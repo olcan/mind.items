@@ -188,7 +188,7 @@ async function update_item(item) {
   try {
     // retrieve commit sha (allows comparison to later versions)
     const {
-      data: [{ sha }],
+      data: [{ sha } = {}],
     } = await github.repos.listCommits({
       owner,
       repo,
@@ -196,6 +196,7 @@ async function update_item(item) {
       path,
       per_page: 1,
     })
+    if (!sha) throw new Error(`missing commit for ${path}`)
     _this.debug(`listCommits(${path}) sha: ${sha}`)
     // retrieve text at this commit sha
     const { data } = await github.repos.getContent({
@@ -308,7 +309,7 @@ async function update_item(item) {
     for (let path of _.uniq(embeds)) {
       try {
         const {
-          data: [{ sha }],
+          data: [{ sha } = {}],
         } = await github.repos.listCommits({
           owner,
           repo,
@@ -316,6 +317,7 @@ async function update_item(item) {
           path,
           per_page: 1,
         })
+        if (!sha) throw new Error(`missing commit for embed ${path}`)
         _this.debug(`listCommits(${path}) sha: ${sha}`)
         const { data } = await github.repos.getContent({
           owner,
