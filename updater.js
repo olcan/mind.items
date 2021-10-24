@@ -27,11 +27,14 @@ async function init_updater() {
         if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
         if (!body?.ref?.startsWith('refs/heads/')) return // branch update only
-        _this.debug(`github_webhook sha ${body.after} <- ${body.before}`)
-
         const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
         const owner = body.repository.owner.login
+        _this.debug(
+          `github_webhook commit sha ${body.after} ` +
+            `in ${owner}/${repo}/${branch} (was ${body.before})`
+        )
+
         const commits = (body.commits ?? []).filter(c => c.modified?.length)
         if (commits.length == 0) return // no commits w/ modifications
 
@@ -54,6 +57,10 @@ async function init_updater() {
               paths.some(path => commit.modified.includes(path))
             )
           ) {
+            _this.debug(
+              `github_webhook commit modified ${item.name} in ` +
+                `${owner}/${repo}/${branch}`
+            )
             // push to back of queue if not already in queue
             if (!modified_ids.includes(item.id)) modified_ids.push(item.id)
           }
@@ -121,8 +128,12 @@ async function github_token(item) {
 // checks for updates to item, returns true iff updated
 // similar to /_updates command defined in index.svelte in mind.page repo
 async function check_updates(item) {
-  _this.log(`checking for updates to ${item.name} ...`)
   const attr = item.attr
+  const { owner, repo, branch, path } = attr
+  _this.log(
+    `checking for updates to ${item.name} ` +
+      `from ${owner}/${repo}/${branch}/${path} ...`
+  )
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
   try {
@@ -153,6 +164,9 @@ async function check_updates(item) {
   } catch (e) {
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
+  _this.log(
+    `no updates to ${item.name} from ${owner}/${repo}/${branch}/${path}`
+  )
   return false // no updates
 }
 
@@ -161,12 +175,15 @@ async function check_updates(item) {
 // main difference is that this is intended as an auto-update in background
 // allows item to be renamed with a warning to console
 async function update_item(item) {
-  _this.log(`auto-updating ${item.name} ...`)
   const start = Date.now()
   const attr = item.attr
+  const { owner, repo, branch, path } = attr
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
-  const { owner, repo, branch, path } = attr
+  _this.log(
+    `auto-updating ${item.name} from ` +
+      `${owner}/${repo}/${branch}/${path} ...`
+  )
   try {
     // retrieve commit sha (allows comparison to later versions)
     const {
@@ -263,7 +280,7 @@ async function update_item(item) {
     if (item.name != prev_name)
       _this.warn(
         `auto-update for ${item.name} (was ${prev_name})` +
-          ` from ${path} renamed item`
+          ` from ${owner}/${repo}/${branch}/${path} renamed item`
       )
 
     // invoke _on_update() if it exists
@@ -280,9 +297,13 @@ async function update_item(item) {
     }
 
     _this.log(
-      `auto-updated ${item.name} from ${path} in ${Date.now() - start}ms`
+      `auto-updated ${item.name} from ${owner}/${repo}/${branch}/${path} ` +
+        `in ${Date.now() - start}ms`
     )
   } catch (e) {
-    _this.error(`failed to auto-update ${item.name} from ${path}: ` + e)
+    _this.error(
+      `failed to auto-update ${item.name} ` +
+        `from ${owner}/${repo}/${branch}/${path}: ${e}`
+    )
   }
 }
