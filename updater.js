@@ -2,7 +2,7 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater() // test again
+  init_updater()
 }
 
 let modified_ids = []
@@ -26,7 +26,6 @@ async function init_updater() {
         if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
         if (!body?.ref?.startsWith('refs/heads/')) return // branch update only
-        console.debug('received github_webhooks', body)
 
         const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
@@ -167,21 +166,6 @@ async function update_item(item) {
   const github = token ? new Octokit({ auth: token }) : new Octokit()
   const { owner, repo, branch, path } = attr
   try {
-    // retrieve text
-    const { data } = await github.repos.getContent({
-      owner,
-      repo,
-      ref: branch,
-      path,
-    })
-    let text = decodeBase64(data.content)
-    // fast-forward sha/text for recent side-pushes (from #github)
-    let text_sha = data.sha
-    while (window._sidepush_sha_sha[text_sha]) {
-      text_sha = window._sidepush_sha_sha[text_sha]
-      text = window._sidepush_sha_content[text_sha]
-    }
-
     // retrieve commit sha (allows comparison to later versions)
     const {
       data: [{ sha }],
@@ -192,6 +176,15 @@ async function update_item(item) {
       path,
       per_page: 1,
     })
+    // retrieve text at this commit sha
+    const { data } = await github.repos.getContent({
+      owner,
+      repo,
+      ref: sha, // content in latest commit
+      path,
+    })
+    let text = decodeBase64(data.content)
+
     // update attributes, to be saved on item.write below
     attr.sha = sha // new commit sha
     attr.embeds = null // new embeds filled in below (in case embeds changed)
@@ -216,20 +209,6 @@ async function update_item(item) {
     let embed_text = {}
     for (let path of _.uniq(embeds)) {
       try {
-        const { data } = await github.repos.getContent({
-          owner,
-          repo,
-          ref: branch,
-          path,
-        })
-        embed_text[path] = decodeBase64(data.content)
-        // fast-forward sha/text for recent side-pushes (from #github)
-        let text_sha = data.sha
-        while (window._sidepush_sha_sha[text_sha]) {
-          text_sha = window._sidepush_sha_sha[text_sha]
-          embed_text[path] = window._sidepush_sha_content[text_sha]
-        }
-
         const {
           data: [{ sha }],
         } = await github.repos.listCommits({
@@ -239,6 +218,13 @@ async function update_item(item) {
           path,
           per_page: 1,
         })
+        const { data } = await github.repos.getContent({
+          owner,
+          repo,
+          ref: sha, // content in latest commit
+          path,
+        })
+        embed_text[path] = decodeBase64(data.content)
         attr.embeds = (attr.embeds ?? []).concat({ path, sha })
       } catch (e) {
         throw new Error(`failed to embed '${path}'; error: ${e}`)
