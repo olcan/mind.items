@@ -81,7 +81,7 @@ async function init_updater() {
             while (modified_ids.length)
               await update_item(_item(modified_ids.shift()))
           })
-          .finally(() => (pending_updates = null))
+          .finally(() => (pending_updates = window._github_pending_push = null))
       })
     })
 }
