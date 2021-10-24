@@ -289,7 +289,6 @@ async function update_item(item) {
         const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
           token || ''
         }`
-        window._pending_install = null
         const install = MindBox.create(command) // trigger install
         if (!(install instanceof Promise))
           throw new Error(`invalid return from /_install command`)
