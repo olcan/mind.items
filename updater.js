@@ -9,6 +9,7 @@ let modified_ids = []
 let pending_updates
 
 async function init_updater() {
+  _this.log(`initializing ...`)
   // check for updates on page init
   for (let item of installed_named_items()) {
     const has_updates = await check_updates(item)
