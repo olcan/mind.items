@@ -2,7 +2,7 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater() // test ok??
+  init_updater()
 }
 
 let modified_ids = []
@@ -26,6 +26,7 @@ async function init_updater() {
         if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
         if (!body?.ref?.startsWith('refs/heads/')) return // branch update only
+        console.log('updater webhook before/after ', body.before, body.after)
 
         const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
@@ -218,6 +219,7 @@ async function update_item(item) {
           path,
           per_page: 1,
         })
+        console.log('updater embed commit sha', sha)
         const { data } = await github.repos.getContent({
           owner,
           repo,
