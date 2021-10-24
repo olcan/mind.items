@@ -27,10 +27,7 @@ async function init_updater() {
         if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
         if (!body?.ref?.startsWith('refs/heads/')) return // branch update only
-        _this.debug(
-          `received github_webhook for commit sha ` +
-            `${body.after} (from ${body.before})`
-        )
+        _this.debug(`github_webhook sha ${body.after} <- ${body.before}`)
 
         const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
@@ -181,7 +178,7 @@ async function update_item(item) {
       path,
       per_page: 1,
     })
-    _this.debug(`listCommits for ${path} returned sha ${sha}`)
+    _this.debug(`listCommits(${path}) sha: ${sha}`)
     // retrieve text at this commit sha
     const { data } = await github.repos.getContent({
       owner,
@@ -224,7 +221,7 @@ async function update_item(item) {
           path,
           per_page: 1,
         })
-        _this.debug(`listCommits for ${path} returned sha ${sha}`)
+        _this.debug(`listCommits(${path}) sha: ${sha}`)
         const { data } = await github.repos.getContent({
           owner,
           repo,
