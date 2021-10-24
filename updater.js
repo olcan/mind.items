@@ -18,17 +18,16 @@ async function init_updater() {
     .firestore()
     .collection('github_webhooks')
     .where('time', '>', Date.now())
-    .onSnapshot((snapshot) => {
-      snapshot.docChanges().forEach((change) => {
+    .onSnapshot(snapshot => {
+      snapshot.docChanges().forEach(change => {
         if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
-        if (!body?.ref?.startsWith('refs/heads/')) return // branch updates only
-        // console.debug("received github_webhooks", change.doc.data());
+        if (!body?.ref?.startsWith('refs/heads/')) return // branch update only
 
         const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
         const owner = body.repository.owner.login
-        const commits = (body.commits ?? []).filter((c) => c.modified?.length)
+        const commits = (body.commits ?? []).filter(c => c.modified?.length)
         if (commits.length == 0) return // no commits w/ modifications
 
         // scan items for installed items w/ modified paths
@@ -43,12 +42,12 @@ async function init_updater() {
           // calculate item paths, including any embeds, removing slash prefixes
           let paths = [
             item.attr.path,
-            ...(item.attr.embeds?.map((e) => e.path) ?? []),
-          ].map((path) => path.replace(/^\//, ''))
+            ...(item.attr.embeds?.map(e => e.path) ?? []),
+          ].map(path => path.replace(/^\//, ''))
           // update item if any paths were modified in any commits
           if (
-            commits.some((commit) =>
-              paths.some((path) => commit.modified.includes(path))
+            commits.some(commit =>
+              paths.some(path => commit.modified.includes(path))
             )
           )
             modified_items.push(item)
@@ -65,7 +64,7 @@ async function init_updater() {
 const installed_named_items = () =>
   _labels((_, ids) => ids.length == 1)
     .map(_item)
-    .filter((item) => item.attr)
+    .filter(item => item.attr)
 
 // decodes base64 w/ unicode character support (unlike plain atob)
 // from https://stackoverflow.com/a/30106551
@@ -145,13 +144,14 @@ async function check_updates(item) {
 async function update_item(item) {
   console.log(`auto-updating ${item.name} ...`)
   // wait for any pending push to complete to avoid potential feedback loops
-  // window._github_pending_push should be used by other items that push to github
+  // _github_pending_push should be used by other items that push to github
   if (window._github_pending_push) {
     console.log(`pausing auto-update for ${item.name} pending push ...`)
     await _github_pending_push
     if (!(await check_updates(item)))
       console.warn(
-        `cancelled auto-update for ${item.name} as item was up-to-date after push`
+        `cancelled auto-update for ${item.name} ` +
+          `as item was up-to-date after push`
       )
   }
   const start = Date.now()
@@ -184,7 +184,7 @@ async function update_item(item) {
     attr.token = token // token for future updates
 
     // pre-process text for whitespace and embeds
-    text = text.trim() // trim any spaces (github likes to add an extra line to files)
+    text = text.trim() // trim any spaces (github likes to add extra line)
     // extract colon-suffixed embed path in block types
     let embeds = []
     text = text.replace(/```\S+:(\S+?)\n(.*?)\n```/gs, (m, sfx, body) => {
@@ -233,9 +233,9 @@ async function update_item(item) {
           let path = sfx // may be relative to container item path (attr.path)
           if (!path.startsWith('/') && attr.path.includes('/', 1))
             path = attr.path.substr(0, attr.path.indexOf('/', 1)) + '/' + path
-          // store original body in attr.embeds to allow item to be edited and pushed back
-          // note if same path is embedded multiple times, only the last body is retained
-          attr.embeds.find((e) => e.path == path).body = body
+          // store original body in attr.embeds
+          // only last body is retained for multiple embeds of same path
+          attr.embeds.find(e => e.path == path).body = body
           return '```' + pfx + ':' + sfx + '\n' + embed_text[path] + '\n```'
         }
         return m
@@ -248,14 +248,16 @@ async function update_item(item) {
     item.write(text, '')
     if (item.name != prev_name)
       console.warn(
-        `auto-update for ${item.name} (was ${prev_name}) from ${path} renamed item`
+        `auto-update for ${item.name} (was ${prev_name})` +
+          ` from ${path} renamed item`
       )
 
     // invoke _on_update() if it exists
     if (item.text.includes('_on_update')) {
       try {
         _item(item.id).eval(
-          `if (typeof _on_update == 'function') _on_update(_item('${item.id}'))`,
+          `if (typeof _on_update == 'function') ` +
+            `_on_update(_item('${item.id}'))`,
           {
             trigger: 'updater',
           }
