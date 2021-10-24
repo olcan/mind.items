@@ -175,10 +175,10 @@ async function update_item(item) {
     })
     let text = decodeBase64(data.content)
     // fast-forward sha/text for recent side-pushes (from #github)
-    let sha = data.sha
-    while (window._sidepush_sha_sha[sha]) {
-      sha = window._sidepush_sha_sha[sha]
-      text = window._sidepush_sha_content[sha]
+    let text_sha = data.sha
+    while (window._sidepush_sha_sha[text_sha]) {
+      text_sha = window._sidepush_sha_sha[text_sha]
+      text = window._sidepush_sha_content[text_sha]
     }
 
     // retrieve commit sha (allows comparison to later versions)
@@ -223,10 +223,10 @@ async function update_item(item) {
         })
         embed_text[path] = decodeBase64(data.content)
         // fast-forward sha/text for recent side-pushes (from #github)
-        let sha = data.sha
-        while (window._sidepush_sha_sha[sha]) {
-          sha = window._sidepush_sha_sha[sha]
-          embed_text[path] = window._sidepush_sha_content[sha]
+        let text_sha = data.sha
+        while (window._sidepush_sha_sha[text_sha]) {
+          text_sha = window._sidepush_sha_sha[text_sha]
+          embed_text[path] = window._sidepush_sha_content[text_sha]
         }
 
         const {
