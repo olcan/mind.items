@@ -2,7 +2,7 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater() // test yet again!
+  init_updater() // test yet again hello!
 }
 
 let modified_ids = []
