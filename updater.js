@@ -328,7 +328,7 @@ async function update_item(item) {
         embed_text[path] = decodeBase64(data.content)
         attr.embeds = (attr.embeds ?? []).concat({ path, sha })
       } catch (e) {
-        throw new Error(`failed to embed '${path}'; error: ${e}`)
+        throw new Error(`failed to embed '${path}': ${e}`)
       }
     }
 
