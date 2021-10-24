@@ -73,18 +73,16 @@ async function init_updater() {
         //   note an update is needed to pull the latest commit shas even if
         //     the content was pushed from the item being updated, though
         //     update_item should consider text may be unchanged
-        pending_updates = Promise.resolve(pending_updates)
-          .then(() => {
-            return (window._github_pending_push = Promise.resolve(
-              window._github_pending_push
-            )
-              .then(async () => {
-                while (modified_ids.length)
-                  await update_item(_item(modified_ids.shift()))
-              })
-              .finally(() => (window._github_pending_push = null)))
-          })
-          .finally(() => (pending_updates = null))
+        pending_updates = Promise.resolve(pending_updates).then(() => {
+          return (window._github_pending_push = Promise.resolve(
+            window._github_pending_push
+          ).then(async () => {
+            while (modified_ids.length)
+              await update_item(_item(modified_ids.shift()))
+          }))
+          // .finally(() => (window._github_pending_push = null)))
+        })
+        // .finally(() => (pending_updates = null))
       })
     })
 }
