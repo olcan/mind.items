@@ -13,7 +13,7 @@ async function init_updater() {
   }
 
   // listen for updates through firebase
-  console.log(`listening for updates ...`)
+  _this.log(`listening for updates ...`)
   firebase
     .firestore()
     .collection('github_webhooks')
@@ -102,7 +102,7 @@ async function github_token(item) {
 // checks for updates to item, returns true iff updated
 // similar to /_updates command defined in index.svelte in mind.page repo
 async function check_updates(item) {
-  console.log(`checking for updates to ${item.name} ...`)
+  _this.log(`checking for updates to ${item.name} ...`)
   const attr = item.attr
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
@@ -132,7 +132,7 @@ async function check_updates(item) {
       }
     }
   } catch (e) {
-    console.error(`failed to check for updates to ${item.name}: ` + e)
+    _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
   return false // no updates
 }
@@ -142,14 +142,14 @@ async function check_updates(item) {
 // main difference is that this is intended as an auto-update in background
 // allows item to be renamed with a warning to console
 async function update_item(item) {
-  console.log(`auto-updating ${item.name} ...`)
+  _this.log(`auto-updating ${item.name} ...`)
   // wait for any pending push to complete to avoid potential feedback loops
   // _github_pending_push should be used by other items that push to github
   if (window._github_pending_push) {
-    console.log(`pausing auto-update for ${item.name} pending push ...`)
+    _this.log(`pausing auto-update for ${item.name} pending push ...`)
     await _github_pending_push
     if (!(await check_updates(item)))
-      console.warn(
+      _this.warn(
         `cancelled auto-update for ${item.name} ` +
           `as item was up-to-date after push`
       )
@@ -247,7 +247,7 @@ async function update_item(item) {
     const prev_name = item.name
     item.write(text, '')
     if (item.name != prev_name)
-      console.warn(
+      _this.warn(
         `auto-update for ${item.name} (was ${prev_name})` +
           ` from ${path} renamed item`
       )
@@ -265,10 +265,10 @@ async function update_item(item) {
       } catch (e) {} // already logged, just continue
     }
 
-    console.log(
+    _this.log(
       `auto-updated ${item.name} from ${path} in ${Date.now() - start}ms`
     )
   } catch (e) {
-    console.error(`failed to auto-update ${item.name} from ${path}: ` + e)
+    _this.error(`failed to auto-update ${item.name} from ${path}: ` + e)
   }
 }
