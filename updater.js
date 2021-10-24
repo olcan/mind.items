@@ -2,7 +2,7 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater() // test yet again!
+  init_updater()
 }
 
 let modified_ids = []
@@ -174,6 +174,13 @@ async function update_item(item) {
       path,
     })
     let text = decodeBase64(data.content)
+    // fast-forward sha/text for recent side-pushes (from #github)
+    let sha = data.sha
+    while (window._sidepush_sha_sha[sha]) {
+      sha = window._sidepush_sha_sha[sha]
+      text = window._sidepush_sha_content[sha]
+    }
+
     // retrieve commit sha (allows comparison to later versions)
     const {
       data: [{ sha }],
@@ -215,6 +222,12 @@ async function update_item(item) {
           path,
         })
         embed_text[path] = decodeBase64(data.content)
+        // fast-forward sha/text for recent side-pushes (from #github)
+        let sha = data.sha
+        while (window._sidepush_sha_sha[sha]) {
+          sha = window._sidepush_sha_sha[sha]
+          embed_text[path] = window._sidepush_sha_content[sha]
+        }
 
         const {
           data: [{ sha }],
