@@ -277,30 +277,68 @@ async function update_item(item) {
         label,
         _parse_tags(text).hidden.filter(t => !_special_tag(t))
       )
-      for (let dep of deps) {
-        if (_exists(dep)) {
-          // ignore existing dep
-          if (!_exists(dep, false /*allow_multiple*/))
-            _this.warn(`invalid (ambiguous) dependency ${dep} for ${label}`)
-          continue
-        }
-        _this.log(`installing dependency ${dep} for ${label} ...`)
-        const dep_path = dep.slice(1) // path assumed same as tag
-        const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
-          token || ''
-        }`
-        const install = MindBox.create(command) // trigger install
-        if (!(install instanceof Promise))
-          throw new Error(`invalid return from /_install command`)
-        const item = await install
-        if (!item)
-          throw new Error(`failed to install dependency ${dep} for ${label}`)
-        if (item.name.toLowerCase() != dep.toLowerCase())
-          throw new Error(
-            `invalid name ${item.name} for installed ` +
-              `dependency ${dep} of ${label}`
+      const missing_deps = deps.filter(dep => !_exists(dep))
+      if (missing_deps.length) {
+        // auto-install of dependencies requires user confirmation to prevent
+        // simultaneous installs at multiple tabs/devices; since confirmation
+        // can be delayed, we also need to recheck dependencies (they could
+        // have been installed elsewhere) and then check/reset update after
+        // missing dependencies are installed
+        const confirmed = await _modal({
+          content: `${_this.name} needs to install ${
+            missing_deps.length
+          } missing dependencies (${missing_deps.join(
+            ', '
+          )}) to continue updating ${item.name} ...`,
+          confirm: 'Continue',
+          cancel: 'Cancel',
+        })
+        if (!confirmed) {
+          _this.warn(
+            `auto-update cancelled for ${item.name} from ` +
+              `${owner}/${repo}/${branch}/${path} due to missing dependencies`
           )
-        _this.log(`installed dependency ${dep} for ${label}`)
+          return
+        }
+        for (let dep of deps) {
+          if (_exists(dep)) {
+            if (!_exists(dep, false /*allow_multiple*/))
+              _this.warn(`invalid (ambiguous) dependency ${dep} for ${label}`)
+            continue
+          }
+          _this.log(`installing dependency ${dep} for ${label} ...`)
+          const dep_path = dep.slice(1) // path assumed same as tag
+          const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
+            token || ''
+          }`
+          const install = MindBox.create(command) // trigger install
+          if (!(install instanceof Promise))
+            throw new Error(`invalid return from /_install command`)
+          const item = await install
+          if (!item)
+            throw new Error(`failed to install dependency ${dep} for ${label}`)
+          if (item.name.toLowerCase() != dep.toLowerCase())
+            throw new Error(
+              `invalid name ${item.name} for installed ` +
+                `dependency ${dep} of ${label}`
+            )
+          _this.log(`installed dependency ${dep} for ${label}`)
+        }
+        // requeue for update if still needed
+        const has_updates = await check_updates(item)
+        if (has_updates && !modified_ids.includes(item.id)) {
+          _this.log(
+            `auto-update restarted for ${item.name} from ` +
+              `${owner}/${repo}/${branch}/${path} after dependencies installed`
+          )
+          modified_ids.push(item.id)
+        } else {
+          _this.log(
+            `auto-update no longer needed for ${item.name} from ` +
+              `${owner}/${repo}/${branch}/${path} after dependencies installed`
+          )
+        }
+        return // requeued
       }
     }
 
