@@ -2,8 +2,11 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater() // test
+  init_updater()
 }
+
+let modified_ids = []
+let pending_updates
 
 async function init_updater() {
   // check for updates on page init
@@ -31,7 +34,6 @@ async function init_updater() {
         if (commits.length == 0) return // no commits w/ modifications
 
         // scan items for installed items w/ modified paths
-        let modified_items = []
         for (let item of installed_named_items()) {
           if (
             item.attr.owner != owner ||
@@ -49,13 +51,28 @@ async function init_updater() {
             commits.some(commit =>
               paths.some(path => commit.modified.includes(path))
             )
-          )
-            modified_items.push(item)
+          ) {
+            // push to back of queue if not already in queue
+            if (!modified_ids.includes(item.id)) modified_ids.push(item.id)
+          }
         }
-        // update modified items (sequentially)
-        ;(async () => {
-          for (let item of modified_items) await update_item(item)
-        })()
+
+        // update modified items
+        // sequentialize across firebase events (via pending_updates)
+        // also sequentialize with pushes via window._github_pending_push
+        //   prevents interleaving of pulls and pushes across an item+embeds
+        //   note an update is needed to pull the latest commit shas even if
+        //     the content was pushed from the item being updated, though
+        //     update_item should consider text may be unchanged
+        pending_updates = window._github_pending_push = Promise.all([
+          pending_updates,
+          window._github_pending_push,
+        ])
+          .then(async () => {
+            while (modified_ids.length)
+              await update_item(_item(modified_ids.shift()))
+          })
+          .finally(() => (pending_updates = null))
       })
     })
 }
@@ -143,17 +160,6 @@ async function check_updates(item) {
 // allows item to be renamed with a warning to console
 async function update_item(item) {
   _this.log(`auto-updating ${item.name} ...`)
-  // wait for any pending push to complete to avoid potential feedback loops
-  // _github_pending_push should be used by other items that push to github
-  if (window._github_pending_push) {
-    _this.log(`pausing auto-update for ${item.name} pending push ...`)
-    await _github_pending_push
-    if (!(await check_updates(item)))
-      _this.warn(
-        `cancelled auto-update for ${item.name} ` +
-          `as item was up-to-date after push`
-      )
-  }
   const start = Date.now()
   const attr = item.attr
   const token = await github_token(item)
@@ -243,9 +249,13 @@ async function update_item(item) {
     )
 
     // write new text to item (also triggers save of modified attributes)
+    // keep_time to avoid bringing up items due to auto-updates
+    // note item text/deephash may be unchanged (e.g. if the update was
+    //   triggered by a push from the same item), so keeping the time
+    //   helps avoid any redundant re-rendering of the item
     // log warning if auto-update changed item name
     const prev_name = item.name
-    item.write(text, '')
+    item.write(text, '', { keep_time: true })
     if (item.name != prev_name)
       _this.warn(
         `auto-update for ${item.name} (was ${prev_name})` +
