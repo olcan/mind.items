@@ -108,22 +108,29 @@ function decodeBase64(str) {
 }
 
 // return auth token for updating item from github source
-// prefers item.attr.token, falls back to localStorage
-// prompts user for token if none is found
 // returns null if no token is available
 async function github_token(item) {
-  let token = item.attr.token ?? localStorage.getItem('mindpage_github_token')
+  // try in this order:
+  // item.attr.token
+  // local storage (mindpage_github_token, also used by /_update)
+  // #updater (_this) global store
+  // #pusher global store
+  let token = item.attr.token
+  if (!token) token = localStorage.getItem('mindpage_github_token')
+  if (!token) token = _this.global_store.token
+  if (!token) token = _item('#pusher', false)?.global_store.token
+  // if still missing, prompt user for token and store in local storage
   if (!token) {
     token = await _modal({
       content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
       confirm: 'Use Token',
       cancel: 'Skip',
       input: '',
-      password: false,
     })
     if (token) localStorage.setItem('mindpage_github_token', token)
   }
-  return token
+  // save token in global store if missing there
+  return token ? (_this.global_store.token = token) : null
 }
 
 // checks for updates to item, returns true iff updated
