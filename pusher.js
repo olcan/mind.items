@@ -29,7 +29,7 @@ async function init_pusher() {
     _this.error(`invalid destination '${dest}'`)
     delete _this.global_store.dest
     const try_again = await _modal({
-      content: `Invalid repo name \`${dest}\`. Please enter in \`<owner>/<repo>\` format, e.g. \`olcan/mind.page\`.`,
+      content: `${_this.name}: invalid repo name \`${dest}\`. Should be in \`<owner>/<repo>\` format, e.g. \`olcan/mind.page\`.`,
       confirm: 'Try Again',
       cancel: 'Disable',
     })
@@ -55,4 +55,6 @@ async function init_pusher() {
     _this.warn(`disabled due to missing token`)
     return
   }
+
+  _this.log(`initializing for repo ${owner}/${repo}, token ${token} ...`)
 }
