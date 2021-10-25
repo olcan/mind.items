@@ -127,6 +127,8 @@ async function init_pusher() {
   _this.log(`initialized`)
 }
 
+// creates branch with given name
+// deletes/replaces any existing branch
 async function create_branch(name) {
   if (name == 'master') throw new Error('can not create master branch')
   // get master branch sha
@@ -151,4 +153,18 @@ async function create_branch(name) {
   }
   // (re-)create branch
   await github.git.createRef({ owner, repo, ref: 'refs/heads/' + name, sha })
+}
+
+// computes github sha, see https://stackoverflow.com/a/39874235
+function github_sha(text) {
+  const utf8_text = new TextEncoder().encode(text)
+  const utf8_prefix = new TextEncoder().encode(`blob ${utf8_text.length}\0`)
+  const utf8 = new Uint8Array(utf8_prefix.length + utf8_text.length)
+  utf8.set(utf8_prefix)
+  utf8.set(utf8_text, utf8_prefix.length)
+  // const sha_buffer = await crypto.subtle.digest('SHA-1', utf8)
+  const sha_buffer = sha1.arrayBuffer(utf8)
+  return Array.from(new Uint8Array(sha_buffer), b =>
+    b.toString(16).padStart(2, '0')
+  ).join('')
 }
