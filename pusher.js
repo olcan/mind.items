@@ -117,7 +117,7 @@ async function init_pusher() {
   }
   if (count)
     _this.warn(
-      `${count} items inconsistent/missing in ${dest} and require manual /push or /pull before auto-push can begin; most recent ${
+      `${count} items inconsistent/missing in ${dest} and require manual /push or /pull; most recent ${
         names.length
       } items are: ${names.join(' ')}${count > names.length ? ' ...' : ''}`
     )
