@@ -6,7 +6,7 @@ function _on_welcome() {
 }
 
 let modified_ids = []
-let pending_updates
+let last_updates
 
 async function init_updater() {
   _this.log(`initializing ...`)
@@ -67,22 +67,20 @@ async function init_updater() {
         }
 
         // update modified items
-        // sequentialize across firebase events (via pending_updates)
+        // sequentialize across firebase events (via last_updates promise)
         // also sequentialize with pushes via window._github_pending_push
         //   prevents interleaving of pulls and pushes across an item+embeds
         //   note an update is needed to pull the latest commit shas even if
         //     the content was pushed from the item being updated, though
         //     update_item should consider text may be unchanged
-        pending_updates = Promise.resolve(pending_updates).then(() => {
+        last_updates = Promise.resolve(last_updates).then(() => {
           return (window._github_pending_push = Promise.resolve(
             window._github_pending_push
           ).then(async () => {
             while (modified_ids.length)
               await update_item(_item(modified_ids.shift()))
           }))
-          // .finally(() => (window._github_pending_push = null)))
         })
-        // .finally(() => (pending_updates = null))
       })
     })
 }

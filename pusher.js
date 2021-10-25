@@ -117,9 +117,9 @@ async function init_pusher() {
   }
   if (count)
     _this.warn(
-      `${count} items inconsistent/missing in ${dest} and require manual /push or /pull; most recent ${
-        names.length
-      } items are: ${names.join(' ')}${count > names.length ? ' ...' : ''}`
+      `${count} items inconsistent/missing in ${dest} and require manual` +
+        ` /push or /pull; most recent ${names.length} are: ` +
+        `${names.join(' ')}${count > names.length ? ' ...' : ''}`
     )
 
   // create branch last_init for comparisons
