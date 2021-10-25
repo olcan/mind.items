@@ -58,7 +58,7 @@ async function init_pusher() {
 
   // initialize pusher
   _this.log(`initializing for repo ${dest}, token ${token} ...`)
-  const github = token ? new Octokit({ auth: token }) : new Octokit()
+  const github = new Octokit({ auth: token })
 
   // retrieve repo tree (not limited to 1000 files unlike getContent)
   let start = Date.now()
@@ -131,6 +131,7 @@ async function init_pusher() {
 // deletes/replaces any existing branch
 async function create_branch(name) {
   if (name == 'master') throw new Error('can not create master branch')
+  const github = new Octokit({ auth: token })
   // get master branch sha
   const {
     data: [
