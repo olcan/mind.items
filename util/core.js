@@ -1,3 +1,8 @@
+function _test() {}
+function _test_something() {}
+function _benchmark() {}
+function _benchmark_something() {}
+
 // types
 const inf = Infinity
 const defined = x => x !== undefined
