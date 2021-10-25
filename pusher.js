@@ -87,16 +87,17 @@ async function init_pusher() {
 
   // initialize store.items
   start = Date.now()
+  _this.store.items = {}
   for (let item of _items()) {
     if (!item.saved_id) {
-      // should not happen during init, just in case
-      _this.warn('skipped unsaved item during _init')
+      _this.warn('skipped unsaved item')
       continue
     }
     const path = `ids/${item.saved_id}.markdown`
     const remote_sha = tree_sha.get(path)
     const sha = github_sha(item.text)
     _this.store.items[item.saved_id] = {
+      path,
       sha: github_sha(item.text),
       remote_sha: tree_sha.get(path),
     }
