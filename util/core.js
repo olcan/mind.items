@@ -1,3 +1,4 @@
+// TODO: actually test/benchmark stuff below ...
 function _test() {}
 function _test_something() {}
 function _benchmark() {}
