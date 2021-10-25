@@ -23,12 +23,22 @@ async function init_pusher() {
     _this.warn(`disabled due to missing destination`)
     return
   }
-  // if destination is invalid, clear global store and try again
+  // if destination is invalid, clear global store and try again or disable
   ;[owner, repo] = dest.split('/')
   if (!owner || !repo) {
-    _this.warn(`invalid destination ${dest}, trying again ...`)
+    _this.error(`invalid destination ${dest}`)
     delete _this.global_store.dest
-    setTimeout(init_pusher)
+    const try_again = await _modal({
+      content: `Invalid repo name '${dest}'. Please enter in \`<owner>/<repo>\` format, e.g. \`olcan/mind.page\`.`,
+      confirm: 'Try Again',
+      cancel: 'Disable',
+    })
+    if (try_again) {
+      _this.log(`trying again ...`)
+      setTimeout(init_pusher)
+    } else {
+      _this.warn(`disabled due to missing destination`)
+    }
     return
   }
   // fetch github token from global store, or from user prompt
