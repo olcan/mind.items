@@ -1,3 +1,3 @@
-#util defines common utility functions: #/types
+#util defines common utility functions: #/core
 
-#_/types
+#_/core
