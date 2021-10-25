@@ -46,7 +46,7 @@ async function init_pusher() {
   const token =
     _this.global_store.token ||
     (_this.global_store.token = await _modal({
-      content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) to push items to your private repo ${owner}/${repo}.`,
+      content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) to push items to your private repo ${dest}.`,
       confirm: 'Use Token',
       cancel: 'Disable',
       input: '',
@@ -56,5 +56,99 @@ async function init_pusher() {
     return
   }
 
-  _this.log(`initializing for repo ${owner}/${repo}, token ${token} ...`)
+  // initialize pusher
+  _this.log(`initializing for repo ${dest}, token ${token} ...`)
+  const github = token ? new Octokit({ auth: token }) : new Octokit()
+
+  // retrieve repo tree (not limited to 1000 files unlike getContent)
+  let start = Date.now()
+  const {
+    data: {
+      commit: { sha },
+    },
+  } = await github.repos.getBranch({
+    owner,
+    repo,
+    branch: 'master',
+  })
+  const {
+    data: { tree },
+  } = await github.git.getTree({
+    owner,
+    repo,
+    tree_sha: sha,
+    recursive: true,
+  })
+  const tree_sha = new Map(tree.map(n => [n.path, n.sha]))
+  _this.log(
+    `retrieved tree (${tree_sha.size} nodes) in ${Date.now() - start}ms`
+  )
+
+  // compute and store local and remote sha in window._pusher
+  start = Date.now()
+  window._pusher = new Map()
+  for (let item of _items()) {
+    if (!item.saved_id) {
+      // should not happen during init, just in case
+      _this.warn('skipped unsaved item during _init')
+      continue
+    }
+    const path = `ids/${item.saved_id}.markdown`
+    const remote_sha = tree_sha.get(path)
+    const sha = github_sha(item.text)
+    _pusher.set(item.saved_id, {
+      sha: github_sha(item.text),
+      remote_sha: tree_sha.get(path),
+    })
+  }
+  _this.log(
+    `verified sha for ${_items().length} items in ${Date.now() - start} ms`
+  )
+
+  // report inconsistent/missing items
+  let count = 0,
+    names = []
+  for (let [id, { sha, remote_sha }] of _pusher.entries()) {
+    const item = _item(id)
+    if (sha == remote_sha) continue // item good for auto-push
+    if (names.length < 10) names.push(item.name)
+    count++
+  }
+  if (count)
+    _this.warn(
+      `${count} items inconsistent/missing in ${dest} and require manual /push or /pull before auto-push can begin; most recent ${
+        names.length
+      } items are: ${names.join(' ')}${count > names.length ? ' ...' : ''}`
+    )
+
+  // create branch last_init for comparisons
+  create_branch('last_init')
+
+  _this.log(`initialized`)
+}
+
+async function create_branch(name) {
+  if (name == 'master') throw new Error('can not create master branch')
+  // get master branch sha
+  const {
+    data: [
+      {
+        object: { sha },
+      },
+    ],
+  } = await github.git.listMatchingRefs({
+    owner,
+    repo,
+    ref: 'heads/master',
+  })
+  // delete branch in case it exists
+  try {
+    await github.git.deleteRef({ owner, repo, ref: 'heads/' + name })
+  } catch (e) {
+    // warn if anything other than a 'missing ref' error
+    if (e.message != 'Reference does not exist')
+      _this.warn(`delete failed for branch ${name}: ${e}`)
+  }
+  // (re-)create branch
+  await github.git.createRef({ owner, repo, ref: 'refs/heads/' + name, sha })
 }
