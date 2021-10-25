@@ -1,5 +1,5 @@
 #util/types
 
-```js_removed:util/types.js
-// util/types.js
+```js_removed:types.js
+// types.js
 ```
