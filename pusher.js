@@ -91,7 +91,7 @@ async function init_pusher() {
       _this.warn('skipped unsaved item')
       continue
     }
-    const path = `ids/${item.saved_id}.markdown`
+    const path = `items/${item.saved_id}.markdown`
     const remote_sha = tree_sha.get(path)
     const sha = github_sha(item.text)
     _this.store.items[item.saved_id] = {
@@ -253,6 +253,7 @@ async function _on_command_push(name) {
       })
     } else {
       // push all items
+      // TODO: indicate progress and item name!
       _modal({
         content: `Pushing ${_items().length} items ...`,
         background: 'block',
