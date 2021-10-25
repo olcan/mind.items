@@ -1,5 +1,4 @@
-#util defines common utility functions ...
-- #/types defines type-related functions
+#util defines common utility functions: #/types
 
 ```js_removed:util.js
 // util.js
