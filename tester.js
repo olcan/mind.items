@@ -11,9 +11,9 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
     try {
       const start = Date.now()
       item.eval(`if (typeof ${test} == 'function') ${test}()`)
-      _this.log(`${test} passed on ${item.name} in ${Date.now() - start}ms`)
+      item.log(`${test} passed in ${Date.now() - start}ms`)
     } catch (e) {
-      _this.error(`${test} failed on ${item.name}: ${e}`)
+      item.error(`${test} failed: ${e}`)
     }
   })
 }
