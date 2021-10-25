@@ -85,9 +85,8 @@ async function init_pusher() {
     `retrieved tree (${tree_sha.size} nodes) in ${Date.now() - start}ms`
   )
 
-  // compute and store local and remote sha in window._pusher
+  // initialize store.items
   start = Date.now()
-  window._pusher = new Map()
   for (let item of _items()) {
     if (!item.saved_id) {
       // should not happen during init, just in case
@@ -97,10 +96,10 @@ async function init_pusher() {
     const path = `ids/${item.saved_id}.markdown`
     const remote_sha = tree_sha.get(path)
     const sha = github_sha(item.text)
-    _pusher.set(item.saved_id, {
+    _this.store.items[item.saved_id] = {
       sha: github_sha(item.text),
       remote_sha: tree_sha.get(path),
-    })
+    }
   }
   _this.log(
     `verified sha for ${_items().length} items in ${Date.now() - start} ms`
@@ -109,7 +108,7 @@ async function init_pusher() {
   // report inconsistent/missing items
   let count = 0,
     names = []
-  for (let [id, { sha, remote_sha }] of _pusher.entries()) {
+  for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
     if (names.length < 10) names.push(item.name)
@@ -127,6 +126,10 @@ async function init_pusher() {
 
   _this.log(`initialized`)
 }
+
+// TODO: push_item(item) synchronizing through store.last_push
+// TODO: _on_command_push() to replace /push command
+// TODO: _on_command_pull() to replace /pull command
 
 // creates branch with given name
 // deletes/replaces any existing branch
