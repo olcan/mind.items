@@ -1,3 +1,3 @@
-#util defines common utility functions: #/core #/stat
+#util defines utilities: #/core #/stat
 
 #_/core #_/stat
