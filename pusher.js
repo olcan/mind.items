@@ -128,10 +128,6 @@ async function init_pusher() {
   _this.log(`initialized`)
 }
 
-// TODO: push_item(item) synchronizing through store.last_push
-// TODO: _on_command_push() to replace /push command
-// TODO: _on_command_pull() to replace /pull command
-
 // creates branch with given name
 // deletes/replaces any existing branch
 async function create_branch(name) {
@@ -172,4 +168,82 @@ function github_sha(text) {
   return Array.from(new Uint8Array(sha_buffer), b =>
     b.toString(16).padStart(2, '0')
   ).join('')
+}
+
+// TODO: push_item(item) synchronizing through store.last_push
+// TODO: _on_command_push() to replace /push command
+// TODO: _on_command_pull() to replace /pull command
+
+// pushes item to github
+function push_item(item) {
+  if (!_this.store.items) throw new Error('can not push yet')
+  if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
+  // to avoid github conflict (409) and sha mismatch errors, we serialize pushes by chaining promises through store.last_push; optionally we can also enforce a delay which would serve as a debounce period that squashes changes into a single commit
+  return (_this.store.last_push = Promise.resolve(_this.store.last_push)
+    // .then(()=>_delay(1000))
+    .then(async () => {
+      let start = Date.now()
+      const state = _this.store.items[item.saved_id]
+      const text_sha = github_sha(item.text)
+      const text_base64 = utoa(item.text)
+      if (text_sha == state.remote_sha) {
+        // nothing to push
+        state.sha = text_sha // ensure auto-push can resume
+        return
+      }
+      try {
+        const path = state.path
+        const sha = state.remote_sha // can be undefined
+        await github.repos.createOrUpdateFileContents({
+          owner,
+          repo,
+          path,
+          sha,
+          message: item.name,
+          content: text_base64,
+        })
+        state.sha = state.remote_sha = text_sha // resume auto-push
+        _this.log(`pushed ${item.name} in ${Date.now() - start}ms`)
+
+        // TODO: side-push
+      } catch (e) {
+        // state.remote_sha = undefined // disable auto-push until reload
+        _this.error(`push failed for ${item.name}: ${e}`)
+        throw e
+      }
+    }))
+}
+
+// command /push [name]
+function _on_command_push(name) {
+  try {
+    if (name) {
+      // push named item only
+      if (!_exists(name)) {
+        alert(`item ${name} not found`)
+        return '/push ' + name
+      }
+      _modal({ content: `Pushing ${name} ...`, background: 'block' })
+      await push_item(_item(name))
+      await _modal_update({
+        content: `Pushed ${name}`,
+        confirm: 'OK',
+        background: 'confirm',
+      })
+    } else {
+      // push all items
+      _modal({
+        content: `Pushing ${_items().length} items ...`,
+        background: 'block',
+      })
+      for (let item of _items()) await push_item(item)
+      create_branch('last_push')
+      await _modal_update({
+        content: `Pushed all ${_items().length} items`,
+        background: 'confirm',
+      })
+    }
+  } finally {
+    _modal_close()
+  }
 }
