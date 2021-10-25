@@ -7,6 +7,7 @@ function _on_welcome() {
 // TODO: would be nice if pusher can handle side-push more gracefully, live-tracking changes across devices/tabs like regular pushes
 // TODO: can define commands like /push, /pull, etc in this file!
 let owner, repo
+let github
 
 async function init_pusher() {
   // look up push destination from global store, or from user prompt
@@ -58,7 +59,7 @@ async function init_pusher() {
 
   // initialize pusher
   _this.log(`initializing for repo ${dest}, token ${token} ...`)
-  const github = new Octokit({ auth: token })
+  github = new Octokit({ auth: token })
 
   // retrieve repo tree (not limited to 1000 files unlike getContent)
   let start = Date.now()
@@ -131,7 +132,6 @@ async function init_pusher() {
 // deletes/replaces any existing branch
 async function create_branch(name) {
   if (name == 'master') throw new Error('can not create master branch')
-  const github = new Octokit({ auth: token })
   // get master branch sha
   const {
     data: [
