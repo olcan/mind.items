@@ -90,7 +90,7 @@ async function init_updater() {
 // returns items that are installed and named (i.e. uniquely labeled)
 const installed_named_items = () =>
   _labels((_, ids) => ids.length == 1)
-    .map(_item)
+    .map(label=>_item(label))
     .filter(item => item.attr)
 
 // decodes base64 w/ unicode character support (unlike plain atob)
