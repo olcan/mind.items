@@ -6,8 +6,6 @@ function _on_welcome() {
 // TODO: pusher should ALSO push items by name under names, keeping in mind there is no delete/move, so names can get outdated
 // TODO: would be nice if pusher can handle side-push more gracefully, live-tracking changes across devices/tabs like regular pushes
 // TODO: can define commands like /push, /pull, etc in this file!
-let owner, repo
-let github
 
 async function init_pusher() {
   // look up push destination from global store, or from user prompt
@@ -25,7 +23,7 @@ async function init_pusher() {
     return
   }
   // if destination is invalid, clear global store and try again or disable
-  ;[owner, repo] = dest.split('/')
+  const [owner, repo] = dest.split('/')
   if (!owner || !repo) {
     _this.error(`invalid destination '${dest}'`)
     delete _this.global_store.dest
@@ -59,7 +57,7 @@ async function init_pusher() {
 
   // initialize pusher
   _this.log(`initializing for repo ${dest}, token ${token} ...`)
-  github = new Octokit({ auth: token })
+  const github = (_this.store.github = new Octokit({ auth: token }))
 
   // retrieve repo tree (not limited to 1000 files unlike getContent)
   let start = Date.now()
@@ -132,6 +130,10 @@ async function init_pusher() {
 // deletes/replaces any existing branch
 async function create_branch(name) {
   if (name == 'master') throw new Error('can not create master branch')
+  if (!_this.global_store.dest) throw new Error('pusher missing destination')
+  if (!_this.store.github) throw new Error('pusher missing github client')
+  const [owner, repo] = _this.global_store.dest.split('/')
+  const github = _this.store.github
   // get master branch sha
   const {
     data: [
@@ -192,6 +194,11 @@ function encodeBase64(str) {
 function push_item(item) {
   if (!_this.store.items) throw new Error('can not push yet')
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
+  if (!_this.global_store.dest) throw new Error('pusher missing destination')
+  if (!_this.store.github) throw new Error('pusher missing github client')
+  const [owner, repo] = _this.global_store.dest.split('/')
+  const github = _this.store.github
+
   // to avoid github conflict (409) and sha mismatch errors, we serialize pushes by chaining promises through store.last_push; optionally we can also enforce a delay which would serve as a debounce period that squashes changes into a single commit
   return (_this.store.last_push = Promise.resolve(_this.store.last_push)
     // .then(()=>_delay(1000))
