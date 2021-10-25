@@ -90,7 +90,7 @@ async function init_updater() {
 // returns items that are installed and named (i.e. uniquely labeled)
 const installed_named_items = () =>
   _labels((_, ids) => ids.length == 1)
-    .map(label=>_item(label))
+    .map(label => _item(label))
     .filter(item => item.attr)
 
 // decodes base64 w/ unicode character support (unlike plain atob)
@@ -111,7 +111,7 @@ function decodeBase64(str) {
 // returns null if no token is available
 async function github_token(item) {
   // try in this order:
-  // item.attr.token
+  // item.attr.token (preferred since token may be specialized to item)
   // local storage (mindpage_github_token, also used by /_update)
   // #updater (_this) global store
   // #pusher global store
