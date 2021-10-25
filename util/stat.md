@@ -8,8 +8,8 @@ console.log('hello world')
 // stat.js
 ```
 
-```js
-const run_tests = () => alert('tests passed')
+```js:js_removed
+const run_tests = () => alert(_this.name + ': tests passed')
 const _install = () => run_tests()
 const _on_update = () => run_tests()
 ```
