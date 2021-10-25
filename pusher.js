@@ -215,7 +215,7 @@ function push_item(item) {
 }
 
 // command /push [name]
-function _on_command_push(name) {
+async function _on_command_push(name) {
   try {
     if (name) {
       // push named item only
