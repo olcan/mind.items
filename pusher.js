@@ -26,7 +26,7 @@ async function init_pusher() {
   // if destination is invalid, clear global store and try again or disable
   ;[owner, repo] = dest.split('/')
   if (!owner || !repo) {
-    _this.error(`invalid destination ${dest}`)
+    _this.error(`invalid destination '${dest}'`)
     delete _this.global_store.dest
     const try_again = await _modal({
       content: `Invalid repo name \`${dest}\`. Please enter in \`<owner>/<repo>\` format, e.g. \`olcan/mind.page\`.`,
