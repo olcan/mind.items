@@ -174,6 +174,20 @@ function github_sha(text) {
 // TODO: _on_command_push() to replace /push command
 // TODO: _on_command_pull() to replace /pull command
 
+// encodes base64 w/ unicode character support (unlike plain btoa)
+// from https://stackoverflow.com/a/30106551
+function encodeBase64(str) {
+  // original string -> percent-encoding -> bytestream
+  return btoa(
+    encodeURIComponent(str).replace(
+      /%([0-9A-F]{2})/g,
+      function toSolidBytes(match, p1) {
+        return String.fromCharCode('0x' + p1)
+      }
+    )
+  )
+}
+
 // pushes item to github
 function push_item(item) {
   if (!_this.store.items) throw new Error('can not push yet')
@@ -185,7 +199,7 @@ function push_item(item) {
       let start = Date.now()
       const state = _this.store.items[item.saved_id]
       const text_sha = github_sha(item.text)
-      const text_base64 = utoa(item.text)
+      const text_base64 = encodeBase64(item.text)
       if (text_sha == state.remote_sha) {
         // nothing to push
         state.sha = text_sha // ensure auto-push can resume
