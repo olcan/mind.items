@@ -10,8 +10,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   tests.forEach(test => {
     try {
       const start = Date.now()
-      item.eval(`if (typeof ${test} == 'function') ${test}()`)
-      item.log(`${test} passed in ${Date.now() - start}ms`)
+      const tested = item.eval(
+        `typeof ${test} == 'function' ? (${test}(),true) : false`
+      )
+      if (tested) item.log(`${test} passed in ${Date.now() - start}ms`)
     } catch (e) {
       item.error(`${test} failed: ${e}`)
     }

@@ -13,8 +13,11 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   benchmarks.forEach(benchmark => {
     try {
       const start = Date.now()
-      item.eval(`if (typeof ${benchmark} == 'function') ${benchmark}()`)
-      item.log(`${benchmark} completed in ${Date.now() - start}ms`)
+      const benchmarked = item.eval(
+        `typeof ${benchmark} == 'function' ? (${benchmark}(),true) : false`
+      )
+      if (benchmarked)
+        item.log(`${benchmark} completed in ${Date.now() - start}ms`)
     } catch (e) {
       item.error(`${benchmark} failed: ${e}`)
     }

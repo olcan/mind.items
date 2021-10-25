@@ -1,4 +1,4 @@
-#tester auto-tests items that define `_test()` or `_test_*()`.
+#tester tests items that define `_test|_test_*()`.
 
 ```js_removed:tester.js
 // tester.js

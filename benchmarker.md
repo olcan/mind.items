@@ -1,4 +1,4 @@
-#benchmarker auto-benchmarks items that define `_benchmark()` or `_benchmark_*()`.
+#benchmarker benchmarks items that define `_benchmark|_benchmark_*()`.
 
 ```js_removed:benchmarker.js
 // benchmarker.js
