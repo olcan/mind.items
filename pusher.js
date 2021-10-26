@@ -60,7 +60,7 @@ async function init_pusher() {
   const github = (_this.store.github = new Octokit({ auth: token }))
 
   // retrieve repo tree (not limited to 1000 files unlike getContent)
-  // we store commit_sha and tree_sha in global_store to avoid listCommits
+  // we store commit_sha and tree_sha in global_store for efficiency
   let start = Date.now()
   const resp = await github.repos.getBranch({
     owner,
@@ -71,7 +71,9 @@ async function init_pusher() {
   const tree_sha = resp.data.commit?.commit?.tree?.sha
   if (!commit_sha || !tree_sha) {
     _this.error(
-      `disabled due to empty repo ${dest} missing its first commit; mindpage does not do first "root" commits for safety; try reloading after committing a file (e.g. README.md)`
+      `disabled due to empty repo ${dest}; ` +
+        `#pusher does not do "root" commits for safety; ` +
+        `try reloading after committing a file (e.g. README.md)`
     )
     return
   }
@@ -200,7 +202,8 @@ function push_item(item) {
   if (!_this.global_store.dest) throw new Error('pusher missing destination')
   if (!_this.global_store.commit_sha) throw new Error('pusher missing commit')
   if (!_this.global_store.tree_sha) throw new Error('pusher missing tree')
-  const [owner, repo] = _this.global_store.dest.split('/')
+  const dest = _this.global_store.dest
+  const [owner, repo] = dest.split('/')
   const github = _this.store.github
 
   // to avoid github conflict (409) and sha mismatch errors, we serialize pushes by chaining promises through store.last_push; optionally we can also enforce a delay which would serve as a debounce period that squashes changes into a single commit
@@ -216,27 +219,6 @@ function push_item(item) {
       }
       try {
         const path = `items/${item.saved_id}.md`
-        // const sha = state.remote_sha // can be undefined
-        // await github.repos.createOrUpdateFileContents({
-        //   owner,
-        //   repo,
-        //   path,
-        //   sha,
-        //   message: item.name,
-        //   content: encodeBase64(item.text),
-        // })
-
-        // get latest commit
-        // const {
-        //   data: [latest_commit],
-        // } = await github.repos.listCommits({
-        //   owner,
-        //   repo,
-        //   sha: 'master',
-        //   per_page: 1,
-        // })
-        // const commit_sha = latest_commit.sha
-        // const tree_sha = latest_commit.commit.tree.sha
         const commit_sha = _this.global_store.commit_sha
         const tree_sha = _this.global_store.tree_sha
 
@@ -284,18 +266,20 @@ function push_item(item) {
         } catch (e) {
           if (e.message == 'Update is not a fast forward') {
             _this.warn(
-              `push failed for ${item.name} due to unknown (external) commits; retrying after fetching latest commit ...`
+              `push failed for ${item.name} due to unknown (external) ` +
+                `commits; retrying after fetching latest commit ...`
             )
-            const {
-              data: [latest_commit],
-            } = await github.repos.listCommits({
+            const resp = await github.repos.getBranch({
               owner,
               repo,
-              sha: 'master',
-              per_page: 1,
+              branch: 'master',
             })
-            _this.global_store.commit_sha = latest_commit.sha
-            _this.global_store.tree_sha = latest_commit.commit.tree.sha
+            const commit_sha = resp.data.commit?.sha
+            const tree_sha = resp.data.commit?.commit?.tree?.sha
+            if (!commit_sha || !tree_sha)
+              throw new Error(`can not push to empty repo ${dest}`)
+            _this.global_store.commit_sha = commit_sha
+            _this.global_store.tree_sha = tree_sha
             setTimeout(() => push_item(item)) // retry
             return
           }
@@ -304,9 +288,8 @@ function push_item(item) {
         _this.global_store.commit_sha = commit.sha
         _this.global_store.tree_sha = tree.sha
         state.sha = state.remote_sha = text_sha // resume auto-push
-        _this.log(`pushed ${item.name} in ${Date.now() - start}ms`)
+        _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
 
-        // TODO: side-push under name in same repo, tracking sha from tree?
         // TODO: side-push to other repos?
       } catch (e) {
         // state.remote_sha = undefined // disable auto-push until reload
