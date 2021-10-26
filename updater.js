@@ -70,9 +70,9 @@ async function init_updater() {
         // sequentialize via global window._github
         // use allSettled to resume the chain on errors/rejects
         // avoids interleaving pulls/pushes across an item+embeds
-        // random delay up to 10s (followed by check) helps reduce api calls
+        // random delay (followed by check) can help reduce api load
         window._github = Promise.allSettled([window._github])
-          .then(() => _delay(Math.random() * 10000))
+          // .then(() => _delay(Math.random() * 10000))
           .then(async () => {
             while (modified_ids.length) {
               const item = _item(modified_ids.shift())
@@ -81,7 +81,7 @@ async function init_updater() {
               else
                 _this.log(
                   `auto-update already done for ${item.name} ` +
-                    `from ${source}/${path} (likely on another tab/device)`
+                    `from ${source} (likely on another tab/device)`
                 )
             }
           })
