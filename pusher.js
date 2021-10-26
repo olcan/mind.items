@@ -194,6 +194,20 @@ function encodeBase64(str) {
   )
 }
 
+// decodes base64 w/ unicode character support (unlike plain atob)
+// from https://stackoverflow.com/a/30106551
+function decodeBase64(str) {
+  // bytestream -> percent-encoding -> original string
+  return decodeURIComponent(
+    atob(str)
+      .split('')
+      .map(function (c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+      })
+      .join('')
+  )
+}
+
 // pushes item to github
 function push_item(item) {
   if (!_this.store.items) throw new Error('can not push yet')
