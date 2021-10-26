@@ -474,4 +474,19 @@ async function _on_command_history(name) {
   })
 }
 
+// command /branch name
+async function _on_command_branch(name) {
+  if (!name) {
+    alert(`usage: /branch name`)
+    return '/branch '
+  }
+  if (!_this.global_store.dest) {
+    alert(`branching not available due to disabled ${_this.name}`)
+    return '/branch ' + name
+  }
+  const [owner, repo] = _this.global_store.dest.split('/')
+  await create_branch(name)
+  alert(`created branch ${name}`)
+}
+
 // TODO: /branch, and /compare commands ...
