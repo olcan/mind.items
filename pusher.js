@@ -358,8 +358,8 @@ function auto_push_item(item) {
     return
   }
   // if state is missing, we create it w/ sha==remote_sha==undefined
-  let state = _this.store.items[item.saved_id]
-  if (!state) _this.store.items[item.saved_id] = {}
+  const state =
+    _this.store.items[item.saved_id] || (_this.store.items[item.saved_id] = {})
 
   // cancel auto-push w/ warning if item is inconsistent/missing in dest
   if (state.sha != state.remote_sha) {
