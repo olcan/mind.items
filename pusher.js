@@ -91,7 +91,7 @@ async function init_pusher() {
       _this.warn('skipped unsaved item')
       continue
     }
-    const path = `items/${item.saved_id}.markdown`
+    const path = `items/${item.saved_id}.md`
     const remote_sha = tree_sha.get(path)
     const sha = github_sha(item.text)
     _this.store.items[item.saved_id] = {
@@ -172,10 +172,6 @@ function github_sha(text) {
   ).join('')
 }
 
-// TODO: push_item(item) synchronizing through store.last_push
-// TODO: _on_command_push() to replace /push command
-// TODO: _on_command_pull() to replace /pull command
-
 // encodes base64 w/ unicode character support (unlike plain btoa)
 // from https://stackoverflow.com/a/30106551
 function encodeBase64(str) {
@@ -206,27 +202,78 @@ function push_item(item) {
       let start = Date.now()
       const state = _this.store.items[item.saved_id]
       const text_sha = github_sha(item.text)
-      const text_base64 = encodeBase64(item.text)
-      if (text_sha == state.remote_sha) {
-        // nothing to push
-        state.sha = text_sha // ensure auto-push can resume
+      if (state.remote_sha == text_sha) {
+        state.sha = text_sha // resume auto-push
         return
       }
       try {
         const path = state.path
-        const sha = state.remote_sha // can be undefined
-        await github.repos.createOrUpdateFileContents({
+        // const sha = state.remote_sha // can be undefined
+        // await github.repos.createOrUpdateFileContents({
+        //   owner,
+        //   repo,
+        //   path,
+        //   sha,
+        //   message: item.name,
+        //   content: encodeBase64(item.text),
+        // })
+
+        // get latest commit
+        const {
+          data: [latest_commit],
+        } = await github.repos.listCommits({
           owner,
           repo,
-          path,
-          sha,
-          message: item.name,
-          content: text_base64,
+          sha: 'master',
+          per_page: 1,
         })
+        // create tree based off the tree of the latest commit
+        // tree contains item file and symlink iff item is named
+        let tree = [{ path, mode: '100644', type: 'blob', content: item.text }]
+        const { data: { ...tree } = {} } = await github.git.createTree({
+          owner,
+          repo,
+          base_tree: latest_commit.commit.tree.sha,
+          tree: [
+            { path, mode: '100644', type: 'blob', content: item.text },
+            ...(() => {
+              if (!item.name.startsWith('#')) return []
+              const name = item.name.slice(1)
+              const symlink = name.replace(/[^/]+/g, '..') + '/' + path
+              return [
+                {
+                  path: `names/${name}.md`,
+                  mode: '120000' /*symlink*/,
+                  type: 'blob',
+                  content: symlink,
+                },
+              ]
+            })(),
+          ],
+        })
+        // create commit for this tree based off the last commit
+        const { data: { ...commit } = {} } = await github.git.createCommit({
+          owner,
+          repo,
+          message: item.name,
+          parents: [latest_commit.sha],
+          tree: tree.sha,
+        })
+        // update master to point to this commit
+        // if last commit is outdated, this fails with
+        //   e.status==422, e.message=="Update is not a fast forward"
+        await github.git.updateRef({
+          owner,
+          repo,
+          ref: 'heads/master',
+          sha: commit.sha,
+        })
+
         state.sha = state.remote_sha = text_sha // resume auto-push
         _this.log(`pushed ${item.name} in ${Date.now() - start}ms`)
 
-        // TODO: side-push
+        // TODO: side-push under name in same repo, tracking sha from tree?
+        // TODO: side-push to other repos?
       } catch (e) {
         // state.remote_sha = undefined // disable auto-push until reload
         _this.error(`push failed for ${item.name}: ${e}`)
@@ -275,3 +322,5 @@ async function _on_command_push(name) {
     _modal_close()
   }
 }
+
+// TODO: _on_command_pull() to replace /pull command
