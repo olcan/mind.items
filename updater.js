@@ -178,14 +178,13 @@ async function update_item(item) {
   const start = Date.now()
   const attr = item.attr
   const { owner, repo, branch, path } = attr
+  const dest = `${owner}/${repo}/${branch}`
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
-  _this.log(
-    `auto-updating ${item.name} from ` +
-      `${owner}/${repo}/${branch}/${path} ...`
-  )
+  _this.log(`auto-updating ${item.name} from ${dest}/${path} ...`)
   try {
     // retrieve commit sha (allows comparison to later versions)
+    // cancel if already updated on another tab/device
     const {
       data: [{ sha } = {}],
     } = await github.repos.listCommits({
@@ -197,6 +196,13 @@ async function update_item(item) {
     })
     if (!sha) throw new Error(`missing commit for ${path}`)
     _this.debug(`listCommits(${path}) sha: ${sha}`)
+    if (attr.sha == sha) {
+      _this.log(
+        `auto-update already done for ${item.name} from ` +
+          `${dest}/${path} (likely on another tab/device)`
+      )
+      return
+    }
     // retrieve text at this commit sha
     const { data } = await github.repos.getContent({
       owner,
@@ -222,22 +228,20 @@ async function update_item(item) {
         _this.log(
           `confirming installation of ${missing_deps.length}` +
             ` missing dependencies (${missing_deps.join(', ')})` +
-            ` to continue updating ${item.name} from` +
-            ` ${owner}/${repo}/${branch}/${path} ...`
+            ` to continue updating ${item.name} from ${dest}/${path} ...`
         )
         const confirmed = await _modal({
           content:
             `${_this.name} needs to install ${missing_deps.length}` +
             ` missing dependencies (${missing_deps.join(', ')})` +
-            ` to continue updating ${item.name} from` +
-            ` ${owner}/${repo}/${branch}/${path} ...`,
+            ` to continue updating ${item.name} from ${dest}/${path} ...`,
           confirm: 'Continue',
           cancel: 'Cancel',
         })
         if (!confirmed) {
           _this.warn(
             `auto-update cancelled for ${item.name} from ` +
-              `${owner}/${repo}/${branch}/${path} due to missing dependencies`
+              `${dest}/${path} due to missing dependencies`
           )
           return
         }
@@ -270,13 +274,13 @@ async function update_item(item) {
         if (has_updates && !modified_ids.includes(item.id)) {
           _this.log(
             `auto-update restarted for ${item.name} from ` +
-              `${owner}/${repo}/${branch}/${path} after dependencies installed`
+              `${dest}/${path} after dependencies installed`
           )
           modified_ids.push(item.id)
         } else {
           _this.log(
             `auto-update no longer needed for ${item.name} from ` +
-              `${owner}/${repo}/${branch}/${path} after dependencies installed`
+              `${dest}/${path} after dependencies installed`
           )
         }
         return // requeued
@@ -284,7 +288,6 @@ async function update_item(item) {
     }
 
     // update attributes, to be saved on item.write below
-    // TODO: handle the case when attr.sha has already been updated on another tab/device!
     attr.sha = sha // new commit sha
     attr.embeds = null // new embeds filled in below (in case embeds changed)
     attr.token = token // token for future updates
@@ -360,7 +363,7 @@ async function update_item(item) {
     if (item.name != prev_name)
       _this.warn(
         `auto-update for ${item.name} (was ${prev_name})` +
-          ` from ${owner}/${repo}/${branch}/${path} renamed item`
+          ` from ${dest}/${path} renamed item`
       )
 
     // invoke _on_update() if it exists
@@ -377,13 +380,12 @@ async function update_item(item) {
     }
 
     _this.log(
-      `auto-updated ${item.name} from ${owner}/${repo}/${branch}/${path} ` +
+      `auto-updated ${item.name} from ${dest}/${path} ` +
         `in ${Date.now() - start}ms`
     )
   } catch (e) {
     _this.error(
-      `failed to auto-update ${item.name} ` +
-        `from ${owner}/${repo}/${branch}/${path}: ${e}`
+      `auto-update failed for ${item.name} from ${dest}/${path}: ${e}`
     )
   }
 }
