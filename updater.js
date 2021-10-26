@@ -29,9 +29,10 @@ async function init_updater() {
         const branch = body.ref.replace('refs/heads/', '')
         const repo = body.repository.name
         const owner = body.repository.owner.login
+        const source = `${owner}/${repo}/${branch}`
         _this.debug(
           `github_webhook commit sha ${body.after} ` +
-            `in ${owner}/${repo}/${branch} (was ${body.before})`
+            `in ${source} (was ${body.before})`
         )
 
         const commits = (body.commits ?? []).filter(c => c.modified?.length)
@@ -69,12 +70,21 @@ async function init_updater() {
         // sequentialize via global window._github
         // use allSettled to resume the chain on errors/rejects
         // avoids interleaving pulls/pushes across an item+embeds
-        // note update is needed to pull the latest commit shas even if
-        //   text is actually unchanged because it was pushed from mindpage
-        window._github = Promise.allSettled([window._github]).then(async () => {
-          while (modified_ids.length)
-            await update_item(_item(modified_ids.shift()))
-        })
+        // random delay up to 10s (followed by check) helps reduce api calls
+        window._github = Promise.allSettled([window._github])
+          .then(_delay(Math.random() * 10000))
+          .then(async () => {
+            while (modified_ids.length) {
+              const item = _item(modified_ids.shift())
+              const has_updates = await check_updates(item)
+              if (has_updates) await update_item(item)
+              else
+                _this.log(
+                  `auto-update already done for ${item.name} ` +
+                    `from ${source}/${path} (likely on another tab/device)`
+                )
+            }
+          })
       })
     })
 }
@@ -130,10 +140,8 @@ async function github_token(item) {
 async function check_updates(item) {
   const attr = item.attr
   const { owner, repo, branch, path } = attr
-  _this.log(
-    `checking for updates to ${item.name} ` +
-      `from ${owner}/${repo}/${branch}/${path} ...`
-  )
+  const source = `${owner}/${repo}/${branch}`
+  _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
   try {
@@ -164,9 +172,7 @@ async function check_updates(item) {
   } catch (e) {
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
-  _this.log(
-    `no updates to ${item.name} from ${owner}/${repo}/${branch}/${path}`
-  )
+  _this.log(`no updates to ${item.name} from ${source}/${path}`)
   return false // no updates
 }
 
@@ -178,10 +184,10 @@ async function update_item(item) {
   const start = Date.now()
   const attr = item.attr
   const { owner, repo, branch, path } = attr
-  const dest = `${owner}/${repo}/${branch}`
+  const source = `${owner}/${repo}/${branch}`
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
-  _this.log(`auto-updating ${item.name} from ${dest}/${path} ...`)
+  _this.log(`auto-updating ${item.name} from ${source}/${path} ...`)
   try {
     // retrieve commit sha (allows comparison to later versions)
     // cancel if already updated on another tab/device
@@ -196,13 +202,6 @@ async function update_item(item) {
     })
     if (!sha) throw new Error(`missing commit for ${path}`)
     _this.debug(`listCommits(${path}) sha: ${sha}`)
-    if (attr.sha == sha) {
-      _this.log(
-        `auto-update already done for ${item.name} from ` +
-          `${dest}/${path} (likely on another tab/device)`
-      )
-      return
-    }
     // retrieve text at this commit sha
     const { data } = await github.repos.getContent({
       owner,
@@ -228,20 +227,20 @@ async function update_item(item) {
         _this.log(
           `confirming installation of ${missing_deps.length}` +
             ` missing dependencies (${missing_deps.join(', ')})` +
-            ` to continue updating ${item.name} from ${dest}/${path} ...`
+            ` to continue updating ${item.name} from ${source}/${path} ...`
         )
         const confirmed = await _modal({
           content:
             `${_this.name} needs to install ${missing_deps.length}` +
             ` missing dependencies (${missing_deps.join(', ')})` +
-            ` to continue updating ${item.name} from ${dest}/${path} ...`,
+            ` to continue updating ${item.name} from ${source}/${path} ...`,
           confirm: 'Continue',
           cancel: 'Cancel',
         })
         if (!confirmed) {
           _this.warn(
             `auto-update cancelled for ${item.name} from ` +
-              `${dest}/${path} due to missing dependencies`
+              `${source}/${path} due to missing dependencies`
           )
           return
         }
@@ -274,13 +273,13 @@ async function update_item(item) {
         if (has_updates && !modified_ids.includes(item.id)) {
           _this.log(
             `auto-update restarted for ${item.name} from ` +
-              `${dest}/${path} after dependencies installed`
+              `${source}/${path} after dependencies installed`
           )
           modified_ids.push(item.id)
         } else {
           _this.log(
             `auto-update no longer needed for ${item.name} from ` +
-              `${dest}/${path} after dependencies installed`
+              `${source}/${path} after dependencies installed`
           )
         }
         return // requeued
@@ -363,7 +362,7 @@ async function update_item(item) {
     if (item.name != prev_name)
       _this.warn(
         `auto-update for ${item.name} (was ${prev_name})` +
-          ` from ${dest}/${path} renamed item`
+          ` from ${source}/${path} renamed item`
       )
 
     // invoke _on_update() if it exists
@@ -380,12 +379,12 @@ async function update_item(item) {
     }
 
     _this.log(
-      `auto-updated ${item.name} from ${dest}/${path} ` +
+      `auto-updated ${item.name} from ${source}/${path} ` +
         `in ${Date.now() - start}ms`
     )
   } catch (e) {
     _this.error(
-      `auto-update failed for ${item.name} from ${dest}/${path}: ${e}`
+      `auto-update failed for ${item.name} from ${source}/${path}: ${e}`
     )
   }
 }
