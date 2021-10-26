@@ -138,8 +138,8 @@ async function init_pusher() {
 // deletes/replaces any existing branch
 async function create_branch(name) {
   if (name == 'master') throw new Error('can not create master branch')
-  if (!_this.global_store.dest) throw new Error('pusher missing destination')
-  if (!_this.store.github) throw new Error('pusher missing github client')
+  if (!_this.global_store.dest) throw new Error('missing destination')
+  if (!_this.store.github) throw new Error('missing github client')
   const [owner, repo] = _this.global_store.dest.split('/')
   const github = _this.store.github
   // get master branch sha
@@ -198,10 +198,10 @@ function encodeBase64(str) {
 function push_item(item) {
   if (!_this.store.items) throw new Error('can not push yet')
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
-  if (!_this.store.github) throw new Error('pusher missing github client')
-  if (!_this.global_store.dest) throw new Error('pusher missing destination')
-  if (!_this.global_store.commit_sha) throw new Error('pusher missing commit')
-  if (!_this.global_store.tree_sha) throw new Error('pusher missing tree')
+  if (!_this.store.github) throw new Error('missing github client')
+  if (!_this.global_store.dest) throw new Error('missing destination')
+  if (!_this.global_store.commit_sha) throw new Error('missing commit')
+  if (!_this.global_store.tree_sha) throw new Error('missing tree')
   const dest = _this.global_store.dest
   const [owner, repo] = dest.split('/')
   const github = _this.store.github
@@ -323,7 +323,7 @@ function auto_push_item(item) {
     setTimeout(() => auto_push_item(item), 1000)
     return
   }
-  // if state is missing, we create it w/ sha==remote_sha==undefined
+  // if state is missing, create it w/ sha==remote_sha==undefined
   const state =
     _this.store.items[item.saved_id] || (_this.store.items[item.saved_id] = {})
 
@@ -340,6 +340,34 @@ function auto_push_item(item) {
   if (state.sha == github_sha(item.text)) return
 
   push_item(item).catch(e => {}) // errors already logged
+}
+
+async function pull_item(item) {
+  if (!_this.store.items) throw new Error('can not pull yet')
+  if (!item.saved_id) throw new Error(`can not pull unsaved item ${item.name}`)
+  if (!_this.store.github) throw new Error('missing github client')
+  if (!_this.global_store.dest) throw new Error('missing destination')
+  const dest = _this.global_store.dest
+  const [owner, repo] = dest.split('/')
+  const github = _this.store.github
+  // if state is missing, create it w/ sha==remote_sha==undefined
+  const state =
+    _this.store.items[item.saved_id] || (_this.store.items[item.saved_id] = {})
+  if (state.sha == state.remote_sha) return // nothing to pull
+
+  const start = Date.now()
+  try {
+    const path = `items/${item.saved_id}.md`
+    let { data } = await github.repos.getContent({ owner, repo, path })
+    const text = decodeBase64(data.content)
+    const sha = github_sha(text)
+    state.sha = state.remote_sha = sha
+    item.write(text, '')
+    _this.log(`pulled ${item.name} from ${dest} in ${Date.now() - start}ms`)
+  } catch (e) {
+    _this.error(`pull failed for ${item.name}: ${e}`)
+    throw e
+  }
 }
 
 // command /push [name]
@@ -383,5 +411,45 @@ async function _on_command_push(name) {
   }
 }
 
-// TODO: _on_command_pull() to replace /pull command
+// command /pull [name]
+async function _on_command_pull(name) {
+  try {
+    if (name) {
+      // pull named item only
+      if (!_exists(name)) {
+        alert(`item ${name} not found`)
+        return '/pull ' + name
+      }
+      _modal({ content: `Pulling ${name} ...`, background: 'block' })
+      await pull_item(_item(name))
+      await _modal_update({
+        content: `Pulled ${name}`,
+        confirm: 'OK',
+        background: 'confirm',
+      })
+    } else {
+      // pull all items
+      const items = _items()
+      _modal({
+        content: `Pulling ${items.length} items ...`,
+        background: 'block',
+      })
+      for (const [i, item] of items.entries()) {
+        _modal_update({
+          content: `Pulling ${i + 1}/${items.length} (${item.name}) ...`,
+        })
+        await pull_item(item)
+      }
+      create_branch('last_pull')
+      await _modal_update({
+        content: `Pulled all ${_items().length} items`,
+        confirm: 'OK',
+        background: 'confirm',
+      })
+    }
+  } finally {
+    _modal_close()
+  }
+}
+
 // TODO: /history, /branch, and /compare commands
