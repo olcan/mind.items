@@ -60,22 +60,23 @@ async function init_pusher() {
   const github = (_this.store.github = new Octokit({ auth: token }))
 
   // retrieve repo tree (not limited to 1000 files unlike getContent)
+  // we store commit_sha and tree_sha in global_store to avoid listCommits
   let start = Date.now()
-  const {
-    data: {
-      commit: { sha },
-    },
-  } = await github.repos.getBranch({
+  const resp = await github.repos.getBranch({
     owner,
     repo,
     branch: 'master',
   })
+  const commit_sha = resp.data.commit.sha
+  const tree_sha = resp.data.commit.commit.tree.sha
+  _this.global_store.commit_sha = commit_sha
+  _this.global_store.tree_sha = tree_sha
   const {
     data: { tree },
   } = await github.git.getTree({
     owner,
     repo,
-    tree_sha: sha,
+    tree_sha,
     recursive: true,
   })
   const tree_sha = new Map(tree.map(n => [n.path, n.sha]))
@@ -222,20 +223,25 @@ function push_item(item) {
         // NOTE: not strictly necessary if latest commit/tree hash is kept in
         // global_store, but overhead is unclear and not a bottleneck so far
         // TODO: if repo has 0 commits, then below code should work by dropping base_tree and parents to create a "root commit", but this needs testing by renaming the live repo and temporarily replacing it with an empty one
-        const {
-          data: [latest_commit],
-        } = await github.repos.listCommits({
-          owner,
-          repo,
-          sha: 'master',
-          per_page: 1,
-        })
+        // const {
+        //   data: [latest_commit],
+        // } = await github.repos.listCommits({
+        //   owner,
+        //   repo,
+        //   sha: 'master',
+        //   per_page: 1,
+        // })
+        // const commit_sha = latest_commit.sha
+        // const tree_sha = latest_commit.commit.tree.sha
+        const commit_sha = _this.global_store.commit_sha
+        const tree_sha = _this.global_store.commit_sha
+
         // create tree based off the tree of the latest commit
         // tree contains item file and symlink iff item is named
         const { data: { ...tree } = {} } = await github.git.createTree({
           owner,
           repo,
-          base_tree: latest_commit.commit.tree.sha,
+          base_tree: tree_sha,
           tree: [
             { path, mode: '100644', type: 'blob', content: item.text },
             ...(() => {
@@ -258,7 +264,7 @@ function push_item(item) {
           owner,
           repo,
           message: item.name,
-          parents: [latest_commit.sha],
+          parents: [commit_sha],
           tree: tree.sha,
         })
         // update master to point to this commit
@@ -270,7 +276,8 @@ function push_item(item) {
           ref: 'heads/master',
           sha: commit.sha,
         })
-
+        _this.global_store.commit_sha = commit.sha
+        _this.global_store.tree_sha = tree.sha
         state.sha = state.remote_sha = text_sha // resume auto-push
         _this.log(`pushed ${item.name} in ${Date.now() - start}ms`)
 
