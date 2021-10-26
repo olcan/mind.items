@@ -385,7 +385,7 @@ async function pull_item(item) {
 }
 
 // command /push [label]
-async function _on_command_push(name) {
+async function _on_command_push(label) {
   try {
     const items = _items(label)
     const s = items.length > 1 ? 's' : ''
@@ -415,7 +415,7 @@ async function _on_command_push(name) {
 }
 
 // command /pull [label]
-async function _on_command_pull(name) {
+async function _on_command_pull(label) {
   try {
     const items = _items(label)
     const s = items.length > 1 ? 's' : ''
