@@ -475,3 +475,4 @@ async function _on_command_history(name) {
 }
 
 // TODO: /branch, and /compare commands ...
+// TODO: test
