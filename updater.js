@@ -68,10 +68,11 @@ async function init_updater() {
               // update modal if visible
               if (update_modal) {
                 const modified_names = modified_ids.map(id => _item(id).name)
+                const s = modified_ids.length > 1 ? 's' : ''
                 _modal_update({
                   content:
                     `${_this.name} is ready to update ${modified_ids.length} ` +
-                    `installed items: ${modified_names.join(', ')}`,
+                    `installed item${s}: ${modified_names.join(', ')}`,
                 })
               }
             }
@@ -86,10 +87,11 @@ async function init_updater() {
       window._github = Promise.allSettled([window._github]).then(async () => {
         if (modified_ids.length == 0) return // nothing to do
         const modified_names = modified_ids.map(id => _item(id).name)
+        const s = modified_ids.length > 1 ? 's' : ''
         update_modal = _modal({
           content:
             `${_this.name} is ready to update ${modified_ids.length} ` +
-            `installed items: ${modified_names.join(', ')}`,
+            `installed item${s}: ${modified_names.join(', ')}`,
           confirm: 'Update',
           cancel: 'Skip',
         })
@@ -104,6 +106,7 @@ async function init_updater() {
           return
         }
         while (modified_ids.length) {
+          const item = _item(modified_ids.shift())
           const has_updates = await check_updates(item)
           if (has_updates) await update_item(item)
           else _this.log(`update no longer needed for ${item.name}`)
