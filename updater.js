@@ -72,7 +72,7 @@ async function init_updater() {
         // avoids interleaving pulls/pushes across an item+embeds
         // random delay up to 10s (followed by check) helps reduce api calls
         window._github = Promise.allSettled([window._github])
-          .then(_delay(Math.random() * 10000))
+          .then(() => _delay(Math.random() * 10000))
           .then(async () => {
             while (modified_ids.length) {
               const item = _item(modified_ids.shift())
