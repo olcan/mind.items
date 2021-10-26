@@ -384,83 +384,61 @@ async function pull_item(item) {
   }
 }
 
-// command /push [name]
+// command /push [label]
 async function _on_command_push(name) {
   try {
-    if (name) {
-      // push named item only
-      if (!_exists(name)) {
-        alert(`item ${name} not found`)
-        return '/push ' + name
-      }
-      _modal({ content: `Pushing ${name} ...`, background: 'block' })
-      await push_item(_item(name))
-      await _modal_update({
-        content: `Pushed ${name}`,
-        confirm: 'OK',
-        background: 'confirm',
-      })
-    } else {
-      // push all items
-      const items = _items()
-      _modal({
-        content: `Pushing ${items.length} items ...`,
-        background: 'block',
-      })
-      for (const [i, item] of items.entries()) {
-        _modal_update({
-          content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
-        })
-        await push_item(item)
-      }
-      create_branch('last_push')
-      await _modal_update({
-        content: `Pushed all ${_items().length} items`,
-        confirm: 'OK',
-        background: 'confirm',
-      })
+    const items = _items(label)
+    const s = items.length > 1 ? 's' : ''
+    if (items.length == 0) {
+      alert(`/push: ${label} not found`)
+      return '/push ' + name
     }
+    _modal({
+      content: `Pushing ${items.length} item${s} ...`,
+      background: 'block',
+    })
+    for (const [i, item] of items.entries()) {
+      _modal_update({
+        content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
+      })
+      await push_item(item)
+    }
+    create_branch('last_push')
+    await _modal_update({
+      content: `Pushed ${items.length} item${s}`,
+      confirm: 'OK',
+      background: 'confirm',
+    })
   } finally {
     _modal_close()
   }
 }
 
-// command /pull [name]
+// command /pull [label]
 async function _on_command_pull(name) {
   try {
-    if (name) {
-      // pull named item only
-      if (!_exists(name)) {
-        alert(`item ${name} not found`)
-        return '/pull ' + name
-      }
-      _modal({ content: `Pulling ${name} ...`, background: 'block' })
-      await pull_item(_item(name))
-      await _modal_update({
-        content: `Pulled ${name}`,
-        confirm: 'OK',
-        background: 'confirm',
-      })
-    } else {
-      // pull all items
-      const items = _items()
-      _modal({
-        content: `Pulling ${items.length} items ...`,
-        background: 'block',
-      })
-      for (const [i, item] of items.entries()) {
-        _modal_update({
-          content: `Pulling ${i + 1}/${items.length} (${item.name}) ...`,
-        })
-        await pull_item(item)
-      }
-      create_branch('last_pull')
-      await _modal_update({
-        content: `Pulled all ${_items().length} items`,
-        confirm: 'OK',
-        background: 'confirm',
-      })
+    const items = _items(label)
+    const s = items.length > 1 ? 's' : ''
+    if (items.length == 0) {
+      alert(`/pull: ${label} not found`)
+      return '/pull ' + name
     }
+    _modal({
+      content: `Pulling ${items.length} item${s} ...`,
+      background: 'block',
+    })
+    for (const [i, item] of items.entries()) {
+      _modal_update({
+        content: `Pulling ${i + 1}/${items.length} (${item.name}) ...`,
+      })
+      await pull_item(item)
+    }
+    create_branch('last_pull')
+    await _modal_update({
+      content: `Pulled ${items.length} item${s}`,
+      confirm: 'OK',
+      background: 'confirm',
+    })
   } finally {
     _modal_close()
   }
