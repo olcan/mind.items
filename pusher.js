@@ -96,7 +96,6 @@ async function init_pusher() {
     const remote_sha = path_sha.get(path)
     const sha = github_sha(item.text)
     _this.store.items[item.saved_id] = {
-      path,
       sha: github_sha(item.text),
       remote_sha: path_sha.get(path),
     }
@@ -191,8 +190,10 @@ function encodeBase64(str) {
 function push_item(item) {
   if (!_this.store.items) throw new Error('can not push yet')
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
-  if (!_this.global_store.dest) throw new Error('pusher missing destination')
   if (!_this.store.github) throw new Error('pusher missing github client')
+  if (!_this.global_store.dest) throw new Error('pusher missing destination')
+  if (!_this.global_store.commit_sha) throw new Error('pusher missing commit')
+  if (!_this.global_store.tree_sha) throw new Error('pusher missing tree')
   const [owner, repo] = _this.global_store.dest.split('/')
   const github = _this.store.github
 
@@ -208,7 +209,7 @@ function push_item(item) {
         return
       }
       try {
-        const path = state.path
+        const path = `items/${item.saved_id}.md`
         // const sha = state.remote_sha // can be undefined
         // await github.repos.createOrUpdateFileContents({
         //   owner,
@@ -270,6 +271,7 @@ function push_item(item) {
         // update master to point to this commit
         // NOTE: if last commit is outdated, this fails with
         //   e.status==422, e.message=="Update is not a fast forward"
+        //   so we could detect that and retry after listCommits
         await github.git.updateRef({
           owner,
           repo,
@@ -333,3 +335,43 @@ async function _on_command_push(name) {
 }
 
 // TODO: _on_command_pull() to replace /pull command
+
+// auto-push consistent items on change
+function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  if (dependency) return // ignore dependency change (item text unchanged)
+  if (deleted) return // ignore deletion (keep on github under deleted id)
+  const item = _item(id)
+  if (remote) {
+    // update local state assuming remote auto-push
+    const sha = github_sha(item.text)
+    _this.store.items[item.saved_id] = { sha, remote_sha: sha }
+    return
+  }
+  auto_push_item(item)
+}
+
+// auto-pushes item, retrying if item is not saved yet
+function auto_push_item(item) {
+  if (!item.saved_id) {
+    // retry in 1s
+    setTimeout(() => auto_push_item(item), 1000)
+    return
+  }
+  // if state is missing, we create it w/ sha==remote_sha==undefined
+  let state = _this.store.items[item.saved_id]
+  if (!state) _this.store.items[item.saved_id] = {}
+
+  // cancel auto-push w/ warning if item is inconsistent/missing in dest
+  if (state.sha != state.remote_sha) {
+    const dest = _this.global_store.dest
+    _this.warn(
+      `unable to auto-push item ${item.name} that is inconsistent or missing in ${dest}; manual /push or /pull is required`
+    )
+    return
+  }
+
+  // skip auto-push if state.sha is same as current sha of item; this means auto-push was triggered without a change OR due to a change that was pulled from github (see pull_item)
+  if (state.sha == github_sha(item.text)) return
+
+  push_item(item).catch(e => {}) // errors already logged
+}
