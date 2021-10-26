@@ -73,6 +73,11 @@ async function init_updater() {
         //   note an update is needed to pull the latest commit shas even if
         //     the content was pushed from the item being updated, though
         //     update_item should consider text may be unchanged
+        //
+        // TODO: removing the "finally" statements may have helped serialize
+        // pushes but they block future updates if there is a failure, so
+        // revisit this once you have new pusher in place
+        //
         last_updates = Promise.resolve(last_updates).then(() => {
           return (window._github_pending_push = Promise.resolve(
             window._github_pending_push
