@@ -72,9 +72,10 @@ async function init_pusher() {
   if (!commit_sha || !tree_sha) {
     _this.error(
       `disabled due to empty repo ${dest}; ` +
-        `#pusher does not do "root" commits for safety; ` +
+        `${_this.name} does not do "root" commits for safety; ` +
         `try reloading after committing a file (e.g. README.md)`
     )
+    delete _this.store.github // clean up since disabled
     return
   }
   _this.global_store.commit_sha = commit_sha
@@ -444,4 +445,33 @@ async function _on_command_pull(label) {
   }
 }
 
-// TODO: /history, /branch, and /compare commands
+// command /history name
+async function _on_command_history(name) {
+  if (!name) {
+    alert(`usage: /history name`)
+    return '/history '
+  }
+  const item = _item(name)
+  if (!item) {
+    alert(`item ${name} missing or ambiguous`)
+    return '/history ' + name
+  }
+  if (!item.saved_id) {
+    alert(`history not available for unsaved item ${name}`)
+    return '/history ' + name
+  }
+  if (!_this.global_store.dest) {
+    alert(`history for ${name} not available due to disabled ${_this.name}`)
+    return '/history ' + name
+  }
+  const [owner, repo] = _this.global_store.dest.split('/')
+  // dispatch to prevent cmd key from opening tab in background ...
+  setTimeout(() => {
+    window.open(
+      `https://github.com/${owner}/` +
+        `${repo}/commits/master/items/${item.saved_id}.md`
+    )
+  })
+}
+
+// TODO: /branch, and /compare commands ...
