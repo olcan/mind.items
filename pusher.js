@@ -260,7 +260,7 @@ async function _on_command_push(name) {
       })
       for (const [i, item] of items.entries()) {
         _modal_update({
-          content: `Pushing ${item.name} (${i + 1}/${items.length}) ...`,
+          content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
         })
         await push_item(item)
       }
