@@ -67,8 +67,14 @@ async function init_pusher() {
     repo,
     branch: 'master',
   })
-  const commit_sha = resp.data.commit.sha
-  const tree_sha = resp.data.commit.commit.tree.sha
+  const commit_sha = resp.data.commit?.sha
+  const tree_sha = resp.data.commit?.commit?.tree?.sha
+  if (!commit_sha || !tree_sha) {
+    _this.error(
+      `disabled due to empty repo ${dest} missing its first commit; mindpage does not do first "root" commits for safety; try reloading after committing a file (e.g. README.md)`
+    )
+    return
+  }
   _this.global_store.commit_sha = commit_sha
   _this.global_store.tree_sha = tree_sha
   const {
