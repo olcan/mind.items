@@ -6,7 +6,6 @@ function _on_welcome() {
 }
 
 let modified_ids = []
-let last_updates
 
 async function init_updater() {
   _this.log(`initializing ...`)
@@ -67,24 +66,14 @@ async function init_updater() {
         }
 
         // update modified items
-        // sequentialize across firebase events (via last_updates promise)
-        // also sequentialize with pushes via window._github_pending_push
-        //   prevents interleaving of pulls and pushes across an item+embeds
-        //   note an update is needed to pull the latest commit shas even if
-        //     the content was pushed from the item being updated, though
-        //     update_item should consider text may be unchanged
-        //
-        // TODO: removing the "finally" statements may have helped serialize
-        // pushes but they block future updates if there is a failure, so
-        // revisit this once you have new pusher in place
-        //
-        last_updates = Promise.resolve(last_updates).then(() => {
-          return (window._github_pending_push = Promise.resolve(
-            window._github_pending_push
-          ).then(async () => {
-            while (modified_ids.length)
-              await update_item(_item(modified_ids.shift()))
-          }))
+        // sequentialize via global window._github
+        // use allSettled to resume the chain on errors/rejects
+        // avoids interleaving pulls/pushes across an item+embeds
+        // note update is needed to pull the latest commit shas even if
+        //   text is actually unchanged because it was pushed from mindpage
+        window._github = Promise.allSettled([window._github]).then(async () => {
+          while (modified_ids.length)
+            await update_item(_item(modified_ids.shift()))
         })
       })
     })

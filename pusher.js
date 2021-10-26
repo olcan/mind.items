@@ -203,10 +203,12 @@ function push_item(item) {
   const [owner, repo] = _this.global_store.dest.split('/')
   const github = _this.store.github
 
-  // to avoid github conflict (409) and sha mismatch errors, we serialize pushes by chaining promises through store.last_push; optionally we can also enforce a delay which would serve as a debounce period that squashes changes into a single commit
-  return (_this.store.last_push = Promise.resolve(_this.store.last_push)
-    // .then(()=>_delay(1000))
-    .then(async () => {
+  // we sequentialize all github access via window._github
+  // helps reduce conflict errors and rate-limit violations
+  // we use window instead of item store to share across items (e.g. #updater)
+  // we use allSettled to resume the chain on errors/rejects
+  return (window._github = Promise.allSettled([window._github]).then(
+    async () => {
       let start = Date.now()
       const state = _this.store.items[item.saved_id]
       const text_sha = github_sha(item.text)
@@ -313,7 +315,48 @@ function push_item(item) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
       }
-    }))
+    }
+  ))
+}
+
+// auto-push consistent items on change
+function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  if (dependency) return // ignore dependency change (item text unchanged)
+  if (deleted) return // ignore deletion (keep on github under deleted id)
+  const item = _item(id)
+  if (remote) {
+    // update local state assuming remote auto-push
+    const sha = github_sha(item.text)
+    _this.store.items[item.saved_id] = { sha, remote_sha: sha }
+    return
+  }
+  auto_push_item(item)
+}
+
+// auto-pushes item, retrying if item is not saved yet
+function auto_push_item(item) {
+  if (!item.saved_id) {
+    // retry in 1s
+    setTimeout(() => auto_push_item(item), 1000)
+    return
+  }
+  // if state is missing, we create it w/ sha==remote_sha==undefined
+  const state =
+    _this.store.items[item.saved_id] || (_this.store.items[item.saved_id] = {})
+
+  // cancel auto-push w/ warning if item is inconsistent/missing in dest
+  if (state.sha != state.remote_sha) {
+    const dest = _this.global_store.dest
+    _this.warn(
+      `unable to auto-push item ${item.name} that is inconsistent or missing in ${dest}; manual /push or /pull is required`
+    )
+    return
+  }
+
+  // skip auto-push if state.sha is same as current sha of item; this means auto-push was triggered without a change OR due to a change that was pulled from github (see pull_item)
+  if (state.sha == github_sha(item.text)) return
+
+  push_item(item).catch(e => {}) // errors already logged
 }
 
 // command /push [name]
@@ -358,43 +401,4 @@ async function _on_command_push(name) {
 }
 
 // TODO: _on_command_pull() to replace /pull command
-
-// auto-push consistent items on change
-function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
-  if (dependency) return // ignore dependency change (item text unchanged)
-  if (deleted) return // ignore deletion (keep on github under deleted id)
-  const item = _item(id)
-  if (remote) {
-    // update local state assuming remote auto-push
-    const sha = github_sha(item.text)
-    _this.store.items[item.saved_id] = { sha, remote_sha: sha }
-    return
-  }
-  auto_push_item(item)
-}
-
-// auto-pushes item, retrying if item is not saved yet
-function auto_push_item(item) {
-  if (!item.saved_id) {
-    // retry in 1s
-    setTimeout(() => auto_push_item(item), 1000)
-    return
-  }
-  // if state is missing, we create it w/ sha==remote_sha==undefined
-  const state =
-    _this.store.items[item.saved_id] || (_this.store.items[item.saved_id] = {})
-
-  // cancel auto-push w/ warning if item is inconsistent/missing in dest
-  if (state.sha != state.remote_sha) {
-    const dest = _this.global_store.dest
-    _this.warn(
-      `unable to auto-push item ${item.name} that is inconsistent or missing in ${dest}; manual /push or /pull is required`
-    )
-    return
-  }
-
-  // skip auto-push if state.sha is same as current sha of item; this means auto-push was triggered without a change OR due to a change that was pulled from github (see pull_item)
-  if (state.sha == github_sha(item.text)) return
-
-  push_item(item).catch(e => {}) // errors already logged
-}
+// TODO: /history, /branch, and /compare commands
