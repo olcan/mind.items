@@ -74,11 +74,11 @@ async function init_updater() {
         window._github = Promise.allSettled([window._github]).then(async () => {
           while (modified_ids.length) {
             const item = _item(modified_ids.shift())
-            // if window was focused <1m ago, update immediately, otherwise
+            // if window was focused <5m ago, update immediately, otherwise
             // delay randomly by up to 50% of time since last focus (or 60s)
             const last_active_time = window._focus_time ?? 0
             const inactivity = Math.floor(Date.now() - last_active_time)
-            if (inactivity < 60000) {
+            if (inactivity < 5 * 60000) {
               await update_item(item)
               continue
             }
