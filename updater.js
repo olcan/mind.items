@@ -6,6 +6,7 @@ function _on_welcome() {
 }
 
 let modified_ids = []
+let update_modal
 
 async function init_updater() {
   _this.log(`initializing ...`)
@@ -62,41 +63,51 @@ async function init_updater() {
                 `${owner}/${repo}/${branch}`
             )
             // push to back of queue if not already in queue
-            if (!modified_ids.includes(item.id)) modified_ids.push(item.id)
+            if (!modified_ids.includes(item.id)) {
+              modified_ids.push(item.id)
+              // update modal if visible
+              if (update_modal) {
+                const modified_names = modified_ids.map(id => _item(id).name)
+                _modal_update({
+                  content:
+                    `${_this.name} is ready to update ${modified_ids.length} ` +
+                    `installed items: ${modified_names.join(', ')}`,
+                })
+              }
+            }
           }
         }
+      })
 
-        // update modified items
-        // sequentialize via global window._github
-        // use allSettled to resume the chain on errors/rejects
-        // avoids interleaving pulls/pushes across an item+embeds
-        // random delay (followed by check) can help reduce api load
-        window._github = Promise.allSettled([window._github]).then(async () => {
-          while (modified_ids.length) {
-            const item = _item(modified_ids.shift())
-            // if window was focused <5m ago, update immediately, otherwise
-            // delay randomly by up to 50% of time since last focus (or 60s)
-            const last_active_time = window._focus_time ?? 0
-            const inactivity = Math.floor(Date.now() - last_active_time)
-            if (inactivity < 5 * 60000) {
-              await update_item(item)
-              continue
-            }
-            const delay = Math.floor(Math.min(60000, 0.5 * inactivity))
-            _this.log(
-              `auto-update delayed ${delay}ms for ${item.name} ` +
-                `from ${source} due to window inactivity for ${inactivity}ms`
-            )
-            await _delay(delay)
-            const has_updates = await check_updates(item)
-            if (has_updates) await update_item(item)
-            else
-              _this.log(
-                `auto-update no longer needed for ${item.name} ` +
-                  `from ${source} after delayed for ${delay}ms`
-              )
-          }
+      // update modified items
+      // sequentialize via global window._github
+      // use allSettled to resume the chain on errors/rejects
+      // confirmation dialog is important to sequentialize across tabs/devices
+      window._github = Promise.allSettled([window._github]).then(async () => {
+        if (modified_ids.length == 0) return // nothing to do
+        const modified_names = modified_ids.map(id => _item(id).name)
+        update_modal = _modal({
+          content:
+            `${_this.name} is ready to update ${modified_ids.length} ` +
+            `installed items: ${modified_names.join(', ')}`,
+          confirm: 'Update',
+          cancel: 'Skip',
         })
+        const update = await update_modal
+        update_modal = null // modal dismissed
+        if (!update) {
+          _this.warn(
+            `updates skipped for ${modified_ids.length} ` +
+              `installed items: ${modified_names.join(', ')}`
+          )
+          modified_ids.length = 0 // clear queue
+          return
+        }
+        while (modified_ids.length) {
+          const has_updates = await check_updates(item)
+          if (has_updates) await update_item(item)
+          else _this.log(`update no longer needed for ${item.name}`)
+        }
       })
     })
 }
@@ -251,7 +262,7 @@ async function update_item(item) {
         })
         if (!confirmed) {
           _this.warn(
-            `auto-update cancelled for ${item.name} from ` +
+            `update cancelled for ${item.name} from ` +
               `${source}/${path} due to missing dependencies`
           )
           return
@@ -284,13 +295,13 @@ async function update_item(item) {
         const has_updates = await check_updates(item)
         if (has_updates && !modified_ids.includes(item.id)) {
           _this.log(
-            `auto-update restarted for ${item.name} from ` +
+            `update restarted for ${item.name} from ` +
               `${source}/${path} after dependencies installed`
           )
           modified_ids.push(item.id)
         } else {
           _this.log(
-            `auto-update no longer needed for ${item.name} from ` +
+            `update no longer needed for ${item.name} from ` +
               `${source}/${path} after dependencies installed`
           )
         }
@@ -373,8 +384,8 @@ async function update_item(item) {
     item.write(text, '' /*, { keep_time: true }*/)
     if (item.name != prev_name)
       _this.warn(
-        `auto-update for ${item.name} (was ${prev_name})` +
-          ` from ${source}/${path} renamed item`
+        `renaming update for ${item.name} (was ${prev_name})` +
+          ` from ${source}/${path}`
       )
 
     // invoke _on_update() if it exists
@@ -391,12 +402,10 @@ async function update_item(item) {
     }
 
     _this.log(
-      `auto-updated ${item.name} from ${source}/${path} ` +
+      `updated ${item.name} from ${source}/${path} ` +
         `in ${Date.now() - start}ms`
     )
   } catch (e) {
-    _this.error(
-      `auto-update failed for ${item.name} from ${source}/${path}: ${e}`
-    )
+    _this.error(`update failed for ${item.name} from ${source}/${path}: ${e}`)
   }
 }
