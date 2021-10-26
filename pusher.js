@@ -392,7 +392,7 @@ async function _on_command_push(label) {
     const s = items.length > 1 ? 's' : ''
     if (items.length == 0) {
       alert(`/push: ${label} not found`)
-      return '/push ' + name
+      return '/push ' + label
     }
     _modal({
       content: `Pushing ${items.length} item${s} ...`,
@@ -422,7 +422,7 @@ async function _on_command_pull(label) {
     const s = items.length > 1 ? 's' : ''
     if (items.length == 0) {
       alert(`/pull: ${label} not found`)
-      return '/pull ' + name
+      return '/pull ' + label
     }
     _modal({
       content: `Pulling ${items.length} item${s} ...`,
