@@ -253,15 +253,21 @@ async function _on_command_push(name) {
       })
     } else {
       // push all items
-      // TODO: indicate progress and item name!
+      const items = _items()
       _modal({
-        content: `Pushing ${_items().length} items ...`,
+        content: `Pushing ${items.length} items ...`,
         background: 'block',
       })
-      for (let item of _items()) await push_item(item)
+      for (const [i, item] of items.entries()) {
+        _modal_update({
+          content: `Pushing ${item.name} (${i + 1}/${items.length}) ...`,
+        })
+        await push_item(item)
+      }
       create_branch('last_push')
       await _modal_update({
         content: `Pushed all ${_items().length} items`,
+        confirm: 'OK',
         background: 'confirm',
       })
     }
