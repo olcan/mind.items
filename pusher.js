@@ -229,7 +229,6 @@ function push_item(item) {
         })
         // create tree based off the tree of the latest commit
         // tree contains item file and symlink iff item is named
-        let tree = [{ path, mode: '100644', type: 'blob', content: item.text }]
         const { data: { ...tree } = {} } = await github.git.createTree({
           owner,
           repo,
