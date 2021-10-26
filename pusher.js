@@ -281,6 +281,7 @@ function push_item(item) {
             sha: commit.sha,
           })
         } catch (e) {
+          // TODO: investigate "Reference cannot be updated" error, and consider allowing that also, and perhaps introducing a delay before retries ...
           if (e.message == 'Update is not a fast forward') {
             _this.warn(
               `push failed for ${item.name} due to unknown (external) ` +
