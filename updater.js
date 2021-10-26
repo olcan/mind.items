@@ -71,20 +71,31 @@ async function init_updater() {
         // use allSettled to resume the chain on errors/rejects
         // avoids interleaving pulls/pushes across an item+embeds
         // random delay (followed by check) can help reduce api load
-        window._github = Promise.allSettled([window._github])
-          // .then(() => _delay(Math.random() * 10000))
-          .then(async () => {
-            while (modified_ids.length) {
-              const item = _item(modified_ids.shift())
-              const has_updates = await check_updates(item)
-              if (has_updates) await update_item(item)
-              else
-                _this.log(
-                  `auto-update already done for ${item.name} ` +
-                    `from ${source} (likely on another tab/device)`
-                )
+        window._github = Promise.allSettled([window._github]).then(async () => {
+          while (modified_ids.length) {
+            const item = _item(modified_ids.shift())
+            // if window was focused <1m ago, update immediately, otherwise
+            // delay randomly by up to 50% of time since last focus (or 60s)
+            const inactive_time = Math.floor(Date.now() - window._focus_time)
+            if (inactive_time < 60000) {
+              await update_item(item)
+              continue
             }
-          })
+            const delay = Math.floor(Math.min(60000, 0.5 * inactive_time))
+            _this.log(
+              `auto-update delayed ${delay}ms for ${item.name} ` +
+                `from ${source} due to window inactivity for ${inactive_time}ms`
+            )
+            await _delay(delay)
+            const has_updates = await check_updates(item)
+            if (has_updates) await update_item(item)
+            else
+              _this.log(
+                `auto-update no longer needed for ${item.name} ` +
+                  `from ${source} after delayed for ${delay}ms`
+              )
+          }
+        })
       })
     })
 }
