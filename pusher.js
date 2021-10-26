@@ -219,6 +219,9 @@ function push_item(item) {
         // })
 
         // get latest commit
+        // NOTE: not strictly necessary if latest commit/tree hash is kept in
+        // global_store, but overhead is unclear and not a bottleneck so far
+        // TODO: if repo has 0 commits, then below code should work by dropping base_tree and parents to create a "root commit", but this needs testing by renaming the live repo and temporarily replacing it with an empty one
         const {
           data: [latest_commit],
         } = await github.repos.listCommits({
@@ -259,7 +262,7 @@ function push_item(item) {
           tree: tree.sha,
         })
         // update master to point to this commit
-        // if last commit is outdated, this fails with
+        // NOTE: if last commit is outdated, this fails with
         //   e.status==422, e.message=="Update is not a fast forward"
         await github.git.updateRef({
           owner,
