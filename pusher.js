@@ -221,9 +221,6 @@ function push_item(item) {
         // })
 
         // get latest commit
-        // NOTE: not strictly necessary if latest commit/tree hash is kept in
-        // global_store, but overhead is unclear and not a bottleneck so far
-        // TODO: if repo has 0 commits, then below code should work by dropping base_tree and parents to create a "root commit", but this needs testing by renaming the live repo and temporarily replacing it with an empty one
         // const {
         //   data: [latest_commit],
         // } = await github.repos.listCommits({
@@ -235,10 +232,11 @@ function push_item(item) {
         // const commit_sha = latest_commit.sha
         // const tree_sha = latest_commit.commit.tree.sha
         const commit_sha = _this.global_store.commit_sha
-        const tree_sha = _this.global_store.commit_sha
+        const tree_sha = _this.global_store.tree_sha
 
         // create tree based off the tree of the latest commit
         // tree contains item file and symlink iff item is named
+        // NOTE: drop base_tree for root commit on empty repo
         const { data: { ...tree } = {} } = await github.git.createTree({
           owner,
           repo,
@@ -261,6 +259,7 @@ function push_item(item) {
           ],
         })
         // create commit for this tree based off the last commit
+        // NOTE: drop parents for root commit on empty repo
         const { data: { ...commit } = {} } = await github.git.createCommit({
           owner,
           repo,
@@ -269,15 +268,33 @@ function push_item(item) {
           tree: tree.sha,
         })
         // update master to point to this commit
-        // NOTE: if last commit is outdated, this fails with
-        //   e.status==422, e.message=="Update is not a fast forward"
-        //   so we could detect that and retry after listCommits
-        await github.git.updateRef({
-          owner,
-          repo,
-          ref: 'heads/master',
-          sha: commit.sha,
-        })
+        try {
+          await github.git.updateRef({
+            owner,
+            repo,
+            ref: 'heads/master',
+            sha: commit.sha,
+          })
+        } catch (e) {
+          if (e.message == 'Update is not a fast forward') {
+            _this.warn(
+              `push failed for ${item.name} due to unknown (external) commits; retrying after fetching latest commit ...`
+            )
+            const {
+              data: [latest_commit],
+            } = await github.repos.listCommits({
+              owner,
+              repo,
+              sha: 'master',
+              per_page: 1,
+            })
+            _this.global_store.commit_sha = latest_commit.sha
+            _this.global_store.tree_sha = latest_commit.commit.tree.sha
+            setTimeout(() => push_item(item)) // retry
+            return
+          }
+          throw e
+        }
         _this.global_store.commit_sha = commit.sha
         _this.global_store.tree_sha = tree.sha
         state.sha = state.remote_sha = text_sha // resume auto-push
