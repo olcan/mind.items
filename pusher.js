@@ -489,4 +489,5 @@ async function _on_command_branch(name) {
   alert(`created branch ${name}`)
 }
 
-// TODO: /branch, and /compare commands ...
+// TODO: /compare
+// TODO: clean up #github after switch
