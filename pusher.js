@@ -453,11 +453,11 @@ async function _on_command_history(name) {
   }
   const item = _item(name)
   if (!item) {
-    alert(`item ${name} missing or ambiguous`)
+    alert(`item '${name}' missing or ambiguous`)
     return '/history ' + name
   }
   if (!item.saved_id) {
-    alert(`history not available for unsaved item ${name}`)
+    alert(`history not available for unsaved ${name}`)
     return '/history ' + name
   }
   if (!_this.global_store.dest) {
