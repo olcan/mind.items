@@ -3,9 +3,7 @@ function _on_welcome() {
 }
 
 // TODO: implement pusher based on (simplified) #github, refactoring common code later into another item, perhaps #github.
-// TODO: pusher should ALSO push items by name under names, keeping in mind there is no delete/move, so names can get outdated
 // TODO: would be nice if pusher can handle side-push more gracefully, live-tracking changes across devices/tabs like regular pushes
-// TODO: can define commands like /push, /pull, etc in this file!
 
 async function init_pusher() {
   // look up push destination from global store, or from user prompt
