@@ -79,9 +79,9 @@ async function init_pusher() {
     tree_sha,
     recursive: true,
   })
-  const tree_sha = new Map(tree.map(n => [n.path, n.sha]))
+  const path_sha = new Map(tree.map(n => [n.path, n.sha]))
   _this.log(
-    `retrieved tree (${tree_sha.size} nodes) in ${Date.now() - start}ms`
+    `retrieved tree (${path_sha.size} nodes) in ${Date.now() - start}ms`
   )
 
   // initialize store.items
@@ -93,12 +93,12 @@ async function init_pusher() {
       continue
     }
     const path = `items/${item.saved_id}.md`
-    const remote_sha = tree_sha.get(path)
+    const remote_sha = path_sha.get(path)
     const sha = github_sha(item.text)
     _this.store.items[item.saved_id] = {
       path,
       sha: github_sha(item.text),
-      remote_sha: tree_sha.get(path),
+      remote_sha: path_sha.get(path),
     }
   }
   _this.log(
