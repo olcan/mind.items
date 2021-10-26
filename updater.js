@@ -359,7 +359,7 @@ async function update_item(item) {
     //   helps avoid any redundant re-rendering of the item
     // log warning if auto-update changed item name
     const prev_name = item.name
-    item.write(text, '', { keep_time: true })
+    item.write(text, '' /*, { keep_time: true }*/)
     if (item.name != prev_name)
       _this.warn(
         `auto-update for ${item.name} (was ${prev_name})` +
