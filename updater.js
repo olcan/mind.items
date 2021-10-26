@@ -284,6 +284,7 @@ async function update_item(item) {
     }
 
     // update attributes, to be saved on item.write below
+    // TODO: handle the case when attr.sha has already been updated on another tab/device!
     attr.sha = sha // new commit sha
     attr.embeds = null // new embeds filled in below (in case embeds changed)
     attr.token = token // token for future updates
