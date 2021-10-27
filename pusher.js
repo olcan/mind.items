@@ -133,8 +133,7 @@ async function init_pusher() {
   _this.log(`initialized`)
 }
 
-// creates branch with given name
-// deletes/replaces any existing branch
+// creates/updates non-master branch to coincide with master branch
 async function create_branch(name) {
   if (name == 'master') throw new Error('can not create master branch')
   if (!_this.global_store.dest) throw new Error('missing destination')
@@ -142,26 +141,21 @@ async function create_branch(name) {
   const [owner, repo] = _this.global_store.dest.split('/')
   const github = _this.store.github
   // get master branch sha
-  const {
-    data: [
-      {
-        object: { sha },
-      },
-    ],
-  } = await github.git.listMatchingRefs({
-    owner,
-    repo,
-    ref: 'heads/master',
-  })
-  // delete branch in case it exists
+  const sha = (
+    await github.repos.getBranch({
+      owner,
+      repo,
+      branch: 'master',
+    })
+  )?.data?.commit?.sha
+  if (!sha) throw new Error(`can not branch empty repo ${owner}/${repo}`)
+  // update branch if it exists, create new otherwise
   try {
-    await github.git.deleteRef({ owner, repo, ref: 'heads/' + name })
+    await github.git.updateRef({ owner, repo, ref: 'heads/' + name, sha })
   } catch (e) {
-    // warn if anything other than a 'missing ref' error
-    if (e.message != 'Reference does not exist')
-      _this.warn(`delete failed for branch ${name}: ${e}`)
+    // rethrow anything other than a 'does not exist' error
+    if (e.message != 'Reference does not exist') throw e
   }
-  // (re-)create branch
   await github.git.createRef({ owner, repo, ref: 'refs/heads/' + name, sha })
 }
 
