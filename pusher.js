@@ -485,5 +485,4 @@ async function _on_command_branch(name) {
   alert(`${action} branch ${name}`)
 }
 
-// TODO: /compare
-// TODO: clean up #github after switch
+// TODO: implement side-push, then delete #github
