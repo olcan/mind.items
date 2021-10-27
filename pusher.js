@@ -128,13 +128,14 @@ async function init_pusher() {
     )
 
   // create branch last_init for comparisons
-  create_branch('last_init')
+  update_branch('last_init')
 
   _this.log(`initialized`)
 }
 
-// creates/updates non-master branch to coincide with master branch
-async function create_branch(name) {
+// updates/creates non-master branch to coincide with master branch
+// returns 'updated' or 'created' depending on action taken
+async function update_branch(name) {
   if (name == 'master') throw new Error('can not create master branch')
   if (!_this.global_store.dest) throw new Error('missing destination')
   if (!_this.store.github) throw new Error('missing github client')
@@ -152,11 +153,13 @@ async function create_branch(name) {
   // update branch if it exists, create new otherwise
   try {
     await github.git.updateRef({ owner, repo, ref: 'heads/' + name, sha })
+    return 'updated'
   } catch (e) {
     // rethrow anything other than a 'does not exist' error
     if (e.message != 'Reference does not exist') throw e
+    await github.git.createRef({ owner, repo, ref: 'refs/heads/' + name, sha })
+    return 'created'
   }
-  await github.git.createRef({ owner, repo, ref: 'refs/heads/' + name, sha })
 }
 
 // computes github sha, see https://stackoverflow.com/a/39874235
@@ -397,7 +400,7 @@ async function _on_command_push(label) {
       })
       await push_item(item)
     }
-    create_branch('last_push')
+    update_branch('last_push')
     await _modal_update({
       content: `Pushed ${items.length} item${s}`,
       confirm: 'OK',
@@ -427,7 +430,7 @@ async function _on_command_pull(label) {
       })
       await pull_item(item)
     }
-    create_branch('last_pull')
+    update_branch('last_pull')
     await _modal_update({
       content: `Pulled ${items.length} item${s}`,
       confirm: 'OK',
@@ -478,8 +481,8 @@ async function _on_command_branch(name) {
     return '/branch ' + name
   }
   const [owner, repo] = _this.global_store.dest.split('/')
-  await create_branch(name)
-  alert(`created branch ${name}`)
+  const action = await update_branch(name)
+  alert(`${action} branch ${name}`)
 }
 
 // TODO: /compare
