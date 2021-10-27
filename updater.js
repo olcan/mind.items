@@ -198,6 +198,10 @@ async function check_updates(item) {
   if (updates.size == 0) {
     _this.log(`no updates to ${item.name} from ${source}/${path}`)
     return null
+  } else {
+    _this.log(
+      `found updates to ${item.name} from ${source} at paths: ` + updates.keys()
+    )
   }
   return updates
 }
