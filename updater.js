@@ -195,7 +195,11 @@ async function check_updates(item) {
   } catch (e) {
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
-  return updates.size ? updates : null
+  if (updates.size == 0) {
+    _this.log(`no updates to ${item.name} from ${source}/${path}`)
+    return null
+  }
+  return updates
 }
 
 // resolves embed path relative to container item (attr) path
