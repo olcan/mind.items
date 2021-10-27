@@ -163,7 +163,7 @@ async function check_updates(item) {
   const attr = item.attr
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
-  _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
+  // _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
   const updates = new Map() // path->hash map of available updates
@@ -196,11 +196,11 @@ async function check_updates(item) {
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
   if (updates.size == 0) {
-    _this.log(`no updates to ${item.name} from ${source}/${path}`)
+    // _this.log(`no updates to ${item.name} from ${source}/${path}`)
     return null
   } else {
     _this.log(
-      `found updates to ${item.name} from ${source} at paths: ` +
+      `found ${updates.size} updates to ${item.name} from ${source} at paths: ` +
         Array.from(updates.keys()).join(', ')
     )
   }
