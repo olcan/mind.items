@@ -4,9 +4,9 @@
 - `/history name` opens change history for item `name`.
 - `/branch name` creates/updates branch `name` from master branch.
 - `/compare [base]` opens comparison (diff) of all changes (in master branch) since branch `base`. Base can be any branch in the repo, including one of the following auto-generated branches:
-  - `last_init` (default) for changes since page init/reload
-  - `last_push` for changes since last manual push
-  - `last_pull` for changes since last manual pull
+  - `last_init` (_default_) for changes since page init/reload
+  - `last_push` for changes since last manual `/push`
+  - `last_pull` for changes since last manual `/pull`
 
 ```js_removed:pusher.js
 // pusher.js
