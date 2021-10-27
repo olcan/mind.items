@@ -12,8 +12,8 @@ async function init_updater() {
   _this.log(`initializing ...`)
   // check for updates on page init
   for (let item of installed_named_items()) {
-    const has_updates = await check_updates(item)
-    if (has_updates) await update_item(item)
+    const updates = await check_updates(item)
+    if (updates) await update_item(item, updates)
   }
 
   // listen for updates through firebase
@@ -41,17 +41,13 @@ async function init_updater() {
 
         // scan items for installed items w/ modified paths
         for (let item of installed_named_items()) {
-          if (
-            item.attr.owner != owner ||
-            item.attr.repo != repo ||
-            item.attr.branch != branch
-          )
+          const attr = item.attr
+          if (attr.owner != owner || attr.repo != repo || attr.branch != branch)
             return // item not from modified repo/branch
           // calculate item paths, including any embeds, removing slash prefixes
-          let paths = [
-            item.attr.path,
-            ...(item.attr.embeds?.map(e => e.path) ?? []),
-          ].map(path => path.replace(/^\//, ''))
+          let paths = [attr.path, ...(attr.embeds?.map(e => e.path) ?? [])].map(
+            path => path.replace(/^\//, '')
+          )
           // update item if any paths were modified in any commits
           if (
             commits.some(commit =>
@@ -107,8 +103,8 @@ async function init_updater() {
         }
         while (modified_ids.length) {
           const item = _item(modified_ids.shift())
-          const has_updates = await check_updates(item)
-          if (has_updates) await update_item(item)
+          const updates = await check_updates(item)
+          if (updates) await update_item(item, updates)
           else _this.log(`update no longer needed for ${item.name}`)
         }
       })
@@ -161,7 +157,7 @@ async function github_token(item) {
   return token ? (_this.global_store.token = token) : null
 }
 
-// checks for updates to item, returns true iff updated
+// checks for updates to item, returns path->hash map of updates or null
 // similar to /_updates command defined in index.svelte in mind.page repo
 async function check_updates(item) {
   const attr = item.attr
@@ -170,6 +166,7 @@ async function check_updates(item) {
   _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
+  const updates = new Map() // path->hash map of available updates
   try {
     // check for change to item
     const {
@@ -179,7 +176,7 @@ async function check_updates(item) {
       sha: attr.branch,
       per_page: 1,
     })
-    if (sha != attr.sha) return true
+    if (sha != attr.sha) updates.set(path, sha)
 
     // check for changes to embeds
     if (attr.embeds) {
@@ -192,21 +189,26 @@ async function check_updates(item) {
           sha: attr.branch,
           per_page: 1,
         })
-        if (sha != embed.sha) return true
+        if (sha != embed.sha) updates.set(embed.path, sha)
       }
     }
   } catch (e) {
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
-  _this.log(`no updates to ${item.name} from ${source}/${path}`)
-  return false // no updates
+  return updates.size ? updates : null
+}
+
+// resolves embed path relative to container item (attr) path
+function resolve_embed_path(path, attr) {
+  if (path.startsWith('/') || !attr.path.includes('/', 1)) return path
+  return attr.path.substr(0, attr.path.indexOf('/', 1)) + '/' + path
 }
 
 // updates item from github source
+// applies specific updates (path->sha map) returned by check_updates
 // similar to /_update command defined in index.svelte in mind.page repo
-// main difference is that this is intended as an auto-update in background
 // allows item to be renamed with a warning to console
-async function update_item(item) {
+async function update_item(item, updates) {
   const start = Date.now()
   const attr = item.attr
   const { owner, repo, branch, path } = attr
@@ -215,165 +217,182 @@ async function update_item(item) {
   const github = token ? new Octokit({ auth: token }) : new Octokit()
   _this.log(`auto-updating ${item.name} from ${source}/${path} ...`)
   try {
-    // retrieve commit sha (allows comparison to later versions)
-    // cancel if already updated on another tab/device
-    const {
-      data: [{ sha } = {}],
-    } = await github.repos.listCommits({
-      owner,
-      repo,
-      sha: branch,
-      path,
-      per_page: 1,
-    })
-    if (!sha) throw new Error(`missing commit for ${path}`)
-    _this.debug(`listCommits(${path}) sha: ${sha}`)
-    // retrieve text at this commit sha
-    const { data } = await github.repos.getContent({
-      owner,
-      repo,
-      ref: sha, // content in latest commit
-      path,
-    })
-    let text = decodeBase64(data.content)
+    // compute updated text, reusing existing text if no updates
+    // note retrieved text is pre-embed, existing text is post-embed
+    let sha, text
+    if (updates.has(path)) {
+      sha = updates.get(path)
+      text = decodeBase64(
+        (
+          await github.repos.getContent({
+            owner,
+            repo,
+            ref: sha, // content in latest commit
+            path,
+          })
+        )?.data?.content ?? ''
+      )
+      // trim spaces, esp. since github likes to add an extra line
+      // this is fine since we use commit sha to detect changes
+      text = text.trim()
+    } else {
+      sha = attr.sha
+      text = item.text
+      // undo embeds based on original bodies in attr.embeds[].body
+      // necessary since we update attr.embeds[] (w/ orig bodies) below
+      if (attr.embeds) {
+        text = text.replace(
+          /```(\S+):(\S+?)\n(.*?)\n```/gs,
+          (m, pfx, sfx, body) => {
+            if (!sfx.includes('.')) return m // not path
+            const path = resolve_embed_path(sfx, attr)
+            body = item.attr.embeds.find(e => e.path == path).body
+            return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
+          }
+        )
+      }
+    }
 
-    // install missing dependencies base on new text
+    // install missing dependencies based on updated text
     // dependency paths MUST match the (resolved) hidden tags
     // confirmation is required to prevent installs at multiple tabs/devices
     // dependencies are rechecked and update is checked and restarted as needed
     // this must be done before any changes to attr (e.g. attr.sha) below
-    const label = _parse_label(text)
-    if (label) {
-      const deps = _resolve_tags(
-        label,
-        _parse_tags(text).hidden.filter(t => !_special_tag(t))
-      )
-      const missing_deps = deps.filter(dep => !_exists(dep))
-      if (missing_deps.length) {
-        _this.log(
-          `confirming installation of ${missing_deps.length}` +
-            ` missing dependencies (${missing_deps.join(', ')})` +
-            ` to continue updating ${item.name} from ${source}/${path} ...`
+    if (updates.has(path)) {
+      const label = _parse_label(text)
+      if (label) {
+        const deps = _resolve_tags(
+          label,
+          _parse_tags(text).hidden.filter(t => !_special_tag(t))
         )
-        const confirmed = await _modal({
-          content:
-            `${_this.name} needs to install ${missing_deps.length}` +
-            ` missing dependencies (${missing_deps.join(', ')})` +
-            ` to continue updating ${item.name} from ${source}/${path} ...`,
-          confirm: 'Continue',
-          cancel: 'Cancel',
-        })
-        if (!confirmed) {
-          _this.warn(
-            `update cancelled for ${item.name} from ` +
-              `${source}/${path} due to missing dependencies`
+        const missing_deps = deps.filter(dep => !_exists(dep))
+        if (missing_deps.length) {
+          _this.log(
+            `confirming installation of ${missing_deps.length}` +
+              ` missing dependencies (${missing_deps.join(', ')})` +
+              ` to continue updating ${item.name} from ${source}/${path} ...`
           )
-          return
-        }
-        for (let dep of deps) {
-          if (_exists(dep)) {
-            if (!_exists(dep, false /*allow_multiple*/))
-              _this.warn(`invalid (ambiguous) dependency ${dep} for ${label}`)
-            continue
-          }
-          _this.log(`installing dependency ${dep} for ${label} ...`)
-          const dep_path = dep.slice(1) // path assumed same as tag
-          const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
-            token || ''
-          }`
-          const install = MindBox.create(command) // trigger install
-          if (!(install instanceof Promise))
-            throw new Error(`invalid return from /_install command`)
-          const item = await install
-          if (!item)
-            throw new Error(`failed to install dependency ${dep} for ${label}`)
-          if (item.name.toLowerCase() != dep.toLowerCase())
-            throw new Error(
-              `invalid name ${item.name} for installed ` +
-                `dependency ${dep} of ${label}`
+          const confirmed = await _modal({
+            content:
+              `${_this.name} needs to install ${missing_deps.length}` +
+              ` missing dependencies (${missing_deps.join(', ')})` +
+              ` to continue updating ${item.name} from ${source}/${path} ...`,
+            confirm: 'Continue',
+            cancel: 'Cancel',
+          })
+          if (!confirmed) {
+            _this.warn(
+              `update cancelled for ${item.name} from ` +
+                `${source}/${path} due to missing dependencies`
             )
-          _this.log(`installed dependency ${dep} for ${label}`)
+            return
+          }
+          for (let dep of deps) {
+            if (_exists(dep)) {
+              if (!_exists(dep, false /*allow_multiple*/))
+                _this.warn(`invalid (ambiguous) dependency ${dep} for ${label}`)
+              continue
+            }
+            _this.log(`installing dependency ${dep} for ${label} ...`)
+            const dep_path = dep.slice(1) // path assumed same as tag
+            const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
+              token || ''
+            }`
+            const install = MindBox.create(command) // trigger install
+            if (!(install instanceof Promise))
+              throw new Error(`invalid return from /_install command`)
+            const item = await install
+            if (!item)
+              throw new Error(
+                `failed to install dependency ${dep} for ${label}`
+              )
+            if (item.name.toLowerCase() != dep.toLowerCase())
+              throw new Error(
+                `invalid name ${item.name} for installed ` +
+                  `dependency ${dep} of ${label}`
+              )
+            _this.log(`installed dependency ${dep} for ${label}`)
+          }
+          // requeue for update if still needed
+          const has_updates = await check_updates(item)
+          if (has_updates && !modified_ids.includes(item.id)) {
+            _this.log(
+              `update restarted for ${item.name} from ` +
+                `${source}/${path} after dependencies installed`
+            )
+            modified_ids.push(item.id)
+          } else {
+            _this.log(
+              `update no longer needed for ${item.name} from ` +
+                `${source}/${path} after dependencies installed`
+            )
+          }
+          return // requeued
         }
-        // requeue for update if still needed
-        const has_updates = await check_updates(item)
-        if (has_updates && !modified_ids.includes(item.id)) {
-          _this.log(
-            `update restarted for ${item.name} from ` +
-              `${source}/${path} after dependencies installed`
-          )
-          modified_ids.push(item.id)
-        } else {
-          _this.log(
-            `update no longer needed for ${item.name} from ` +
-              `${source}/${path} after dependencies installed`
-          )
-        }
-        return // requeued
       }
     }
 
     // update attributes, to be saved on item.write below
     attr.sha = sha // new commit sha
-    attr.embeds = null // new embeds filled in below (in case embeds changed)
     attr.token = token // token for future updates
 
-    // pre-process text for whitespace and embeds
-    text = text.trim() // trim any spaces (github likes to add extra line)
-    // extract colon-suffixed embed path in block types
-    let embeds = []
-    text = text.replace(/```\S+:(\S+?)\n(.*?)\n```/gs, (m, sfx, body) => {
-      if (sfx.includes('.')) {
-        // process & drop suffix as embed path
-        let path = sfx // may be relative to container item path (attr.path)
-        if (!path.startsWith('/') && attr.path.includes('/', 1))
-          path = attr.path.substr(0, attr.path.indexOf('/', 1)) + '/' + path
-        embeds.push(path)
-      }
-      return m
-    })
-
-    // fetch embed text and latest commit sha
+    // extract existing embed text from current item text
+    // to avoid retrieving text for embeds w/o updates
     let embed_text = {}
+    if (attr.embeds) {
+      for (let [m, pfx, sfx, body] of item.text.matchAll(
+        /```(\S+):(\S+?)\n(.*?)\n```/gs
+      )) {
+        if (!sfx.includes('.')) continue // not path
+        const path = resolve_embed_path(sfx, attr)
+        embed_text[path] = body
+        body = attr.embeds.find(e => e.path == path).body
+        return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
+      }
+    }
+
+    // extract embed paths from updated text
+    // number of embeds can change here if item text is updated
+    let embeds = []
+    for (let [m, sfx, body] of text.matchAll(/```\S+:(\S+?)\n(.*?)\n```/gs))
+      if (sfx.includes('.')) embeds.push(resolve_embed_path(sfx, attr))
+
+    // update attr.embeds array
+    const prev_embeds = attr.embeds
+    attr.embeds = null // start w/ null = no embeds
     for (let path of _.uniq(embeds)) {
       try {
-        const {
-          data: [{ sha } = {}],
-        } = await github.repos.listCommits({
-          owner,
-          repo,
-          sha: branch,
-          path,
-          per_page: 1,
-        })
-        if (!sha) throw new Error(`missing commit for embed ${path}`)
-        _this.debug(`listCommits(${path}) sha: ${sha}`)
-        const { data } = await github.repos.getContent({
-          owner,
-          repo,
-          ref: sha, // content in latest commit
-          path,
-        })
-        embed_text[path] = decodeBase64(data.content)
+        // start w/ sha of existing embed, or undefined if missing
+        let sha = prev_embeds?.find(e => e.path == path)?.sha
+        if (!sha /* new embed*/ || updates.has(path) /* updated */) {
+          sha = updates.get(path)
+          embed_text[path] = decodeBase64(
+            (
+              await github.repos.getContent({
+                owner,
+                repo,
+                ref: sha, // content in latest commit
+                path,
+              })
+            )?.data?.content ?? ''
+          )
+        }
         attr.embeds = (attr.embeds ?? []).concat({ path, sha })
       } catch (e) {
         throw new Error(`failed to embed '${path}': ${e}`)
       }
     }
 
-    // replace embed block body with embed contents
+    // replace embed block body with (updated) embed text
     text = text.replace(
       /```(\S+):(\S+?)\n(.*?)\n```/gs,
       (m, pfx, sfx, body) => {
-        if (sfx.includes('.')) {
-          let path = sfx // may be relative to container item path (attr.path)
-          if (!path.startsWith('/') && attr.path.includes('/', 1))
-            path = attr.path.substr(0, attr.path.indexOf('/', 1)) + '/' + path
-          // store original body in attr.embeds
-          // only last body is retained for multiple embeds of same path
-          attr.embeds.find(e => e.path == path).body = body
-          return '```' + pfx + ':' + sfx + '\n' + embed_text[path] + '\n```'
-        }
-        return m
+        if (!sfx.includes('.')) return m // not path
+        const path = resolve_embed_path(sfx, attr)
+        // store original body in attr.embeds
+        // only last body is retained for multiple embeds of same path
+        attr.embeds.find(e => e.path == path).body = body
+        return '```' + pfx + ':' + sfx + '\n' + embed_text[path] + '\n```'
       }
     )
 
