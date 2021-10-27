@@ -485,4 +485,18 @@ async function _on_command_branch(name) {
   alert(`${action} branch ${name}`)
 }
 
+// command /compare base
+async function _on_command_compare(base) {
+  if (!base) base = 'last_init'
+  if (!_this.global_store.dest) {
+    alert(`comparison not available due to disabled ${_this.name}`)
+    return '/compare ' + base
+  }
+  const [owner, repo] = _this.global_store.dest.split('/')
+  setTimeout(() => {
+    // to prevent cmd key from opening tab in background ...
+    window.open(`https://github.com/${owner}/${repo}/compare/${base}...master`)
+  })
+}
+
 // TODO: implement side-push, then delete #github
