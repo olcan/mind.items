@@ -146,7 +146,7 @@ async function github_token(item) {
   // if still missing, prompt user for token and store in local storage
   if (!token) {
     token = await _modal({
-      content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for auto-updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
+      content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
       confirm: 'Use Token',
       cancel: 'Skip',
       input: '',
@@ -219,7 +219,7 @@ async function update_item(item, updates) {
   const source = `${owner}/${repo}/${branch}`
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
-  _this.log(`auto-updating ${item.name} from ${source}/${path} ...`)
+  _this.log(`updating ${item.name} from ${source}/${path} ...`)
   try {
     // compute updated text, reusing existing text if no updates
     // note retrieved text is pre-embed, existing text is post-embed
