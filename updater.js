@@ -354,8 +354,6 @@ async function update_item(item, updates) {
         if (!sfx.includes('.')) continue // not path
         const path = resolve_embed_path(sfx, attr)
         embed_text[path] = body
-        body = attr.embeds.find(e => e.path == path).body
-        return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
       }
     }
 
