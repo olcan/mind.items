@@ -1,5 +1,5 @@
 function _on_welcome() {
-  init_pusher()
+  init_pusher() // test
 }
 
 // TODO: implement pusher based on (simplified) #github, refactoring common code later into another item, perhaps #github.
