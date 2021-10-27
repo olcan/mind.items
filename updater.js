@@ -2,7 +2,7 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater() // test
+  init_updater()
 }
 
 let modified_ids = []
@@ -200,7 +200,8 @@ async function check_updates(item) {
     return null
   } else {
     _this.log(
-      `found updates to ${item.name} from ${source} at paths: ` + updates.keys()
+      `found updates to ${item.name} from ${source} at paths: ` +
+        _.keys(updates).join(', ')
     )
   }
   return updates
