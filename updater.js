@@ -201,7 +201,7 @@ async function check_updates(item) {
   } else {
     _this.log(
       `found updates to ${item.name} from ${source} at paths: ` +
-        _.keys(updates).join(', ')
+        Array.from(updates.keys()).join(', ')
     )
   }
   return updates
