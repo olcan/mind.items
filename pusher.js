@@ -416,7 +416,7 @@ async function _side_push_item(item) {
     // if editable, also side-push embeds to own paths in source_dest
     if (item.attr?.editable && item.attr?.embeds) {
       for (let embed of item.attr?.embeds) {
-        const dest = assign(source_dest, { path: embed.path })
+        const dest = _.assign(source_dest, { path: embed.path })
         const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
         const sidepush_text = embed_text[embed.path]
         if (!defined(sidepush_text))
