@@ -335,7 +335,7 @@ async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
   try {
-    let dests = compact_flat([item.global_store.github?.sidepush])
+    let dests = [item.global_store.github?.sidepush].flat().filter(d => d)
     const source_dest = pick(item.attr, ['owner', 'repo', 'path', 'branch'])
     if (item.attr?.editable) dests.push(source_dest)
     // embed block text & type by path (last block for each path)
