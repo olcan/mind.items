@@ -333,6 +333,7 @@ function push_item(item) {
 // side-push is always "forced", i.e. replaces anything at destination
 function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
+  const github = _this.store.github
   try {
     let dests = compact_flat([item.global_store.github?.sidepush])
     const source_dest = pick(item.attr, ['owner', 'repo', 'path', 'branch'])
