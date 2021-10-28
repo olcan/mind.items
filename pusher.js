@@ -324,6 +324,12 @@ function push_item(item) {
   ))
 }
 
+// resolves embed path relative to container item (attr) path
+function resolve_embed_path(path, attr) {
+  if (path.startsWith('/') || !attr.path.includes('/', 1)) return path
+  return attr.path.substr(0, attr.path.indexOf('/', 1)) + '/' + path
+}
+
 // side-pushes item to other (private or public) repos on github
 // owner, repo, path are required, branch is optional (default master)
 // destinations can be specified in item.global_store._pusher.sidepush
@@ -356,12 +362,7 @@ async function _side_push_item(item) {
           /```(\S+):(\S+?)\n(.*?)\n```/gs,
           (m, pfx, sfx, body) => {
             if (sfx.includes('.')) {
-              let path = sfx // may be relative to item path
-              if (!path.startsWith('/') && item.attr.path.includes('/', 1))
-                path =
-                  item.attr.path.substr(0, item.attr.path.indexOf('/', 1)) +
-                  '/' +
-                  path
+              const path = resolve_embed_path(sfx, item.attr)
               embed_text[path] = body // for push below
               embed_type[path] = pfx + ':' + sfx // for commit prompt below
               body = item.attr.embeds.find(e => e.path == path).body
@@ -452,7 +453,7 @@ async function _side_push_item(item) {
           const message = await _modal({
             content:
               `Enter commit message to push embed block ` +
-              `\`${embed_type[path]}\` in \`${item.name}\` ` +
+              `\`${embed_type[embed.path]}\` in \`${item.name}\` ` +
               `back to its source file [${dest.path}](${embed_source}):`,
             confirm: 'Push',
             cancel: 'Cancel',
