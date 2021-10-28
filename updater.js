@@ -36,9 +36,7 @@ async function init_updater() {
             `in ${source} (was ${body.before})`
         )
         // ignore webhook if triggered by a local side-push from #pusher
-        if (
-          _item('#pusher', false)?.store.sidepush_commits?.includes(body.after)
-        ) {
+        if (_item('#pusher', false)?.store.sidepush_commits?.has(body.after)) {
           _this.log(
             `ignoring github_webhook for local side-push commit ` +
               `${body.after} in ${source}`
