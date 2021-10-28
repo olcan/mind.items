@@ -405,6 +405,8 @@ async function _side_push_item(item) {
             message,
             content: encodeBase64(sidepush_text),
           })
+          // update item.attr with new commit sha (saved via "touch" below)
+          item.attr.sha = data.commit.sha
           _this.log(
             `side-pushed ${item.name} (commit ${data.commit.sha}) ` +
               `to ${dest_str} in ${Date.now() - start}ms`
@@ -428,7 +430,6 @@ async function _side_push_item(item) {
           data: [commit],
         } = await github.repos.listCommits({ ...dest, per_page: 1 })
         if (commit) {
-          _this.debug(`listCommits(${dest.path}) sha: ${commit.sha}`)
           const {
             data: { files },
           } = await github.repos.getCommit({ ...dest, ref: commit.sha })
@@ -465,6 +466,8 @@ async function _side_push_item(item) {
               message,
               content: encodeBase64(sidepush_text),
             })
+            // update embed with new commit sha (saved via "touch" below)
+            embed.sha = data.commit.sha
             _this.log(
               `side-pushed embed ${item.name}:${embed.path} ` +
                 `(commit ${data.commit.sha}) to ${dest_str} ` +
@@ -474,6 +477,10 @@ async function _side_push_item(item) {
         }
       }
     }
+
+    // touch item to trigger saving of changes to attr(.embeds[]).sha above
+    // important for #updater to avoid an unnecessary update (even after reload)
+    item.touch(true /*save*/)
   } catch (e) {
     _this.error(`side-push failed for ${item.name}: ${e}`)
     throw e
