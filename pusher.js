@@ -418,8 +418,9 @@ async function _side_push_item(item) {
       for (let embed of item.attr?.embeds) {
         const dest = _.assign(source_dest, { path: embed.path })
         const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
+        // get sidepush text from embed_text, which should be populated above
         const sidepush_text = embed_text[embed.path]
-        if (!defined(sidepush_text))
+        if (typeof sidepush_text != 'string')
           throw new Error('missing body for embed path ' + embed.path)
         // get file sha (if exists) from latest commit for path
         let sha
