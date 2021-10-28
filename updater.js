@@ -217,7 +217,7 @@ async function check_updates(item) {
 // resolves embed path relative to container item (attr) path
 function resolve_embed_path(path, attr) {
   if (path.startsWith('/') || !attr.path.includes('/', 1)) return path
-  return attr.path.substr(0, attr.path.lastIndexOf('/', 1)) + '/' + path
+  return attr.path.substr(0, attr.path.lastIndexOf('/')) + '/' + path
 }
 
 // updates item from github source

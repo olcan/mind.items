@@ -327,7 +327,7 @@ function push_item(item) {
 // resolves embed path relative to container item (attr) path
 function resolve_embed_path(path, attr) {
   if (path.startsWith('/') || !attr.path.includes('/', 1)) return path
-  return attr.path.substr(0, attr.path.lastIndexOf('/', 1)) + '/' + path
+  return attr.path.substr(0, attr.path.lastIndexOf('/')) + '/' + path
 }
 
 // side-pushes item to other (private or public) repos on github
