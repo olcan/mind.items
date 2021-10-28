@@ -337,6 +337,7 @@ function resolve_embed_path(path, attr) {
 // can push whole item or specified block as own file, e.g. for embedding
 // block is read as item.read(block), so split blocks are merged
 // side-push is always "forced", i.e. replaces anything at destination
+// side-pushes are coordinated w/ #updater to skip as local changes
 async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
