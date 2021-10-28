@@ -2,9 +2,6 @@ function _on_welcome() {
   init_pusher()
 }
 
-// TODO: implement pusher based on (simplified) #github, refactoring common code later into another item, perhaps #github.
-// TODO: would be nice if pusher can handle side-push more gracefully, live-tracking changes across devices/tabs like regular pushes
-
 async function init_pusher() {
   // look up push destination from global store, or from user prompt
   // if destination is missing, cancel init (i.e. disable) with warning
@@ -206,8 +203,8 @@ function decodeBase64(str) {
 
 // pushes item to github
 function push_item(item) {
-  if (!_this.store.items) throw new Error('can not push yet')
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
+  if (!_this.store.items) throw new Error('can not push yet')
   if (!_this.store.github) throw new Error('missing github client')
   if (!_this.global_store.dest) throw new Error('missing destination')
   if (!_this.global_store.commit_sha) throw new Error('missing commit')
@@ -301,16 +298,184 @@ function push_item(item) {
         _this.global_store.commit_sha = commit.sha
         _this.global_store.tree_sha = tree.sha
         state.sha = state.remote_sha = text_sha // resume auto-push
+
+        // invoke _on_push() on item if defined as function
+        // _on_push is invoked on both internal and external updates
+        if (item.text.includes('_on_push')) {
+          try {
+            _item(item.id).eval(
+              `if (typeof _on_push == 'function') _on_push(_item('${item.id}'))`,
+              {
+                trigger: 'pusher',
+              }
+            )
+          } catch (e) {} // already logged, just continue
+        }
+
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
 
-        // TODO: side-push to other repos?
+        // dispatch "side-push" of item
+        setTimeout(() => _side_push_item(item))
       } catch (e) {
-        // state.remote_sha = undefined // disable auto-push until reload
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
       }
     }
   ))
+}
+
+// side-pushes item to other (private or public) repos on github
+// owner, repo, path are required, branch is optional (default master)
+// destinations can be specified in item.global_store._pusher.sidepush
+// installed items made _editable_ are auto-side-pushed to source
+// can push whole item or specified block as own file, e.g. for embedding
+// block is read as item.read(block), so split blocks are merged
+// side-push is always "forced", i.e. replaces anything at destination
+function _side_push_item(item) {
+  // side-push is invoked internally, so we can skip the checks in push_item
+  try {
+    let dests = compact_flat([item.global_store.github?.sidepush])
+    const source_dest = pick(item.attr, ['owner', 'repo', 'path', 'branch'])
+    if (item.attr?.editable) dests.push(source_dest)
+    // embed block text & type by path (last block for each path)
+    const embed_text = {}
+    const embed_types = {}
+    for (let dest of dests) {
+      if (!dest.owner || !dest.repo || !dest.path) {
+        _this.error('invalid side-push destination: ' + str(dest))
+        continue
+      }
+      if (!dest.branch) dest.branch = 'master'
+      const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
+      // determine side-push content (whole item or block)
+      let sidepush_text = dest.block ? item.read(dest.block) : item.text
+      // restore any embed blocks before pushing back installed item
+      if (item.attr?.embeds) {
+        sidepush_text = sidepush_text.replace(
+          /```(\S+):(\S+?)\n(.*?)\n```/gs,
+          (m, pfx, sfx, body) => {
+            if (sfx.includes('.')) {
+              let path = sfx // may be relative to item path
+              if (!path.startsWith('/') && item.attr.path.includes('/', 1))
+                path =
+                  item.attr.path.substr(0, item.attr.path.indexOf('/', 1)) +
+                  '/' +
+                  path
+              embed_text[path] = body // for push below
+              embed_type[path] = pfx + ':' + sfx // for commit prompt below
+              body = item.attr.embeds.find(e => e.path == path).body
+              return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
+            }
+            return m
+          }
+        )
+      }
+      // get file sha (if exists) from latest commit for path
+      let sha
+      const {
+        data: [commit],
+      } = await github.repos.listCommits({ ...dest, per_page: 1 })
+      if (commit) {
+        const {
+          data: { files },
+        } = await github.repos.getCommit({ ...dest, ref: commit.sha })
+        sha = files.find(f => f.filename == dest.path)?.sha
+      }
+      if (sha == github_sha(sidepush_text))
+        _this.log(
+          `side-push skipped (no change) for ${item.name} to ${dest_str}`
+        )
+      else {
+        const message = await _modal({
+          content:
+            `Enter commit message to push \`${item.name}\` to ` +
+            `[${dest.path}](${item.attr.source}):`,
+          confirm: 'Push',
+          cancel: 'Cancel',
+          input: item.name + ' edited in mind.page',
+        })
+        if (!message) {
+          _this.warn(`side-push cancelled for ${item.name} to ${dest_str}`)
+        } else {
+          start = Date.now()
+          const { data } = await github.repos.createOrUpdateFileContents({
+            ...dest,
+            sha,
+            message,
+            content: encodeBase64(sidepush_text),
+          })
+          _this.log(
+            `side-pushed ${item.name} (commit ${data.commit.sha}) ` +
+              `to ${dest_str} in ${Date.now() - start}ms`
+          )
+        }
+      }
+    }
+
+    // if editable, also side-push embeds to own paths in source_dest
+    if (item.attr?.editable && item.attr?.embeds) {
+      for (let embed of item.attr?.embeds) {
+        const dest = assign(source_dest, { path: embed.path })
+        const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
+        const sidepush_text = embed_text[embed.path]
+        if (!defined(sidepush_text))
+          throw new Error('missing body for embed path ' + embed.path)
+        // get file sha (if exists) from latest commit for path
+        let sha
+        const {
+          data: [commit],
+        } = await github.repos.listCommits({ ...dest, per_page: 1 })
+        if (commit) {
+          _this.debug(`listCommits(${dest.path}) sha: ${commit.sha}`)
+          const {
+            data: { files },
+          } = await github.repos.getCommit({ ...dest, ref: commit.sha })
+          sha = files.find(f => f.filename == dest.path)?.sha
+        }
+        if (sha == github_sha(sidepush_text))
+          _this.log(
+            `side-push of embed skipped (no change) for ` +
+              `${item.name}:${embed.path} to ${dest_str}`
+          )
+        else {
+          const embed_source =
+            `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
+            `blob/${item.attr.branch}/${embed.path}`
+          const message = await _modal({
+            content:
+              `Enter commit message to push embed block ` +
+              `\`${embed_type[path]}\` in \`${item.name}\` ` +
+              `back to its source file [${dest.path}](${embed_source}):`,
+            confirm: 'Push',
+            cancel: 'Cancel',
+            input: item.name + ':' + embed.path + ' edited in mind.page',
+          })
+          if (!message) {
+            _this.warn(
+              `side-push of embed cancelled for ` +
+                `${item.name}:${embed.path} to ${dest_str}`
+            )
+          } else {
+            start = Date.now()
+            const { data } = await github.repos.createOrUpdateFileContents({
+              ...dest,
+              sha,
+              message,
+              content: encodeBase64(sidepush_text),
+            })
+            _this.log(
+              `side-pushed embed ${item.name}:${embed.path} ` +
+                `(commit ${data.commit.sha}) to ${dest_str} ` +
+                `in ${Date.now() - start}ms`
+            )
+          }
+        }
+      }
+    }
+  } catch (e) {
+    _this.error(`side-push failed for ${item.name}: ${e}`)
+    throw e
+  }
 }
 
 // auto-push consistent items on change
@@ -492,5 +657,3 @@ async function _on_command_compare(base) {
   const [owner, repo] = _this.global_store.dest.split('/')
   window.open(`https://github.com/${owner}/${repo}/compare/${base}...master`)
 }
-
-// TODO: implement side-push, then delete #github
