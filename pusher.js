@@ -461,13 +461,10 @@ async function _on_command_history(name) {
     return '/history ' + name
   }
   const [owner, repo] = _this.global_store.dest.split('/')
-  // dispatch to prevent cmd key from opening tab in background ...
-  setTimeout(() => {
-    window.open(
-      `https://github.com/${owner}/` +
-        `${repo}/commits/master/items/${item.saved_id}.md`
-    )
-  })
+  window.open(
+    `https://github.com/${owner}/` +
+      `${repo}/commits/master/items/${item.saved_id}.md`
+  )
 }
 
 // command /branch name
@@ -493,10 +490,7 @@ async function _on_command_compare(base) {
     return '/compare ' + base
   }
   const [owner, repo] = _this.global_store.dest.split('/')
-  setTimeout(() => {
-    // to prevent cmd key from opening tab in background ...
-    window.open(`https://github.com/${owner}/${repo}/compare/${base}...master`)
-  })
+  window.open(`https://github.com/${owner}/${repo}/compare/${base}...master`)
 }
 
 // TODO: implement side-push, then delete #github
