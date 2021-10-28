@@ -340,7 +340,7 @@ async function _side_push_item(item) {
     if (item.attr?.editable) dests.push(source_dest)
     // embed block text & type by path (last block for each path)
     const embed_text = {}
-    const embed_types = {}
+    const embed_type = {}
     for (let dest of dests) {
       if (!dest.owner || !dest.repo || !dest.path) {
         _this.error('invalid side-push destination: ' + str(dest))
