@@ -331,7 +331,7 @@ function push_item(item) {
 // can push whole item or specified block as own file, e.g. for embedding
 // block is read as item.read(block), so split blocks are merged
 // side-push is always "forced", i.e. replaces anything at destination
-function _side_push_item(item) {
+async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
   try {
