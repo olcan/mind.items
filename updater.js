@@ -417,7 +417,7 @@ async function update_item(item, updates) {
           ` from ${source}/${path}`
       )
 
-    // invoke _on_update() if it exists
+    // invoke _on_update() on item if defined as function
     if (item.text.includes('_on_update')) {
       try {
         _item(item.id).eval(
