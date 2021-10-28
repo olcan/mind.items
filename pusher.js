@@ -341,6 +341,7 @@ function resolve_embed_path(path, attr) {
 async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
+  let attr_modified = false
   try {
     let dests = _.compact(_.flattenDeep([item.global_store.github?.sidepush]))
     const source_dest = _.pick(item.attr, ['owner', 'repo', 'path', 'branch'])
@@ -407,8 +408,9 @@ async function _side_push_item(item) {
             message,
             content: encodeBase64(sidepush_text),
           })
-          // update item.attr with new commit sha (saved via "touch" below)
+          // update item.attr with new commit sha
           item.attr.sha = data.commit.sha
+          attr_modified = true // trigger save via touch below
           // also store commit sha in store.sidepush_commits for #updater to
           // detect and ignore github webhooks for local changes by #pusher
           if (!_this.store.sidepush_commits)
@@ -473,8 +475,9 @@ async function _side_push_item(item) {
               message,
               content: encodeBase64(sidepush_text),
             })
-            // update embed with new commit sha (saved via "touch" below)
+            // update embed with new commit sha
             embed.sha = data.commit.sha
+            attr_modified = true // trigger save via touch below
             // also store commit sha in store.sidepush_commits for #updater to
             // detect and ignore github webhooks for local changes by #pusher
             if (!_this.store.sidepush_commits)
@@ -492,7 +495,7 @@ async function _side_push_item(item) {
 
     // touch item to trigger saving of changes to attr(.embeds[]).sha above
     // important for #updater to skip a redundant update even after reload
-    item.touch(true /*save*/)
+    if (attr_modified) item.touch(true /*save*/)
   } catch (e) {
     _this.error(`side-push failed for ${item.name}: ${e}`)
     throw e
