@@ -407,6 +407,11 @@ async function _side_push_item(item) {
           })
           // update item.attr with new commit sha (saved via "touch" below)
           item.attr.sha = data.commit.sha
+          // also store commit sha in store.sidepush_commits for #updater to
+          // detect and ignore github webhooks for local changes by #pusher
+          if (!_this.store.sidepush_commits)
+            _this.store.sidepush_commits = new Set()
+          _this.store.sidepush_commits.add(data.commit.sha)
           _this.log(
             `side-pushed ${item.name} (commit ${data.commit.sha}) ` +
               `to ${dest_str} in ${Date.now() - start}ms`
@@ -468,6 +473,11 @@ async function _side_push_item(item) {
             })
             // update embed with new commit sha (saved via "touch" below)
             embed.sha = data.commit.sha
+            // also store commit sha in store.sidepush_commits for #updater to
+            // detect and ignore github webhooks for local changes by #pusher
+            if (!_this.store.sidepush_commits)
+              _this.store.sidepush_commits = new Set()
+            _this.store.sidepush_commits.add(data.commit.sha)
             _this.log(
               `side-pushed embed ${item.name}:${embed.path} ` +
                 `(commit ${data.commit.sha}) to ${dest_str} ` +
@@ -479,7 +489,7 @@ async function _side_push_item(item) {
     }
 
     // touch item to trigger saving of changes to attr(.embeds[]).sha above
-    // important for #updater to avoid an unnecessary update (even after reload)
+    // important for #updater to skip a redundant update even after reload
     item.touch(true /*save*/)
   } catch (e) {
     _this.error(`side-push failed for ${item.name}: ${e}`)

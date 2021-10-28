@@ -32,10 +32,16 @@ async function init_updater() {
         const owner = body.repository.owner.login
         const source = `${owner}/${repo}/${branch}`
         _this.debug(
-          `github_webhook commit sha ${body.after} ` +
+          `github_webhook for commit sha ${body.after} ` +
             `in ${source} (was ${body.before})`
         )
-
+        if (_item('#pusher', false)?.sidepush_commits.includes(body.after)) {
+          _this.log(
+            `ignoring github_webhook for local side-push commit ` +
+              `${body.after} in ${source}`
+          )
+          return
+        }
         const commits = (body.commits ?? []).filter(c => c.modified?.length)
         if (commits.length == 0) return // no commits w/ modifications
 
