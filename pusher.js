@@ -398,7 +398,7 @@ async function _side_push_item(item) {
         if (!message) {
           _this.warn(`side-push cancelled for ${item.name} to ${dest_str}`)
         } else {
-          start = Date.now()
+          const start = Date.now()
           const { data } = await github.repos.createOrUpdateFileContents({
             ...dest,
             sha,
@@ -457,7 +457,7 @@ async function _side_push_item(item) {
                 `${item.name}:${embed.path} to ${dest_str}`
             )
           } else {
-            start = Date.now()
+            const start = Date.now()
             const { data } = await github.repos.createOrUpdateFileContents({
               ...dest,
               sha,
