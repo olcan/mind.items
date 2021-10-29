@@ -7,13 +7,13 @@ function _test_something() {}
 function _benchmark() {}
 function _benchmark_something() {}
 
-const stack = (offset = 1) =>
+const stack = (offset = 1 /*exclude this function*/) =>
   new Error().stack.split('\n').slice(offset).join(' <- ')
 
 function check(...fJ) {
   _.flattenDeep([...fJ]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
-    if (!f()) throw new Error(`FAILED check(${f}) <- ${stack(2)}`)
+    if (!f()) throw new Error(`FAILED CHECK: ${str(f)} @ ${stack(2)}`)
   })
 }
 
@@ -30,7 +30,7 @@ function str(x) {
   // insert commas to integers, from https://stackoverflow.com/a/2901298
   if (is_integer(x)) return ('' + x).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   if (is_number(x)) return '' + x
-  if (is_function(x)) return ('' + x).replace('()=>', '')
+  if (is_function(x)) return ('' + x).replace(/^\(\)\s+=>\s+/, '')
   if (is_string(x)) return `'${x}'`
   if (is_array(x)) return '[' + x.map(str) + ']'
   // use x.toString if it is overloaded, e.g. for Date
