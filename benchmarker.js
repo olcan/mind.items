@@ -32,28 +32,6 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   benchmark_item(_item(id))
 }
 
-// TODO: move these into utils when ready
-const array = (J, f) => {
-  const xJ = new Array(J)
-  // NOTE: Array.from({length:J}, ...) was much slower
-  if (typeof f == 'function') for (let j = 0; j < J; ++j) xJ[j] = f(j)
-  else if (typeof f != 'undefined') xJ.fill(f)
-  return xJ
-}
-// generates markdown for table, for writing into _markdown|_md blocks
-function table(xJK, headers = null) {
-  let lines = []
-  if (headers) lines.push('|' + headers.join('|') + '|')
-  else lines.push(array(xJK[0].length + 1, k => '|').join(''))
-  lines.push(
-    '|' +
-      array(xJK[0].length, k => (isNumeric(xJK[0][k]) ? '-:' : '-')).join('|') +
-      '|'
-  )
-  lines = lines.concat(xJK.map(xK => '|' + xK.join('|')))
-  return lines.join('\n')
-}
-
 // command /benchmark [label]
 async function _on_command_benchmark(label) {
   const items = _items(label)
