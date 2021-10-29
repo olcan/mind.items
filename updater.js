@@ -148,16 +148,16 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (!item.attr) return // not an installed item
   if (!item.name.startsWith('#')) return // not a named item
   // if remote change and item is pending update, check for remote update
-  const { modified_ids, pending_updates } = _this.store
+  let { modified_ids, pending_updates } = _this.store
   if (remote && pending_updates[id]) {
     const last_update = item.global_store._updater?.last_update
     if (pending_updates[id] == last_update) {
       _this.log(`detected remote update for ${item.name}`)
       // remove item/update from local update queue
-      _this.store.modified_ids = modified_ids.filter(id => id != item.id)
+      modified_ids.splice(modified_ids.indexOf(item.id), 1)
       delete pending_updates[id]
       // update modal if visible, close if no other updates pending
-      if (store.update_modal) {
+      if (_this.store.update_modal) {
         const modified_names = modified_ids.map(id => _item(id).name)
         const s = modified_ids.length > 1 ? 's' : ''
         _modal_update({
