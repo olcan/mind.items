@@ -154,7 +154,6 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
       delete update_commits[id]
       // TODO: update/close modal ...
     }
-    return
   }
 }
 
