@@ -24,6 +24,15 @@ function _test_defined() {
   )
 }
 
+function _benchmark_defined() {
+  let x = 1
+  let y
+  // let z
+  benchmark(() => defined(x))
+  benchmark(() => !defined(y))
+  benchmark(() => !defined(z))
+}
+
 const is_integer = Number.isInteger
 
 const is_number = x => typeof x == 'number'

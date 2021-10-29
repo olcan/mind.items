@@ -7,7 +7,9 @@ function _test_something() {}
 function _benchmark() {}
 function _benchmark_something() {}
 
-const stack = (s = 1) => new Error().stack.split('\n').slice(s).join(' <- ')
+const stack = (offset = 1) =>
+  new Error().stack.split('\n').slice(offset).join(' <- ')
+
 function check(...fJ) {
   _.flattenDeep([...fJ]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
@@ -15,12 +17,12 @@ function check(...fJ) {
   })
 }
 
-const print = (...args) => console.log(...args)
-const debug = (...args) => console.debug(...args)
-const error = (...args) => console.error(...args)
-const fatal = (...args) => {
-  throw new Error(args.join(' ') + '; STACK: ' + stack())
-}
+const log = (...args) => _this.log(...args)
+const info = (...args) => _this.info(...args)
+const debug = (...args) => _this.debug(...args)
+const error = (...args) => _this.error(...args)
+const fatal = (...args) => _this.fatal(...args)
+// TODO: bring more _Item functions to global scope using standard mechanism?
 
 // timing
 function timing(f, name = str(f)) {
