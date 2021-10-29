@@ -6,7 +6,7 @@ async function benchmark_item(item) {
     '_benchmark',
     ...(item.text.match(/_benchmark_\w+/g) ?? []),
   ]
-  let results = []
+  let lines = []
   for (const benchmark of benchmarks) {
     try {
       const start = Date.now()
@@ -15,15 +15,14 @@ async function benchmark_item(item) {
         { trigger: 'benchmark', async: item.deepasync, async_simple: true }
       )
       if (benchmarked) {
-        const result = `${benchmark} completed in ${Date.now() - start}ms`
-        item.log(result)
-        results = results.concat(item.get_log({ since: 'eval' }))
+        item.log(`${benchmark} completed in ${Date.now() - start}ms`)
+        lines = lines.concat(item.get_log({ since: 'eval' }))
       }
     } catch (e) {
       item.error(`${benchmark} failed: ${e}`)
     }
   }
-  return results
+  return lines
 }
 
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
@@ -33,6 +32,21 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   benchmark_item(_item(id))
 }
 
+// TODO: move this into utils when ready
+// generates markdown for table, for writing into _markdown|_md blocks
+function table(xJK, headers = null) {
+  let lines = []
+  if (headers) lines.push('|' + headers.join('|') + '|')
+  else lines.push(array(xJK[0].length + 1, k => '|').join(''))
+  lines.push(
+    '|' +
+      array(xJK[0].length, k => (isNumeric(xJK[0][k]) ? '-:' : '-')).join('|') +
+      '|'
+  )
+  lines = lines.concat(xJK.map(xK => '|' + xK.join('|')))
+  return lines.join('\n')
+}
+
 // command /benchmark [label]
 async function _on_command_benchmark(label) {
   const items = _items(label)
@@ -40,7 +54,22 @@ async function _on_command_benchmark(label) {
     alert(`/benchmark: ${label} not found`)
     return '/benchmark ' + label
   }
-  let results = []
-  for (const item of items) results = results.concat(await benchmark_item(item))
-  return { text: results.join('\n') }
+  let text = ''
+  let lines = []
+  for (const item of items) lines = lines.concat(await benchmark_item(item))
+  // process lines, formatting benchmark lines as interleaved markdown tables
+  let rows = []
+  for (const line of lines) {
+    if (line.match(/:\s*\d/)) {
+      const [name, result] = line.split(':', 2).map(s => s.trim())
+      rows.push([name, result])
+    } else {
+      text += line + '\n'
+      if (rows.length) {
+        text += '```_md\n' + table(rows) + '\n```\n'
+        rows = []
+      }
+    }
+  }
+  return { text }
 }
