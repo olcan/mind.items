@@ -63,7 +63,16 @@ async function _on_command_benchmark(label) {
       const [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
       rows.push([name, result])
     } else {
-      text += line + '\n'
+      if (line.match(/^BENCHMARK/)) {
+        // append as benchmark header
+        const [name, time] = line
+          .match(/BENCHMARK (\S+?) completed in (\S+)/)
+          .slice(1)
+        text += `\`${name} (${time})\`\n`
+      } else {
+        // append generic line as is
+        text += line + '\n'
+      }
       if (rows.length) {
         text += '```_md\n' + table(rows) + '\n```\n'
         rows = []
