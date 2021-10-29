@@ -108,11 +108,17 @@ async function init_updater() {
           const update = await store.update_modal
           store.update_modal = null // modal dismissed
           if (!update) {
-            _this.warn(
-              `updates skipped for ${modified_ids.length} ` +
-                `installed items: ${modified_names.join(', ')}`
-            )
-            modified_ids.length = 0 // clear queue
+            // warn about skipped updates
+            // note there may be no skips due to remote updates being removed
+            if (modified_ids.length) {
+              _this.warn(
+                `updates skipped for ${modified_ids.length} ` +
+                  `installed items: ${modified_names.join(', ')}`
+              )
+              // clear update queue
+              while (modified_ids.length)
+                delete pending_updates[modified_ids.shift()]
+            }
             return
           }
         }
@@ -145,17 +151,25 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   const { modified_ids, pending_updates } = _this.store
   if (remote && pending_updates[id]) {
     const last_update = item.global_store._updater?.last_update
-    _this.log(
-      `detected remote change for ${item.name}`,
-      pending_updates[id],
-      last_update
-    )
     if (pending_updates[id] == last_update) {
       _this.log(`detected remote update for ${item.name}`)
       // remove item/update from local update queue
-      modified_ids = modified_ids.filter(id => id != item.id)
+      _this.store.modified_ids = modified_ids.filter(id => id != item.id)
       delete pending_updates[id]
-      // TODO: update/close modal ....
+      // update modal if visible, close if no other updates pending
+      if (store.update_modal) {
+        const modified_names = modified_ids.map(id => _item(id).name)
+        const s = modified_ids.length > 1 ? 's' : ''
+        _modal_update({
+          content:
+            `${_this.name} is ready to update ${modified_ids.length} ` +
+            `installed item${s}: ${modified_names.join(', ')}`,
+        })
+        // if no updates pending, close modal
+        // closing resolves modal promise as undefined (see await above)
+        // closing modal should trigger setting of store.update_modal to null
+        if (modified_ids.length == 0) _modal_close()
+      }
     }
   }
 }
