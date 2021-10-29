@@ -38,13 +38,15 @@ const style_footer = `
 \`\`\`_html
 <style> 
 #item table { 
-  font-size:80%; 
-  line-height:140%; 
-  white-space:nowrap; color:gray; 
+  color:gray;
+  font-size:80%;
+  line-height:140%;
+  white-space:nowrap;
   font-family:'jetbrains mono', monospace;
 }
-#item elapsed {
-  font-size:70%; color:#666; 
+#item .elapsed {
+  color:#666;
+  font-size:70%;
   font-family:'jetbrains mono', monospace;
   margin-left: 10px;
   display: inline-block;
