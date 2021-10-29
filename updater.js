@@ -5,11 +5,13 @@ function _on_welcome() {
   init_updater()
 }
 
-let modified_ids = [] // modified item id queue
-let update_modal
-
 async function init_updater() {
   _this.log(`initializing ...`)
+  const store = _this.store
+  const modified_ids = (store.modified_ids = []) // modified item id queue
+  const pending_updates = (store.pending_updates = {}) // pending update commit shas
+  store.update_modal = null // visible update modal (if any)
+
   // check for updates on page init
   for (let item of installed_named_items()) {
     const updates = await check_updates(item)
@@ -66,13 +68,12 @@ async function init_updater() {
                 `${owner}/${repo}/${branch}`
             )
             // record latest update commit sha for modified item
-            if (!_this.store.pending_updates) _this.store.pending_updates = {}
-            _this.store.pending_updates[item.id] = body.after
+            pending_updates[item.id] = body.after
             // push to back of queue if not already in queue
             if (!modified_ids.includes(item.id)) {
               modified_ids.push(item.id)
               // update modal if visible
-              if (update_modal) {
+              if (store.update_modal) {
                 const modified_names = modified_ids.map(id => _item(id).name)
                 const s = modified_ids.length > 1 ? 's' : ''
                 _modal_update({
@@ -97,15 +98,15 @@ async function init_updater() {
         if (window._init_time == _this.global_store.auto_updater_init_time) {
           _this.log(`skipping confirmation on this instance (${_init_time})`)
         } else {
-          update_modal = _modal({
+          store.update_modal = _modal({
             content:
               `${_this.name} is ready to update ${modified_ids.length} ` +
               `installed item${s}: ${modified_names.join(', ')}`,
             confirm: 'Update',
             cancel: 'Skip',
           })
-          const update = await update_modal
-          update_modal = null // modal dismissed
+          const update = await store.update_modal
+          store.update_modal = null // modal dismissed
           if (!update) {
             _this.warn(
               `updates skipped for ${modified_ids.length} ` +
@@ -117,8 +118,8 @@ async function init_updater() {
         }
         while (modified_ids.length) {
           const item = _item(modified_ids.shift())
-          const update = _this.store.pending_updates[item.id]
-          delete _this.store.pending_updates[item.id] // no longer pending
+          const update = pending_updates[item.id]
+          delete pending_updates[item.id] // no longer pending
           const updates = await check_updates(item)
           if (updates) {
             // record _init_time for app instance that can skip confirmation
@@ -141,18 +142,19 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (!item.attr) return // not an installed item
   if (!item.name.startsWith('#')) return // not a named item
   // if remote change and item is pending update, check for remote update
-  if (remote && _this.store.pending_updates[id]) {
+  const { modified_ids, pending_updates } = _this.store
+  if (remote && pending_updates[id]) {
     const last_update = item.global_store._updater?.last_update
     _this.log(
       `detected remote change for ${item.name}`,
-      _this.store.pending_updates[id],
+      pending_updates[id],
       last_update
     )
-    if (_this.store.pending_updates[id] == last_update) {
+    if (pending_updates[id] == last_update) {
       _this.log(`detected remote update for ${item.name}`)
       // remove item/update from local update queue
       modified_ids = modified_ids.filter(id => id != item.id)
-      delete _this.store.pending_updates[id]
+      delete pending_updates[id]
       // TODO: update/close modal ...
     }
   }
@@ -369,14 +371,15 @@ async function update_item(item, updates) {
               )
             _this.log(`installed dependency ${dep} for ${label}`)
           }
-          // requeue for update if still needed
+          // trigger another update (recursively) if still needed
+          // skip if already in queue for another update
           const has_updates = await check_updates(item)
-          if (has_updates && !modified_ids.includes(item.id)) {
+          if (has_updates && !_this.store.modified_ids.includes(item.id)) {
             _this.log(
               `update restarted for ${item.name} from ` +
                 `${source}/${path} after dependencies installed`
             )
-            modified_ids.push(item.id)
+            await update_item(item, updates)
           } else {
             _this.log(
               `update no longer needed for ${item.name} from ` +
