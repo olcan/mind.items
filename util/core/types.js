@@ -46,8 +46,8 @@ const is_function = x => typeof x == 'function'
 
 const is_boolean = x => typeof x == 'boolean'
 
-// const is_string = x => typeof x == 'string'
-const is_string = x => x?.constructor?.name == 'String'
+const is_string = x => typeof x == 'string'
+// const is_string = x => x?.constructor?.name == 'String'
 
 const is_object = x => typeof x == 'object'
 
