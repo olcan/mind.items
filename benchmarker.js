@@ -53,10 +53,12 @@ async function _on_command_benchmark(label) {
   }
   let text = ''
   let lines = []
-  for (const item of items) lines = lines.concat(await benchmark_item(item))
+  for (const item of items) {
+    const item_log = await benchmark_item(item)
+    lines = lines.concat(item_log)
+  }
   // process lines, formatting benchmark lines as interleaved markdown tables
   let rows = []
-  console.log(lines)
   for (const line of lines) {
     if (line.match(/:\s*\d/)) {
       const [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
