@@ -32,13 +32,27 @@ function _benchmark_defined() {
 }
 
 const is_integer = Number.isInteger
-
 const is_number = x => typeof x == 'number'
 
+// from https://stackoverflow.com/a/175787
 const is_numeric = x =>
-  is_number(x) ||
-  // from https://stackoverflow.com/a/175787 ...
-  (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
+  is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
+
+function _test_is_numeric() {
+  check(
+    () => is_numeric(0),
+    () => is_numeric('0'),
+    () => is_numeric('.0'),
+    () => is_numeric('0.'),
+    () => !is_numeric('..0'),
+    () => !is_numeric('0..'),
+    () => !is_numeric('foo'),
+    () => !is_numeric('12px'),
+    () => !is_numeric('$12'),
+    () => !is_numeric(''),
+    () => !is_numeric(' ')
+  )
+}
 
 const is_nan = isNaN
 
