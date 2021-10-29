@@ -630,11 +630,17 @@ async function _on_command_pull(label) {
   }
 }
 
-// command /history name
+// command /history [name]
 async function _on_command_history(name) {
+  if (!_this.global_store.dest) {
+    alert(`history for ${name} not available due to disabled ${_this.name}`)
+    return '/history ' + name
+  }
+  const [owner, repo] = _this.global_store.dest.split('/')
   if (!name) {
-    alert(`usage: /history name`)
-    return '/history '
+    // open history for all items
+    window.open(`https://github.com/${owner}/${repo}/commits/master`)
+    return
   }
   const item = _item(name)
   if (!item) {
@@ -645,11 +651,6 @@ async function _on_command_history(name) {
     alert(`history not available for unsaved ${name}`)
     return '/history ' + name
   }
-  if (!_this.global_store.dest) {
-    alert(`history for ${name} not available due to disabled ${_this.name}`)
-    return '/history ' + name
-  }
-  const [owner, repo] = _this.global_store.dest.split('/')
   window.open(
     `https://github.com/${owner}/` +
       `${repo}/commits/master/items/${item.saved_id}.md`
