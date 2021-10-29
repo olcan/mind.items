@@ -4,4 +4,4 @@
 // benchmarker.js
 ```
 
-#_listen #_utils/core
+#_listen #_util/core
