@@ -46,7 +46,7 @@ function timing(f, name = str(f)) {
   const start = Date.now()
   const output = f()
   const elapsed = Date.now() - start
-  if (name) print(`${name}: ${elapsed}ms`)
+  if (name) log(`${name}: ${elapsed}ms`)
   return [output, elapsed]
 }
 let _benchmark_unit
@@ -98,13 +98,13 @@ function benchmark(
   const base = `${name}: ${cps} calls/sec`
   if (unit) {
     const ups = str(Math.floor((count / time) * 1000))
-    print(base + ` (${ups} ${unit})`)
+    log(base + ` (${ups} ${unit})`)
   } else if (units) {
-    print(
+    log(
       base +
         ' (' +
         units.map((u, k) => str(counts[k]) + ' ' + u).join(', ') +
         ')'
     )
-  } else print(base)
+  } else log(base)
 }
