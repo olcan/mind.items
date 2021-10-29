@@ -1,12 +1,6 @@
 // TODO: split core into even smaller items, starting w/ types.
 //       this allows container items that can document w/ examples.
 
-// TODO: actually test/benchmark stuff below ...
-function _test() {}
-function _test_something() {}
-function _benchmark() {}
-function _benchmark_something() {}
-
 const stack = (offset = 1 /*exclude this function*/) =>
   new Error().stack.split('\n').slice(offset).join(' <- ')
 

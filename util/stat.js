@@ -1,8 +1,3 @@
-function _test() {}
-function _test_something() {}
-function _benchmark() {}
-function _benchmark_something() {}
-
 const flip = (ph = 0.5) => Math.random() < ph
 const uniform = (a, b) => {
   const u = Math.random()
