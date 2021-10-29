@@ -142,6 +142,11 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (!item.name.startsWith('#')) return // not a named item
   // if remote change and item is pending update, check for remote update
   if (remote && update_commits[id]) {
+    _this.log(
+      `detected remote change for ${item.name}`,
+      update_commits[id],
+      item.global_store._updater?.last_update
+    )
     if (item.global_store._updater?.last_update == update_commits[id]) {
       _this.log(`detected remote update for ${item.name}`)
       // remove item/update from local update queue
