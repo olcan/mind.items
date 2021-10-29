@@ -16,7 +16,7 @@ async function benchmark_item(item) {
       )
       if (benchmarked) {
         item.log(`${benchmark} completed in ${Date.now() - start}ms`)
-        lines = lines.concat(item.get_log({ since: 'eval' }))
+        lines = lines.concat(item.get_log({ since: start }))
       }
     } catch (e) {
       item.error(`${benchmark} failed: ${e}`)
