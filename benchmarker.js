@@ -10,13 +10,13 @@ async function benchmark_item(item) {
   for (const benchmark of benchmarks) {
     try {
       const start = Date.now()
-      const benchmarked = await item.eval(
-        `typeof ${benchmark} == 'function' ? (${benchmark}(),true) : false`,
+      const benchmark_start = await item.eval(
+        `typeof ${benchmark} == 'function' ? (t=>(${benchmark}(),t))(Date.now()) : 0`,
         { trigger: 'benchmark', async: item.deepasync, async_simple: true }
       )
-      if (benchmarked) {
+      if (benchmark_start) {
         item.log(`${benchmark} completed in ${Date.now() - start}ms`)
-        const item_log = item.get_log({ since: 'eval' })
+        const item_log = item.get_log({ since: benchmark_start })
         lines = lines.concat(item_log)
         console.log(benchmark, item_log)
       }
