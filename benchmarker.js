@@ -32,7 +32,14 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   benchmark_item(_item(id))
 }
 
-// TODO: move this into utils when ready
+// TODO: move these into utils when ready
+const array = (J, f) => {
+  const xJ = new Array(J)
+  // NOTE: Array.from({length:J}, ...) was much slower
+  if (isFunction(f)) for (let j = 0; j < J; ++j) xJ[j] = f(j)
+  else if (defined(f)) xJ.fill(f)
+  return xJ
+}
 // generates markdown for table, for writing into _markdown|_md blocks
 function table(xJK, headers = null) {
   let lines = []
