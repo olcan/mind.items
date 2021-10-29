@@ -8,21 +8,21 @@ async function benchmark_item(item) {
   ]
   let lines = []
   for (const benchmark of benchmarks) {
+    const name = benchmark.replace(/^_benchmark_?/, '') || '(unnamed)'
     try {
-      item.log(`${benchmark} starting ...`)
       const start = Date.now()
       const benchmarked = await item.eval(
         `typeof ${benchmark} == 'function' ? (${benchmark}(),true) : false`,
         { trigger: 'benchmark', async: item.deepasync, async_simple: true }
       )
       if (benchmarked) {
-        item.log(`${benchmark} completed in ${Date.now() - start}ms`)
+        item.log(`BENCHMARK ${name} completed in ${Date.now() - start}ms`)
         const item_log = item.get_log({ since: 'eval' })
         lines = lines.concat(item_log)
         console.log(benchmark, item_log)
       }
     } catch (e) {
-      item.error(`${benchmark} failed: ${e}`)
+      item.error(`BENCHMARK ${name} failed: ${e}`)
     }
   }
   return lines

@@ -4,15 +4,16 @@ async function test_item(item) {
   // evaluate any functions _test|_test_*() defined on item
   const tests = ['_test', ...(item.text.match(/\b_test_\w+/g) ?? [])]
   for (const test of tests) {
+    const name = test.replace(/^_test_?/, '') || '(unnamed)'
     try {
       const start = Date.now()
       const tested = await item.eval(
         `typeof ${test} == 'function' ? (${test}(),true) : false`,
         { trigger: 'test', async: item.deepasync, async_simple: true }
       )
-      if (tested) item.log(`${test} passed in ${Date.now() - start}ms`)
+      if (tested) item.log(`TEST ${name} passed in ${Date.now() - start}ms`)
     } catch (e) {
-      item.error(`${test} failed: ${e}`)
+      item.error(`TEST ${name} failed: ${e}`)
     }
   }
 }
