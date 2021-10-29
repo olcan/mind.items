@@ -109,8 +109,17 @@ function _benchmark_is_indexed() {
   )
 }
 
-const empty = x => (is_object(x) ? Object.keys(x).length == 0 : _.isEmpty(x))
+const empty = _.isEmpty
+
+function _benchmark_empty() {
+  benchmark(
+    () => Object.keys({}).length == 0, // much faster but not as robust
+    () => empty({})
+  )
+}
 
 const equal = _.isEqual
 
 const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) < ε
+
+// TODO: tests for approx_equal
