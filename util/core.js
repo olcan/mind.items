@@ -84,8 +84,8 @@ function run_benchmark(
   f,
   {
     name = str(f),
-    T = 100,
-    T_max = 250,
+    T = 10, // fast > accurate
+    T_max = 50,
     N = 1000,
     unit = _benchmark_unit,
     units = _benchmark_units,
