@@ -20,7 +20,7 @@ function _benchmark_defined() {
   let x = 1
   let y
   // let z
-  benchmarks(
+  benchmark(
     // compare these for function call + type check overhead
     () => x !== undefined,
     () => defined(x),
@@ -58,6 +58,14 @@ function _test_is_numeric() {
   )
 }
 
+function _benchmark_is_numeric() {
+  benchmark(
+    () => is_numeric(0),
+    () => is_numeric('0'),
+    () => !is_numeric('12px')
+  )
+}
+
 const is_function = x => typeof x == 'function'
 const is_boolean = x => typeof x == 'boolean'
 const is_string = x => typeof x == 'string'
@@ -92,7 +100,7 @@ function _test_is_indexed() {
 }
 
 function _benchmark_is_indexed() {
-  benchmarks(
+  benchmark(
     () => is_indexed([]),
     () => is_indexed(new Array(0)),
     () => is_indexed({}),

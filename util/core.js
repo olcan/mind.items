@@ -67,13 +67,22 @@ function timing(f, name = str(f)) {
   if (name) log(`${name}: ${elapsed}ms`)
   return [output, elapsed]
 }
+function benchmark(...fJ) {
+  _.flattenDeep([...fJ]).forEach(f => {
+    if (!is_function(f)) throw new Error('benchmark: argument must be function')
+    _benchmark(f)
+  })
+}
+
 let _benchmark_unit
 let _benchmark_units
 let _benchmark_options = {}
 const set_benchmark_unit = unit => (_benchmark_units = unit)
 const set_benchmark_units = units => (_benchmark_units = units)
 const set_benchmark_options = options => (_benchmark_options = options)
-function benchmark(
+
+// internal helper for benchmarks
+function _benchmark(
   f,
   {
     name = str(f),
@@ -127,12 +136,4 @@ function benchmark(
         ')'
     )
   } else log(base)
-}
-
-function benchmarks(...fJ) {
-  _.flattenDeep([...fJ]).forEach(f => {
-    if (!is_function(f))
-      throw new Error('benchmarks: argument must be function')
-    benchmark(f)
-  })
 }
