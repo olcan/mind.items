@@ -68,6 +68,7 @@ async function _on_command_benchmark(label) {
   for (const line of lines) {
     if (line.match(/:\s*\d/)) {
       const [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
+      result.replace('calls/sec', '') // drop calls/sec as default unit
       rows.push([name, result])
     } else {
       if (line.match(/^BENCHMARK/)) {
