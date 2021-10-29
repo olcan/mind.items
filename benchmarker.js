@@ -49,7 +49,6 @@ const style_footer = `
   font-size:70%;
   font-family:'jetbrains mono', monospace;
   margin-left: 10px;
-  display: inline-block;
 }
 </style>
 \`\`\`
