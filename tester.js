@@ -7,7 +7,8 @@ function test_item(item) {
     try {
       const start = Date.now()
       const tested = item.eval(
-        `typeof ${test} == 'function' ? (${test}(),true) : false`
+        `typeof ${test} == 'function' ? (${test}(),true) : false`,
+        { trigger: 'test', async: item.deepasync, async_simple: true }
       )
       if (tested) item.log(`${test} passed in ${Date.now() - start}ms`)
     } catch (e) {
