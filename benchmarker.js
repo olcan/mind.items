@@ -36,8 +36,8 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
 const array = (J, f) => {
   const xJ = new Array(J)
   // NOTE: Array.from({length:J}, ...) was much slower
-  if (isFunction(f)) for (let j = 0; j < J; ++j) xJ[j] = f(j)
-  else if (defined(f)) xJ.fill(f)
+  if (typeof f == 'function') for (let j = 0; j < J; ++j) xJ[j] = f(j)
+  else if (typeof f != 'undefined') xJ.fill(f)
   return xJ
 }
 // generates markdown for table, for writing into _markdown|_md blocks
