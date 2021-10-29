@@ -125,7 +125,7 @@ async function init_updater() {
             _this.global_store.auto_updater_init_time = window._init_time
             // record last update as item.global_store._updater.last_update
             // enables detection of remote updates in _on_item_change below
-            item.global_store._updater.last_update = commit
+            item.global_store._updater = { last_update: commit }
             await update_item(item, updates)
           } else _this.log(`update no longer needed for ${item.name}`)
         }
@@ -142,7 +142,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (!item.name.startsWith('#')) return // not a named item
   // if remote change and item is pending update, check for remote update
   if (remote && update_commits[id]) {
-    if (item.global_store._updater.last_update == update_commits[id]) {
+    if (item.global_store._updater?.last_update == update_commits[id]) {
       _this.log(`detected remote update for ${item.name}`)
       // remove item/update from local update queue
       modified_ids = modified_ids.filter(id => id != item.id)
