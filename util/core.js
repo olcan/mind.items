@@ -70,7 +70,7 @@ function timing(f, name = str(f)) {
 function benchmark(...fJ) {
   _.flattenDeep([...fJ]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
-    _benchmark(f)
+    run_benchmark(f)
   })
 }
 
@@ -80,9 +80,7 @@ let _benchmark_options = {}
 const set_benchmark_unit = unit => (_benchmark_units = unit)
 const set_benchmark_units = units => (_benchmark_units = units)
 const set_benchmark_options = options => (_benchmark_options = options)
-
-// internal helper for benchmarks
-function _benchmark(
+function run_benchmark(
   f,
   {
     name = str(f),
