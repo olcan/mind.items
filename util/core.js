@@ -50,9 +50,9 @@ function table(xJK, headers = null) {
   else lines.push(array(xJK[0].length + 1, k => '|').join(''))
   lines.push(
     '|' +
-      array(xJK[0].length, k => (is_numeric(xJK[0][k]) ? '-:' : '-')).join(
-        '|'
-      ) +
+      array(xJK[0].length, k =>
+        is_numeric(xJK[0][k].replaceAll(',', '')) ? '-:' : '-'
+      ).join('|') +
       '|'
   )
   lines = lines.concat(xJK.map(xK => '|' + xK.join('|')))

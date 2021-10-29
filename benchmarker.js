@@ -69,7 +69,7 @@ async function _on_command_benchmark(label) {
     if (line.match(/:\s*\d/)) {
       let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
       result = result.replace('calls/sec', '') // drop calls/sec as default unit
-      rows.push([name, result])
+      rows.push([result, name])
     } else {
       if (line.match(/^BENCHMARK/)) {
         // append as benchmark header
