@@ -155,7 +155,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
       // remove item/update from local update queue
       modified_ids = modified_ids.filter(id => id != item.id)
       delete pending_updates[id]
-      // TODO: update/close modal ...
+      // TODO: update/close modal ....
     }
   }
 }
