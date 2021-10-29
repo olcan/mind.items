@@ -32,6 +32,18 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   benchmark_item(_item(id))
 }
 
+const style_footer = `
+\`\`\`_html
+<style> 
+  #item table { 
+    font-size:80%; 
+    line-height:140%; 
+    white-space:nowrap; color:gray; 
+    font-family:'jetbrains mono', monospace 
+} 
+</style>
+\`\`\`
+`
 // command /benchmark [label]
 async function _on_command_benchmark(label) {
   const items = _items(label)
@@ -56,5 +68,5 @@ async function _on_command_benchmark(label) {
       }
     }
   }
-  return { text }
+  return { text: (text + style_footer).trim() }
 }
