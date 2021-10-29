@@ -21,9 +21,11 @@ function _benchmark_defined() {
   let y
   // let z
   benchmarks(
+    // compare these for function call + type check overhead
     () => x !== undefined,
     () => defined(x),
     () => defined(y),
+    // compare these for eval() overhead
     () => typeof z != 'undefined',
     () => defined('z')
   )
@@ -44,7 +46,8 @@ const is_function = x => typeof x == 'function'
 
 const is_boolean = x => typeof x == 'boolean'
 
-const is_string = x => typeof x == 'string'
+// const is_string = x => typeof x == 'string'
+const is_string = x => x?.constructor?.name == 'String'
 
 const is_object = x => typeof x == 'object'
 
