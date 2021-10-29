@@ -18,8 +18,8 @@ async function benchmark_item(item) {
       if (benchmarked) {
         item.log(`BENCHMARK ${name} completed in ${Date.now() - start}ms`)
         lines = lines.concat(item.get_log({ since: 'eval' }))
+        await _delay(1) // ensure time-separation of benchmark runs (and logs)
       }
-      await _delay(1) // ensure time-separation of benchmark runs
     } catch (e) {
       item.error(`BENCHMARK ${name} failed: ${e}`)
     }
