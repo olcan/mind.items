@@ -1,5 +1,5 @@
 async function test_item(item) {
-  if (!item.text.includes('_test')) return // no tests in item
+  if (!item.text.match(/\b_test/)) return // no tests in item
 
   // evaluate any functions _test|_test_*() defined on item
   const tests = ['_test', ...(item.text.match(/\b_test_\w+/g) ?? [])]
