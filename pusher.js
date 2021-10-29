@@ -343,7 +343,7 @@ async function _side_push_item(item) {
   const github = _this.store.github
   let attr_modified = false
   try {
-    let dests = _.compact(_.flattenDeep([item.global_store.github?.sidepush]))
+    let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
     const source_dest = _.pick(item.attr, ['owner', 'repo', 'path', 'branch'])
     if (item.attr?.editable) dests.push(source_dest)
     // embed block text & type by path (last block for each path)
