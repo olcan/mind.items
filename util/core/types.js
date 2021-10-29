@@ -67,7 +67,7 @@ const is_map = x => x instanceof Map
 const is_array = Array.isArray
 
 const is_indexed = x =>
-  is_array(x) || (is_object(x) && Object.keys(o).every((k, j) => k == j))
+  is_array(x) || (is_object(x) && Object.keys(x).every((k, j) => k == j))
 
 function _test_is_indexed() {
   check(
