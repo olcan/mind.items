@@ -58,7 +58,7 @@ async function _on_command_benchmark(label) {
   let rows = []
   for (const line of lines) {
     if (line.match(/:\s*\d/)) {
-      const [name, result] = line.split(':', 2).map(s => s.trim())
+      const [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
       rows.push([name, result])
     } else {
       text += line + '\n'
