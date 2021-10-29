@@ -68,5 +68,5 @@ async function _on_command_benchmark(label) {
       }
     }
   }
-  return { text: (text + style_footer).trim() }
+  return { text: (text + style_footer).trim(), edit: false }
 }
