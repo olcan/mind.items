@@ -6,6 +6,7 @@ async function benchmark_item(item) {
     '_benchmark',
     ...(item.text.match(/_benchmark_\w+/g) ?? []),
   ]
+  const results = []
   for (const benchmark of benchmarks) {
     try {
       const start = Date.now()
@@ -13,12 +14,16 @@ async function benchmark_item(item) {
         `typeof ${benchmark} == 'function' ? (${benchmark}(),true) : false`,
         { trigger: 'benchmark', async: item.deepasync, async_simple: true }
       )
-      if (benchmarked)
-        item.log(`${benchmark} completed in ${Date.now() - start}ms`)
+      if (benchmarked) {
+        const result = `${benchmark} completed in ${Date.now() - start}ms`
+        item.log(result)
+        results.push(result)
+      }
     } catch (e) {
       item.error(`${benchmark} failed: ${e}`)
     }
   }
+  return results
 }
 
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
@@ -35,5 +40,7 @@ async function _on_command_benchmark(label) {
     alert(`/benchmark: ${label} not found`)
     return '/benchmark ' + label
   }
-  for (const item of items) await benchmark_item(item)
+  let results = []
+  for (const item of items) results = results.concat(await benchmark_item(item))
+  return { text: results.join('\n') }
 }
