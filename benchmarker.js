@@ -9,6 +9,7 @@ async function benchmark_item(item) {
   let lines = []
   for (const benchmark of benchmarks) {
     try {
+      item.log(`${benchmark} starting ...`)
       const start = Date.now()
       const benchmarked = await item.eval(
         `typeof ${benchmark} == 'function' ? (${benchmark}(),true) : false`,
