@@ -144,8 +144,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (remote && update_commits[id]) {
     if (item.global_store._updater.last_update == update_commits[id]) {
       _this.log(`detected remote update for ${item.name}`)
-      // TODO: deal with remote update!
-      // delete update_commits[id] // no longer pending
+      // remove item/update from local update queue
+      modified_ids = modified_ids.filter(id => id != item.id)
+      delete update_commits[id]
+      // TODO: update/close modal
     }
     return
   }
