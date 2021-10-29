@@ -1,11 +1,3 @@
-function _test() {}
-function _test_something() {}
-function _benchmark() {}
-function _benchmark_something() {}
-
-// TODO: redefine all using lowercase notation and start
-//       testing/benchmarking/documenting!
-
 const inf = Infinity
 
 function defined(x) {
@@ -29,8 +21,10 @@ function _benchmark_defined() {
   let y
   // let z
   benchmarks(
+    () => x !== undefined,
     () => defined(x),
     () => defined(y),
+    () => typeof z != 'undefined',
     () => defined('z')
   )
 }
