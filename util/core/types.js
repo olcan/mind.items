@@ -66,16 +66,24 @@ const is_set = x => x instanceof Set
 const is_map = x => x instanceof Map
 const is_array = Array.isArray
 
-const is_indexed = x =>
-  is_array(x) || (is_object(x) && Object.keys(x).every((k, j) => k == j))
+function is_indexed(x) {
+  if (is_array(x)) return true // indexed even if empty
+  if (!is_object(x)) return false // must be object if not array
+  const keys = Object.keys(x)
+  // we allow gaps since arrays can contain undefined elements
+  // but require at least one integer key to eliminate e.g. Set, Map, etc
+  // return keys.length > 0 && keys.every((k, j) => k == j))
+  return keys.length > 0 && keys.every(k => is_integer(k))
+}
 
 function _test_is_indexed() {
   check(
     () => is_indexed([]),
     () => is_indexed(new Array(0)),
-    () => is_indexed({}),
+    () => !is_indexed({}), // empty object is not considered indexed
     () => is_indexed(['a', 'b']),
     () => is_indexed({ 0: 'a', 1: 'b' }),
+    () => is_indexed({ 1: 'b' }), // gaps ok
     () => !is_indexed(),
     () => !is_indexed(null),
     () => !is_indexed({ 0: 'a', b: 'b' }),
