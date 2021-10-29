@@ -4,7 +4,7 @@ async function benchmark_item(item) {
   // evaluate any functions _benchmark|_benchmark_*() defined on item
   const benchmarks = [
     '_benchmark',
-    ...(item.text.match(/_benchmark_\w+/g) ?? []),
+    ...(item.text.match(/\b_benchmark_\w+/g) ?? []),
   ]
   let lines = []
   for (const benchmark of benchmarks) {
@@ -53,10 +53,7 @@ async function _on_command_benchmark(label) {
   }
   let text = ''
   let lines = []
-  for (const item of items) {
-    const item_log = await benchmark_item(item)
-    lines = lines.concat(item_log)
-  }
+  for (const item of items) lines = lines.concat(await benchmark_item(item))
   // process lines, formatting benchmark lines as interleaved markdown tables
   let rows = []
   for (const line of lines) {
