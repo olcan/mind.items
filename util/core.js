@@ -7,32 +7,19 @@ function _test_something() {}
 function _benchmark() {}
 function _benchmark_something() {}
 
-// eval
-const stack = () => new Error().stack.split('\n').join()
+const stack = (s = 1) => new Error().stack.split('\n').slice(s).join(' <- ')
+function check(...fJ) {
+  _.flattenDeep([...fJ]).forEach(f => {
+    if (!is_function(f)) throw new Error('check: argument must be function')
+    if (!f()) throw new Error(`FAILED check(${f}) <- ${stack(2)}`)
+  })
+}
+
 const print = (...args) => console.log(...args)
 const debug = (...args) => console.debug(...args)
 const error = (...args) => console.error(...args)
 const fatal = (...args) => {
   throw new Error(args.join(' ') + '; STACK: ' + stack())
-}
-const check = (x, msg) => {
-  if (!msg) msg = 'check failed; STACK: ' + stack()
-  if (!x) throw new Error(msg + '; STACK: ' + stack())
-}
-let _eval = eval
-const check_eval = (x, msg = x) => {
-  if (!_eval(x)) throw new Error(msg + '; STACK: ' + stack())
-}
-const check_eval_eq = (x, y, feq = isEqual) => {
-  const _x = _eval(x),
-    _y = _eval(y)
-  if (!feq(_x, _y)) throw new Error(`${x} != ${y} (${str(_x)} != ${str(_y)})`)
-}
-// NOTE: second argument should be x=>eval(x) to capture scope
-const scoped_eval = (f, e) => {
-  _eval = e
-  f()
-  _eval = eval
 }
 
 // timing
