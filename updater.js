@@ -5,7 +5,8 @@ function _on_welcome() {
   init_updater()
 }
 
-let modified_ids = []
+let modified_ids = [] // modified item id queue
+let update_commits = {} // modified item id -> commit sha map
 let update_modal
 
 async function init_updater() {
@@ -65,6 +66,8 @@ async function init_updater() {
               `github_webhook commit modified ${item.name} in ` +
                 `${owner}/${repo}/${branch}`
             )
+            // record latest update commit sha for modified item
+            update_commits[item.id] = body.after
             // push to back of queue if not already in queue
             if (!modified_ids.includes(item.id)) {
               modified_ids.push(item.id)
@@ -114,15 +117,38 @@ async function init_updater() {
         }
         while (modified_ids.length) {
           const item = _item(modified_ids.shift())
+          const commit = update_commits[item.id]
+          delete update_commits[item.id] // no longer pending
           const updates = await check_updates(item)
           if (updates) {
             // record _init_time for app instance that can skip confirmation
             _this.global_store.auto_updater_init_time = window._init_time
+            // record last update as item.global_store._updater.last_update
+            // enables detection of remote updates in _on_item_change below
+            item.global_store._updater.last_update = commit
             await update_item(item, updates)
           } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
     })
+}
+
+// detect remote updates and cancel unnecessary local updates
+function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  if (dependency) return // dependencies should have own updates
+  if (deleted) return // deletion can not be an update
+  const item = _item(id)
+  if (!item.attr) return // not an installed item
+  if (!item.name.startsWith('#')) return // not a named item
+  // if remote change and item is pending update, check for remote update
+  if (remote && update_commits[id]) {
+    if (item.global_store._updater.last_update == update_commits[id]) {
+      _this.log(`detected remote update for ${item.name}`)
+      // TODO: deal with remote update!
+      // delete update_commits[id] // no longer pending
+    }
+    return
+  }
 }
 
 // returns items that are installed and named (i.e. uniquely labeled)
