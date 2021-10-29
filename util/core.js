@@ -24,6 +24,23 @@ const error = (...args) => _this.error(...args)
 const fatal = (...args) => _this.fatal(...args)
 // TODO: bring more _Item functions to global scope using standard mechanism?
 
+function str(x) {
+  if (!defined(x)) return 'undefined'
+  if (defined(x._name)) return x._name
+  // insert commas to integers, from https://stackoverflow.com/a/2901298
+  if (is_integer(x)) return ('' + x).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (is_number(x)) return '' + x
+  if (is_function(x)) return ('' + x).replace('()=>', '')
+  if (is_string(x)) return `'${x}'`
+  if (is_array(x)) return '[' + x.map(str) + ']'
+  // use x.toString if it is overloaded, e.g. for Date
+  if (is_object(x)) {
+    if (x.toString !== Object.prototype.toString) return x.toString()
+    return '{' + Object.entries(x).map(([k, v]) => `${k}:${str(v)}`) + '}'
+  }
+  return JSON.stringify(x)
+}
+
 // timing
 function timing(f, name = str(f)) {
   const start = Date.now()
