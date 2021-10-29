@@ -156,7 +156,6 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
       // remove item/update from local update queue
       modified_ids.splice(modified_ids.indexOf(item.id), 1)
       delete pending_updates[id]
-      // TODO: test this
       // update modal if visible, close if no other updates pending
       if (_this.store.update_modal) {
         const modified_names = modified_ids.map(id => _item(id).name)
