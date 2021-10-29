@@ -28,9 +28,11 @@ function _benchmark_defined() {
   let x = 1
   let y
   // let z
-  benchmark(() => defined(x))
-  benchmark(() => !defined(y))
-  benchmark(() => !defined('z'))
+  benchmarks(
+    () => defined(x),
+    () => defined(y),
+    () => defined('z')
+  )
 }
 
 const is_integer = Number.isInteger

@@ -51,8 +51,10 @@ function timing(f, name = str(f)) {
 }
 let _benchmark_unit
 let _benchmark_units
+let _benchmark_options = {}
 const set_benchmark_unit = unit => (_benchmark_units = unit)
 const set_benchmark_units = units => (_benchmark_units = units)
+const set_benchmark_options = options => (_benchmark_options = options)
 function benchmark(
   f,
   {
@@ -62,7 +64,7 @@ function benchmark(
     N = 1000,
     unit = _benchmark_unit,
     units = _benchmark_units,
-  } = {}
+  } = _benchmark_options
 ) {
   let time = 0,
     calls = 0,
@@ -107,4 +109,12 @@ function benchmark(
         ')'
     )
   } else log(base)
+}
+
+function benchmarks(...fJ) {
+  _.flattenDeep([...fJ]).forEach(f => {
+    if (!is_function(f))
+      throw new Error('benchmarks: argument must be function')
+    benchmark(f)
+  })
 }
