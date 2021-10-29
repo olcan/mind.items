@@ -61,7 +61,7 @@ function _test_is_numeric() {
 const is_function = x => typeof x == 'function'
 const is_boolean = x => typeof x == 'boolean'
 const is_string = x => typeof x == 'string'
-const is_object = x => typeof x == 'object'
+const is_object = x => x /*exclude null*/ && typeof x == 'object'
 const is_set = x => x instanceof Set
 const is_map = x => x instanceof Map
 const is_array = Array.isArray
