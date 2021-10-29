@@ -91,23 +91,29 @@ async function init_updater() {
         if (modified_ids.length == 0) return // nothing to do
         const modified_names = modified_ids.map(id => _item(id).name)
         const s = modified_ids.length > 1 ? 's' : ''
-        update_modal = _modal({
-          content:
-            `${_this.name} is ready to update ${modified_ids.length} ` +
-            `installed item${s}: ${modified_names.join(', ')}`,
-          confirm: 'Update',
-          cancel: 'Skip',
-        })
-        const update = await update_modal
-        update_modal = null // modal dismissed
-        if (!update) {
-          _this.warn(
-            `updates skipped for ${modified_ids.length} ` +
-              `installed items: ${modified_names.join(', ')}`
-          )
-          modified_ids.length = 0 // clear queue
-          return
+        if (window._init_time == _this.global_store.auto_updater_init_time) {
+          _this.log(`skipping confirmation on this instance (${_init_time})`)
+        } else {
+          update_modal = _modal({
+            content:
+              `${_this.name} is ready to update ${modified_ids.length} ` +
+              `installed item${s}: ${modified_names.join(', ')}`,
+            confirm: 'Update',
+            cancel: 'Skip',
+          })
+          const update = await update_modal
+          update_modal = null // modal dismissed
+          if (!update) {
+            _this.warn(
+              `updates skipped for ${modified_ids.length} ` +
+                `installed items: ${modified_names.join(', ')}`
+            )
+            modified_ids.length = 0 // clear queue
+            return
+          }
         }
+        // record _init_time for app instance that can skip confirmation
+        _this.global_store.auto_updater_init_time = window._init_time
         while (modified_ids.length) {
           const item = _item(modified_ids.shift())
           const updates = await check_updates(item)
