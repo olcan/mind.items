@@ -1,5 +1,5 @@
 async function benchmark_item(item) {
-  if (!item.text.match(/\b_benchmark/)) return // no tests in item
+  if (!item.text.match(/\b_benchmark/)) return [] // no benchmarks in item
 
   // evaluate any functions _benchmark|_benchmark_*() defined on item
   const benchmarks = [
