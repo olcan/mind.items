@@ -112,13 +112,14 @@ async function init_updater() {
             return
           }
         }
-        // record _init_time for app instance that can skip confirmation
-        _this.global_store.auto_updater_init_time = window._init_time
         while (modified_ids.length) {
           const item = _item(modified_ids.shift())
           const updates = await check_updates(item)
-          if (updates) await update_item(item, updates)
-          else _this.log(`update no longer needed for ${item.name}`)
+          if (updates) {
+            // record _init_time for app instance that can skip confirmation
+            _this.global_store.auto_updater_init_time = window._init_time
+            await update_item(item, updates)
+          } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
     })
