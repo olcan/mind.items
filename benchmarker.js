@@ -37,12 +37,18 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
 const style_footer = `
 \`\`\`_html
 <style> 
-  #item table { 
-    font-size:80%; 
-    line-height:140%; 
-    white-space:nowrap; color:gray; 
-    font-family:'jetbrains mono', monospace 
-} 
+#item table { 
+  font-size:80%; 
+  line-height:140%; 
+  white-space:nowrap; color:gray; 
+  font-family:'jetbrains mono', monospace;
+}
+#item elapsed {
+  font-size:70%; color:#666; 
+  font-family:'jetbrains mono', monospace;
+  margin-left: 10px;
+  display: inline-block;
+}
 </style>
 \`\`\`
 `
@@ -68,7 +74,7 @@ async function _on_command_benchmark(label) {
         const [name, time] = line
           .match(/BENCHMARK (\S+?) completed in (\S+)/)
           .slice(1)
-        text += `\`${name} (${time})\`\n`
+        text += `\`${name}\`<span class=elapsed>${time}</span>\n`
       } else {
         // append generic line as is
         text += line + '\n'
