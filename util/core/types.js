@@ -8,8 +8,10 @@ function _benchmark_something() {}
 
 const inf = Infinity
 
-const defined = x =>
-  is_string(x) ? eval('typeof ' + x) !== 'undefined' : x !== undefined
+function defined(x) {
+  if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
+  else return x !== undefined
+}
 
 function _test_defined() {
   let x = 1
