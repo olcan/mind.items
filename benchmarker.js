@@ -16,7 +16,7 @@ async function benchmark_item(item) {
       )
       if (benchmarked) {
         item.log(`${benchmark} completed in ${Date.now() - start}ms`)
-        lines = lines.concat(item.get_log({ since: start }))
+        lines = lines.concat(item.get_log({ since: 'eval' }))
       }
     } catch (e) {
       item.error(`${benchmark} failed: ${e}`)
@@ -56,6 +56,7 @@ async function _on_command_benchmark(label) {
   for (const item of items) lines = lines.concat(await benchmark_item(item))
   // process lines, formatting benchmark lines as interleaved markdown tables
   let rows = []
+  console.log(lines)
   for (const line of lines) {
     if (line.match(/:\s*\d/)) {
       const [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
