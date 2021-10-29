@@ -6,7 +6,7 @@ async function benchmark_item(item) {
     '_benchmark',
     ...(item.text.match(/_benchmark_\w+/g) ?? []),
   ]
-  const results = []
+  let results = []
   for (const benchmark of benchmarks) {
     try {
       const start = Date.now()
