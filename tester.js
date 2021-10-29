@@ -1,8 +1,4 @@
-function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
-  if (dependency) return // dependencies should have own tests
-  if (remote) return // remote changes should be tested locally
-  if (deleted) return // no need to test deleted items
-  const item = _item(id)
+function test_item(item) {
   if (!item.text.includes('_test')) return // no tests in item
 
   // evaluate any functions _test|_test_*() defined on item
@@ -18,4 +14,21 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
       item.error(`${test} failed: ${e}`)
     }
   })
+}
+
+function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  if (dependency) return // dependencies should have own tests
+  if (remote) return // remote changes should be tested locally
+  if (deleted) return // no need to test deleted items
+  test_item(_item(id))
+}
+
+// command /test [label]
+function _on_command_test(label) {
+  const items = _items(label)
+  if (items.length == 0) {
+    alert(`/test: ${label} not found`)
+    return '/test ' + label
+  }
+  items.forEach(test_item)
 }
