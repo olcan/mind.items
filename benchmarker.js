@@ -42,5 +42,5 @@ async function _on_command_benchmark(label) {
   }
   let results = []
   for (const item of items) results = results.concat(await benchmark_item(item))
-  return { text: results.join('\n') }
+  return { text: results.join('\n'), edit: false }
 }
