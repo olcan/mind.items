@@ -74,7 +74,7 @@ async function _on_command_benchmark(label) {
         text += line + '\n'
       }
       if (rows.length) {
-        text += '```_md\n' + table(rows) + '\n```\n'
+        text += '```_md\n' + table(rows) + '\n```\n\n'
         rows = []
       }
     }
