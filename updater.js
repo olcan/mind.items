@@ -169,7 +169,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
         // if no updates pending, close modal
         // closing resolves modal promise as undefined (see await above)
         // closing modal should trigger setting of store.update_modal to null
-        if (modified_ids.length == 0) _modal_close()
+        if (modified_ids.length == 0) {
+          _this.log(`closing update modal since all updates were done remotely`)
+          _modal_close()
+        }
       }
     }
   }
