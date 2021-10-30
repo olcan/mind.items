@@ -1,4 +1,4 @@
-const inf = Infinity
+const inf = Infinity // test
 
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
