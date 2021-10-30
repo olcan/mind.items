@@ -35,7 +35,7 @@ function _benchmark_defined() {
 // `isFinite`
 const is_finite = isFinite
 
-// `!is_finite`
+// `!isFinite`
 const is_inf = x => !isFinite(x)
 
 // `isNaN`
