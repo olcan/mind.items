@@ -1,4 +1,4 @@
-#util/core/types defines type-related utilities. test
+#util/core/types defines type-related utilities.
 
 ```js_removed:types.js
 // types.js
