@@ -1,13 +1,12 @@
-// shorthand for `Infinity`
+// `Infinity`
 const inf = Infinity
 
-// returns true iff `x` is defined
-// `x` can be passed as string `'x'`
+// `x !== undefined`
+// `typeof x !== 'undefined'` if `x` is passed as `"x"`
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
   else return x !== undefined
 }
-
 function _test_defined() {
   let x = 1
   let y
@@ -18,7 +17,6 @@ function _test_defined() {
     () => !defined('z')
   )
 }
-
 function _benchmark_defined() {
   let x = 1
   let y
@@ -34,15 +32,24 @@ function _benchmark_defined() {
   )
 }
 
-const is_integer = Number.isInteger
+// `isFinite`
+const is_finite = isFinite
+
+// `!isFinite`
+const is_inf = x => !isFinite(x)
+
+// `isNaN`
 const is_nan = isNaN
+
+// `Number.isInteger`
+const is_integer = Number.isInteger
+
+// `typeof x == 'number'`
 const is_number = x => typeof x == 'number'
 
-// returns true iff argument is a number or a numeric string
-// from https://stackoverflow.com/a/175787
+// is `x` number or [numeric string](https://stackoverflow.com/a/175787)?
 const is_numeric = x =>
   is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
-
 function _test_is_numeric() {
   check(
     () => is_numeric(0),
@@ -60,7 +67,6 @@ function _test_is_numeric() {
     () => !is_numeric(' ')
   )
 }
-
 function _benchmark_is_numeric() {
   benchmark(
     () => is_numeric(0),
@@ -69,14 +75,28 @@ function _benchmark_is_numeric() {
   )
 }
 
+// `typeof x == 'function'`
 const is_function = x => typeof x == 'function'
+
+// `typeof x == 'boolean'`
 const is_boolean = x => typeof x == 'boolean'
+
+// `typeof x == 'string'`
 const is_string = x => typeof x == 'string'
-const is_object = x => x /*exclude null*/ && typeof x == 'object'
+
+// `typeof x == 'object' && x!==null`
+const is_object = x => typeof x == 'object' && x!==null
+
+// `x instanceof Set`
 const is_set = x => x instanceof Set
+
+// `x instanceof Map`
 const is_map = x => x instanceof Map
+
+// `Array.isArray`
 const is_array = Array.isArray
 
+// is `x` array or object w/ keys `0,1,2...`?
 function is_indexed(x) {
   if (is_array(x)) return true // indexed even if empty
   if (!is_object(x)) return false // must be object if not array
@@ -112,6 +132,7 @@ function _benchmark_is_indexed() {
   )
 }
 
+// [`_.isEmpty`](https://lodash.com/docs/4.17.15#isEmpty)
 const empty = _.isEmpty
 
 function _benchmark_empty() {
@@ -121,4 +142,5 @@ function _benchmark_empty() {
   )
 }
 
+// [`_.isEqual`](https://lodash.com/docs/4.17.15#isEqual)
 const equal = _.isEqual
