@@ -140,8 +140,10 @@ function utildoc() {
   const names = Array.from(
     _item('#util/core/types')
       .read('js')
-      .matchAll(/(?:^|\n)(?:function|const)\s+(?<name>\w+)/g),
-    m => m.groups.name
+      .matchAll(
+        /(?:^|\n)(?:function|const|let)\s+(?<name>\w+)(?:\s*=\s*)?(?<args>\(.*?\))?/g
+      ),
+    m => m.groups.name + m.groups.args
   )
-  return names.map(name => `- ${name}`).join('\n')
+  return names.map(name => `- \`${name}\``).join('\n')
 }
