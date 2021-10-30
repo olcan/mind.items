@@ -144,8 +144,9 @@ function jsdoc() {
         /(?:^|\n)(?<comment>\/\/.*?\n)?(?:function|const|let)\s+(?<name>\w+)(?:\s*=\s*)?(?<args>\(.*?\))?/g
       ),
     m => {
-      const def = _.merge(m.groups, { args: '' })
-      def.comment = def.comment.replace(/\n/g, ' ')
+      const def = m.groups
+      def.args = def.args ?? ''
+      def.comment = def.comment?.replace(/\n/g, ' ') ?? ''
       return def
     }
   )
