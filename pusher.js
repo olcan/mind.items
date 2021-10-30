@@ -224,7 +224,7 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
-        await _side_push_item(item) // execute side-push regardless of push
+        await _side_push_item(item) // execute side-push (if any)
         return
       }
       try {
@@ -389,6 +389,7 @@ async function _side_push_item(item) {
           `side-push redundant (no change) for ${item.name} to ${dest_str}`
         )
       else {
+        await _modal_close() // force-close any other modal
         const message = await _modal({
           content:
             `Enter commit message to push \`${item.name}\` to ` +
@@ -452,6 +453,7 @@ async function _side_push_item(item) {
           const embed_source =
             `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
             `blob/${item.attr.branch}/${embed.path}`
+          await _modal_close() // force-close any other modal
           const message = await _modal({
             content:
               `Enter commit message to push embed block ` +
