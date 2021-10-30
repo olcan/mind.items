@@ -136,4 +136,5 @@ function _benchmark_empty() {
   )
 }
 
+// [`_.isEqual`](https://lodash.com/docs/4.17.15#isEqual)
 const equal = _.isEqual
