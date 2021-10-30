@@ -590,6 +590,7 @@ async function _on_command_push(label) {
           content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
         })
       } else {
+        _modal_close()
         _modal({
           content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
           background: 'block',
