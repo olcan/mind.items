@@ -224,7 +224,7 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
-        setTimeout(() => _side_push_item(item)) // dispatch side-push
+        await _side_push_item(item) // execute side-push regardless of push
         return
       }
       try {
@@ -314,9 +314,7 @@ function push_item(item) {
         }
 
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
-
-        // dispatch "side-push" of item
-        setTimeout(() => _side_push_item(item))
+        await _side_push_item(item) // execute side-push (if any)
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
