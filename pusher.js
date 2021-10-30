@@ -423,6 +423,8 @@ async function _side_push_item(item) {
           if (!_this.store.sidepush_commits)
             _this.store.sidepush_commits = new Set()
           _this.store.sidepush_commits.add(data.commit.sha)
+          // also allow #updater to detect this as a remote update
+          item.global_store._updater = { last_update: data.commit.sha }
           _this.log(
             `side-pushed ${item.name} (commit ${data.commit.sha}) ` +
               `to ${dest_str} in ${Date.now() - start}ms`
@@ -493,6 +495,8 @@ async function _side_push_item(item) {
             if (!_this.store.sidepush_commits)
               _this.store.sidepush_commits = new Set()
             _this.store.sidepush_commits.add(data.commit.sha)
+            // also allow #updater to detect this as a remote update
+            item.global_store._updater = { last_update: data.commit.sha }
             _this.log(
               `side-pushed embed ${item.name}:${embed.path} ` +
                 `(commit ${data.commit.sha}) to ${dest_str} ` +
