@@ -29,14 +29,14 @@ function _benchmark_defined() {
   )
 }
 
-// `Infinity`
-const inf = Infinity
-
 // `isFinite`
 const is_finite = isFinite
 
 // `!isFinite(x)`
 const is_inf = x => !isFinite(x)
+
+// `Infinity`
+const inf = Infinity
 
 // `isNaN`
 const is_nan = isNaN
