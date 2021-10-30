@@ -1,8 +1,8 @@
 // shorthand for `Infinity`
 const inf = Infinity
 
-// shorthand for `x !== undefined`
-// or `typeof x !== 'undefined'` if `is_string(x)`
+// true iff `x` is defined
+// variable `x` can be passed by name (string)
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
   else return x !== undefined
