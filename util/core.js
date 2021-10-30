@@ -147,7 +147,7 @@ function utildoc() {
   )
   let lines = ['|||', '|-:|:-|']
   names.forEach(name => {
-    lines.push(`\`${name}\`||`)
+    lines.push(`|\`${name}\`|`)
   })
   return lines.join('\n')
 }
