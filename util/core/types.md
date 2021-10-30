@@ -1,4 +1,4 @@
-#util/core/types defines type-related utilities. #todo arguments of arrow functions
+#util/core/types defines type-related utilities.
 <<jsdoc()>>
 
 ```js_removed:types.js
