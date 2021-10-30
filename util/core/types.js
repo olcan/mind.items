@@ -81,10 +81,13 @@ const is_string = x => typeof x == 'string'
 // `typeof x == 'object' && x!==null`
 const is_object = x => typeof x == 'object' && x!==null
 
+// `x instanceof Set`
 const is_set = x => x instanceof Set
 
+// `x instanceof Map`
 const is_map = x => x instanceof Map
 
+// `Array.isArray`
 const is_array = Array.isArray
 
 function is_indexed(x) {
