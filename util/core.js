@@ -135,3 +135,8 @@ function run_benchmark(
     )
   } else log(base)
 }
+
+function utildoc() {
+  const names = _this.read('js').match(/(?:^|\n)(?:function|const)\s+(\w+)/g)
+  return names.map(name => `- ${name}`).join('\n')
+}
