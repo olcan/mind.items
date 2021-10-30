@@ -29,22 +29,11 @@ function _benchmark_defined() {
   )
 }
 
-// `isFinite`
 const is_finite = isFinite
-
-// `!isFinite(x)`
 const is_inf = x => !isFinite(x)
-
-// `Infinity`
 const inf = Infinity
-
-// `isNaN`
 const is_nan = isNaN
-
-// `Number.isInteger`
 const is_integer = Number.isInteger
-
-// `typeof x == 'number'`
 const is_number = x => typeof x == 'number'
 
 // is `x` number or [numeric string](https://stackoverflow.com/a/175787)?
