@@ -126,6 +126,7 @@ function _benchmark_is_indexed() {
   )
 }
 
+// `_.isEmpty`
 const empty = _.isEmpty
 
 function _benchmark_empty() {
