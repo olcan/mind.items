@@ -38,7 +38,7 @@ const is_integer = Number.isInteger
 // `typeof x == 'number'`
 const is_number = x => typeof x == 'number'
 
-// if argument is number or [numeric string](https://stackoverflow.com/a/175787)
+// is `x` number or [numeric string](https://stackoverflow.com/a/175787)?
 const is_numeric = x =>
   is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
 
