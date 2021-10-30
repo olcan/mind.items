@@ -1,7 +1,5 @@
 const inf = Infinity // test
 
-// test
-// hello
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
   else return x !== undefined
