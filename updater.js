@@ -132,7 +132,8 @@ async function init_updater() {
             const gs = item.global_store
             const prev_state = gs._updater
             gs._updater = { last_update: update }
-            if (!(await update_item(item, updates))) gs._updater = prev_state
+            if (!(await update_item(item, updates)))
+              item.global_store._updater = prev_state
           } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
