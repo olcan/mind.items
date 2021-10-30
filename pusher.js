@@ -585,9 +585,16 @@ async function _on_command_push(label) {
       background: 'block',
     })
     for (const [i, item] of items.entries()) {
-      _modal_update({
-        content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
-      })
+      if (_modal_visible()) {
+        _modal_update({
+          content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
+        })
+      } else {
+        _modal({
+          content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
+          background: 'block',
+        })
+      }
       await push_item(item)
     }
     update_branch('last_push')
