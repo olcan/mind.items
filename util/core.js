@@ -145,5 +145,9 @@ function utildoc() {
       ),
     m => m.groups.name + (m.groups.args ?? '')
   )
-  return names.map(name => `- \`${name}\``).join('\n')
+  let lines = ['|||', '|-:|:-|']
+  names.forEach(name => {
+    lines.push(`\`${name}\`||`)
+  })
+  return lines.join('\n')
 }
