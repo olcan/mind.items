@@ -419,15 +419,6 @@ async function _side_push_item(item) {
           item.attr.sha = data.commit.sha
           attr_modified = true // trigger save via touch below
 
-          // // store commit sha in item.global_store._pusher.sidepush_commits
-          // // for #updater to detect and ignore side-pushed changes
-          // const gs = item.global_store
-          // if (!gs._pusher) gs._pusher = {}
-          // gs._pusher.sidepush_commits = [
-          //   data.commit.sha,
-          //   ...(gs._pusher.sidepush_commits ?? []),
-          // ].slice(0, 100) // keep only last 100 commits
-
           _this.log(
             `side-pushed ${item.name} (commit ${data.commit.sha}) ` +
               `to ${dest_str} in ${Date.now() - start}ms`
@@ -494,15 +485,6 @@ async function _side_push_item(item) {
             // update embed with new commit sha
             embed.sha = data.commit.sha
             attr_modified = true // trigger save via touch below
-
-            // // store commit sha in item.global_store._pusher.sidepush_commits
-            // // for #updater to detect and ignore side-pushed changes
-            // const gs = item.global_store
-            // if (!gs._pusher) gs._pusher = {}
-            // gs._pusher.sidepush_commits = [
-            //   data.commit.sha,
-            //   ...(gs._pusher.sidepush_commits ?? []),
-            // ].slice(0, 100) // keep only last 100 commits
 
             _this.log(
               `side-pushed embed ${item.name}:${embed.path} ` +
