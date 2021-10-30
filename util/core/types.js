@@ -41,10 +41,6 @@ const is_number = x => typeof x == 'number'
 // is `x` number or [numeric string](https://stackoverflow.com/a/175787)?
 const is_numeric = x =>
   is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
-
-// `isNaN`
-const is_nan = isNaN
-
 function _test_is_numeric() {
   check(
     () => is_numeric(0),
@@ -62,7 +58,6 @@ function _test_is_numeric() {
     () => !is_numeric(' ')
   )
 }
-
 function _benchmark_is_numeric() {
   benchmark(
     () => is_numeric(0),
@@ -71,6 +66,10 @@ function _benchmark_is_numeric() {
   )
 }
 
+// `isNaN`
+const is_nan = isNaN
+
+// `typeof x == 'function'`
 const is_function = x => typeof x == 'function'
 const is_boolean = x => typeof x == 'boolean'
 const is_string = x => typeof x == 'string'
