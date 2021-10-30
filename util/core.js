@@ -141,7 +141,7 @@ function jsdoc() {
     _item('#util/core/types')
       .read('js')
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let)\s+(?<name>\w+)\s*(?:(?<args>\(.*?\))|=\s*(?<arrow_args>\S+)\s*=>)?/g
+        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let)\s+(?<name>\w+)\s*(?:(?<args>\(.*?\))|=\s*(?<arrow_args>\S+)\s*=>\s*\n?(?<body>[^\n]+))?/g
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -149,9 +149,13 @@ function jsdoc() {
         def.args = def.arrow_args
         if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
-      def.comment = def.comment
-        .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>')
-        .replace(/^\/\//, '')
+      if (def.comment) {
+        def.comment = def.comment
+          .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>')
+          .replace(/^\/\//, '')
+      } else if (def.body && !def.body.startsWith('{')) {
+        def.comment = '`' + def.body + '`'
+      }
       return def
     }
   )
