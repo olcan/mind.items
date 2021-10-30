@@ -14,7 +14,7 @@ async function init_updater() {
 
   // check for updates on page init
   for (let item of installed_named_items()) {
-    const updates = await check_updates(item)
+    const updates = await check_updates(item, true /* mark_pushables */)
     if (updates) await update_item(item, updates)
   }
 
@@ -223,9 +223,23 @@ async function github_token(item) {
   return token ? (_this.global_store.token = token) : null
 }
 
+// computes github sha, see https://stackoverflow.com/a/39874235
+function github_sha(text) {
+  const utf8_text = new TextEncoder().encode(text)
+  const utf8_prefix = new TextEncoder().encode(`blob ${utf8_text.length}\0`)
+  const utf8 = new Uint8Array(utf8_prefix.length + utf8_text.length)
+  utf8.set(utf8_prefix)
+  utf8.set(utf8_text, utf8_prefix.length)
+  // const sha_buffer = await crypto.subtle.digest('SHA-1', utf8)
+  const sha_buffer = sha1.arrayBuffer(utf8)
+  return Array.from(new Uint8Array(sha_buffer), b =>
+    b.toString(16).padStart(2, '0')
+  ).join('')
+}
+
 // checks for updates to item, returns path->hash map of updates or null
 // similar to /_updates command defined in index.svelte in mind.page repo
-async function check_updates(item) {
+async function check_updates(item, mark_pushables = false) {
   const attr = item.attr
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
@@ -243,9 +257,44 @@ async function check_updates(item) {
       per_page: 1,
     })
     if (sha != attr.sha) updates.set(path, sha)
+    if (mark_pushables) {
+      const {
+        data: { files },
+      } = await github.repos.getCommit({ ...attr, ref: sha })
+      const file_sha = files.find(f => f.filename == path)?.sha
+      const text = item.text
+      // undo embeds based on original bodies in attr.embeds[].body
+      if (attr.embeds) {
+        text = text.replace(
+          /```(\S+):(\S+?)\n(.*?)\n```/gs,
+          (m, pfx, sfx, body) => {
+            if (!sfx.includes('.')) return m // not path
+            const path = resolve_embed_path(sfx, attr)
+            body = item.attr.embeds.find(e => e.path == path).body
+            return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
+          }
+        )
+      }
+      if (file_sha != github_sha(text)) {
+        _this.warn(`${item.name} is inconsistent with source ${source}/${path}`)
+        item.pushable = true // mark pushable until pushed to source
+      }
+    }
 
     // check for changes to embeds
     if (attr.embeds) {
+      // if we are marking pushables, we need to extract embed text from item
+      let embed_text = {}
+      if (mark_pushables) {
+        for (let [m, pfx, sfx, body] of item.text.matchAll(
+          /```(\S+):(\S+?)\n(.*?)\n```/gs
+        )) {
+          if (!sfx.includes('.')) continue // not path
+          const path = resolve_embed_path(sfx, attr)
+          embed_text[path] = body
+        }
+      }
+
       for (let embed of attr.embeds) {
         const {
           data: [{ sha }],
@@ -256,6 +305,19 @@ async function check_updates(item) {
           per_page: 1,
         })
         if (sha != embed.sha) updates.set(embed.path, sha)
+        if (mark_pushables) {
+          const {
+            data: { files },
+          } = await github.repos.getCommit({ ...attr, ref: sha })
+          const file_sha = files.find(f => f.filename == embed.path)?.sha
+          if (file_sha != github_sha(embed_text[embed.path])) {
+            _this.warn(
+              `embed ${item.name}:${embed.path} is inconsistent with ` +
+                `source ${source}/${embed.path}`
+            )
+            item.pushable = true // mark pushable until pushed to source
+          }
+        }
       }
     }
   } catch (e) {
