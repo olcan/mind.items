@@ -584,6 +584,7 @@ async function _on_command_push(label) {
       return '/push ' + label
     }
     for (const [i, item] of items.entries()) {
+      // NOTE: we show a separate modal for each item because push_item may include a side-push that can force-close modals to present its own
       _modal({
         content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
         background: 'block',
@@ -591,7 +592,8 @@ async function _on_command_push(label) {
       await push_item(item)
     }
     update_branch('last_push')
-    await _modal_update({
+    await _modal_close() // force-close any existing modals
+    await _modal({
       content: `Pushed ${items.length} item${s}`,
       confirm: 'OK',
       background: 'confirm',
