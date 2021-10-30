@@ -78,7 +78,7 @@ const is_boolean = x => typeof x == 'boolean'
 // `typeof x == 'string'`
 const is_string = x => typeof x == 'string'
 
-// `typeof x == 'object'`, but also `x!==null`
+// `typeof x == 'object' && x!==null`
 const is_object = x => typeof x == 'object' && x!==null
 
 const is_set = x => x instanceof Set
