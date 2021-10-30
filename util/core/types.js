@@ -7,7 +7,6 @@ function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
   else return x !== undefined
 }
-
 function _test_defined() {
   let x = 1
   let y
@@ -18,7 +17,6 @@ function _test_defined() {
     () => !defined('z')
   )
 }
-
 function _benchmark_defined() {
   let x = 1
   let y
@@ -40,7 +38,7 @@ const is_integer = Number.isInteger
 // `typeof x == 'number'`
 const is_number = x => typeof x == 'number'
 
-// returns true iff argument is a number or a numeric string
+// true iff argument is number or numeric string
 // from https://stackoverflow.com/a/175787
 const is_numeric = x =>
   is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
