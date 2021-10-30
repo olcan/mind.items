@@ -1,3 +1,4 @@
+// alias for Infinity
 const inf = Infinity // test
 
 function defined(x) {
