@@ -153,6 +153,7 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
+    if (def.name.match(/^_test|_benchmark/)) return
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
   return lines.join('\n')
