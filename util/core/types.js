@@ -1,5 +1,5 @@
 // alias for Infinity
-const inf = Infinity // test
+const inf = Infinity
 
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
