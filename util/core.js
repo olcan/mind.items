@@ -147,7 +147,7 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
-    lines.push(`|\`${def.name}\`|`)
+    lines.push(`|\`${def.name + (def.args || '')}\`|${def.comment}`)
   })
   return lines.join('\n')
 }
