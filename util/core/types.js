@@ -1,7 +1,7 @@
 // shorthand for `Infinity`
 const inf = Infinity
 
-// true iff `x` is defined
+// returns true iff `x` is defined
 // variable `x` can be passed by name (string)
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
