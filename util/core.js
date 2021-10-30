@@ -146,7 +146,7 @@ function jsdoc() {
     m => {
       const def = m.groups
       def.args = def.args ?? ''
-      def.comment = def.comment?.replace(/\s+|\s*\/\/\s*/, ' ') ?? ''
+      def.comment = def.comment?.replace(/\s+|\s*\/\/\s*/g, ' ') ?? ''
       return def
     }
   )
