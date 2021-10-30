@@ -137,6 +137,11 @@ function run_benchmark(
 }
 
 function utildoc() {
-  const names = _this.read('js').match(/(?:^|\n)(?:function|const)\s+(\w+)/g)
+  const names = Array.from(
+    _item('#util/core/types')
+      .read('js')
+      .matchAll(/(?:^|\n)(?:function|const)\s+(?<name>\w+)/g),
+    m => m.groups.name
+  )
   return names.map(name => `- ${name}`).join('\n')
 }
