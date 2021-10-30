@@ -90,6 +90,7 @@ const is_map = x => x instanceof Map
 // `Array.isArray`
 const is_array = Array.isArray
 
+// is `x` array or indexed object w/ keys `0,1,2...`?
 function is_indexed(x) {
   if (is_array(x)) return true // indexed even if empty
   if (!is_object(x)) return false // must be object if not array
