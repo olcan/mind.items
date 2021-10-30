@@ -1,4 +1,4 @@
-// alias for `Infinity`
+// `Infinity`
 const inf = Infinity
 
 // returns if `x` is defined
