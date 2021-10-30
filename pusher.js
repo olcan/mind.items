@@ -109,11 +109,14 @@ async function init_pusher() {
   )
 
   // report inconsistent/missing items
+  // TODO: also detect inconsistencies w/ side-push repos? otherwise local
+  //       edits can get forgotten, e.g. even pushable flag would be cleared
   let count = 0,
     names = []
   for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
+    item.pushable = true // mark item pushable until pushed
     if (names.length < 10) names.push(item.name)
     count++
   }
@@ -224,6 +227,7 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
+        item.pushable = false // clear pushable flag
         await _side_push_item(item) // execute side-push (if any)
         return
       }
@@ -314,6 +318,7 @@ function push_item(item) {
         }
 
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
+        item.pushable = false // clear pushable flag
         await _side_push_item(item) // execute side-push (if any)
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
@@ -402,6 +407,7 @@ async function _side_push_item(item) {
         })
         if (!message) {
           _this.warn(`side-push skipped for ${item.name} to ${dest_str}`)
+          item.pushable = true // mark pushable again
         } else {
           const start = Date.now()
           const { data } = await github.repos.createOrUpdateFileContents({
@@ -471,6 +477,7 @@ async function _side_push_item(item) {
               `side-push of embed skipped for ` +
                 `${item.name}:${embed.path} to ${dest_str}`
             )
+            item.pushable = true // mark pushable again
           } else {
             const start = Date.now()
             const { data } = await github.repos.createOrUpdateFileContents({
