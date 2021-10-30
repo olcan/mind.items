@@ -224,6 +224,7 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
+        setTimeout(() => _side_push_item(item)) // dispatch side-push
         return
       }
       try {
