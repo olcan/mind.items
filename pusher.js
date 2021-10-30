@@ -391,13 +391,14 @@ async function _side_push_item(item) {
           `side-push redundant (no change) for ${item.name} to ${dest_str}`
         )
       else {
-        const message = await _modal({
+        let message = item.name + ' edited in mind.page'
+        message = await _modal({
           content:
             `Enter commit message to push \`${item.name}\` to ` +
             `[${dest.path}](${item.attr.source}):`,
           confirm: 'Push',
           cancel: 'Skip',
-          input: item.name + ' edited in mind.page',
+          input: message,
         })
         if (!message) {
           _this.warn(`side-push skipped for ${item.name} to ${dest_str}`)
@@ -454,14 +455,15 @@ async function _side_push_item(item) {
           const embed_source =
             `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
             `blob/${item.attr.branch}/${embed.path}`
-          const message = await _modal({
+          let message = item.name + ':' + embed.path + ' edited in mind.page'
+          message = await _modal({
             content:
               `Enter commit message to push embed block ` +
               `\`${embed_type[embed.path]}\` in \`${item.name}\` ` +
               `back to its source file [${dest.path}](${embed_source}):`,
             confirm: 'Push',
             cancel: 'Skip',
-            input: item.name + ':' + embed.path + ' edited in mind.page',
+            input: message,
           })
           if (!message) {
             _this.warn(
