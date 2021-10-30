@@ -389,7 +389,6 @@ async function _side_push_item(item) {
           `side-push skipped (no change) for ${item.name} to ${dest_str}`
         )
       else {
-        await _modal_close()
         const message = await _modal({
           content:
             `Enter commit message to push \`${item.name}\` to ` +
