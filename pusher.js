@@ -393,7 +393,7 @@ async function _side_push_item(item) {
           `side-push redundant (no change) for ${item.name} to ${dest_str}`
         )
       else {
-        let message = item.name + ' edited'
+        let message = item.name
         await _modal_close() // force-close any existing modal to avoid deadlock
         message = await _modal({
           content:
@@ -465,7 +465,7 @@ async function _side_push_item(item) {
           const embed_source =
             `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
             `blob/${item.attr.branch}/${embed.path}`
-          let message = item.name + ':' + embed.path + ' edited'
+          let message = item.name + ':' + embed.path
           await _modal_close() // force-close any existing modal to avoid deadlock
           message = await _modal({
             content:
