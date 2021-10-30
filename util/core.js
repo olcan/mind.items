@@ -136,18 +136,18 @@ function run_benchmark(
   } else log(base)
 }
 
-function utildoc() {
-  const names = Array.from(
+function jsdoc() {
+  const defs = Array.from(
     _item('#util/core/types')
       .read('js')
       .matchAll(
-        /(?:^|\n)(?:function|const|let)\s+(?<name>\w+)(?:\s*=\s*)?(?<args>\(.*?\))?/g
+        /(?:^|\n)(?<comment>\/\/.*?\n)?(?:function|const|let)\s+(?<name>\w+)(?:\s*=\s*)?(?<args>\(.*?\))?/g
       ),
-    m => m.groups.name + (m.groups.args ?? '')
+    m => m.groups
   )
   let lines = ['|||', '|-:|:-|']
-  names.forEach(name => {
-    lines.push(`|\`${name}\`|`)
+  defs.forEach(def => {
+    lines.push(`|\`${def.name}\`|`)
   })
   return lines.join('\n')
 }
