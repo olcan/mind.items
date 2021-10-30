@@ -1,4 +1,4 @@
-// alias for Infinity
+// alias for `Infinity`
 const inf = Infinity
 
 function defined(x) {
