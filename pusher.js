@@ -224,7 +224,9 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
-        await _side_push_item(item) // execute side-push (if any)
+        // NOTE: side-push must be dispatched because otherwise its modals could
+        // cause deadlock with any existing blocking modals (e.g. "pushing...")
+        setTimeout(() => _side_push_item(item)) // execute side-push (if any)
         return
       }
       try {
@@ -314,7 +316,7 @@ function push_item(item) {
         }
 
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
-        await _side_push_item(item) // execute side-push (if any)
+        setTimeout(() => _side_push_item(item)) // execute side-push (if any)
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
@@ -389,7 +391,6 @@ async function _side_push_item(item) {
           `side-push redundant (no change) for ${item.name} to ${dest_str}`
         )
       else {
-        await _modal_close() // force-close any other modal
         const message = await _modal({
           content:
             `Enter commit message to push \`${item.name}\` to ` +
@@ -453,7 +454,6 @@ async function _side_push_item(item) {
           const embed_source =
             `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
             `blob/${item.attr.branch}/${embed.path}`
-          await _modal_close() // force-close any other modal
           const message = await _modal({
             content:
               `Enter commit message to push embed block ` +
@@ -585,17 +585,9 @@ async function _on_command_push(label) {
       background: 'block',
     })
     for (const [i, item] of items.entries()) {
-      if (_modal_visible()) {
-        _modal_update({
-          content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
-        })
-      } else {
-        _modal_close()
-        _modal({
-          content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
-          background: 'block',
-        })
-      }
+      _modal_update({
+        content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
+      })
       await push_item(item)
     }
     update_branch('last_push')
