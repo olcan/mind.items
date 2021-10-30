@@ -34,7 +34,10 @@ function _benchmark_defined() {
   )
 }
 
+// alias for `Number.isInteger`
 const is_integer = Number.isInteger
+
+// alias for `typeof x == 'number'`
 const is_number = x => typeof x == 'number'
 
 // returns true iff argument is a number or a numeric string
