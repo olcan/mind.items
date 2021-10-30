@@ -2,7 +2,7 @@
 const inf = Infinity
 
 // returns true iff `x` is defined
-// variable `x` can be passed by name (string)
+// `x` can be passed by name string
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
   else return x !== undefined
