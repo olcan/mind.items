@@ -64,25 +64,12 @@ function _benchmark_is_numeric() {
   )
 }
 
-// `typeof x == 'function'`
 const is_function = x => typeof x == 'function'
-
-// `typeof x == 'boolean'`
 const is_boolean = x => typeof x == 'boolean'
-
-// `typeof x == 'string'`
 const is_string = x => typeof x == 'string'
-
-// `typeof x == 'object' && x!==null`
 const is_object = x => typeof x == 'object' && x!==null
-
-// `x instanceof Set`
 const is_set = x => x instanceof Set
-
-// `x instanceof Map`
 const is_map = x => x instanceof Map
-
-// `Array.isArray`
 const is_array = Array.isArray
 
 // is `x` array or object w/ keys `0,1,2...`?
