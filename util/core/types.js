@@ -32,6 +32,15 @@ function _benchmark_defined() {
   )
 }
 
+// `isFinite`
+const is_finite = isFinite
+
+// `is_inf`
+const is_inf = x => !isFinite(x)
+
+// `isNaN`
+const is_nan = isNaN
+
 // `Number.isInteger`
 const is_integer = Number.isInteger
 
@@ -65,9 +74,6 @@ function _benchmark_is_numeric() {
     () => !is_numeric('12px')
   )
 }
-
-// `isNaN`
-const is_nan = isNaN
 
 // `typeof x == 'function'`
 const is_function = x => typeof x == 'function'
