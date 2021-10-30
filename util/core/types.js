@@ -1,4 +1,4 @@
-// shorthand for `Infinity`
+// = `Infinity`
 const inf = Infinity
 
 // returns true iff `x` is defined
