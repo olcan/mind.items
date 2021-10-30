@@ -143,7 +143,7 @@ function utildoc() {
       .matchAll(
         /(?:^|\n)(?:function|const|let)\s+(?<name>\w+)(?:\s*=\s*)?(?<args>\(.*?\))?/g
       ),
-    m => m.groups.name + m.groups.args || ''
+    m => m.groups.name + (m.groups.args ?? '')
   )
   return names.map(name => `- \`${name}\``).join('\n')
 }
