@@ -1,8 +1,8 @@
 // `Infinity`
 const inf = Infinity
 
-// returns if `x` is defined
-// `x` can be passed as string `'x'`
+// `x !== undefined`
+// `typeof x !== 'undefined'` if x is passed as string
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
   else return x !== undefined
