@@ -119,7 +119,3 @@ function _benchmark_empty() {
 }
 
 const equal = _.isEqual
-
-const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) < ε
-
-// TODO: tests for approx_equal
