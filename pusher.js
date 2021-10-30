@@ -386,7 +386,7 @@ async function _side_push_item(item) {
       }
       if (sha == github_sha(sidepush_text))
         _this.log(
-          `side-push skipped (no change) for ${item.name} to ${dest_str}`
+          `side-push redundant (no change) for ${item.name} to ${dest_str}`
         )
       else {
         const message = await _modal({
@@ -445,7 +445,7 @@ async function _side_push_item(item) {
         }
         if (sha == github_sha(sidepush_text))
           _this.log(
-            `side-push of embed skipped (no change) for ` +
+            `side-push of embed redundant (no change) for ` +
               `${item.name}:${embed.path} to ${dest_str}`
           )
         else {
