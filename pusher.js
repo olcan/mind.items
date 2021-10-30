@@ -109,8 +109,7 @@ async function init_pusher() {
   )
 
   // report inconsistent/missing items
-  // TODO: also detect inconsistencies w/ side-push repos? otherwise local
-  //       edits can get forgotten, e.g. even pushable flag would be cleared
+  // NOTE: side-push inconsistencies for installed items are checked by #updater
   let count = 0,
     names = []
   for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
