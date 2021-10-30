@@ -313,7 +313,8 @@ async function check_updates(item, mark_pushables = false) {
           if (file_sha != github_sha(embed_text[embed.path])) {
             _this.warn(
               `embed ${item.name}:${embed.path} is inconsistent with ` +
-                `source ${source}/${embed.path}`
+                `source ${source}/${embed.path} and requires manual ` +
+                `/push or /_update`
             )
             item.pushable = true // mark pushable until pushed to source
           }
