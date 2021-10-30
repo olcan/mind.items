@@ -262,7 +262,7 @@ async function check_updates(item, mark_pushables = false) {
         data: { files },
       } = await github.repos.getCommit({ ...attr, ref: sha })
       const file_sha = files.find(f => f.filename == path)?.sha
-      const text = item.text
+      let text = item.text
       // undo embeds based on original bodies in attr.embeds[].body
       if (attr.embeds) {
         text = text.replace(
