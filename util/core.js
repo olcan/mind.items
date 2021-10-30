@@ -141,10 +141,11 @@ function jsdoc() {
     _item('#util/core/types')
       .read('js')
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let)\s+(?<name>\w+)\s*(?:(?<args>\(.*?\))|=\s*(?<args>\S+)\s*=>)?/g
+        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let)\s+(?<name>\w+)\s*(?:(?<args>\(.*?\))|=\s*(?<arrow_args>\S+)\s*=>)?/g
       ),
     m => {
-      const def = _.merge({ args: '', comment: '' }, m.groups)
+      const def = _.merge({ comment: '' }, m.groups)
+      def.args = def.args ?? def.arrow_args ?? ''
       def.comment = def.comment
         .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>')
         .replace(/^\/\//, '')
