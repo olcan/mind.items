@@ -37,15 +37,11 @@ async function init_updater() {
           `github_webhook for commit sha ${body.after} ` +
             `in ${source} (was ${body.before})`
         )
-        // ignore webhook if triggered by a local side-push from #pusher
-        if (_item('#pusher', false)?.store.sidepush_commits?.has(body.after)) {
-          _this.log(
-            `ignoring github_webhook for local side-push commit ` +
-              `${body.after} in ${source}`
-          )
-          return
-        }
-        const commits = (body.commits ?? []).filter(c => c.modified?.length)
+        let commits = body.commits ?? []
+        // drop commits w/o modified items
+        commits = commits.filter(c => c.modified?.length)
+        // drop commits pushed via #pusher
+        commits = commits.filter(c => !c.message.endsWith('(via #pusher)'))
         if (commits.length == 0) return // no commits w/ modifications
 
         // scan items for installed items w/ modified paths
@@ -132,8 +128,11 @@ async function init_updater() {
             _this.global_store.auto_updater_init_time = window._init_time
             // record last update as item.global_store._updater.last_update
             // enables detection of remote updates in _on_item_change below
-            item.global_store._updater = { last_update: update }
-            await update_item(item, updates)
+            // restore previous state if update fails
+            const gs = item.global_store
+            const prev_state = gs._updater
+            gs._updater = { last_update: update }
+            if (!(await update_item(item, updates))) gs._updater = prev_state
           } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
@@ -346,6 +345,7 @@ function resolve_embed_path(path, attr) {
 // applies specific updates (path->sha map) returned by check_updates
 // similar to /_update command defined in index.svelte in mind.page repo
 // allows item to be renamed with a warning to console
+// returns true iff item was updated successfully
 async function update_item(item, updates) {
   const start = Date.now()
   const attr = item.attr
@@ -423,7 +423,7 @@ async function update_item(item, updates) {
               `update cancelled for ${item.name} from ` +
                 `${source}/${path} due to missing dependencies`
             )
-            return
+            return false
           }
           for (let dep of deps) {
             if (_exists(dep)) {
@@ -459,14 +459,14 @@ async function update_item(item, updates) {
               `update restarted for ${item.name} from ` +
                 `${source}/${path} after dependencies installed`
             )
-            await update_item(item, updates)
+            return await update_item(item, updates)
           } else {
             _this.log(
               `update no longer needed for ${item.name} from ` +
                 `${source}/${path} after dependencies installed`
             )
+            return true // updated
           }
-          return // requeued
         }
       }
     }
@@ -564,7 +564,9 @@ async function update_item(item, updates) {
       `updated ${item.name} from ${source}/${path} ` +
         `in ${Date.now() - start}ms`
     )
+    return true
   } catch (e) {
     _this.error(`update failed for ${item.name} from ${source}/${path}: ${e}`)
+    return false
   }
 }

@@ -277,7 +277,6 @@ function push_item(item) {
             sha: commit.sha,
           })
         } catch (e) {
-          // TODO: investigate "Reference cannot be updated" error, and consider allowing that also, and perhaps introducing a delay before retries ...
           if (e.message == 'Update is not a fast forward') {
             _this.warn(
               `push failed for ${item.name} due to unknown (external) ` +
@@ -394,7 +393,7 @@ async function _side_push_item(item) {
           `side-push redundant (no change) for ${item.name} to ${dest_str}`
         )
       else {
-        let message = item.name + ' edited in mind.page'
+        let message = item.name + ' edited'
         await _modal_close() // force-close any existing modal to avoid deadlock
         message = await _modal({
           content:
@@ -412,19 +411,23 @@ async function _side_push_item(item) {
           const { data } = await github.repos.createOrUpdateFileContents({
             ...dest,
             sha,
-            message,
+            message: message.trim() + ' (via #pusher)',
             content: encodeBase64(sidepush_text),
           })
+
           // update item.attr with new commit sha
           item.attr.sha = data.commit.sha
           attr_modified = true // trigger save via touch below
-          // also store commit sha in store.sidepush_commits for #updater to
-          // detect and ignore github webhooks for local changes by #pusher
-          if (!_this.store.sidepush_commits)
-            _this.store.sidepush_commits = new Set()
-          _this.store.sidepush_commits.add(data.commit.sha)
-          // also allow #updater to detect this as a remote update
-          item.global_store._updater = { last_update: data.commit.sha }
+
+          // // store commit sha in item.global_store._pusher.sidepush_commits
+          // // for #updater to detect and ignore side-pushed changes
+          // const gs = item.global_store
+          // if (!gs._pusher) gs._pusher = {}
+          // gs._pusher.sidepush_commits = [
+          //   data.commit.sha,
+          //   ...(gs._pusher.sidepush_commits ?? []),
+          // ].slice(0, 100) // keep only last 100 commits
+
           _this.log(
             `side-pushed ${item.name} (commit ${data.commit.sha}) ` +
               `to ${dest_str} in ${Date.now() - start}ms`
@@ -462,7 +465,7 @@ async function _side_push_item(item) {
           const embed_source =
             `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
             `blob/${item.attr.branch}/${embed.path}`
-          let message = item.name + ':' + embed.path + ' edited in mind.page'
+          let message = item.name + ':' + embed.path + ' edited'
           await _modal_close() // force-close any existing modal to avoid deadlock
           message = await _modal({
             content:
@@ -484,19 +487,23 @@ async function _side_push_item(item) {
             const { data } = await github.repos.createOrUpdateFileContents({
               ...dest,
               sha,
-              message,
+              message: message.trim() + ' (via #pusher)',
               content: encodeBase64(sidepush_text),
             })
+
             // update embed with new commit sha
             embed.sha = data.commit.sha
             attr_modified = true // trigger save via touch below
-            // also store commit sha in store.sidepush_commits for #updater to
-            // detect and ignore github webhooks for local changes by #pusher
-            if (!_this.store.sidepush_commits)
-              _this.store.sidepush_commits = new Set()
-            _this.store.sidepush_commits.add(data.commit.sha)
-            // also allow #updater to detect this as a remote update
-            item.global_store._updater = { last_update: data.commit.sha }
+
+            // // store commit sha in item.global_store._pusher.sidepush_commits
+            // // for #updater to detect and ignore side-pushed changes
+            // const gs = item.global_store
+            // if (!gs._pusher) gs._pusher = {}
+            // gs._pusher.sidepush_commits = [
+            //   data.commit.sha,
+            //   ...(gs._pusher.sidepush_commits ?? []),
+            // ].slice(0, 100) // keep only last 100 commits
+
             _this.log(
               `side-pushed embed ${item.name}:${embed.path} ` +
                 `(commit ${data.commit.sha}) to ${dest_str} ` +
