@@ -35,13 +35,15 @@ function _benchmark_defined() {
 }
 
 const is_integer = Number.isInteger
-const is_nan = isNaN
 const is_number = x => typeof x == 'number'
 
 // returns true iff argument is a number or a numeric string
 // from https://stackoverflow.com/a/175787
 const is_numeric = x =>
   is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
+
+// alias for isNaN
+const is_nan = isNaN
 
 function _test_is_numeric() {
   check(
