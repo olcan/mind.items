@@ -1,4 +1,4 @@
-#util/core/types defines type-related utilities.
+#util/core/types defines type-related utilities. ok?
 <<jsdoc()>>
 
 ```js_removed:types.js
