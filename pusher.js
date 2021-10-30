@@ -394,11 +394,11 @@ async function _side_push_item(item) {
             `Enter commit message to push \`${item.name}\` to ` +
             `[${dest.path}](${item.attr.source}):`,
           confirm: 'Push',
-          cancel: 'Cancel',
+          cancel: 'Skip',
           input: item.name + ' edited in mind.page',
         })
         if (!message) {
-          _this.warn(`side-push cancelled for ${item.name} to ${dest_str}`)
+          _this.warn(`side-push skipped for ${item.name} to ${dest_str}`)
         } else {
           const start = Date.now()
           const { data } = await github.repos.createOrUpdateFileContents({
@@ -458,12 +458,12 @@ async function _side_push_item(item) {
               `\`${embed_type[embed.path]}\` in \`${item.name}\` ` +
               `back to its source file [${dest.path}](${embed_source}):`,
             confirm: 'Push',
-            cancel: 'Cancel',
+            cancel: 'Skip',
             input: item.name + ':' + embed.path + ' edited in mind.page',
           })
           if (!message) {
             _this.warn(
-              `side-push of embed cancelled for ` +
+              `side-push of embed skipped for ` +
                 `${item.name}:${embed.path} to ${dest_str}`
             )
           } else {
