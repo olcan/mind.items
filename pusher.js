@@ -224,9 +224,7 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
-        // NOTE: side-push must be dispatched because otherwise its modals could
-        // cause deadlock with any existing blocking modals (e.g. "pushing...")
-        setTimeout(() => _side_push_item(item)) // execute side-push (if any)
+        await _side_push_item(item) // execute side-push (if any)
         return
       }
       try {
@@ -316,7 +314,7 @@ function push_item(item) {
         }
 
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
-        setTimeout(() => _side_push_item(item)) // execute side-push (if any)
+        await _side_push_item(item) // execute side-push (if any)
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
@@ -339,6 +337,7 @@ function resolve_embed_path(path, attr) {
 // block is read as item.read(block), so split blocks are merged
 // side-push is always "forced", i.e. replaces anything at destination
 // side-pushes are coordinated w/ #updater to skip as local changes
+// side-push may need modals for commit messages, will force-close others
 async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
@@ -392,6 +391,7 @@ async function _side_push_item(item) {
         )
       else {
         let message = item.name + ' edited in mind.page'
+        await _modal_close() // force-close any existing modal to avoid deadlock
         message = await _modal({
           content:
             `Enter commit message to push \`${item.name}\` to ` +
@@ -456,6 +456,7 @@ async function _side_push_item(item) {
             `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
             `blob/${item.attr.branch}/${embed.path}`
           let message = item.name + ':' + embed.path + ' edited in mind.page'
+          await _modal_close() // force-close any existing modal to avoid deadlock
           message = await _modal({
             content:
               `Enter commit message to push embed block ` +
@@ -582,13 +583,10 @@ async function _on_command_push(label) {
       alert(`/push: ${label} not found`)
       return '/push ' + label
     }
-    _modal({
-      content: `Pushing ${items.length} item${s} ...`,
-      background: 'block',
-    })
     for (const [i, item] of items.entries()) {
-      _modal_update({
+      _modal({
         content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
+        background: 'block',
       })
       await push_item(item)
     }
