@@ -1,6 +1,3 @@
-// `Infinity`
-const inf = Infinity
-
 // `x !== undefined`
 // `typeof x !== 'undefined'` if `x` is passed as `"x"`
 function defined(x) {
@@ -31,6 +28,9 @@ function _benchmark_defined() {
     () => defined('z')
   )
 }
+
+// `Infinity`
+const inf = Infinity
 
 // `isFinite`
 const is_finite = isFinite
