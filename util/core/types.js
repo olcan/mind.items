@@ -1,8 +1,8 @@
-// alias for `Infinity`
+// shorthand for `Infinity`
 const inf = Infinity
 
-// alias for x !== undefined
-// or typeof x !== 'undefined' if is_string(x)
+// shorthand for `x !== undefined`
+// or `typeof x !== 'undefined'` if `is_string(x)`
 function defined(x) {
   if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
   else return x !== undefined
