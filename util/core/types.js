@@ -42,7 +42,7 @@ const is_number = x => typeof x == 'number'
 const is_numeric = x =>
   is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
 
-// alias for isNaN
+// alias for `isNaN`
 const is_nan = isNaN
 
 function _test_is_numeric() {
