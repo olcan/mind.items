@@ -127,7 +127,7 @@ function jsdoc() {
           def.name = def.comment.match(/^[^(]+/).pop()
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/).pop()
           def.comment = def.comment.replace(/^.+?\(.*?\)(?:$|<br>)/, '')
-          def.show = true // show in table even w/ underscore prefix
+          def.renamed = true
         }
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
@@ -137,8 +137,8 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
-    // hide underscore-prefixed names as internal (unless marked 'show')
-    if (def.name.startsWith('_') && !def.show) return
+    // hide underscore-prefixed names as internal unless "renamed" via comments
+    if (def.name.startsWith('_') && !def.renamed) return
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
   return [
