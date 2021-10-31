@@ -34,7 +34,7 @@ const _array = (J, f) => {
 // table(cells, [headers])
 // returns markdown table
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`
-// `headers` is array (optional)
+// `headers` is array, e.g. `['a','b']
 function table(cells, headers) {
   let lines = []
   if (headers) lines.push('|' + headers.join('|') + '|')
@@ -160,7 +160,7 @@ function jsdoc() {
         ) {
           def.name = def.comment.match(/^[^(]+/).pop()
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/).pop()
-          def.comment = def.comment.replace(/\(.*?\)(?:$|<br>)/, '')
+          def.comment = def.comment.replace(/^.+?\(.*?\)(?:$|<br>)/, '')
         }
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
