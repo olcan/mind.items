@@ -23,33 +23,6 @@ function str(x) {
   return JSON.stringify(x)
 }
 
-const _array = (J, f) => {
-  const xJ = new Array(J)
-  // NOTE: Array.from({length:J}, ...) was much slower
-  if (typeof f == 'function') for (let j = 0; j < J; ++j) xJ[j] = f(j)
-  else if (typeof f != 'undefined') xJ.fill(f)
-  return xJ
-}
-
-// table(cells, [headers])
-// returns markdown table
-// `cells` is 2D array, e.g. `[['a',1],['b',2]]`
-// `headers` is array, e.g. `['a','b']`
-function table(cells, headers) {
-  let lines = []
-  if (headers) lines.push('|' + headers.join('|') + '|')
-  else lines.push(_array(cells[0].length + 1, k => '|').join(''))
-  lines.push(
-    '|' +
-      _array(cells[0].length, k =>
-        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
-      ).join('|') +
-      '|'
-  )
-  lines = lines.concat(cells.map(row => '|' + row.join('|')))
-  return lines.join('\n')
-}
-
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
@@ -178,4 +151,31 @@ function jsdoc() {
     '</span>',
     '<style> #item .jsdoc table code { white-space: nowrap } </style>',
   ].join('\n')
+}
+
+const _array = (J, f) => {
+  const xJ = new Array(J)
+  // NOTE: Array.from({length:J}, ...) was much slower
+  if (typeof f == 'function') for (let j = 0; j < J; ++j) xJ[j] = f(j)
+  else if (typeof f != 'undefined') xJ.fill(f)
+  return xJ
+}
+
+// table(cells, [headers])
+// returns markdown table
+// `cells` is 2D array, e.g. `[['a',1],['b',2]]`
+// `headers` is array, e.g. `['a','b']`
+function table(cells, headers) {
+  let lines = []
+  if (headers) lines.push('|' + headers.join('|') + '|')
+  else lines.push(_array(cells[0].length + 1, k => '|').join(''))
+  lines.push(
+    '|' +
+      _array(cells[0].length, k =>
+        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
+      ).join('|') +
+      '|'
+  )
+  lines = lines.concat(cells.map(row => '|' + row.join('|')))
+  return lines.join('\n')
 }
