@@ -115,7 +115,7 @@ async function init_pusher() {
   for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
-    item.pushable = true // mark item pushable until pushed
+    item.pushable = true // also mark pushable until manual /push
     if (names.length < 10) names.push(item.name)
     count++
   }
@@ -226,8 +226,10 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
-        item.pushable = false // clear pushable flag
-        await _side_push_item(item) // execute side-push (if any)
+        // side-push only if not marked "pushable" (i.e. manual /push required)
+        // auto-push can resume w/o side-push based on sha consistency
+        // item.pushable = false // force resume side-push (w/ commit prompt)
+        if (!item.pushable) await _side_push_item(item)
         return
       }
       try {
@@ -316,8 +318,10 @@ function push_item(item) {
         }
 
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
-        item.pushable = false // clear pushable flag
-        await _side_push_item(item) // execute side-push (if any)
+        // side-push only if not marked "pushable" (i.e. manual /push required)
+        // auto-push can resume w/o side-push based on sha consistency
+        // item.pushable = false // force resume side-push (w/ commit prompt)
+        if (!item.pushable) await _side_push_item(item)
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
@@ -331,6 +335,10 @@ function resolve_embed_path(path, attr) {
   if (path.startsWith('/') || !attr.path.includes('/', 1)) return path
   return attr.path.substr(0, attr.path.lastIndexOf('/')) + '/' + path
 }
+
+const _push_button =
+  `<img src=/arrow.up.svg ` +
+  `style="height:14px;vertical-align:baseline;margin:0 3px">`
 
 // side-pushes item to other (private or public) repos on github
 // owner, repo, path are required, branch is optional (default master)
@@ -397,8 +405,9 @@ async function _side_push_item(item) {
         await _modal_close() // force-close any existing modal to avoid deadlock
         message = await _modal({
           content:
-            `Enter commit message to push \`${item.name}\` to ` +
-            `[${dest.path}](${item.attr.source}):`,
+            `Enter commit message to push \`${item.name}\` to its source file ` +
+            `[${dest.path}](${item.attr.source}). Skip to push later via ` +
+            `\`/push\` command or ${_push_button} button.`,
           confirm: 'Push',
           cancel: 'Skip',
           input: message,
@@ -462,7 +471,9 @@ async function _side_push_item(item) {
             content:
               `Enter commit message to push embed block ` +
               `\`${embed_type[embed.path]}\` in \`${item.name}\` ` +
-              `back to its source file [${dest.path}](${embed_source}):`,
+              `back to its source file [${dest.path}](${embed_source}). ` +
+              `Skip to push later via \`/push\` command or ` +
+              `${_push_button} button.`,
             confirm: 'Push',
             cancel: 'Skip',
             input: message,
@@ -583,12 +594,13 @@ async function _on_command_push(label) {
       return '/push ' + label
     }
     for (const [i, item] of items.entries()) {
-      // NOTE: we show a separate modal for each item because push_item may include a side-push that can force-close modals to present its own
+      // show new modal in case side-push force-closes modal for commit prompt
       await _modal_close() // force-close any existing modals
       _modal({
         content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
         background: 'block',
       })
+      item.pushable = false // clear warning, resume side-push
       await push_item(item)
     }
     update_branch('last_push')
