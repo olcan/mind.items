@@ -153,6 +153,7 @@ function jsdoc() {
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
       }
+      def.name = def.name.replace(/ /g, '&nbsp;') // prevent wrapping of names
       return def
     }
   )
