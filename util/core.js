@@ -11,9 +11,10 @@ function check(...fJ) {
   })
 }
 
+const debug = (...args) => _this.debug(...args)
 const log = (...args) => _this.log(...args)
 const info = (...args) => _this.info(...args)
-const debug = (...args) => _this.debug(...args)
+const warn = (...args) => _this.warn(...args)
 const error = (...args) => _this.error(...args)
 const fatal = (...args) => _this.fatal(...args)
 // TODO: bring more _Item functions to global scope using standard mechanism?
