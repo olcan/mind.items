@@ -249,6 +249,7 @@ async function check_updates(item, mark_pushables = false) {
       sha: attr.branch,
       per_page: 1,
     })
+    _this.debug(`listCommits returned sha ${sha} for ${path}`)
     if (sha != attr.sha) updates[path] = sha
     if (mark_pushables) {
       const {
@@ -297,6 +298,7 @@ async function check_updates(item, mark_pushables = false) {
           sha: attr.branch,
           per_page: 1,
         })
+        _this.debug(`listCommits returned sha ${sha} for ${embed.path}`)
         if (sha != embed.sha) updates[embed.path] = sha
         if (mark_pushables) {
           const {
