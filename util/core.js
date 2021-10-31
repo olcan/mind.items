@@ -68,15 +68,16 @@ function check(...funcs) {
   })
 }
 
-let _benchmark_options = {}
-const set_benchmark_options = options => (_benchmark_options = options)
-
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
     _run_benchmark(f)
   })
 }
+
+let _benchmark_options = {}
+// set options for `benchmark(...funcs)`
+const set_benchmark_options = options => (_benchmark_options = options)
 
 function _run_benchmark(
   f,
