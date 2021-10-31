@@ -1,4 +1,4 @@
-#util/core defines core utilities, here and in #/types.
+#util/core defines core utilities, including #/types.
 <<jsdoc()>>
 
 ```js_removed:core.js
