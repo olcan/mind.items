@@ -136,6 +136,7 @@ function run_benchmark(
   } else log(base)
 }
 
+// returns `js` documentation as markdown table
 function jsdoc() {
   const defs = Array.from(
     _this
