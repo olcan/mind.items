@@ -118,7 +118,7 @@ function jsdoc() {
     _this
       .read('js')
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/[^\n]*?\n)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
+        /(?:^|\n)(?<comment>(\/\/[^\n]*?)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
