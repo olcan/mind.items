@@ -143,7 +143,7 @@ function jsdoc() {
     _this
       .read('js')
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let) +(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
+        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -164,7 +164,6 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
-    if (def.name.match(/^_/)) return // exclude internal defs
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
   return lines.join('\n')
