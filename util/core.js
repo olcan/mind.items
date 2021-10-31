@@ -4,6 +4,11 @@ const info = (...args) => _this.info(...args)
 const warn = (...args) => _this.warn(...args)
 const error = (...args) => _this.error(...args)
 const fatal = (...args) => _this.fatal(...args)
+
+// test comment
+
+// TODO: why are comments allowing empty lines?
+
 // TODO: bring more _Item functions to global scope using standard mechanism?
 
 function str(x) {
@@ -113,7 +118,7 @@ function jsdoc() {
     _this
       .read('js')
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/[^\n]*?\n)*)?(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
+        /(?:^|\n)(?<comment>(\/\/[^\n]*?\n)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
