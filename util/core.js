@@ -152,7 +152,7 @@ function jsdoc() {
       if (def.comment) {
         def.comment = def.comment
           .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>')
-          .replace(/^\/\//, '')
+          .replace(/^\/\/\s*/, '')
         // replace name from comments if first line matches <name>(...)
         if (
           def.comment.startsWith(def.name) &&
