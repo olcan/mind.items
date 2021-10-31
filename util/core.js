@@ -77,7 +77,7 @@ function benchmark(...funcs) {
 
 let _benchmark_options = {}
 // set options for `benchmark(...funcs)`
-const config_benchmark = options => (_benchmark_options = options)
+const config_benchmarks = options => (_benchmark_options = options)
 
 function _run_benchmark(
   f,
