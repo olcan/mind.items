@@ -35,8 +35,7 @@ async function init_updater() {
         const source = `${owner}/${repo}/${branch}`
         _this.debug(
           `github_webhook for commit sha ${body.after} ` +
-            `in ${source} (was ${body.before})`,
-          body
+            `in ${source} (was ${body.before})`
         )
         let commits = body.commits ?? []
         // drop commits w/o modified items
@@ -46,7 +45,6 @@ async function init_updater() {
         // drop merge commits since they are skipped by listCommits
         // otherwise they cause unnecessary check_update and modal prompts
         // also recommendable to disallow in github and disable in vscode
-        // TODO: check out webhook to see if there is a "merge commit" flag
         commits = commits.filter(c => !c.message.startsWith('Merge branch'))
 
         if (commits.length == 0) return // no commits w/ modifications
