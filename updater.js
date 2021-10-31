@@ -59,17 +59,18 @@ async function init_updater() {
             path => path.replace(/^\//, '')
           )
           // update item if any paths were modified in any commits
-          if (
-            commits.some(commit =>
-              paths.some(path => commit.modified.includes(path))
-            )
-          ) {
+          // first such commit is recorded in pending_updates for item
+          // we do not use body.after since that could be a dropped commit
+          const update_commit = commits.find(commit =>
+            paths.some(path => commit.modified.includes(path))
+          )
+          if (update_commit) {
             _this.debug(
-              `github_webhook commit modified ${item.name} in ` +
-                `${owner}/${repo}/${branch}`
+              `github_webhook commit ${update_commit.sha} modified ` +
+                `${item.name} in ${owner}/${repo}/${branch}`
             )
             // record latest update commit sha for modified item
-            pending_updates[item.id] = body.after
+            pending_updates[item.id] = update_commit.sha
             // push to back of queue if not already in queue
             if (!modified_ids.includes(item.id)) {
               modified_ids.push(item.id)
