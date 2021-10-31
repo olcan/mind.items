@@ -4,10 +4,8 @@ const info = (...args) => _this.info(...args)
 const warn = (...args) => _this.warn(...args)
 const error = (...args) => _this.error(...args)
 const fatal = (...args) => _this.fatal(...args)
-
 // TODO: bring more _Item functions to global scope using standard mechanism?
 
-// ok
 function str(x) {
   if (!defined(x)) return 'undefined'
   if (defined(x._name)) return x._name
@@ -115,7 +113,7 @@ function jsdoc() {
     _this
       .read('js')
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/[^\n]*\n)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\([.\n]*?\))|= *(?<arrow_args>[.\n]*? *=>)? *\n?(?<body>[^\n]+))?/g
+        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
