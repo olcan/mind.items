@@ -1,4 +1,6 @@
-const stack = (offset = 1 /*exclude this function*/) =>
+// returns stack trace
+// use `offset` to exclude frames
+const stack = (offset = 1) =>
   new Error().stack.split('\n').slice(offset).join(' <- ')
 
 function check(...fJ) {
