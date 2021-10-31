@@ -128,6 +128,7 @@ function jsdoc() {
             .match(/^[^(<]+/)
             .pop()
             .replace(/^rename:/, '')
+            .trim()
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
           def.comment = def.comment.replace(/^.+?(?:\\(.*?\\))?(?:$|<br>)/, '')
           def.renamed = true
