@@ -1,4 +1,4 @@
-const eval = (...args) => _this.eval(...args)
+// const eval = (...args) => _this.eval(...args)
 const read = (...args) => _this.read(...args)
 const read_deep = (...args) => _this.read_deep(...args)
 const write = (...args) => _this.write(...args)
