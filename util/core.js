@@ -32,7 +32,7 @@ const _array = (J, f) => {
 }
 
 // generates markdown table
-// `cells` is 2d array, e.g. [['a',1],['b',2]]
+// `cells` is 2D array, e.g. `[['a',1],['b',2]]`
 // `headers` is array (optional)
 function table(cells, headers) {
   let lines = []
