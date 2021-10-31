@@ -47,12 +47,11 @@ function table(xJK, headers = null) {
   return lines.join('\n')
 }
 
-// timing
-function timing(f, name = str(f)) {
+// returns `[output, elapsed_ms]`
+function timing(f) {
   const start = Date.now()
   const output = f()
   const elapsed = Date.now() - start
-  if (name) log(`${name}: ${elapsed}ms`)
   return [output, elapsed]
 }
 
