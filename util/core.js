@@ -123,7 +123,7 @@ function jsdoc() {
         if (
           def.comment.match(new RegExp(`^${def.name}(?:\\(.*?\\))?(?:$|<br>)`))
         ) {
-          def.name = def.comment.match(/^[^(]+/).pop()
+          def.name = def.comment.match(/^[^(<]+/).pop()
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
           def.comment = def.comment.replace(/^.+?\(.*?\)(?:$|<br>)/, '')
           def.renamed = true
