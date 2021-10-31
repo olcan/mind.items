@@ -1,4 +1,4 @@
-#util/core/item defines _and documents_ aliases for `_this.*`, i.e. all functions on [`_Item`](https://mindbox.io/#MindPage/core/_Item) that can also be invoked on any item, e.g. `_item('#util/core/item')`.
+#util/core/item documents functions of [`_Item`](https://mindbox.io/#MindPage/core/_Item) while defining convenient global aliases for [`_this.…(…)`](https://mindbox.io/#MindPage/core/properties/_this).
 - 
 <<jsdoc()>>
 
