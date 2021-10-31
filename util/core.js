@@ -1,15 +1,3 @@
-// returns stack trace
-// use `offset` to exclude frames
-const stack = (offset = 1) =>
-  new Error().stack.split('\n').slice(offset).join(' <- ')
-
-function check(...funcs) {
-  _.flattenDeep([...funcs]).forEach(f => {
-    if (!is_function(f)) throw new Error('check: argument must be function')
-    if (!f()) throw new Error(`FAILED CHECK: ${str(f)} @ ${stack(2)}`)
-  })
-}
-
 const debug = (...args) => _this.debug(...args)
 const log = (...args) => _this.log(...args)
 const info = (...args) => _this.info(...args)
@@ -67,6 +55,19 @@ function timing(f, name = str(f)) {
   if (name) log(`${name}: ${elapsed}ms`)
   return [output, elapsed]
 }
+
+// returns stack trace
+// use `offset` to exclude frames
+const stack = (offset = 1) =>
+  new Error().stack.split('\n').slice(offset).join(' <- ')
+
+function check(...funcs) {
+  _.flattenDeep([...funcs]).forEach(f => {
+    if (!is_function(f)) throw new Error('check: argument must be function')
+    if (!f()) throw new Error(`FAILED CHECK: ${str(f)} @ ${stack(2)}`)
+  })
+}
+
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
@@ -164,7 +165,7 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
-    if (def.name.match(/^_test|_benchmark/)) return
+    if (def.name.match(/^_test|^_benchmark/)) return
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
   return lines.join('\n')
