@@ -31,7 +31,9 @@ const _array = (J, f) => {
   return xJ
 }
 
-// generates markdown table given cells (2d array and optional header (array)
+// generates markdown table
+// `cells` is 2d array
+// `headers` is array (optional)
 function table(cells, headers) {
   let lines = []
   if (headers) lines.push('|' + headers.join('|') + '|')
