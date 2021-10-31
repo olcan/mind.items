@@ -154,7 +154,8 @@ function jsdoc() {
     '<style>',
     '#item .jsdoc table code { white-space: nowrap }',
     '#item .jsdoc table td:not(:first-child) code { font-size:90%; }',
-    '#item .jsdoc table td:not(:first-child) { font-size:90%; line-height: 150%; padding-bottom:8px }',
+    '#item .jsdoc table td:not(:first-child) { line-height: 150%; font-size:90%; }',
+    '#item .jsdoc table td { padding-bottom:8px }',
     '</style>',
     '```',
   ].join('\n')
