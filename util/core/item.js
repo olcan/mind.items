@@ -3,7 +3,13 @@ const read_deep = (...args) => _this.read_deep(...args)
 const write = (...args) => _this.write(...args)
 const clear = (...args) => _this.clear(...args)
 const remove = (...args) => _this.remove(...args)
+
+// __delete
+// comment here
 const __delete = (...args) => _this.delete(...args)
+
+// __eval
+// comment here
 const __eval = (...args) => _this.eval(...args)
 
 const get_log = (...args) => _this.get_log(...args)
