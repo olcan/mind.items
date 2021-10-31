@@ -10,7 +10,6 @@ const fatal = (...args) => _this.fatal(...args)
 // TODO: why are comments allowing empty lines?
 
 // TODO: bring more _Item functions to global scope using standard mechanism?
-
 function str(x) {
   if (!defined(x)) return 'undefined'
   if (defined(x._name)) return x._name
