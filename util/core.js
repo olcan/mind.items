@@ -136,7 +136,7 @@ function run_benchmark(
 
 function jsdoc() {
   const defs = Array.from(
-    _item('#util/core/types')
+    _this
       .read('js')
       .matchAll(
         /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let)\s+(?<name>\w+)\s*(?:(?<args>\(.*?\))|=\s*(?<arrow_args>\S+\s*=>)?\s*\n?(?<body>[^\n]+))?/g
