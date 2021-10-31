@@ -1,3 +1,5 @@
+// TODO: test rebase
+
 const stack = (offset = 1 /*exclude this function*/) =>
   new Error().stack.split('\n').slice(offset).join(' <- ')
 
