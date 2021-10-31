@@ -110,13 +110,11 @@ function timing(f) {
   return [output, elapsed]
 }
 
-// documents utility constants & functions
-// reads js from current item as `_this.read('js')`
-// this table is an example output
+// returns markdown table documenting utility constants & functions
 function jsdoc() {
   const defs = Array.from(
     _this
-      .read('js')
+      .read('js', { keep_empty_lines: true })
       .matchAll(
         /(?:^|\n)(?<comment>(\/\/[^\n]*?\n)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/gs
       ),
