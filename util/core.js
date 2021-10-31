@@ -68,28 +68,25 @@ function check(...funcs) {
   })
 }
 
+let _benchmark_options = {}
+const set_benchmark_options = options => (_benchmark_options = options)
+
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
-    run_benchmark(f)
+    _run_benchmark(f)
   })
 }
 
-let _benchmark_unit
-let _benchmark_units
-let _benchmark_options = {}
-const set_benchmark_unit = unit => (_benchmark_units = unit)
-const set_benchmark_units = units => (_benchmark_units = units)
-const set_benchmark_options = options => (_benchmark_options = options)
-function run_benchmark(
+function _run_benchmark(
   f,
   {
     name = str(f),
     T = 10, // fast > accurate
     T_max = 50,
     N = 1000,
-    unit = _benchmark_unit,
-    units = _benchmark_units,
+    unit,
+    units,
   } = _benchmark_options
 ) {
   let time = 0,
@@ -166,7 +163,7 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
-    if (def.name.match(/^_test|^_benchmark/)) return
+    if (def.name.match(/^_/)) return // exclude internal defs
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
   return lines.join('\n')
