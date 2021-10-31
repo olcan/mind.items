@@ -121,9 +121,13 @@ function jsdoc() {
           .replace(/^\/\/\s*/, '')
         // rename via comment if first line matches <name>(...) or just <name>
         if (
+          def.comment.startsWith('rename:') ||
           def.comment.match(new RegExp(`^${def.name}(?:\\(.*?\\))?(?:$|<br>)`))
         ) {
-          def.name = def.comment.match(/^[^(<]+/).pop()
+          def.name = def.comment
+            .match(/^[^(<]+/)
+            .pop()
+            .replace(/^rename:/, '')
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
           def.comment = def.comment.replace(/^.+?(?:\\(.*?\\))?(?:$|<br>)/, '')
           def.renamed = true
