@@ -4,12 +4,9 @@ const info = (...args) => _this.info(...args)
 const warn = (...args) => _this.warn(...args)
 const error = (...args) => _this.error(...args)
 const fatal = (...args) => _this.fatal(...args)
-
-// test comment
-
-// TODO: why are comments allowing empty lines?
-
 // TODO: bring more _Item functions to global scope using standard mechanism?
+
+// returns string representation for `x`
 function str(x) {
   if (!defined(x)) return 'undefined'
   if (defined(x._name)) return x._name
