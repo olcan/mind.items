@@ -136,7 +136,9 @@ function run_benchmark(
   } else log(base)
 }
 
-// returns `js` documentation as markdown table
+// documents utility constants & functions
+// reads js from current item as `_this.read('js')`
+// this table is an example output
 function jsdoc() {
   const defs = Array.from(
     _this
