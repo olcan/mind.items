@@ -24,6 +24,7 @@ function str(x) {
   return JSON.stringify(x)
 }
 
+// throws error if any argument return false
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
@@ -34,6 +35,7 @@ function check(...funcs) {
   })
 }
 
+// measures calls/sec for each argument
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
