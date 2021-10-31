@@ -45,6 +45,7 @@ async function init_updater() {
         // drop merge commits since they are skipped by listCommits
         // otherwise they cause unnecessary check_update and modal prompts
         // also recommendable to disallow in github and disable in vscode
+        // note however these settings did not work on a simple test: for the remote master to local master merge on sync-on-commit in vscode
         commits = commits.filter(c => !c.message.startsWith('Merge branch'))
 
         if (commits.length == 0) return // no commits w/ modifications
