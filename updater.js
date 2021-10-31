@@ -126,14 +126,7 @@ async function init_updater() {
           if (updates) {
             // record _init_time for app instance that can skip confirmation
             _this.global_store.auto_updater_init_time = window._init_time
-            // record last update as item.global_store._updater.last_update
-            // enables detection of remote updates in _on_item_change below
-            // restore previous state if update fails
-            const gs = item.global_store
-            const prev_state = gs._updater
-            gs._updater = { last_update: update }
-            if (!(await update_item(item, updates)))
-              item.global_store._updater = prev_state
+            await update_item(item, updates)
           } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
@@ -151,7 +144,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   let { modified_ids, pending_updates } = _this.store
   if (remote && pending_updates[id]) {
     const last_update = item.global_store._updater?.last_update
-    if (pending_updates[id] == last_update) {
+    if (_.values(last_update).includes(pending_updates[id])) {
       _this.log(`detected remote update for ${item.name}`)
       // remove item/update from local update queue
       modified_ids.splice(modified_ids.indexOf(item.id), 1)
@@ -237,7 +230,7 @@ function github_sha(text) {
   ).join('')
 }
 
-// checks for updates to item, returns path->hash map of updates or null
+// checks for updates to item, returns path->hash object of updates or null
 // similar to /_updates command defined in index.svelte in mind.page repo
 async function check_updates(item, mark_pushables = false) {
   const attr = item.attr
@@ -246,7 +239,7 @@ async function check_updates(item, mark_pushables = false) {
   // _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
   const token = await github_token(item)
   const github = token ? new Octokit({ auth: token }) : new Octokit()
-  const updates = new Map() // path->hash map of available updates
+  const updates = {} // path->hash object of available updates
   try {
     // check for change to item
     const {
@@ -256,7 +249,7 @@ async function check_updates(item, mark_pushables = false) {
       sha: attr.branch,
       per_page: 1,
     })
-    if (sha != attr.sha) updates.set(path, sha)
+    if (sha != attr.sha) updates[path] = sha
     if (mark_pushables) {
       const {
         data: { files },
@@ -304,7 +297,7 @@ async function check_updates(item, mark_pushables = false) {
           sha: attr.branch,
           per_page: 1,
         })
-        if (sha != embed.sha) updates.set(embed.path, sha)
+        if (sha != embed.sha) updates[embed.path] = sha
         if (mark_pushables) {
           const {
             data: { files },
@@ -324,13 +317,13 @@ async function check_updates(item, mark_pushables = false) {
   } catch (e) {
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
-  if (updates.size == 0) {
+  if (_.isEmpty(updates)) {
     // _this.log(`no updates to ${item.name} from ${source}/${path}`)
     return null
   } else {
     _this.log(
-      `found ${updates.size} updates to ${item.name} from ${source} at paths: ` +
-        Array.from(updates.keys()).join(', ')
+      `found ${_.size(updates)} updates to ${item.name} from ` +
+        `${source} at paths: ${_.keys(updates).join(', ')}`
     )
   }
   return updates
@@ -348,6 +341,12 @@ function resolve_embed_path(path, attr) {
 // allows item to be renamed with a warning to console
 // returns true iff item was updated successfully
 async function update_item(item, updates) {
+  // record updates as item.global_store._updater.last_update
+  // enables detection of remote updates in _on_item_change above
+  // previous state is restored on failure (when false is returned)
+  const prev_updater_state = item.global_store._updater
+  item.global_store._updater = { last_update: updates }
+
   const start = Date.now()
   const attr = item.attr
   const { owner, repo, branch, path } = attr
@@ -359,8 +358,8 @@ async function update_item(item, updates) {
     // compute updated text, reusing existing text if no updates
     // note retrieved text is pre-embed, existing text is post-embed
     let sha, text
-    if (updates.has(path)) {
-      sha = updates.get(path)
+    if (updates[path]) {
+      sha = updates[path]
       text = decodeBase64(
         (
           await github.repos.getContent({
@@ -397,7 +396,7 @@ async function update_item(item, updates) {
     // confirmation is required to prevent installs at multiple tabs/devices
     // dependencies are rechecked and update is checked and restarted as needed
     // this must be done before any changes to attr (e.g. attr.sha) below
-    if (updates.has(path)) {
+    if (updates[path]) {
       const label = _parse_label(text)
       if (label) {
         const deps = _resolve_tags(
@@ -424,6 +423,7 @@ async function update_item(item, updates) {
               `update cancelled for ${item.name} from ` +
                 `${source}/${path} due to missing dependencies`
             )
+            item.global_store._updater = prev_updater_state
             return false
           }
           for (let dep of deps) {
@@ -502,8 +502,8 @@ async function update_item(item, updates) {
       try {
         // start w/ sha of existing embed, or undefined if missing
         let sha = prev_embeds?.find(e => e.path == path)?.sha
-        if (!sha /* new embed*/ || updates.has(path) /* updated */) {
-          sha = updates.get(path)
+        if (!sha /* new embed*/ || updates[path] /* updated */) {
+          sha = updates[path]
           embed_text[path] = decodeBase64(
             (
               await github.repos.getContent({
@@ -568,6 +568,7 @@ async function update_item(item, updates) {
     return true
   } catch (e) {
     _this.error(`update failed for ${item.name} from ${source}/${path}: ${e}`)
+    item.global_store._updater = prev_updater_state
     return false
   }
 }
