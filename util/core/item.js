@@ -1,10 +1,10 @@
-// const eval = (...args) => _this.eval(...args)
 const read = (...args) => _this.read(...args)
 const read_deep = (...args) => _this.read_deep(...args)
 const write = (...args) => _this.write(...args)
 const clear = (...args) => _this.clear(...args)
 const remove = (...args) => _this.remove(...args)
-// const delete = (...args) => _this.delete(...args)
+const __delete = (...args) => _this.delete(...args)
+const __eval = (...args) => _this.eval(...args)
 
 const get_log = (...args) => _this.get_log(...args)
 const write_log = (...args) => _this.write_log(...args)
