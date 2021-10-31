@@ -1,6 +1,3 @@
-// TODO: split core into even smaller items, starting w/ types.
-//       this allows container items that can document w/ examples.
-
 const stack = (offset = 1 /*exclude this function*/) =>
   new Error().stack.split('\n').slice(offset).join(' <- ')
 
