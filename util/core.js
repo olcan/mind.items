@@ -153,6 +153,7 @@ function jsdoc() {
         def.args = def.arrow_args.replace(/\s*=>$/, '')
         if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
+      def.args = def.args.replace(/\s*\n\s*/g, ' ') // remove newlines in args
       if (def.comment) {
         def.comment = def.comment
           .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>')
