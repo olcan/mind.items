@@ -156,11 +156,11 @@ function jsdoc() {
         // replace name from comments if first line matches <name>(...)
         if (
           def.comment.startsWith(def.name) &&
-          def.comment.match(/\(.*\)(?:$|<br>)/)
+          def.comment.match(/\(.*?\)(?:$|<br>)/)
         ) {
           def.name = def.comment.match(/^[^(]+/).pop()
-          def.args = def.comment.match(/^.+?(\(.*\))(?:$|<br>)/).pop()
-          def.comment = def.comment.replace(/\(.*\)(?:$|<br>)/, '')
+          def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/).pop()
+          def.comment = def.comment.replace(/\(.*?\)(?:$|<br>)/, '')
         }
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
