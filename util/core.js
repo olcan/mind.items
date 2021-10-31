@@ -106,7 +106,7 @@ function jsdoc() {
     _this
       .read('js', { keep_empty_lines: true })
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let) +(?<name>[a-zA-Z]\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let) +(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -127,6 +127,7 @@ function jsdoc() {
           def.name = def.comment.match(/^[^(]+/).pop()
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/).pop()
           def.comment = def.comment.replace(/^.+?\(.*?\)(?:$|<br>)/, '')
+          def.show = true // show in table even w/ underscore prefix
         }
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
@@ -136,6 +137,8 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
+    // hide underscore-prefixed names as internal (unless marked 'show')
+    if (def.name.startsWith('_') && !def.show) return
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
   return [
