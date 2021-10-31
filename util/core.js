@@ -3,8 +3,8 @@
 const stack = (offset = 1) =>
   new Error().stack.split('\n').slice(offset).join(' <- ')
 
-function check(...fJ) {
-  _.flattenDeep([...fJ]).forEach(f => {
+function check(...funcs) {
+  _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
     if (!f()) throw new Error(`FAILED CHECK: ${str(f)} @ ${stack(2)}`)
   })
@@ -67,8 +67,8 @@ function timing(f, name = str(f)) {
   if (name) log(`${name}: ${elapsed}ms`)
   return [output, elapsed]
 }
-function benchmark(...fJ) {
-  _.flattenDeep([...fJ]).forEach(f => {
+function benchmark(...funcs) {
+  _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
     run_benchmark(f)
   })
