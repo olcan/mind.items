@@ -153,7 +153,7 @@ function jsdoc() {
     '```_html',
     '<style>',
     '#item .jsdoc table code { white-space: nowrap }',
-    '#item .jsdoc table { line-height: 150%; border-spacing: 0 10px }',
+    '#item .jsdoc table { line-height: 150%; border-spacing: 10px }',
     '</style>',
     '```',
   ].join('\n')
