@@ -125,7 +125,7 @@ function jsdoc() {
         ) {
           def.name = def.comment.match(/^[^(<]+/).pop()
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
-          def.comment = def.comment.replace(/^.+?\(.*?\)(?:$|<br>)/, '')
+          def.comment = def.comment.replace(/^.+?(?:\\(.*?\\))?(?:$|<br>)/, '')
           def.renamed = true
         }
       } else if (def.body && !def.body.startsWith('{')) {
