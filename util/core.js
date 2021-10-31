@@ -23,47 +23,37 @@ function str(x) {
   return JSON.stringify(x)
 }
 
-// TODO: find a better place for these ...
-const array = (J, f) => {
+const _array = (J, f) => {
   const xJ = new Array(J)
   // NOTE: Array.from({length:J}, ...) was much slower
   if (typeof f == 'function') for (let j = 0; j < J; ++j) xJ[j] = f(j)
   else if (typeof f != 'undefined') xJ.fill(f)
   return xJ
 }
-// generates markdown for table, for writing into _markdown|_md blocks
-function table(xJK, headers = null) {
+
+// generates markdown table given cells (2d array and optional header (array)
+function table(cells, headers) {
   let lines = []
   if (headers) lines.push('|' + headers.join('|') + '|')
-  else lines.push(array(xJK[0].length + 1, k => '|').join(''))
+  else lines.push(_array(cells[0].length + 1, k => '|').join(''))
   lines.push(
     '|' +
-      array(xJK[0].length, k =>
-        is_numeric(xJK[0][k].replaceAll(',', '')) ? '-:' : '-'
+      _array(cells[0].length, k =>
+        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
       ).join('|') +
       '|'
   )
-  lines = lines.concat(xJK.map(xK => '|' + xK.join('|')))
+  lines = lines.concat(cells.map(row => '|' + row.join('|')))
   return lines.join('\n')
 }
-
-// returns `[output, elapsed_ms]`
-function timing(f) {
-  const start = Date.now()
-  const output = f()
-  const elapsed = Date.now() - start
-  return [output, elapsed]
-}
-
-// returns stack trace
-// use `offset` to exclude frames
-const stack = (offset = 1) =>
-  new Error().stack.split('\n').slice(offset).join(' <- ')
 
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
-    if (!f()) throw new Error(`FAILED CHECK: ${str(f)} @ ${stack(2)}`)
+    if (!f()) {
+      const stack = new Error().stack.split('\n').join(' <- ')
+      throw new Error(`FAILED CHECK: ${str(f)} @ ${stack}`)
+    }
   })
 }
 
@@ -129,6 +119,14 @@ function _run_benchmark(
         ')'
     )
   } else log(base)
+}
+
+// returns `[output, elapsed_ms]`
+function timing(f) {
+  const start = Date.now()
+  const output = f()
+  const elapsed = Date.now() - start
+  return [output, elapsed]
 }
 
 // documents utility constants & functions
