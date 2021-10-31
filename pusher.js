@@ -338,7 +338,8 @@ function resolve_embed_path(path, attr) {
 
 const _push_button =
   `<img src=/arrow.up.svg ` +
-  `style="height:14px;vertical-align:baseline;margin:0 3px">`
+  `style="filter:invert(100%); height:14px; ` +
+  `vertical-align:baseline; margin:0 3px">`
 
 // side-pushes item to other (private or public) repos on github
 // owner, repo, path are required, branch is optional (default master)
