@@ -31,7 +31,7 @@ const _array = (J, f) => {
   return xJ
 }
 
-// generates markdown table
+// returns markdown table
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`
 // `headers` is array (optional)
 function table(cells, headers) {
