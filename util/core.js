@@ -153,7 +153,6 @@ function jsdoc() {
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
       }
-      def.name = def.name.replace(/ /g, '&nbsp;') // prevent wrapping of names
       return def
     }
   )
@@ -161,5 +160,10 @@ function jsdoc() {
   defs.forEach(def => {
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
-  return lines.join('\n')
+  return [
+    '<span class="jsdoc">',
+    lines.join('\n'),
+    '</span>',
+    '<style> #item .jsdoc table code { white-space: nowrap } </style>',
+  ].join('\n')
 }
