@@ -4,6 +4,7 @@ const info = (...args) => _this.info(...args)
 const warn = (...args) => _this.warn(...args)
 const error = (...args) => _this.error(...args)
 const fatal = (...args) => _this.fatal(...args)
+
 // TODO: bring more _Item functions to global scope using standard mechanism?
 
 function str(x) {
