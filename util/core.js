@@ -69,6 +69,7 @@ function check(...funcs) {
 }
 
 let _benchmark_options = {}
+
 const set_benchmark_options = options => (_benchmark_options = options)
 
 function benchmark(...funcs) {
