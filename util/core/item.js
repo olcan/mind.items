@@ -1,6 +1,6 @@
 // read
-// comment here
 const read = (...args) => _this.read(...args)
+// read_deep
 const read_deep = (...args) => _this.read_deep(...args)
 const write = (...args) => _this.write(...args)
 const clear = (...args) => _this.clear(...args)
