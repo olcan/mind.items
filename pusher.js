@@ -116,6 +116,7 @@ async function init_pusher() {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
     item.pushable = true // also mark pushable until manual /push
+    item.store._pusher = { pushable_sha: remote_sha }
     if (names.length < 10) names.push(item.name)
     count++
   }
@@ -230,6 +231,11 @@ function push_item(item) {
         // auto-push can resume w/o side-push based on sha consistency
         // item.pushable = false // force resume side-push (w/ commit prompt)
         if (!item.pushable) await _side_push_item(item)
+        // auto-clear pushable flag if pushable sha is met locally
+        if (item.store._pusher?.pushable_sha == text_sha) {
+          item.pushable = false
+          delete item.store._pusher
+        }
         return
       }
       try {
@@ -322,6 +328,11 @@ function push_item(item) {
         // auto-push can resume w/o side-push based on sha consistency
         // item.pushable = false // force resume side-push (w/ commit prompt)
         if (!item.pushable) await _side_push_item(item)
+        // auto-clear pushable flag if pushable sha is met locally
+        if (item.store._pusher?.pushable_sha == text_sha) {
+          item.pushable = false
+          delete item.store._pusher
+        }
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
@@ -416,6 +427,7 @@ async function _side_push_item(item) {
         if (!message) {
           _this.warn(`side-push skipped for ${item.name} to ${dest_str}`)
           item.pushable = true // mark pushable again
+          item.store._pusher = { pushable_sha: github_sha(sidepush_text) }
         } else {
           const start = Date.now()
           const { data } = await github.repos.createOrUpdateFileContents({
@@ -485,6 +497,7 @@ async function _side_push_item(item) {
                 `${item.name}:${embed.path} to ${dest_str}`
             )
             item.pushable = true // mark pushable again
+            item.store._pusher = { pushable_sha: github_sha(sidepush_text) }
           } else {
             const start = Date.now()
             const { data } = await github.repos.createOrUpdateFileContents({
