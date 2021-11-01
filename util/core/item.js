@@ -1,4 +1,4 @@
-// => item.eval(code,[options])
+// => item.eval(code,…)
 // evaluates `code` in context of `item`
 // _can't be aliased for `_this`_
 const __eval = (...args) => _this.eval(...args)
