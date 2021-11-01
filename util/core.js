@@ -123,7 +123,7 @@ function jsdoc() {
         // <name>(...) modifies args, <name> removes args
         // => <display_name> or => <display_name>(...) modifies name/args
         if (
-          def.comment.match(/^=> *w+/) ||
+          def.comment.match(/^=> *\w+/) ||
           def.comment.match(new RegExp(`^${def.name}(?:\\(.*?\\))?(?:$|<br>)`))
         ) {
           def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
