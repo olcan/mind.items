@@ -3,23 +3,25 @@
 // _can't be aliased for `_this`_
 const __eval = (...args) => _this.eval(...args)
 
-// read([type],[options])
+// read([type],…)
 // reads text from item
 // optionally reads from block `type`
 // concatenates blocks of same `type`
 const read = (...args) => _this.read(...args)
 
-// read_deep(type,[options])
+// read_deep(type,…)
 // reads from block `type` in item _+ dependencies_
 // concatenates blocks of same `type`
 const read_deep = (...args) => _this.read_deep(...args)
 
-// read_input(type,[options])
+// read_input(type,…)
 // reads _input_ for `type` from item _+ dependencies_
 // reads `<type>_input` from item, `type` from deps
 const read_input = (...args) => _this.read_input(...args)
 
-// write(text,[type],[options])
+// write(text,[type='_output'],…)
+// writes `text` to block `type` in item
+// optionally writes whole item if `type==''`
 const write = (...args) => _this.write(...args)
 
 // clear(type)
