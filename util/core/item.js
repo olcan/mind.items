@@ -6,12 +6,12 @@ const __eval = (...args) => _this.eval(...args)
 // read([type],[options])
 // reads text from item
 // optionally reads from block `type`
-// concatenated blocks of same `type`
+// concatenates blocks of same `type`
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,[options])
 // reads from block `type` in item _+ dependencies_
-// concatenated blocks of same `type`
+// concatenates blocks of same `type`
 const read_deep = (...args) => _this.read_deep(...args)
 
 // read_input(type,[options])
