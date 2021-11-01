@@ -565,6 +565,7 @@ function auto_push_item(item) {
     _this.warn(
       `unable to auto-push item ${item.name} that is inconsistent or missing in ${dest}; manual /push or /pull is required`
     )
+    item.pushable = true // mark pushable again (if not already)
     return
   }
 
