@@ -126,9 +126,17 @@ function jsdoc() {
           def.comment.match(/^=> *\w+/) ||
           def.comment.match(new RegExp(`^${def.name}(?:\\(.*?\\))?(?:$|<br>)`))
         ) {
-          def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
-          def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
-          def.comment = def.comment.replace(/^.+?(?:\\(.*?\\))?(?:$|<br>)/, '')
+          def.name =
+            def.comment
+              .match(/^[^(<]+/)
+              ?.pop()
+              ?.replace(/^=> */, '') ?? ''
+          def.args =
+            def.comment.match(/^[^(<]+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
+          def.comment = def.comment.replace(
+            /^[^(<]+?(?:\\(.*?\\))?(?:$|<br>)/,
+            ''
+          )
           def.modified = true
         }
       } else if (def.body && !def.body.startsWith('{')) {
