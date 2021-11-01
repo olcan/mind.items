@@ -34,7 +34,8 @@ const clear = (...args) => _this.clear(...args)
 const remove = (...args) => _this.remove(...args)
 
 // => item.delete
-// deletes `item`
+// deletes `item` ___permanently___
+// confirmed only for `#named` items
 // _can't be aliased for `_this`_
 const __delete = (...args) => _this.delete(...args)
 
