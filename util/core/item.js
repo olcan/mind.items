@@ -19,9 +19,10 @@ const read_deep = (...args) => _this.read_deep(...args)
 // reads `<type>_input` from item, `type` from deps
 const read_input = (...args) => _this.read_input(...args)
 
-// write(text,[type='_output'],…)
+// write(text,[type],…)
 // writes `text` to block `type` in item
-// optionally writes whole item if `type==''`
+// default block `type` is `_output`
+// optionally writes _whole item_ if `type==''`
 const write = (...args) => _this.write(...args)
 
 // clear(type)
