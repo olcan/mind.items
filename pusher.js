@@ -227,15 +227,7 @@ function push_item(item) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
-        // side-push only if not marked "pushable" (i.e. manual /push required)
-        // auto-push can resume w/o side-push based on sha consistency
-        // item.pushable = false // force resume side-push (w/ commit prompt)
-        if (!item.pushable) await _side_push_item(item)
-        // auto-clear pushable flag if pushable sha is met locally
-        if (item.store._pusher?.pushable_sha == text_sha) {
-          item.pushable = false
-          delete item.store._pusher
-        }
+        await _side_push_item(item)
         return
       }
       try {
@@ -324,15 +316,7 @@ function push_item(item) {
         }
 
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
-        // side-push only if not marked "pushable" (i.e. manual /push required)
-        // auto-push can resume w/o side-push based on sha consistency
-        // item.pushable = false // force resume side-push (w/ commit prompt)
-        if (!item.pushable) await _side_push_item(item)
-        // auto-clear pushable flag if pushable sha is met locally
-        if (item.store._pusher?.pushable_sha == text_sha) {
-          item.pushable = false
-          delete item.store._pusher
-        }
+        await _side_push_item(item)
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
@@ -364,6 +348,20 @@ const _push_button =
 async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
+
+  // side-push only if not marked "pushable" (i.e. manual /push required)
+  // auto-push can resume w/o side-push based on sha consistency
+  // item.pushable = false // force resume side-push (w/ commit prompt)
+  if (item.pushable) return
+
+  // TODO: figure out how tree-based change detection works for embedded item, since remote sha would not include the embeds
+  // TODO: figure out how to auto-clear pushable flag, we would need to know the remote item sha with all embeds included, so we can compare it to the local item sha; it could make sense to store that in _this.store.items[item.saved_id].pushable_sha
+  // // auto-clear pushable flag if pushable sha is met locally
+  // if (item.store._pusher?.pushable_sha == text_sha) {
+  //   item.pushable = false
+  //   delete item.store._pusher
+  // }
+
   let attr_modified = false
   try {
     let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
