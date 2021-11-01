@@ -204,7 +204,7 @@ function decodeBase64(str) {
 }
 
 // pushes item to github
-function push_item(item) {
+function push_item(item, require_fast_forward = true) {
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
   if (!_this.store.items) throw new Error('can not push yet')
   if (!_this.store.github) throw new Error('missing github client')
@@ -277,9 +277,18 @@ function push_item(item) {
           })
         } catch (e) {
           if (e.message == 'Update is not a fast forward') {
+            if (require_fast_forward) {
+              _this.warn(
+                `push failed for ${item.name} due to unknown (external) ` +
+                  `commits in ${dest}; manual /push or /pull is required`
+              )
+              state.remote_sha = undefined // lost track, disable auto-push
+              item.pushable = true // mark pushable again (if not already)
+              return
+            }
             _this.warn(
               `push failed for ${item.name} due to unknown (external) ` +
-                `commits; retrying after fetching latest commit ...`
+                `commits in ${dest}; retrying after fetching latest commit ...`
             )
             const resp = await github.repos.getBranch({
               owner,
@@ -620,7 +629,7 @@ async function _on_command_push(label) {
         background: 'block',
       })
       item.pushable = false // clear warning, resume side-push
-      await push_item(item)
+      await push_item(item, false /* fast-forward optional for manual push */)
     }
     update_branch('last_push')
     await _modal_close() // force-close any existing modals
