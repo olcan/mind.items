@@ -543,6 +543,24 @@ async function update_item(item, updates) {
       }
     )
 
+    // confirm if updating "pushable" item w/ unpushed changes
+    if (item.pushable && item.text != text) {
+      await _modal_close() // force-close any existing modal
+      const overwrite = await _modal({
+        content: `Overwrite unpushed changes in ${item.name}?`,
+        confirm: 'Overwrite',
+        cancel: 'Cancel',
+        background: 'cancel',
+      })
+      if (!overwrite) {
+        _this.warn(
+          `update cancelled for ${item.name} from ` +
+            `${source}/${path} due to unpushed changes`
+        )
+        return false
+      }
+    }
+
     // write new text to item (also triggers save of modified attributes)
     // keep_time to avoid bringing up items due to auto-updates
     // note item text/deephash may be unchanged (e.g. if the update was
@@ -569,6 +587,9 @@ async function update_item(item, updates) {
         )
       } catch (e) {} // already logged, just continue
     }
+
+    // clear pushable flag to resume auto-side-push to source
+    item.pushable = false
 
     _this.log(
       `updated ${item.name} from ${source}/${path} ` +
