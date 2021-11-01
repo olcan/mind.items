@@ -4,6 +4,8 @@
 const __eval = (...args) => _this.eval(...args)
 
 // read([type],[options])
+// reads text from item, optionally from block `type`
+// concatenated blocks of same `type`
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,[options])
