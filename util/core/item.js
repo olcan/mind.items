@@ -41,7 +41,7 @@ const __delete = (...args) => _this.delete(...args)
 
 // get_log(…)
 // returns console log messages for item
-// TODO: details
+// TODO: details...
 const get_log = (...args) => _this.get_log(...args)
 
 // write_log(…)
