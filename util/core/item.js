@@ -1,6 +1,6 @@
 // => item.eval(code,[options])
 // evaluates `code` in context of `item`
-// _can't be aliased_
+// _can't be aliased for `_this`_
 const __eval = (...args) => _this.eval(...args)
 
 // read([type],[options])
@@ -30,7 +30,7 @@ const remove = (...args) => _this.remove(...args)
 
 // => item.delete
 // deletes `item`
-// _can't be aliased_
+// _can't be aliased for `_this`_
 const __delete = (...args) => _this.delete(...args)
 
 // get_log
