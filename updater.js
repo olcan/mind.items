@@ -545,7 +545,10 @@ async function update_item(item, updates) {
 
     // confirm if updating "pushable" item w/ unpushed changes
     if (item.pushable && item.text != text) {
-      await _modal_close() // force-close any existing modal
+      _this.log(
+        `confirming overwrite of unpushed changes ` +
+          `to continue updating ${item.name} from ${source}/${path} ...`
+      )
       const overwrite = await _modal({
         content: `Overwrite unpushed changes in ${item.name}?`,
         confirm: 'Overwrite',
