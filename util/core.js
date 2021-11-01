@@ -119,20 +119,17 @@ function jsdoc() {
         def.comment = def.comment
           .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>')
           .replace(/^\/\/\s*/, '')
-        // rename via comment if first line matches <name>(...) or just <name>
-        // note renaming can only modify args unless "rename:" prefix is used
+        // displayed name/args can be modified via first line of comment:
+        // <name>(...) modifies args, <name> removes args
+        // =><display_name> or =><display_name>(...) modifies name/args
         if (
-          def.comment.startsWith('rename:') ||
+          def.comment.match('/^=> *w+/') ||
           def.comment.match(new RegExp(`^${def.name}(?:\\(.*?\\))?(?:$|<br>)`))
         ) {
-          def.name = def.comment
-            .match(/^[^(<]+/)
-            .pop()
-            .replace(/^rename:/, '')
-            .trim()
+          def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
           def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
           def.comment = def.comment.replace(/^.+?(?:\\(.*?\\))?(?:$|<br>)/, '')
-          def.renamed = true
+          def.modified = true
         }
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
@@ -142,8 +139,8 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
-    // hide underscore-prefixed names as internal unless "renamed" via comments
-    if (def.name.startsWith('_') && !def.renamed) return
+    // hide underscore-prefixed names as internal unless modified via comments
+    if (def.name.startsWith('_') && !def.modified) return
     lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
   })
   return [
