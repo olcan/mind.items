@@ -117,7 +117,7 @@ function jsdoc() {
       def.args = def.args.replace(/\s*\n\s*/g, ' ') // remove newlines in args
       if (def.comment) {
         def.comment = def.comment
-          .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>')
+          .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>\n') // \n dropped below
           .replace(/^\/\/\s*/, '')
         // displayed name/args can be modified via first line of comment:
         // <name>(...) modifies args, <name> removes args
@@ -126,19 +126,12 @@ function jsdoc() {
           def.comment.match(/^=> *\w+/) ||
           def.comment.match(new RegExp(`^${def.name}(?:\\(.*?\\))?(?:$|<br>)`))
         ) {
-          def.name =
-            def.comment
-              .match(/^[^(<]+/)
-              ?.pop()
-              ?.replace(/^=> */, '') ?? ''
-          def.args =
-            def.comment.match(/^[^(<]+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
-          def.comment = def.comment.replace(
-            /^[^(<]+?(?:\\(.*?\\))?(?:$|<br>)/,
-            ''
-          )
+          def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
+          def.args = def.comment.match(/^.+?(\(.*?\))(?:$|<br>)/)?.pop() ?? ''
+          def.comment = def.comment.replace(/^.+?(?:\\(.*?\\))?(?:$|<br>)/, '')
           def.modified = true
         }
+        def.comment = def.comment.replace(/\n/g, '')
       } else if (def.body && !def.body.startsWith('{')) {
         def.comment = '`' + def.body + '`'
       }
