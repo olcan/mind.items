@@ -39,13 +39,15 @@ const remove = (...args) => _this.remove(...args)
 // _can't be aliased for `_this`_
 const __delete = (...args) => _this.delete(...args)
 
-// get_log
+// get_log(…)
+// returns console log messages for item
+// TODO: details
 const get_log = (...args) => _this.get_log(...args)
 
-// write_log
+// write_log(…)
 const write_log = (...args) => _this.write_log(...args)
 
-// write_log_any
+// write_log_any(…)
 const write_log_any = (...args) => _this.write_log_any(...args)
 
 // show_logs
