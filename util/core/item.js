@@ -1,27 +1,30 @@
-// read
+// => item.eval(code,[options])
+// evaluates `code` in context of `item`
+// _can't be aliased_
+const __eval = (...args) => _this.eval(...args)
+
+// read([type],[options])
 const read = (...args) => _this.read(...args)
 
-// read_deep
+// read_deep(type,[options])
 const read_deep = (...args) => _this.read_deep(...args)
 
-// write
+// read_input(type,[options])
+const read_input = (...args) => _this.read_input(...args)
+
+// write(text,[type],[options])
 const write = (...args) => _this.write(...args)
 
-// clear
+// clear(type)
 const clear = (...args) => _this.clear(...args)
 
-// remove
+// remove(type)
 const remove = (...args) => _this.remove(...args)
 
 // => item.delete
 // deletes `item`
 // _can't be aliased_
 const __delete = (...args) => _this.delete(...args)
-
-// => item.eval(code,[options])
-// evaluates `code` in context of `item`
-// _can't be aliased_
-const __eval = (...args) => _this.eval(...args)
 
 // get_log
 const get_log = (...args) => _this.get_log(...args)
