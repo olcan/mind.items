@@ -6,12 +6,14 @@ const write = (...args) => _this.write(...args)
 const clear = (...args) => _this.clear(...args)
 const remove = (...args) => _this.remove(...args)
 
-// rename: delete(...)
-// comment here
+// => item.delete
+// deletes `item`
+// `delete` _can't be aliased_
 const __delete = (...args) => _this.delete(...args)
 
-// __eval
-// comment here
+// => item.eval(code,[options])
+// evaluates `code` in context of `item`
+// `eval` _can't be aliased_
 const __eval = (...args) => _this.eval(...args)
 
 const get_log = (...args) => _this.get_log(...args)
