@@ -26,9 +26,11 @@ const read_input = (...args) => _this.read_input(...args)
 const write = (...args) => _this.write(...args)
 
 // clear(type)
+// clears (empties) `type` blocks
 const clear = (...args) => _this.clear(...args)
 
 // remove(type)
+// removes `type` blocks
 const remove = (...args) => _this.remove(...args)
 
 // => item.delete
