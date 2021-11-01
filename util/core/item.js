@@ -10,7 +10,7 @@ const __eval = (...args) => _this.eval(...args)
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,[options])
-// reads from block `type` in item _and dependencies_
+// reads from block `type` in item _+ dependencies_
 // concatenated blocks of same `type`
 const read_deep = (...args) => _this.read_deep(...args)
 
