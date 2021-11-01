@@ -348,6 +348,9 @@ async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
 
+  // NOTE: if listCommits/getCommit requests (2 calls per item+embeds) are too much on every change to item (on top of committing those changes via push), then we can simply return here whenever item is marked pushable; auto-side-push will then resume on manual /push or if item is updated to overwrite unpushed changes
+  // if (item.pushable) return
+
   let found_changes = false
   let attr_modified = false
   try {
