@@ -116,7 +116,6 @@ async function init_pusher() {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
     item.pushable = true // also mark pushable until manual /push
-    item.store._pusher = { pushable_sha: remote_sha }
     if (names.length < 10) names.push(item.name)
     count++
   }
@@ -349,19 +348,7 @@ async function _side_push_item(item) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
 
-  // side-push only if not marked "pushable" (i.e. manual /push required)
-  // auto-push can resume w/o side-push based on sha consistency
-  // item.pushable = false // force resume side-push (w/ commit prompt)
-  if (item.pushable) return
-
-  // TODO: figure out how tree-based change detection works for embedded item, since remote sha would not include the embeds
-  // TODO: figure out how to auto-clear pushable flag, we would need to know the remote item sha with all embeds included, so we can compare it to the local item sha; it could make sense to store that in _this.store.items[item.saved_id].pushable_sha
-  // // auto-clear pushable flag if pushable sha is met locally
-  // if (item.store._pusher?.pushable_sha == text_sha) {
-  //   item.pushable = false
-  //   delete item.store._pusher
-  // }
-
+  let found_changes = false
   let attr_modified = false
   try {
     let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
@@ -411,21 +398,27 @@ async function _side_push_item(item) {
           `side-push redundant (no change) for ${item.name} to ${dest_str}`
         )
       else {
-        let message = item.name
-        await _modal_close() // force-close any existing modal to avoid deadlock
-        message = await _modal({
-          content:
-            `Enter commit message to push \`${item.name}\` to its source file ` +
-            `[${dest.path}](${item.attr.source}). Skip to push later via ` +
-            `\`/push\` command or ${_push_button} button.`,
-          confirm: 'Push',
-          cancel: 'Skip',
-          input: message,
-        })
+        found_changes = true
+        // prompt user for commit message
+        // if item already marked pushable, skip side-push without prompt
+        // note pushable flag can be cleared below if unpushed changes removed
+        let message
+        if (!item.pushable) {
+          message = item.name
+          await _modal_close() // force-close any existing modal to avoid deadlock
+          message = await _modal({
+            content:
+              `Enter commit message to push \`${item.name}\` to its source file ` +
+              `[${dest.path}](${item.attr.source}). Skip to push later via ` +
+              `\`/push\` command or ${_push_button} button.`,
+            confirm: 'Push',
+            cancel: 'Skip',
+            input: message,
+          })
+        }
         if (!message) {
           _this.warn(`side-push skipped for ${item.name} to ${dest_str}`)
-          item.pushable = true // mark pushable again
-          item.store._pusher = { pushable_sha: github_sha(sidepush_text) }
+          item.pushable = true // mark pushable again (if not already)
         } else {
           const start = Date.now()
           const { data } = await github.repos.createOrUpdateFileContents({
@@ -473,29 +466,35 @@ async function _side_push_item(item) {
               `${item.name}:${embed.path} to ${dest_str}`
           )
         else {
-          const embed_source =
-            `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
-            `blob/${item.attr.branch}/${embed.path}`
-          let message = item.name + ':' + embed.path
-          await _modal_close() // force-close any existing modal to avoid deadlock
-          message = await _modal({
-            content:
-              `Enter commit message to push embed block ` +
-              `\`${embed_type[embed.path]}\` in \`${item.name}\` ` +
-              `back to its source file [${dest.path}](${embed_source}). ` +
-              `Skip to push later via \`/push\` command or ` +
-              `${_push_button} button.`,
-            confirm: 'Push',
-            cancel: 'Skip',
-            input: message,
-          })
+          found_changes = true
+          // prompt user for commit message
+          // if item already marked pushable, skip side-push without prompt
+          // note pushable flag can be cleared below if unpushed changes removed
+          let message
+          if (!item.pushable) {
+            message = item.name + ':' + embed.path
+            const embed_source =
+              `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
+              `blob/${item.attr.branch}/${embed.path}`
+            await _modal_close() // force-close any existing modal to avoid deadlock
+            message = await _modal({
+              content:
+                `Enter commit message to push embed block ` +
+                `\`${embed_type[embed.path]}\` in \`${item.name}\` ` +
+                `back to its source file [${dest.path}](${embed_source}). ` +
+                `Skip to push later via \`/push\` command or ` +
+                `${_push_button} button.`,
+              confirm: 'Push',
+              cancel: 'Skip',
+              input: message,
+            })
+          }
           if (!message) {
             _this.warn(
               `side-push of embed skipped for ` +
                 `${item.name}:${embed.path} to ${dest_str}`
             )
-            item.pushable = true // mark pushable again
-            item.store._pusher = { pushable_sha: github_sha(sidepush_text) }
+            item.pushable = true // mark pushable again (if not already)
           } else {
             const start = Date.now()
             const { data } = await github.repos.createOrUpdateFileContents({
@@ -518,6 +517,10 @@ async function _side_push_item(item) {
         }
       }
     }
+
+    // if found no changes to pushable item, clear pushable flag
+    // this resumes auto-side-push w/ commit message prompts
+    if (!found_changes) item.pushable = false
 
     // touch item to trigger saving of changes to attr(.embeds[]).sha above
     // important for #updater to skip a redundant update even after reload
