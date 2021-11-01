@@ -16,7 +16,7 @@ const read_deep = (...args) => _this.read_deep(...args)
 
 // read_input(type,[options])
 // reads _input_ for `type` from item _+ dependencies_
-// `<type>_input` from item, `type` from dependencies
+// reads `<type>_input` from item, `type` from deps
 const read_input = (...args) => _this.read_input(...args)
 
 // write(text,[type],[options])
