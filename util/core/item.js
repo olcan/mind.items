@@ -8,12 +8,12 @@ const remove = (...args) => _this.remove(...args)
 
 // => item.delete
 // deletes `item`
-// `delete` _can't be aliased_
+// _can't be aliased_
 const __delete = (...args) => _this.delete(...args)
 
 // => item.eval(code,[options])
 // evaluates `code` in context of `item`
-// `eval` _can't be aliased_
+// _can't be aliased_
 const __eval = (...args) => _this.eval(...args)
 
 const get_log = (...args) => _this.get_log(...args)
