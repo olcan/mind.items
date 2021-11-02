@@ -372,7 +372,7 @@ async function _side_push_item(item) {
     const embed_type = {}
     for (let dest of dests) {
       if (!dest.owner || !dest.repo || !dest.path) {
-        _this.error('invalid side-push destination: ' + str(dest))
+        _this.error('invalid side-push destination: ' + JSON.stringify(dest))
         continue
       }
       if (!dest.branch) dest.branch = 'master'
