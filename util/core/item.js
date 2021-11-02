@@ -40,14 +40,19 @@ const remove = (...args) => _this.remove(...args)
 const __delete = (...args) => _this.delete(...args)
 
 // get_log(…)
-// returns console log messages for item
-// TODO: details...
+// returns log messages w/ options:
+// `item`
+// `level`
+// `since`
+// `filter`
 const get_log = (...args) => _this.get_log(...args)
 
 // write_log(…)
+// writes log messages into item
 const write_log = (...args) => _this.write_log(...args)
 
 // write_log_any(…)
+// writes all log messages into item
 const write_log_any = (...args) => _this.write_log_any(...args)
 
 // show_logs
