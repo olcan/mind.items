@@ -68,10 +68,12 @@ const write_log_any = (...args) => _this.write_log_any(...args)
 const show_logs = (...args) => _this.show_logs(...args)
 
 // touch([save=false])
-//
+// _touches_ item by updating its time
+// optionally saves item
 const touch = (...args) => _this.touch(...args)
 
-// save
+// save()
+// saves item
 const save = (...args) => _this.save(...args)
 
 // start
