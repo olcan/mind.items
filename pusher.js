@@ -415,10 +415,8 @@ async function _side_push_item(item, check_only = true) {
       else {
         found_changes = true
         // prompt user for commit message unless check_only
-        // if item already marked pushable, skip side-push without prompt
-        // note pushable flag can be cleared below if unpushed changes removed
         let message
-        if (!check_only && !item.pushable) {
+        if (!check_only) {
           message = item.name
           await _modal_close() // force-close any existing modal to avoid deadlock
           message = await _modal({
@@ -483,11 +481,8 @@ async function _side_push_item(item, check_only = true) {
         else {
           found_changes = true
           // prompt user for commit message unless check_only
-          // if item already marked pushable, skip side-push without prompt
-          // prompt may also be disabled explicitly for auto (vs manual) push
-          // note pushable flag can be cleared below if unpushed changes removed
           let message
-          if (!check_only && !item.pushable) {
+          if (!check_only) {
             message = item.name + ':' + embed.path
             const embed_source =
               `https://github.com/${attr.owner}/${attr.repo}/` +
