@@ -142,7 +142,25 @@ function jsdoc() {
   defs.forEach(def => {
     // hide underscore-prefixed names as internal unless modified via comments
     if (def.name.startsWith('_') && !def.modified) return
-    lines.push(`|\`${def.name + def.args}\`|${def.comment}`)
+    // process comment lines, converting code-prefixed lines to tables
+    // typically used to document function arguments or options
+    let comment = '' // processed comment
+    let table = ''
+    let m
+    def.comment.split('<br>').forEach(line => {
+      if (line.startsWith('|')) {
+        const cells = line.split(/\s*\|\s*/)
+        if (!table) table += '<table>'
+        table += '<tr>' + cells.map(s => `<td>${s}</td>`).join('') + '</tr>'
+      } else {
+        if (table) comment += table + '</table>'
+        table = ''
+        if (comment) comment += '<br>'
+        comment += line
+      }
+    })
+    if (table) comment += table + '</table>'
+    lines.push(`|\`${def.name + def.args}\`|${comment}`)
   })
   return [
     '<span class="jsdoc">',
@@ -151,7 +169,11 @@ function jsdoc() {
     '```_html',
     '<style>',
     '#item .jsdoc table code { white-space: nowrap }',
-    '#item .jsdoc table { line-height: 150%; border-spacing: 10px }',
+    '#item .jsdoc table td:first-child { white-space: nowrap }',
+    '#item .jsdoc table + br { display: none }',
+    '#item .jsdoc > table { line-height: 150%; border-spacing: 10px }',
+    '#item .jsdoc > table table code { font-size:90% }',
+    '#item .jsdoc > table table { font-size:80%; border-spacing: 5px 0 }',
     '</style>',
     '```',
   ].join('\n')
@@ -167,8 +189,8 @@ const _array = (J, f) => {
 
 // table(cells, [headers])
 // returns markdown table
-// `cells` is 2D array, e.g. `[['a',1],['b',2]]`
-// `headers` is array, e.g. `['a','b']`
+// |`cells`   | 2D array, e.g. `[['a',1],['b',2]]`
+// |`headers` | array, e.g. `['a','b']`
 function table(cells, headers) {
   let lines = []
   if (headers) lines.push('|' + headers.join('|') + '|')

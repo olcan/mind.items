@@ -40,11 +40,13 @@ const remove = (...args) => _this.remove(...args)
 const __delete = (...args) => _this.delete(...args)
 
 // get_log(…)
-// returns log messages w/ options:
-// `item`
-// `level`
-// `since`
-// `filter`
+// returns log messages for item
+// |`source` | string   | `self*`, `#name` (or id), or `any`
+// |         |          | append `?` to include unknown (empty stack)
+// |`level`  | string   | `debug`, `info*`, `log`, `warn`, `error`
+// |`since`  | string   | `run*`, `eval`, or ms since epoch
+// |`filter` | function | custom predicate, passed object `{time,level,stack,type,text}`
+// |         |          | `*` indicates defaults
 const get_log = (...args) => _this.get_log(...args)
 
 // write_log(…)
