@@ -1,13 +1,21 @@
 // => item.eval(code,…)
 // evaluates `code` in context of `item`
-// _can't be aliased for `_this`_
-// TODO: options here and below
+// _invoke on item, can't be aliased for `_this`_
+// | `code`  | string  | | code to evaluate
+// | `type`  | string  | `js` | prefix code block type
+// | `async` | bool | `false` | async mode
+// | `async_simple`   | bool | `false` | async w/o `start(…)` wrapper
+// | `debug`          | bool | `false` | eval w/o any wrappers
+// | `exclude_prefix` | bool | `false` | eval w/o prefix code
+// | `trigger`        | string  | `other` | eval trigger name
 const __eval = (...args) => _this.eval(...args)
 
 // read([type],…)
 // reads text from item
-// optionally reads from block `type`
-// concatenates blocks of same `type`
+// reads from block `type` or _whole item_ if `type==''`
+// concatenates multiple blocks of same `type`
+// | `include_deps`       | bool | block type, `''` for _whole item_
+// | `exclude_async_deps` | bool | block type, `''` for _whole item_
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,…)

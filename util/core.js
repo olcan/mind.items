@@ -142,7 +142,7 @@ function jsdoc() {
   defs.forEach(def => {
     // hide underscore-prefixed names as internal unless modified via comments
     if (def.name.startsWith('_') && !def.modified) return
-    // process comment lines, converting code-prefixed lines to tables
+    // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment = '' // processed comment
     let table = ''
@@ -160,7 +160,12 @@ function jsdoc() {
       }
     })
     if (table) comment += table + '</table>'
-    lines.push(`|\`${def.name + def.args}\`|${comment}`)
+    const label = (def.name + def.args)
+      .replace(/\\n/g, '<br>')
+      .split('<br>')
+      .map(s => '`' + s + '`')
+      .join('<br>')
+    lines.push(`|${label}|${comment}`)
   })
   return [
     '<span class="jsdoc">',
@@ -173,7 +178,7 @@ function jsdoc() {
     '#item .jsdoc table + br { display: none }',
     '#item .jsdoc > table { line-height: 150%; border-spacing: 10px }',
     '#item .jsdoc > table table code { font-size:90% }',
-    '#item .jsdoc > table table { font-size:80%; border-spacing: 5px 0 }',
+    '#item .jsdoc > table table { font-size:80%; border-spacing: 10px 0 }',
     '</style>',
     '```',
   ].join('\n')
