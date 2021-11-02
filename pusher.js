@@ -205,7 +205,7 @@ function decodeBase64(str) {
 }
 
 // pushes item to github
-function push_item(item, require_fast_forward = true) {
+function push_item(item, fast_forward_only = true, sidepush_check_only = true) {
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
   if (!_this.store.items) throw new Error('can not push yet')
   if (!_this.store.github) throw new Error('missing github client')
@@ -228,7 +228,7 @@ function push_item(item, require_fast_forward = true) {
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
         // NOTE: running side-push w/o push can cause excessive requests as changes are synced across tabs/devices, and goes against the assumption that remote instances should have pushed/side-pushed as necessary
-        // await _side_push_item(item)
+        // await _side_push_item(item, sidepush_check_only)
         return
       }
       try {
@@ -279,7 +279,7 @@ function push_item(item, require_fast_forward = true) {
           })
         } catch (e) {
           if (e.message == 'Update is not a fast forward') {
-            if (require_fast_forward) {
+            if (fast_forward_only) {
               _this.warn(
                 `push failed for ${item.name} due to unknown (external) ` +
                   `commits in ${dest}; manual /push or /pull is required`
@@ -326,7 +326,7 @@ function push_item(item, require_fast_forward = true) {
         }
 
         _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
-        await _side_push_item(item)
+        await _side_push_item(item, sidepush_check_only)
       } catch (e) {
         _this.error(`push failed for ${item.name}: ${e}`)
         throw e
@@ -355,7 +355,7 @@ const _push_button =
 // side-push is always "forced", i.e. replaces anything at destination
 // side-pushes are coordinated w/ #updater to skip as local changes
 // side-push may need modals for commit messages, will force-close others
-async function _side_push_item(item) {
+async function _side_push_item(item, check_only = true) {
   // side-push is invoked internally, so we can skip the checks in push_item
   const github = _this.store.github
 
@@ -414,11 +414,11 @@ async function _side_push_item(item) {
         )
       else {
         found_changes = true
-        // prompt user for commit message
+        // prompt user for commit message unless check_only
         // if item already marked pushable, skip side-push without prompt
         // note pushable flag can be cleared below if unpushed changes removed
         let message
-        if (!item.pushable) {
+        if (!check_only && !item.pushable) {
           message = item.name
           await _modal_close() // force-close any existing modal to avoid deadlock
           message = await _modal({
@@ -482,11 +482,12 @@ async function _side_push_item(item) {
           )
         else {
           found_changes = true
-          // prompt user for commit message
+          // prompt user for commit message unless check_only
           // if item already marked pushable, skip side-push without prompt
+          // prompt may also be disabled explicitly for auto (vs manual) push
           // note pushable flag can be cleared below if unpushed changes removed
           let message
-          if (!item.pushable) {
+          if (!check_only && !item.pushable) {
             message = item.name + ':' + embed.path
             const embed_source =
               `https://github.com/${attr.owner}/${attr.repo}/` +
@@ -632,7 +633,12 @@ async function _on_command_push(label) {
         background: 'block',
       })
       item.pushable = false // clear warning, resume side-push
-      await push_item(item, false /* fast-forward optional for manual push */)
+      // perform "manual" push allowing full push and side-push
+      await push_item(
+        item,
+        false /*fast_forward_only*/,
+        false /*sidepush_check_only*/
+      )
     }
     update_branch('last_push')
     await _modal_close() // force-close any existing modals
