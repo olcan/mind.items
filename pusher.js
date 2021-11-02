@@ -108,14 +108,15 @@ async function init_pusher() {
     `verified sha for ${_items().length} items in ${Date.now() - start} ms`
   )
 
-  // report inconsistent/missing items
+  // report inconsistent/missing items, mark inconsistent items pushable
   // NOTE: side-push inconsistencies for installed items are checked by #updater
   let count = 0,
     names = []
   for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
-    item.pushable = true // also mark pushable until manual /push
+    // mark pushable if inconsistent (but not missing)
+    if (remote_sha) item.pushable = true
     if (names.length < 10) names.push(item.name)
     count++
   }
