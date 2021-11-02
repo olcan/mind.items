@@ -366,7 +366,7 @@ async function _side_push_item(item) {
   try {
     let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
     const source_dest = _.pick(attr, ['owner', 'repo', 'path', 'branch'])
-    if (item.editable) dests.push(source_dest)
+    if (attr && item.editable) dests.push(source_dest)
     // embed block text & type by path (last block for each path)
     const embed_text = {}
     const embed_type = {}
@@ -453,8 +453,8 @@ async function _side_push_item(item) {
       }
     }
 
-    // if editable, also side-push embeds to own paths in source_dest
-    if (item.editable && attr.embeds) {
+    // if editable and installable, also side-push embeds to own paths in source_dest
+    if (item.editable && attr?.embeds) {
       for (let embed of attr.embeds) {
         const dest = _.assign(source_dest, { path: embed.path })
         const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
