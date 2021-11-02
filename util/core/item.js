@@ -14,8 +14,12 @@ const __eval = (...args) => _this.eval(...args)
 // reads text from item
 // reads from block `type` or _whole item_ if `type==''`
 // concatenates multiple blocks of same `type`
-// | `include_deps`       | bool | block type, `''` for _whole item_
-// | `exclude_async_deps` | bool | block type, `''` for _whole item_
+// | `include_deps`       | bool | include dependencies
+// | `exclude_async_deps` | bool | exclude async dependencies
+// | `exclude_async`      | bool | also exclude self if async
+// | `keep_empty_lines`   | bool | keep empty lines
+// | `replace_ids`        | bool | replace `$id` w/ item id
+// | <td colspan=3 style="text-align:center"> all options default to `false`</td>
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,…)

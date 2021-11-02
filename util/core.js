@@ -144,28 +144,49 @@ function jsdoc() {
     if (def.name.startsWith('_') && !def.modified) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
-    let comment = '' // processed comment
+    let comment_lines = [] // processed comment
     let table = ''
-    let m
-    def.comment.split('<br>').forEach(line => {
-      if (line.startsWith('|')) {
-        const cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
-        if (!table) table += '<table>'
-        table += '<tr>' + cells.map(s => `<td>${s}</td>`).join('') + '</tr>'
-      } else {
-        if (table) comment += table + '</table>'
-        table = ''
-        if (comment) comment += '<br>'
-        comment += line
-      }
-    })
-    if (table) comment += table + '</table>'
+    def.comment
+      .split('<br>')
+      .filter(l => l) //  drop empty lines
+      .forEach(line => {
+        if (line.startsWith('|')) {
+          let cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
+          if (!table) table += '<table>'
+          cells = cells.map(s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
+          table += '<tr>' + cells.join('') + '</tr>'
+        } else {
+          if (table) {
+            comment_lines.push(table + '</table>')
+            table = ''
+          }
+          comment_lines.push(line)
+        }
+      })
+    if (table) comment_lines.push(table + '</table>')
+
+    // hide all comment lines but first
+    const button = `<a class="button" onmousedown="event.target.closest('td').classList.toggle('expand');event.stopPropagation()" onmouseup="event.preventDefault();event.stopPropagation()" onclick="event.preventDefault();event.stopPropagation()"></a>`
+
+    comment_lines
+    if (comment_lines.length > 1) {
+      def.comment =
+        comment_lines[0] +
+        '<span class="more"><br>' +
+        comment_lines.slice(1).join('<br>') +
+        `</span>` +
+        button
+    } else {
+      def.comment = comment_lines[0] || ''
+    }
+
+    // wrap label in backticks, allowing multiple lines
     const label = (def.name + def.args)
       .replace(/\\n/g, '<br>')
       .split('<br>')
       .map(s => '`' + s + '`')
       .join('<br>')
-    lines.push(`|${label}|${comment}`)
+    lines.push(`|${label}|${def.comment}`)
   })
   return [
     '<span class="jsdoc">',
@@ -174,6 +195,13 @@ function jsdoc() {
     '```_html',
     '<style>',
     '#item .jsdoc table code { white-space: nowrap }',
+    '#item .jsdoc table td:not(.expand) .more { display: none }',
+    '#item .jsdoc table td .button { cursor: pointer; vertical-align:middle }',
+    '#item .jsdoc table td .button { user-select: none; -webkit-user-select:none }',
+    '#item .jsdoc table td .button:before { content:"⋯" }',
+    '#item .jsdoc table td.expand .button:before { content:"▲ hide details" }',
+    '#item .jsdoc table td:not(.expand) .button { margin-left:5px }',
+    '#item .jsdoc table td.expand .button { display:block; width:fit-content; margin:5px 0 }',
     '#item .jsdoc table td:first-child { white-space: nowrap; text-align:right }',
     '#item .jsdoc table + br { display: none }',
     '#item .jsdoc > table { line-height: 150%; border-spacing: 10px }',
