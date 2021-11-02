@@ -362,9 +362,10 @@ async function _side_push_item(item) {
 
   let found_changes = false
   let attr_modified = false
+  const attr = item.attr
   try {
     let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
-    const source_dest = _.pick(item.attr, ['owner', 'repo', 'path', 'branch'])
+    const source_dest = _.pick(attr, ['owner', 'repo', 'path', 'branch'])
     if (item.editable) dests.push(source_dest)
     // embed block text & type by path (last block for each path)
     const embed_text = {}
@@ -379,15 +380,15 @@ async function _side_push_item(item) {
       // determine side-push content (whole item or block)
       let sidepush_text = dest.block ? item.read(dest.block) : item.text
       // restore any embed blocks before pushing back installed item
-      if (item.attr?.embeds) {
+      if (attr.embeds) {
         sidepush_text = sidepush_text.replace(
           /```(\S+):(\S+?)\n(.*?)\n```/gs,
           (m, pfx, sfx, body) => {
             if (sfx.includes('.')) {
-              const path = resolve_embed_path(sfx, item.attr)
+              const path = resolve_embed_path(sfx, attr)
               embed_text[path] = body // for push below
               embed_type[path] = pfx + ':' + sfx // for commit prompt below
-              body = item.attr.embeds.find(e => e.path == path).body
+              body = attr.embeds.find(e => e.path == path).body
               return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
             }
             return m
@@ -421,7 +422,7 @@ async function _side_push_item(item) {
           message = await _modal({
             content:
               `Enter commit message to push \`${item.name}\` to its source file ` +
-              `[${dest.path}](${item.attr.source}). Skip to push later via ` +
+              `[${dest.path}](${attr.source}). Skip to push later via ` +
               `\`/push\` command or ${_push_button} button.`,
             confirm: 'Push',
             cancel: 'Skip',
@@ -440,8 +441,8 @@ async function _side_push_item(item) {
             content: encodeBase64(sidepush_text),
           })
 
-          // update item.attr with new commit sha
-          item.attr.sha = data.commit.sha
+          // update attr with new commit sha
+          attr.sha = data.commit.sha
           attr_modified = true // trigger save via touch below
 
           _this.log(
@@ -453,8 +454,8 @@ async function _side_push_item(item) {
     }
 
     // if editable, also side-push embeds to own paths in source_dest
-    if (item.editable && item.attr?.embeds) {
-      for (let embed of item.attr?.embeds) {
+    if (item.editable && attr.embeds) {
+      for (let embed of attr.embeds) {
         const dest = _.assign(source_dest, { path: embed.path })
         const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
         // get sidepush text from embed_text, which should be populated above
@@ -486,8 +487,8 @@ async function _side_push_item(item) {
           if (!item.pushable) {
             message = item.name + ':' + embed.path
             const embed_source =
-              `https://github.com/${item.attr.owner}/${item.attr.repo}/` +
-              `blob/${item.attr.branch}/${embed.path}`
+              `https://github.com/${attr.owner}/${attr.repo}/` +
+              `blob/${attr.branch}/${embed.path}`
             await _modal_close() // force-close any existing modal to avoid deadlock
             message = await _modal({
               content:
