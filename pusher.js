@@ -362,7 +362,7 @@ async function _side_push_item(item) {
 
   let found_changes = false
   let attr_modified = false
-  const attr = item.attr
+  const attr = item.attr // null if not installed
   try {
     let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
     const source_dest = _.pick(attr, ['owner', 'repo', 'path', 'branch'])
@@ -453,8 +453,8 @@ async function _side_push_item(item) {
       }
     }
 
-    // if editable and installable, also side-push embeds to own paths in source_dest
-    if (item.editable && attr?.embeds) {
+    // if installable and editable w/ embeds, also side-push embeds
+    if (attr && item.editable && attr.embeds) {
       for (let embed of attr.embeds) {
         const dest = _.assign(source_dest, { path: embed.path })
         const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
