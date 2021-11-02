@@ -227,7 +227,8 @@ function push_item(item, require_fast_forward = true) {
       const text_sha = github_sha(item.text)
       if (state.remote_sha == text_sha) {
         state.sha = text_sha // resume auto-push
-        await _side_push_item(item)
+        // NOTE: running side-push w/o push can cause excessive requests as changes are synced across tabs/devices, and goes against the assumption that remote instances should have pushed/side-pushed as necessary
+        // await _side_push_item(item)
         return
       }
       try {
