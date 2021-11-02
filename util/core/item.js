@@ -1,6 +1,7 @@
 // => item.eval(code,…)
 // evaluates `code` in context of `item`
 // _can't be aliased for `_this`_
+// TODO: options here and below
 const __eval = (...args) => _this.eval(...args)
 
 // read([type],…)
@@ -41,7 +42,7 @@ const __delete = (...args) => _this.delete(...args)
 
 // get_log(…)
 // returns log messages for item
-// |`source` | string   | `self*`, `#name` (or id), or `any`
+// |`source` | string   | `self*`, `any`, item `#name` or id
 // |         |          | append `?` to include unknown (empty stack)
 // |`level`  | string   | `debug`, `info*`, `log`, `warn`, `error`
 // |`since`  | string   | `run*`, `eval`, or ms since epoch
@@ -51,16 +52,23 @@ const get_log = (...args) => _this.get_log(...args)
 
 // write_log(…)
 // writes log messages into item
+// | `type` | output block type, default `'_log'`
+// | ...    | same options as `get_log`
 const write_log = (...args) => _this.write_log(...args)
 
 // write_log_any(…)
 // writes all log messages into item
+// same options as `write_log`
+// default `source` is `'any'`
 const write_log_any = (...args) => _this.write_log_any(...args)
 
-// show_logs
+// show_logs([t=15000])
+// show logs (`_log` block) in item
+// autohide after `t` ms or never if `t<0`
 const show_logs = (...args) => _this.show_logs(...args)
 
-// touch
+// touch([save=false])
+//
 const touch = (...args) => _this.touch(...args)
 
 // save

@@ -149,7 +149,7 @@ function jsdoc() {
     let m
     def.comment.split('<br>').forEach(line => {
       if (line.startsWith('|')) {
-        const cells = line.split(/\s*\|\s*/)
+        const cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
         if (!table) table += '<table>'
         table += '<tr>' + cells.map(s => `<td>${s}</td>`).join('') + '</tr>'
       } else {
@@ -169,7 +169,7 @@ function jsdoc() {
     '```_html',
     '<style>',
     '#item .jsdoc table code { white-space: nowrap }',
-    '#item .jsdoc table td:first-child { white-space: nowrap }',
+    '#item .jsdoc table td:first-child { white-space: nowrap; text-align:right }',
     '#item .jsdoc table + br { display: none }',
     '#item .jsdoc > table { line-height: 150%; border-spacing: 10px }',
     '#item .jsdoc > table table code { font-size:90% }',
