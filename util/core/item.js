@@ -18,7 +18,7 @@ const __eval = (...args) => _this.eval(...args)
 // | `exclude_async_deps` | bool | exclude async dependencies
 // | `exclude_async`      | bool | also exclude self if async
 // | `keep_empty_lines`   | bool | keep empty lines
-// | `replace_ids`        | bool | replace `$id` w/ item id
+// | `replace_ids`        | bool | replace `$id` w/ item ids
 // | <td colspan=3 style="text-align:center"> all options default to `false`</td>
 const read = (...args) => _this.read(...args)
 
