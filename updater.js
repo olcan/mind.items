@@ -482,6 +482,7 @@ async function update_item(item, updates) {
     }
 
     // update attributes, to be saved on item.write below
+    // NOTE: attr is generally considered read-only and permanent; this is a rare exception and it works because it does not affect rendering/ranking so it does not require special handling during firestore sync
     attr.sha = sha // new commit sha
     attr.token = token // token for future updates
 
