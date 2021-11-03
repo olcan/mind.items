@@ -150,6 +150,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // if remote change and item is pending update, check for remote update
   let { modified_ids, pending_updates } = _this.store
   if (remote && pending_updates[id]) {
+    _this.log(
+      `detected remote change for ${item.name} ` +
+        `pending update ${pending_updates[id]}`
+    )
     const last_update = item.global_store._updater?.last_update
     if (_.values(last_update).includes(pending_updates[id])) {
       _this.log(`detected remote update for ${item.name}`)
