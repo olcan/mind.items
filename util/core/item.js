@@ -23,20 +23,23 @@ const __eval = (...args) => _this.eval(...args)
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,…)
-// reads from block `type` in item _+ dependencies_
-// short for `read(type,{include_deps:true,…})`
+// reads from block `type` in item _& dependencies_
+// uses `include_deps=true` by default
+// other options same as `read`
 const read_deep = (...args) => _this.read_deep(...args)
 
 // read_input(type,…)
-// reads _input_ for `type` from item _+ dependencies_
+// reads _input_ for `type` from item _& dependencies_
 // reads `<type>_input` from item, `type` from deps
-// TODO: resume here!
+// uses `replace_ids=true` by default
+// other options same as `read`
 const read_input = (...args) => _this.read_input(...args)
 
 // write(text,[type],…)
 // writes `text` to block `type` in item
 // default block `type` is `'_output'`
 // writes _whole item_ if `type==''`
+// TODO: resume here!
 const write = (...args) => _this.write(...args)
 
 // clear(type)
@@ -71,7 +74,8 @@ const write_log = (...args) => _this.write_log(...args)
 
 // write_log_any(…)
 // writes _all_ log messages into item
-// short for `write_log({source:'any',…})`
+// uses `source='any'` by default
+// other options same as `write_log`
 const write_log_any = (...args) => _this.write_log_any(...args)
 
 // show_logs([t=15000])
