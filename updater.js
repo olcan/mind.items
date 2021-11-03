@@ -15,7 +15,7 @@ async function init_updater() {
   // check for updates on page init
   for (let item of installed_named_items()) {
     const updates = await check_updates(item, true /* mark_pushables */)
-    if (updates) await update_item(item, updates, false /* confirm_pushable */)
+    if (updates) await update_item(item, updates)
   }
 
   // listen for updates through firebase
@@ -132,7 +132,7 @@ async function init_updater() {
           if (updates) {
             // record _init_time for app instance that can skip confirmation
             _this.global_store.auto_updater_init_time = window._init_time
-            await update_item(item, updates, true /* confirm_pushable */)
+            await update_item(item, updates)
           } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
@@ -257,9 +257,10 @@ async function check_updates(item, mark_pushables = false) {
     // _this.debug(`listCommits returned sha ${sha} for ${path}`)
     if (sha != attr.sha) updates[path] = sha
     if (mark_pushables) {
+      // compare item text sha to last update/install
       const {
         data: { files },
-      } = await github.repos.getCommit({ ...attr, ref: sha })
+      } = await github.repos.getCommit({ ...attr, ref: attr.sha })
       const file_sha = files.find(f => f.filename == path)?.sha
       let text = item.text
       // undo embeds based on original bodies in attr.embeds[].body
@@ -306,9 +307,10 @@ async function check_updates(item, mark_pushables = false) {
         // _this.debug(`listCommits returned sha ${sha} for ${embed.path}`)
         if (sha != embed.sha) updates[embed.path] = sha
         if (mark_pushables) {
+          // compare embed text sha to last update/install
           const {
             data: { files },
-          } = await github.repos.getCommit({ ...attr, ref: sha })
+          } = await github.repos.getCommit({ ...attr, ref: embed.sha })
           const file_sha = files.find(f => f.filename == embed.path)?.sha
           if (file_sha != github_sha(embed_text[embed.path])) {
             _this.warn(
@@ -347,7 +349,7 @@ function resolve_embed_path(path, attr) {
 // similar to /_update command defined in index.svelte in mind.page repo
 // allows item to be renamed with a warning to console
 // returns true iff item was updated successfully
-async function update_item(item, updates, confirm_pushable = false) {
+async function update_item(item, updates) {
   // record updates as item.global_store._updater.last_update
   // enables detection of remote updates in _on_global_store_change above
   // previous state is restored on failure (when false is returned)
@@ -543,7 +545,7 @@ async function update_item(item, updates, confirm_pushable = false) {
     )
 
     // confirm if updating "pushable" item w/ unpushed changes
-    if (confirm_pushable && item.pushable && item.text != text) {
+    if (item.pushable && item.text != text) {
       _this.log(
         `confirming overwrite of unpushed changes ` +
           `to continue updating ${item.name} from ${source}/${path} ...`
