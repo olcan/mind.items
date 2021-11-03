@@ -418,7 +418,7 @@ async function _side_push_item(item, manual = false) {
         let message
         if (manual) {
           message = item.name
-          await _modal_close() // force-close any existing modal to avoid deadlock
+          await _modal_close() // force-close all modals to avoid deadlock
           message = await _modal({
             content:
               `Enter commit message to push \`${item.name}\` to its source file ` +
@@ -487,7 +487,7 @@ async function _side_push_item(item, manual = false) {
             const embed_source =
               `https://github.com/${attr.owner}/${attr.repo}/` +
               `blob/${attr.branch}/${embed.path}`
-            await _modal_close() // force-close any existing modal to avoid deadlock
+            await _modal_close() // force-close all modals to avoid deadlock
             message = await _modal({
               content:
                 `Enter commit message to push embed block ` +
@@ -622,7 +622,7 @@ async function _on_command_push(label) {
     }
     for (const [i, item] of items.entries()) {
       // show new modal in case side-push force-closes modal for commit prompt
-      await _modal_close() // force-close any existing modals
+      await _modal_close() // force-close all modals
       _modal({
         content: `Pushing ${i + 1}/${items.length} (${item.name}) ...`,
         background: 'block',
@@ -632,14 +632,14 @@ async function _on_command_push(label) {
       await push_item(item, true /*manual*/)
     }
     update_branch('last_push')
-    await _modal_close() // force-close any existing modals
+    await _modal_close() // force-close all modals
     await _modal({
       content: `Pushed ${items.length} item${s}`,
       confirm: 'OK',
       background: 'confirm',
     })
   } finally {
-    _modal_close()
+    _modal_close() // force-close all modals
   }
 }
 
@@ -652,24 +652,24 @@ async function _on_command_pull(label) {
       alert(`/pull: ${label} not found`)
       return '/pull ' + label
     }
-    _modal({
+    const modal = _modal({
       content: `Pulling ${items.length} item${s} ...`,
       background: 'block',
     })
     for (const [i, item] of items.entries()) {
-      _modal_update({
+      _modal_update(modal, {
         content: `Pulling ${i + 1}/${items.length} (${item.name}) ...`,
       })
       await pull_item(item)
     }
     update_branch('last_pull')
-    await _modal_update({
+    await _modal_update(modal, {
       content: `Pulled ${items.length} item${s}`,
       confirm: 'OK',
       background: 'confirm',
     })
   } finally {
-    _modal_close()
+    _modal_close(modal)
   }
 }
 

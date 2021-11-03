@@ -79,7 +79,7 @@ async function init_updater() {
               if (store.update_modal) {
                 const modified_names = modified_ids.map(id => _item(id).name)
                 const s = modified_ids.length > 1 ? 's' : ''
-                _modal_update({
+                _modal_update(store.update_modal, {
                   content:
                     `${_this.name} is ready to update ${modified_ids.length} ` +
                     `installed item${s}: ${modified_names.join(', ')}`,
@@ -112,7 +112,6 @@ async function init_updater() {
           store.update_modal = null // modal dismissed
           if (!update) {
             // warn about skipped updates
-            // note there may be no skips due to remote updates being removed
             if (modified_ids.length) {
               _this.warn(
                 `updates skipped for ${modified_ids.length} ` +
@@ -160,7 +159,7 @@ function _on_global_store_change(id, remote) {
     if (_this.store.update_modal) {
       const modified_names = modified_ids.map(id => _item(id).name)
       const s = modified_ids.length > 1 ? 's' : ''
-      _modal_update({
+      _modal_update(_this.store.update_modal, {
         content:
           `${_this.name} is ready to update ${modified_ids.length} ` +
           `installed item${s}: ${modified_names.join(', ')}`,
@@ -170,7 +169,7 @@ function _on_global_store_change(id, remote) {
       // closing modal should trigger setting of store.update_modal to null
       if (modified_ids.length == 0) {
         _this.log(`closing update modal since all updates were done remotely`)
-        _modal_close()
+        _modal_close(_this.store.update_modal)
       }
     }
   }
