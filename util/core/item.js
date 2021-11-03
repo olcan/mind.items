@@ -39,11 +39,11 @@ const read_input = (...args) => _this.read_input(...args)
 // writes `text` to block `type` in item
 // default block `type` is `'_output'`
 // writes _whole item_ if `type==''`
-// TODO: resume here!
+// | `keep_time` | bool | `false` | write w/o updating time
 const write = (...args) => _this.write(...args)
 
 // clear(type)
-// clears (empties) `type` blocks
+// clears (empties out) `type` blocks
 const clear = (...args) => _this.clear(...args)
 
 // remove(type)
@@ -92,7 +92,13 @@ const touch = (...args) => _this.touch(...args)
 // saves item
 const save = (...args) => _this.save(...args)
 
-// start
+// start(async_func)
+// starts _async_ evaluation in context of item
+// returns promise that resolves `async_func()`
+// writes logs into item via `write_log_any`
+// takes log options via `_this.log_options`
+// calls `invalidate_elem_cache` on error
+// updates `_this.running` property
 const start = (...args) => _this.start(...args)
 
 // invoke
