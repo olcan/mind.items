@@ -93,12 +93,14 @@ const touch = (...args) => _this.touch(...args)
 const save = (...args) => _this.save(...args)
 
 // start(async_func)
-// starts _async_ evaluation in context of item
+// starts [async](https://mindbox.io/#features/_async) evaluation in context of item
 // returns promise that resolves `async_func()`
 // writes logs into item via `write_log_any`
 // takes log options via `_this.log_options`
 // calls `invalidate_elem_cache` on error
 // updates `_this.running` property
+// item is ___not___ on [stack](https://mindbox.io/#MindPage/core/properties/_stack) unless added explicitly
+// functions below can put item onto stack or associate logs w/ item as needed
 const start = (...args) => _this.start(...args)
 
 // invoke
