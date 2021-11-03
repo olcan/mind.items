@@ -24,7 +24,7 @@ const read = (...args) => _this.read(...args)
 
 // read_deep(type,…)
 // reads from block `type` in item _+ dependencies_
-// concatenates blocks of same `type`
+// short for `read(type,{include_deps:true,…})`
 const read_deep = (...args) => _this.read_deep(...args)
 
 // read_input(type,…)
@@ -69,9 +69,8 @@ const get_log = (...args) => _this.get_log(...args)
 const write_log = (...args) => _this.write_log(...args)
 
 // write_log_any(…)
-// writes all log messages into item
-// same options as `write_log`
-// default `source` is `'any'`
+// writes _all_ log messages into item
+// short for `write_log({source:'any',…})`
 const write_log_any = (...args) => _this.write_log_any(...args)
 
 // show_logs([t=15000])
