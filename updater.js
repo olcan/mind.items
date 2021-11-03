@@ -15,7 +15,7 @@ async function init_updater() {
   // check for updates on page init
   for (let item of installed_named_items()) {
     const updates = await check_updates(item, true /* mark_pushables */)
-    if (updates) await update_item(item, updates)
+    if (updates) await update_item(item, updates, false /* confirm_pushable */)
   }
 
   // listen for updates through firebase
@@ -132,7 +132,7 @@ async function init_updater() {
           if (updates) {
             // record _init_time for app instance that can skip confirmation
             _this.global_store.auto_updater_init_time = window._init_time
-            await update_item(item, updates)
+            await update_item(item, updates, true /* confirm_pushable */)
           } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
@@ -347,7 +347,7 @@ function resolve_embed_path(path, attr) {
 // similar to /_update command defined in index.svelte in mind.page repo
 // allows item to be renamed with a warning to console
 // returns true iff item was updated successfully
-async function update_item(item, updates) {
+async function update_item(item, updates, confirm_pushable = false) {
   // record updates as item.global_store._updater.last_update
   // enables detection of remote updates in _on_global_store_change above
   // previous state is restored on failure (when false is returned)
@@ -543,7 +543,7 @@ async function update_item(item, updates) {
     )
 
     // confirm if updating "pushable" item w/ unpushed changes
-    if (item.pushable && item.text != text) {
+    if (confirm_pushable && item.pushable && item.text != text) {
       _this.log(
         `confirming overwrite of unpushed changes ` +
           `to continue updating ${item.name} from ${source}/${path} ...`
