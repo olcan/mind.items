@@ -30,7 +30,7 @@ const read_deep = (...args) => _this.read_deep(...args)
 // read_input(type,…)
 // reads _input_ for `type` from item _+ dependencies_
 // reads `<type>_input` from item, `type` from deps
-// TODO: resume here
+// TODO: resume here!
 const read_input = (...args) => _this.read_input(...args)
 
 // write(text,[type],…)
