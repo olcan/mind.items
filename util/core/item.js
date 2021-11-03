@@ -97,71 +97,119 @@ const save = (...args) => _this.save(...args)
 // returns promise that resolves `async_func()`
 // writes logs into item via `write_log_any`
 // takes log options via `_this.log_options`
-// calls `invalidate_elem_cache` on error
+// invokes `invalidate_elem_cache` on error
 // updates `_this.running` property
 // item is ___not___ on [stack](https://mindbox.io/#MindPage/core/properties/_stack) unless added explicitly
 // functions below can put item onto stack or associate logs w/ item as needed
 const start = (...args) => _this.start(...args)
 
-// invoke
+// invoke(func)
+// invokes `func` w/ item on [stack](https://mindbox.io/#MindPage/core/properties/_stack)
+// forwards returns & throws from `func`
+// invokes `invalidate_elem_cache` on error
 const invoke = (...args) => _this.invoke(...args)
 
-// attach
+// attach(thing)
+// _attaches_ function or promise to item
+// ensures item on stack for function/promise
+// wraps function to invoke via `invoke`
+// wraps promise to auto-attach in then/catch/finally
+// returns all other types as is
 const attach = (...args) => _this.attach(...args)
 
-// dispatch
+// dispatch(func,[delay=0])
+// invokes attached function after `delay` ms
+// `= setTimeout(attach(func), delay)`
 const dispatch = (...args) => _this.dispatch(...args)
 
-// dispatch_task
+// => dispatch_task(name,func,\n[delay=0],[repeat=0])
+// dispatches function as _named_ task
+// named tasks are _repeatable_ and _cancellable_
+// if `repeat>0`, repeats task every `repeat` ms
+// cancels any existing task under `name`
+// cancels if `func` throws error or returns `null`
+// function `func` can be async or return promise
 const dispatch_task = (...args) => _this.dispatch_task(...args)
 
-// cancel_task
+// cancel_task(name)
+// cancels named task
 const cancel_task = (...args) => _this.cancel_task(...args)
 
-// promise
+// promise(func)
+// returns new promise _attached_ to item
+// `func` is _executor_ w/ args `(resolve[,reject])`
+// `= attach(new Promise(attach(func)))`
 const promise = (...args) => _this.promise(...args)
 
-// resolve
+// resolve(thing)
+// returns resolving promise _attached_ to item
+// `= attach(Promise.resolve(thing))`
 const resolve = (...args) => _this.resolve(...args)
 
-// debug
+// debug(...)
+// logs debug messages to console
+// associates w/ item on stack via `invoke`
+// `= invoke(() => console.debug(...))`
 const debug = (...args) => _this.debug(...args)
 
-// log
+// log(...)
+// `invoke(() => console.log(...))`
 const log = (...args) => _this.log(...args)
 
-// info
+// info(...)
+// `invoke(() => console.info(...))`
 const info = (...args) => _this.info(...args)
 
-// warn
+// warn(...)
+// `invoke(() => console.warn(...))`
 const warn = (...args) => _this.warn(...args)
 
-// error
+// error(...)
+// `invoke(() => console.error(...))`
 const error = (...args) => _this.error(...args)
 
-// fatal
+// fatal(...)
+// throws error message w/ stack trace
 const fatal = (...args) => _this.fatal(...args)
 
-// delay
+// delay(ms)
+// returns promise w/ dispatched resolve
+// `= promise(resolve => dispatch(resolve, ms))`
 const delay = (...args) => _this.delay(...args)
 
-// images
+// images(…)
+// returns _uploaded_ images in item
+// as sources (`src` in text), urls, or blob
+// returns string array for sources
+// returns promise for urls and blobs
+// urls are _local_ urls for _downloaded_ images
+// | `output` | `src` (default), `url`, or `blob`
 const images = (...args) => _this.images(...args)
 
-// cached
+// cached(key, func)
+// returns value _cached_ on item under `key`
+// computed as `func(item)` as needed
+// cache is accessible as `_this.cache`
+// cleared on changes to item via `_this.deephash`
 const cached = (...args) => _this.cached(...args)
 
 // validate_cache
+// validates cache for current `_this.deephash`
 const validate_cache = (...args) => _this.validate_cache(...args)
 
 // invalidate_cache
+// invalidates cache (cleared on next access)
 const invalidate_cache = (...args) => _this.invalidate_cache(...args)
 
-// invalidate_elem_cache
-const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
-
 // save_local_store
+// saves `_this.local_store` to `localStorage`
 const save_local_store = (...args) => _this.save_local_store(...args)
 
 // save_global_store
+// saves `_this.global_store` to firebase
 const save_global_store = (...args) => _this.save_global_store(...args)
+
+// => invalidate_elem_cache\n([force_render=false])
+// invalidates element cache for item
+// can force rendering even w/o changes in `_this.deephash`, `_this.time`, or generated html
+const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
