@@ -141,41 +141,36 @@ async function init_updater() {
 }
 
 // detect remote updates and cancel unnecessary local updates
-function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
-  if (dependency) return // dependencies should have own updates
-  if (deleted) return // deletion can not be an update
+function _on_global_store_change(id, remote) {
+  if (!remote) return // not a remote change
   const item = _item(id)
   if (!item.attr) return // not an installed item
   if (!item.name.startsWith('#')) return // not a named item
-  // if remote change and item is pending update, check for remote update
+  // if item is pending update, check for remote update
   let { modified_ids, pending_updates } = _this.store
-  if (remote && pending_updates[id]) {
-    _this.log(
-      `detected remote change for ${item.name} ` +
-        `pending update ${pending_updates[id]}`
-    )
-    const last_update = item.global_store._updater?.last_update
-    if (_.values(last_update).includes(pending_updates[id])) {
-      _this.log(`detected remote update for ${item.name}`)
-      // remove item/update from local update queue
-      modified_ids.splice(modified_ids.indexOf(item.id), 1)
-      delete pending_updates[id]
-      // update modal if visible, close if no other updates pending
-      if (_this.store.update_modal) {
-        const modified_names = modified_ids.map(id => _item(id).name)
-        const s = modified_ids.length > 1 ? 's' : ''
-        _modal_update({
-          content:
-            `${_this.name} is ready to update ${modified_ids.length} ` +
-            `installed item${s}: ${modified_names.join(', ')}`,
-        })
-        // if no updates pending, close modal
-        // closing resolves modal promise as undefined (see await above)
-        // closing modal should trigger setting of store.update_modal to null
-        if (modified_ids.length == 0) {
-          _this.log(`closing update modal since all updates were done remotely`)
-          _modal_close()
-        }
+  if (!pending_updates[id]) return // not pending any updates
+  // if last update in global store contains pending update, cancel locally
+  const last_update = item.global_store._updater?.last_update
+  if (_.values(last_update).includes(pending_updates[id])) {
+    _this.log(`detected remote update for ${item.name}`)
+    // remove item/update from local update queue
+    modified_ids.splice(modified_ids.indexOf(item.id), 1)
+    delete pending_updates[id]
+    // update modal if visible, close if no other updates pending
+    if (_this.store.update_modal) {
+      const modified_names = modified_ids.map(id => _item(id).name)
+      const s = modified_ids.length > 1 ? 's' : ''
+      _modal_update({
+        content:
+          `${_this.name} is ready to update ${modified_ids.length} ` +
+          `installed item${s}: ${modified_names.join(', ')}`,
+      })
+      // if no updates pending, close modal
+      // closing resolves modal promise as undefined (see await above)
+      // closing modal should trigger setting of store.update_modal to null
+      if (modified_ids.length == 0) {
+        _this.log(`closing update modal since all updates were done remotely`)
+        _modal_close()
       }
     }
   }
@@ -355,7 +350,7 @@ function resolve_embed_path(path, attr) {
 // returns true iff item was updated successfully
 async function update_item(item, updates) {
   // record updates as item.global_store._updater.last_update
-  // enables detection of remote updates in _on_item_change above
+  // enables detection of remote updates in _on_global_store_change above
   // previous state is restored on failure (when false is returned)
   const prev_updater_state = item.global_store._updater
   item.global_store._updater = { last_update: updates }
