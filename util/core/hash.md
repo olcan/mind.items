@@ -1,4 +1,4 @@
-#util/core/types defines hashing and related utilities.
+#util/core/hash defines hashing and related utilities.
 <<jsdoc()>>
 
 ```js_removed:hash.js
