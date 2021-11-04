@@ -100,13 +100,34 @@ function timing(f) {
   return [output, elapsed]
 }
 
-// returns markdown table documenting utility constants & functions
-function jsdoc() {
+// table(cells, [headers])
+// returns markdown table for `cells`
+// |`cells`   | 2D array, e.g. `[['a',1],['b',2]]`
+// |`headers` | array, e.g. `['a','b']`
+function table(cells, headers) {
+  let lines = []
+  if (headers) lines.push('|' + headers.join('|') + '|')
+  else lines.push(_array(cells[0].length + 1, k => '|').join(''))
+  lines.push(
+    '|' +
+      _array(cells[0].length, k =>
+        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
+      ).join('|') +
+      '|'
+  )
+  lines = lines.concat(cells.map(row => '|' + row.join('|')))
+  return lines.join('\n')
+}
+
+// jsdoc([regex])
+// returns table of global definitions
+// can filter names using optional `regex`
+function jsdoc(regex) {
   const defs = Array.from(
     _this
       .read('js', { keep_empty_lines: true })
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:function|const|let) +(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:async function|function|const|let) +(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -115,6 +136,7 @@ function jsdoc() {
         if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
       def.args = def.args.replace(/\s*\n\s*/g, ' ') // remove newlines in args
+      def._name = def.name // save original name (before possible modification)
       if (def.comment) {
         def.comment = def.comment
           .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>\n') // \n dropped below
@@ -123,7 +145,7 @@ function jsdoc() {
         // <name>(...) modifies args, <name> removes args
         // => <display_name> or => <display_name>(...) modifies name/args
         if (
-          def.comment.match(/^=> *\w+/) ||
+          def.comment.match(/^=> *\S+/) ||
           def.comment.match(new RegExp(`^${def.name}(?:\\(.*?\\))?(?:$|<br>)`))
         ) {
           def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
@@ -140,6 +162,11 @@ function jsdoc() {
   )
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
+    // filter by regex (applied to original _name) if specified
+    if (regex && !regex.test(def._name)) {
+      console.log(`${def.name} did not match ${regex}`)
+      return
+    }
     // hide underscore-prefixed names as internal unless modified via comments
     if (def.name.startsWith('_') && !def.modified) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
@@ -222,21 +249,4 @@ const _array = (J, f) => {
   return xJ
 }
 
-// table(cells, [headers])
-// returns markdown table
-// |`cells`   | 2D array, e.g. `[['a',1],['b',2]]`
-// |`headers` | array, e.g. `['a','b']`
-function table(cells, headers) {
-  let lines = []
-  if (headers) lines.push('|' + headers.join('|') + '|')
-  else lines.push(_array(cells[0].length + 1, k => '|').join(''))
-  lines.push(
-    '|' +
-      _array(cells[0].length, k =>
-        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
-      ).join('|') +
-      '|'
-  )
-  lines = lines.concat(cells.map(row => '|' + row.join('|')))
-  return lines.join('\n')
-}
+const cmddoc = () => jsdoc(/^_on_command_/)
