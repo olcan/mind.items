@@ -163,10 +163,7 @@ function jsdoc(regex) {
   let lines = ['|||', '|-:|:-|']
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
-    if (regex && !regex.test(def._name)) {
-      console.log(`${def.name} did not match ${regex}`)
-      return
-    }
+    if (regex && !regex.test(def._name)) return
     // hide underscore-prefixed names as internal unless modified via comments
     if (def.name.startsWith('_') && !def.modified) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
