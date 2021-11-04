@@ -606,3 +606,36 @@ async function update_item(item, updates) {
     return false
   }
 }
+
+// command /edit name [editor=github]
+async function _on_command_edit(args, name, editor = 'github') {
+  const item = _item(name)
+  if (!item) {
+    alert(`/edit: ${name} missing or ambiguous`)
+    return `/edit ${args}`
+  }
+  if (!item.attr) {
+    alert(`/edit: ${name} not an installed item`)
+    return `/edit ${args}`
+  }
+  const { owner, repo, branch, path } = item.attr
+  if (editor == 'github') {
+    window.open(`https://github.com/${owner}/${repo}/edit/${branch}/${path}`)
+  } else if (editor == 'vscode') {
+    window.open(`https://github.dev/${owner}/${repo}/blob/${branch}/${path}`)
+  } else if (editor == 'mindpage') {
+    item.editable = true // make it editable (if not already)
+    // edit item ...
+    _update_dom().then(() => {
+      const container = item.elem?.querySelector('.container')
+      container?.dispatchEvent(new Event('mousedown'))
+      container?.dispatchEvent(new Event('click'))
+      // focus on editor textarea ...
+      _update_dom().then(() => container?.querySelector('textarea')?.focus())
+    })
+    return item.name // focus on item
+  } else {
+    alert(`/edit: unknown editor '${editor}'`)
+    return `/edit ${args}`
+  }
+}
