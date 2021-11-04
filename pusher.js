@@ -349,7 +349,7 @@ const _push_button =
 // side-pushes item to other (private or public) repos on github
 // owner, repo, path are required, branch is optional (default master)
 // destinations can be specified in item.global_store._pusher.sidepush
-// installed items made _editable_ are auto-side-pushed to source
+// installed items are auto-side-pushed to source
 // can push whole item or specified block as own file, e.g. for embedding
 // block is read as item.read(block), so split blocks are merged
 // side-push is always "forced", i.e. replaces anything at destination
@@ -368,7 +368,7 @@ async function _side_push_item(item, manual = false) {
   try {
     let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
     const source_dest = _.pick(attr, ['owner', 'repo', 'path', 'branch'])
-    if (attr && item.editable) dests.push(source_dest)
+    if (attr) dests.push(source_dest)
     // embed block text & type by path (last block for each path)
     const embed_text = {}
     const embed_type = {}
@@ -453,8 +453,8 @@ async function _side_push_item(item, manual = false) {
       }
     }
 
-    // if installable and editable w/ embeds, also side-push embeds
-    if (attr && item.editable && attr.embeds) {
+    // if installable w/ embeds, also side-push embeds
+    if (attr?.embeds) {
       for (let embed of attr.embeds) {
         const dest = _.assign(source_dest, { path: embed.path })
         const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
