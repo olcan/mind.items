@@ -611,7 +611,8 @@ async function pull_item(item) {
   }
 }
 
-// command /push [label]
+// => /push [label]
+// pushes items to your repo
 async function _on_command_push(label) {
   try {
     const items = _items(label)
@@ -643,7 +644,8 @@ async function _on_command_push(label) {
   }
 }
 
-// command /pull [label]
+// => /pull [label]
+// pulls items from your repo
 async function _on_command_pull(label) {
   try {
     const items = _items(label)
@@ -673,7 +675,8 @@ async function _on_command_pull(label) {
   }
 }
 
-// command /history [name]
+// => /history [name]
+// opens change history for item `name` (or all items)
 async function _on_command_history(name) {
   if (!_this.global_store.dest) {
     alert(`history for ${name} not available due to disabled ${_this.name}`)
@@ -700,7 +703,8 @@ async function _on_command_history(name) {
   )
 }
 
-// command /branch name
+// => /branch name
+// creates/updates branch `name` from master branch
 async function _on_command_branch(name) {
   if (!name) {
     alert(`usage: /branch name`)
@@ -715,7 +719,13 @@ async function _on_command_branch(name) {
   alert(`${action} branch ${name}`)
 }
 
-// command /compare base
+// => /compare [base=last_init]
+// opens diff for all changes since `base`
+// `base` can be any branch in repo, including:
+// | `last_init` | changes since page init/reload
+// | `last_push` | changes since last manual `/push`
+// | `last_pull` | changes since last manual `/pull`
+// &nbsp; ↑ special branches auto-updated by #pusher
 async function _on_command_compare(base) {
   if (!base) base = 'last_init'
   if (!_this.global_store.dest) {
