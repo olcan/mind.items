@@ -1,9 +1,8 @@
-#updater auto-updates installed items and provides the following commands:
-- `/edit name [editor=github]` opens item for editing in `editor`. 
-  - `editor` can be `github` (default), `vscode`, or `mindpage`.
+#updater auto-updates installed items.
+<<cmddoc()>>
 
 ```js_removed:updater.js
 // updater.js
 ```
 
-#_welcome #_listen
+#_welcome #_listen #_util/core

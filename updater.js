@@ -606,11 +606,13 @@ async function update_item(item, updates) {
     return false
   }
 }
-
-// command /edit name [editor=github]
+// => /edit item [editor=github]
+// opens `item` for editing in `editor`
+// | `item`   | item `#name` or id
+// | `editor` | `github` (default), `vscode`, or `mindpage`
 async function _on_command_edit(args, name, editor = 'github') {
   if (!name) {
-    alert(`usage: /edit name [editor=github]`)
+    alert(`usage: /edit item [editor=github]`)
     return '/edit '
   }
   const item = _item(name)
