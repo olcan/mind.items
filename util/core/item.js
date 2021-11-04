@@ -126,7 +126,7 @@ const dispatch = (...args) => _this.dispatch(...args)
 // dispatches function as _named_ task
 // named tasks are _repeatable_ and _cancellable_
 // if `repeat>0`, repeats task every `repeat` ms
-// cancels any existing task under `name`
+// cancels any existing task under `name`!
 // cancels if `func` throws error or returns `null`
 // function `func` can be async or return promise
 const dispatch_task = (...args) => _this.dispatch_task(...args)
