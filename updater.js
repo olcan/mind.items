@@ -609,6 +609,10 @@ async function update_item(item, updates) {
 
 // command /edit name [editor=github]
 async function _on_command_edit(args, name, editor = 'github') {
+  if (!name) {
+    alert(`usage: /edit name [editor=github]`)
+    return '/edit '
+  }
   const item = _item(name)
   if (!item) {
     alert(`/edit: ${name} missing or ambiguous`)
