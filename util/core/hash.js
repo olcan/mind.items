@@ -1,5 +1,6 @@
 // TODO: refine these, add tests and benchmarks
 // TODO: use these in pusher/updater/etc once fully tested
+// TODO: is utf8_array->string faster/slower than encode_utf8 direct?
 
 // hash(str, [algo='djb2x'])
 // hash `str` using `algo`
