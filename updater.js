@@ -382,6 +382,17 @@ async function update_item(item, updates) {
       // trim spaces, esp. since github likes to add an extra line
       // this is fine since we use commit sha to detect changes
       text = text.trim()
+
+      // disallow renames during auto-updates
+      const parsed_label = parseLabel(text)
+      if (parsed_label != item.name) {
+        throw new Error(
+          `parsed label '${parsed_label}' does not match current name ` +
+            `${item.name} for auto-update from ${source}/${path}; ` +
+            `renaming updates can break dependencies and ` +
+            `require manual /_update`
+        )
+      }
     } else {
       sha = attr.sha
       text = item.text
@@ -445,7 +456,7 @@ async function update_item(item, updates) {
             const dep_path = dep.slice(1) // path assumed same as tag
             const command = `/_install ${dep_path} ${repo} ${branch} ${owner} ${
               token || ''
-            }`
+            } <- ${label}`
             const install = MindBox.create(command) // trigger install
             if (!(install instanceof Promise))
               throw new Error(`invalid return from /_install command`)
@@ -454,6 +465,7 @@ async function update_item(item, updates) {
               throw new Error(
                 `failed to install dependency ${dep} for ${label}`
               )
+            // name/path consistency should be enforced by _install for dependency
             if (item.name.toLowerCase() != dep.toLowerCase())
               throw new Error(
                 `invalid name ${item.name} for installed ` +
