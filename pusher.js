@@ -303,7 +303,8 @@ function push_item(item, manual = false) {
               throw new Error(`can not push to empty repo ${dest}`)
             _this.global_store.commit_sha = commit_sha
             _this.global_store.tree_sha = tree_sha
-            setTimeout(() => push_item(item)) // retry
+            if (!manual) {
+            setTimeout(() => push_item(item, true /*manual*/)) // retry
             return
           }
           throw e
