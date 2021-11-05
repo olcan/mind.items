@@ -180,6 +180,7 @@ function encode_base64(str) {
     )
   )
 }
+
 // decode `base64` into unicode string
 function decode_base64(base64) {
   // https://stackoverflow.com/a/30106551
