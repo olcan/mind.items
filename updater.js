@@ -384,7 +384,7 @@ async function update_item(item, updates) {
       text = text.trim()
 
       // disallow renames during auto-updates
-      const parsed_label = parseLabel(text)
+      const parsed_label = _parse_label(text)
       if (parsed_label != item.name) {
         throw new Error(
           `parsed label '${parsed_label}' does not match current name ` +
