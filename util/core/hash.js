@@ -170,7 +170,7 @@ function hash(str, algo = 'djb2x') {
   }
 }
 
-// encode `str` (unicode) into base64
+// encode `str` (utf-16) into base64
 function encode_base64(str) {
   // https://stackoverflow.com/a/30106551
   // unicode -> percent-encoding -> bytestream
@@ -181,7 +181,7 @@ function encode_base64(str) {
   )
 }
 
-// decode `base64` into unicode string
+// decode `base64` into utf-16 string
 function decode_base64(base64) {
   // https://stackoverflow.com/a/30106551
   // bytestream -> percent-encoding -> unicode
