@@ -169,7 +169,7 @@ function github_sha(text) {
   const utf8 = new Uint8Array(utf8_prefix.length + utf8_text.length)
   utf8.set(utf8_prefix)
   utf8.set(utf8_text, utf8_prefix.length)
-  return sha1.hex(utf8)
+  return _hash_160_sha1(utf8)
   // const sha_buffer = await crypto.subtle.digest('SHA-1', utf8)
   // return Array.from(new Uint8Array(sha_buffer), b =>
   //   b.toString(16).padStart(2, '0')
