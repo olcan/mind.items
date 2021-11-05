@@ -1,3 +1,4 @@
+// TODO: consider simplifying str() (maybe renaming also) for use as stringifier in general
 // TODO: refine these, add tests and benchmarks
 // TODO: use these in pusher/updater/etc once fully tested
 // TODO: is utf8_array->string faster/slower than encode_utf8 direct?

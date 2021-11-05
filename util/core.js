@@ -1,5 +1,5 @@
 // returns string representation for `x`
-function str(x) {
+function stringify(x) {
   if (!defined(x)) return 'undefined'
   if (defined(x._name)) return x._name
   // insert commas to integers, from https://stackoverflow.com/a/2901298
@@ -11,7 +11,7 @@ function str(x) {
   // use x.toString if it is overloaded, e.g. for Date
   if (is_object(x)) {
     if (x.toString !== Object.prototype.toString) return x.toString()
-    return '{' + Object.entries(x).map(([k, v]) => `${k}:${str(v)}`) + '}'
+    return '{' + Object.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
   }
   return JSON.stringify(x)
 }
@@ -22,7 +22,7 @@ function check(...funcs) {
     if (!is_function(f)) throw new Error('check: argument must be function')
     if (!f()) {
       const stack = new Error().stack.split('\n').join(' <- ')
-      throw new Error(`FAILED CHECK: ${str(f)} @ ${stack}`)
+      throw new Error(`FAILED CHECK: ${stringify(f)} @ ${stack}`)
     }
   })
 }
@@ -39,7 +39,7 @@ let _benchmark_options = {}
 function _run_benchmark(
   f,
   {
-    name = str(f),
+    name = stringify(f),
     T = 10, // fast > accurate
     T_max = 50,
     N = 1000,
@@ -60,7 +60,7 @@ function _run_benchmark(
       isObject(units) && !isArray(units),
       'benchmark units must be object of unit:function pairs'
     )
-    check(isObject(ret), 'must return object for units ' + str(units))
+    check(isObject(ret), 'must return object for units ' + stringify(units))
     unit_funcs = values(units)
     units = keys(units)
     counts = zeroes(units.length)
@@ -77,16 +77,16 @@ function _run_benchmark(
     time += Date.now() - start
     calls += N
   } while (time < T && time < T_max)
-  const cps = str(Math.floor((calls / time) * 1000))
+  const cps = stringify(Math.floor((calls / time) * 1000))
   const base = `${name}: ${cps} calls/sec`
   if (unit) {
-    const ups = str(Math.floor((count / time) * 1000))
+    const ups = stringify(Math.floor((count / time) * 1000))
     log(base + ` (${ups} ${unit})`)
   } else if (units) {
     log(
       base +
         ' (' +
-        units.map((u, k) => str(counts[k]) + ' ' + u).join(', ') +
+        units.map((u, k) => stringify(counts[k]) + ' ' + u).join(', ') +
         ')'
     )
   } else log(base)
@@ -100,10 +100,10 @@ function timing(f) {
   return [output, elapsed]
 }
 
-// table(cells, [headers])
+// table(cells,[headers])
 // returns markdown table for `cells`
-// |`cells`   | 2D array, e.g. `[['a',1],['b',2]]`
-// |`headers` | array, e.g. `['a','b']`
+// |`cells`   | 2D array | `[['a',1],['b',2]]`
+// |`headers` | array    | `['a','b']`
 function table(cells, headers) {
   let lines = []
   if (headers) lines.push('|' + headers.join('|') + '|')
@@ -119,10 +119,10 @@ function table(cells, headers) {
   return lines.join('\n')
 }
 
-// jsdoc([regex])
+// js_table([regex])
 // returns table of global definitions
 // can filter names using optional `regex`
-function jsdoc(regex) {
+function js_table(regex) {
   const defs = Array.from(
     _this
       .read('js', { keep_empty_lines: true })
@@ -213,26 +213,26 @@ function jsdoc(regex) {
     lines.push(`|${label}|${def.comment}`)
   })
   return [
-    '<span class="jsdoc">',
+    '<span class="js_table">',
     lines.join('\n'),
     '</span>',
     '```_html',
     '<style>',
-    '#item .jsdoc table code { white-space: nowrap }',
-    '#item .jsdoc table td:first-child { white-space: nowrap; text-align:right }',
-    '#item .jsdoc table + br { display: none }',
-    '#item .jsdoc > table { line-height: 150%; border-spacing: 10px }',
-    '#item .jsdoc > table table code { font-size:90% }',
-    '#item .jsdoc > table table { font-size:80%; border-spacing: 10px 0 }',
-    '#item .jsdoc table td .button { cursor: pointer; vertical-align:middle }',
-    '#item .jsdoc table td .button { user-select: none; -webkit-user-select:none }',
-    '#item .jsdoc table td .button:before { content:"⋯" }',
-    '#item .jsdoc table td.expand .button:before { content:"▲" }',
-    '#item .jsdoc table td:not(.expand) .button { margin-left:5px }',
-    '#item .jsdoc table td.expand .button { display:block; width:fit-content; margin-top:5px; margin-bottom:10px }',
+    '#item .js_table table code { white-space: nowrap }',
+    '#item .js_table table td:first-child { white-space: nowrap; text-align:right }',
+    '#item .js_table table + br { display: none }',
+    '#item .js_table > table { line-height: 150%; border-spacing: 10px }',
+    '#item .js_table > table table code { font-size:90% }',
+    '#item .js_table > table table { font-size:80%; border-spacing: 10px 0 }',
+    '#item .js_table table td .button { cursor: pointer; vertical-align:middle }',
+    '#item .js_table table td .button { user-select: none; -webkit-user-select:none }',
+    '#item .js_table table td .button:before { content:"⋯" }',
+    '#item .js_table table td.expand .button:before { content:"▲" }',
+    '#item .js_table table td:not(.expand) .button { margin-left:5px }',
+    '#item .js_table table td.expand .button { display:block; width:fit-content; margin-top:5px; margin-bottom:10px }',
     // if item is pushable, expand all for easy preview and editing
-    '.container:not(.pushable) #item .jsdoc table td:not(.expand) .more { display: none }',
-    '.container.pushable #item .jsdoc table td .button { display: none }',
+    '.container:not(.pushable) #item .js_table table td:not(.expand) .more { display: none }',
+    '.container.pushable #item .js_table table td .button { display: none }',
     '</style>',
     '```',
   ].join('\n')
@@ -246,4 +246,4 @@ const _array = (J, f) => {
   return xJ
 }
 
-const cmddoc = () => jsdoc(/^_on_command_/)
+const command_table = () => js_table(/^_on_command_/)

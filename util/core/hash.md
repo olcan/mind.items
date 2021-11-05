@@ -1,5 +1,5 @@
 #util/core/hash defines hashing and encoding utilities.
-<<jsdoc()>>
+<<js_table()>>
 
 ```js_removed:hash.js
 // hash.js

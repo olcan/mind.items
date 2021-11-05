@@ -1,5 +1,5 @@
 #util/core defines core utilities, including #/types, #/hash, #/item.
-<<jsdoc()>>
+<<js_table()>>
 
 ```js_removed:core.js
 // core.js

@@ -1,5 +1,5 @@
 #util/core/types defines type-related utilities.
-<<jsdoc()>>
+<<js_table()>>
 
 ```js_removed:types.js
 // types.js
