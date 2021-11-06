@@ -164,7 +164,7 @@ function js_table(regex) {
         // => <display_name> or => <display_name>(...) modifies name/args
         if (
           def.comment.match(/^=> *\S+/) ||
-          def.comment.match(new RegExp(`^${def.name}(?:\\(.*?)?(?:$|<br>)`))
+          def.comment.match(new RegExp(`^${def.name} *(?:\\(.*?)?(?:$|<br>)`))
         ) {
           def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
           def.args = def.comment.match(/^.+?(\(.*?)(?:$|<br>)/)?.pop() ?? ''
