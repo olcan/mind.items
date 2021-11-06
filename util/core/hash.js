@@ -2,7 +2,7 @@
 // TODO: use these in pusher/updater/etc once fully tested
 // TODO: is utf8_array->string faster/slower than encode_utf8 direct?
 
-// hash (x, …⭣ ) \n [stringifier=stringify] \n [hasher=_hash_64_fmv1a]
+// hash (x, ⋯▼⋯ ) \n [stringifier=stringify] \n [hasher=_hash_64_fmv1a]
 // hashes `x` using `stringifier`, `hasher`
 // uses precomputed `x._hash` if defined
 // integer for ≤52 bits, hex string for >52
