@@ -60,7 +60,7 @@ async function _on_command_benchmark(label) {
     alert(`/benchmark: ${label} not found`)
     return '/benchmark ' + label
   }
-  let text = ''
+  let text = label ? label + '/benchmark\n' : ''
   let lines = []
   for (const item of items) lines = lines.concat(await benchmark_item(item))
   // process lines, formatting benchmark lines as interleaved markdown tables
@@ -87,5 +87,17 @@ async function _on_command_benchmark(label) {
       }
     }
   }
-  return { text: (text + style_footer).trim(), edit: false }
+  text += style_footer
+  text = text.trim()
+  if (label) {
+    // focus on item <label>/benchmark
+    // setTimeout(() => MindBox.set(label + '/benchmark'))
+    // if <label>/benchmark exists, write into it
+    const item = _item(label + '/benchmark', false /*log_errors*/)
+    if (item) {
+      item.write(text, '' /* replace whole item*/)
+      return
+    }
+  }
+  return { text, edit: false }
 }
