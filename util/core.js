@@ -1,19 +1,37 @@
-// returns string representation for `x`
+// returns a string representation for `x`
+// goals: short, clean, readable, unique
+// returns precomputed `x._string` if defined
+// | string   | `x` (as is)
+// | boolean  | `x.toString()`
+// | integer  | `x.toString()`, [commas inserted](https://stackoverflow.com/a/2901298)
+// | number   | `x.toString()`
+// | function | `x.toString()`, `()=>` prefix dropped
+// | array    | `[...]`, elements stringified recursively
+// | object   | `{...}`, values stringified recursively
+// |          | `x.toString()` if overloaded (e.g. Date)
 function stringify(x) {
   if (!defined(x)) return 'undefined'
-  if (defined(x._name)) return x._name
-  // insert commas to integers, from https://stackoverflow.com/a/2901298
-  if (is_integer(x)) return ('' + x).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  if (is_number(x)) return '' + x
-  if (is_function(x)) return ('' + x).replace(/^\(\)\s+=>\s+/, '')
-  if (is_string(x)) return `'${x}'`
-  if (is_array(x)) return '[' + x.map(str) + ']'
-  // use x.toString if it is overloaded, e.g. for Date
-  if (is_object(x)) {
-    if (x.toString !== Object.prototype.toString) return x.toString()
-    return '{' + Object.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
-  }
-  return JSON.stringify(x)
+  if (x === null) return 'null'
+  // precomputed string if available
+  if (defined(x._string)) return x._string
+  // string as is
+  if (is_string(x)) return x
+  // boolean toString
+  if (is_boolean(x)) return x.toString()
+  // integer toString w/ commas, from https://stackoverflow.com/a/2901298
+  if (is_integer(x)) return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  // number toString
+  if (is_number(x)) return x.toString()
+  // function toString w/ ()=> prefix dropped
+  if (is_function(x)) return x.toString().replace(/^\(\)\s+=>\s+/, '')
+  // array elements stringified recursively
+  if (is_array(x)) return '[' + x.map(stringify) + ']'
+  // at this point
+  if (!is_object(x)) throw new Error('stringify: cannot stringify ' + x)
+  // object values stringified recursively
+  // toString used if overloaded (e.g. Date)
+  if (x.toString !== Object.prototype.toString) return x.toString()
+  return '{' + Object.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
 }
 
 // throws error if any argument return false
@@ -120,7 +138,7 @@ function table(cells, headers) {
 }
 
 // js_table([regex])
-// returns table of global definitions
+// returns table of `js` definitions
 // can filter names using optional `regex`
 function js_table(regex) {
   const defs = Array.from(
