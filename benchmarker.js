@@ -60,44 +60,43 @@ async function _on_command_benchmark(label) {
     alert(`/benchmark: ${label} not found`)
     return '/benchmark ' + label
   }
-  let text = label ? label + '/benchmark\n' : ''
-  let lines = []
-  for (const item of items) lines = lines.concat(await benchmark_item(item))
-  // process lines, formatting benchmark lines as interleaved markdown tables
-  let rows = []
-  for (const line of lines) {
-    if (line.match(/:\s*\d/)) {
-      let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
-      result = result.replace('calls/sec', '') // drop calls/sec as default unit
-      rows.push([result, name])
-    } else {
-      if (line.match(/^BENCHMARK/)) {
-        // append as benchmark header
-        const [name, time] = line
-          .match(/BENCHMARK (\S+?) completed in (\S+)/)
-          .slice(1)
-        text += `\`${name}\`<span class=elapsed>${time}</span>\n`
+  for (const item of items) {
+    const lines = await benchmark_item(item)
+    if (lines.length == 0) continue
+    const output_item_name =
+      '#benchmarks/' +
+      (item.name.startsWith('#') ? item.name.slice(1) : item.id)
+    let text = `${output_item_name}\n`
+    // process lines, formatting benchmark lines as interleaved markdown tables
+    let rows = []
+    for (const line of lines) {
+      if (line.match(/:\s*\d/)) {
+        let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
+        result = result.replace('calls/sec', '') // drop calls/sec as default unit
+        rows.push([result, name])
       } else {
-        // append generic line as is
-        text += line + '\n'
-      }
-      if (rows.length) {
-        text += '```_md\n' + table(rows) + '\n```\n\n'
-        rows = []
+        if (line.match(/^BENCHMARK/)) {
+          // append as benchmark header
+          const [name, time] = line
+            .match(/BENCHMARK (\S+?) completed in (\S+)/)
+            .slice(1)
+          text += `\`${name}\`<span class=elapsed>${time}</span>\n`
+        } else {
+          // append generic line as is
+          text += line + '\n'
+        }
+        if (rows.length) {
+          text += '```_md\n' + table(rows) + '\n```\n\n'
+          rows = []
+        }
       }
     }
+    text += style_footer
+    text = text.trim()
+
+    // if benchmark item exists, write into it, otherwise create new item
+    const output_item = _item(output_item_name, false /*log_errors*/)
+    if (output_item) output_item.write(text, '' /*whole item*/)
+    else MindBox.create(text)
   }
-  text += style_footer
-  text = text.trim()
-  if (label) {
-    // focus on item <label>/benchmark
-    // setTimeout(() => MindBox.set(label + '/benchmark'))
-    // if <label>/benchmark exists, write into it
-    const item = _item(label + '/benchmark', false /*log_errors*/)
-    if (item) {
-      item.write(text, '' /* replace whole item*/)
-      return
-    }
-  }
-  return { text, edit: false }
 }
