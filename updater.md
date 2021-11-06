@@ -1,5 +1,5 @@
 #updater auto-updates installed items.
-<<cmddoc()>>
+<<command_table()>>
 
 ```js_removed:updater.js
 // updater.js
