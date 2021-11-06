@@ -1,5 +1,5 @@
 #pusher auto-pushes items to your _private_ repo on [GitHub](https://github.com).
-<<cmddoc()>>
+<<command_table()>>
 
 ```js_removed:pusher.js
 // pusher.js
