@@ -188,20 +188,24 @@ function js_table(regex) {
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
     let table = ''
-    def.comment.split('<br>').forEach(line => {
-      if (line.startsWith('|')) {
-        let cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
-        if (!table) table += '<table>'
-        cells = cells.map(s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
-        table += '<tr>' + cells.join('') + '</tr>'
-      } else {
-        if (table) {
-          comment_lines.push(table + '</table>')
-          table = ''
+    def.comment
+      .replace(/^(?:<br>)+/g, '') // drop leading empty lines
+      .replace(/(?:<br>)+$/g, '') // drop trailing empty lines
+      .split('<br>')
+      .forEach(line => {
+        if (line.startsWith('|')) {
+          let cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
+          if (!table) table += '<table>'
+          cells = cells.map(s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
+          table += '<tr>' + cells.join('') + '</tr>'
+        } else {
+          if (table) {
+            comment_lines.push(table + '</table>')
+            table = ''
+          }
+          comment_lines.push(line)
         }
-        comment_lines.push(line)
-      }
-    })
+      })
     if (table) comment_lines.push(table + '</table>')
 
     // hide all comment lines but first
