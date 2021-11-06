@@ -1,6 +1,6 @@
-// returns a string representation for `x`
-// goals: short, clean, readable, unique
-// returns precomputed `x._string` if defined
+// converts `x` to a string
+// goals: short, readable, unique
+// uses precomputed `x._string` if defined
 // | string   | `x` (as is)
 // | boolean  | `x.toString()`
 // | integer  | `x.toString()`, [commas inserted](https://stackoverflow.com/a/2901298)
@@ -157,8 +157,8 @@ function js_table(regex) {
       def._name = def.name // save original name (before possible modification)
       if (def.comment) {
         def.comment = def.comment
-          .replace(/\s*(?:\n(?:\/\/)?)\s*/g, '<br>\n') // \n dropped below
-          .replace(/^\/\/\s*/, '')
+          .replace(/ *\n(?:\/\/)? */g, '<br>\n')
+          .replace(/^\/\/ */, '')
         // displayed name/args can be modified via first line of comment:
         // <name>(...) modifies args, <name> removes args
         // => <display_name> or => <display_name>(...) modifies name/args
@@ -188,29 +188,25 @@ function js_table(regex) {
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
     let table = ''
-    def.comment
-      .split('<br>')
-      .filter(l => l) //  drop empty lines
-      .forEach(line => {
-        if (line.startsWith('|')) {
-          let cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
-          if (!table) table += '<table>'
-          cells = cells.map(s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
-          table += '<tr>' + cells.join('') + '</tr>'
-        } else {
-          if (table) {
-            comment_lines.push(table + '</table>')
-            table = ''
-          }
-          comment_lines.push(line)
+    def.comment.split('<br>').forEach(line => {
+      if (line.startsWith('|')) {
+        let cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
+        if (!table) table += '<table>'
+        cells = cells.map(s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
+        table += '<tr>' + cells.join('') + '</tr>'
+      } else {
+        if (table) {
+          comment_lines.push(table + '</table>')
+          table = ''
         }
-      })
+        comment_lines.push(line)
+      }
+    })
     if (table) comment_lines.push(table + '</table>')
 
     // hide all comment lines but first
     const button = `<a class="button" onmousedown="event.target.closest('td').classList.toggle('expand');event.stopPropagation()" onmouseup="event.preventDefault();event.stopPropagation()" onclick="event.preventDefault();event.stopPropagation()"></a>`
 
-    comment_lines
     if (comment_lines.length > 1) {
       def.comment =
         comment_lines[0] +
