@@ -1,8 +1,8 @@
-#util/core/types defines type-related utilities.
+#util/core/types defines type-related utilities.  
 << js_table() >>
 
 ```js_removed:types.js
 // types.js
 ```
 
-#_util/core
+<p> #_util/core </p>
