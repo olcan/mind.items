@@ -97,6 +97,6 @@ async function _on_command_benchmark(label) {
     // if benchmark item exists, write into it, otherwise create new item
     const output_item = _item(output_item_name, false /*log_errors*/)
     if (output_item) output_item.write(text, '' /*whole item*/)
-    else MindBox.create(text)
+    else _create(text)
   }
 }
