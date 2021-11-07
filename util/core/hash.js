@@ -1,4 +1,4 @@
-// hash (x, ⋯▼⋯ ) \n [hasher=_hash_64_fmv1a] \n [stringifier=stringify]
+// hash (x, ･･･⭣ ) \n [hasher=_hash_64_fmv1a] \n [stringifier=stringify]
 // hashes `x` using `hasher`
 // applies `stringifier` to non-string `x`
 // uses precomputed `x._hash` if defined
