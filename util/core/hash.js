@@ -1,5 +1,6 @@
-// hash (x, ⋯▼⋯ ) \n [stringifier=stringify] \n [hasher=_hash_64_fmv1a]
-// hashes `x` using `stringifier`, `hasher`
+// hash (x, ⋯▼⋯ ) \n [hasher=_hash_64_fmv1a] \n [stringifier=stringify]
+// hashes `x` using `hasher`
+// applies `stringifier` to non-string `x`
 // uses precomputed `x._hash` if defined
 // integer for ≤52 bits, hex string for >52
 // | hasher                  | bits | algorithm
@@ -11,35 +12,35 @@
 // | `_hash_128_murmur3_x86` | 128  | [murmur v3](https://en.wikipedia.org/wiki/MurmurHash) x86
 // | `_hash_128_murmur3_x64` | 128  | [murmur v3](https://en.wikipedia.org/wiki/MurmurHash) x64
 // | `_hash_160_sha1`        | 160  | [secure hash algo 1](https://en.wikipedia.org/wiki/SHA-1)
-function hash(str, stringifier = stringify, hasher = _hash_64_fnv1a) {
-  return window._hash(str, stringifier, hasher) // provided by mindpage
+function hash(str, hasher = _hash_64_fnv1a, stringifier = stringify) {
+  return window._hash(str, hasher, stringifier) // provided by mindpage
 }
 
 function _test_hash() {
   const str = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
   check(
-    () => is_integer(hash(str, stringify, _hash_32_djb2)),
-    () => is_integer(hash(str, stringify, _hash_32_fnv1a)),
-    () => is_integer(hash(str, stringify, _hash_32_murmur3)),
-    () => is_integer(hash(str, stringify, _hash_52_fnv1a)),
-    () => hash(str, stringify, _hash_64_fnv1a).length == 16,
-    () => hash(str, stringify, _hash_128_murmur3_x64).length == 32,
-    () => hash(str, stringify, _hash_128_murmur3_x86).length == 32,
-    () => hash(str, stringify, _hash_160_sha1).length == 40
+    () => is_integer(hash(str, _hash_32_djb2)),
+    () => is_integer(hash(str, _hash_32_fnv1a)),
+    () => is_integer(hash(str, _hash_32_murmur3)),
+    () => is_integer(hash(str, _hash_52_fnv1a)),
+    () => hash(str, _hash_64_fnv1a).length == 16,
+    () => hash(str, _hash_128_murmur3_x64).length == 32,
+    () => hash(str, _hash_128_murmur3_x86).length == 32,
+    () => hash(str, _hash_160_sha1).length == 40
   )
 }
 
 function _benchmark_hash() {
   const str = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
   benchmark(
-    () => hash(str, stringify, _hash_32_djb2),
-    () => hash(str, stringify, _hash_32_fnv1a),
-    () => hash(str, stringify, _hash_32_murmur3),
-    () => hash(str, stringify, _hash_52_fnv1a),
-    () => hash(str, stringify, _hash_64_fnv1a),
-    () => hash(str, stringify, _hash_128_murmur3_x64),
-    () => hash(str, stringify, _hash_128_murmur3_x86),
-    () => hash(str, stringify, _hash_160_sha1)
+    () => hash(str, _hash_32_djb2),
+    () => hash(str, _hash_32_fnv1a),
+    () => hash(str, _hash_32_murmur3),
+    () => hash(str, _hash_52_fnv1a),
+    () => hash(str, _hash_64_fnv1a),
+    () => hash(str, _hash_128_murmur3_x64),
+    () => hash(str, _hash_128_murmur3_x86),
+    () => hash(str, _hash_160_sha1)
   )
 }
 
