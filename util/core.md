@@ -5,4 +5,6 @@
 // core.js
 ```
 
-#_/types #_/hash #_/item
+#_/types
+#_/hash 
+#_/item
