@@ -1,6 +1,5 @@
 // converts `x` to a string
 // goals: short, readable, unique
-// uses precomputed `x._string` if defined
 // | string   | `x` (as is)
 // | boolean  | `x.toString()`
 // | integer  | `x.toString()`, [commas inserted](https://stackoverflow.com/a/2901298)
@@ -12,8 +11,6 @@
 function stringify(x) {
   if (!defined(x)) return 'undefined'
   if (x === null) return 'null'
-  // precomputed string if available
-  if (defined(x._string)) return x._string
   // string as is
   if (is_string(x)) return x
   // boolean toString
@@ -209,29 +206,44 @@ function js_table(regex) {
     if (table) comment_lines.push(table + '</table>')
 
     // hide all comment lines but first
-    const button = `<a class="button" onmousedown="event.target.closest('td').classList.toggle('expand');event.stopPropagation()" onmouseup="event.preventDefault();event.stopPropagation()" onclick="event.preventDefault();event.stopPropagation()"></a>`
+    const button = evallink(
+      _this,
+      '_js_table_expand(event)',
+      '', // content set via .button:before
+      'button'
+    )
     if (comment_lines.length > 1) {
       def.comment =
         comment_lines[0] +
-        '<span class="more"><br>' +
+        button +
+        '<div class="more">' +
         comment_lines.slice(1).join('<br>') +
-        `</span>` +
-        button
+        `</div>`
     } else {
       def.comment = comment_lines[0] || ''
     }
 
     // append test results
     const gs = _this.global_store
+    let status = ''
     if (gs._tests && gs._tests[def._name]) {
-      const test = gs._tests[def._name]
-      def.comment += `<br> tested`
+      const test = gs._benchmarks[def._name]
+      status += evallink(
+        _this,
+        `_js_table_show_test('${def._name}', event)`,
+        'tested'
+      )
     }
     // append benchmark results
     if (gs._benchmarks && gs._benchmarks[def._name]) {
-      const test = gs._benchmarks[def._name]
-      def.comment += `<br> benchmarked`
+      const benchmark = gs._benchmarks[def._name]
+      status += evallink(
+        _this,
+        `_js_table_show_benchmark('${def._name}', event)`,
+        'benchmarked'
+      )
     }
+    if (status) def.comment += `<div class="status">${status}</div>`
 
     // wrap label in backticks, allowing multiple lines
     const label = (def.name + def.args)
@@ -253,18 +265,30 @@ function js_table(regex) {
     '#item .js_table > table { line-height: 150%; border-spacing: 10px }',
     '#item .js_table > table table code { font-size:90% }',
     '#item .js_table > table table { font-size:80%; border-spacing: 10px 0 }',
-    '#item .js_table table td .button { cursor: pointer; vertical-align:middle }',
+    '#item .js_table table td .button { cursor: pointer; vertical-align:middle; margin-left:5px }',
     '#item .js_table table td .button { user-select: none; -webkit-user-select:none }',
     '#item .js_table table td .button:before { content:"⋯" }',
-    '#item .js_table table td.expand .button:before { content:"▲" }',
-    '#item .js_table table td:not(.expand) .button { margin-left:5px }',
-    '#item .js_table table td.expand .button { display:block; width:fit-content; margin-top:5px; margin-bottom:10px }',
+    '#item .js_table table td.expand .button:before { content:"◀︎" }',
     // if item is pushable, expand all for easy preview and editing
     '.container:not(.pushable) #item .js_table table td:not(.expand) .more { display: none }',
     '.container.pushable #item .js_table table td .button { display: none }',
     '</style>',
     '```',
   ].join('\n')
+}
+
+function _js_table_expand(e) {
+  e.target.closest('td').classList.toggle('expand')
+}
+
+function _js_table_show_test(name) {
+  const test = _this.global_store._tests[name]
+  console.log(test)
+}
+
+function _js_table_show_benchmark(name) {
+  const benchmark = _this.global_store._benchmarks[name]
+  console.log(benchmark)
 }
 
 const _array = (J, f) => {

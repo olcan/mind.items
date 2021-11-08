@@ -1,9 +1,6 @@
-// `x !== undefined`
-// `typeof x !== 'undefined'` if `x` is passed as `"x"`
-function defined(x) {
-  if (is_string(x)) return eval('typeof ' + x) !== 'undefined'
-  else return x !== undefined
-}
+// `x !== undefined && x !== 'undefined'`
+// invoke as `defined(typeof x)` for unknown `x`
+const defined = x => x !== undefined && x !== 'undefined'
 function _test_defined() {
   let x = 1
   let y
@@ -11,7 +8,7 @@ function _test_defined() {
   check(
     () => defined(x),
     () => !defined(y),
-    () => !defined('z')
+    () => !defined(typeof z)
   )
 }
 function _benchmark_defined() {
@@ -21,11 +18,11 @@ function _benchmark_defined() {
   benchmark(
     // compare these for function call + type check overhead
     () => x !== undefined,
+    () => typeof x != 'undefined',
+    () => y !== undefined,
+    () => typeof y != 'undefined',
     () => defined(x),
-    () => defined(y),
-    // compare these for eval() overhead
-    () => typeof z != 'undefined',
-    () => defined('z')
+    () => defined(y)
   )
 }
 
@@ -67,7 +64,7 @@ function _benchmark_is_numeric() {
 const is_function = x => typeof x == 'function'
 const is_boolean = x => typeof x == 'boolean'
 const is_string = x => typeof x == 'string'
-const is_object = x => typeof x == 'object' && x!==null
+const is_object = x => typeof x == 'object' && x !== null
 const is_set = x => x instanceof Set
 const is_map = x => x instanceof Map
 const is_array = Array.isArray
