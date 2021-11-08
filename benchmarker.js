@@ -1,30 +1,36 @@
 async function benchmark_item(item) {
-  if (!item.text.match(/\b_benchmark/)) return [] // no benchmarks in item
+  if (!item.text.match(/\b_benchmark/)) return // no benchmarks in item
 
   // evaluate any functions _benchmark|_benchmark_*() defined on item
   const benchmarks = [
     '_benchmark',
     ...(item.text.match(/\b_benchmark_\w+/g) ?? []),
   ]
-  let lines = []
   for (const benchmark of benchmarks) {
     const name = benchmark.replace(/^_benchmark_?/, '') || '(unnamed)'
+    let done, ms, e
+    const start = Date.now()
     try {
-      const start = Date.now()
-      const benchmarked = await item.eval(
+      done = await item.eval(
         `typeof ${benchmark} == 'function' ? (${benchmark}(),true) : false`,
         { trigger: 'benchmark', async: item.deepasync, async_simple: true }
       )
-      if (benchmarked) {
-        item.log(`BENCHMARK ${name} completed in ${Date.now() - start}ms`)
-        lines = lines.concat(item.get_log({ since: 'eval' }))
-        await _delay(1) // ensure time-separation of benchmark runs (and logs)
-      }
-    } catch (e) {
-      item.error(`BENCHMARK ${name} failed: ${e}`)
+      ms = Date.now() - start
+      if (done) item.log(`BENCHMARK ${name} completed in ${ms}ms`)
+    } catch (_e) {
+      done = true // since error thrown
+      ms = Date.now() - start
+      item.error(`BENCHMARK ${name} FAILED in ${ms}ms; ${_e}`)
+      e = _e
+    }
+    // store benchmark results in item's global store under _tests
+    if (done) {
+      const log = item.get_log({ since: 'eval' })
+      const gs = item.global_store
+      gs._benchmarks = _.set(gs._benchmarks || {}, name, { ms, ok: !e, log })
+      await _delay(1) // ensure time-separation of benchmark runs (and logs)
     }
   }
-  return lines
 }
 
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
@@ -34,25 +40,6 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   benchmark_item(_item(id))
 }
 
-const style_footer = `
-\`\`\`_html
-<style> 
-#item table { 
-  color:gray;
-  font-size:80%;
-  line-height:140%;
-  white-space:nowrap;
-  font-family:'jetbrains mono', monospace;
-}
-#item .elapsed {
-  color:#666;
-  font-size:70%;
-  font-family:'jetbrains mono', monospace;
-  margin-left: 10px;
-}
-</style>
-\`\`\`
-`
 // command /benchmark [label]
 async function _on_command_benchmark(label) {
   const items = _items(label)
@@ -60,43 +47,5 @@ async function _on_command_benchmark(label) {
     alert(`/benchmark: ${label} not found`)
     return '/benchmark ' + label
   }
-  for (const item of items) {
-    const lines = await benchmark_item(item)
-    if (lines.length == 0) continue
-    const output_item_name =
-      '#benchmarks/' +
-      (item.name.startsWith('#') ? item.name.slice(1) : item.id)
-    let text = `${output_item_name}\n`
-    // process lines, formatting benchmark lines as interleaved markdown tables
-    let rows = []
-    for (const line of lines) {
-      if (line.match(/:\s*\d/)) {
-        let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
-        result = result.replace('calls/sec', '') // drop calls/sec as default unit
-        rows.push([result, name])
-      } else {
-        if (line.match(/^BENCHMARK/)) {
-          // append as benchmark header
-          const [name, time] = line
-            .match(/BENCHMARK (\S+?) completed in (\S+)/)
-            .slice(1)
-          text += `\`${name}\`<span class=elapsed>${time}</span>\n`
-        } else {
-          // append generic line as is
-          text += line + '\n'
-        }
-        if (rows.length) {
-          text += '```_md\n' + table(rows) + '\n```\n\n'
-          rows = []
-        }
-      }
-    }
-    text += style_footer
-    text = text.trim()
-
-    // if benchmark item exists, write into it, otherwise create new item
-    const output_item = _item(output_item_name, false /*log_errors*/)
-    if (output_item) output_item.write(text, '' /*whole item*/)
-    else _create(text)
-  }
+  for (const item of items) await benchmark_item(item)
 }

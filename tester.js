@@ -5,15 +5,27 @@ async function test_item(item) {
   const tests = ['_test', ...(item.text.match(/\b_test_\w+/g) ?? [])]
   for (const test of tests) {
     const name = test.replace(/^_test_?/, '') || '(unnamed)'
+    let done, ms, e
+    const start = Date.now()
     try {
-      const start = Date.now()
-      const tested = await item.eval(
+      done = await item.eval(
         `typeof ${test} == 'function' ? (${test}(),true) : false`,
         { trigger: 'test', async: item.deepasync, async_simple: true }
       )
-      if (tested) item.log(`TEST ${name} passed in ${Date.now() - start}ms`)
-    } catch (e) {
-      item.error(`TEST ${name} failed: ${e}`)
+      ms = Date.now() - start
+      if (done) item.log(`TEST ${name} passed in ${ms}ms`)
+    } catch (_e) {
+      done = true // since error thrown
+      ms = Date.now() - start
+      item.error(`TEST ${name} FAILED in ${ms}ms; ${_e}`)
+      e = _e
+    }
+    // store test results in item's global store under _tests
+    if (done) {
+      const log = item.get_log({ since: 'eval' })
+      const gs = item.global_store
+      gs._tests = _.set(gs._tests || {}, name, { ms, ok: !e, log })
+      await _delay(1) // ensure time-separation of test runs (and logs)
     }
   }
 }
