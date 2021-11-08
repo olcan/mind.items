@@ -22,7 +22,7 @@ async function test_item(item) {
       } catch (_e) {
         done = true // since error thrown
         ms = Date.now() - start
-        item.error(`test '${name}' FAILED in ${ms}ms; ${_e}`)
+        item.error(`test '${name}' FAILED in ${ms}ms`) //; ${_e}`)
         e = _e
       }
       // store test results in item's global store under _tests

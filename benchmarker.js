@@ -25,7 +25,7 @@ async function benchmark_item(item) {
       } catch (_e) {
         done = true // since error thrown
         ms = Date.now() - start
-        item.error(`benchmark '${name}' FAILED in ${ms}ms; ${_e}`)
+        item.error(`benchmark '${name}' FAILED in ${ms}ms`) //; ${_e}`)
         e = _e
       }
       // store benchmark results in item's global store under _tests
