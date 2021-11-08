@@ -18,11 +18,11 @@ async function test_item(item) {
           { trigger: 'test', async: item.deepasync, async_simple: true }
         )
         ms = Date.now() - start
-        if (done) item.log(`TEST ${name} passed in ${ms}ms`)
+        if (done) item.log(`test '${name}' passed in ${ms}ms`)
       } catch (_e) {
         done = true // since error thrown
         ms = Date.now() - start
-        item.error(`TEST ${name} FAILED in ${ms}ms; ${_e}`)
+        item.error(`test '${name}' FAILED in ${ms}ms; ${_e}`)
         e = _e
       }
       // store test results in item's global store under _tests

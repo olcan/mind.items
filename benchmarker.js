@@ -21,11 +21,11 @@ async function benchmark_item(item) {
           { trigger: 'benchmark', async: item.deepasync, async_simple: true }
         )
         ms = Date.now() - start
-        if (done) item.log(`BENCHMARK ${name} completed in ${ms}ms`)
+        if (done) item.log(`benchmark '${name}' completed in ${ms}ms`)
       } catch (_e) {
         done = true // since error thrown
         ms = Date.now() - start
-        item.error(`BENCHMARK ${name} FAILED in ${ms}ms; ${_e}`)
+        item.error(`benchmark '${name}' FAILED in ${ms}ms; ${_e}`)
         e = _e
       }
       // store benchmark results in item's global store under _tests
