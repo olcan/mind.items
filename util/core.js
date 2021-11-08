@@ -227,7 +227,7 @@ function js_table(regex) {
     const gs = _this.global_store
     let status = ''
     if (gs._tests && gs._tests[def._name]) {
-      const test = gs._benchmarks[def._name]
+      const test = gs._tests[def._name]
       status += evallink(
         _this,
         `_js_table_show_test('${def._name}', event)`,
