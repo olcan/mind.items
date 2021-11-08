@@ -91,10 +91,14 @@ async function init_updater() {
       })
 
       // update modified items
-      // sequentialize via global window._github
-      // use allSettled to resume the chain on errors/rejects
-      // confirmation dialog is important to sequentialize across tabs/devices
-      window._github = Promise.allSettled([window._github]).then(async () => {
+      // serialize updates via _this.store._update
+      // also coordinate w/ #pusher via #pusher.store._push
+      // helps reduce conflict errors and rate-limit violations
+      // confirmation dialog further serializes updates across tabs/devices
+      _this.store._update = Promise.allSettled([
+        _this.store._update,
+        _item('#pusher', false)?.store._push,
+      ]).then(async () => {
         if (modified_ids.length == 0) return // nothing to do
         const modified_names = modified_ids.map(id => _item(id).name)
         const s = modified_ids.length > 1 ? 's' : ''

@@ -216,123 +216,123 @@ function push_item(item, manual = false) {
   const [owner, repo] = dest.split('/')
   const github = _this.store.github
 
-  // we sequentialize all github access via window._github
+  // serialize pushes via _this.store._push
+  // also coordinate w/ #updater via #updater.store._update
   // helps reduce conflict errors and rate-limit violations
-  // we use window instead of item store to share across items (e.g. #updater)
-  // we use allSettled to resume the chain on errors/rejects
-  return (window._github = Promise.allSettled([window._github]).then(
-    async () => {
-      let start = Date.now()
-      const state = _this.store.items[item.saved_id]
-      const text_sha = github_sha(item.text)
-      if (state.remote_sha == text_sha) {
-        state.sha = text_sha // resume auto-push
-        // for manual push, side-push even if push is skipped
-        if (manual) await _side_push_item(item, manual)
-        return
-      }
-      try {
-        const path = `items/${item.saved_id}.md`
-        const commit_sha = _this.global_store.commit_sha
-        const tree_sha = _this.global_store.tree_sha
+  return (_this.store._push = Promise.allSettled([
+    _this.store._push,
+    _item('#updater', false)?.store._update,
+  ]).then(async () => {
+    let start = Date.now()
+    const state = _this.store.items[item.saved_id]
+    const text_sha = github_sha(item.text)
+    if (state.remote_sha == text_sha) {
+      state.sha = text_sha // resume auto-push
+      // for manual push, side-push even if push is skipped
+      if (manual) await _side_push_item(item, manual)
+      return
+    }
+    try {
+      const path = `items/${item.saved_id}.md`
+      const commit_sha = _this.global_store.commit_sha
+      const tree_sha = _this.global_store.tree_sha
 
-        // create tree based off the tree of the latest commit
-        // tree contains item file and symlink iff item is named
-        // NOTE: drop base_tree for root commit on empty repo
-        const { data: { ...tree } = {} } = await github.git.createTree({
+      // create tree based off the tree of the latest commit
+      // tree contains item file and symlink iff item is named
+      // NOTE: drop base_tree for root commit on empty repo
+      const { data: { ...tree } = {} } = await github.git.createTree({
+        owner,
+        repo,
+        base_tree: tree_sha,
+        tree: [
+          { path, mode: '100644', type: 'blob', content: item.text },
+          ...(() => {
+            if (!item.name.startsWith('#')) return []
+            const name = item.name.slice(1)
+            const symlink = name.replace(/[^/]+/g, '..') + '/' + path
+            return [
+              {
+                path: `names/${name}.md`,
+                mode: '120000' /*symlink*/,
+                type: 'blob',
+                content: symlink,
+              },
+            ]
+          })(),
+        ],
+      })
+      // create commit for this tree based off the last commit
+      // NOTE: drop parents for root commit on empty repo
+      const { data: { ...commit } = {} } = await github.git.createCommit({
+        owner,
+        repo,
+        message: item.name,
+        parents: [commit_sha],
+        tree: tree.sha,
+      })
+      // update master to point to this commit
+      try {
+        await github.git.updateRef({
           owner,
           repo,
-          base_tree: tree_sha,
-          tree: [
-            { path, mode: '100644', type: 'blob', content: item.text },
-            ...(() => {
-              if (!item.name.startsWith('#')) return []
-              const name = item.name.slice(1)
-              const symlink = name.replace(/[^/]+/g, '..') + '/' + path
-              return [
-                {
-                  path: `names/${name}.md`,
-                  mode: '120000' /*symlink*/,
-                  type: 'blob',
-                  content: symlink,
-                },
-              ]
-            })(),
-          ],
+          ref: 'heads/master',
+          sha: commit.sha,
         })
-        // create commit for this tree based off the last commit
-        // NOTE: drop parents for root commit on empty repo
-        const { data: { ...commit } = {} } = await github.git.createCommit({
-          owner,
-          repo,
-          message: item.name,
-          parents: [commit_sha],
-          tree: tree.sha,
-        })
-        // update master to point to this commit
-        try {
-          await github.git.updateRef({
-            owner,
-            repo,
-            ref: 'heads/master',
-            sha: commit.sha,
-          })
-        } catch (e) {
-          if (e.message == 'Update is not a fast forward') {
-            if (!manual) {
-              _this.warn(
-                `push failed for ${item.name} due to unknown (external) ` +
-                  `commits in ${dest}; manual /push or /pull is required`
-              )
-              state.remote_sha = undefined // lost track, disable auto-push
-              item.pushable = true // mark pushable again (if not already)
-              return
-            }
+      } catch (e) {
+        if (e.message == 'Update is not a fast forward') {
+          if (!manual) {
             _this.warn(
               `push failed for ${item.name} due to unknown (external) ` +
-                `commits in ${dest}; retrying after fetching latest commit ...`
+                `commits in ${dest}; manual /push or /pull is required`
             )
-            const resp = await github.repos.getBranch({
-              owner,
-              repo,
-              branch: 'master',
-            })
-            const commit_sha = resp.data.commit?.sha
-            const tree_sha = resp.data.commit?.commit?.tree?.sha
-            if (!commit_sha || !tree_sha)
-              throw new Error(`can not push to empty repo ${dest}`)
-            _this.global_store.commit_sha = commit_sha
-            _this.global_store.tree_sha = tree_sha
-            setTimeout(() => push_item(item, true /*manual*/)) // retry
+            state.remote_sha = undefined // lost track, disable auto-push
+            item.pushable = true // mark pushable again (if not already)
             return
           }
-          throw e
+          _this.warn(
+            `push failed for ${item.name} due to unknown (external) ` +
+              `commits in ${dest}; retrying after fetching latest commit ...`
+          )
+          const resp = await github.repos.getBranch({
+            owner,
+            repo,
+            branch: 'master',
+          })
+          const commit_sha = resp.data.commit?.sha
+          const tree_sha = resp.data.commit?.commit?.tree?.sha
+          if (!commit_sha || !tree_sha)
+            throw new Error(`can not push to empty repo ${dest}`)
+          _this.global_store.commit_sha = commit_sha
+          _this.global_store.tree_sha = tree_sha
+          setTimeout(() => push_item(item, true /*manual*/)) // retry
+          return
         }
-        _this.global_store.commit_sha = commit.sha
-        _this.global_store.tree_sha = tree.sha
-        state.sha = state.remote_sha = text_sha // resume auto-push
-
-        // invoke _on_push() on item if defined as function
-        // _on_push is invoked on both internal and external updates
-        if (item.text.includes('_on_push')) {
-          try {
-            _item(item.id).eval(
-              `if (typeof _on_push == 'function') _on_push(_item('${item.id}'))`,
-              {
-                trigger: 'pusher',
-              }
-            )
-          } catch (e) {} // already logged, just continue
-        }
-
-        _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
-        await _side_push_item(item, manual)
-      } catch (e) {
-        _this.error(`push failed for ${item.name}: ${e}`)
         throw e
       }
+      _this.global_store.commit_sha = commit.sha
+      _this.global_store.tree_sha = tree.sha
+      state.sha = state.remote_sha = text_sha // resume auto-push
+
+      // invoke _on_push() on item if defined as function
+      // _on_push is invoked on both internal and external updates
+      if (item.text.includes('_on_push')) {
+        try {
+          _item(item.id).eval(
+            `if (typeof _on_push == 'function') _on_push(_item('${item.id}'))`,
+            {
+              trigger: 'pusher',
+            }
+          )
+        } catch (e) {} // already logged, just continue
+      }
+
+      _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
+      await _side_push_item(item, manual)
+    } catch (e) {
+      _this.error(`push failed for ${item.name}: ${e}`)
+      throw e
     }
-  ))
+  }))
 }
 
 // resolves embed path relative to container item (attr) path
