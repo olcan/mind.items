@@ -231,7 +231,8 @@ function js_table(regex) {
       status += evallink(
         _this,
         `_js_table_show_test('${def._name}', event)`,
-        'tested'
+        'tested',
+        'tested' + (test.ok ? ' ok' : '')
       )
     }
     // append benchmark results
@@ -240,7 +241,8 @@ function js_table(regex) {
       status += evallink(
         _this,
         `_js_table_show_benchmark('${def._name}', event)`,
-        'benchmarked'
+        'benchmarked',
+        'benchmarked' + (benchmark.ok ? ' ok' : '')
       )
     }
     if (status) def.comment += `<div class="status">${status}</div>`
@@ -265,10 +267,12 @@ function js_table(regex) {
     '#item .js_table > table { line-height: 150%; border-spacing: 10px }',
     '#item .js_table > table table code { font-size:90% }',
     '#item .js_table > table table { font-size:80%; border-spacing: 10px 0 }',
-    '#item .js_table table td .button { cursor: pointer; vertical-align:middle; margin-left:5px }',
-    '#item .js_table table td .button { user-select: none; -webkit-user-select:none }',
+    '#item .js_table table td .button { margin-left:5px }',
     '#item .js_table table td .button:before { content:"⋯" }',
     '#item .js_table table td.expand .button:before { content:"◀︎" }',
+    '#item .js_table table td :is(.tested,.benchmarked) { color:black; background: #f55; margin-right:5px; font-weight:600; font-size:80% }',
+    '#item .js_table table td .tested.ok { background: #7a7 }',
+    '#item .js_table table td .benchmarked.ok { background: #4ae }',
     // if item is pushable, expand all for easy preview and editing
     '.container:not(.pushable) #item .js_table table td:not(.expand) .more { display: none }',
     '.container.pushable #item .js_table table td .button { display: none }',
@@ -283,12 +287,12 @@ function _js_table_expand(e) {
 
 function _js_table_show_test(name) {
   const test = _this.global_store._tests[name]
-  console.log(test)
+  alert(test.log.join('\n'))
 }
 
 function _js_table_show_benchmark(name) {
   const benchmark = _this.global_store._benchmarks[name]
-  console.log(benchmark)
+  alert(benchmark.log.join('\n'))
 }
 
 const _array = (J, f) => {

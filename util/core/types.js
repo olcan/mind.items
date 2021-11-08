@@ -18,11 +18,11 @@ function _benchmark_defined() {
   benchmark(
     // compare these for function call + type check overhead
     () => x !== undefined,
-    () => typeof x != 'undefined',
-    () => y !== undefined,
-    () => typeof y != 'undefined',
     () => defined(x),
-    () => defined(y)
+    () => defined(y),
+    // compare these for eval() overhead
+    () => typeof z != 'undefined',
+    () => defined('z')
   )
 }
 
