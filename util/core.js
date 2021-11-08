@@ -210,7 +210,6 @@ function js_table(regex) {
 
     // hide all comment lines but first
     const button = `<a class="button" onmousedown="event.target.closest('td').classList.toggle('expand');event.stopPropagation()" onmouseup="event.preventDefault();event.stopPropagation()" onclick="event.preventDefault();event.stopPropagation()"></a>`
-
     if (comment_lines.length > 1) {
       def.comment =
         comment_lines[0] +
@@ -221,6 +220,8 @@ function js_table(regex) {
     } else {
       def.comment = comment_lines[0] || ''
     }
+
+    // TODO: link to test and benchmark result items!
 
     // wrap label in backticks, allowing multiple lines
     const label = (def.name + def.args)
