@@ -4,4 +4,4 @@
 // tester.js
 ```
 
-<p> #_listen </p>
+<p> #_listen #_util/core </p>

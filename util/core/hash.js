@@ -1,7 +1,6 @@
 // hash (x, ･･･⭣ ) \n [hasher=_hash_64_fmv1a] \n [stringifier=stringify]
 // hashes `x` using `hasher`
 // applies `stringifier` to non-string `x`
-// uses precomputed `x._hash` if defined
 // integer for ≤52 bits, hex string for >52
 // | hasher                  | bits | algorithm
 // | `_hash_32_djb2`         | 32   | [djb2](http://www.cse.yorku.ca/~oz/hash.html) (xor)
@@ -44,60 +43,48 @@ function _benchmark_hash() {
   )
 }
 
-// encode_utf8(string)
-// encodes string to UTF-8 string
-const encode_utf8 = window._encode_utf8
+// encode(string, ･･･⭣ ) \n [encoding='base64']
+// encodes `string` into `encoding`
+// `string` is assumed [UTF-16](https://en.wikipedia.org/wiki/UTF-16) (`js` default)
+// | `'utf8'`              | [UTF-8](https://en.wikipedia.org/wiki/UTF-8) string
+// | `'utf8_array'`        | [UTF-8](https://en.wikipedia.org/wiki/UTF-8) array (`Uint8Array`)
+// | default ➡ `'base64'`  | [Base64](https://en.wikipedia.org/wiki/Base64) ASCII string
+const encode = window._encode
 
-// decode_utf8(utf8_string)
-// decodes string from UTF-8 string
-const decode_utf8 = window._decode_utf8
-
-// encode_utf8_array(string)
-// encodes string to UTF-8 array (`Uint8Array`)
-const encode_utf8_array = window._encode_utf8_array
-
-// decode_utf8_array(utf8_array)
-// decodes string from UTF-8 array (`Uint8Array`)
-const decode_utf8_array = window._decode_utf8_array
-
-// encode_base64(string)
-// encodes string to base64 (ASCII) string
-const encode_base64 = window._encode_base64
-
-// decode_base64(base64_string)
-// decodes string from base64 (ASCII) string
-const decode_base64 = window._decode_base64
+// decode(x, ･･･⭣ ) \n [encoding='base64']
+// decodes string from `x` in `encoding`
+// see `encode` for supported encodings
+const decode = window._decode
 
 function _test_encode_decode() {
   const x = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
   check(
-    () => decode_utf8(encode_utf8(x)) == x,
-    () => decode_utf8_array(encode_utf8_array(x)) == x,
-    () => decode_base64(encode_base64(x)) == x
+    () => decode(encode(x)) == x,
+    () => decode(encode(x), 'base64') == x,
+    () => decode(encode(x, 'base64')) == x,
+    () => decode(encode(x, 'base64'), 'base64') == x,
+    () => decode(encode(x, 'utf8'), 'utf8') == x,
+    () => decode(encode(x, 'utf8_array'), 'utf8_array') == x,
+    // check utf8 equivalent to utf8_array+String.fromCharCode
+    () => encode(x, 'utf8') == String.fromCharCode(...encode(x, 'utf8_array'))
   )
 }
+
+// associate test w/ documented functions
+const _test_encode_decode_functions = ['encode', 'decode']
 
 function _benchmark_encode_decode() {
   const x = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
   benchmark(
-    () => decode_utf8(encode_utf8(x)),
-    () => decode_utf8_array(encode_utf8_array(x)),
-    () => decode_base64(encode_base64(x))
+    () => decode(encode(x, 'base64'), 'base64') == x,
+    () => decode(encode(x, 'utf8'), 'utf8') == x,
+    () => decode(encode(x, 'utf8_array'), 'utf8_array') == x,
+    // benchmark utf8 vs utf8_array+String.fromCharCode
+    () => encode(x, 'utf8'),
+    () => String.fromCharCode.apply(null, encode(x, 'utf8_array')),
+    () => String.fromCharCode(...encode(x, 'utf8_array'))
   )
 }
 
-// check encode_utf8 equivalent to encode_utf8_array+String.fromCharCode
-function _test_encode_utf8() {
-  const x = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
-  check(() => encode_utf8(x) == String.fromCharCode(..._encode_utf8_array(x)))
-}
-
-// benchmark encode_utf8 vs encode_utf8_array+String.fromCharCode
-function _benchmark_encode_utf8() {
-  const x = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
-  benchmark(
-    () => encode_utf8(x),
-    () => String.fromCharCode.apply(null, _encode_utf8_array(x)),
-    () => String.fromCharCode(..._encode_utf8_array(x))
-  )
-}
+// associate benchmark w/ documented functions
+const _benchmark_encode_decode_functions = ['encode', 'decode']

@@ -28,6 +28,23 @@ async function benchmark_item(item) {
       const log = item.get_log({ since: 'eval' })
       const gs = item.global_store
       gs._benchmarks = _.set(gs._benchmarks || {}, name, { ms, ok: !e, log })
+      // look up benchmarked function names
+      let names
+      try {
+        names = await item.eval(
+          `typeof ${benchmark}_functions == 'object' ? ` +
+            `${benchmark}_functions : null`
+        )
+      } catch (e) {}
+      if (is_array(names) && names.every(is_string)) {
+        names.forEach(name => {
+          gs._benchmarks = _.set(gs._benchmarks || {}, name, {
+            ms,
+            ok: !e,
+            log,
+          })
+        })
+      }
       await _delay(1) // ensure time-separation of benchmark runs (and logs)
     }
   }

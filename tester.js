@@ -25,6 +25,22 @@ async function test_item(item) {
       const log = item.get_log({ since: 'eval' })
       const gs = item.global_store
       gs._tests = _.set(gs._tests || {}, name, { ms, ok: !e, log })
+      // look up tested function names
+      let names
+      try {
+        names = await item.eval(
+          `typeof ${test}_functions == 'object' ? ` + `${test}_functions : null`
+        )
+      } catch (e) {}
+      if (is_array(names) && names.every(is_string)) {
+        names.forEach(name => {
+          gs._tests = _.set(gs._tests || {}, name, {
+            ms,
+            ok: !e,
+            log,
+          })
+        })
+      }
       await _delay(1) // ensure time-separation of test runs (and logs)
     }
   }

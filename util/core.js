@@ -221,7 +221,17 @@ function js_table(regex) {
       def.comment = comment_lines[0] || ''
     }
 
-    // TODO: link to test and benchmark result items!
+    // append test results
+    const gs = _this.global_store
+    if (gs._tests && gs._tests[def._name]) {
+      const test = gs._tests[def._name]
+      def.comment += `<br> tested`
+    }
+    // append benchmark results
+    if (gs._benchmarks && gs._benchmarks[def._name]) {
+      const test = gs._benchmarks[def._name]
+      def.comment += `<br> benchmarked`
+    }
 
     // wrap label in backticks, allowing multiple lines
     const label = (def.name + def.args)
@@ -266,3 +276,70 @@ const _array = (J, f) => {
 }
 
 const command_table = () => js_table(/^_on_command_/)
+
+// const style_footer = `
+// \`\`\`_html
+// <style>
+// #item table {
+//   color:gray;
+//   font-size:80%;
+//   line-height:140%;
+//   white-space:nowrap;
+//   font-family:'jetbrains mono', monospace;
+// }
+// #item .elapsed {
+//   color:#666;
+//   font-size:70%;
+//   font-family:'jetbrains mono', monospace;
+//   margin-left: 10px;
+// }
+// </style>
+// \`\`\`
+// `
+// // command /benchmark [label]
+// async function _on_command_benchmark(label) {
+//   const items = _items(label)
+//   if (items.length == 0) {
+//     alert(`/benchmark: ${label} not found`)
+//     return '/benchmark ' + label
+//   }
+//   for (const item of items) {
+//     const lines = await benchmark_item(item)
+//     if (lines.length == 0) continue
+//     const output_item_name =
+//       '#benchmarks/' +
+//       (item.name.startsWith('#') ? item.name.slice(1) : item.id)
+//     let text = `${output_item_name}\n`
+//     // process lines, formatting benchmark lines as interleaved markdown tables
+//     let rows = []
+//     for (const line of lines) {
+//       if (line.match(/:\s*\d/)) {
+//         let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
+//         result = result.replace('calls/sec', '') // drop calls/sec as default unit
+//         rows.push([result, name])
+//       } else {
+//         if (line.match(/^BENCHMARK/)) {
+//           // append as benchmark header
+//           const [name, time] = line
+//             .match(/BENCHMARK (\S+?) completed in (\S+)/)
+//             .slice(1)
+//           text += `\`${name}\`<span class=elapsed>${time}</span>\n`
+//         } else {
+//           // append generic line as is
+//           text += line + '\n'
+//         }
+//         if (rows.length) {
+//           text += '```_md\n' + table(rows) + '\n```\n\n'
+//           rows = []
+//         }
+//       }
+//     }
+//     text += style_footer
+//     text = text.trim()
+
+//     // if benchmark item exists, write into it, otherwise create new item
+//     const output_item = _item(output_item_name, false /*log_errors*/)
+//     if (output_item) output_item.write(text, '' /*whole item*/)
+//     else _create(text)
+//   }
+// }
