@@ -79,11 +79,11 @@ async function init_updater() {
               if (store.update_modal) {
                 const modified_names = modified_ids.map(id => _item(id).name)
                 const s = modified_ids.length > 1 ? 's' : ''
-                _modal_update(store.update_modal, {
-                  content:
-                    `${_this.name} is ready to update ${modified_ids.length} ` +
-                    `installed item${s}: ${modified_names.join(', ')}`,
-                })
+                _modal_update(
+                  store.update_modal,
+                  `${_this.name} is ready to update ${modified_ids.length} ` +
+                    `installed item${s}: ${modified_names.join(', ')}`
+                )
               }
             }
           }
@@ -163,11 +163,11 @@ function _on_global_store_change(id, remote) {
     if (_this.store.update_modal) {
       const modified_names = modified_ids.map(id => _item(id).name)
       const s = modified_ids.length > 1 ? 's' : ''
-      _modal_update(_this.store.update_modal, {
-        content:
-          `${_this.name} is ready to update ${modified_ids.length} ` +
-          `installed item${s}: ${modified_names.join(', ')}`,
-      })
+      _modal_update(
+        _this.store.update_modal,
+        `${_this.name} is ready to update ${modified_ids.length} ` +
+          `installed item${s}: ${modified_names.join(', ')}`
+      )
       // if no updates pending, close modal
       // closing resolves modal promise as undefined (see await above)
       // closing modal should trigger setting of store.update_modal to null
