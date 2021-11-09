@@ -265,7 +265,6 @@ function js_table(regex) {
     '</span>',
     '```_html',
     '<style>',
-    '#item .js_table table code { white-space: nowrap }',
     '#item .js_table table td:first-child { white-space: nowrap; text-align:right }',
     '#item .js_table table + br { display: none }',
     '#item .js_table > table { line-height: 150%; border-spacing: 10px }',
