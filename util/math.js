@@ -1,7 +1,7 @@
 // TODO: figure out what to do w/ _array and Math.random (uniform) below
 // TODO: ensure tests/benchmarks look good!
 
-// returns dimensions assuming rectangular array
+// returns dimensions of rectangular array `x`
 const dims = x => (is_array(x) ? [x.length, ...dims(x[0])] : [])
 
 function _test_dims() {
@@ -15,11 +15,18 @@ function _test_dims() {
 }
 
 const is_matrix = x => is_array(x) && is_array(x[0])
-function matrixify(x) {
-  if (!is_array(x)) x = [x] // convert scalar to array
-  if (!is_array(x[0])) x = [x] // convert array to 1xn matrix
-  return x
+
+function _test_is_matrix() {
+  check(
+    () => equal(is_matrix([]), false),
+    () => equal(is_matrix([[]]), true),
+    () => equal(is_matrix([[0], 1]), true),
+    () => equal(is_matrix([[[]]]), true)
+  )
 }
+
+const matrixify = x => (!is_matrix(x) ? matrixify([x]) : x)
+
 function scalarify(x) {
   return x.length == 1 ? (x[0]?.length == 1 ? x[0][0] : x[0]) : x
 }

@@ -41,7 +41,7 @@ function check(...funcs) {
         .map(s => s.replace(/@$/, ''))
         .filter(s => s)
         .join(' <- ')
-      throw new Error(`FAILED CHECK: ${stringify(f)} @ ${stack}`)
+      throw new Error(`FAILED CHECK: ${stringify(f)}; STACK: ${stack}`)
     }
   })
 }
@@ -301,7 +301,9 @@ function _js_table_show_test(name) {
       '.modal pre { padding-top:5px }',
       '.modal :not(pre) > code { font-weight:600 }',
       '</style>',
-    ].join('\n')
+    ]
+      .flat()
+      .join('\n')
   )
 }
 
