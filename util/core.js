@@ -138,6 +138,17 @@ function table(cells, headers) {
   return lines.join('\n')
 }
 
+function _count_unescaped(str, substr) {
+  if (substr.length == 0) throw 'substr can not be empty'
+  let count = 0
+  let pos = 0
+  while ((pos = str.indexOf(substr, pos)) >= 0) {
+    if (str[pos - 1] != '\\') count++
+    pos += substr.length
+  }
+  return count
+}
+
 // js_table([regex])
 // returns table of `js` definitions
 // can filter names using optional `regex`
@@ -157,9 +168,16 @@ function js_table(regex) {
       def.args = def.args.replace(/\s*\n\s*/g, ' ') // remove newlines in args
       def._name = def.name // save original name (before possible modification)
       if (def.comment) {
+        // clean up: drop // and insert <br> before \n
         def.comment = def.comment
           .replace(/ *\n(?:\/\/)? */g, '<br>\n')
           .replace(/^\/\/ */, '')
+        // disallow cross-line backticks (causes ugly rendering issues)
+        def.comment = def.comment
+          .split('<br>')
+          .map(s => (_count_unescaped(s, '`') % 2 == 0 ? s : s + '`'))
+          .join('<br>')
+
         // displayed name/args can be modified via first line of comment:
         // <name>(...) modifies args, <name> removes args
         // => <display_name> or => <display_name>(...) modifies name/args
