@@ -1,4 +1,3 @@
-// TODO: reconsider the undefined checks which feel overkill
 // TODO: figure out what to do w/ _array and Math.random (uniform) below
 // TODO: ensure tests/benchmarks look good!
 
@@ -93,20 +92,22 @@ function _test_is_matrix() {
   )
 }
 
-// peels away outer dimensions of length 1
+// peels away outer arrays of length 1
 function scalarify(x) {
   while (is_array(x) && x.length == 1) x = x[0]
   return x
 }
 
-// converts scalar → array → 1×n matrix
+// TODO: test scalarify
+
+// wraps scalar → array → 1×n matrix
 function matrixify(x) {
   if (!is_array(x)) x = [x] // convert scalar to array
-  if (!is_array(x[0])) x = [x] // convert array to 1xn matrix
+  if (!is_array(x[0])) x = [x] // convert array to 1×n matrix
   return x
 }
 
-// TODO: test scalarify and matrixify
+// TODO: test matrixify
 
 function transpose(xJK) {
   xJK = matrixify(xJK)
