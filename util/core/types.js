@@ -1,28 +1,24 @@
-// `x !== undefined && x !== 'undefined'`
-// invoke as `defined(typeof x)` for unknown `x`
+// `x !== undefined`
+// for known variable `x` only
+// use `typeof x != 'undefined'` for unknown `x`
 const defined = x => x !== undefined && x !== 'undefined'
 function _test_defined() {
   let x = 1
   let y
-  // let z
   check(
     () => defined(x),
-    () => !defined(y),
-    () => !defined(typeof z)
+    () => !defined(y)
   )
 }
 function _benchmark_defined() {
   let x = 1
   let y
-  // let z
   benchmark(
     // compare these for function call + type check overhead
     () => x !== undefined,
+    () => typeof x != 'undefined',
     () => defined(x),
-    () => defined(y),
-    // compare these for eval() overhead
-    () => typeof z != 'undefined',
-    () => defined('z')
+    () => defined(y)
   )
 }
 

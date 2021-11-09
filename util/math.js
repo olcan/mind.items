@@ -1,7 +1,42 @@
 // TODO: figure out what to do w/ _array and Math.random (uniform) below
 // TODO: ensure tests/benchmarks look good!
 
-// returns dimensions of rectangular array `x`
+const is_flat = x => {
+  if (!defined(x)) return undefined
+  return !is_array(x) || !x.some(is_array)
+}
+
+// is `x` rectangular?
+// rectangular means _uniform depth_
+const is_rectangular = x => {
+  if (!defined(x)) return undefined
+  if (!is_array(x)) return true
+  return _is_array_rectangular(x)
+}
+
+const _is_array_rectangular = x =>
+  is_array(x[0])
+    ? x.every(xj => is_array(xj) && _is_array_rectangular(xj))
+    : is_flat(x)
+
+function _test_is_rectangular() {
+  check(
+    () => is_rectangular() === undefined,
+    () => is_rectangular(0),
+    () => is_rectangular([]),
+    () => is_rectangular([[]]),
+    () => is_rectangular([[], []]),
+    () => !is_rectangular([[0], 0]),
+    () => !is_rectangular([0, [0]]),
+    () => is_rectangular([[0], [0]]),
+    () => !is_rectangular([[0, [0]], [0]])
+  )
+}
+
+// returns depth of rectangular `x`
+const depth = x => (is_array(x) ? depth(x[0]) + 1 : 0)
+
+// returns dimensions of rectangular `x`
 const dims = x => (is_array(x) ? [x.length, ...dims(x[0])] : [])
 
 function _test_dims() {
@@ -14,14 +49,16 @@ function _test_dims() {
   )
 }
 
+// returns true if `x` is a matrix w/ array depth 2+
+// based only on first element for efficiency
 const is_matrix = x => is_array(x) && is_array(x[0])
 
 function _test_is_matrix() {
   check(
-    () => equal(is_matrix([]), false),
-    () => equal(is_matrix([[]]), true),
-    () => equal(is_matrix([[0], 1]), true),
-    () => equal(is_matrix([[[]]]), true)
+    () => !is_matrix([]),
+    () => is_matrix([[]]),
+    () => is_matrix([[0], 1]),
+    () => is_matrix([[[]]])
   )
 }
 
