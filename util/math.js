@@ -87,8 +87,12 @@ function _test_transpose() {
 }
 
 function _benchmark_transpose() {
-  const zJK = _array(20, j => _array(10, Math.random))
+  const J = 100
+  const K = 10
+  const zJK = _array(J, j => _array(K, Math.random))
+  const zKJ = transpose(zJK)
   benchmark(() => transpose(zJK))
+  benchmark(() => transpose(zKJ))
 }
 
 function dot(xJZ, yKZ) {
@@ -180,9 +184,11 @@ function _test_dot() {
 }
 
 function _benchmark_dot() {
-  const xJ = _array(20, Math.random)
-  const yJ = _array(20, Math.random)
-  const zJK = _array(20, j => _array(10, Math.random))
+  const J = 100
+  const K = 10
+  const xJ = _array(J, Math.random)
+  const yJ = _array(J, Math.random)
+  const zJK = _array(J, j => _array(K, Math.random))
   const zKJ = transpose(zJK)
 
   benchmark(

@@ -306,6 +306,20 @@ function _js_table_show_test(name) {
   )
 }
 
+async function _js_table_run_benchmark(name, e) {
+  const link = e.target
+  const table = link.closest('.modal').querySelector('table')
+  const running = document.createTextNode('running...')
+  link.replaceWith(running)
+  table.style.opacity = 0.5
+  // dynamically eval/invoke benchmark_item function from #benchmarker
+  await _item('#benchmarker', false)?.eval('benchmark_item')(_this)
+  table.style.opacity = 1
+  running.replaceWith(link)
+  await _modal_close()
+  _js_table_show_benchmark(name)
+}
+
 function _js_table_show_benchmark(name) {
   const benchmark = _this.global_store._benchmarks[name]
   let log = [] // unparsed log lines
@@ -324,10 +338,13 @@ function _js_table_show_benchmark(name) {
     }
   }
   rows = _.sortBy(rows, r => -parseInt(r[0].replace(/,/g, '')))
+  const rerun_link = !_exists('#benchmarker', false)
+    ? ''
+    : evallink(_this, `_js_table_run_benchmark('${name}',event)`, 'run')
   _modal(
     [
       `#### Benchmark \`${name}\`` +
-        ` <span class="elapsed">${elapsed}ms</span>`,
+        ` <span class="elapsed">${elapsed}ms ${rerun_link}</span>`,
       rows.length ? table(rows) : '',
       log.length ? ['```_log', ...log, '```'] : [],
       '```js',
