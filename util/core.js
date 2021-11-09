@@ -288,7 +288,7 @@ function js_table(regex) {
     '#item .js_table > table { line-height: 150%; border-spacing: 10px }',
     '#item .js_table > table table code { font-size:90% }',
     '#item .js_table > table table { font-size:80%; border-spacing: 10px 0 }',
-    '#item .js_table table td .button { margin-left:5px }',
+    '#item .js_table table td .button { margin-left:5px; vertical-align:middle }',
     '#item .js_table table td .button:before { content:"⋯" }',
     '#item .js_table table td.expand .button:before { content:"◀︎" }',
     '#item .js_table table td :is(.test,.benchmark) { color:black; background: #f55; margin-right:5px; font-weight:600; font-size:80% }',
