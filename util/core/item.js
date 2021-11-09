@@ -57,7 +57,7 @@ const remove = (...args) => _this.remove(...args)
 const __delete = (...args) => _this.delete(...args)
 
 // get_log(…)
-// returns log messages for item
+// log messages for item
 // |`source` | string   | `self*`, `any`, item `#name` or id
 // |         |          | append `?` to include unknown (empty stack)
 // |`level`  | string   | `debug`, `info*`, `log`, `warn`, `error`
@@ -136,13 +136,13 @@ const dispatch_task = (...args) => _this.dispatch_task(...args)
 const cancel_task = (...args) => _this.cancel_task(...args)
 
 // promise(func)
-// returns new promise _attached_ to item
+// new promise _attached_ to item
 // `func` is _executor_ w/ args `(resolve[,reject])`
 // `= attach(new Promise(attach(func)))`
 const promise = (...args) => _this.promise(...args)
 
 // resolve(thing)
-// returns resolving promise _attached_ to item
+// resolving promise _attached_ to item
 // `= attach(Promise.resolve(thing))`
 const resolve = (...args) => _this.resolve(...args)
 
@@ -173,12 +173,12 @@ const error = (...args) => _this.error(...args)
 const fatal = (...args) => _this.fatal(...args)
 
 // delay(ms)
-// returns promise w/ dispatched resolve
+// promise w/ dispatched resolve
 // `= promise(resolve => dispatch(resolve, ms))`
 const delay = (...args) => _this.delay(...args)
 
 // images(…)
-// returns _uploaded_ images in item
+// _uploaded_ images in item
 // as sources (`src` in text), urls, or blob
 // returns string array for sources
 // returns promise for urls and blobs
@@ -187,7 +187,7 @@ const delay = (...args) => _this.delay(...args)
 const images = (...args) => _this.images(...args)
 
 // cached(key, func)
-// returns value _cached_ on item under `key`
+// value _cached_ on item under `key`
 // computed as `func(item)` as needed
 // cache is accessible as `_this.cache`
 // cleared on changes to item via `_this.deephash`

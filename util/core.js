@@ -111,7 +111,7 @@ function _run_benchmark(
   } else log(base)
 }
 
-// returns `[output, elapsed_ms]`
+// `[output, elapsed_ms]`
 function timing(f) {
   const start = Date.now()
   const output = f()
@@ -120,7 +120,7 @@ function timing(f) {
 }
 
 // table(cells,[headers])
-// returns markdown table for `cells`
+// markdown table for `cells`
 // |`cells`   | 2D array | `[['a',1],['b',2]]`
 // |`headers` | array    | `['a','b']`
 function table(cells, headers) {
@@ -150,7 +150,7 @@ function _count_unescaped(str, substr) {
 }
 
 // js_table([regex])
-// returns table of `js` definitions
+// table of `js` definitions
 // can filter names using optional `regex`
 function js_table(regex) {
   const defs = Array.from(
