@@ -1,8 +1,8 @@
-async function benchmark_item(item) {
-  if (!item.text.match(/\b_benchmark/)) return // no benchmarks in item
+function benchmark_item(item) {
+  if (!item.text.match(/\b_benchmark/)) return 0 // no benchmarks in item
 
   // serialize via item.store._benchmarker/_tester to avoid mixing up logs
-  item.store._benchmarker = Promise.allSettled([
+  return (item.store._benchmarker = Promise.allSettled([
     item.store._benchmarker,
     item.store._tester,
   ]).then(async () => {
@@ -11,13 +11,14 @@ async function benchmark_item(item) {
       '_benchmark',
       ...(item.text.match(/\b_benchmark_\w+/g) ?? []),
     ]
+    let benchmarks_done = 0
     for (const benchmark of benchmarks) {
       const name = benchmark.replace(/^_benchmark_?/, '') || '(unnamed)'
       let done, ms, e
       const start = Date.now()
       try {
         done = await item.eval(
-          `typeof ${benchmark} == 'function' ? (${benchmark}(),true) : false`,
+          `typeof ${benchmark} == 'function' ? (${benchmark}() ?? true) : false`,
           { trigger: 'benchmark', async: item.deepasync, async_simple: true }
         )
         ms = Date.now() - start
@@ -30,6 +31,7 @@ async function benchmark_item(item) {
       }
       // store benchmark results in item's global store under _tests
       if (done) {
+        benchmarks_done++
         const log = item.get_log({ since: 'eval' })
         const gs = item.global_store
         gs._benchmarks = _.set(gs._benchmarks || {}, name, { ms, ok: !e, log })
@@ -54,7 +56,8 @@ async function benchmark_item(item) {
         await _delay(1) // ensure time-separation of benchmark runs (and logs)
       }
     }
-  })
+    return benchmarks_done
+  }))
 }
 
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
@@ -71,5 +74,26 @@ async function _on_command_benchmark(label) {
     alert(`/benchmark: ${label} not found`)
     return '/benchmark ' + label
   }
-  for (const item of items) await benchmark_item(item)
+  try {
+    let num_benchmarks = 0
+    let num_items = 0 // items with benchmarks
+    for (const item of items) {
+      if (!item.text.match(/\b_benchmark/)) continue // no tests in item
+      await _modal_close()
+      _modal(`Running benchmarks in ${item.name} ...`)
+      const count = await benchmark_item(item)
+      num_benchmarks += count
+      if (count) num_items++
+    }
+    await _modal_close()
+    await _modal({
+      content: `Completed ${num_benchmarks} benchmark${
+        num_benchmarks > 1 ? 's' : ''
+      } in ${num_items} item${num_items > 1 ? 's' : ''}.`,
+      confirm: 'OK',
+      background: 'confirm',
+    })
+  } finally {
+    _modal_close()
+  }
 }
