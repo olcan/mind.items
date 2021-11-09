@@ -1,27 +1,44 @@
+// TODO: reconsider the undefined checks which feel overkill
 // TODO: figure out what to do w/ _array and Math.random (uniform) below
 // TODO: ensure tests/benchmarks look good!
 
-const is_flat = x => {
-  if (!defined(x)) return undefined
-  return !is_array(x) || !x.some(is_array)
+// is `x` flat?
+// flat means _uniform depth_ 1 or 0
+// non-array (depth 0) considered flat
+// undefined is considered non-array
+function is_flat(x) {
+  if (!is_array(x)) return true
+  return !x.some(is_array)
+}
+
+function _test_is_flat() {
+  check(
+    () => is_flat(),
+    () => is_flat(0),
+    () => is_flat([]),
+    () => is_flat([0]),
+    () => !is_flat([[]]),
+    () => !is_flat([0, []])
+  )
 }
 
 // is `x` rectangular?
 // rectangular means _uniform depth_
-const is_rectangular = x => {
-  if (!defined(x)) return undefined
+// non-array (depth 0) considered rectangular
+// many functions below assume `x` is rectangular
+function is_rectangular(x) {
   if (!is_array(x)) return true
   return _is_array_rectangular(x)
 }
 
-const _is_array_rectangular = x =>
-  is_array(x[0])
-    ? x.every(xj => is_array(xj) && _is_array_rectangular(xj))
-    : is_flat(x)
+function _is_array_rectangular(x) {
+  if (!is_array(x[0])) return is_flat(x)
+  return x.every(xj => is_array(xj) && _is_array_rectangular(xj))
+}
 
 function _test_is_rectangular() {
   check(
-    () => is_rectangular() === undefined,
+    () => is_rectangular(),
     () => is_rectangular(0),
     () => is_rectangular([]),
     () => is_rectangular([[]]),
@@ -33,40 +50,63 @@ function _test_is_rectangular() {
   )
 }
 
-// returns depth of rectangular `x`
-const depth = x => (is_array(x) ? depth(x[0]) + 1 : 0)
+// dimensions of _rectangular_ `x`
+// _invalid for non-rectangular `x`_
+function dimensions(x) {
+  if (!is_array(x)) return []
+  if (x.length == 0) return [0]
+  return [x.length, ...dimensions(x[0])]
+}
 
-// returns dimensions of rectangular `x`
-const dims = x => (is_array(x) ? [x.length, ...dims(x[0])] : [])
-
-function _test_dims() {
+function _test_dimensions() {
   check(
-    () => equal(dims(0), []),
-    () => equal(dims([]), [0]),
-    () => equal(dims([[]]), [1, 0]),
-    () => equal(dims([[1, 2]]), [1, 2]),
-    () => equal(dims([[1], [2]]), [2, 1])
+    () => equal(dimensions(), []),
+    () => equal(dimensions(0), []),
+    () => equal(dimensions([]), [0]),
+    () => equal(dimensions([[]]), [1, 0]),
+    () => equal(dimensions([[1, 2]]), [1, 2]),
+    () => equal(dimensions([[1], [2]]), [2, 1])
   )
 }
 
-// returns true if `x` is a matrix w/ array depth 2+
-// based only on first element for efficiency
-const is_matrix = x => is_array(x) && is_array(x[0])
+// depth of _rectangular_ `x`
+// _invalid for non-rectangular `x`_
+function depth(x) {
+  if (!is_array(x)) return 0
+  return depth(x[0]) + 1
+}
+
+const is_scalar = x => !is_array(x) // ≡ depth(x)==0
+
+// `depth(x) == 2` for _rectangular_ `x`
+// _invalid for non-rectangular `x`_
+const is_matrix = x => depth(x) == 2
 
 function _test_is_matrix() {
   check(
+    () => !is_matrix(),
     () => !is_matrix([]),
     () => is_matrix([[]]),
-    () => is_matrix([[0], 1]),
-    () => is_matrix([[[]]])
+    () => is_matrix([[0]]),
+    () => is_matrix([[0], 1]), // invalid!
+    () => !is_matrix([[[]]]) // too deep
   )
 }
 
-const matrixify = x => (!is_matrix(x) ? matrixify([x]) : x)
-
+// peels away outer dimensions of length 1
 function scalarify(x) {
-  return x.length == 1 ? (x[0]?.length == 1 ? x[0][0] : x[0]) : x
+  while (is_array(x) && x.length == 1) x = x[0]
+  return x
 }
+
+// converts scalar → array → 1×n matrix
+function matrixify(x) {
+  if (!is_array(x)) x = [x] // convert scalar to array
+  if (!is_array(x[0])) x = [x] // convert array to 1xn matrix
+  return x
+}
+
+// TODO: test scalarify and matrixify
 
 function transpose(xJK) {
   xJK = matrixify(xJK)
