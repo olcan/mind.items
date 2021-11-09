@@ -1,4 +1,5 @@
 // TODO: figure out what to do w/ _array and Math.random (uniform) below
+// TODO: ensure tests/benchmarks look good!
 
 // returns dimensions assuming rectangular array
 const dims = x => (is_array(x) ? [x.length, ...dims(x[0])] : [])

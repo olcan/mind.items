@@ -36,7 +36,11 @@ function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
     if (!f()) {
-      const stack = new Error().stack.split('\n').join(' <- ')
+      const stack = new Error().stack
+        .split('\n')
+        .map(s => s.replace(/@$/, ''))
+        .filter(s => s)
+        .join(' <- ')
       throw new Error(`FAILED CHECK: ${stringify(f)} @ ${stack}`)
     }
   })
@@ -231,8 +235,8 @@ function js_table(regex) {
       status += evallink(
         _this,
         `_js_table_show_test('${def._name}', event)`,
-        'tested',
-        'tested' + (test.ok ? ' ok' : '')
+        test.ok ? 'ok' : 'FAILED test',
+        'test' + (test.ok ? ' ok' : '')
       )
     }
     // append benchmark results
@@ -241,8 +245,8 @@ function js_table(regex) {
       status += evallink(
         _this,
         `_js_table_show_benchmark('${def._name}', event)`,
-        'benchmarked',
-        'benchmarked' + (benchmark.ok ? ' ok' : '')
+        benchmark.ok ? 'benchmark' : 'FAILED benchmark',
+        'benchmark' + (benchmark.ok ? ' ok' : '')
       )
     }
     if (status) def.comment += `<div class="status">${status}</div>`
@@ -270,9 +274,9 @@ function js_table(regex) {
     '#item .js_table table td .button { margin-left:5px }',
     '#item .js_table table td .button:before { content:"⋯" }',
     '#item .js_table table td.expand .button:before { content:"◀︎" }',
-    '#item .js_table table td :is(.tested,.benchmarked) { color:black; background: #f55; margin-right:5px; font-weight:600; font-size:80% }',
-    '#item .js_table table td .tested.ok { background: #7a7 }',
-    '#item .js_table table td .benchmarked.ok { background: #4ae }',
+    '#item .js_table table td :is(.test,.benchmark) { color:black; background: #f55; margin-right:5px; font-weight:600; font-size:80% }',
+    '#item .js_table table td .test.ok { background: #7a7 }',
+    '#item .js_table table td .benchmark.ok { background: #4ae }',
     // if item is pushable, expand all for easy preview and editing
     '.container:not(.pushable) #item .js_table table td:not(.expand) .more { display: none }',
     '.container.pushable #item .js_table table td .button { display: none }',
@@ -287,12 +291,74 @@ function _js_table_expand(e) {
 
 function _js_table_show_test(name) {
   const test = _this.global_store._tests[name]
-  alert(test.log.join('\n'))
+  _modal(
+    [
+      '#### ' + `Test \`${name}\``,
+      !test.ok ? ['```_log', ...test.log, '```'] : '',
+      '```js',
+      _this.eval(test.test || `_test_${name}`),
+      '```',
+      '<style>',
+      '.modal pre { padding-top:5px }',
+      '.modal :not(pre) > code { font-weight:600 }',
+      '</style>',
+    ].join('\n')
+  )
 }
 
 function _js_table_show_benchmark(name) {
   const benchmark = _this.global_store._benchmarks[name]
-  alert(benchmark.log.join('\n'))
+  let log = [] // unparsed log lines
+  let rows = [] // parsed benchmark log lines
+  let elapsed
+  for (const line of benchmark.log) {
+    let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/)?.slice(1) ?? []
+    let [ms] = line.match(/in (\d+)ms$/)?.slice(1) ?? []
+    if (result) {
+      result = result.replace(' calls/sec', '/s') // abbreviate calls/sec
+      rows.push([result, name])
+    } else if (ms) {
+      elapsed = ms
+    } else {
+      log.push(line)
+    }
+  }
+  rows = _.sortBy(rows, r => -parseInt(r[0].replace(/,/g, '')))
+  _modal(
+    [
+      `#### Benchmark \`${name}\`` +
+        ` <span class="elapsed">${elapsed}ms</span>`,
+      rows.length ? table(rows) : '',
+      log.length ? ['```_log', ...log, '```'] : [],
+      '```js',
+      _this.eval(benchmark.benchmark || `_benchmark_${name}`),
+      '```',
+      '<style>',
+      '.modal pre { padding-top:10px }',
+      '.modal :not(pre) > code { font-weight:600 }',
+      '.modal table { ',
+      [
+        'margin-top:10px',
+        'background: #222; border-radius: 4px',
+        'color: #ccc',
+        'font-family:"jetbrains mono", monospace',
+        'font-size:80%; line-height:140%; border-spacing: 15px 0',
+        'padding: 5px 0',
+      ].join(';'),
+      '}',
+      '.modal table td { vertical-align: top }',
+      '.modal .elapsed {',
+      [
+        'font-size: 70%',
+        'font-family:"jetbrains mono", monospace',
+        'margin-left: 5px',
+      ].join(';'),
+      '}',
+      '</style>',
+    ]
+      .flat()
+      .join('\n')
+  )
 }
 
 const _array = (J, f) => {
@@ -304,70 +370,3 @@ const _array = (J, f) => {
 }
 
 const command_table = () => js_table(/^_on_command_/)
-
-// const style_footer = `
-// \`\`\`_html
-// <style>
-// #item table {
-//   color:gray;
-//   font-size:80%;
-//   line-height:140%;
-//   white-space:nowrap;
-//   font-family:'jetbrains mono', monospace;
-// }
-// #item .elapsed {
-//   color:#666;
-//   font-size:70%;
-//   font-family:'jetbrains mono', monospace;
-//   margin-left: 10px;
-// }
-// </style>
-// \`\`\`
-// `
-// // command /benchmark [label]
-// async function _on_command_benchmark(label) {
-//   const items = _items(label)
-//   if (items.length == 0) {
-//     alert(`/benchmark: ${label} not found`)
-//     return '/benchmark ' + label
-//   }
-//   for (const item of items) {
-//     const lines = await benchmark_item(item)
-//     if (lines.length == 0) continue
-//     const output_item_name =
-//       '#benchmarks/' +
-//       (item.name.startsWith('#') ? item.name.slice(1) : item.id)
-//     let text = `${output_item_name}\n`
-//     // process lines, formatting benchmark lines as interleaved markdown tables
-//     let rows = []
-//     for (const line of lines) {
-//       if (line.match(/:\s*\d/)) {
-//         let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/).slice(1)
-//         result = result.replace('calls/sec', '') // drop calls/sec as default unit
-//         rows.push([result, name])
-//       } else {
-//         if (line.match(/^BENCHMARK/)) {
-//           // append as benchmark header
-//           const [name, time] = line
-//             .match(/BENCHMARK (\S+?) completed in (\S+)/)
-//             .slice(1)
-//           text += `\`${name}\`<span class=elapsed>${time}</span>\n`
-//         } else {
-//           // append generic line as is
-//           text += line + '\n'
-//         }
-//         if (rows.length) {
-//           text += '```_md\n' + table(rows) + '\n```\n\n'
-//           rows = []
-//         }
-//       }
-//     }
-//     text += style_footer
-//     text = text.trim()
-
-//     // if benchmark item exists, write into it, otherwise create new item
-//     const output_item = _item(output_item_name, false /*log_errors*/)
-//     if (output_item) output_item.write(text, '' /*whole item*/)
-//     else _create(text)
-//   }
-// }

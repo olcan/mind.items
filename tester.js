@@ -44,6 +44,7 @@ async function test_item(item) {
               ms,
               ok: !e,
               log,
+              test, // actual test name
             })
           })
         }

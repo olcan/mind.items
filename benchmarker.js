@@ -47,6 +47,7 @@ async function benchmark_item(item) {
               ms,
               ok: !e,
               log,
+              benchmark, // actual benchmark name
             })
           })
         }
