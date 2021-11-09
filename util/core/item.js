@@ -119,7 +119,7 @@ const attach = (...args) => _this.attach(...args)
 
 // dispatch(func,[delay=0])
 // invokes attached function after `delay` ms
-// `= setTimeout(attach(func), delay)`
+// `≡ setTimeout(attach(func), delay)`
 const dispatch = (...args) => _this.dispatch(...args)
 
 // => dispatch_task(name,func,\n[delay=0],[repeat=0])
@@ -138,18 +138,18 @@ const cancel_task = (...args) => _this.cancel_task(...args)
 // promise(func)
 // new promise _attached_ to item
 // `func` is _executor_ w/ args `(resolve[,reject])`
-// `= attach(new Promise(attach(func)))`
+// `≡ attach(new Promise(attach(func)))`
 const promise = (...args) => _this.promise(...args)
 
 // resolve(thing)
 // resolving promise _attached_ to item
-// `= attach(Promise.resolve(thing))`
+// `≡ attach(Promise.resolve(thing))`
 const resolve = (...args) => _this.resolve(...args)
 
 // debug(...)
 // logs debug messages to console
 // associates w/ item on stack via `invoke`
-// `= invoke(() => console.debug(...))`
+// `≡ invoke(() => console.debug(...))`
 const debug = (...args) => _this.debug(...args)
 
 // log(...)
@@ -174,7 +174,7 @@ const fatal = (...args) => _this.fatal(...args)
 
 // delay(ms)
 // promise w/ dispatched resolve
-// `= promise(resolve => dispatch(resolve, ms))`
+// `≡ promise(resolve => dispatch(resolve, ms))`
 const delay = (...args) => _this.delay(...args)
 
 // images(…)
