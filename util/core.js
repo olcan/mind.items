@@ -235,7 +235,7 @@ function js_table(regex) {
       status += evallink(
         _this,
         `_js_table_show_test('${def._name}', event)`,
-        test.ok ? 'ok' : 'FAILED test',
+        test.ok ? 'test' : 'FAILED test',
         'test' + (test.ok ? ' ok' : '')
       )
     }
@@ -308,13 +308,13 @@ function _js_table_show_test(name) {
 
 async function _js_table_run_benchmark(name, e) {
   const link = e.target
-  const table = link.closest('.modal').querySelector('table')
+  const results = link.closest('.modal').querySelector('.results')
   const running = document.createTextNode('running...')
   link.replaceWith(running)
-  table.style.opacity = 0.5
+  results.style.opacity = 0.5
   // dynamically eval/invoke benchmark_item function from #benchmarker
   await _item('#benchmarker', false)?.eval('benchmark_item')(_this)
-  table.style.opacity = 1
+  results.style.opacity = 1
   running.replaceWith(link)
   await _modal_close()
   _js_table_show_benchmark(name)
@@ -345,28 +345,35 @@ function _js_table_show_benchmark(name) {
     [
       `#### Benchmark \`${name}\`` +
         ` <span class="elapsed">${elapsed}ms ${rerun_link}</span>`,
-      rows.length ? table(rows) : '',
+      rows.length ? ['<div class="results">\n', table(rows), '\n</div>\n'] : [],
       log.length ? ['```_log', ...log, '```'] : [],
       '```js',
       _this.eval(benchmark.benchmark || `_benchmark_${name}`),
       '```',
       '<style>',
-      '.modal pre { padding-top:10px }',
+      '.modal pre { margin-top:10px }',
       '.modal :not(pre) > code { font-weight:600 }',
-      '.modal table { ',
+      '.modal .results {',
       [
         'margin-top:10px',
+        'max-height: 300px; overflow:scroll',
         'background: #222; border-radius: 4px',
+      ].join(';'),
+      '}',
+      '.modal table { ',
+      [
+        'max-width:100%',
         'color: #ccc',
         'font-family:"jetbrains mono", monospace',
-        'font-size:80%; line-height:140%; border-spacing: 15px 0',
+        'font-size:12px; line-height:21px',
+        'border-spacing: 15px 0',
         'padding: 5px 0',
       ].join(';'),
       '}',
       '.modal table td { vertical-align: top }',
       '.modal .elapsed {',
       [
-        'font-size: 70%',
+        'font-size:12px; line-height:21px',
         'font-family:"jetbrains mono", monospace',
         'margin-left: 5px',
       ].join(';'),
