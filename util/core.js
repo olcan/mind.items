@@ -293,7 +293,7 @@ function js_table(regex) {
     let benchmarked = benchmark?.ok ? 'benchmarked' : ''
 
     lines.push(
-      `|<div class="label ${ok} ${benchmarked}">${label}</div>|` +
+      `|<div class="label-wrapper ${benchmarked}"><div class="label ${ok}">${label}</div></div>|` +
         `<div class="cell name_${def._name} ${expandable} ${expand}">${def.comment}</div>`
     )
   })
@@ -313,12 +313,13 @@ function js_table(regex) {
     '#item .js_table table.comment { border-spacing: 5px 1px; border-collapse: collapsed }',
     '#item .js_table :is(.label,.cell) { padding: 2px 0 }',
     '#item .js_table .label { padding-top: 3px }',
-    '#item .js_table .label { display:block; height:100%; width:100%; max-width:200px; overflow:hidden; text-overflow: ellipsis; vertical-align: baseline; border-left: 5px solid #666; padding-left:10px; font-family:"jetbrains mono", monospace; font-size:90%; cursor: pointer }',
+    '#item .js_table .label { display:block; height:100%; width:100%; max-width:200px; border-left: 4px solid #444; overflow:hidden; text-overflow: ellipsis; vertical-align: baseline; padding-left:10px; font-family:"jetbrains mono", monospace; font-size:90% }',
     '#item .js_table .label .args { color: #999; margin-left:2px }',
     '#item .js_table .label code { background: none }',
     '#item .js_table .label.ok { border-color: #8d8 }',
-    '#item .js_table .label.benchmarked { border-color: #4ae }',
     '#item .js_table .label.error { border-color: #f55; background: #500; border-radius: 0 4px 4px 0 }',
+    '#item .js_table .label-wrapper { border-left: 4px solid transparent; padding-left:1px; cursor: pointer }',
+    '#item .js_table .label-wrapper.benchmarked { border-color: #4ae }',
     '#item .js_table .cell .more { display: none }',
     '#item .js_table .cell { padding-left:7px; border-radius:4px }',
     '#item .js_table .cell.expandable { cursor: pointer }',
@@ -353,7 +354,7 @@ function _js_table_install_click_handlers() {
       e.stopPropagation()
       if (expandable) _js_table_toggle(name, e)
     }
-    const label = cell.closest('tr').querySelector('.label')
+    const label = cell.closest('tr').querySelector('.label-wrapper')
     const args = label.querySelector('.args').innerText
     label.onclick = e => {
       e.stopPropagation()
