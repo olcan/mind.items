@@ -165,7 +165,7 @@ function js_table(regex) {
         def.args = def.arrow_args.replace(/\s*=>$/, '')
         if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
-      def.args = def.args.replace(/\s*\n\s*/g, ' ') // remove newlines in args
+      def.args = def.args.replace(/\s+/g, '') // remove whitespace in args
       def._name = def.name // save original name (before possible modification)
       if (def.comment) {
         // clean up: drop // and insert <br> before \n
