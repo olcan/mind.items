@@ -11,9 +11,7 @@
 // | `_hash_128_murmur3_x86` | 128  | [murmur v3](https://en.wikipedia.org/wiki/MurmurHash) x86
 // | `_hash_128_murmur3_x64` | 128  | [murmur v3](https://en.wikipedia.org/wiki/MurmurHash) x64
 // | `_hash_160_sha1`        | 160  | [secure hash algo 1](https://en.wikipedia.org/wiki/SHA-1)
-function hash(str, hasher = _hash_64_fnv1a, stringifier = stringify) {
-  return window._hash(str, hasher, stringifier) // provided by mindpage
-}
+const hash = window._hash
 
 function _test_hash() {
   const str = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
