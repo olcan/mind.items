@@ -75,7 +75,28 @@ function depth(x) {
   return depth(x[0]) + 1
 }
 
+function _test_depth() {
+  check(
+    () => depth() === 0,
+    () => depth(0) === 0,
+    () => depth([0]) === 1,
+    () => depth([[0]]) === 2,
+    () => depth([[0], 1]) === 2, // invalid!
+    () => depth([0, [1]]) === 1, // invalid!
+    () => depth([[0], [1]]) === 2
+  )
+}
+
 const is_scalar = x => !is_array(x) // ≡ depth(x)==0
+
+function _test_is_scalar() {
+  check(
+    () => is_scalar() === true,
+    () => is_scalar(0) === true,
+    () => is_scalar([]) === false,
+    () => is_scalar([0]) === false
+  )
+}
 
 // `depth(x) == 2` for _rectangular_ `x`
 // _invalid for non-rectangular `x`_
