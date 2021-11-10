@@ -1,4 +1,4 @@
-// hash (x, ･･･⭣ ) \n [hasher=_hash_64_fmv1a] \n [stringifier=stringify]
+// hash (x,[hasher=_hash_64_fmv1a],[stringifier=stringify])
 // hashes `x` using `hasher`
 // applies `stringifier` to non-string `x`
 // integer for ≤52 bits, hex string for >52
@@ -43,7 +43,7 @@ function _benchmark_hash() {
   )
 }
 
-// encode(string, ･･･⭣ ) \n [encoding='base64']
+// encode(string,[encoding='base64'])
 // encodes `string` into `encoding`
 // `string` is assumed [UTF-16](https://en.wikipedia.org/wiki/UTF-16) (`js` default)
 // | `'utf8'`              | [UTF-8](https://en.wikipedia.org/wiki/UTF-8) string
@@ -51,7 +51,7 @@ function _benchmark_hash() {
 // | default ➡ `'base64'`  | [Base64](https://en.wikipedia.org/wiki/Base64) ASCII string
 const encode = window._encode
 
-// decode(x, ･･･⭣ ) \n [encoding='base64']
+// decode(x,[encoding='base64'])
 // decodes string from `x` in `encoding`
 // see `encode` for supported encodings
 const decode = window._decode
