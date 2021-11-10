@@ -275,12 +275,11 @@ function js_table(regex) {
       def.comment = comment_lines[0] || ''
     }
 
-    // wrap label in backticks, allowing multiple lines
-    const label = (def.name + def.args)
-      .replace(/\\n/g, '<br>')
-      .split('<br>')
-      .map(s => '`' + s + '`')
-      .join('<br>')
+    // put together name and args as label, allowing both \n and <br>
+    let label =
+      `<span class="name">${def.name}</span>` +
+      `<span class="args">${def.args}</span>`
+    label = label.replace(/\\n/g, '<br>')
 
     // restore expanded state from local store (triggers render on change)
     const ls = _this.local_store
@@ -313,7 +312,8 @@ function js_table(regex) {
     '#item .js_table > table { line-height: 150%; border-spacing: 10px }',
     '#item .js_table > table table code { font-size:90%; line-height:140% }',
     '#item .js_table > table table { font-size:80%; line-height:140% border-spacing: 10px 0 }',
-    '#item .js_table .label { border-radius:4px }',
+    '#item .js_table .label { border-radius:4px; font-family:"jetbrains mono", monospace; font-size:80%; line-height:140% }',
+    '#item .js_table .label .args { color: #999; margin-left:2px }',
     '#item .js_table .label code { background: none }',
     '#item .js_table .label.ok { color: #8d8 }',
     '#item .js_table .label.error { background: #f55 }',
