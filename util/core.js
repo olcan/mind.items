@@ -294,8 +294,11 @@ function js_table(regex) {
     if (test) ok = test.ok ? 'ok' : 'error'
     if (benchmark && !benchmark.ok) ok = 'error'
 
+    // if benchmarked also indicate as .benchmarked class
+    let benchmarked = benchmark?.ok ? 'benchmarked' : ''
+
     lines.push(
-      `|<span class="label ${ok}">${label}</span>|` +
+      `|<span class="label ${ok} ${benchmarked}">${label}</span>|` +
         `<div class="cell name_${def._name} ${expand}">${def.comment}</div>`
     )
   })
@@ -316,6 +319,7 @@ function js_table(regex) {
     '#item .js_table .label .args { color: #999; margin-left:2px }',
     '#item .js_table .label code { background: none }',
     '#item .js_table .label.ok { color: #8d8 }',
+    '#item .js_table .label.benchmarked { color: #4ae }',
     '#item .js_table .label.error { color: #f55; border: 1px solid #f55 }',
     '#item .js_table .more { display: none; padding-bottom: 10px }',
     '#item .js_table .status-indicator { display:inline-block; white-space:nowrap; height:8px; margin-left:5px; vertical-align:baseline }',
