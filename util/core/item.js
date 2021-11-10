@@ -211,5 +211,5 @@ const save_global_store = (...args) => _this.save_global_store(...args)
 
 // => invalidate_elem_cache\n([force_render=false])
 // invalidates element cache for item
-// can force rendering even w/o changes in `_this.deephash`, `_this.time`, or generated html
+// can force rendering w/o change in `_this.deephash`
 const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
