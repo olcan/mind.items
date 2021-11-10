@@ -98,7 +98,18 @@ function scalarify(x) {
   return x
 }
 
-// TODO: test scalarify
+function _test_scalarify() {
+  check(
+    () => scalarify() === undefined,
+    () => equal(scalarify([]), []),
+    () => equal(scalarify([[]]), []),
+    () => equal(scalarify([[[]]]), []),
+    () => equal(scalarify([0]), 0),
+    () => equal(scalarify([[0]]), 0),
+    () => equal(scalarify([[0, 1]]), [0, 1]),
+    () => equal(scalarify([[0], 1]), [[0], 1])
+  )
+}
 
 // wraps scalar → array → 1×n matrix
 function matrixify(x) {
