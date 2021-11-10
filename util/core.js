@@ -227,29 +227,14 @@ function js_table(regex) {
       })
     if (table) comment_lines.push(table + '</table>')
 
-    // hide all comment lines but first
-    const button = evallink(
-      _this,
-      '_js_table_expand(event)',
-      '', // content set via .button:before
-      'button'
-    )
-    if (comment_lines.length > 1) {
-      def.comment =
-        comment_lines[0] +
-        button +
-        '<div class="more">' +
-        comment_lines.slice(1).join('<br>') +
-        `</div>`
-    } else {
-      def.comment = comment_lines[0] || ''
-    }
-
-    // append test results
-    const gs = _this.global_store
+    // append test/benchmark results as the last comment line
+    // also display a status indicator (hidden on expanded state)
     let status = ''
+    let status_indicator = ''
+    const gs = _this.global_store
+    let test, benchmark
     if (gs._tests && gs._tests[def._name]) {
-      const test = gs._tests[def._name]
+      test = gs._tests[def._name]
       status += evallink(
         _this,
         `_js_table_show_test('${def._name}', event)`,
@@ -257,9 +242,8 @@ function js_table(regex) {
         'test' + (test.ok ? ' ok' : '')
       )
     }
-    // append benchmark results
     if (gs._benchmarks && gs._benchmarks[def._name]) {
-      const benchmark = gs._benchmarks[def._name]
+      benchmark = gs._benchmarks[def._name]
       status += evallink(
         _this,
         `_js_table_show_benchmark('${def._name}', event)`,
@@ -267,7 +251,29 @@ function js_table(regex) {
         'benchmark' + (benchmark.ok ? ' ok' : '')
       )
     }
-    if (status) def.comment += `<div class="status">${status}</div>`
+    if (status) {
+      comment_lines.push(`<div class="status">${status}</div>`)
+      status_indicator = `<div class="status-indicator">${status}</div>`
+    }
+
+    // hide all non-first comment lines under a toggle
+    const button = evallink(
+      _this,
+      `_js_table_toggle('${def._name}',event)`,
+      '', // content set via .button:before
+      'button'
+    )
+    if (comment_lines.length > 1) {
+      def.comment =
+        comment_lines[0] +
+        button +
+        status_indicator +
+        '<div class="more">' +
+        comment_lines.slice(1).join('<br>') +
+        `</div>`
+    } else {
+      def.comment = comment_lines[0] || ''
+    }
 
     // wrap label in backticks, allowing multiple lines
     const label = (def.name + def.args)
@@ -275,7 +281,24 @@ function js_table(regex) {
       .split('<br>')
       .map(s => '`' + s + '`')
       .join('<br>')
-    lines.push(`|${label}|${def.comment}`)
+
+    // restore expanded state from local store (triggers render on change)
+    const ls = _this.local_store
+    let expand = ''
+    const stored_toggle = ls._js_table?.[def._name]
+    if (stored_toggle === true) expand = 'expand'
+    else if (stored_toggle === false) expand = 'collapse'
+
+    // if tested indicate result as styling on label
+    // also consider benchmark errors
+    let ok = ''
+    if (test) ok = test.ok ? 'ok' : 'error'
+    if (benchmark && !benchmark.ok) ok = 'error'
+
+    lines.push(
+      `|<span class="label ${ok}">${label}</span>|` +
+        `<div class="cell name_${def._name} ${expand}">${def.comment}</div>`
+    )
   })
   return [
     '<span class="js_table">',
@@ -283,27 +306,52 @@ function js_table(regex) {
     '</span>',
     '```_html',
     '<style>',
-    '#item .js_table table td:first-child { white-space: nowrap; text-align:right }',
+    '#item .js_table table td:first-child { ',
+    '  white-space:nowrap; text-align:right }',
     '#item .js_table table + br { display: none }',
+    '#item .js_table table td { padding: 0 }',
     '#item .js_table > table { line-height: 150%; border-spacing: 10px }',
-    '#item .js_table > table table code { font-size:90% }',
-    '#item .js_table > table table { font-size:80%; border-spacing: 10px 0 }',
-    '#item .js_table table td .button { margin-left:5px; vertical-align:middle }',
-    '#item .js_table table td .button:before { content:"⋯" }',
-    '#item .js_table table td.expand .button:before { content:"◀︎" }',
-    '#item .js_table table td :is(.test,.benchmark) { color:black; background: #f55; margin-right:5px; font-weight:600; font-size:80% }',
-    '#item .js_table table td .test.ok { background: #7a7 }',
-    '#item .js_table table td .benchmark.ok { background: #4ae }',
-    // if item is pushable, expand all for easy preview and editing
-    '.container:not(.pushable) #item .js_table table td:not(.expand) .more { display: none }',
-    '.container.pushable #item .js_table table td .button { display: none }',
+    '#item .js_table > table table code { font-size:90%; line-height:140% }',
+    '#item .js_table > table table { font-size:80%; line-height:140% border-spacing: 10px 0 }',
+    '#item .js_table .label { border-radius:4px }',
+    '#item .js_table .label code { background: none }',
+    '#item .js_table .label.ok { color: #8d8 }',
+    '#item .js_table .label.error { background: #f55 }',
+    '#item .js_table .label.error code { color: black; font-weight:600 }',
+    '#item .js_table .more { display: none; padding-bottom: 10px }',
+    '#item .js_table .status-indicator { display:inline-block; white-space:nowrap; height:8px; margin-left:5px; vertical-align:baseline }',
+    '#item .js_table .status-indicator a { display:inline-block; color:transparent; width:8px; height:8px; padding:0; vertical-align:middle }',
+    '#item .js_table .button { margin-left:5px; font-family:"jetbrains mono", monospace; font-size:80%; line-height:140% }',
+    '#item .js_table .button:before { content:"▼" }',
+    '#item .js_table .cell.expand .button:before { content:"▲" }',
+    '#item .js_table .cell.expand .more { display: block }',
+    '#item .js_table .cell.expand .status-indicator { display: none }',
+    '.container.pushable #item .js_table .cell:not(.collapse) .button:before { content:"▲" }',
+    '.container.pushable #item .js_table .cell:not(.collapse) .more { display: block }',
+    '.container.pushable #item .js_table .cell:not(.collapse) .status-indicator { display: none }',
+    '#item .js_table :is(.test,.benchmark) {',
+    '  color:black; background: #f55; margin-right:5px;',
+    '  font-weight:600; font-size:80%; line-height:140% }',
+    '#item .js_table .test.ok { background: #7a7 }',
+    '#item .js_table .benchmark.ok { background: #4ae }',
     '</style>',
     '```',
   ].join('\n')
 }
 
-function _js_table_expand(e) {
-  e.target.closest('td').classList.toggle('expand')
+function _js_table_toggle(name, e) {
+  e.preventDefault()
+  e.stopPropagation()
+  const cell = e.target.closest('.cell')
+  const expand =
+    (cell.classList.contains('expand') || !!cell.closest('.pushable')) &&
+    !cell.classList.contains('collapse')
+  // update dom immediately before re-render due to local store change
+  cell.classList.toggle('expand', !expand)
+  cell.classList.toggle('collapse', expand)
+  // store expanded state in local store (triggers render on change)
+  const ls = _this.local_store
+  ls._js_table = _.set(ls._js_table || {}, name, !expand)
 }
 
 function _js_table_show_test(name) {
