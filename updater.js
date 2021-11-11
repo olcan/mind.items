@@ -486,8 +486,8 @@ async function update_item(item, updates) {
           }
           // trigger another update (recursively) if still needed
           // skip if already in queue for another update
-          const has_updates = await check_updates(item)
-          if (has_updates && !_this.store.modified_ids.includes(item.id)) {
+          const updates = await check_updates(item)
+          if (updates && !_this.store.modified_ids.includes(item.id)) {
             _this.log(
               `update restarted for ${item.name} from ` +
                 `${source}/${path} after dependencies installed`
@@ -590,10 +590,9 @@ async function update_item(item, updates) {
 
     // write new text to item (also triggers save of modified attributes)
     // keep_time to avoid bringing up items due to auto-updates
-    // note item text/deephash may be unchanged (e.g. if the update was
-    //   triggered by a push from the same item), so keeping the time
-    //   helps avoid any redundant re-rendering of the item
-    // log warning if auto-update changed item name
+    // note item text/deephash may be unchanged
+    //   (e.g. if the update was triggered by a push from the same item)
+    // log warning if auto-update changed item name (should not happen)
     const prev_name = item.name
     item.write(text, '' /*, { keep_time: true }*/)
     if (item.name != prev_name)
@@ -616,7 +615,23 @@ async function update_item(item, updates) {
     }
 
     // clear pushable flag to resume auto-side-push to source
+    // also trigger another update check with mark_pushables=true
+    // this can detect a partial push/update where item remains pushable
     item.pushable = false
+    const updates = await check_updates(item, true /* mark_pushables */)
+    if (item.pushable) {
+      _this.warn(
+        `update for ${item.name} from ${source}/${path} ` +
+          `left unpushed changes; likely partial push/update`
+      )
+    }
+    if (updates && !_this.store.modified_ids.includes(item.id)) {
+      _this.warn(
+        `additional updates found for ${item.name} from ` +
+          `${source}/${path}; triggering another update recursively ...`
+      )
+      return await update_item(item, updates)
+    }
 
     _this.log(
       `updated ${item.name} from ${source}/${path} ` +
