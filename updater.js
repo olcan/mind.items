@@ -615,10 +615,10 @@ async function update_item(item, updates) {
     }
 
     // clear pushable flag to resume auto-side-push to source
-    // also trigger another update check with mark_pushables=true
+    // also perform another update check with mark_pushables=true
     // this can detect a partial push/update where item remains pushable
     item.pushable = false
-    const updates = await check_updates(item, true /* mark_pushables */)
+    updates = await check_updates(item, true /* mark_pushables */)
     if (item.pushable) {
       _this.warn(
         `update for ${item.name} from ${source}/${path} ` +
@@ -628,7 +628,7 @@ async function update_item(item, updates) {
     if (updates && !_this.store.modified_ids.includes(item.id)) {
       _this.warn(
         `additional updates found for ${item.name} from ` +
-          `${source}/${path}; triggering another update recursively ...`
+          `${source}/${path}; performing another update recursively ...`
       )
       return await update_item(item, updates)
     }
