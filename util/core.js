@@ -306,7 +306,7 @@ function js_table(regex) {
     '#item .js_table table thead { display: none }',
     '#item .js_table table { width:100%; margin:auto; font-size:90% }',
     '#item .js_table table + br { display: none }',
-    '#item .js_table > table { margin-top: 5px }',
+    '#item .js_table > table { margin-top: 5px; margin-left:-4px }',
     '#item .js_table table.comment { margin-top: 3px }',
     '#item .js_table > table > tbody > tr > td { padding: 0.5px 0 }',
     '#item .js_table > table > tbody > tr > td:first-child { white-space:nowrap; text-align:left; width:1%; padding-right: 10px; }',
