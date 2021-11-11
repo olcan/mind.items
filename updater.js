@@ -299,30 +299,37 @@ async function check_updates(item, mark_pushables = false) {
         }
       }
 
-      for (let embed of attr.embeds) {
-        const {
-          data: [{ sha }],
-        } = await github.repos.listCommits({
-          ...attr,
-          path: embed.path,
-          sha: attr.branch,
-          per_page: 1,
-        })
+      for (const embed of attr.embeds) {
+        // NOTE: there may be no commit/sha for new embeds
+        const sha = (
+          await github.repos.listCommits({
+            ...attr,
+            path: embed.path,
+            sha: attr.branch,
+            per_page: 1,
+          })
+        )?.data[0]?.sha
         // _this.debug(`listCommits returned sha ${sha} for ${embed.path}`)
-        if (sha != embed.sha) updates[embed.path] = sha
+        if (sha && sha != embed.sha) updates[embed.path] = sha
+
         if (mark_pushables) {
-          // compare embed text sha to last update/install
-          const {
-            data: { files },
-          } = await github.repos.getCommit({ ...attr, ref: embed.sha })
-          const file_sha = files.find(f => f.filename == embed.path)?.sha
-          if (file_sha != github_sha(embed_text[embed.path])) {
-            _this.warn(
-              `embed ${item.name}:${embed.path} is inconsistent with ` +
-                `source ${source}/${embed.path} and requires manual ` +
-                `/push or /_update`
-            )
+          if (!embed.sha) {
+            // new embed
             item.pushable = true // mark pushable until pushed to source
+          } else {
+            // compare embed text sha to last update/install
+            const {
+              data: { files },
+            } = await github.repos.getCommit({ ...attr, ref: embed.sha })
+            const file_sha = files.find(f => f.filename == embed.path)?.sha
+            if (file_sha != github_sha(embed_text[embed.path])) {
+              _this.warn(
+                `embed ${item.name}:${embed.path} is inconsistent with ` +
+                  `source ${source}/${embed.path} and requires manual ` +
+                  `/push or /_update`
+              )
+              item.pushable = true // mark pushable until pushed to source
+            }
           }
         }
       }
