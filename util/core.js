@@ -297,6 +297,7 @@ function js_table(regex) {
         `<div class="cell name_${def._name} ${expandable} ${expand}">${def.comment}</div>`
     )
   })
+  // TODO: move all css to core.css
   return [
     '<span class="js_table">',
     lines.join('\n'),
