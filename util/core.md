@@ -5,4 +5,8 @@
 // core.js
 ```
 
+```css_removed:core.css
+// core.css
+```
+
 <p> #_/types #_/hash  #_/item </p>
