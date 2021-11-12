@@ -255,3 +255,14 @@
   padding: 1px 5px;
   border-radius: 4px;
 }
+/* styles for running state */
+.core_js_table_modal.running .title .run a {
+  background: #777;
+  pointer-events: none;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.core_js_table_modal.running :is(.results, .elapsed) {
+  opacity: 0.5;
+}
