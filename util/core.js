@@ -340,7 +340,7 @@ function _on_change() {
   _install_core_css()
 }
 
-// TODO: where to put these? util/html?
+// TODO: refactor these into util/html?
 function _div(class_, content) {
   // new-lines allow interleaving w/ markdown
   return `<div class="${class_}">\n\n${content}\n</div>\n\n`
