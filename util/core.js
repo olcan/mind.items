@@ -341,8 +341,8 @@ function _init() {
   _install_core_css()
 }
 
-// re-install core.css on any changes to core
-function _on_change() {
+// re-install core.css on any changes to core (or dependencies)
+function _on_item_change() {
   _install_core_css()
 }
 
