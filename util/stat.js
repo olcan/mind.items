@@ -1,34 +1,106 @@
+// flip ([p=0.5])
 const flip = (p = 0.5) => Math.random() < p
 
 function _test_flip() {
   check(
-    () => flip() >= 0,
-    () => flip() < 1
+    () => is_boolean(flip()),
+    () => flip(0) === false,
+    () => flip(1) === true,
+    () => flip('a') === false // …<p false for non-number p
   )
 }
 
 function _benchmark_flip() {
   benchmark(
     () => flip(),
-    () => flip() < 1
+    () => Math.random()
   )
 }
 
+// uniform ([a],[b])
+// uniform on `[0,1)`,`[0,a)`, or `[a,b)`
+// | `[0,1)` | if `a` and `b` omitted
+// | `[0,a)` | if `b` omitted
+// | `[a,b)` | otherwise
 const uniform = (a, b) => {
   const u = Math.random()
-  return a === undefined ? u : b === undefined ? u * a : a + u * (b - a)
+  if (a === undefined) return u
+  if (b === undefined) return is_number(a) && a > 0 ? u * a : NaN
+  return is_number(a) && is_number(b) && b > a ? a + u * (b - a) : NaN
 }
-// NOTE: uniform_int(n) ~ uniform_int(0,n-1)
-//       uniform_int()  ~ uniform_int(0,1)
-const uniform_int = (a, b) => {
+
+function _test_uniform() {
+  check(
+    () => uniform() >= 0,
+    () => uniform() < 1,
+    () => uniform(1) < 1,
+    () => uniform(0.001) < 0.001,
+    () => uniform(0.999, 1) >= 0.999,
+    () => uniform(2, 3) >= 2,
+    () => uniform(2, 3) < 3,
+    // empty sets return NaN
+    () => is_nan(uniform(0)),
+    () => is_nan(uniform(0, 0)),
+    () => is_nan(uniform(1, 1)),
+    () => is_nan(uniform(2, 1)),
+    () => is_nan(uniform(2, 2)),
+    // invalid sets also return NaN
+    () => is_nan(uniform('a')),
+    () => is_nan(uniform('a', 'b'))
+  )
+}
+
+function _benchmark_uniform() {
+  benchmark(
+    () => uniform(),
+    () => uniform(1),
+    () => uniform(0, 1),
+    () => Math.random()
+  )
+}
+
+// discrete_uniform ([a],[b])
+// uniform on `{0,1}`,`{0,…,a-1}`, or `{a,…,b}`
+// | `{0,1}`     | if `a` and `b` omitted
+// | `{0,…,a-1}` | if `b` omitted
+// | `{a,…,b}`   | otherwise
+const discrete_uniform = (a, b) => {
   const u = Math.random()
-  return ~~(a === undefined
-    ? 2 * u // {0,1}
-    : b === undefined
-    ? u * a // {0,...,a-1}
-    : a + u * (b + 1 - a)) // {a,...,b} (inclusive)
+  if (a === undefined) return ~~(2 * u) // {0,1}
+  if (b === undefined) return is_integer(a) && a > 0 ? ~~(u * a) : NaN // {0,…,a-1}
+  return is_integer(a) && is_integer(b) && b >= a
+    ? ~~(a + u * (b + 1 - a))
+    : NaN // {0,…,b}
 }
-const discrete_uniform = uniform_int // consistent w/ random process
+
+function _test_discrete_uniform() {
+  check(
+    () => discrete_uniform() >= 0,
+    () => discrete_uniform() <= 1,
+    () => discrete_uniform(1) === 0,
+    () => discrete_uniform(2, 2) === 2,
+    () => discrete_uniform(2, 3) >= 2,
+    () => discrete_uniform(2, 3) <= 3,
+    // empty sets return NaN
+    () => is_nan(discrete_uniform(2, 1)),
+    () => is_nan(discrete_uniform(0)),
+    // invalid sets also return NaN
+    () => is_nan(discrete_uniform('a')),
+    () => is_nan(discrete_uniform('a', 'b'))
+  )
+}
+
+function _benchmark_discrete_uniform() {
+  benchmark(
+    () => discrete_uniform(),
+    () => discrete_uniform(2),
+    () => discrete_uniform(0, 1),
+    () => ~~(2 * Math.random()),
+    () => Math.floor(2 * Math.random()),
+    () => Math.random()
+  )
+}
+
 const discrete = (wJ, wj_sum = sum(wJ)) => {
   let j = 0,
     w = 0,
