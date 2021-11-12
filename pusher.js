@@ -649,6 +649,7 @@ async function _on_command_push(label) {
 // pulls items from your repo
 // `items` can be specific `#label` or id
 async function _on_command_pull(label) {
+  let modal // modal promise if open
   try {
     const items = _items(label)
     const s = items.length > 1 ? 's' : ''
@@ -656,7 +657,7 @@ async function _on_command_pull(label) {
       alert(`/pull: ${label} not found`)
       return '/pull ' + label
     }
-    const modal = _modal({
+    modal = _modal({
       content: `Pulling ${items.length} item${s} ...`,
       background: 'block',
     })
@@ -672,8 +673,9 @@ async function _on_command_pull(label) {
       confirm: 'OK',
       background: 'confirm',
     })
+    modal = null // closed by await
   } finally {
-    _modal_close(modal)
+    if (modal) _modal_close(modal) // close if left open
   }
 }
 
