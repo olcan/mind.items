@@ -416,13 +416,17 @@ function _js_table_show_test(name) {
 
 async function _js_table_run_benchmark(name, e) {
   const link = e.target
-  const results = link.closest('.modal').querySelector('.results')
+  const modal = link.closest('.modal')
+  const results = modal.querySelector('.results')
+  const elapsed = modal.querySelector('.elapsed')
+  elapsed.style.visibility = 'hidden'
   const running = document.createTextNode('running...')
   link.replaceWith(running)
   results.style.opacity = 0.5
   // dynamically eval/invoke benchmark_item function from #benchmarker
   await _item('#benchmarker', false)?.eval('benchmark_item')(_this)
   results.style.opacity = 1
+  elapsed.style.visibility = 'visible'
   running.replaceWith(link)
   await _modal_close()
   _js_table_show_benchmark(name)
@@ -457,8 +461,8 @@ function _js_table_show_benchmark(name) {
         _div(
           'title',
           `Benchmark \`${name}\`` +
-            _span('elapsed', `${elapsed}ms`) +
-            _span('run', run_link)
+            _span('run', run_link) +
+            _span('elapsed', `${elapsed}ms`)
         ),
         rows.length ? _div('results', table(rows)) : '',
         log.length ? block('_log', log.join('\n')) : '',
