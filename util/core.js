@@ -353,7 +353,7 @@ function _on_item_change() {
 // insert_newlines allows interleaving w/ markdown
 function _div(class_, content, insert_newlines = true) {
   return insert_newlines
-    ? `<div class="${class_}">\n${content}\n</div>\n\n`
+    ? `<div class="${class_}">\n\n${content}\n</div>\n\n`
     : `<div class="${class_}">${content}</div>`
 }
 

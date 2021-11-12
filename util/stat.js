@@ -1,4 +1,19 @@
-const flip = (ph = 0.5) => Math.random() < ph
+const flip = (p = 0.5) => Math.random() < p
+
+function _test_flip() {
+  check(
+    () => flip() >= 0,
+    () => flip() < 1
+  )
+}
+
+function _benchmark_flip() {
+  benchmark(
+    () => flip(),
+    () => flip() < 1
+  )
+}
+
 const uniform = (a, b) => {
   const u = Math.random()
   return a === undefined ? u : b === undefined ? u * a : a + u * (b - a)
