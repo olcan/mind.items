@@ -260,17 +260,15 @@ function js_table(regex) {
         'benchmark' + (benchmark.ok ? ' ok' : '')
       )
     }
-    if (status) comment_lines.push(`<div class="status">${status}</div>`)
+    if (status) comment_lines.push(_div_inline('status', status))
 
     // hide all non-first comment lines
     const expandable = comment_lines.length > 1 ? 'expandable' : ''
     if (comment_lines.length > 1) {
       def.comment =
         comment_lines[0] +
-        '<span class="less"> …</span>' +
-        '<div class="more">' +
-        comment_lines.slice(1).join('<br>') +
-        `</div>`
+        _span('less', _span('more-indicator', '')) +
+        _div_inline('more', comment_lines.slice(1).join('<br>'))
     } else {
       def.comment = comment_lines[0] || ''
     }
@@ -301,18 +299,23 @@ function js_table(regex) {
     let benchmarked = benchmark?.ok ? 'benchmarked' : ''
 
     lines.push(
-      `|<div class="usage-wrapper ${benchmarked}">` +
-        `<div class="usage ${ok}">${usage}</div></div>|` +
-        `<div class="cell name_${def._name} ${expandable} ${expand}">` +
-        `${def.comment}</div>`
+      '|' +
+        [
+          _div_inline(
+            `usage-wrapper ${benchmarked}`,
+            _div_inline(`usage ${ok}`, usage)
+          ),
+          _div_inline(
+            `cell name_${def._name} ${expandable} ${expand}`,
+            def.comment
+          ),
+        ].join('|')
     )
   })
 
   return [
     // wrap markdown table inside .core_js_table for styling (see core.css)
-    '<div class="core_js_table">',
-    ...lines,
-    '</div>',
+    _div('core_js_table', lines.join('\n')),
     // install click handlers at every render (via uncached script)
     '<script _uncached> _js_table_install_click_handlers() </script>',
   ].join('\n')
@@ -347,9 +350,15 @@ function _on_item_change() {
 }
 
 // TODO: refactor these into util/html?
-function _div(class_, content) {
-  // new-lines allow interleaving w/ markdown
-  return `<div class="${class_}">\n\n${content}\n</div>\n\n`
+// insert_newlines allows interleaving w/ markdown
+function _div(class_, content, insert_newlines = true) {
+  return insert_newlines
+    ? `<div class="${class_}">\n${content}\n</div>\n\n`
+    : `<div class="${class_}">${content}</div>`
+}
+
+function _div_inline(class_, content) {
+  return _div(class_, content, false /* insert_newlines */)
 }
 
 function _span(class_, content) {
