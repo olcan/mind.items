@@ -611,8 +611,9 @@ async function pull_item(item) {
   }
 }
 
-// => /push [label]
+// => /push [items]
 // pushes items to your repo
+// `items` can be specific `#label` or id
 async function _on_command_push(label) {
   try {
     const items = _items(label)
@@ -644,8 +645,9 @@ async function _on_command_push(label) {
   }
 }
 
-// => /pull [label]
+// => /pull [items]
 // pulls items from your repo
+// `items` can be specific `#label` or id
 async function _on_command_pull(label) {
   try {
     const items = _items(label)
@@ -675,8 +677,9 @@ async function _on_command_pull(label) {
   }
 }
 
-// => /history [name]
-// opens change history for item `name` (or all items)
+// => /history [item]
+// opens change history for master branch
+// `item` can be specific `#name` or id
 async function _on_command_history(name) {
   if (!_this.global_store.dest) {
     alert(`history for ${name} not available due to disabled ${_this.name}`)
@@ -720,7 +723,7 @@ async function _on_command_branch(name) {
 }
 
 // => /compare [base=last_init]
-// opens diff for all changes since `base`
+// opens diff for all changes (in master) since `base`
 // `base` can be any branch in repo, including:
 // | `last_init` | changes since page init/reload
 // | `last_push` | changes since last manual `/push`
