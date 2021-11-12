@@ -5,4 +5,4 @@
   - `#_util` (_everything_), `#_util/core`, `#_util/math`, ...
 - Naming convention is short, lowercase, `underscore_separated`.
 
-<p> #_/core #_/math #_/stat </p>
+<p> #_/core #_/math #_/stat

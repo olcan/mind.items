@@ -9,4 +9,4 @@
 // core.css
 ```
 
-<p> #_init #_/types #_/hash  #_/item </p>
+<p> #_init #_/types #_/hash  #_/item
