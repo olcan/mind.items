@@ -114,6 +114,7 @@ function _test_is_matrix() {
 }
 
 // peels away outer arrays of length 1
+// does not affect longer arrays
 function scalarify(x) {
   while (is_array(x) && x.length == 1) x = x[0]
   return x
@@ -133,10 +134,25 @@ function _test_scalarify() {
 }
 
 // wraps scalar → array → 1×n matrix
+// does not affect deeper arrays
+// assumes _rectangular_ `x`
 function matrixify(x) {
   if (!is_array(x)) x = [x] // convert scalar to array
   if (!is_array(x[0])) x = [x] // convert array to 1×n matrix
   return x
+}
+
+function _test_matrixify() {
+  check(
+    () => equal(matrixify(), [[undefined]]),
+    () => equal(matrixify([]), [[]]),
+    () => equal(matrixify([[]]), [[]]),
+    () => equal(matrixify([[[]]]), [[[]]]),
+    () => equal(matrixify(0), [[0]]),
+    () => equal(matrixify([0]), [[0]]),
+    () => equal(matrixify([0, 1]), [[0, 1]]),
+    () => equal(matrixify([[0], 0]), [[0], 0])
+  )
 }
 
 // TODO: test matrixify
