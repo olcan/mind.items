@@ -1,5 +1,4 @@
 // TODO: figure out what to do w/ _array and Math.random (uniform) below
-// TODO: ensure tests/benchmarks look good!
 
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0
@@ -155,12 +154,10 @@ function _test_matrixify() {
   )
 }
 
-// TODO: test matrixify
-
 function transpose(xJK) {
   xJK = matrixify(xJK)
-  const J = xJK.length,
-    K = xJK[0].length
+  const J = xJK.length
+  const K = xJK[0].length
   // NOTE: function overhead can be significant for smaller inputs
   // return array(K, k=> array(J, j=> xJK[j][k]))
   const xKJ = new Array(K)
@@ -230,7 +227,8 @@ function _benchmark_transpose() {
 
 function dot(xJZ, yKZ) {
   // NOTE: rows into rows, NOT rows into cols
-  ;(xJZ = matrixify(xJZ)), (yKZ = matrixify(yKZ))
+  xJZ = matrixify(xJZ)
+  yKZ = matrixify(yKZ)
   // transpose either side needed to align columns
   if (yKZ[0].length != xJZ[0].length) {
     if (yKZ.length == xJZ[0].length) yKZ = matrixify(transpose(yKZ))

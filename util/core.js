@@ -31,17 +31,19 @@ function stringify(x) {
   return '{' + Object.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
 }
 
-// throws error if any argument return false
+// throws error if any argument return falsy
+// if array is returned, all elements must be `equal`
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
-    if (!f()) {
-      const stack = new Error().stack
-        .split('\n')
-        .map(s => s.replace(/@$/, ''))
-        .filter(s => s)
-        .join(' <- ')
-      throw new Error(`FAILED CHECK: ${stringify(f)}; STACK: ${stack}`)
+    const ret = f()
+    if (is_array(ret)) {
+      if (ret.length < 2)
+        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(ret)}`)
+      if (!ret.every(x => equal(x, ret[0])))
+        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(ret)}`)
+    } else if (!ret) {
+      fatal(`FAILED CHECK: ${stringify(f)}`)
     }
   })
 }
@@ -126,10 +128,10 @@ function timing(f) {
 function table(cells, headers) {
   let lines = []
   if (headers) lines.push('|' + headers.join('|') + '|')
-  else lines.push(_array(cells[0].length + 1, k => '|').join(''))
+  else lines.push(array(cells[0].length + 1, k => '|').join(''))
   lines.push(
     '|' +
-      _array(cells[0].length, k =>
+      array(cells[0].length, k =>
         is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
       ).join('|') +
       '|'
@@ -465,12 +467,34 @@ function _js_table_show_benchmark(name) {
   )
 }
 
-const _array = (J, f) => {
+// array(length,[value])
+// array of `length` copies of `value`
+// `value` can be function of index
+const array = (J = 0, xj) => {
   const xJ = new Array(J)
   // NOTE: Array.from({length:J}, ...) was much slower
-  if (typeof f == 'function') for (let j = 0; j < J; ++j) xJ[j] = f(j)
-  else if (typeof f != 'undefined') xJ.fill(f)
+  if (typeof xj == 'function') for (let j = 0; j < J; ++j) xJ[j] = xj(j)
+  else if (typeof xj != 'undefined') xJ.fill(xj)
   return xJ
+}
+
+function _test_array() {
+  check(
+    () => [array(), []],
+    () => [array(1), [undefined]],
+    () => [array(3), [undefined, undefined, undefined]],
+    () => [array(3, 0), [0, 0, 0]],
+    () => [array(3, j => j), [0, 1, 2]]
+  )
+}
+
+function _benchmark_array() {
+  benchmark(
+    () => new Array(100),
+    () => new Array(100).fill(0),
+    () => array(100, j => j),
+    () => Array.from({ length: 100 }, j => j)
+  )
 }
 
 const command_table = () => js_table(/^_on_command_/)
