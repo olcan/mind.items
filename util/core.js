@@ -197,7 +197,7 @@ function js_table(regex) {
       return def
     }
   )
-  let lines = ['|||', '|-:|:-|']
+  let lines = ['|||', '|-|-|']
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
     if (regex && !regex.test(def._name)) return
@@ -293,91 +293,93 @@ function js_table(regex) {
     let benchmarked = benchmark?.ok ? 'benchmarked' : ''
 
     lines.push(
-      `|<div class="label-wrapper ${benchmarked}"><div class="label ${ok}">${label}</div></div>|` +
-        `<div class="cell name_${def._name} ${expandable} ${expand}">${def.comment}</div>`
+      `|<div class="label-wrapper ${benchmarked}">` +
+        `<div class="label ${ok}">${label}</div></div>|` +
+        `<div class="cell name_${def._name} ${expandable} ${expand}">` +
+        `${def.comment}</div>`
     )
   })
-  // TODO: move all css to core.css!
+
   return [
-    '<span class="js_table">',
-    lines.join('\n'),
-    '</span>',
-    '```_html',
-    '<style>',
-    '#item .js_table table thead { display: none }',
-    '#item .js_table table { width:100%; margin:auto; font-size:90% }',
-    '#item .js_table table + br { display: none }',
-    '#item .js_table > table { margin-top: 5px; margin-left:-4px }',
-    '#item .js_table table.comment { margin-top: 3px }',
-    '#item .js_table > table > tbody > tr > td { padding: 0.5px 0 }',
-    '#item .js_table > table > tbody > tr > td:first-child { white-space:nowrap; text-align:left; width:1%; padding-right: 10px; }',
-    '#item .js_table > table { border-spacing: 0; border-collapse: collapsed }',
-    '#item .js_table table.comment { font-size: 90% }',
-    '#item .js_table table.comment td:first-child { white-space:nowrap; width:1%; text-align:right }',
-    '#item .js_table table.comment { border-spacing: 5px 1px; border-collapse: collapsed }',
-    '#item .js_table :is(.label,.cell) { padding: 2px 0 }',
-    '#item .js_table .label { padding-top: 3px }',
-    '#item .js_table .label { display:block; height:100%; width:100%; max-width:250px; border-left: 4px solid #444; overflow:hidden; text-overflow: ellipsis; vertical-align: baseline; padding-left:10px; font-family:"jetbrains mono", monospace; font-size:90% }',
-    '#item .js_table .label .args { color: #999; margin-left:2px }',
-    '#item .js_table .label code { background: none }',
-    '#item .js_table .label.ok { border-color: #8d8 }',
-    '#item .js_table .label.error { border-color: #f55; background: #500; border-radius: 0 4px 4px 0 }',
-    '#item .js_table .label-wrapper { border-left: 4px solid transparent; padding-left:1px; cursor: pointer }',
-    '#item .js_table .label-wrapper.benchmarked { border-color: #4ae }',
-    '#item .js_table .cell .more { display: none }',
-    '#item .js_table .cell { padding-left:7px; border-radius:4px }',
-    '#item .js_table .cell.expandable { cursor: pointer }',
-    '#item .js_table .cell.expand { background: #171717; margin-bottom: 5px }',
-    '#item .js_table .cell.expand .more { display: block }',
-    '#item .js_table .cell.expand .less { display: none }',
-    '.container.pushable #item .js_table .cell.expandable:not(.collapse) { background: #171717; margin-bottom: 5px }',
-    '.container.pushable #item .js_table .cell.expandable:not(.collapse) .more { display: block }',
-    '.container.pushable #item .js_table .cell.expandable:not(.collapse) .less { display: none }',
-    '#item .js_table .cell.expand { background: #171717; margin-bottom: 5px }',
-    '#item .js_table .cell.expand .more { display: block }',
-    '#item .js_table .cell.expand .less { display: none }',
-    '#item .js_table :is(.test,.benchmark) {',
-    '  color:black; background: #f55; margin-right:5px;',
-    '  font-weight:600; font-size:90%; line-height:150% }',
-    '#item .js_table .test.ok { background: #7a7 }',
-    '#item .js_table .benchmark.ok { background: #4ae }',
-    '@media only screen and (max-width: 600px) {',
-    '  #item .js_table .label { max-width:200px; } }',
-    '@media only screen and (max-width: 400px) {',
-    '  #item .js_table .label { max-width:150px; } }',
-    '</style>',
-    '<script _uncached>_js_table_install_click_handlers()</script>',
-    '```',
+    // wrap markdown table inside .core_js_table for styling (see core.css)
+    '<div class="core_js_table">',
+    ...lines,
+    '</div>',
+    // install click handlers at every render (via uncached script)
+    '<script _uncached> _js_table_install_click_handlers() </script>',
   ].join('\n')
 }
 
+function _install_core_css() {
+  // require local invocation with _this being lexical this
+  if (_this.name != '#util/core') fatal('_install_core_css from non-core')
+  // use core deephash as a quick check before reading/hashing css
+  if (_this.store.css_core_hash == _this.deephash) return // no change to core
+  _this.store.css_core_hash = _this.deephash
+  const css = _this.read('css')
+  const css_hash = _hash(css)
+  if (_this.store.css_hash == css_hash) return // no change to core css
+  const style = document.createElement('style')
+  style.className = 'core-css'
+  style.innerHTML = css
+  const existing_style = document.querySelector('.core-css')
+  if (!existing_style) document.head.appendChild(style)
+  else existing_style.replaceWith(style)
+  _this.store.css_hash = css_hash
+}
+
+// install core.css on init
+function _init() {
+  _install_core_css()
+}
+
+// re-install core.css on any changes to core
+function _on_change() {
+  _install_core_css()
+}
+
+// TODO: is there a better place for these? util/html?
+function _div(class_, content) {
+  // new-lines allow interleaving w/ markdown
+  return `<div class="${class_}">\n\n${content}\n</div>\n\n`
+}
+
+function _span(class_, content) {
+  return `<span class="${class_}">${content}</span>`
+}
+
 function _js_table_install_click_handlers() {
-  _this.elem.querySelectorAll('.js_table .cell').forEach(cell => {
+  log('installing js_table click handlers', _this.deephash)
+  // install click handlers!
+  _this.elem.querySelectorAll('.core_js_table .cell').forEach(cell => {
     const name = Array.from(cell.classList)
       .find(c => c.startsWith('name_'))
       .slice(5)
     const expandable = cell.classList.contains('expandable')
+    // onmousedown w/ cancelled click tends to be more robust
+    // however onclick allows text selection so we use that for now
+    //cell.onclick = e => (e.stopPropagation(), e.stopPropagation())
+    //cell.onmousedown = e => {
     cell.onclick = e => {
+      if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
+      e.preventDefault()
       if (expandable) _js_table_toggle(name, e)
     }
     const label = cell.closest('tr').querySelector('.label-wrapper')
     const args = label.querySelector('.args').innerText
+    // label.onclick = e => (e.stopPropagation(), e.stopPropagation())
+    // label.onmousedown = e => {
     label.onclick = e => {
+      if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
+      e.preventDefault()
       _modal(
-        [
-          `<div class="title"><span class="name">${name}</span><span class="args">${args}</span></div>\n`,
-          '```js',
-          _this.eval(name),
-          '```',
-          '<style>',
-          '.modal .title { font-family: "jetbrains mono", monospace; font-weight: 600; font-size: 90%; line-height: 120%; padding-bottom: 5px }',
-          '.modal .title .args { color: #666; margin-left: 2px; font-size:90% }',
-          '</style>',
-        ]
-          .flat()
-          .join('\n')
+        _div(
+          'core_js_table_modal', // style wrapper, see core.css
+          _div('title', _span('name', name) + _span('args', args)) +
+            block('js', _this.eval(name))
+        )
       )
     }
   })
@@ -401,19 +403,14 @@ function _js_table_toggle(name, e) {
 function _js_table_show_test(name) {
   const test = _this.global_store._tests[name]
   _modal(
-    [
-      '#### ' + `Test \`${name}\``,
-      !test.ok ? ['```_log', ...test.log, '```'] : '',
-      '```js',
-      _this.eval(test.test || `_test_${name}`),
-      '```',
-      '<style>',
-      '.modal pre { padding-top:5px }',
-      '.modal :not(pre) > code { font-weight:600 }',
-      '</style>',
-    ]
-      .flat()
-      .join('\n')
+    _div(
+      'core_js_table_modal',
+      [
+        _div('title', `Test \`${name}\``),
+        !test.ok ? block('_log', test.log.join('\n')) : '',
+        block('js', _this.eval(test.test || `_test_${name}`)),
+      ].join('\n')
+    )
   )
 }
 
@@ -449,43 +446,26 @@ function _js_table_show_benchmark(name) {
     }
   }
   rows = _.sortBy(rows, r => -parseInt(r[0].replace(/,/g, '')))
-  const rerun_link = !_exists('#benchmarker', false)
+  const run_link = !_exists('#benchmarker', false)
     ? ''
     : evallink(_this, `_js_table_run_benchmark('${name}',event)`, 'run')
+
+  // TODO: continue moving to core.css ...
   _modal(
-    [
-      `#### Benchmark \`${name}\`` +
-        ` <span class="elapsed">${elapsed}ms ${rerun_link}</span>`,
-      rows.length ? ['<div class="results">\n', table(rows), '\n</div>\n'] : [],
-      log.length ? ['```_log', ...log, '```'] : [],
-      '```js',
-      _this.eval(benchmark.benchmark || `_benchmark_${name}`),
-      '```',
-      '<style>',
-      '.modal pre { margin-top:10px }',
-      '.modal :not(pre) > code { font-weight:600 }',
-      '.modal .results {',
+    _div(
+      'core_js_table_modal',
       [
-        'margin-top:10px',
-        'max-height: 300px; overflow:scroll',
-        'background: #222; border-radius: 4px',
-      ].join(';'),
-      '}',
-      '.modal table { color: #ccc; padding: 3px 0 }',
-      '.modal table thead { display:none }',
-      '.modal table td:first-child { padding-left:6px; padding-right:8px; text-align:right }',
-      '.modal table td { vertical-align: top }',
-      '.modal .elapsed { margin-left: 5px }',
-      '.modal :is(table,.elapsed) { font-family:"jetbrains mono", monospace }',
-      '.modal :is(table,.elapsed) { font-size:12px; line-height:19px }',
-      '@media only screen and (max-width: 600px) {',
-      '  .modal :is(table,.elapsed) { font-size:11px; line-height:18px } }',
-      '@media only screen and (max-width: 400px) {',
-      '  .modal :is(table,.elapsed) { font-size:10px; line-height:17px } }',
-      '</style>',
-    ]
-      .flat()
-      .join('\n')
+        _div(
+          'title',
+          `Benchmark \`${name}\`` +
+            _span('elapsed', `${elapsed}ms`) +
+            _span('run', run_link)
+        ),
+        rows.length ? _div('results', table(rows)) : '',
+        log.length ? block('_log', log.join('\n')) : '',
+        block('js', _this.eval(benchmark.benchmark || `_benchmark_${name}`)),
+      ].join('\n')
+    )
   )
 }
 

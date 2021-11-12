@@ -1,1 +1,237 @@
-/* hello world */
+/* js_table() markdown table is wrapped in .core_js_table */
+/* function comments can generate inner table.comment */
+
+/* hide headers for both main table and any comment tables  */
+.core_js_table > table > thead,
+.core_js_table table.comment > thead {
+  display: none;
+}
+
+/* reduce font size for more horizontal space needed for two-column layout */
+.core_js_table table {
+  font-size: 90%;
+}
+
+/* disable unnecessary <br> after a comment table */
+.core_js_table table.comment + br {
+  display: none;
+}
+
+/* pad 5px above table and shift 4px into left padding of .item */
+.core_js_table > table {
+  padding-top: 5px; /* margin-top is superceded by .item :first-child */
+  margin-left: -4px;
+}
+
+/* leave 3px above comment tables */
+.core_js_table table.comment {
+  margin-top: 3px;
+}
+
+/* reduce vertical padding between cells to 1px (vs 2px default) */
+/* also drop horizontal padding */
+.core_js_table > table > tbody > tr > td {
+  padding: 0.5px 0;
+}
+
+/* minimize width of first column w/o wrapping for both main and comment tables */
+.core_js_table > table > tbody > tr > td:first-child,
+.core_js_table table.comment > tbody > tr > td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+
+/* right-align first column of comment tables */
+.core_js_table table.comment > tbody > tr > td:first-child {
+  text-align: right;
+}
+
+/* style .label, left column of main table */
+.core_js_table .label {
+  display: block; /* full-width, insensitive to line-height, alignment, etc */
+  padding: 3px 0; /* matches .label, but +1px to improve baseline alignment */
+  padding-left: 5px; /* space from test indicator */
+  border-left: 4px solid #444; /* test indicator */
+
+  /* use monospace fonts */
+  font-family: 'jetbrains mono', monospace;
+  font-size: 90%;
+
+  /* truncate text to max-width (compare to 500-750px column width) */
+  max-width: 250px; /* reduced below on smaller screens */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* reduce .label max-width based on screen size */
+@media only screen and (max-width: 600px) {
+  .core_js_table .label {
+    max-width: 200px;
+  }
+}
+@media only screen and (max-width: 400px) {
+  .core_js_table .label {
+    max-width: 150px;
+  }
+}
+
+/* remove background for inline code in .label since already monospace */
+.core_js_table .label code {
+  background: none;
+}
+
+/* fade and space function arguments */
+.core_js_table .label .args {
+  color: #999;
+  margin-left: 2px;
+}
+
+/* indicate test status via left border color change */
+.core_js_table .label.ok {
+  border-color: #8d8;
+}
+.core_js_table .label.error {
+  border-color: #f55;
+  background: #500;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* style .label-wrapper, used to indicate benchmarks via left border */
+.core_js_table .label-wrapper {
+  border-left: 4px solid transparent;
+  padding-left: 1px;
+  cursor: pointer;
+}
+.core_js_table .label-wrapper.benchmarked {
+  border-color: #4ae;
+}
+
+/* style .cell, right column of main table */
+.core_js_table .cell {
+  padding: 2px 0; /* matches .label */
+  padding-left: 7px;
+  border-radius: 4px;
+}
+
+/* change cursor on expandable cells (w/ .more/.less)*/
+.core_js_table .cell.expandable {
+  cursor: pointer;
+}
+
+/* show/hide .more/.less inside .cell.expand */
+.core_js_table .cell .more {
+  display: none;
+}
+.core_js_table .cell.expand .more {
+  display: block;
+}
+.core_js_table .cell.expand .less {
+  display: none;
+}
+
+/* add background and bottom margin to expanded .cell */
+.core_js_table .cell.expand {
+  background: #171717;
+  margin-bottom: 5px;
+}
+
+/* expand-by-default on .pushable items (collapsed by .collapse class) */
+/* same as .cell.expand above, but conditioned on .cell.expandable:not(.collapse) */
+.container.pushable #item .core_js_table .cell.expandable:not(.collapse) .more {
+  display: block;
+}
+.container.pushable #item .core_js_table .cell.expandable:not(.collapse) .less {
+  display: none;
+}
+.container.pushable #item .core_js_table .cell.expandable:not(.collapse) {
+  background: #171717;
+  margin-bottom: 5px;
+}
+
+/* style test/benchmark links (bottom line of expanded .cell) */
+.core_js_table :is(.test, .benchmark) {
+  margin-right: 5px; /* space from link (or nothing) on right */
+  font-weight: 600;
+  color: black;
+  background: #f55; /* indicates error, modified by .ok below */
+}
+.core_js_table .test.ok {
+  background: #7a7;
+}
+.core_js_table .benchmark.ok {
+  background: #4ae;
+}
+
+/* style js_table modals (label/function, test, and benchmark) */
+.core_js_table_modal .title {
+  font-family: 'jetbrains mono', monospace;
+  font-weight: 600;
+  font-size: 90%;
+  line-height: 120%;
+  padding-bottom: 5px;
+}
+.core_js_table_modal .title code {
+  font-weight: 600;
+}
+.core_js_table_modal .title .args {
+  color: #666;
+  margin-left: 2px;
+  font-size: 90%;
+}
+.core_js_table_modal pre {
+  margin-top: 2px; /* space from .title */
+  padding: 3px 0;
+}
+.core_js_table_modal .results {
+  background: #222;
+  color: #ccc;
+  padding: 3px 0;
+  border-radius: 4px;
+  margin-top: 2px; /* space from .title above */
+  margin-bottom: 8px; /* space from pre below */
+  max-height: 40vh; /* max 40% of viewport height (up to 80% w/ pre below) */
+  overflow: scroll;
+  font-family: 'jetbrains mono', monospace;
+  /* font size and line height matches .modal pre > code (Modal.svelte) */
+  /* including reduced sizes (see below) on smaller screens */
+  font-size: 12px;
+  line-height: 19px;
+}
+@media only screen and (max-width: 600px) {
+  .core_js_table_modal .results {
+    font-size: 11px;
+    line-height: 18px;
+  }
+}
+@media only screen and (max-width: 400px) {
+  .core_js_table_modal .results {
+    font-size: 10px;
+    line-height: 17px;
+  }
+}
+.core_js_table_modal .results table thead {
+  display: none;
+}
+.core_js_table_modal .results table td {
+  vertical-align: top;
+}
+.core_js_table_modal .results table td:first-child {
+  padding-left: 6px;
+  padding-right: 8px;
+  text-align: right;
+}
+.core_js_table_modal :is(.elapsed, .run) {
+  margin-left: 10px; /* space from title */
+  font-size: 80%;
+}
+.core_js_table_modal .title .run {
+  margin-left: 10px; /* space from .elapsed */
+  float: right;
+}
+.core_js_table_modal .title .run a {
+  color: white;
+  background: #4ae;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
