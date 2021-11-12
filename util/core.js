@@ -196,7 +196,8 @@ function js_table(regex) {
           def.modified = true
         }
         def.comment = def.comment.replace(/\n/g, '')
-      } else if (def.body && !def.body.startsWith('{')) {
+      }
+      if (!def.comment && def.body && !def.body.startsWith('{')) {
         // take body as comment, escaping `, \, and | (breaks table)
         def.comment = '`' + def.body.replace(/([`\\|])/g, '\\$1') + '`'
       }
