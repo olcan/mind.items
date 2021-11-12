@@ -1,5 +1,4 @@
 #util defines importable _utilities_: #/core #/math #/stat.
-
 - Useful collection of constants & functions.
   - Goals: simple, clean, tested, benchmarked, documented.
 - Globally scoped but _optionally_ imported via hidden tags:
