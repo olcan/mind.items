@@ -174,25 +174,6 @@
   margin-bottom: 5px;
 }
 
-/* style test/benchmark links */
-/* inside .status div on bottom line of expanded .cell */
-.core_js_table .more .status {
-  margin-top: 4px; /* space from rest of .more content */
-}
-.core_js_table :is(.test, .benchmark) {
-  margin-right: 5px; /* space from link (or nothing) on right */
-  font-weight: 600;
-  line-height: 140%; /* narrower buttons look better when bright-on-dark */
-  color: black;
-  background: #f55; /* indicates error, modified by .ok below */
-}
-.core_js_table .test.ok {
-  background: #7a7;
-}
-.core_js_table .benchmark.ok {
-  background: #4ae;
-}
-
 /* style js_table modals (usage->function, test, and benchmark) */
 .core_js_table_modal .title {
   font-family: 'jetbrains mono', monospace;
@@ -255,34 +236,47 @@
   padding-right: 8px;
   text-align: right;
 }
-/* style elapsed text and run button in benchmark modal */
+/* style elapsed text in benchmark modal */
 .core_js_table_modal .elapsed {
-  float: right;
-
   margin-left: 10px; /* space from title */
   font-size: 80%;
 }
-.core_js_table_modal .run {
-  margin-left: 10px; /* space from title */
-}
-.core_js_table_modal .title .run {
-  margin-left: 10px; /* space from .elapsed */
+
+.core_js_table_modal .buttons {
   float: right;
+  margin-top: -5px; /* shift up */
+  font-family: 'jetbrains mono', monospace;
+  font-size: 80%;
 }
-.core_js_table_modal .title .run a {
-  color: white;
-  background: #4ae;
-  padding: 1px 5px;
+.core_js_table_modal .buttons a {
+  padding: 0 4px;
   border-radius: 4px;
+  text-decoration: none;
+  display: inline-block; /* aligns much better around text */
+  margin-left: 5px; /* space from link (or nothing) on left */
+  font-weight: 600;
+  background: #f75;
+  color: white;
+}
+.core_js_table_modal .buttons :is(.test, .benchmark) {
+  background: #f55; /* indicates error, modified by .ok below */
+}
+.core_js_table_modal .buttons .test.ok {
+  background: #7b7;
+}
+.core_js_table_modal .buttons .benchmark.ok {
+  background: #4ae;
+}
+
+.core_js_table_modal .buttons .run {
+  background: #4ae;
 }
 /* styles for running state */
-.core_js_table_modal.running .title .run a {
+.core_js_table_modal.running .run {
   background: #777;
   pointer-events: none;
   cursor: not-allowed;
-  opacity: 0.5;
 }
-
-.core_js_table_modal.running :is(.results, .elapsed) {
+.core_js_table_modal.running :is(.results, .elapsed, .run) {
   opacity: 0.5;
 }

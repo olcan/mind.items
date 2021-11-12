@@ -151,6 +151,31 @@ function _count_unescaped(str, substr) {
   return count
 }
 
+function _js_table_function_status(name) {
+  let status = ''
+  let test, benchmark
+  const gs = _this.global_store
+  if (gs._tests && gs._tests[name]) {
+    test = gs._tests[name]
+    status += evallink(
+      _this,
+      `_js_table_show_test('${name}', event)`,
+      test.ok ? 'test' : 'FAILED test',
+      'test' + (test.ok ? ' ok' : '')
+    )
+  }
+  if (gs._benchmarks && gs._benchmarks[name]) {
+    benchmark = gs._benchmarks[name]
+    status += evallink(
+      _this,
+      `_js_table_show_benchmark('${name}', event)`,
+      benchmark.ok ? 'benchmark' : 'FAILED benchmark',
+      'benchmark' + (benchmark.ok ? ' ok' : '')
+    )
+  }
+  return [status, test, benchmark]
+}
+
 // js_table([regex])
 // table of `js` definitions
 // can filter names using optional `regex`
@@ -238,31 +263,6 @@ function js_table(regex) {
     while (comment_lines[0]?.length == 0) comment_lines.shift()
     while (_.last(comment_lines)?.length == 0) comment_lines.pop()
 
-    // append test/benchmark results as the last comment line
-    // also display a status indicator (hidden on expanded state)
-    let status = ''
-    const gs = _this.global_store
-    let test, benchmark
-    if (gs._tests && gs._tests[def._name]) {
-      test = gs._tests[def._name]
-      status += evallink(
-        _this,
-        `_js_table_show_test('${def._name}', event)`,
-        test.ok ? 'test' : 'FAILED test',
-        'test' + (test.ok ? ' ok' : '')
-      )
-    }
-    if (gs._benchmarks && gs._benchmarks[def._name]) {
-      benchmark = gs._benchmarks[def._name]
-      status += evallink(
-        _this,
-        `_js_table_show_benchmark('${def._name}', event)`,
-        benchmark.ok ? 'benchmark' : 'FAILED benchmark',
-        'benchmark' + (benchmark.ok ? ' ok' : '')
-      )
-    }
-    if (status) comment_lines.push(_div_inline('status', status))
-
     // hide all non-first comment lines
     const expandable = comment_lines.length > 1 ? 'expandable' : ''
     if (comment_lines.length > 1) {
@@ -292,6 +292,7 @@ function js_table(regex) {
 
     // if tested indicate result as styling on usage
     // also consider benchmark errors
+    const [status, test, benchmark] = _js_table_function_status(def._name)
     let ok = ''
     if (test) ok = test.ok ? 'ok' : 'error'
     if (benchmark && !benchmark.ok) ok = 'error'
@@ -315,8 +316,7 @@ function js_table(regex) {
   })
 
   return [
-    // wrap markdown table inside .core_js_table for styling (see core.css)
-    _div('core_js_table', lines.join('\n')),
+    _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
     // install click handlers at every render (via uncached script)
     '<script _uncached> _js_table_install_click_handlers() </script>',
   ].join('\n')
@@ -392,13 +392,7 @@ function _js_table_install_click_handlers() {
       if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
       e.preventDefault()
-      _modal(
-        _div(
-          'core_js_table_modal', // style wrapper, see core.css
-          _div('title', _span('name', name) + _span('args', args)) +
-            block('js', _this.eval(name))
-        )
-      )
+      _js_table_show_def(name)
     }
   })
 }
@@ -418,13 +412,37 @@ function _js_table_toggle(name, e) {
   ls._js_table = _.set(ls._js_table || {}, name, !expand)
 }
 
-function _js_table_show_test(name) {
-  const test = _this.global_store._tests[name]
+function _js_table_show_def(name) {
+  const cell = _this.elem.querySelector(`.cell.name_${name}`)
+  const usage = cell.closest('tr').querySelector('.usage-wrapper')
+  const args = usage.querySelector('.args').innerText
+  const [status] = _js_table_function_status(name)
+  _modal_close() // in case invoked from existing modal
   _modal(
     _div(
-      'core_js_table_modal',
+      'core_js_table_modal', // style wrapper, see core.css
+      (status ? _div('buttons', status) : '') +
+        _div('title', _span('name', name) + _span('args', args)) +
+        block('js', _this.eval(name))
+    )
+  )
+}
+
+function _js_table_show_test(name) {
+  const test = _this.global_store._tests[name]
+  const def_link = evallink(
+    _this,
+    `_js_table_show_def('${name}', event)`,
+    'def',
+    'def'
+  )
+  _modal_close() // in case invoked from existing modal
+  _modal(
+    _div(
+      'core_js_table_modal', // style wrapper, see core.css
       [
-        _div('title', `Test \`${name}\``),
+        _div('buttons', def_link),
+        _div('title', `test \`${name}\``),
         !test.ok ? block('_log', test.log.join('\n')) : '',
         block('js', _this.eval(test.test || `_test_${name}`)),
       ].join('\n')
@@ -433,6 +451,10 @@ function _js_table_show_test(name) {
 }
 
 async function _js_table_run_benchmark(name, e) {
+  if (!_exists('#benchmarker', false)) {
+    alert('missing #benchmarker')
+    return
+  }
   const link = e.target
   const modal = link.closest('.core_js_table_modal')
   modal.classList.add('running')
@@ -462,19 +484,28 @@ function _js_table_show_benchmark(name) {
     }
   }
   rows = _.sortBy(rows, r => -parseInt(r[0].replace(/,/g, '')))
-  const run_link = !_exists('#benchmarker', false)
-    ? ''
-    : evallink(_this, `_js_table_run_benchmark('${name}',event)`, 'run')
+  const run_link = evallink(
+    _this,
+    `_js_table_run_benchmark('${name}',event)`,
+    'run',
+    'run'
+  )
+  const def_link = evallink(
+    _this,
+    `_js_table_show_def('${name}', event)`,
+    'def',
+    'def'
+  )
 
+  _modal_close() // in case invoked from existing modal
   _modal(
     _div(
-      'core_js_table_modal',
+      'core_js_table_modal', // style wrapper, see core.css
       [
+        _div('buttons', run_link + def_link),
         _div(
           'title',
-          `Benchmark \`${name}\`` +
-            _span('run', run_link) +
-            _span('elapsed', `${elapsed}ms`)
+          `benchmark \`${name}\`` + _span('elapsed', `${elapsed}ms`)
         ),
         rows.length ? _div('results', table(rows)) : '',
         log.length ? block('_log', log.join('\n')) : '',
