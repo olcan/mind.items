@@ -168,6 +168,9 @@ function js_table(regex) {
         if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
       def.args = def.args.replace(/\s+/g, '') // remove whitespace in args
+      // escape special characters in args: `, \, and | (breaks table)
+      def.args = def.args.replace(/([`\\|])/g, '\\$1')
+
       def._name = def.name // save original name (before possible modification)
       if (def.comment) {
         // clean up: drop // and insert <br> before \n
@@ -194,7 +197,8 @@ function js_table(regex) {
         }
         def.comment = def.comment.replace(/\n/g, '')
       } else if (def.body && !def.body.startsWith('{')) {
-        def.comment = '`' + def.body + '`'
+        // take body as comment, escaping `, \, and | (breaks table)
+        def.comment = '`' + def.body.replace(/([`\\|])/g, '\\$1') + '`'
       }
       return def
     }
