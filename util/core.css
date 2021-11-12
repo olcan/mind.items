@@ -69,9 +69,14 @@
     max-width: 200px;
   }
 }
-@media only screen and (max-width: 400px) {
+@media only screen and (max-width: 500px) {
   .core_js_table .label {
     max-width: 150px;
+  }
+}
+@media only screen and (max-width: 400px) {
+  .core_js_table .label {
+    max-width: 120px;
   }
 }
 
