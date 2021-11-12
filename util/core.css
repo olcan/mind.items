@@ -34,11 +34,16 @@
   padding: 0.5px 0;
 }
 
-/* minimize width of first column w/o wrapping for both main and comment tables */
+/* minimize width of left column w/o wrapping for both main and comment tables */
 .core_js_table > table > tbody > tr > td:first-child,
 .core_js_table table.comment > tbody > tr > td:first-child {
   white-space: nowrap;
   width: 1%;
+}
+/* override .item code to enforce nowrap (vs pre-wrap) in left column */
+.core_js_table > table > tbody > tr > td:first-child code,
+.core_js_table table.comment > tbody > tr > td:first-child code {
+  white-space: nowrap;
 }
 
 /* right-align first column of comment tables */
