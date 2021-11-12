@@ -1,5 +1,3 @@
-// TODO: figure out what to do w/ _array and Math.random (uniform) below
-
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0
 // non-array (depth 0) considered flat
@@ -58,12 +56,12 @@ function dimensions(x) {
 
 function _test_dimensions() {
   check(
-    () => equal(dimensions(), []),
-    () => equal(dimensions(0), []),
-    () => equal(dimensions([]), [0]),
-    () => equal(dimensions([[]]), [1, 0]),
-    () => equal(dimensions([[1, 2]]), [1, 2]),
-    () => equal(dimensions([[1], [2]]), [2, 1])
+    () => [dimensions(), []],
+    () => [dimensions(0), []],
+    () => [dimensions([]), [0]],
+    () => [dimensions([[]]), [1, 0]],
+    () => [dimensions([[1, 2]]), [1, 2]],
+    () => [dimensions([[1], [2]]), [2, 1]]
   )
 }
 
@@ -121,14 +119,14 @@ function scalarify(x) {
 
 function _test_scalarify() {
   check(
-    () => scalarify() === undefined,
-    () => equal(scalarify([]), []),
-    () => equal(scalarify([[]]), []),
-    () => equal(scalarify([[[]]]), []),
-    () => equal(scalarify([0]), 0),
-    () => equal(scalarify([[0]]), 0),
-    () => equal(scalarify([[0, 1]]), [0, 1]),
-    () => equal(scalarify([[0], 1]), [[0], 1])
+    () => [scalarify(), undefined],
+    () => [scalarify([]), []],
+    () => [scalarify([[]]), []],
+    () => [scalarify([[[]]]), []],
+    () => [scalarify([0]), 0],
+    () => [scalarify([[0]]), 0],
+    () => [scalarify([[0, 1]]), [0, 1]],
+    () => [scalarify([[0], 1]), [[0], 1]]
   )
 }
 
@@ -143,14 +141,14 @@ function matrixify(x) {
 
 function _test_matrixify() {
   check(
-    () => equal(matrixify(), [[undefined]]),
-    () => equal(matrixify([]), [[]]),
-    () => equal(matrixify([[]]), [[]]),
-    () => equal(matrixify([[[]]]), [[[]]]),
-    () => equal(matrixify(0), [[0]]),
-    () => equal(matrixify([0]), [[0]]),
-    () => equal(matrixify([0, 1]), [[0, 1]]),
-    () => equal(matrixify([[0], 0]), [[0], 0])
+    () => [matrixify(), [[undefined]]],
+    () => [matrixify([]), [[]]],
+    () => [matrixify([[]]), [[]]],
+    () => [matrixify([[[]]]), [[[]]]],
+    () => [matrixify(0), [[0]]],
+    () => [matrixify([0]), [[0]]],
+    () => [matrixify([0, 1]), [[0, 1]]],
+    () => [matrixify([[0], 0]), [[0], 0]]
   )
 }
 
@@ -170,56 +168,53 @@ function transpose(xJK) {
 
 function _test_transpose() {
   check(
-    () => equal(transpose(), undefined),
-    () => equal(transpose([]), []),
-    () => equal(transpose([[]]), []),
-    () => equal(transpose(0), 0),
-    () => equal(transpose([0]), 0),
-    () => equal(transpose([[0]]), 0),
-    () => equal(transpose([1, 2]), [[1], [2]]),
-    () => equal(transpose([[1], [2]]), [1, 2]),
-    () =>
-      equal(
-        transpose([
-          [1, 2],
-          [3, 4],
-        ]),
-        [
-          [1, 3],
-          [2, 4],
-        ]
-      ),
-    () =>
-      equal(
-        transpose([
-          [1, 2, 3],
-          [4, 5, 6],
-        ]),
-        [
-          [1, 4],
-          [2, 5],
-          [3, 6],
-        ]
-      ),
-    () =>
-      equal(
-        transpose([
-          [1, 4],
-          [2, 5],
-          [3, 6],
-        ]),
-        [
-          [1, 2, 3],
-          [4, 5, 6],
-        ]
-      )
+    () => [transpose(), undefined],
+    () => [transpose([]), []],
+    () => [transpose([[]]), []],
+    () => [transpose(0), 0],
+    () => [transpose([0]), 0],
+    () => [transpose([[0]]), 0],
+    () => [transpose([1, 2]), [[1], [2]]],
+    () => [transpose([[1], [2]]), [1, 2]],
+    () => [
+      transpose([
+        [1, 2],
+        [3, 4],
+      ]),
+      [
+        [1, 3],
+        [2, 4],
+      ],
+    ],
+    () => [
+      transpose([
+        [1, 2, 3],
+        [4, 5, 6],
+      ]),
+      [
+        [1, 4],
+        [2, 5],
+        [3, 6],
+      ],
+    ],
+    () => [
+      transpose([
+        [1, 4],
+        [2, 5],
+        [3, 6],
+      ]),
+      [
+        [1, 2, 3],
+        [4, 5, 6],
+      ],
+    ]
   )
 }
 
 function _benchmark_transpose() {
   const J = 100
   const K = 10
-  const zJK = _array(J, j => _array(K, Math.random))
+  const zJK = array(J, j => array(K, Math.random))
   const zKJ = transpose(zJK)
   benchmark(() => transpose(zJK))
   benchmark(() => transpose(zKJ))
@@ -255,71 +250,68 @@ function dot(xJZ, yKZ) {
 
 function _test_dot() {
   check(
-    () => equal(dot(), NaN),
-    () => equal(dot(0), NaN),
-    () => equal(dot(0, 0), 0),
-    () => equal(dot(1, 1), 1),
-    () => equal(dot([], []), 0),
-    () => equal(dot([], [[]]), 0),
-    () => equal(dot([[]], []), 0),
-    () => equal(dot([[]], [[]]), 0),
-    () => equal(dot([1], [1]), 1),
-    () => equal(dot([1], [1, 2]), [1, 2]),
-    () => equal(dot([1, 2], [1]), [1, 2]),
-    () => equal(dot([[1], [2]], [1]), [1, 2]),
-    () => equal(dot([[1], [2]], 1), [1, 2]),
-    () => equal(dot([[1, 2]], [1]), [1, 2]),
-    () => equal(dot([[1, 2]], [[2, 3]]), 8),
-    () => equal(dot([[1, 2]], [[2], [3]]), 8),
-    () =>
-      equal(
-        dot(
-          [[1, 2]],
-          [
-            [2, 3],
-            [3, 4],
-          ]
-        ),
-        [8, 11]
-      ),
-    () =>
-      equal(
-        dot(
-          [
-            [1, 2],
-            [2, 3],
-          ],
-          [[2], [3]]
-        ),
-        [8, 13]
-      ),
-    // NOTE: matrix dot product is "rows into rows" NOT "rows into cols"
-    () =>
-      equal(
-        dot(
-          [
-            [1, 2],
-            [2, 3],
-          ],
-          [
-            [1, 2],
-            [3, 2],
-          ]
-        ),
+    () => [dot(), NaN],
+    () => [dot(0), NaN],
+    () => [dot(0, 0), 0],
+    () => [dot(1, 1), 1],
+    () => [dot([], []), 0],
+    () => [dot([], [[]]), 0],
+    () => [dot([[]], []), 0],
+    () => [dot([[]], [[]]), 0],
+    () => [dot([1], [1]), 1],
+    () => [dot([1], [1, 2]), [1, 2]],
+    () => [dot([1, 2], [1]), [1, 2]],
+    () => [dot([[1], [2]], [1]), [1, 2]],
+    () => [dot([[1], [2]], 1), [1, 2]],
+    () => [dot([[1, 2]], [1]), [1, 2]],
+    () => [dot([[1, 2]], [[2, 3]]), 8],
+    () => [dot([[1, 2]], [[2], [3]]), 8],
+    () => [
+      dot(
+        [[1, 2]],
         [
-          [5, 7],
-          [8, 12],
+          [2, 3],
+          [3, 4],
         ]
-      )
+      ),
+      [8, 11],
+    ],
+    () => [
+      dot(
+        [
+          [1, 2],
+          [2, 3],
+        ],
+        [[2], [3]]
+      ),
+      [8, 13],
+    ],
+    // NOTE: matrix dot product is "rows into rows" NOT "rows into cols"
+    () => [
+      dot(
+        [
+          [1, 2],
+          [2, 3],
+        ],
+        [
+          [1, 2],
+          [3, 2],
+        ]
+      ),
+      [
+        [5, 7],
+        [8, 12],
+      ],
+    ]
   )
 }
 
 function _benchmark_dot() {
   const J = 100
   const K = 10
-  const xJ = _array(J, Math.random)
-  const yJ = _array(J, Math.random)
-  const zJK = _array(J, j => _array(K, Math.random))
+  const xJ = array(J, Math.random)
+  const yJ = array(J, Math.random)
+  const zJK = array(J, j => array(K, Math.random))
   const zKJ = transpose(zJK)
 
   benchmark(
