@@ -271,9 +271,11 @@ function js_table(regex) {
       def.comment = comment_lines[0] || ''
     }
 
-    // put together name and args as label, removing all whitespace
+    // put together name and args as label
+    // trim name (can contain spaces for commands, e.g. "/push [items]")
+    // remove all whitespace from args
     let label =
-      `<span class="name">${def.name.replace(/\s+/, '')}</span>` +
+      `<span class="name">${def.name.trim()}</span>` +
       `<span class="args">${def.args.replace(/\s+/, '')}</span>`
 
     // restore expanded state from local store (triggers render on change)
