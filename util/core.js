@@ -338,7 +338,7 @@ function _on_change() {
   _install_core_css()
 }
 
-// TODO: is there a better place for these? util/html?
+// TODO: where to put these? util/html?
 function _div(class_, content) {
   // new-lines allow interleaving w/ markdown
   return `<div class="${class_}">\n\n${content}\n</div>\n\n`
@@ -450,7 +450,6 @@ function _js_table_show_benchmark(name) {
     ? ''
     : evallink(_this, `_js_table_run_benchmark('${name}',event)`, 'run')
 
-  // TODO: continue moving to core.css ...
   _modal(
     _div(
       'core_js_table_modal',
