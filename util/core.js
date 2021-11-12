@@ -433,7 +433,8 @@ function _js_table_show_benchmark(name) {
   let rows = [] // parsed benchmark log lines
   let elapsed
   for (const line of benchmark.log) {
-    let [name, result] = line.match(/^(.+)\s*:\s*(\d.+?)\s*$/)?.slice(1) ?? []
+    let [name, result] =
+      line.match(/^(.+)\s*: ([\d,]+ calls\/sec.*)$/)?.slice(1) ?? []
     let [ms] = line.match(/in (\d+)ms$/)?.slice(1) ?? []
     if (result) {
       result = result.replace(' calls/sec', '/s') // abbreviate calls/sec
