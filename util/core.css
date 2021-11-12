@@ -176,18 +176,22 @@
   line-height: 120%;
   padding-bottom: 5px;
 }
+/* override .modal code to have bold inline code inside .title */
 .core_js_table_modal .title code {
   font-weight: 600;
 }
+/* fade/space/shrink function arguments in title */
 .core_js_table_modal .title .args {
   color: #666;
   margin-left: 2px;
   font-size: 90%;
 }
+/* style code (pre) section */
 .core_js_table_modal pre {
   margin-top: 2px; /* space from .title */
   padding: 3px 0;
 }
+/* style benchmark results (markdown table wrapped in .results) */
 .core_js_table_modal .results {
   background: #222;
   color: #ccc;
@@ -226,6 +230,7 @@
   padding-right: 8px;
   text-align: right;
 }
+/* style elapsed text and run button in benchmark modal */
 .core_js_table_modal :is(.elapsed, .run) {
   margin-left: 10px; /* space from title */
   font-size: 80%;
