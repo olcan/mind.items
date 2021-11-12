@@ -5,4 +5,4 @@
 // updater.js
 ```
 
-<p> #_welcome #_listen #_util/core </p>
+#_welcome #_listen #_util/core
