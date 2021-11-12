@@ -271,10 +271,10 @@ function js_table(regex) {
       def.comment = comment_lines[0] || ''
     }
 
-    // put together name and args as label
+    // put together name and args as "usage"
     // trim name (can contain spaces for commands, e.g. "/push [items]")
     // remove all whitespace from args
-    let label =
+    let usage =
       `<span class="name">${def.name.trim()}</span>` +
       `<span class="args">${def.args.replace(/\s+/, '')}</span>`
 
@@ -287,7 +287,7 @@ function js_table(regex) {
       else if (stored_toggle === false) expand = 'collapse'
     }
 
-    // if tested indicate result as styling on label
+    // if tested indicate result as styling on usage
     // also consider benchmark errors
     let ok = ''
     if (test) ok = test.ok ? 'ok' : 'error'
@@ -297,8 +297,8 @@ function js_table(regex) {
     let benchmarked = benchmark?.ok ? 'benchmarked' : ''
 
     lines.push(
-      `|<div class="label-wrapper ${benchmarked}">` +
-        `<div class="label ${ok}">${label}</div></div>|` +
+      `|<div class="usage-wrapper ${benchmarked}">` +
+        `<div class="usage ${ok}">${usage}</div></div>|` +
         `<div class="cell name_${def._name} ${expandable} ${expand}">` +
         `${def.comment}</div>`
     )
@@ -370,11 +370,11 @@ function _js_table_install_click_handlers() {
       e.preventDefault()
       if (expandable) _js_table_toggle(name, e)
     }
-    const label = cell.closest('tr').querySelector('.label-wrapper')
-    const args = label.querySelector('.args').innerText
-    // label.onclick = e => (e.stopPropagation(), e.stopPropagation())
-    // label.onmousedown = e => {
-    label.onclick = e => {
+    const usage = cell.closest('tr').querySelector('.usage-wrapper')
+    const args = usage.querySelector('.args').innerText
+    // usage.onclick = e => (e.stopPropagation(), e.stopPropagation())
+    // usage.onmousedown = e => {
+    usage.onclick = e => {
       if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
       e.preventDefault()

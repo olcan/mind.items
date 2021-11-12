@@ -46,10 +46,10 @@
   text-align: right;
 }
 
-/* style .label, left column of main table */
-.core_js_table .label {
+/* style .usage, left column of main table */
+.core_js_table .usage {
   display: block; /* full-width, insensitive to line-height, alignment, etc */
-  padding: 3px 0; /* matches .label, but +1px to improve baseline alignment */
+  padding: 3px 0; /* matches .usage, but +1px to improve baseline alignment */
   padding-left: 5px; /* space from test indicator */
   border-left: 4px solid #444; /* test indicator */
 
@@ -63,58 +63,58 @@
   text-overflow: ellipsis;
 }
 
-/* reduce .label max-width based on screen size */
+/* reduce .usage max-width based on screen size */
 @media only screen and (max-width: 600px) {
-  .core_js_table .label {
+  .core_js_table .usage {
     max-width: 200px;
   }
 }
 @media only screen and (max-width: 500px) {
-  .core_js_table .label {
+  .core_js_table .usage {
     max-width: 150px;
   }
 }
 @media only screen and (max-width: 400px) {
-  .core_js_table .label {
+  .core_js_table .usage {
     max-width: 120px;
   }
 }
 
-/* remove background for inline code in .label since already monospace */
-.core_js_table .label code {
+/* remove background for inline code in .usage since already monospace */
+.core_js_table .usage code {
   background: none;
 }
 
 /* fade and space function arguments */
-.core_js_table .label .args {
+.core_js_table .usage .args {
   color: #999;
   margin-left: 2px;
 }
 
 /* indicate test status via left border color change */
-.core_js_table .label.ok {
+.core_js_table .usage.ok {
   border-color: #8d8;
 }
-.core_js_table .label.error {
+.core_js_table .usage.error {
   border-color: #f55;
   background: #500;
   border-top-right-radius: 4px;
   border-bottom-right-radius: 4px;
 }
 
-/* style .label-wrapper, used to indicate benchmarks via left border */
-.core_js_table .label-wrapper {
+/* style .usage-wrapper, used to indicate benchmarks via left border */
+.core_js_table .usage-wrapper {
   border-left: 4px solid transparent;
   padding-left: 1px;
   cursor: pointer;
 }
-.core_js_table .label-wrapper.benchmarked {
+.core_js_table .usage-wrapper.benchmarked {
   border-color: #4ae;
 }
 
 /* style .cell, right column of main table */
 .core_js_table .cell {
-  padding: 2px 0; /* matches .label */
+  padding: 2px 0; /* matches .usage */
   padding-left: 7px;
   border-radius: 4px;
 }
@@ -173,7 +173,7 @@
   background: #4ae;
 }
 
-/* style js_table modals (label/function, test, and benchmark) */
+/* style js_table modals (usage->function, test, and benchmark) */
 .core_js_table_modal .title {
   font-family: 'jetbrains mono', monospace;
   font-weight: 600;
