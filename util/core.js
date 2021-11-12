@@ -392,7 +392,7 @@ function _js_table_install_click_handlers() {
       if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
       e.preventDefault()
-      _js_table_show_def(name)
+      _js_table_show_function(name)
     }
   })
 }
@@ -412,7 +412,7 @@ function _js_table_toggle(name, e) {
   ls._js_table = _.set(ls._js_table || {}, name, !expand)
 }
 
-function _js_table_show_def(name) {
+function _js_table_show_function(name) {
   const cell = _this.elem.querySelector(`.cell.name_${name}`)
   const usage = cell.closest('tr').querySelector('.usage-wrapper')
   const args = usage.querySelector('.args').innerText
@@ -432,9 +432,9 @@ function _js_table_show_test(name) {
   const test = _this.global_store._tests[name]
   const def_link = evallink(
     _this,
-    `_js_table_show_def('${name}', event)`,
-    'def',
-    'def'
+    `_js_table_show_function('${name}', event)`,
+    'function',
+    'function'
   )
   _modal_close() // in case invoked from existing modal
   _modal(
@@ -492,9 +492,9 @@ function _js_table_show_benchmark(name) {
   )
   const def_link = evallink(
     _this,
-    `_js_table_show_def('${name}', event)`,
-    'def',
-    'def'
+    `_js_table_show_function('${name}', event)`,
+    'function',
+    'function'
   )
 
   _modal_close() // in case invoked from existing modal
