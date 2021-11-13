@@ -189,7 +189,7 @@
 /* fade/space/shrink function arguments in title */
 .core_js_table_modal .title .args {
   color: #666;
-  margin-left: 2px;
+  margin-left: 5px;
   font-size: 90%;
 }
 /* style code (pre) section */
@@ -197,6 +197,17 @@
   margin-top: 2px; /* space from .title */
   padding: 3px 0;
 }
+/* style title for test and benchmark modals */
+.core_js_table_modal .title:is(.test, .benchmark) {
+  color: #c33; /* indicates error, modified by .ok below */
+}
+.core_js_table_modal .title.test.ok {
+  color: #3a3;
+}
+.core_js_table_modal .title.benchmark.ok {
+  color: #35b;
+}
+
 /* style benchmark results (markdown table wrapped in .results) */
 .core_js_table_modal .results {
   background: #222;
@@ -236,9 +247,9 @@
   padding-right: 8px;
   text-align: right;
 }
-/* style elapsed text in benchmark modal */
-.core_js_table_modal .elapsed {
-  margin-left: 10px; /* space from title */
+/* style summary text in benchmark modal */
+.core_js_table_modal .summary {
+  margin-left: 5px; /* space from title */
   font-size: 80%;
 }
 
@@ -249,13 +260,13 @@
   font-size: 80%;
 }
 .core_js_table_modal .buttons a {
-  padding: 0 4px;
+  padding: 0 6px;
   border-radius: 4px;
   text-decoration: none;
   display: inline-block; /* aligns much better around text */
   margin-left: 5px; /* space from link (or nothing) on left */
   font-weight: 600;
-  background: #f75;
+  background: #444;
   color: white;
 }
 .core_js_table_modal .buttons :is(.test, .benchmark) {
@@ -277,6 +288,6 @@
   pointer-events: none;
   cursor: not-allowed;
 }
-.core_js_table_modal.running :is(.results, .elapsed, .run) {
+.core_js_table_modal.running :is(.results, .summary, .run) {
   opacity: 0.5;
 }

@@ -354,7 +354,7 @@ function _on_item_change() {
 // insert_newlines allows interleaving w/ markdown
 function _div(class_, content, insert_newlines = true) {
   return insert_newlines
-    ? `<div class="${class_}">\n\n${content}\n</div>\n\n`
+    ? `<div class="${class_}">\n${content}\n</div>\n\n`
     : `<div class="${class_}">${content}</div>`
 }
 
@@ -415,14 +415,17 @@ function _js_table_toggle(name, e) {
 function _js_table_show_function(name) {
   const cell = _this.elem.querySelector(`.cell.name_${name}`)
   const usage = cell.closest('tr').querySelector('.usage-wrapper')
-  const args = usage.querySelector('.args').innerText
+  const args = usage
+    .querySelector('.args')
+    .innerText.replace(/^\(/, '')
+    .replace(/\)$/, '')
   const [status] = _js_table_function_status(name)
   _modal_close() // in case invoked from existing modal
   _modal(
     _div(
       'core_js_table_modal', // style wrapper, see core.css
       (status ? _div('buttons', status) : '') +
-        _div('title', _span('name', name) + _span('args', args)) +
+        _div('title', `<code>${name}</code>` + _span('args', args)) +
         block('js', _this.eval(name))
     )
   )
@@ -442,7 +445,13 @@ function _js_table_show_test(name) {
       'core_js_table_modal', // style wrapper, see core.css
       [
         _div('buttons', def_link),
-        _div('title', `test \`${name}\``),
+        _div(
+          `title test ${test.ok ? 'ok' : 'error'}`,
+          `<code>${name}</code>` +
+            (test.ok
+              ? _span('summary', `passed in ${test.ms}ms`)
+              : _span('summary', `FAILED in ${test.ms}ms`))
+        ),
         !test.ok ? block('_log', test.log.join('\n')) : '',
         block('js', _this.eval(test.test || `_test_${name}`)),
       ].join('\n')
@@ -469,19 +478,13 @@ function _js_table_show_benchmark(name) {
   const benchmark = _this.global_store._benchmarks[name]
   let log = [] // unparsed log lines
   let rows = [] // parsed benchmark log lines
-  let elapsed
   for (const line of benchmark.log) {
     let [name, result] =
       line.match(/^(.+)\s*: ([\d,]+ calls\/sec.*)$/)?.slice(1) ?? []
-    let [ms] = line.match(/in (\d+)ms$/)?.slice(1) ?? []
     if (result) {
       result = result.replace(' calls/sec', '/s') // abbreviate calls/sec
       rows.push([result, name])
-    } else if (ms) {
-      elapsed = ms
-    } else {
-      log.push(line)
-    }
+    } else if (!line.match(/in (\d+)ms$/)) log.push(line)
   }
   rows = _.sortBy(rows, r => -parseInt(r[0].replace(/,/g, '')))
   const run_link = evallink(
@@ -504,10 +507,13 @@ function _js_table_show_benchmark(name) {
       [
         _div('buttons', run_link + def_link),
         _div(
-          'title',
-          `benchmark \`${name}\`` + _span('elapsed', `${elapsed}ms`)
+          `title benchmark ${benchmark.ok ? 'ok' : 'error'}`,
+          `<code>${name}</code>` +
+            (benchmark.ok
+              ? _span('summary', `done in ${benchmark.ms}ms`)
+              : _span('summary', `FAILED in ${benchmark.ms}ms`))
         ),
-        rows.length ? _div('results', table(rows)) : '',
+        rows.length ? _div('results', '\n' + table(rows)) : '',
         log.length ? block('_log', log.join('\n')) : '',
         block('js', _this.eval(benchmark.benchmark || `_benchmark_${name}`)),
       ].join('\n')
