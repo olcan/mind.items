@@ -276,10 +276,15 @@ function js_table(regex) {
 
     // put together name and args as "usage"
     // trim name (can contain spaces for commands, e.g. "/push [items]")
-    // remove all whitespace from args
+    // remove all whitespace from args except after commas
+    const name = def.name.trim()
+    const args = def.args
+      .replace(/\s+/, '')
+      .replace(/,/g, ', ')
+      .replace(/^\(/, _span('parens', '('))
+      .replace(/\)$/, _span('parens', ')'))
     let usage =
-      `<span class="name">${def.name.trim()}</span>` +
-      `<span class="args">${def.args.replace(/\s+/, '')}</span>`
+      `<span class="name">${name}</span>` + `<span class="args">${args}</span>`
 
     // restore expanded state from local store (triggers render on change)
     let expand = ''
@@ -367,7 +372,6 @@ function _span(class_, content) {
 }
 
 function _js_table_install_click_handlers() {
-  log('installing js_table click handlers', _this.deephash)
   // install click handlers!
   _this.elem.querySelectorAll('.core_js_table .cell').forEach(cell => {
     const name = Array.from(cell.classList)
@@ -417,8 +421,9 @@ function _js_table_show_function(name) {
   const usage = cell.closest('tr').querySelector('.usage-wrapper')
   const args = usage
     .querySelector('.args')
-    .innerText.replace(/^\(/, '')
-    .replace(/\)$/, '')
+    .innerText.replace(/,/g, ', ')
+    .replace(/^\(/, _span('parens', '('))
+    .replace(/\)$/, _span('parens', ')'))
   const [status] = _js_table_function_status(name)
   _modal_close() // in case invoked from existing modal
   _modal(
@@ -433,10 +438,16 @@ function _js_table_show_function(name) {
 
 function _js_table_show_test(name) {
   const test = _this.global_store._tests[name]
+  const run_link = evallink(
+    _this,
+    `_js_table_run_test('${name}',event)`,
+    'run',
+    'run test' + (test.ok ? ' ok' : '')
+  )
   const def_link = evallink(
     _this,
     `_js_table_show_function('${name}', event)`,
-    'function',
+    '<-',
     'function'
   )
   _modal_close() // in case invoked from existing modal
@@ -444,13 +455,13 @@ function _js_table_show_test(name) {
     _div(
       'core_js_table_modal', // style wrapper, see core.css
       [
-        _div('buttons', def_link),
+        _div('buttons', def_link + run_link),
         _div(
-          `title test ${test.ok ? 'ok' : 'error'}`,
+          `title test ${test.ok ? 'ok' : ''}`,
           `<code>${name}</code>` +
             (test.ok
-              ? _span('summary', `passed in ${test.ms}ms`)
-              : _span('summary', `FAILED in ${test.ms}ms`))
+              ? _span('summary ok', `test passed in ${test.ms}ms`)
+              : _span('summary', `test FAILED in ${test.ms}ms`))
         ),
         !test.ok ? block('_log', test.log.join('\n')) : '',
         block('js', _this.eval(test.test || `_test_${name}`)),
@@ -470,8 +481,21 @@ async function _js_table_run_benchmark(name, e) {
   // dynamically eval/invoke benchmark_item function from #benchmarker
   await _item('#benchmarker', false)?.eval('benchmark_item')(_this)
   modal.classList.remove('running')
-  await _modal_close()
   _js_table_show_benchmark(name)
+}
+
+async function _js_table_run_test(name, e) {
+  if (!_exists('#tester', false)) {
+    alert('missing #tester')
+    return
+  }
+  const link = e.target
+  const modal = link.closest('.core_js_table_modal')
+  modal.classList.add('running')
+  // dynamically eval/invoke benchmark_item function from #benchmarker
+  await _item('#tester', false)?.eval('test_item')(_this)
+  modal.classList.remove('running')
+  _js_table_show_test(name)
 }
 
 function _js_table_show_benchmark(name) {
@@ -491,12 +515,12 @@ function _js_table_show_benchmark(name) {
     _this,
     `_js_table_run_benchmark('${name}',event)`,
     'run',
-    'run'
+    'run benchmark' + (benchmark.ok ? ' ok' : '')
   )
   const def_link = evallink(
     _this,
     `_js_table_show_function('${name}', event)`,
-    'function',
+    '<-',
     'function'
   )
 
@@ -505,13 +529,13 @@ function _js_table_show_benchmark(name) {
     _div(
       'core_js_table_modal', // style wrapper, see core.css
       [
-        _div('buttons', run_link + def_link),
+        _div('buttons', def_link + run_link),
         _div(
-          `title benchmark ${benchmark.ok ? 'ok' : 'error'}`,
+          `title benchmark ${benchmark.ok ? 'ok' : ''}`,
           `<code>${name}</code>` +
             (benchmark.ok
-              ? _span('summary', `done in ${benchmark.ms}ms`)
-              : _span('summary', `FAILED in ${benchmark.ms}ms`))
+              ? _span('summary ok', `benchmark done in ${benchmark.ms}ms`)
+              : _span('summary', `benchmark FAILED in ${benchmark.ms}ms`))
         ),
         rows.length ? _div('results', '\n' + table(rows)) : '',
         log.length ? block('_log', log.join('\n')) : '',

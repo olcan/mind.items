@@ -93,7 +93,11 @@
 /* fade and space function arguments */
 .core_js_table .usage .args {
   color: #999;
-  margin-left: 2px;
+  font-size: 90%;
+}
+
+.core_js_table .usage .args .parens {
+  color: #444;
 }
 
 /* indicate test status via left border color change */
@@ -188,9 +192,12 @@
 }
 /* fade/space/shrink function arguments in title */
 .core_js_table_modal .title .args {
-  color: #666;
-  margin-left: 5px;
+  color: #555;
   font-size: 90%;
+}
+.core_js_table_modal .title .args .parens {
+  color: #bbb;
+  font-weight: 400;
 }
 /* style code (pre) section */
 .core_js_table_modal pre {
@@ -198,14 +205,14 @@
   padding: 3px 0;
 }
 /* style title for test and benchmark modals */
-.core_js_table_modal .title:is(.test, .benchmark) {
+.core_js_table_modal .title:is(.test, .benchmark) .summary {
   color: #c33; /* indicates error, modified by .ok below */
 }
-.core_js_table_modal .title.test.ok {
+.core_js_table_modal .title.test .summary.ok {
   color: #3a3;
 }
-.core_js_table_modal .title.benchmark.ok {
-  color: #35b;
+.core_js_table_modal .title.benchmark .summary.ok {
+  color: #39d;
 }
 
 /* style benchmark results (markdown table wrapped in .results) */
@@ -257,7 +264,7 @@
   float: right;
   margin-top: -5px; /* shift up */
   font-family: 'jetbrains mono', monospace;
-  font-size: 80%;
+  font-size: 90%;
 }
 .core_js_table_modal .buttons a {
   padding: 0 6px;
@@ -266,7 +273,8 @@
   display: inline-block; /* aligns much better around text */
   margin-left: 5px; /* space from link (or nothing) on left */
   font-weight: 600;
-  background: #444;
+  background: #555;
+  /* background: #f75; */
   color: white;
 }
 .core_js_table_modal .buttons :is(.test, .benchmark) {
@@ -279,9 +287,6 @@
   background: #4ae;
 }
 
-.core_js_table_modal .buttons .run {
-  background: #4ae;
-}
 /* styles for running state */
 .core_js_table_modal.running .run {
   background: #777;
