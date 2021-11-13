@@ -1,5 +1,5 @@
 function benchmark_item(item) {
-  if (!item.text.match(/\b_benchmark/)) return 0 // no benchmarks in item
+  if (!item.text.match(/\b_benchmark_\w+/)) return 0 // no benchmarks in item
 
   // serialize via item.store._benchmarker/_tester to avoid mixing up logs
   return (item.store._benchmarker = Promise.allSettled([
@@ -7,13 +7,10 @@ function benchmark_item(item) {
     item.store._tester,
   ]).then(async () => {
     // evaluate any functions _benchmark|_benchmark_*() defined on item
-    const benchmarks = [
-      '_benchmark',
-      ...(item.text.match(/\b_benchmark_\w+/g) ?? []),
-    ]
+    const benchmarks = item.text.match(/\b_benchmark_\w+/g) ?? []
     let benchmarks_done = 0
     for (const benchmark of benchmarks) {
-      const name = benchmark.replace(/^_benchmark_?/, '') || '(unnamed)'
+      const name = benchmark.replace(/^_benchmark_/, '')
       let done, ms, e
       const start = Date.now()
       try {
@@ -29,7 +26,7 @@ function benchmark_item(item) {
         item.error(`benchmark '${name}' FAILED in ${ms}ms`) //; ${_e}`)
         e = _e
       }
-      // store benchmark results in item's global store under _tests
+      // store benchmark results in item's global store under _benchmarks
       if (done) {
         benchmarks_done++
         const log = item.get_log({ since: 'eval' })
@@ -67,7 +64,9 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   benchmark_item(_item(id))
 }
 
-// command /benchmark [label]
+// => /benchmark [items]
+// runs benchmarks in items
+// `items` can be specific `#label` or id
 async function _on_command_benchmark(label) {
   const items = _items(label)
   if (items.length == 0) {
@@ -78,7 +77,7 @@ async function _on_command_benchmark(label) {
     let num_benchmarks = 0
     let num_items = 0 // items with benchmarks
     for (const item of items) {
-      if (!item.text.match(/\b_benchmark/)) continue // no tests in item
+      if (!item.text.match(/\b_benchmark_\w+/)) continue // no tests in item
       await _modal_close()
       _modal(`Running benchmarks in ${item.name} ...`)
       const count = await benchmark_item(item)

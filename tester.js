@@ -1,16 +1,16 @@
 function test_item(item) {
-  if (!item.text.match(/\b_test/)) return 0 // no tests in item
+  if (!item.text.match(/\b_test_\w+/)) return 0 // no tests in item
 
   // serialize via item.store._tester/_benchmarker to avoid mixing up logs
   return (item.store._tester = Promise.allSettled([
     item.store._tester,
     item.store._benchmarker,
   ]).then(async () => {
-    // evaluate any functions _test|_test_*() defined on item
-    const tests = ['_test', ...(item.text.match(/\b_test_\w+/g) ?? [])]
+    // evaluate any functions _test_*() defined on item
+    const tests = item.text.match(/\b_test_\w+/g) ?? []
     let tests_done = 0
     for (const test of tests) {
-      const name = test.replace(/^_test_?/, '') || '(unnamed)'
+      const name = test.replace(/^_test_/, '')
       let done, ms, e
       const start = Date.now()
       try {
@@ -64,7 +64,9 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   test_item(_item(id))
 }
 
-// command /test [label]
+// => /test [items]
+// runs tests in items
+// `items` can be specific `#label` or id
 async function _on_command_test(label) {
   const items = _items(label)
   if (items.length == 0) {
@@ -75,7 +77,7 @@ async function _on_command_test(label) {
     let num_tests = 0
     let num_items = 0 // items with tests
     for (const item of items) {
-      if (!item.text.match(/\b_test/)) continue // no tests in item
+      if (!item.text.match(/\b_test_\w+/)) continue // no tests in item
       await _modal_close()
       _modal(`Running tests in ${item.name} ...`)
       const count = await test_item(item)
