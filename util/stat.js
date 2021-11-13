@@ -101,16 +101,33 @@ function _benchmark_discrete_uniform() {
   )
 }
 
-const discrete = (wJ, wj_sum = sum(wJ)) => {
-  let j = 0,
-    w = 0,
-    wt = uniform() * wj_sum
+// discrete(wJ, [sum_wj=sum(wJ)])
+// discrete on `{0,…,J-1}` w/ prob. `P(j)∝wJ[j]`
+// normalizer `sum_wj` can be passed if known
+const discrete = (wJ, sum_wj = sum(wJ)) => {
+  let j = 0
+  let w = 0
+  let wt = uniform() * sum_wj
   do {
     w += wJ[j++]
   } while (w < wt && j < wJ.length)
   return j - 1
 }
-const noise = (xJ, ε = 0.001) => apply(xJ, x => x + ε * (2 * uniform() - 1))
+
+// TODO: test discrete
+
+function _benchmark_discrete() {
+  const wJ = array(100, j => uniform())
+  const sum_wj = sum(wJ)
+  benchmark(
+    () => discrete([1, 2]),
+    () => discrete([1, 2], 3),
+    () => discrete(wJ),
+    () => discrete(wJ, sum_wj)
+  )
+}
+
+const add_noise = (xJ, ε = 0.001) => apply(xJ, x => x + ε * (2 * uniform() - 1))
 
 // triangular sampler from https://github.com/jstat/jstat/blob/master/src/distribution.js
 const triangular = (a, b, c) => {
@@ -152,7 +169,7 @@ function max(xJ) {
   return z
 }
 function sum(xJ) {
-  if (!isArray(xJ)) return sum(Array.from(arguments))
+  if (!is_array(xJ)) return sum(Array.from(arguments))
   let z = 0
   const J = xJ.length
   for (let j = 0; j < J; ++j) z += xJ[j]
