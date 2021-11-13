@@ -306,7 +306,7 @@ function _test_dot() {
   )
 }
 
-function _benchmark_dot() {
+const _benchmark_dot = () => {
   const J = 100
   const K = 10
   const xJ = array(J, Math.random)

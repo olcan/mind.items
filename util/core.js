@@ -464,7 +464,12 @@ function _js_table_show_test(name) {
               : _span('summary', `test FAILED in ${test.ms}ms`))
         ),
         !test.ok ? block('_log', test.log.join('\n')) : '',
-        block('js', _this.eval(test.test || `_test_${name}`)),
+        block(
+          'js',
+          _this.eval(test.test || `_test_${name}`, {
+            exclude_tests_and_benchmarks: false,
+          })
+        ),
       ].join('\n')
     )
   )
@@ -539,7 +544,12 @@ function _js_table_show_benchmark(name) {
         ),
         rows.length ? _div('results', '\n' + table(rows)) : '',
         log.length ? block('_log', log.join('\n')) : '',
-        block('js', _this.eval(benchmark.benchmark || `_benchmark_${name}`)),
+        block(
+          'js',
+          _this.eval(benchmark.benchmark || `_benchmark_${name}`, {
+            exclude_tests_and_benchmarks: false,
+          })
+        ),
       ].join('\n')
     )
   )

@@ -16,7 +16,12 @@ function test_item(item) {
       try {
         done = await item.eval(
           `typeof ${test} == 'function' ? (${test}() ?? true) : false`,
-          { trigger: 'test', async: item.deepasync, async_simple: true }
+          {
+            trigger: 'test',
+            async: item.deepasync,
+            async_simple: true,
+            exclude_tests_and_benchmarks: false,
+          }
         )
         ms = Date.now() - start
         if (done) item.log(`test '${name}' passed in ${ms}ms`)
@@ -37,7 +42,8 @@ function test_item(item) {
         try {
           names = await item.eval(
             `typeof ${test}_functions == 'object' ? ` +
-              `${test}_functions : null`
+              `${test}_functions : null`,
+            { exclude_tests_and_benchmarks: false }
           )
         } catch (e) {}
         if (is_array(names) && names.every(is_string)) {

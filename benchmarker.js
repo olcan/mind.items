@@ -16,7 +16,12 @@ function benchmark_item(item) {
       try {
         done = await item.eval(
           `typeof ${benchmark} == 'function' ? (${benchmark}() ?? true) : false`,
-          { trigger: 'benchmark', async: item.deepasync, async_simple: true }
+          {
+            trigger: 'benchmark',
+            async: item.deepasync,
+            async_simple: true,
+            exclude_tests_and_benchmarks: false,
+          }
         )
         ms = Date.now() - start
         if (done) item.log(`benchmark '${name}' completed in ${ms}ms`)
@@ -37,7 +42,8 @@ function benchmark_item(item) {
         try {
           names = await item.eval(
             `typeof ${benchmark}_functions == 'object' ? ` +
-              `${benchmark}_functions : null`
+              `${benchmark}_functions : null`,
+            { exclude_tests_and_benchmarks: false }
           )
         } catch (e) {}
         if (is_array(names) && names.every(is_string)) {
