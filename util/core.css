@@ -65,6 +65,14 @@
   margin-top: 5px;
 }
 
+/* round corners of first and last usage */
+.core_js_table .function:first-child .usage {
+  border-top-right-radius: 5px;
+}
+.core_js_table .function:last-child .usage {
+  border-bottom-right-radius: 5px;
+}
+
 /* style .usage, left column of main table */
 .core_js_table .usage {
   display: inline-block;
@@ -224,6 +232,7 @@
   background: #222;
   padding-right: 8px;
   border-top-right-radius: 5px;
+  border-bottom-right-radius: 0;
 }
 
 /* style js_table modals (usage->function, test, and benchmark) */
