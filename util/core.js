@@ -307,11 +307,15 @@ function js_table(regex) {
         'bullet' + (benchmark ? ` benchmark ${benchmark.ok ? ' ok' : ''}` : '')
       )
 
+    // convert markdown to html
+    let desc = marked.parse(def.comment)
+    // drop unnecessary line breaks after tables
+    desc = desc.replace(/<\/table>\s*<br>/g, '</table>')
+
     lines.push(
       _div(
         `function name_${def._name} ${expandable} ${expand} ${ok}`,
-        _span(`usage`, bullets + usage) +
-          _span('desc', marked.parse(def.comment.trim()))
+        _span(`usage`, bullets + usage) + _span('desc', desc)
       )
     )
   })
