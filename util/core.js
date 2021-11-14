@@ -48,7 +48,7 @@ function check(...funcs) {
   })
 }
 
-// measures calls/sec for each argument
+// measures calls/sec for each argument, also here is some extra long long text to see what happens
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
@@ -229,7 +229,7 @@ function js_table(regex) {
       return def
     }
   )
-  let lines = ['|||', '|-|-|']
+  let lines = []
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
     if (regex && !regex.test(def._name)) return
@@ -269,7 +269,7 @@ function js_table(regex) {
       def.comment =
         comment_lines[0] +
         _span('less', _span('more-indicator', '')) +
-        _div_inline('more', comment_lines.slice(1).join('<br>'))
+        _div('more', comment_lines.slice(1).join('<br>'))
     } else {
       def.comment = comment_lines[0] || ''
     }
@@ -289,12 +289,10 @@ function js_table(regex) {
 
     // restore expanded state from local store (triggers render on change)
     let expand = ''
-    if (expandable) {
-      const ls = _this.local_store
-      const stored_toggle = ls._js_table?.[def._name]
-      if (stored_toggle === true) expand = 'expand'
-      else if (stored_toggle === false) expand = 'collapse'
-    }
+    const ls = _this.local_store
+    const stored_toggle = ls._js_table?.[def._name]
+    if (stored_toggle === true) expand = 'expand'
+    else if (stored_toggle === false) expand = 'collapse'
 
     // if tested indicate result as styling on usage
     // also consider benchmark errors
@@ -303,29 +301,30 @@ function js_table(regex) {
     if (test) ok = test.ok ? 'ok' : 'error'
     if (benchmark && !benchmark.ok) ok = 'error'
 
-    // if benchmarked also indicate as .benchmarked class
-    let benchmarked = benchmark?.ok ? 'benchmarked' : ''
+    // TODO: treat any truncation (in usage or desc) as expandability
+
+    const bullets =
+      _span('bullet' + (test ? ` test ${test.ok ? ' ok' : ''}` : '')) +
+      _span(
+        'bullet' + (benchmark ? ` benchmark ${benchmark.ok ? ' ok' : ''}` : '')
+      )
 
     lines.push(
-      '|' +
-        [
-          _div_inline(
-            `usage-wrapper ${benchmarked}`,
-            _div_inline(`usage ${ok} ${expand}`, usage)
-          ),
-          _div_inline(
-            `cell name_${def._name} ${expandable} ${expand}`,
-            def.comment
-          ),
-        ].join('|')
+      _div(
+        `function name_${def._name} ${expandable} ${expand} ${ok}`,
+        _span(`usage`, bullets + usage) +
+          _span('desc', marked.parse(def.comment.trim()))
+      )
     )
   })
 
-  return [
-    _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
-    // install click handlers at every render (via uncached script)
-    '<script _uncached> _js_table_install_click_handlers() </script>',
-  ].join('\n')
+  return html(
+    [
+      _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
+      // install click handlers at every render (via uncached script)
+      '<script _uncached> _js_table_install_click_handlers() </script>',
+    ].join('\n')
+  )
 }
 
 function _install_core_css() {
@@ -357,39 +356,37 @@ function _on_item_change() {
 }
 
 // TODO: refactor these into util/html?
-// insert_newlines allows interleaving w/ markdown
-function _div(class_, content, insert_newlines = true) {
-  return insert_newlines
-    ? `<div class="${class_}">\n${content}\n</div>\n\n`
-    : `<div class="${class_}">${content}</div>`
+function _div(class_, content = '') {
+  return `<div class="${class_}">${content}</div>`
 }
 
-function _div_inline(class_, content) {
-  return _div(class_, content, false /* insert_newlines */)
-}
-
-function _span(class_, content) {
+function _span(class_, content = '') {
   return `<span class="${class_}">${content}</span>`
 }
 
 function _js_table_install_click_handlers() {
   // install click handlers!
-  _this.elem.querySelectorAll('.core_js_table .cell').forEach(cell => {
-    const name = Array.from(cell.classList)
+  _this.elem.querySelectorAll('.core_js_table .function').forEach(func => {
+    const desc = func.querySelector('.desc')
+    const usage = func.querySelector('.usage')
+    const name = Array.from(func.classList)
       .find(c => c.startsWith('name_'))
       .slice(5)
-    const expandable = cell.classList.contains('expandable')
+    // make expandable if there is any truncation on func or usage
+    if (func.offsetWidth < func.scrollWidth) func.classList.add('expandable')
+    if (usage.offsetWidth < usage.scrollWidth) func.classList.add('expandable')
+    const expanded = func.classList.contains('expand')
+    const expandable = func.classList.contains('expandable')
     // onmousedown w/ cancelled click tends to be more robust
     // however onclick allows text selection so we use that for now
-    //cell.onclick = e => (e.stopPropagation(), e.stopPropagation())
-    //cell.onmousedown = e => {
-    cell.onclick = e => {
+    //desc.onclick = e => (e.stopPropagation(), e.stopPropagation())
+    //desc.onmousedown = e => {
+    desc.onclick = e => {
       if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
       e.preventDefault()
-      if (expandable) _js_table_toggle(name, e)
+      if (expanded || expandable) _js_table_toggle(name, e)
     }
-    const usage = cell.closest('tr').querySelector('.usage-wrapper')
     const args = usage.querySelector('.args').innerText
     // usage.onclick = e => (e.stopPropagation(), e.stopPropagation())
     // usage.onmousedown = e => {
@@ -405,24 +402,21 @@ function _js_table_install_click_handlers() {
 function _js_table_toggle(name, e) {
   e.preventDefault()
   e.stopPropagation()
-  const cell = e.target.closest('.cell')
+  const func = e.target.closest('.function')
   const expand =
-    (cell.classList.contains('expand') || !!cell.closest('.pushable')) &&
-    !cell.classList.contains('collapse')
+    (func.classList.contains('expand') || !!func.closest('.pushable')) &&
+    !func.classList.contains('collapse')
   // update dom immediately before re-render due to local store change
-  cell.classList.toggle('expand', !expand)
-  cell.classList.toggle('collapse', expand)
-  const usage = cell.closest('tr').querySelector('.usage-wrapper')
-  usage.classList.toggle('expand', !expand)
-  usage.classList.toggle('collapse', expand)
+  func.classList.toggle('expand', !expand)
+  func.classList.toggle('collapse', expand)
   // store expanded state in local store (triggers render on change)
   const ls = _this.local_store
   ls._js_table = _.set(ls._js_table || {}, name, !expand)
 }
 
 function _js_table_show_function(name) {
-  const cell = _this.elem.querySelector(`.cell.name_${name}`)
-  const usage = cell.closest('tr').querySelector('.usage-wrapper')
+  const func = _this.elem.querySelector(`.function.name_${name}`)
+  const usage = func.querySelector('.usage')
   // remove all whitespace from args except before commas & around equals
   const args = usage
     .querySelector('.args')
@@ -437,7 +431,9 @@ function _js_table_show_function(name) {
       'core_js_table_modal', // style wrapper, see core.css
       (status ? _div('buttons', status) : '') +
         _div('title', `<code>${name}</code>` + _span('args', args)) +
-        block('js', _this.eval(name))
+        '\n\n' +
+        block('js', _this.eval(name)) +
+        '\n'
     )
   )
 }
@@ -470,12 +466,14 @@ function _js_table_show_test(name) {
               : _span('summary', `test FAILED in ${test.ms}ms`))
         ),
         !test.ok ? block('_log', test.log.join('\n')) : '',
+        '\n',
         block(
           'js',
           _this.eval(test.test || `_test_${name}`, {
             exclude_tests_and_benchmarks: false,
           })
         ),
+        '\n',
       ].join('\n')
     )
   )
@@ -548,14 +546,16 @@ function _js_table_show_benchmark(name) {
               ? _span('summary ok', `benchmark done in ${benchmark.ms}ms`)
               : _span('summary', `benchmark FAILED in ${benchmark.ms}ms`))
         ),
-        rows.length ? _div('results', '\n' + table(rows)) : '',
+        rows.length ? _div('results', '\n\n' + table(rows) + '\n') : '',
         log.length ? block('_log', log.join('\n')) : '',
+        '\n',
         block(
           'js',
           _this.eval(benchmark.benchmark || `_benchmark_${name}`, {
             exclude_tests_and_benchmarks: false,
           })
         ),
+        '\n',
       ].join('\n')
     )
   )

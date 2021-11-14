@@ -1,26 +1,6 @@
-/* js_table() markdown table is wrapped in .core_js_table */
-/* function comments can generate inner table.comment */
-
-/* hide headers for both main table and any comment tables  */
-.core_js_table > table > thead,
-.core_js_table table.comment > thead {
-  display: none;
-}
-
-/* reduce font size for more horizontal space needed for two-column layout */
-.core_js_table table {
-  font-size: 90%;
-}
-
 /* disable unnecessary <br> after a comment table */
 .core_js_table table.comment + br {
   display: none;
-}
-
-/* pad 5px above table and shift 4px into left padding of .item */
-.core_js_table > table {
-  padding-top: 5px; /* margin-top is superceded by .item :first-child */
-  margin-left: -4px;
 }
 
 /* leave 3px above comment tables */
@@ -28,42 +8,59 @@
   margin-top: 3px;
 }
 
-/* reduce vertical padding between cells to 1px (vs 2px default) */
-/* also drop horizontal padding */
-.core_js_table > table > tbody > tr > td {
-  padding: 0.5px 0;
-}
-
-/* minimize width of left column w/o wrapping for both main and comment tables */
-.core_js_table > table > tbody > tr > td:first-child,
-.core_js_table table.comment > tbody > tr > td:first-child {
-  white-space: nowrap;
-  width: 1%;
-}
-/* override .item code to enforce nowrap (vs pre-wrap) in left column */
-.core_js_table > table > tbody > tr > td:first-child code,
+/* minimize width of left column w/o wrapping for comment tables */
+/* need to override .item code for white-space: nowrap */
+.core_js_table table.comment > tbody > tr > td:first-child,
 .core_js_table table.comment > tbody > tr > td:first-child code {
+  width: 1%;
+  text-align: right;
   white-space: nowrap;
 }
 
-/* right-align first column of comment tables */
-.core_js_table table.comment > tbody > tr > td:first-child {
-  text-align: right;
+.core_js_table .function {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.core_js_table .bullet {
+  background: #444;
+  display: inline-block;
+  vertical-align: middle;
+  width: 4px;
+  height: 30px;
+  margin-right: 1px;
+}
+
+.core_js_table .bullet + .bullet {
+  margin-right: 8px;
+}
+
+.core_js_table .bullet :is(.test, .benchmark) {
+  background: #f55; /* indicates error, modified by .ok below */
+}
+
+.core_js_table .bullet.test.ok {
+  background: #7b7;
+}
+
+.core_js_table .bullet.benchmark.ok {
+  background: #4ae;
 }
 
 /* style .usage, left column of main table */
 .core_js_table .usage {
-  display: block; /* full-width, insensitive to line-height, alignment, etc */
-  padding: 3px 0; /* matches .usage, but +1px to improve baseline alignment */
-  padding-left: 5px; /* space from test indicator */
-  border-left: 4px solid #444; /* test indicator */
+  display: inline-block;
+  vertical-align: middle;
+  cursor: pointer;
 
   /* use monospace fonts */
   font-family: 'jetbrains mono', monospace;
   font-size: 90%;
 
-  /* truncate text to max-width (compare to 500-750px column width) */
-  max-width: 250px; /* reduced below on smaller screens */
+  /* truncate text at fixed width (compare to 500-750px column width) */
+  width: 250px; /* reduced below on smaller screens */
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -71,17 +68,17 @@
 /* reduce .usage max-width based on screen size */
 @media only screen and (max-width: 600px) {
   .core_js_table .usage {
-    max-width: 200px;
+    width: 200px;
   }
 }
 @media only screen and (max-width: 500px) {
   .core_js_table .usage {
-    max-width: 150px;
+    width: 150px;
   }
 }
 @media only screen and (max-width: 400px) {
   .core_js_table .usage {
-    max-width: 120px;
+    width: 120px;
   }
 }
 
@@ -100,41 +97,24 @@
   color: #444;
 }
 
-/* indicate test status via left border color change */
-.core_js_table .usage.ok {
-  border-color: #8d8;
-}
-.core_js_table .usage.error {
-  border-color: #f55;
-  background: #500;
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-}
-
-/* style .usage-wrapper, used to indicate benchmarks via left border */
-.core_js_table .usage-wrapper {
-  border-left: 4px solid transparent;
-  padding-left: 1px;
-  cursor: pointer;
-}
-.core_js_table .usage-wrapper.benchmarked {
-  border-color: #4ae;
-}
-
-/* style .cell, right column of main table */
-.core_js_table .cell {
-  padding: 2px 0; /* matches .usage */
-  padding-left: 7px;
+/* style .desc, right column of main table */
+.core_js_table .desc {
+  white-space: nowrap;
+  padding-left: 10px;
   border-radius: 4px;
   /*position: relative;*/ /* allows absolute-positioned .more-indicator below */
 }
 
-/* change cursor on expandable cells (w/ .more/.less)*/
-.core_js_table .cell.expandable {
+.core_js_table .desc p {
+  display: inline;
+}
+
+/* change cursor on expandable descriptions (w/ .more/.less)*/
+.core_js_table .function:is(.expandable, .expand) .desc {
   cursor: pointer;
 }
 
-/* style more indicator on expandable cells */
+/* style more indicator on expandable desc */
 .core_js_table .more-indicator {
   /* display: block; */
   /* position: absolute; */
@@ -148,37 +128,50 @@
   content: '▾';
 }
 
-/* show/hide .more/.less inside .cell.expand */
-.core_js_table .cell .more {
+/* show/hide .more/.less inside expanded .function */
+/* expand by default in .pushable items */
+.core_js_table .more {
   display: none;
 }
-.core_js_table .cell.expand .more {
+.core_js_table .function.expand .more,
+.container.pushable
+  #item
+  .core_js_table
+  .function.expandable:not(.collapse)
+  .more {
   display: block;
 }
-.core_js_table .cell.expand .less {
+.core_js_table .function.expand .less,
+.container.pushable
+  #item
+  .core_js_table
+  .function.expandable:not(.collapse)
+  .less {
   display: none;
 }
-/* add background and bottom margin to expanded .cell */
-.core_js_table .cell.expand {
+/* add background and bottom margin to expanded .desc */
+.core_js_table .function.expand .desc,
+.container.pushable
+  #item
+  .core_js_table
+  .function.expandable:not(.collapse)
+  .desc {
+  display: block;
+  white-space: normal;
   background: #171717;
-  margin-bottom: 5px;
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  margin-left: 17px;
 }
 /* enable wrapping on expanded .usage */
-.core_js_table .usage.expand {
+.core_js_table .function.expand .usage,
+.container.pushable
+  #item
+  .core_js_table
+  .function.expandable:not(.collapse)
+  .usage {
   white-space: pre-wrap;
-}
-
-/* expand-by-default on .pushable items (collapsed by .collapse class) */
-/* same as .cell.expand above, but conditioned on .cell.expandable:not(.collapse) */
-.container.pushable #item .core_js_table .cell.expandable:not(.collapse) .more {
-  display: block;
-}
-.container.pushable #item .core_js_table .cell.expandable:not(.collapse) .less {
-  display: none;
-}
-.container.pushable #item .core_js_table .cell.expandable:not(.collapse) {
-  background: #171717;
-  margin-bottom: 5px;
+  width: auto;
 }
 
 /* style js_table modals (usage->function, test, and benchmark) */
