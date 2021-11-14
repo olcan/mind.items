@@ -308,7 +308,7 @@ function js_table(regex) {
     while (_.last(comment_lines)?.length == 0) comment_lines.pop()
 
     // hide all non-first comment lines
-    const expandable = comment_lines.length > 1 ? 'expandable' : ''
+    const has_more = comment_lines.length > 1 ? 'has_more' : ''
     if (comment_lines.length > 1) {
       def.comment =
         comment_lines[0] +
@@ -331,12 +331,12 @@ function js_table(regex) {
     let usage =
       `<span class="name">${name}</span>` + `<span class="args">${args}</span>`
 
-    // restore expanded state from local store (triggers render on change)
-    let expand = ''
+    // restore toggled state from local store (triggers render on change)
+    let toggled = ''
     const ls = _this.local_store
     const stored_toggle = ls._js_table?.[def._name]
-    if (stored_toggle === true) expand = 'expand'
-    else if (stored_toggle === false) expand = 'collapse'
+    if (stored_toggle === true) toggled = 'expanded'
+    else if (stored_toggle === false) toggled = 'collapsed'
 
     // if tested indicate result as styling on usage
     // also consider benchmark errors
@@ -358,7 +358,7 @@ function js_table(regex) {
 
     lines.push(
       _div(
-        `function name_${def._name} ${expandable} ${expand} ${ok}`,
+        `function name_${def._name} ${has_more} ${toggled} ${ok}`,
         _span(`usage`, bullets + usage) + _span('desc', desc)
       )
     )
@@ -418,11 +418,14 @@ function _js_table_install_click_handlers() {
     const name = Array.from(func.classList)
       .find(c => c.startsWith('name_'))
       .slice(5)
-    // make expandable if there is any truncation on func or usage
-    if (func.offsetWidth < func.scrollWidth) func.classList.add('expandable')
-    if (usage.offsetWidth < usage.scrollWidth) func.classList.add('expandable')
-    const expanded = func.classList.contains('expand')
-    const expandable = func.classList.contains('expandable')
+    // toggle truncated class based on truncation on func or usage
+    // NOTE: we separate 'truncated' class from 'has_more' so we can use it only for non-height-changing styles (e.g. cursor) to avoid flicker as this class is toggled during script execution
+    const truncated =
+      func.offsetWidth < func.scrollWidth ||
+      usage.offsetWidth < usage.scrollWidth
+    func.classList.toggle('truncated', truncated)
+    const expanded = func.classList.contains('expanded')
+    const has_more = func.classList.contains('has_more')
     // onmousedown w/ cancelled click tends to be more robust
     // however onclick allows text selection so we use that for now
     //func.onclick = e => (e.stopPropagation(), e.stopPropagation())
@@ -431,7 +434,7 @@ function _js_table_install_click_handlers() {
       if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
       e.preventDefault()
-      if (expanded || expandable) _js_table_toggle(name, e)
+      if (has_more || expanded || truncated) _js_table_toggle(name, e)
     }
     const args = usage.querySelector('.args').innerText
     // usage.onclick = e => (e.stopPropagation(), e.stopPropagation())
@@ -450,12 +453,13 @@ function _js_table_toggle(name, e) {
   e.stopPropagation()
   const func = e.target.closest('.function')
   const expand =
-    (func.classList.contains('expand') || !!func.closest('.pushable')) &&
-    !func.classList.contains('collapse')
+    (func.classList.contains('expanded') ||
+      (func.classList.contains('has_more') && !!func.closest('.pushable'))) &&
+    !func.classList.contains('collapsed')
   // update dom immediately before re-render due to local store change
-  func.classList.toggle('expand', !expand)
-  func.classList.toggle('collapse', expand)
-  // store expanded state in local store (triggers render on change)
+  func.classList.toggle('expanded', !expand)
+  func.classList.toggle('collapsed', expand)
+  // store toggle state in local store (triggers render on change)
   const ls = _this.local_store
   ls._js_table = _.set(ls._js_table || {}, name, !expand)
 }

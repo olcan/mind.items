@@ -6,6 +6,9 @@ function benchmark_item(item) {
     item.store._benchmarker,
     item.store._tester,
   ]).then(async () => {
+    // to avoid repeated rendering/sync, we access global_store here
+    // (w/o changes) and then dispatch save_global_store manually below
+    const gs = item.global_store
     // evaluate any functions _benchmark|_benchmark_*() defined on item
     const benchmarks = item.text.match(/\b_benchmark_\w+/g) ?? []
     let benchmarks_done = 0
@@ -35,7 +38,6 @@ function benchmark_item(item) {
       if (done) {
         benchmarks_done++
         const log = item.get_log({ since: 'eval' })
-        const gs = item.global_store
         gs._benchmarks = _.set(gs._benchmarks || {}, name, { ms, ok: !e, log })
         // look up benchmarked function names
         let names
@@ -59,6 +61,10 @@ function benchmark_item(item) {
         await _delay(1) // ensure time-separation of benchmark runs (and logs)
       }
     }
+    // save global store after all pending tests/benchmarks are done on item
+    Promise.allSettled([item.store._benchmarker, item.store._tester]).then(() =>
+      item.save_global_store()
+    )
     return benchmarks_done
   }))
 }
