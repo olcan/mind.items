@@ -415,6 +415,7 @@ function _js_table_toggle(name, e) {
 function _js_table_show_function(name) {
   const func = _this.elem.querySelector(`.function.name_${name}`)
   const usage = func.querySelector('.usage')
+  const display_name = func.querySelector('.name').innerText
   // remove all whitespace from args except before commas & around equals
   const args = usage
     .querySelector('.args')
@@ -428,7 +429,7 @@ function _js_table_show_function(name) {
     _div(
       'core_js_table_modal', // style wrapper, see core.css
       (status ? _div('buttons', status) : '') +
-        _div('title', `<code>${name}</code>` + _span('args', args)) +
+        _div('title', `<code>${display_name}</code>` + _span('args', args)) +
         '\n\n' +
         block('js', _this.eval(name)) +
         '\n'
@@ -450,6 +451,9 @@ function _js_table_show_test(name) {
     '<-',
     'function'
   )
+  const func = _this.elem.querySelector(`.function.name_${name}`)
+  const display_name = func.querySelector('.name').innerText
+
   _modal_close() // in case invoked from existing modal
   _modal(
     _div(
@@ -458,7 +462,7 @@ function _js_table_show_test(name) {
         _div('buttons', def_link + run_link),
         _div(
           `title test ${test.ok ? 'ok' : ''}`,
-          `<code>${name}</code>` +
+          `<code>${display_name}</code>` +
             (test.ok
               ? _span('summary ok', `test passed in ${test.ms}ms`)
               : _span('summary', `test FAILED in ${test.ms}ms`))
@@ -531,6 +535,8 @@ function _js_table_show_benchmark(name) {
     '<-',
     'function'
   )
+  const func = _this.elem.querySelector(`.function.name_${name}`)
+  const display_name = func.querySelector('.name').innerText
 
   _modal_close() // in case invoked from existing modal
   _modal(
@@ -540,7 +546,7 @@ function _js_table_show_benchmark(name) {
         _div('buttons', def_link + run_link),
         _div(
           `title benchmark ${benchmark.ok ? 'ok' : ''}`,
-          `<code>${name}</code>` +
+          `<code>${display_name}</code>` +
             (benchmark.ok
               ? _span('summary ok', `benchmark done in ${benchmark.ms}ms`)
               : _span('summary', `benchmark FAILED in ${benchmark.ms}ms`))
