@@ -7,9 +7,10 @@
   display: inline;
 }
 
-/* leave 3px above comment tables */
+/* style comment tables */
 .core_js_table table.comment {
-  margin-top: 3px;
+  margin: 3px 0; /* leave 3px above/below */
+  width: fit-content; /* shrink to fit (vs spread across item) */
 }
 
 /* minimize width of left column w/o wrapping for comment tables */
