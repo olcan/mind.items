@@ -103,10 +103,14 @@
 
 /* style .desc, right column of main table */
 .core_js_table .desc {
-  white-space: nowrap;
   padding-left: 10px;
   border-radius: 4px;
   /*position: relative;*/ /* allows absolute-positioned .more-indicator below */
+}
+/* disable wrapping on .desc (and override .item code) for ellipsis */
+.core_js_table .desc,
+.core_js_table .desc code {
+  white-space: nowrap;
 }
 
 .core_js_table .desc p {
@@ -262,7 +266,6 @@
 
 .core_js_table_modal .buttons {
   float: right;
-  margin-top: -5px; /* shift up */
   font-family: 'jetbrains mono', monospace;
   font-size: 90%;
 }

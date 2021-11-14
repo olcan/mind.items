@@ -48,7 +48,7 @@ function check(...funcs) {
   })
 }
 
-// measures calls/sec for each argument, also here is some extra long long text to see what happens
+// measures calls/sec for each argument
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
@@ -300,8 +300,6 @@ function js_table(regex) {
     let ok = ''
     if (test) ok = test.ok ? 'ok' : 'error'
     if (benchmark && !benchmark.ok) ok = 'error'
-
-    // TODO: treat any truncation (in usage or desc) as expandability
 
     const bullets =
       _span('bullet' + (test ? ` test ${test.ok ? ' ok' : ''}` : '')) +
