@@ -463,6 +463,7 @@ function _js_table_show_test(name) {
               ? _span('summary ok', `test passed in ${test.ms}ms`)
               : _span('summary', `test FAILED in ${test.ms}ms`))
         ),
+        '\n',
         !test.ok ? block('_log', test.log.join('\n')) : '',
         '\n',
         block(
@@ -545,6 +546,7 @@ function _js_table_show_benchmark(name) {
               : _span('summary', `benchmark FAILED in ${benchmark.ms}ms`))
         ),
         rows.length ? _div('results', '\n\n' + table(rows) + '\n') : '',
+        '\n',
         log.length ? block('_log', log.join('\n')) : '',
         '\n',
         block(

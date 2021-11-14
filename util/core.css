@@ -28,12 +28,16 @@
   text-overflow: ellipsis;
 }
 
+:root {
+  --bullet-width: 2px;
+}
+
 .core_js_table .bullet {
   background: #444;
   display: inline-block;
   vertical-align: middle;
-  width: 4px;
-  height: 30px;
+  width: var(--bullet-width);
+  height: 31px;
   margin-right: 1px;
 }
 
@@ -41,7 +45,7 @@
   margin-right: 8px;
 }
 
-.core_js_table .bullet :is(.test, .benchmark) {
+.core_js_table .bullet:is(.test, .benchmark) {
   background: #f55; /* indicates error, modified by .ok below */
 }
 
@@ -62,11 +66,16 @@
   /* use monospace fonts */
   font-family: 'jetbrains mono', monospace;
   font-size: 90%;
+  line-height: 30px; /* fix for .bullet height to be comparable to this */
 
   /* truncate text at fixed width (compare to 500-750px column width) */
   width: 250px; /* reduced below on smaller screens */
   overflow: hidden;
   text-overflow: ellipsis;
+
+  /* round on right side in case background is assigned (e.g. for errors) */
+  border-top-right-radius: 5px;
+  border-bottom-right-radius: 5px;
 }
 
 /* reduce .usage max-width based on screen size */
@@ -101,10 +110,18 @@
   color: #444;
 }
 
+/* add background to .usage for errors */
+.core_js_table .function.error .usage {
+  background: rgba(255, 0, 0, 0.25);
+}
+
+.core_js_table .function.error.expand .usage {
+  background: rgba(255, 0, 0, 0.25);
+}
+
 /* style .desc, right column of main table */
 .core_js_table .desc {
   padding-left: 10px;
-  border-radius: 4px;
   /*position: relative;*/ /* allows absolute-positioned .more-indicator below */
 }
 /* disable wrapping on .desc (and override .item code) for ellipsis */
@@ -169,7 +186,10 @@
   background: #171717;
   margin-bottom: 10px;
   padding: 5px 10px;
-  margin-left: 17px;
+  /* margin-left: 17px; */
+  border-radius: 5px;
+  border-top-left-radius: 0;
+  border-left: var(--bullet-width) solid #444;
 }
 /* enable wrapping on expanded .usage */
 .core_js_table .function.expand .usage,
@@ -180,6 +200,9 @@
   .usage {
   white-space: pre-wrap;
   width: auto;
+  background: #222;
+  padding-right: 8px;
+  border-bottom-right-radius: 0; /* in case was rounded due to error */
 }
 
 /* style js_table modals (usage->function, test, and benchmark) */
