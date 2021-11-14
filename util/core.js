@@ -410,6 +410,7 @@ function _span(class_, content = '') {
 }
 
 function _js_table_install_click_handlers() {
+  if (!_this.elem) return // element not on page, cancel
   // install click handlers!
   _this.elem.querySelectorAll('.core_js_table .function').forEach(func => {
     const usage = func.querySelector('.usage')
@@ -459,6 +460,7 @@ function _js_table_toggle(name, e) {
 }
 
 function _js_table_show_function(name) {
+  if (!_this.elem) return // element not on page, cancel
   const func = _this.elem.querySelector(`.function.name_${name}`)
   const usage = func.querySelector('.usage')
   const display_name = func.querySelector('.name').innerText
@@ -484,6 +486,7 @@ function _js_table_show_function(name) {
 }
 
 function _js_table_show_test(name) {
+  if (!_this.elem) return // element not on page, cancel
   const test = _this.global_store._tests[name]
   const run_link = evallink(
     _this,
@@ -557,6 +560,7 @@ async function _js_table_run_test(name, e) {
 }
 
 function _js_table_show_benchmark(name) {
+  if (!_this.elem) return // element not on page, cancel
   const benchmark = _this.global_store._benchmarks[name]
   let log = [] // unparsed log lines
   let rows = [] // parsed benchmark log lines
