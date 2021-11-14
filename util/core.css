@@ -1,3 +1,7 @@
+.core_js_table {
+  margin-top: 5px;
+}
+
 /* disable unnecessary <br> after a comment table */
 .core_js_table table.comment + br {
   display: none;
