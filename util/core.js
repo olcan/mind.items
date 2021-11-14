@@ -5,6 +5,7 @@
 // | integer  | `x.toString()`, [commas inserted](https://stackoverflow.com/a/2901298)
 // | number   | `x.toString()`
 // | function | `x.toString()`, `()=>` prefix dropped
+// |          | any enumerable properties appended as `{...}`
 // | array    | `[...]`, elements stringified recursively
 // | object   | `{...}`, values stringified recursively
 // |          | `x.toString()` if overloaded (e.g. Date)
@@ -20,7 +21,11 @@ function stringify(x) {
   // number toString
   if (is_number(x)) return x.toString()
   // function toString w/ ()=> prefix dropped
-  if (is_function(x)) return x.toString().replace(/^\(\)\s+=>\s+/, '')
+  if (is_function(x))
+    return (
+      x.toString().replace(/^\(\)\s*=>\s*/, '') +
+      (Object.keys(x).length ? _stringify_object(x) : '')
+    )
   // array elements stringified recursively
   if (is_array(x)) return '[' + x.map(stringify) + ']'
   // at this point
@@ -28,6 +33,10 @@ function stringify(x) {
   // object values stringified recursively
   // toString used if overloaded (e.g. Date)
   if (x.toString !== Object.prototype.toString) return x.toString()
+  return _stringify_object(x)
+}
+
+function _stringify_object(x) {
   return '{' + Object.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
 }
 
