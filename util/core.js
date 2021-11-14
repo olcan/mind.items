@@ -29,7 +29,7 @@ function stringify(x) {
   // array elements stringified recursively
   if (is_array(x)) return '[' + x.map(stringify) + ']'
   // at this point
-  if (!is_object(x)) throw new Error('stringify: cannot stringify ' + x)
+  if (!is_object(x)) fatal('cannot stringify ' + x)
   // object values stringified recursively
   // toString used if overloaded (e.g. Date)
   if (x.toString !== Object.prototype.toString) return x.toString()
@@ -77,7 +77,7 @@ function _test_stringify() {
 // typically used in test functions `_test_*()`
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
-    if (!is_function(f)) throw new Error('check: argument must be function')
+    if (!is_function(f)) fatal('argument must be function')
     const ret = f()
     if (is_array(ret)) {
       if (ret.length < 2)
@@ -94,7 +94,7 @@ function check(...funcs) {
 // typically used in benchmark functions `_benchmark_*()`
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
-    if (!is_function(f)) throw new Error('benchmark: argument must be function')
+    if (!is_function(f)) fatal('argument must be function')
     _run_benchmark(f)
   })
 }
@@ -158,6 +158,7 @@ function _run_benchmark(
 
 // `[output, elapsed_ms]`
 function timing(f) {
+  if (!is_function(f)) fatal('argument must be function')
   const start = Date.now()
   const output = f()
   const elapsed = Date.now() - start
@@ -184,7 +185,7 @@ function table(cells, headers) {
 }
 
 function _count_unescaped(str, substr) {
-  if (substr.length == 0) throw 'substr can not be empty'
+  if (substr.length == 0) return 0
   let count = 0
   let pos = 0
   while ((pos = str.indexOf(substr, pos)) >= 0) {
