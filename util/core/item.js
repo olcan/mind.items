@@ -124,7 +124,7 @@ const attach = (...args) => _this.attach(...args)
 // `≡ setTimeout(attach(func), delay)`
 const dispatch = (...args) => _this.dispatch(...args)
 
-// => dispatch_task(name,func,\n[delay=0],[repeat=0])
+// => dispatch_task(name,func, [delay=0], [repeat=0])
 // dispatches function as _named_ task
 // named tasks are _repeatable_ and _cancellable_
 // if `repeat>0`, repeats task every `repeat` ms
@@ -211,7 +211,7 @@ const save_local_store = (...args) => _this.save_local_store(...args)
 // saves `_this.global_store` to firebase
 const save_global_store = (...args) => _this.save_global_store(...args)
 
-// => invalidate_elem_cache\n([force_render=false])
+// => invalidate_elem_cache ([force_render=false])
 // invalidates element cache for item
 // can force rendering w/o change in `_this.deephash`
 const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
