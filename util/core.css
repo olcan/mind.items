@@ -139,15 +139,6 @@
   color: #444;
 }
 
-/* add background to .usage for errors */
-.core_js_table .function.error .usage {
-  background: rgba(255, 0, 0, 0.25);
-}
-
-.core_js_table .function.error.expand .usage {
-  background: rgba(255, 0, 0, 0.25);
-}
-
 /* style .desc, right column of main table */
 .core_js_table .desc {
   padding-left: 10px;
@@ -222,6 +213,11 @@
   padding-right: 8px;
   border-top-right-radius: 5px;
   border-bottom-right-radius: 0;
+}
+
+/* override .usage background for errors */
+.core_js_table .function.error .usage {
+  background: rgba(255, 0, 0, 0.25) !important;
 }
 
 /* style js_table modals (usage->function, test, and benchmark) */

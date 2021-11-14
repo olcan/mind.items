@@ -104,7 +104,14 @@ function _benchmark_discrete_uniform() {
 // discrete(wJ, [sum_wj=sum(wJ)])
 // discrete on `{0,…,J-1}` w/ prob. `P(j)∝wJ[j]`
 // normalizer `sum_wj` can be passed if known
+// faster if `wJ` is sorted by decreasing weight
+// `≡ discrete_uniform(J)` if `sum_wj==0`
+// assumes `wj>=0` and `sum_wj>=0`
 const discrete = (wJ, sum_wj = sum(wJ)) => {
+  if (!(wJ?.length > 0)) return NaN
+  if (sum_wj == 0) return discrete_uniform(wJ.length)
+  if (sum_wj < 0) fatal(`sum_wj<0: ${sum_wj}`)
+  // if (min(wJ) < 0) fatal(`wj<0: ${min(wJ)}`)
   let j = 0
   let w = 0
   let wt = uniform() * sum_wj
@@ -114,16 +121,27 @@ const discrete = (wJ, sum_wj = sum(wJ)) => {
   return j - 1
 }
 
-// TODO: test discrete
+function _test_discrete() {
+  check(
+    () => is_nan(discrete([])),
+    () => is_nan(discrete(0)),
+    () => [discrete([0]), 0],
+    () => [discrete([1, 0]), 0],
+    () => [discrete([0, 1]), 1],
+    () => [discrete([0, 0, 1]), 2]
+  )
+}
 
 function _benchmark_discrete() {
   const wJ = array(100, j => uniform())
+  const wJ_sorted = array(100, j => uniform()).sort((a, b) => b - a)
   const sum_wj = sum(wJ)
   benchmark(
     () => discrete([1, 2]),
     () => discrete([1, 2], 3),
     () => discrete(wJ),
-    () => discrete(wJ, sum_wj)
+    () => discrete(wJ, sum_wj),
+    () => discrete(wJ_sorted, sum_wj)
   )
 }
 
