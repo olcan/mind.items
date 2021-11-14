@@ -365,7 +365,6 @@ function _span(class_, content = '') {
 function _js_table_install_click_handlers() {
   // install click handlers!
   _this.elem.querySelectorAll('.core_js_table .function').forEach(func => {
-    const desc = func.querySelector('.desc')
     const usage = func.querySelector('.usage')
     const name = Array.from(func.classList)
       .find(c => c.startsWith('name_'))
@@ -377,9 +376,9 @@ function _js_table_install_click_handlers() {
     const expandable = func.classList.contains('expandable')
     // onmousedown w/ cancelled click tends to be more robust
     // however onclick allows text selection so we use that for now
-    //desc.onclick = e => (e.stopPropagation(), e.stopPropagation())
-    //desc.onmousedown = e => {
-    desc.onclick = e => {
+    //func.onclick = e => (e.stopPropagation(), e.stopPropagation())
+    //func.onmousedown = e => {
+    func.onclick = e => {
       if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
       e.preventDefault()

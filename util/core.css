@@ -68,7 +68,7 @@
   cursor: pointer;
   position: relative;
   padding: 5px; /* important for vertical spacing and filling line-height */
-  padding-left: 10px;
+  padding-left: 12px;
 
   /* use monospace fonts */
   font-family: 'jetbrains mono', monospace;
@@ -137,12 +137,18 @@
   white-space: nowrap;
 }
 
+/* disable paragraph tags added by markdown */
 .core_js_table .desc p {
   display: inline;
 }
 
+/* force links inline to allow ellipsis */
+.core_js_table .desc p a {
+  display: inline;
+}
+
 /* change cursor on expandable descriptions (w/ .more/.less)*/
-.core_js_table .function:is(.expandable, .expand) .desc {
+.core_js_table .function:is(.expandable, .expand) {
   cursor: pointer;
 }
 
