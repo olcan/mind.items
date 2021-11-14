@@ -276,11 +276,12 @@ function js_table(regex) {
 
     // put together name and args as "usage"
     // trim name (can contain spaces for commands, e.g. "/push [items]")
-    // remove all whitespace from args except after commas
+    // remove all whitespace from args except after commas & around equals
     const name = def.name.trim()
     const args = def.args
       .replace(/\s+/, '')
       .replace(/,/g, ', ')
+      .replace(/=/g, ' = ')
       .replace(/^\(/, _span('parens', '('))
       .replace(/\)$/, _span('parens', ')'))
     let usage =
@@ -310,7 +311,7 @@ function js_table(regex) {
         [
           _div_inline(
             `usage-wrapper ${benchmarked}`,
-            _div_inline(`usage ${ok}`, usage)
+            _div_inline(`usage ${ok} ${expand}`, usage)
           ),
           _div_inline(
             `cell name_${def._name} ${expandable} ${expand}`,
@@ -411,6 +412,9 @@ function _js_table_toggle(name, e) {
   // update dom immediately before re-render due to local store change
   cell.classList.toggle('expand', !expand)
   cell.classList.toggle('collapse', expand)
+  const usage = cell.closest('tr').querySelector('.usage-wrapper')
+  usage.classList.toggle('expand', !expand)
+  usage.classList.toggle('collapse', expand)
   // store expanded state in local store (triggers render on change)
   const ls = _this.local_store
   ls._js_table = _.set(ls._js_table || {}, name, !expand)
@@ -419,9 +423,11 @@ function _js_table_toggle(name, e) {
 function _js_table_show_function(name) {
   const cell = _this.elem.querySelector(`.cell.name_${name}`)
   const usage = cell.closest('tr').querySelector('.usage-wrapper')
+  // remove all whitespace from args except before commas & around equals
   const args = usage
     .querySelector('.args')
     .innerText.replace(/,/g, ', ')
+    .replace(/=/g, ' = ')
     .replace(/^\(/, _span('parens', '('))
     .replace(/\)$/, _span('parens', ')'))
   const [status] = _js_table_function_status(name)

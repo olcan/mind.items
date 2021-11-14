@@ -158,11 +158,14 @@
 .core_js_table .cell.expand .less {
   display: none;
 }
-
 /* add background and bottom margin to expanded .cell */
 .core_js_table .cell.expand {
   background: #171717;
   margin-bottom: 5px;
+}
+/* enable wrapping on expanded .usage */
+.core_js_table .usage.expand {
+  white-space: pre-wrap;
 }
 
 /* expand-by-default on .pushable items (collapsed by .collapse class) */
@@ -183,12 +186,12 @@
   font-family: 'jetbrains mono', monospace;
   font-weight: 600;
   font-size: 90%;
-  line-height: 120%;
   padding-bottom: 5px;
 }
-/* override .modal code to have bold inline code inside .title */
+/* override .modal code for font size and weight */
 .core_js_table_modal .title code {
   font-weight: 600;
+  font-size: 100%; /* keep relative to .title */
 }
 /* fade/space/shrink function arguments in title */
 .core_js_table_modal .title .args {
@@ -255,7 +258,7 @@
   text-align: right;
 }
 /* style summary text in benchmark modal */
-.core_js_table_modal .summary {
+.core_js_table_modal .title .summary {
   margin-left: 5px; /* space from title */
   font-size: 80%;
 }
@@ -295,4 +298,21 @@
 }
 .core_js_table_modal.running :is(.results, .summary, .run) {
   opacity: 0.5;
+}
+
+/* reduce modal .title and .button fonts based on screen size */
+@media only screen and (max-width: 600px) {
+  .core_js_table_modal :is(.title, .buttons) {
+    font-size: 85%;
+  }
+}
+@media only screen and (max-width: 500px) {
+  .core_js_table_modal :is(.title, .buttons) {
+    font-size: 80%;
+  }
+}
+@media only screen and (max-width: 400px) {
+  .core_js_table_modal :is(.title, .buttons) {
+    font-size: 75%;
+  }
 }
