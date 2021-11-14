@@ -193,28 +193,16 @@
   display: none;
 }
 .core_js_table .function.expand .more,
-.container.pushable
-  #item
-  .core_js_table
-  .function.expandable:not(.collapse)
-  .more {
+.container.pushable .core_js_table .function.expandable:not(.collapse) .more {
   display: block;
 }
 .core_js_table .function.expand .less,
-.container.pushable
-  #item
-  .core_js_table
-  .function.expandable:not(.collapse)
-  .less {
+.container.pushable .core_js_table .function.expandable:not(.collapse) .less {
   display: none;
 }
 /* add background and bottom margin to expanded .desc */
 .core_js_table .function.expand .desc,
-.container.pushable
-  #item
-  .core_js_table
-  .function.expandable:not(.collapse)
-  .desc {
+.container.pushable .core_js_table .function.expandable:not(.collapse) .desc {
   display: block;
   white-space: normal;
   background: #171717;
@@ -226,11 +214,7 @@
 }
 /* enable wrapping on expanded .usage */
 .core_js_table .function.expand .usage,
-.container.pushable
-  #item
-  .core_js_table
-  .function.expandable:not(.collapse)
-  .usage {
+.container.pushable .core_js_table .function.expandable:not(.collapse) .usage {
   white-space: pre-wrap;
   width: auto;
   background: #222;

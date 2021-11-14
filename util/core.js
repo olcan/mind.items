@@ -40,8 +40,41 @@ function _stringify_object(x) {
   return '{' + Object.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
 }
 
-// throws error if any argument return falsy
+function _test_stringify() {
+  check(
+    () => [stringify(), 'undefined'],
+    () => [stringify(undefined), 'undefined'],
+    () => [stringify('test'), 'test'],
+    () => [stringify(true), 'true'],
+    () => [stringify(10000), '10,000'],
+    () => [stringify(1.01), '1.01'],
+    () => [stringify(() => 1), '1'],
+    () => [stringify(() => (1, 2)), '(1, 2)'],
+    () => [stringify(() => {}), '{}'],
+    () => [stringify(_.set(() => {}, 'test', 1)), '{}{test:1}'],
+    () => [
+      stringify(_.assign(() => {}, { a: 10000, b: '1', c: 1, d: 1.1 })),
+      '{}{a:10,000,b:1,c:1,d:1.1}',
+    ],
+    () => [
+      stringify(() => {
+        return 1
+      }),
+      `{
+        return 1
+      }`,
+    ], // whitespace is maintained in function body
+    () => [stringify([10000, '1', 1, 1.1]), '[10,000,1,1,1.1]'],
+    () => [
+      stringify({ a: 10000, b: '1', c: 1, d: 1.1 }),
+      '{a:10,000,b:1,c:1,d:1.1}',
+    ]
+  )
+}
+
+// throws error if any of `funcs` returns falsy
 // if array is returned, all elements must be `equal`
+// typically used in test functions `_test_*()`
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('check: argument must be function')
@@ -57,7 +90,8 @@ function check(...funcs) {
   })
 }
 
-// measures calls/sec for each argument
+// measures calls/sec for each of `funcs`
+// typically used in benchmark functions `_benchmark_*()`
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
     if (!is_function(f)) throw new Error('benchmark: argument must be function')
