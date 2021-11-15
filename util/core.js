@@ -77,7 +77,7 @@ function _test_stringify() {
 // typically used in test functions `_test_*()`
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
-    if (!is_function(f)) fatal('argument must be function')
+    if (!is_function(f)) fatal('non-function argument')
     const ret = f()
     if (is_array(ret)) {
       if (ret.length < 2)
@@ -94,7 +94,7 @@ function check(...funcs) {
 // typically used in benchmark functions `_benchmark_*()`
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
-    if (!is_function(f)) fatal('argument must be function')
+    if (!is_function(f)) fatal('non-function argument')
     _run_benchmark(f)
   })
 }
@@ -156,9 +156,24 @@ function _run_benchmark(
   } else log(base)
 }
 
+// throws(f, [error])
+// does function `f` throw an error?
+// `error` can be specific error or predicate
+function throws(f, error) {
+  if (!is_function(f)) fatal(`non-function argument`)
+  try {
+    f()
+  } catch (e) {
+    if (error === undefined) return true
+    else if (is_function(error)) return error(e)
+    else return equal(e, error)
+  }
+  return false
+}
+
 // `[output, elapsed_ms]`
 function timing(f) {
-  if (!is_function(f)) fatal('argument must be function')
+  if (!is_function(f)) fatal('non-function argument')
   const start = Date.now()
   const output = f()
   const elapsed = Date.now() - start
