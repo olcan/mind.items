@@ -18,15 +18,15 @@ function _benchmark_flip() {
 }
 
 // uniform ([a],[b])
-// uniform on `[0,1)`,`[0,a)`, or `[a,b)`
+// [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
 // | `[0,1)` | if `a` and `b` omitted
 // | `[0,a)` | if `b` omitted
 // | `[a,b)` | otherwise
 const uniform = (a, b) => {
-  const u = Math.random()
-  if (a === undefined) return u
-  if (b === undefined) return is_number(a) && a > 0 ? u * a : NaN
-  return is_number(a) && is_number(b) && b > a ? a + u * (b - a) : NaN
+  if (a === undefined) return Math.random() // shortcut
+  if (b === undefined) return uniform(0, a)
+  if (!is_number(a) || !is_number(b) || b <= a) return NaN
+  return a + Math.random() * (b - a)
 }
 
 function _test_uniform() {
@@ -46,7 +46,7 @@ function _test_uniform() {
     () => is_nan(uniform(2, 2)),
     // invalid sets also return NaN
     () => is_nan(uniform('a')),
-    () => is_nan(uniform('a', 'b'))
+    () => is_nan(uniform(0, 'b'))
   )
 }
 
@@ -60,7 +60,7 @@ function _benchmark_uniform() {
 }
 
 // discrete_uniform ([a],[b])
-// uniform on `{0,1}`,`{0,…,a-1}`, or `{a,…,b}`
+// [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on `{0,1}`,`{0,…,a-1}`, or `{a,…,b}`
 // | `{0,1}`     | if `a` and `b` omitted
 // | `{0,…,a-1}` | if `b` omitted
 // | `{a,…,b}`   | otherwise
@@ -86,7 +86,7 @@ function _test_discrete_uniform() {
     () => is_nan(discrete_uniform(0)),
     // invalid sets also return NaN
     () => is_nan(discrete_uniform('a')),
-    () => is_nan(discrete_uniform('a', 'b'))
+    () => is_nan(discrete_uniform(0, 'b'))
   )
 }
 
@@ -102,7 +102,7 @@ function _benchmark_discrete_uniform() {
 }
 
 // discrete(wJ, [sum_wj=sum(wJ)])
-// discrete on `{0,…,J-1}` w/ prob. `P(j)∝wJ[j]`
+// [discrete](https://en.wikipedia.org/wiki/Categorical_distribution) on `{0,…,J-1}` w/ prob. `P(j)∝wJ[j]`
 // normalizer `sum_wj` can be passed if known
 // faster if `wJ` is sorted by decreasing weight
 // `≡ discrete_uniform(J)` if `sum_wj==0`
@@ -145,20 +145,54 @@ function _benchmark_discrete() {
   )
 }
 
-const add_noise = (xJ, ε = 0.001) => apply(xJ, x => x + ε * (2 * uniform() - 1))
-
-// triangular sampler from https://github.com/jstat/jstat/blob/master/src/distribution.js
+// [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `[0,1]`, `[0,a]`, or `[a,b]`
 const triangular = (a, b, c) => {
   if (a === undefined) return triangular(0, 1, 0.5)
   if (b === undefined) return triangular(0, a, a / 2)
   if (c === undefined) return triangular(a, b, (a + b) / 2)
-  if (c < a) c = a
-  else if (c > b) c = b
+  if (!is_number(a) || !is_number(b) || !is_number(c)) return NaN
+  if (a > b || c < a || c > b) return NaN
+  // from https://github.com/jstat/jstat/blob/master/src/distribution.js
   const u = Math.random()
   if (u < (c - a) / (b - a)) return a + Math.sqrt(u * (b - a) * (c - a))
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
-_.set(triangular, '_name', 'triangular') // TODO: standardize names
+
+function _test_triangular() {
+  check(
+    () => triangular() >= 0,
+    () => triangular() <= 1,
+    () => triangular(1) <= 1,
+    () => triangular(0.001) <= 0.001,
+    () => triangular(0.999, 1) >= 0.999,
+    () => triangular(2, 3) >= 2,
+    () => triangular(2, 3) <= 3,
+    () => [triangular(0), 0],
+    () => [triangular(1, 1), 1],
+    () => [triangular(2, 2), 2],
+    () => [triangular(1, 1, 1), 1],
+    () => [triangular(2, 2, 2), 2],
+    // empty sets return NaN
+    () => is_nan(triangular(-1)),
+    () => is_nan(triangular(1, 0)),
+    () => is_nan(triangular(0, 1, 2)),
+    () => is_nan(triangular(0, 1, -1)),
+    // invalid sets also return NaN
+    () => is_nan(triangular('a')),
+    () => is_nan(triangular(0, 'b')),
+    () => is_nan(triangular(0, 1, 'c'))
+  )
+}
+
+function _benchmark_triangular() {
+  benchmark(
+    () => triangular(),
+    () => triangular(1),
+    () => triangular(0, 1, 0.5),
+    () => uniform(0, 1),
+    () => Math.random()
+  )
+}
 
 // Durstenfeld shuffle, see https://stackoverflow.com/a/12646864
 function shuffle(array, start = 0, end = array.length) {
