@@ -68,7 +68,7 @@ function _test_stringify() {
     () => [
       stringify({ a: 10000, b: '1', c: 1, d: 1.1 }),
       '{a:10,000,b:1,c:1,d:1.1}',
-    ]
+    ],
   )
 }
 
@@ -80,9 +80,12 @@ function check(...funcs) {
     if (!is_function(f)) fatal('non-function argument')
     const ret = f()
     if (is_array(ret)) {
+      // if last element of returned array is a function, it will be used as the equality function in place of equal(a,b)
+      let feq = equal
+      if (is_function(_.last(ret))) feq = ret.pop()
       if (ret.length < 2)
         fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(ret)}`)
-      if (!ret.every(x => equal(x, ret[0])))
+      if (!ret.every(x => feq(x, ret[0])))
         fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(ret)}`)
     } else if (!ret) {
       fatal(`FAILED CHECK: ${stringify(f)}`)
@@ -109,7 +112,7 @@ function _run_benchmark(
     N = 1000,
     unit,
     units,
-  } = _benchmark_options
+  } = _benchmark_options,
 ) {
   let time = 0,
     calls = 0,
@@ -122,7 +125,7 @@ function _run_benchmark(
   } else if (units) {
     check(
       isObject(units) && !isArray(units),
-      'benchmark units must be object of unit:function pairs'
+      'benchmark units must be object of unit:function pairs',
     )
     check(isObject(ret), 'must return object for units ' + stringify(units))
     unit_funcs = values(units)
@@ -151,7 +154,7 @@ function _run_benchmark(
       base +
         ' (' +
         units.map((u, k) => stringify(counts[k]) + ' ' + u).join(', ') +
-        ')'
+        ')',
     )
   } else log(base)
 }
@@ -175,7 +178,7 @@ function _test_throws() {
   check(
     () => !throws(() => {}),
     () => throws(() => throws('a')),
-    () => throws(() => throws('a'), EvalError)
+    () => throws(() => throws('a'), EvalError),
   )
 }
 
@@ -199,9 +202,9 @@ function table(cells, headers) {
   lines.push(
     '|' +
       array(cells[0].length, k =>
-        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
+        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-',
       ).join('|') +
-      '|'
+      '|',
   )
   lines = lines.concat(cells.map(row => '|' + row.join('|')))
   return lines.join('\n')
@@ -228,7 +231,7 @@ function _js_table_function_status(name) {
       _this,
       `_js_table_show_test('${name}', event)`,
       test.ok ? 'test' : 'FAILED test',
-      'test' + (test.ok ? ' ok' : '')
+      'test' + (test.ok ? ' ok' : ''),
     )
   }
   if (gs._benchmarks && gs._benchmarks[name]) {
@@ -237,7 +240,7 @@ function _js_table_function_status(name) {
       _this,
       `_js_table_show_benchmark('${name}', event)`,
       benchmark.ok ? 'benchmark' : 'FAILED benchmark',
-      'benchmark' + (benchmark.ok ? ' ok' : '')
+      'benchmark' + (benchmark.ok ? ' ok' : ''),
     )
   }
   return [status, test, benchmark]
@@ -251,7 +254,7 @@ function js_table(regex) {
     _this
       .read('js', { keep_empty_lines: true })
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:async function|function|const|let) +(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:async function|function|const|let) +(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g,
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -294,7 +297,7 @@ function js_table(regex) {
         def.comment = '`' + def.body.replace(/([`\\|])/g, '\\$1') + '`'
       }
       return def
-    }
+    },
   )
   let lines = []
   defs.forEach(def => {
@@ -371,7 +374,7 @@ function js_table(regex) {
     const bullets =
       _span('bullet' + (test ? ` test ${test.ok ? ' ok' : ''}` : '')) +
       _span(
-        'bullet' + (benchmark ? ` benchmark ${benchmark.ok ? ' ok' : ''}` : '')
+        'bullet' + (benchmark ? ` benchmark ${benchmark.ok ? ' ok' : ''}` : ''),
       )
 
     // convert markdown to html
@@ -382,8 +385,8 @@ function js_table(regex) {
     lines.push(
       _div(
         `function name_${def._name} ${has_more} ${toggled} ${ok}`,
-        _span(`usage`, bullets + usage) + _span('desc', desc)
-      )
+        _span(`usage`, bullets + usage) + _span('desc', desc),
+      ),
     )
   })
 
@@ -392,7 +395,7 @@ function js_table(regex) {
       _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
       // install click handlers at every render (via uncached script)
       '<script _uncached> _js_table_install_click_handlers() </script>',
-    ].join('\n')
+    ].join('\n'),
   )
 }
 
@@ -508,8 +511,8 @@ function _js_table_show_function(name) {
         _div('title', `<code>${display_name}</code>` + _span('args', args)) +
         '\n\n' +
         block('js', _this.eval(name)) +
-        '\n'
-    )
+        '\n',
+    ),
   )
 }
 
@@ -520,13 +523,13 @@ function _js_table_show_test(name) {
     _this,
     `_js_table_run_test('${name}',event)`,
     'run',
-    'run test' + (test.ok ? ' ok' : '')
+    'run test' + (test.ok ? ' ok' : ''),
   )
   const def_link = evallink(
     _this,
     `_js_table_show_function('${name}', event)`,
     '<-',
-    'function'
+    'function',
   )
   const func = _this.elem.querySelector(`.function.name_${name}`)
   const display_name = func.querySelector('.name').innerText
@@ -542,7 +545,7 @@ function _js_table_show_test(name) {
           `<code>${display_name}</code>` +
             (test.ok
               ? _span('summary ok', `test passed in ${test.ms}ms`)
-              : _span('summary', `test FAILED in ${test.ms}ms`))
+              : _span('summary', `test FAILED in ${test.ms}ms`)),
         ),
         '\n',
         !test.ok ? block('_log', test.log.join('\n')) : '',
@@ -551,11 +554,11 @@ function _js_table_show_test(name) {
           'js',
           _this.eval(test.test || `_test_${name}`, {
             exclude_tests_and_benchmarks: false,
-          })
+          }),
         ),
         '\n',
-      ].join('\n')
-    )
+      ].join('\n'),
+    ),
   )
 }
 
@@ -605,13 +608,13 @@ function _js_table_show_benchmark(name) {
     _this,
     `_js_table_run_benchmark('${name}',event)`,
     'run',
-    'run benchmark' + (benchmark.ok ? ' ok' : '')
+    'run benchmark' + (benchmark.ok ? ' ok' : ''),
   )
   const def_link = evallink(
     _this,
     `_js_table_show_function('${name}', event)`,
     '<-',
-    'function'
+    'function',
   )
   const func = _this.elem.querySelector(`.function.name_${name}`)
   const display_name = func.querySelector('.name').innerText
@@ -627,7 +630,7 @@ function _js_table_show_benchmark(name) {
           `<code>${display_name}</code>` +
             (benchmark.ok
               ? _span('summary ok', `benchmark done in ${benchmark.ms}ms`)
-              : _span('summary', `benchmark FAILED in ${benchmark.ms}ms`))
+              : _span('summary', `benchmark FAILED in ${benchmark.ms}ms`)),
         ),
         rows.length ? _div('results', '\n\n' + table(rows) + '\n') : '',
         '\n',
@@ -637,11 +640,11 @@ function _js_table_show_benchmark(name) {
           'js',
           _this.eval(benchmark.benchmark || `_benchmark_${name}`, {
             exclude_tests_and_benchmarks: false,
-          })
+          }),
         ),
         '\n',
-      ].join('\n')
-    )
+      ].join('\n'),
+    ),
   )
 }
 
