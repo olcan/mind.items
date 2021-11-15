@@ -281,7 +281,7 @@ function _test_shuffle() {
   )
 }
 
-// p-value for binomial test
+// p-value for [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
 function binomial_test(n, k, p, tails = 2) {
   // take k < n * p by convention
   if (k > n * p) {
@@ -295,7 +295,7 @@ function binomial_test(n, k, p, tails = 2) {
   return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
 }
 
-const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) < ε
+const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
 
 // from http://www.math.ucla.edu/~tom/distributions/binomial.html
 // via https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/distribution.js#L727
