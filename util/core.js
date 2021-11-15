@@ -198,7 +198,7 @@ function _count_unescaped(str, substr) {
 function _js_table_function_status(name) {
   let status = ''
   let test, benchmark
-  const gs = _this.global_store
+  const gs = _this._global_store
   if (gs._tests && gs._tests[name]) {
     test = gs._tests[name]
     status += evallink(
@@ -333,7 +333,7 @@ function js_table(regex) {
 
     // restore toggled state from local store (triggers render on change)
     let toggled = ''
-    const ls = _this.local_store
+    const ls = _this._local_store
     const stored_toggle = ls._js_table?.[def._name]
     if (stored_toggle === true) toggled = 'expanded'
     else if (stored_toggle === false) toggled = 'collapsed'
@@ -492,7 +492,7 @@ function _js_table_show_function(name) {
 
 function _js_table_show_test(name) {
   if (!_this.elem) return // element not on page, cancel
-  const test = _this.global_store._tests[name]
+  const test = _this._global_store._tests[name]
   const run_link = evallink(
     _this,
     `_js_table_run_test('${name}',event)`,
@@ -566,7 +566,7 @@ async function _js_table_run_test(name, e) {
 
 function _js_table_show_benchmark(name) {
   if (!_this.elem) return // element not on page, cancel
-  const benchmark = _this.global_store._benchmarks[name]
+  const benchmark = _this._global_store._benchmarks[name]
   let log = [] // unparsed log lines
   let rows = [] // parsed benchmark log lines
   for (const line of benchmark.log) {

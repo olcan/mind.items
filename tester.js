@@ -6,9 +6,6 @@ function test_item(item) {
     item.store._tester,
     item.store._benchmarker,
   ]).then(async () => {
-    // to avoid repeated rendering/sync, we access global_store here
-    // (w/o changes) and then dispatch save_global_store manually below
-    const gs = item.global_store
     // evaluate any functions _test_*() defined on item
     const tests = item.text.match(/\b_test_\w+/g) ?? []
     let tests_done = 0
@@ -38,6 +35,7 @@ function test_item(item) {
       if (done) {
         tests_done++
         const log = item.get_log({ since: 'eval' })
+        const gs = item._global_store // changes saved manually below
         gs._tests = _.set(gs._tests || {}, name, { ms, ok: !e, log })
         // look up tested function names
         let names
