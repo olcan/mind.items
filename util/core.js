@@ -555,6 +555,7 @@ function _js_table_show_test(name) {
           'js',
           _this.eval(test.test || `_test_${name}`, {
             exclude_tests_and_benchmarks: false,
+            type: 'js|js_tests?',
           }),
         ),
         '\n',
@@ -641,6 +642,7 @@ function _js_table_show_benchmark(name) {
           'js',
           _this.eval(benchmark.benchmark || `_benchmark_${name}`, {
             exclude_tests_and_benchmarks: false,
+            type: 'js|js_benchmarks?',
           }),
         ),
         '\n',

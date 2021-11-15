@@ -28,6 +28,19 @@ function _test_uniform() {
   )
 }
 
+// binomial test for occurrences of x in sample
+// e.g. one-in-a-billion failure/rejection for n=1000, p=1/2 is k<=~400
+// e.g. one-in-a-billion failure/rejection for n=1000, p=1/6 is k<=~100
+const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 10 ** -9) => [
+  binomial_test(
+    n,
+    _.sumBy(sample(n, sampler), s => equal(s, x)),
+    p,
+  ),
+  ɑ,
+  _.gt, // i.e. can not reject null (correctness) at level ɑ
+]
+
 function _test_discrete_uniform() {
   check(
     () => discrete_uniform() >= 0,
@@ -42,6 +55,11 @@ function _test_discrete_uniform() {
     // invalid sets also return NaN
     () => is_nan(discrete_uniform('a')),
     () => is_nan(discrete_uniform(0, 'b')),
+    () => _binomial_test_sample(() => discrete_uniform(0, 1), 0, 1 / 2),
+    () => _binomial_test_sample(() => discrete_uniform(0, 1), 1, 1 / 2),
+    () => _binomial_test_sample(() => discrete_uniform(1, 3), 1, 1 / 3),
+    () => _binomial_test_sample(() => discrete_uniform(1, 3), 2, 1 / 3),
+    () => _binomial_test_sample(() => discrete_uniform(1, 3), 3, 1 / 3),
   )
 }
 
@@ -55,6 +73,10 @@ function _test_discrete() {
     () => [discrete([1, 0]), 0],
     () => [discrete([0, 1]), 1],
     () => [discrete([0, 0, 1]), 2],
+    () => _binomial_test_sample(() => discrete([1, 1]), 0, 1 / 2),
+    () => _binomial_test_sample(() => discrete([1, 1]), 1, 1 / 2),
+    () => _binomial_test_sample(() => discrete([1, 2]), 0, 1 / 3),
+    () => _binomial_test_sample(() => discrete([1, 2]), 1, 2 / 3),
   )
 }
 
@@ -95,20 +117,6 @@ function _test_sample() {
 }
 
 function _test_shuffle() {
-  // e.g. one-in-a-billion for n=1000, p=1/2 is k<=~400
-  // e.g. one-in-a-billion for n=1000, p=1/6 is k<=~100
-  const binomial_test_shuffle = (xJ, yJ, p, n = 1000, ɑ = 10 ** -9) => [
-    binomial_test(
-      n,
-      _.sumBy(
-        sample(n, () => shuffle(_.clone(xJ))),
-        x => equal(x, yJ),
-      ),
-      p,
-    ),
-    ɑ,
-    _.gt, // can not reject null (correctness) at alpha=0.001
-  ]
   check(
     () => throws(() => shuffle()),
     () => throws(() => shuffle(0)),
@@ -119,14 +127,14 @@ function _test_shuffle() {
     () => throws(() => shuffle([0], -1, 1)),
     () => [shuffle([0], 0, 1), [0]],
     () => [shuffle([0]), [0]],
-    () => binomial_test_shuffle([0, 1], [0, 1], 1 / 2),
-    () => binomial_test_shuffle([0, 1], [1, 0], 1 / 2),
-    () => binomial_test_shuffle([0, 1, 2], [0, 1, 2], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [0, 2, 1], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [1, 0, 2], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [1, 2, 0], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [2, 0, 1], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [2, 1, 0], 1 / 6),
+    () => _binomial_test_sample(() => shuffle([0, 1]), [0, 1], 1 / 2),
+    () => _binomial_test_sample(() => shuffle([0, 1]), [1, 0], 1 / 2),
+    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [0, 1, 2], 1 / 6),
+    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [0, 2, 1], 1 / 6),
+    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [1, 0, 2], 1 / 6),
+    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [1, 2, 0], 1 / 6),
+    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 0, 1], 1 / 6),
+    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 1, 0], 1 / 6),
   )
 }
 

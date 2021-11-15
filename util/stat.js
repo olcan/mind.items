@@ -173,7 +173,6 @@ function binomial_test(n, k, p) {
 
 const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
 
-// TODO: use binomial test for discrete_uniform and discrete
 // TODO: continue w/ array.js leading up to one-sided and two-sided ks tests to be used for continuous distributions above
 
 // adapted from https://github.com/jstat/jstat/blob/master/src/vector.js
