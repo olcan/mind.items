@@ -1,22 +1,6 @@
 // flip ([p=0.5])
 const flip = (p = 0.5) => Math.random() < p
 
-function _test_flip() {
-  check(
-    () => is_boolean(flip()),
-    () => flip(0) === false,
-    () => flip(1) === true,
-    () => flip('a') === false, // …<p false for non-number p
-  )
-}
-
-function _benchmark_flip() {
-  benchmark(
-    () => flip(),
-    () => Math.random(),
-  )
-}
-
 // uniform ([a],[b])
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
 // | `[0,1)` | if `a` and `b` omitted
@@ -27,36 +11,6 @@ const uniform = (a, b) => {
   if (b === undefined) return uniform(0, a)
   if (!is_number(a) || !is_number(b) || b <= a) return NaN
   return a + Math.random() * (b - a)
-}
-
-function _test_uniform() {
-  check(
-    () => uniform() >= 0,
-    () => uniform() < 1,
-    () => uniform(1) < 1,
-    () => uniform(0.001) < 0.001,
-    () => uniform(0.999, 1) >= 0.999,
-    () => uniform(2, 3) >= 2,
-    () => uniform(2, 3) < 3,
-    // empty sets return NaN
-    () => is_nan(uniform(0)),
-    () => is_nan(uniform(0, 0)),
-    () => is_nan(uniform(1, 1)),
-    () => is_nan(uniform(2, 1)),
-    () => is_nan(uniform(2, 2)),
-    // invalid sets also return NaN
-    () => is_nan(uniform('a')),
-    () => is_nan(uniform(0, 'b')),
-  )
-}
-
-function _benchmark_uniform() {
-  benchmark(
-    () => uniform(),
-    () => uniform(1),
-    () => uniform(0, 1),
-    () => Math.random(),
-  )
 }
 
 // discrete_uniform ([a],[b])
@@ -71,34 +25,6 @@ const discrete_uniform = (a, b) => {
   return is_integer(a) && is_integer(b) && b >= a
     ? ~~(a + u * (b + 1 - a))
     : NaN // {0,…,b}
-}
-
-function _test_discrete_uniform() {
-  check(
-    () => discrete_uniform() >= 0,
-    () => discrete_uniform() <= 1,
-    () => discrete_uniform(1) === 0,
-    () => discrete_uniform(2, 2) === 2,
-    () => discrete_uniform(2, 3) >= 2,
-    () => discrete_uniform(2, 3) <= 3,
-    // empty sets return NaN
-    () => is_nan(discrete_uniform(2, 1)),
-    () => is_nan(discrete_uniform(0)),
-    // invalid sets also return NaN
-    () => is_nan(discrete_uniform('a')),
-    () => is_nan(discrete_uniform(0, 'b')),
-  )
-}
-
-function _benchmark_discrete_uniform() {
-  benchmark(
-    () => discrete_uniform(),
-    () => discrete_uniform(2),
-    () => discrete_uniform(0, 1),
-    () => ~~(2 * Math.random()),
-    () => Math.floor(2 * Math.random()),
-    () => Math.random(),
-  )
 }
 
 // discrete(wJ, [sum_wj])
@@ -123,32 +49,6 @@ const discrete = (wJ, sum_wj) => {
   return j - 1
 }
 
-function _test_discrete() {
-  check(
-    () => throws(() => discrete(0)),
-    () => throws(() => discrete([0], -1)),
-    () => is_nan(discrete([], -1)),
-    () => is_nan(discrete([])),
-    () => [discrete([0]), 0],
-    () => [discrete([1, 0]), 0],
-    () => [discrete([0, 1]), 1],
-    () => [discrete([0, 0, 1]), 2],
-  )
-}
-
-function _benchmark_discrete() {
-  const wJ = sample(100)
-  const wJ_sorted = sample(100).sort((a, b) => b - a)
-  const sum_wj = sum(wJ)
-  benchmark(
-    () => discrete([1, 2]),
-    () => discrete([1, 2], 3),
-    () => discrete(wJ),
-    () => discrete(wJ, sum_wj),
-    () => discrete(wJ_sorted, sum_wj),
-  )
-}
-
 // [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `[0,1]`, `[0,a]`, or `[a,b]`
 const triangular = (a, b, c) => {
   if (a === undefined) return triangular(0, 1, 0.5)
@@ -162,42 +62,6 @@ const triangular = (a, b, c) => {
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
 
-function _test_triangular() {
-  check(
-    () => triangular() >= 0,
-    () => triangular() <= 1,
-    () => triangular(1) <= 1,
-    () => triangular(0.001) <= 0.001,
-    () => triangular(0.999, 1) >= 0.999,
-    () => triangular(2, 3) >= 2,
-    () => triangular(2, 3) <= 3,
-    () => [triangular(0), 0],
-    () => [triangular(1, 1), 1],
-    () => [triangular(2, 2), 2],
-    () => [triangular(1, 1, 1), 1],
-    () => [triangular(2, 2, 2), 2],
-    // empty sets return NaN
-    () => is_nan(triangular(-1)),
-    () => is_nan(triangular(1, 0)),
-    () => is_nan(triangular(0, 1, 2)),
-    () => is_nan(triangular(0, 1, -1)),
-    // invalid sets also return NaN
-    () => is_nan(triangular('a')),
-    () => is_nan(triangular(0, 'b')),
-    () => is_nan(triangular(0, 1, 'c')),
-  )
-}
-
-function _benchmark_triangular() {
-  benchmark(
-    () => triangular(),
-    () => triangular(1),
-    () => triangular(0, 1, 0.5),
-    () => uniform(0, 1),
-    () => Math.random(),
-  )
-}
-
 // sample(J, [sampler=uniform])
 // samples array of `J` values from `sampler`
 function sample(J, sampler = Math.random) {
@@ -205,24 +69,6 @@ function sample(J, sampler = Math.random) {
   const xJ = new Array(J)
   for (let j = 0; j < J; ++j) xJ[j] = sampler()
   return xJ
-}
-
-function _test_sample() {
-  check(
-    () => [sample(-1), []],
-    () => [sample(0), []],
-    () => [sample(1, () => 1), [1]],
-    () => [sample(2, () => 1), [1, 1]],
-    () => [sample(2, j => j), [undefined, undefined]],
-  )
-}
-
-function _benchmark_sample() {
-  benchmark(
-    () => sample(100),
-    () => array(100, j => Math.random()),
-    () => array(100, Math.random), // unsafe since args are passed through
-  )
 }
 
 // shuffle(xJ, [js], [je])
@@ -243,57 +89,6 @@ function shuffle(xJ, js, je) {
     xJ[jr] = tmp
   }
   return xJ
-}
-
-function _test_shuffle() {
-  // e.g. one-in-a-billion for n=1000, p=1/2 is k<=~400
-  // e.g. one-in-a-billion for n=1000, p=1/6 is k<=~100
-  const binomial_test_shuffle = (xJ, yJ, p, n = 1000, ɑ = 10 ** -9) => [
-    binomial_test(
-      n,
-      _.sumBy(
-        sample(n, () => shuffle(_.clone(xJ))),
-        x => equal(x, yJ),
-      ),
-      p,
-    ),
-    ɑ,
-    _.gt, // can not reject null (correctness) at alpha=0.001
-  ]
-  check(
-    () => throws(() => shuffle()),
-    () => throws(() => shuffle(0)),
-    () => throws(() => shuffle([], 0, 1)),
-    () => throws(() => shuffle([], 0, 1)),
-    () => throws(() => shuffle([0], 1, 0)),
-    () => throws(() => shuffle([0], 0, 2)),
-    () => throws(() => shuffle([0], -1, 1)),
-    () => [shuffle([0], 0, 1), [0]],
-    () => [shuffle([0]), [0]],
-    () => binomial_test_shuffle([0, 1], [0, 1], 1 / 2),
-    () => binomial_test_shuffle([0, 1], [1, 0], 1 / 2),
-    () => binomial_test_shuffle([0, 1, 2], [0, 1, 2], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [0, 2, 1], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [1, 0, 2], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [1, 2, 0], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [2, 0, 1], 1 / 6),
-    () => binomial_test_shuffle([0, 1, 2], [2, 1, 0], 1 / 6),
-  )
-}
-
-function _benchmark_shuffle() {
-  const range10 = _.range(10)
-  const range100 = _.range(100)
-  const range1000 = _.range(1000)
-  const range10000 = _.range(10000)
-  benchmark(
-    () => shuffle([0, 1]),
-    () => shuffle([0, 1, 2]),
-    () => shuffle(range10),
-    () => shuffle(range100),
-    () => shuffle(range1000),
-    () => shuffle(range10000),
-  )
 }
 
 const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
@@ -364,37 +159,6 @@ function binomial_cdf(x, n, p) {
   return Math.round((1 - betacdf) * (1 / eps)) / (1 / eps)
 }
 
-function _test_binomial_cdf() {
-  check(
-    () => [binomial_cdf(-1, 3, 0.5), 0],
-    () => [binomial_cdf(4, 3, 0.5), 1],
-    () => is_nan(binomial_cdf(2, -1, 0.5)),
-    () => is_nan(binomial_cdf(2, 3, -0.1)),
-    () => is_nan(binomial_cdf(2, 3, 1.1)),
-    // reference values from Mathematica
-    //   SetPrecision[CDF[BinomialDistribution[n,p],x],20]
-    () => [binomial_cdf(2, 3, 0), 1],
-    () => [binomial_cdf(2, 3, 1), 0],
-    () => [binomial_cdf(1, 3, 0.5), 0.5],
-    () => [binomial_cdf(2, 3, 0.5), 0.875],
-    () => [binomial_cdf(5, 10, 0.5), 0.62304687499999866773, approx_equal],
-    () => [binomial_cdf(5, 10, 0.1), 0.99985309739999994605, approx_equal],
-    () => [binomial_cdf(5, 10, 0.9), 0.0016349374000000031076, approx_equal],
-  )
-}
-
-function _benchmark_binomial_cdf() {
-  benchmark(
-    () => binomial_cdf(5, 10, 0.5),
-    () => binomial_cdf(50, 100, 0.5),
-    () => binomial_cdf(500, 1000, 0.5),
-    () => binomial_cdf(5000, 10000, 0.5),
-    () => binomial_cdf(500000, 1000000, 0.5),
-    () => binomial_cdf(500000, 1000000, 0.001),
-    () => binomial_cdf(500000, 1000000, 0.999),
-  )
-}
-
 // p-value for [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
 function binomial_test(n, k, p, tails = 2) {
   // take k < n * p by convention
@@ -407,19 +171,6 @@ function binomial_test(n, k, p, tails = 2) {
   // for two-tailed test, add upper tail P(x>r) for r = floor(np+(np-k))
   // note this is based on deviation from mean instead of density (slower)
   return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
-}
-
-function _test_binomial_test() {
-  check(() => [binomial_test(2, 1, 0.5, 1), binomial_cdf(1, 2, 0.5)])
-  check(() => [binomial_test(2, 1, 0.5), 1])
-  check(() => [
-    binomial_test(3, 1, 0.5),
-    binomial_cdf(1, 3, 0.5) + 1 - binomial_cdf(2, 3, 0.5),
-  ]),
-    check(() => [
-      binomial_test(5, 2, 0.5),
-      binomial_cdf(2, 5, 0.5) + 1 - binomial_cdf(3, 5, 0.5),
-    ])
 }
 
 // TODO: use throws() in tests above
