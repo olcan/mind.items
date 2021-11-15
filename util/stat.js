@@ -246,6 +246,20 @@ function shuffle(xJ, js, je) {
 }
 
 function _test_shuffle() {
+  // e.g. one-in-a-billion for n=1000, p=1/2 is k<=~400
+  // e.g. one-in-a-billion for n=1000, p=1/6 is k<=~100
+  const binomial_test_shuffle = (xJ, yJ, p, n = 1000, ɑ = 10 ** -9) => [
+    binomial_test(
+      n,
+      _.sumBy(
+        sample(n, () => shuffle(_.clone(xJ))),
+        x => equal(x, yJ),
+      ),
+      p,
+    ),
+    ɑ,
+    _.gt, // can not reject null (correctness) at alpha=0.001
+  ]
   check(
     () => throws(() => shuffle()),
     () => throws(() => shuffle(0)),
@@ -256,9 +270,29 @@ function _test_shuffle() {
     () => throws(() => shuffle([0], -1, 1)),
     () => [shuffle([0], 0, 1), [0]],
     () => [shuffle([0]), [0]],
-    // TODO: perform chi-squared or binomial test on counts ...
-    //() => [shuffle([0]), [0]],
+    () => binomial_test_shuffle([0, 1], [0, 1], 1 / 2),
+    () => binomial_test_shuffle([0, 1], [1, 0], 1 / 2),
+    () => binomial_test_shuffle([0, 1, 2], [0, 1, 2], 1 / 6),
+    () => binomial_test_shuffle([0, 1, 2], [0, 2, 1], 1 / 6),
+    () => binomial_test_shuffle([0, 1, 2], [1, 0, 2], 1 / 6),
+    () => binomial_test_shuffle([0, 1, 2], [1, 2, 0], 1 / 6),
+    () => binomial_test_shuffle([0, 1, 2], [2, 0, 1], 1 / 6),
+    () => binomial_test_shuffle([0, 1, 2], [2, 1, 0], 1 / 6),
   )
+}
+
+// p-value for binomial test
+function binomial_test(n, k, p, tails = 2) {
+  // take k < n * p by convention
+  if (k > n * p) {
+    k = n - k
+    p = 1 - p
+  }
+  // one-tailed test p-value is simply P(x<=k) = cdf(k,n,p)
+  if (tails == 1) return binomial_cdf(k, n, p)
+  // for two-tailed test, add upper tail P(x>r) for r = floor(np+(np-k))
+  // note this is based on deviation from mean instead of density (slower)
+  return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
 }
 
 const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) < ε
@@ -309,9 +343,9 @@ function binomial_cdf(x, n, p) {
   // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/distribution.js#L764
   let betacdf
   let eps = 1e-10
+  if (p < 0 || p > 1 || n <= 0) return NaN
   if (x < 0) return 0
   if (x >= n) return 1
-  if (p < 0 || p > 1 || n <= 0) return NaN
   x = Math.floor(x)
   let z = p
   let a = x + 1
@@ -330,7 +364,34 @@ function binomial_cdf(x, n, p) {
 }
 
 function _test_binomial_cdf() {
-  check(() => [binomial_cdf(5, 10, 0.5), 0.62304687499999866773, approx_equal])
+  check(
+    () => [binomial_cdf(-1, 3, 0.5), 0],
+    () => [binomial_cdf(4, 3, 0.5), 1],
+    () => is_nan(binomial_cdf(2, -1, 0.5)),
+    () => is_nan(binomial_cdf(2, 3, -0.1)),
+    () => is_nan(binomial_cdf(2, 3, 1.1)),
+    // reference values from Mathematica
+    //   SetPrecision[CDF[BinomialDistribution[n,p],x],20]
+    () => [binomial_cdf(2, 3, 0), 1],
+    () => [binomial_cdf(2, 3, 1), 0],
+    () => [binomial_cdf(1, 3, 0.5), 0.5],
+    () => [binomial_cdf(2, 3, 0.5), 0.875],
+    () => [binomial_cdf(5, 10, 0.5), 0.62304687499999866773, approx_equal],
+    () => [binomial_cdf(5, 10, 0.1), 0.99985309739999994605, approx_equal],
+    () => [binomial_cdf(5, 10, 0.9), 0.0016349374000000031076, approx_equal],
+  )
+}
+
+function _benchmark_binomial_cdf() {
+  benchmark(
+    () => binomial_cdf(5, 10, 0.5),
+    () => binomial_cdf(50, 100, 0.5),
+    () => binomial_cdf(500, 1000, 0.5),
+    () => binomial_cdf(5000, 10000, 0.5),
+    () => binomial_cdf(500000, 1000000, 0.5),
+    () => binomial_cdf(500000, 1000000, 0.001),
+    () => binomial_cdf(500000, 1000000, 0.999),
+  )
 }
 
 // TODO: use throws() in tests above

@@ -80,13 +80,14 @@ function check(...funcs) {
     if (!is_function(f)) fatal('non-function argument')
     const ret = f()
     if (is_array(ret)) {
-      // if last element of returned array is a function, it will be used as the equality function in place of equal(a,b)
-      let feq = equal
-      if (is_function(_.last(ret))) feq = ret.pop()
-      if (ret.length < 2)
-        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(ret)}`)
-      if (!ret.every(x => feq(x, ret[0])))
-        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(ret)}`)
+      const xJ = ret // interpret returned array as values to be compared
+      // if last element of returned array is a function, it will be used as the comparison function fcomp(x0,x) in place of equal(x0,x)
+      let fcomp = equal
+      if (is_function(_.last(xJ))) fcomp = xJ.pop()
+      if (xJ.length < 2)
+        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`)
+      if (!xJ.every((x, j) => j == 0 || fcomp(xJ[0], x)))
+        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`)
     } else if (!ret) {
       fatal(`FAILED CHECK: ${stringify(f)}`)
     }
