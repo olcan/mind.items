@@ -133,6 +133,7 @@ function _log_gamma(x) {
   return Math.log((2.5066282746310005 * ser) / xx) - tmp
 }
 
+// `P(X<=x)` for [binomial distribution](https://en.wikipedia.org/wiki/Binomial_distribution)
 function binomial_cdf(x, n, p) {
   // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/distribution.js#L764
   let betacdf
@@ -157,15 +158,14 @@ function binomial_cdf(x, n, p) {
   return Math.round((1 - betacdf) * (1 / eps)) / (1 / eps)
 }
 
-// p-value for two-sided [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
-function binomial_test(n, k, p, tails = 2) {
+// p-value for two-tailed [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
+function binomial_test(n, k, p) {
   // take k < n * p by convention
   if (k > n * p) {
     k = n - k
     p = 1 - p
   }
   // one-tailed test p-value is simply P(x<=k) = cdf(k,n,p)
-  if (tails == 1) return binomial_cdf(k, n, p)
   // for two-tailed test, add upper tail P(x>r) for r = floor(np+(np-k))
   // note this is based on deviation from mean instead of density (slower)
   return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)

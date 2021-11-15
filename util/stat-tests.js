@@ -150,7 +150,6 @@ function _test_binomial_cdf() {
 }
 
 function _test_binomial_test() {
-  check(() => [binomial_test(2, 1, 0.5, 1), binomial_cdf(1, 2, 0.5)])
   check(() => [binomial_test(2, 1, 0.5), 1])
   check(() => [
     binomial_test(3, 1, 0.5),
