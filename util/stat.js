@@ -91,8 +91,6 @@ function shuffle(xJ, js, je) {
   return xJ
 }
 
-const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
-
 // from http://www.math.ucla.edu/~tom/distributions/binomial.html
 // via https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/distribution.js#L727
 function _betinc(x, a, b, eps) {
@@ -159,7 +157,7 @@ function binomial_cdf(x, n, p) {
   return Math.round((1 - betacdf) * (1 / eps)) / (1 / eps)
 }
 
-// p-value for [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
+// p-value for two-sided [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
 function binomial_test(n, k, p, tails = 2) {
   // take k < n * p by convention
   if (k > n * p) {
@@ -173,8 +171,10 @@ function binomial_test(n, k, p, tails = 2) {
   return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
 }
 
-// TODO: use throws() in tests above
-// TODO: test sample and shuffle, then continue w/ array.js leading up to one-sided and two-sided ks tests
+const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
+
+// TODO: use binomial test for discrete_uniform and discrete
+// TODO: continue w/ array.js leading up to one-sided and two-sided ks tests to be used for continuous distributions above
 
 // adapted from https://github.com/jstat/jstat/blob/master/src/vector.js
 function min(xJ) {
