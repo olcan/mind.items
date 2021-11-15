@@ -114,7 +114,7 @@ const discrete = (wJ, sum_wj = sum(wJ)) => {
   // if (min(wJ) < 0) fatal(`wj<0: ${min(wJ)}`)
   let j = 0
   let w = 0
-  let wt = uniform() * sum_wj
+  let wt = Math.random() * sum_wj
   do {
     w += wJ[j++]
   } while (w < wt && j < wJ.length)
@@ -133,8 +133,8 @@ function _test_discrete() {
 }
 
 function _benchmark_discrete() {
-  const wJ = array(100, j => uniform())
-  const wJ_sorted = array(100, j => uniform()).sort((a, b) => b - a)
+  const wJ = sample(100)
+  const wJ_sorted = sample(100).sort((a, b) => b - a)
   const sum_wj = sum(wJ)
   benchmark(
     () => discrete([1, 2]),
@@ -194,15 +194,32 @@ function _benchmark_triangular() {
   )
 }
 
-// Durstenfeld shuffle, see https://stackoverflow.com/a/12646864
-function shuffle(array, start = 0, end = array.length) {
-  for (let i = end - 1; i > start; i--) {
-    const j = start + ~~(Math.random() * (i - start + 1))
-    const tmp = array[i]
-    array[i] = array[j]
-    array[j] = tmp
+// sample(J, [sampler=uniform])
+// samples array of `J` values from `sampler`
+function sample(J, sampler = uniform) {
+  if (J <= 0) return []
+  const xJ = new Array(J)
+  for (let j = 0; j < J; ++j) xJ[j] = sampler()
+  return xJ
+}
+
+// shuffle(xJ, [js=0], [je=J])
+// shuffles elements of array `xJ` _in place_
+// can be restricted to indices `js,…,je-1`
+// uses [Fisher-Yates-Durstenfeld algorithm](https://en.wikipedia.org/wiki/Fisher–Yates_shuffle#The_modern_algorithm)
+function shuffle(xJ, js = 0, je = xJ.length) {
+  if (!is_array(xJ)) fatal(`non-array argument`)
+  if (!is_integer(js) || !is_integer(je)) fatal(`non-integer indices`)
+  if (js > je || js < 0 || je > xJ.length) fatal(`invalid indices ${js},${je}`)
+  for (let j = je - 1; j > js; j--) {
+    const jr = js + ~~(Math.random() * (j - js + 1))
+    const tmp = xJ[j]
+    xJ[j] = xJ[jr]
+    xJ[jr] = tmp
   }
 }
+
+// TODO: test sample and shuffle, then continue w/ array.js leading up to one-sided and two-sided ks tests
 
 // adapted from https://github.com/jstat/jstat/blob/master/src/vector.js
 function min(xJ) {
