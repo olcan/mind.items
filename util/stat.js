@@ -281,18 +281,19 @@ function _test_shuffle() {
   )
 }
 
-// p-value for [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
-function binomial_test(n, k, p, tails = 2) {
-  // take k < n * p by convention
-  if (k > n * p) {
-    k = n - k
-    p = 1 - p
-  }
-  // one-tailed test p-value is simply P(x<=k) = cdf(k,n,p)
-  if (tails == 1) return binomial_cdf(k, n, p)
-  // for two-tailed test, add upper tail P(x>r) for r = floor(np+(np-k))
-  // note this is based on deviation from mean instead of density (slower)
-  return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
+function _benchmark_shuffle() {
+  const range10 = _.range(10)
+  const range100 = _.range(100)
+  const range1000 = _.range(1000)
+  const range10000 = _.range(10000)
+  benchmark(
+    () => shuffle([0, 1]),
+    () => shuffle([0, 1, 2]),
+    () => shuffle(range10),
+    () => shuffle(range100),
+    () => shuffle(range1000),
+    () => shuffle(range10000),
+  )
 }
 
 const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
@@ -392,6 +393,33 @@ function _benchmark_binomial_cdf() {
     () => binomial_cdf(500000, 1000000, 0.001),
     () => binomial_cdf(500000, 1000000, 0.999),
   )
+}
+
+// p-value for [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
+function binomial_test(n, k, p, tails = 2) {
+  // take k < n * p by convention
+  if (k > n * p) {
+    k = n - k
+    p = 1 - p
+  }
+  // one-tailed test p-value is simply P(x<=k) = cdf(k,n,p)
+  if (tails == 1) return binomial_cdf(k, n, p)
+  // for two-tailed test, add upper tail P(x>r) for r = floor(np+(np-k))
+  // note this is based on deviation from mean instead of density (slower)
+  return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
+}
+
+function _test_binomial_test() {
+  check(() => [binomial_test(2, 1, 0.5, 1), binomial_cdf(1, 2, 0.5)])
+  check(() => [binomial_test(2, 1, 0.5), 1])
+  check(() => [
+    binomial_test(3, 1, 0.5),
+    binomial_cdf(1, 3, 0.5) + 1 - binomial_cdf(2, 3, 0.5),
+  ]),
+    check(() => [
+      binomial_test(5, 2, 0.5),
+      binomial_cdf(2, 5, 0.5) + 1 - binomial_cdf(3, 5, 0.5),
+    ])
 }
 
 // TODO: use throws() in tests above
