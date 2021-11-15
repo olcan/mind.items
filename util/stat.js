@@ -243,6 +243,7 @@ function _test_shuffle() {
   check(() => throws(() => shuffle()))
 }
 
+// TODO: use throws() in tests above
 // TODO: test sample and shuffle, then continue w/ array.js leading up to one-sided and two-sided ks tests
 
 // adapted from https://github.com/jstat/jstat/blob/master/src/vector.js
