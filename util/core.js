@@ -158,17 +158,25 @@ function _run_benchmark(
 
 // throws(f, [error])
 // does function `f` throw an error?
-// `error` can be specific error or predicate
+// `error` can be specific error, type, or predicate
 function throws(f, error) {
   if (!is_function(f)) fatal(`non-function argument`)
   try {
     f()
   } catch (e) {
     if (error === undefined) return true
-    else if (is_function(error)) return error(e)
+    else if (is_function(error)) return error(e) || e instanceof error
     else return equal(e, error)
   }
   return false
+}
+
+function _test_throws() {
+  check(
+    () => !throws(() => {}),
+    () => throws(() => throws('a')),
+    () => throws(() => throws('a'), EvalError)
+  )
 }
 
 // `[output, elapsed_ms]`

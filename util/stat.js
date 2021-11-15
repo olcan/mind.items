@@ -196,20 +196,40 @@ function _benchmark_triangular() {
 
 // sample(J, [sampler=uniform])
 // samples array of `J` values from `sampler`
-function sample(J, sampler = uniform) {
+function sample(J, sampler = Math.random) {
   if (J <= 0) return []
   const xJ = new Array(J)
   for (let j = 0; j < J; ++j) xJ[j] = sampler()
   return xJ
 }
 
+function _test_sample() {
+  check(
+    () => [sample(-1), []],
+    () => [sample(0), []],
+    () => [sample(1, () => 1), [1]],
+    () => [sample(2, () => 1), [1, 1]],
+    () => [sample(2, j => j), [undefined, undefined]]
+  )
+}
+
+function _benchmark_sample() {
+  benchmark(
+    () => sample(100),
+    () => array(100, j => Math.random()),
+    () => array(100, Math.random) // unsafe since args are passed through
+  )
+}
+
 // shuffle(xJ, [js=0], [je=J])
 // shuffles elements of array `xJ` _in place_
 // can be restricted to indices `js,…,je-1`
 // uses [Fisher-Yates-Durstenfeld algorithm](https://en.wikipedia.org/wiki/Fisher–Yates_shuffle#The_modern_algorithm)
-function shuffle(xJ, js = 0, je = xJ.length) {
+function shuffle(xJ, js, je) {
   if (!is_array(xJ)) fatal(`non-array argument`)
   if (!is_integer(js) || !is_integer(je)) fatal(`non-integer indices`)
+  js ??= 0
+  je ??= xJ.length
   if (js > je || js < 0 || je > xJ.length) fatal(`invalid indices ${js},${je}`)
   for (let j = je - 1; j > js; j--) {
     const jr = js + ~~(Math.random() * (j - js + 1))
@@ -217,6 +237,10 @@ function shuffle(xJ, js = 0, je = xJ.length) {
     xJ[j] = xJ[jr]
     xJ[jr] = tmp
   }
+}
+
+function _test_shuffle() {
+  check(() => throws(() => shuffle()))
 }
 
 // TODO: test sample and shuffle, then continue w/ array.js leading up to one-sided and two-sided ks tests
