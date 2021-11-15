@@ -21,6 +21,7 @@ function benchmark_item(item) {
             async: item.deepasync,
             async_simple: true,
             exclude_tests_and_benchmarks: false,
+            type: 'js|js_benchmarks?',
           }
         )
         ms = Date.now() - start
@@ -43,7 +44,7 @@ function benchmark_item(item) {
           names = await item.eval(
             `typeof ${benchmark}_functions == 'object' ? ` +
               `${benchmark}_functions : null`,
-            { exclude_tests_and_benchmarks: false }
+            { exclude_tests_and_benchmarks: false, type: 'js|js_benchmarks?' }
           )
         } catch (e) {}
         if (is_array(names) && names.every(is_string)) {

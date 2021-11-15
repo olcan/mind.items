@@ -21,6 +21,7 @@ function test_item(item) {
             async: item.deepasync,
             async_simple: true,
             exclude_tests_and_benchmarks: false,
+            type: 'js|js_tests?',
           }
         )
         ms = Date.now() - start
@@ -43,7 +44,7 @@ function test_item(item) {
           names = await item.eval(
             `typeof ${test}_functions == 'object' ? ` +
               `${test}_functions : null`,
-            { exclude_tests_and_benchmarks: false }
+            { exclude_tests_and_benchmarks: false, type: 'js|js_tests?' }
           )
         } catch (e) {}
         if (is_array(names) && names.every(is_string)) {
