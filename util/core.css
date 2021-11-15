@@ -72,10 +72,10 @@
 
 /* round corners of first and last usage */
 .core_js_table .function:first-child .usage {
-  border-top-right-radius: 5px;
+  border-top-right-radius: 4px;
 }
 .core_js_table .function:last-child .usage {
-  border-bottom-right-radius: 5px;
+  border-bottom-right-radius: 4px;
 }
 
 /* style .usage, left column of main table */
@@ -203,11 +203,17 @@
   display: block;
   white-space: normal;
   background: #171717;
-  margin-bottom: 10px;
   padding: 5px 10px;
-  border-radius: 5px;
+  border-radius: 4px;
   border-top-left-radius: 0;
   border-left: var(--bullet-width) solid #444;
+}
+.core_js_table .function.expanded:not(:last-child) .desc,
+.container.pushable
+  .core_js_table
+  .function.has_more:not(.collapsed):not(:last-child)
+  .desc {
+  margin-bottom: 10px;
 }
 /* enable wrapping on expanded .usage */
 .core_js_table .function.expanded .usage,
@@ -216,7 +222,7 @@
   width: auto;
   background: #222;
   padding-right: 8px;
-  border-top-right-radius: 5px;
+  border-top-right-radius: 4px;
   border-bottom-right-radius: 0;
 }
 /* show spaced args on expanded .usage */
