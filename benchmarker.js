@@ -6,6 +6,8 @@ function benchmark_item(item) {
     item.store._benchmarker,
     item.store._tester,
   ]).then(async () => {
+    const gs = item._global_store // changes saved manually below
+    delete gs._benchmarks // clear any previous benchmarks
     // evaluate any functions _benchmark|_benchmark_*() defined on item
     const benchmarks = item.text.match(/\b_benchmark_\w+/g) ?? []
     let benchmarks_done = 0
@@ -36,7 +38,6 @@ function benchmark_item(item) {
       if (done) {
         benchmarks_done++
         const log = item.get_log({ since: 'eval' })
-        const gs = item._global_store // changes saved manually below
         gs._benchmarks = _.set(gs._benchmarks || {}, name, { ms, ok: !e, log })
         // look up benchmarked function names
         let names
