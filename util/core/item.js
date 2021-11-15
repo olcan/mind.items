@@ -13,8 +13,9 @@ const __eval = (...args) => _this.eval(...args)
 
 // read([type],…)
 // reads text from item
-// reads from block `type` or _whole item_ if `type==''`
-// concatenates multiple blocks of same `type`
+// `type` can indicate block(s) to read, e.g. `js`
+// `type` can be regex, e.g. `js|js_tests?`
+//  blocks matching `type` are concentenated
 // | `include_deps`       | bool | include dependencies
 // | `exclude_async_deps` | bool | exclude async dependencies
 // | `exclude_async`      | bool | also exclude self if async
