@@ -94,10 +94,12 @@ const apply = (xJ, f) => {
   return xJ
 }
 
-// => x=swap(y,y=x)
-// swaps `x` and `y`
-function swap(y, y_assigned) {
-  if (y_assigned === undefined || y == y_assigned)
+// swap(y,y=x)
+// swaps `x<=>y` as `x = swap(y, y=x)`
+// `apply+swap` can be faster than `map` or `copy`
+// e.g. `xJ = swap(apply(yJ,y=>y*y), yJ=xJ)`
+function swap(y, y_x) {
+  if (y_x === undefined || y == y_x)
     fatal('expected usage is x=swap(y,y=x) for distinct x,y')
   return y
 }
@@ -123,6 +125,7 @@ function _benchmark_map() {
     () => map(xJ, yJ, (x, y) => x + y),
     () => map(xJ, yJ, (x, y) => y * y),
     () => copy(xJ, yJ, y => y * y),
+    () => apply(yJ, y => y * y),
     () =>
       (xJ = swap(
         apply(yJ, y => y * y),
@@ -131,3 +134,5 @@ function _benchmark_map() {
     () => yJ.map(y => y * y),
   )
 }
+
+const _benchmark_map_functions = ['map', 'apply']
