@@ -27,3 +27,13 @@ function _benchmark_array() {
     () => Array.from({ length: 100 }, j => j)
   )
 }
+
+// TODO (for ks):
+// array
+// shuffle
+// cached
+// copy_at
+// fill
+// map
+// each
+// apply
