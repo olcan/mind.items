@@ -1,4 +1,4 @@
-#util/core defines core utilities, including #/types, #/hash, #/item.  
+#util/core defines core utilities, including #/types, #/array, #/hash, #/item.  
 << js_table() >>
 
 ```js_removed:core.js
@@ -9,4 +9,4 @@
 // core.css
 ```
 
-<p> #_init #_/types #_/hash #_/item
+<p> #_init #_/types #_/array #_/hash #_/item
