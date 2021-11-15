@@ -323,13 +323,13 @@ function js_table(regex) {
     // remove all whitespace from args except after commas & around equals
     const name = def.name.trim()
     const args = def.args
-      .replace(/\s+/, '')
-      .replace(/,/g, ', ')
-      .replace(/=/g, ' = ')
+      .replace(/\s+/g, '')
       .replace(/^\(/, _span('parens', '('))
       .replace(/\)$/, _span('parens', ')'))
+    const args_spaced = args.replace(/,/g, ', ').replace(/=/g, ' = ')
     let usage =
-      `<span class="name">${name}</span>` + `<span class="args">${args}</span>`
+      `<span class="name">${name}</span>` +
+      `<span class="args">${args}</span><span class="args spaced">${args_spaced}</span>`
 
     // restore toggled state from local store (triggers render on change)
     let toggled = ''

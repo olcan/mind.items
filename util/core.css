@@ -139,6 +139,11 @@
   color: #444;
 }
 
+/* hide spaced args until expanded below */
+.core_js_table .usage .args.spaced {
+  display: none;
+}
+
 /* style .desc, right column of main table */
 .core_js_table .desc {
   padding-left: 10px;
@@ -213,6 +218,24 @@
   padding-right: 8px;
   border-top-right-radius: 5px;
   border-bottom-right-radius: 0;
+}
+/* show spaced args on expanded .usage */
+.core_js_table .function.expanded .usage .args.spaced,
+.container.pushable
+  .core_js_table
+  .function.has_more:not(.collapsed)
+  .usage
+  .args.spaced {
+  display: inline;
+}
+/* hide non-spaced args on expanded .usage */
+.core_js_table .function.expanded .usage .args,
+.container.pushable
+  .core_js_table
+  .function.has_more:not(.collapsed)
+  .usage
+  .args {
+  display: none;
 }
 
 /* override .usage background for errors */
