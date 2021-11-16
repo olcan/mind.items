@@ -359,6 +359,7 @@ function js_table(regex) {
     args = '(' + args + ')'
     let args_expanded = args.replace(/,/g, ', ').replace(/=/g, ' = ')
     const has_defaults = args.match(/\[(.+?)=.+?\]/) ? 'has_defaults' : ''
+    // NOTE: this simple regex does not work for {arg=default} but does for arg={}
     args = args.replace(/\[(.+?)=.+?\]/g, '[$1]') // hide defaults unless expanded
     args = args.replace(/[(\[{}\])]/g, p => _span('parens', p))
     args_expanded = args_expanded.replace(/[(\[{}\])]/g, p =>

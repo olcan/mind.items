@@ -372,18 +372,8 @@ function circular_mean(xJ, r = Math.PI) {
   return Math.atan2(sumf(θJ, Math.sin), sumf(θJ, Math.cos)) / z
 }
 
-function sumsqrd(xJ) {
-  let z = 0
-  const J = xJ.length
-  for (let j = 0; j < J; ++j) {
-    const x = xJ[j]
-    z += x * x
-  }
-  return z
-}
-const sumsqrd2 = xJ => sumf(xJ, x => x * x) // reference
-
-function sumsqerr(xJ) {
+// variance of sample `xJ`
+function variance(xJ) {
   let z = 0
   const J = xJ.length,
     m = mean(xJ)
@@ -391,10 +381,9 @@ function sumsqerr(xJ) {
     const y = xJ[j] - m
     z += y * y
   }
-  return z
+  return z / (xJ.length - 1)
 }
-const variance = (xJ, sample) => sumsqerr(xJ) / (xJ.length - (sample ? 1 : 0))
-const stdev = (xJ, sample) => Math.sqrt(variance(xJ, sample))
+const stdev = xJ => Math.sqrt(variance(xJ))
 
 // [circular stdev](https://en.wikipedia.org/wiki/Directional_statistics#Dispersion) of `xJ` on `[-r,r]`
 function circular_stdev(xJ, r = Math.PI) {
@@ -405,17 +394,48 @@ function circular_stdev(xJ, r = Math.PI) {
   return Math.sqrt(-2 * Math.log(R)) / z
 }
 
-function median(xJ) {
+// median of sample `xJ`
+// | `sorted` | `false` | assume `xJ` already sorted
+// | `copy`   | `false` | copy `xJ` before sorting
+function median(xJ, options = {}) {
+  const { sorted, copy } = options
   const J = xJ.length
-  xJ = xJ.slice().sort((a, b) => a - b)
+  if (!sorted) {
+    if (copy) xJ = xJ.slice()
+    xJ.sort((a, b) => a - b)
+  }
   // NOTE: (x&1)=x%2 and (x|0)=~~x
   return !(J & 1) ? (xJ[J / 2 - 1] + xJ[J / 2]) / 2 : xJ[(J / 2) | 0]
 }
-// same as jStat.quantiles but handles arr.length<=1 case
-function quantiles(xJ, qK, ɑ = 0.375, β = 0.375) {
+
+function _benchmark_median() {
+  const xJ = sample(100, uniform)
+  const xJ_sorted = sample(100, uniform).sort((a, b) => a - b)
+  benchmark(
+    () => median(xJ),
+    () => median(xJ, { copy: true }),
+    () => median(xJ_sorted, { sorted: true }),
+  )
+}
+
+// sample quantiles `qK` for `xJ`
+// | `sorted` | `false` | assume `xJ` already sorted
+// | `copy`   | `false` | copy `xJ` before sorting
+// | `ɑ`      | `.375`  | estimation/interpolation parameter `ɑ`
+// | `β`      | `.375`  | estimation/interpolation parameter `β`
+// default parameters `ɑ=β=.375` are ~unbiased for normal `X`
+// see [scipy.stats docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.mstats.mquantiles.html#scipy-stats-mstats-mquantiles) for details and alternatives
+function quantiles(xJ, qK, options = {}) {
+  // based on https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/vector.js#L303
+  // originally from https://github.com/scipy/scipy/blob/47bb6febaa10658c72962b9615d5d5aa2513fa3a/scipy/stats/mstats_basic.py#L2659-L2784
+  const { sorted, copy, ɑ = 0.375, β = 0.375 } = options
   const J = xJ.length
-  if (J <= 1) return qK.map(q => xJ[0])
-  xJ = xJ.slice().sort((a, b) => a - b)
+  if (J == 0) return array(qK.length, NaN)
+  if (J <= 1) return array(qK.length, xJ[0])
+  if (!sorted) {
+    if (copy) xJ = xJ.slice()
+    xJ.sort((a, b) => a - b)
+  }
   let zK = array(qK.length)
   each(qK, (q, k) => {
     const m = ɑ + q * (1 - ɑ - β)
@@ -426,12 +446,13 @@ function quantiles(xJ, qK, ɑ = 0.375, β = 0.375) {
   })
   return zK
 }
-// effective sample size (ESS) approximates Var(target)/MSE(sample)
+
+// effective sample size for weights `wJ`
+// approximates `Var(target)/MSE(sample)`
 // see "Rethinking the Effective Sample Size" for discussion
 function ess(wJ) {
-  // const [s,ss] = reduce(wJ, (y,x)=>[y[0]+x,y[1]+x*x], [0,0])
-  let s = 0,
-    ss = 0
+  let s = 0
+  let ss = 0
   const J = wJ.length
   for (let j = 0; j < J; ++j) {
     const w = wJ[j]
@@ -440,14 +461,10 @@ function ess(wJ) {
   }
   return (s * s) / ss
 }
-function essf(xJ, f = x => x) {
-  let s = 0,
-    ss = 0
-  const J = xJ.length
-  for (let j = 0; j < J; ++j) {
-    const w = f(xJ[j])
-    s += w
-    ss += w * w
-  }
-  return (s * s) / ss
+
+// clips `x` to `[a,b]`
+function clip(x, a = 0, b = 1) {
+  if (x < a) return a
+  if (x > b) return b
+  return x
 }
