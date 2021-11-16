@@ -367,3 +367,38 @@ function _test_ks2_test() {
     () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 100),
   )
 }
+
+function _test_min() {
+  check(
+    () => [min(), inf],
+    () => [min(0), 0],
+    () => [min('a'), inf], // elements that fail < are ignored
+    () => [min(0, -1), -1],
+    () => [min(0, -1, -2), -2],
+    () => [min([0, -1, -2]), -2],
+    () => [min([0, -1, -2, 'a']), -2], // elements that fail < are ignored
+  )
+}
+
+function _test_max() {
+  check(
+    () => [max(), -inf],
+    () => [max(0), 0],
+    () => [max('a'), -inf], // elements that fail > are ignored
+    () => [max(0, 1), 1],
+    () => [max(0, 1, 2), 2],
+    () => [max([0, 1, 2]), 2],
+    () => [max([0, 1, 2, 'a']), 2], // elements that fail > are ignored
+  )
+}
+
+function _test_sum() {
+  check(
+    () => [sum(), 0],
+    () => [sum(0), 0],
+    () => [sum(0, 1), 1],
+    () => [sum(0, 1, 2), 3],
+    () => [sum([0, 1, 2]), 3],
+    () => [sum([0, 1, 2, 'a']), '3a'], // invalid for non-numbers
+  )
+}

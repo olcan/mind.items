@@ -336,48 +336,40 @@ function ks1_test(xJ, cdf) {
   return 1 - ks1_cdf(ks1(xJ, cdf), xJ.length)
 }
 
-// adapted from https://github.com/jstat/jstat/blob/master/src/vector.js
+// minimum element in `xJ`
 function min(xJ) {
-  if (!is_array(xJ)) return min(Array.from(arguments))
+  if (!is_array(xJ)) xJ = arguments
   let z = inf
-  const J = xJ.length
-  for (let j = 0; j < J; ++j) if (xJ[j] < z) z = xJ[j]
+  for (let j = 0; j < xJ.length; ++j) if (xJ[j] < z) z = xJ[j]
   return z
 }
-const min2 = (xJ, z = 0) => (each(xJ, x => x >= z || (z = x)), z) // reference
+
+// maximum element in `xJ`
 function max(xJ) {
-  if (!is_array(xJ)) return max(Array.from(arguments))
+  if (!is_array(xJ)) xJ = arguments
   let z = -inf
-  const J = xJ.length
-  for (let j = 0; j < J; ++j) if (xJ[j] > z) z = xJ[j]
+  for (let j = 0; j < xJ.length; ++j) if (xJ[j] > z) z = xJ[j]
   return z
 }
+
+// sum of `xJ`
 function sum(xJ) {
-  if (!is_array(xJ)) return sum(Array.from(arguments))
+  if (!is_array(xJ)) xJ = arguments
   let z = 0
-  const J = xJ.length
-  for (let j = 0; j < J; ++j) z += xJ[j]
+  for (let j = 0; j < xJ.length; ++j) z += xJ[j]
   return z
 }
+
 const mean = xJ => sum(xJ) / xJ.length
 
-// from https://en.wikipedia.org/wiki/Circular_mean
+// TODO
+
+// [circular mean](https://en.wikipedia.org/wiki/Circular_mean) of `xJ` on `[-r,r]`
 function circular_mean(xJ, r = Math.PI) {
-  // assumes xJ in [-r,r]
   if (xJ.length == 0) return NaN
   const z = r == Math.PI ? 1 : Math.PI / r
   const θJ = z == 1 ? xJ : xJ.map(x => x * z)
   return Math.atan2(sumf(θJ, Math.sin), sumf(θJ, Math.cos)) / z
-}
-
-// from https://en.wikipedia.org/wiki/Directional_statistics
-function circular_stdev(xJ, r = Math.PI) {
-  // assumes xJ in [-r,r]
-  if (xJ.length == 0) return NaN
-  const z = r == Math.PI ? 1 : Math.PI / r
-  const θJ = z == 1 ? xJ : xJ.map(x => x * z)
-  const R = Math.sqrt(meanf(θJ, Math.sin) ** 2 + meanf(θJ, Math.cos) ** 2)
-  return Math.sqrt(-2 * Math.log(R)) / z
 }
 
 function sumsqrd(xJ) {
@@ -403,6 +395,15 @@ function sumsqerr(xJ) {
 }
 const variance = (xJ, sample) => sumsqerr(xJ) / (xJ.length - (sample ? 1 : 0))
 const stdev = (xJ, sample) => Math.sqrt(variance(xJ, sample))
+
+// [circular stdev](https://en.wikipedia.org/wiki/Directional_statistics#Dispersion) of `xJ` on `[-r,r]`
+function circular_stdev(xJ, r = Math.PI) {
+  if (xJ.length == 0) return NaN
+  const z = r == Math.PI ? 1 : Math.PI / r
+  const θJ = z == 1 ? xJ : xJ.map(x => x * z)
+  const R = Math.sqrt(meanf(θJ, Math.sin) ** 2 + meanf(θJ, Math.cos) ** 2)
+  return Math.sqrt(-2 * Math.log(R)) / z
+}
 
 function median(xJ) {
   const J = xJ.length

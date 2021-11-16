@@ -98,3 +98,59 @@ function _benchmark_ks1() {
   benchmark(() => ks1(xJ_100, x => x))
   benchmark(() => ks1(xJ_1000, x => x))
 }
+
+function _benchmark_min() {
+  const x10 = sample(10, uniform)
+  const x100 = sample(100, uniform)
+  // for reference, we compare to an implementation that uses each(...)
+  function _min_each(xJ) {
+    if (!is_array(xJ)) xJ = arguments // allow min(a,b,...)
+    let z = inf
+    each(xJ, x => {
+      if (x < z) z = x
+    })
+    return z
+  }
+  benchmark(
+    () => min(0),
+    () => min([0]),
+    () => min(0, -1, -2),
+    () => min([0, -1, -2]),
+    () => _min_each([0, -1, -2]),
+    () => min(...x10),
+    () => min(x10),
+    () => min(...x100),
+    () => min(x100),
+    () => _min_each(x100),
+  )
+}
+
+function _benchmark_max() {
+  const x10 = sample(10, uniform)
+  const x100 = sample(100, uniform)
+  benchmark(
+    () => max(0),
+    () => max([0]),
+    () => max(0, 1, 2),
+    () => max([0, 1, 2]),
+    () => max(...x10),
+    () => max(x10),
+    () => max(...x100),
+    () => max(x100),
+  )
+}
+
+function _benchmark_sum() {
+  const x10 = sample(10, uniform)
+  const x100 = sample(100, uniform)
+  benchmark(
+    () => sum(0),
+    () => sum([0]),
+    () => sum(0, 1, 2),
+    () => sum([0, 1, 2]),
+    () => sum(...x10),
+    () => sum(x10),
+    () => sum(...x100),
+    () => sum(x100),
+  )
+}
