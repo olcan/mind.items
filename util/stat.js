@@ -168,9 +168,7 @@ function binomial_test(n, k, p) {
   return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
 }
 
-const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
-
-// TODO: implement ks, ks_cdf, and ks_test for both one-sided and two-sided tests above to be used above for continuous distribution tests
+const approx_equal = (x, y, ε = 1e-6) => Math.abs(y - x) / Math.abs(x) <= ε
 
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
@@ -212,13 +210,13 @@ function ks2(xJ, yK, options = {}) {
     mR[R - 1] = 1
   } else {
     let r_new = 0
-    for (let r = 0; r < R - 1; r++) {
-      if (xR(rR[r]) != xR(rR[r + 1])) {
+    each(rR, (rr, r) => {
+      if (r == R - 1 || xR(rr) != xR(rR[r + 1])) {
         // index r is last-of-kind
         if (r_new < r) shuffle(rR, r_new, r + 1)
         r_new = r + 1 // index r+1 is new
       }
-    }
+    })
   }
 
   // NOTE: beyond this point J and K are treated as normalization constants
@@ -280,65 +278,58 @@ function ks1(xJ, cdf, options = {}) {
   if (wK) fatal('invalid option wK superceded by cdf for ks1')
   if (wk_sum) fatal(`invalid option wk_sum superceded by cdf for ks1`)
   if (!xj_sorted) xJ.sort((a, b) => a - b)
-  wK = array(xJ.length, k => cdf(xJ[k]))
-  apply(wK, (wk, k) => wk - wK[k - 1], 1)
+  wK = array(xJ.length)
+  wK[0] = cdf(xJ[0])
+  fill(wK, k => cdf(xJ[k]) - cdf(xJ[k - 1]), 1)
   return ks2(xJ, null, { ...options, xj_sorted: true, wK, wk_sum: 1 })
 }
 
-// `P(X<=x)` _lower-bound_ for two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
-// _pre-computed_ _lower-bound_ for quantiles from `1e-10` to `1-1e-10`
-// [Kolmogorov distribution](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov_distribution) holds _asymptotically_ for continuous `X`, for two-sample statistic scaled by `Math.sqrt((2*J*K)/(J+K))`
-// exact cdf is [`jacobiTheta`](https://github.com/paulmasson/math/blob/29146e1a18b52d709770d1cbe17d8f0ad6bbdfd0/src/functions/elliptic-functions.js#L2) `(4, 0, Math.exp(-x*x*2*(J*K)/(J+K))`
-// good approx. lower-bound for small `J` and `K` for continuous `X`
-// should not be used sequentially, e.g. as a stopping rule
-// can be used to simulate sequential test statistics
-// should not be used for discrete or mixed `X`
-function ks2_cdf(x, J, K) {
-  // scaling and constants are derived from Mathematica using definitions:
-  //   KSDistanceCDF[n_,x_]:=EllipticTheta[4,0,Exp[-2*x*x*n/2]]
-  //   KSDistanceCDF[n1_,n2_,x_]:=EllipticTheta[4,0,Exp[-2*x*x*n1*n2/(n1+n2)]]
-  //   KSDistanceInverseCDF[n_,p_]:=Solve[KSDistanceCDF[n,x]==p,x]
-  //   KSDistanceInverseCDF[n1_,n2_,p_]:=Solve[KSDistanceCDF[n1,n2,x]==p,x]
-  //   SetPrecision[KSDistanceInverseCDF[n, p], 20]
-  //   SetPrecision[KSDistanceInverseCDF[n1, n2, p], 20]
-  // can be verified against exact cdf jacobiTheta(4, 0, Math.exp(-x*x*2*(J*K)/(J+K)) from https://github.com/paulmasson/math/blob/29146e1a18b52d709770d1cbe17d8f0ad6bbdfd0/src/functions/elliptic-functions.js#L2
-  x *= Math.sqrt((2 * J * K) / (J + K))
-  if (x >= 4.8702153984911591422) return 0.9999999999
-  if (x >= 4.6277870570615453616) return 0.99999999
-  if (x >= 4.3719364033014374016) return 0.99999999
-  if (x >= 4.1001515620179533883) return 0.9999999
-  if (x >= 3.8090232000506665244) return 0.999999
-  if (x >= 3.4937190278455672043) return 0.99999
-  if (x >= 3.1469807041886994625) return 0.9999
-  if (x >= 2.7569734237777994146) return 0.999
-  if (x >= 2.3018073858487770877) return 0.99
-  if (x >= 1.9206415147703974622) return 0.95
-  if (x >= 1.7307822563424253293) return 0.9
-  if (x >= 1.4413448539461912734) return 0.75
-  if (x >= 1.1703657456108866874) return 0.5
-  if (x >= 0.95664149955925958935) return 0.25
-  if (x >= 0.80776097797830959113) return 0.1
-  if (x >= 0.73484004537009228741) return 0.05
-  if (x >= 0.6237073526262482126) return 0.01
-  if (x >= 0.5292265612986003509) return 0.001
-  if (x >= 0.46865999313597900278) return 0.0001
-  if (x >= 0.42542448391422971188) return 0.00001
-  if (x >= 0.3924999185171096916) return 0.000001
-  if (x >= 0.36631453933049173965) return 0.0000001
-  if (x >= 0.3448270723840876073) return 0.00000001
-  if (x >= 0.32677255071556365884) return 0.000000001
-  if (x >= 0.3113186698052712309) return 0.0000000001
-  return 0
+// `P(X<=x)` for [Kolmogorov distribution](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov_distribution)
+// `= jacobiTheta(4, 0, Math.exp(-2*x*x))` using algorithm at [math.js](https://github.com/paulmasson/math/blob/29146e1a18b52d709770d1cbe17d8f0ad6bbdfd0/src/functions/elliptic-functions.js#L2)
+// `≡ EllipticTheta[4,0,Exp[-2*x*x]]` in Mathematica (used for testing)
+function kolmogorov_cdf(x, ε = 1e-10) {
+  const q = Math.exp(-2 * x * x)
+  let s = 0
+  let p = 1
+  let i = 1
+  while (Math.abs(p) > ε) {
+    p = (-q) ** (i * i)
+    s += p
+    i++
+  }
+  return 1 + 2 * s
 }
 
-// `P(X<=x)` _lower-bound_ for one-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
-// [Kolmogorov distribution](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov_distribution) holds _asymptotically_ for continuous `X`, for one-sample statistic scaled by `Math.sqrt(2*J)`
-// scaling can be derived by taking `K->∞` s.t. `2*J*K/(J+K)->2J`
-// then `2*2J*2J/(2J+2J)=2J` implies `ks1_cdf(x,J) = ks2_cdf(x,2J,2J)`
-// see `ks2_cdf` above for additional comments
+// `P(X<=x)` for two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
+// exact asymptotically (`J->∞,K->∞`) for continuous samples
+// approximate (within `0.27%` for `J,K≥20`) for small `J,K`
+// _invalid for discrete or mixed samples_
+function ks2_cdf(x, J, K = J) {
+  // asymptotic scaling (J*K)/(J+K) satisfies ->J for K->∞ and ->K for J->∞
+  // also J=K=2n ⟹ (J*K)/(J+K)=n so ks2(J,K≥2n) comparable to ks1(J≥n)
+  // see https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Two-sample_Kolmogorov–Smirnov_test
+  return ks1_cdf(x, (J * K) / (J + K))
+}
+
+// `P(X<=x)` for one-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
+// exact asymptotically (`J->∞`) for continuous samples
+// approximate (within `0.27%` for `J≥10`) for small `J`
+// _invalid for discrete or mixed samples_
 function ks1_cdf(x, J) {
-  // NOTE: 2*n*m/(n+m)->2n as m->∞ and 2*2n*2n/(2n+2n)=2n
-  return ks2_cdf(x, 2 * J, 2 * J)
+  x *= Math.sqrt(J)
+  // small-sample correction from "Small-Sample Corrections to Kolmogorov–Smirnov Test Statistic" by Jan Vrbik, also mentioned in Wikipedia
+  x += 1 / (6 * Math.sqrt(J)) + (x - 1) / (4 * J)
+  return kolmogorov_cdf(x)
+}
+
+// p-value for two-sample [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test)
+function ks2_test(xJ, yK) {
+  return 1 - ks2_cdf(ks2(xJ, yK), xJ.length, yK.length)
+}
+
+// p-value for one-sample [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test)
+function ks1_test(xJ, cdf) {
+  return 1 - ks1_cdf(ks1(xJ, cdf), xJ.length)
 }
 
 // adapted from https://github.com/jstat/jstat/blob/master/src/vector.js

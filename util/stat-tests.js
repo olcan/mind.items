@@ -25,13 +25,16 @@ function _test_uniform() {
     // invalid sets also return NaN
     () => is_nan(uniform('a')),
     () => is_nan(uniform(0, 'b')),
+    // ks test against uniform cdf
+    () => [ks1_test(sample(1000, uniform), x => x), 1e-9, _.gt],
   )
 }
 
 // binomial test for occurrences of x in sample
 // e.g. one-in-a-billion failure/rejection for n=1000, p=1/2 is k<=~400
 // e.g. one-in-a-billion failure/rejection for n=1000, p=1/6 is k<=~100
-const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 10 ** -9) => [
+// e.g. one-in-a-billion failure/rejection for n=300, p=1/2 is k<=~100
+const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 1e-9) => [
   binomial_test(
     n,
     _.sumBy(sample(n, sampler), s => equal(s, x)),
@@ -81,6 +84,11 @@ function _test_discrete() {
 }
 
 function _test_triangular() {
+  // triangular cdf from https://en.wikipedia.org/wiki/Triangular_distribution
+  function triangular_cdf(x) {
+    if (x <= 0.5) return 2 * x * x
+    else return 1 - 2 * (1 - x) * (1 - x)
+  }
   check(
     () => triangular() >= 0,
     () => triangular() <= 1,
@@ -103,6 +111,8 @@ function _test_triangular() {
     () => is_nan(triangular('a')),
     () => is_nan(triangular(0, 'b')),
     () => is_nan(triangular(0, 1, 'c')),
+    // ks test against triangular cdf
+    () => [ks1_test(sample(1000, triangular), triangular_cdf), 1e-9, _.gt],
   )
 }
 
@@ -244,12 +254,90 @@ function _test_ks2() {
   )
 }
 
-// NOTE: ks1 is a wrapper over ks2 using weights and sorting options, already tested above for ks1
+// NOTE: ks1 wraps ks2 using weights and sorting options tested above
+const _test_ks2_functions = ['ks1', 'ks2']
 
-// TODO: test ks2_cdf against previously computed exact CDFs:
-// check_eval_eq('ks_cdf_at(100, 100, .05)', '0.0003667078424175463')
-// check_eval_eq('ks_cdf_at(100, 100, .1)', '0.30062580086898405')
-// check_eval_eq('ks_cdf_at(100, 100, .2)', '0.9633689472928807')
-// check_eval_eq('ks_cdf_at(100, 100, .3)', '0.9997531803918271')
-// check_eval_eq('ks_cdf_at(100, 200, .1)', '0.4824493364181245')
-// check_eval_eq('ks_cdf_at(200, 100, .1)', '0.4824493364181245')
+function _test_kolmogorov_cdf() {
+  // reference values from EllipticTheta[4,0,Exp[-2*x*x]] in Mathematica
+  const eq3 = (a, b) => approx_equal(a, b, 1e-3) // tightest that passes
+  check(
+    () => [kolmogorov_cdf(1 / 4), 0.0000000268, eq3],
+    () => [kolmogorov_cdf(1 / 2), 0.0360547563, eq3],
+    () => [kolmogorov_cdf(1), 0.7300003283, eq3],
+    () => [kolmogorov_cdf(2), 0.9993290747, eq3],
+    () => [kolmogorov_cdf(3), 0.9999999695, eq3],
+  )
+}
+
+function _test_ks1_cdf() {
+  // reference values from tables in "Computing the Two-Sided Kolmogorov-Smirnov Distribution" using various algorithms (see tables for details)
+  const eq3 = (a, b) => approx_equal(a, b, 1e-3) // tightest that passes
+  check(
+    // table 6
+    () => [ks1_cdf(0.6, 50), 1 - 9.63407045614234e-18, eq3],
+    // table 7
+    () => [ks1_cdf(0.44721359549996, 20), 1 - 0.000362739697817367, eq3],
+    () => [ks1_cdf(0.2, 100), 1 - 0.00055519273280281, eq3],
+    // table 8
+    () => [ks1_cdf(0.0856348838577675, 300), 1 - 0.0230986730185827, eq3],
+    () => [ks1_cdf(0.0469041575982343, 1000), 1 - 0.0237703399363784, eq3],
+    // table 9
+    () => [ks1_cdf(0.020976176963403, 5000), 1 - 0.0242079291327157, eq3],
+    // table 10
+    () => [ks1_cdf(0.0042799499222603, 5000), 1.42355083146456e-5, eq3],
+    // table 11
+    () => [ks1_cdf(0.00269619949977585, 10000), 4.83345410767114e-7, eq3],
+    // table 12
+    () => [ks1_cdf(0.000790565462224666, 100001), 2.90707424915525e-8, eq3],
+    () => [ks1_cdf(0.00632452369779733, 100001), 0.999331933307205, eq3],
+  )
+}
+
+function _test_ks2_cdf() {
+  // rough test against commonly used critical values specified on Wikipedia at https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Two-sample_Kolmogorov–Smirnov_test
+  const scaling = (J, K = J) => Math.sqrt((J + K) / (J * K))
+  const within = (x, a, b) => x >= a && x <= b
+  check(
+    () => within(ks2_cdf(1.073 * scaling(100), 100), 0.8, 0.85),
+    () => within(ks2_cdf(1.138 * scaling(100), 100), 0.85, 0.9),
+    () => within(ks2_cdf(1.224 * scaling(100), 100), 0.9, 0.95),
+    () => within(ks2_cdf(1.358 * scaling(100), 100), 0.95, 0.975),
+    () => within(ks2_cdf(1.48 * scaling(100), 100), 0.975, 0.99),
+    () => within(ks2_cdf(1.628 * scaling(100), 100), 0.99, 0.995),
+    () => within(ks2_cdf(1.731 * scaling(100), 100), 0.995, 0.999),
+    () => ks2_cdf(1.949 * scaling(100), 100) >= 0.999,
+    () => within(ks2_cdf(1.073 * scaling(100, 10), 100, 10), 0.8, 0.85),
+    () => within(ks2_cdf(1.138 * scaling(100, 10), 100, 10), 0.85, 0.9),
+    () => within(ks2_cdf(1.224 * scaling(100, 10), 100, 10), 0.9, 0.95),
+    () => within(ks2_cdf(1.358 * scaling(100, 10), 100, 10), 0.95, 0.975),
+    () => within(ks2_cdf(1.48 * scaling(100, 10), 100, 10), 0.975, 0.99),
+    () => within(ks2_cdf(1.628 * scaling(100, 10), 100, 10), 0.99, 0.995),
+    () => within(ks2_cdf(1.731 * scaling(100, 10), 100, 10), 0.995, 0.999),
+    () => ks2_cdf(1.949 * scaling(100, 10), 100, 10) >= 0.999,
+  )
+}
+
+function _test_ks1_test() {
+  // test uniformity of ks1_test (p-value) using both _itself_ and binomial test
+  const sample_ks1_test = () => ks1_test(sample(1000, uniform), x => x)
+  const sample_ks1_test_sign = () => (sample_ks1_test() > 0.5 ? 1 : 0)
+  check(
+    () => ks1_test(sample(100, sample_ks1_test), x => x) > 1e-9,
+    // e.g. one-in-a-billion failure for n=300, p=1/2 is k<=~100
+    () => _binomial_test_sample(sample_ks1_test_sign, 0, 1 / 2, 300),
+  )
+}
+
+function _test_ks2_test() {
+  // test uniformity of ks2_test (p-value) using both _itself_ and binomial test
+  const sample_ks2_test = () =>
+    ks2_test(sample(1000, uniform), sample(1000, uniform))
+  const sample_ks2_test_sign = () => (sample_ks2_test() > 0.5 ? 1 : 0)
+  check(
+    () =>
+      ks2_test(sample(100, sample_ks2_test), sample(100, sample_ks2_test)) >
+      1e-9,
+    // e.g. one-in-a-billion failure for n=300, p=1/2 is k<=~100
+    () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 300),
+  )
+}
