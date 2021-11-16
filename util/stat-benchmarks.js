@@ -82,3 +82,19 @@ function _benchmark_binomial_cdf() {
     () => binomial_cdf(500000, 1000000, 0.999),
   )
 }
+
+function _benchmark_ks2() {
+  const xJ_100 = array(100, () => uniform())
+  const yJ_100 = array(100, () => uniform())
+  const xJ_1000 = array(1000, () => uniform())
+  const yJ_1000 = array(1000, () => uniform())
+  benchmark(() => ks2(xJ_100, yJ_100))
+  benchmark(() => ks2(xJ_1000, yJ_1000))
+}
+
+function _benchmark_ks1() {
+  const xJ_100 = array(100, () => uniform())
+  const xJ_1000 = array(1000, () => uniform())
+  benchmark(() => ks1(xJ_100, x => x))
+  benchmark(() => ks1(xJ_1000, x => x))
+}

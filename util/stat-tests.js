@@ -118,13 +118,6 @@ function _test_sample() {
 
 function _test_shuffle() {
   check(
-    () => throws(() => shuffle()),
-    () => throws(() => shuffle(0)),
-    () => throws(() => shuffle([], 0, 1)),
-    () => throws(() => shuffle([], 0, 1)),
-    () => throws(() => shuffle([0], 1, 0)),
-    () => throws(() => shuffle([0], 0, 2)),
-    () => throws(() => shuffle([0], -1, 1)),
     () => [shuffle([0], 0, 1), [0]],
     () => [shuffle([0]), [0]],
     () => _binomial_test_sample(() => shuffle([0, 1]), [0, 1], 1 / 2),
@@ -169,52 +162,94 @@ function _test_binomial_test() {
     ])
 }
 
-function _test_ks() {
-  const _discrete_ = { allow_collisions: true }
+function _test_ks2() {
+  const _discrete_ = { discrete: true }
+  const xJ = array(100, () => uniform())
+  const yK = array(200, () => uniform())
+  const xJ_sorted = xJ.slice().sort((a, b) => a - b)
+  const yK_sorted = yK.slice().sort((a, b) => a - b)
   check(
-    () => [ks([1], [0.9]), 1],
-    () => [ks([1], [1], _discrete_), 0],
-    () => [ks([1], [1.1]), 1],
-    () => [ks([1, 2], [0.9]), 1],
-    () => [ks([1, 2], [1], _discrete_), 1 / 2],
-    () => [ks([1, 2], [1.5]), 1 / 2],
-    () => [ks([1, 2], [2], _discrete_), 1 / 2],
-    () => [ks([1, 2], [2.1]), 1],
-    () => [ks([1, 2], [0.8, 0.9]), 1],
-    () => [ks([1, 2], [0.9, 1], _discrete_), 1 / 2],
-    () => [ks([1, 2], [1.1, 1.9]), 1 / 2],
-    () => [ks([1, 2], [2, 2.1], _discrete_), 1 / 2],
-    () => [ks([1, 2], [2.1, 2.2]), 1],
-    () => [ks([1, 2, 3], [0.9]), 1],
-    () => [ks([1, 2, 3], [1], _discrete_), 2 / 3],
-    () => [ks([1, 2, 3], [1.5]), 2 / 3],
-    () => [ks([1, 2, 3], [2], _discrete_), 1 / 3],
-    () => [ks([1, 2, 3], [2.5]), 2 / 3],
-    () => [ks([1, 2, 3], [3], _discrete_), 2 / 3],
-    () => [ks([1, 2, 3], [3.1]), 1],
-    () => [ks([1, 2, 3], [0.8, 0.9]), 1],
-    () => [ks([1, 2, 3], [0.8, 1], _discrete_), 2 / 3],
-    () => [ks([1, 2, 3], [0.8, 2], _discrete_), 1 / 2],
-    () => [ks([1, 2, 3], [0.8, 3]), 1 / 2],
-    () => [ks([1, 2, 3], [0.8, 3.1]), 1 / 2],
-    () => [ks([1, 2, 3], [1, 1.5]), 2 / 3],
-    () => [ks([1, 2, 3], [1, 2], _discrete_), 1 / 3],
-    () => [ks([1, 2, 3], [1, 3], _discrete_), 1 / 6],
-    () => [ks([1, 2, 3], [1, 3.1], _discrete_), 1 / 2],
-    () => [ks([1, 2, 3], [1.5, 2], _discrete_), 1 / 3],
-    () => [ks([1, 2, 3], [1.5, 3], _discrete_), 1 / 3],
-    () => [ks([1, 2, 3], [1.5, 3.1]), 1 / 2],
-    () => [ks([1, 2, 3], [2, 2.5], _discrete_), 1 / 3],
-    () => [ks([1, 2, 3], [2, 3], _discrete_), 1 / 3],
-    () => [ks([1, 2, 3], [2, 3.1], _discrete_), 1 / 2],
-    () => [ks([1, 2, 3], [2.5, 3], _discrete_), 2 / 3],
-    () => [ks([1, 2, 3], [2.5, 3.1]), 2 / 3],
-    () => [ks([1, 2, 3], [3, 3.1], _discrete_), 2 / 3],
-    () => [ks([1, 2, 3], [3.1, 3.2]), 1],
-    // unweighted one-sample case is always 0 (empirical against itself)
-    () => [ks([1]), 0],
-    () => [ks([1, 2]), 0],
-    () => [ks([1, 2, 2]), 0],
-    () => [ks([1, 2, 2], null, _discrete_), 0],
+    () => [ks2([1], [0.9]), 1],
+    () => [ks2([1], [1], _discrete_), 0],
+    () => [ks2([1], [1.1]), 1],
+    () => [ks2([1, 2], [0.9]), 1],
+    () => [ks2([1, 2], [1], _discrete_), 1 / 2],
+    () => [ks2([1, 2], [1.5]), 1 / 2],
+    () => [ks2([1, 2], [2], _discrete_), 1 / 2],
+    () => [ks2([1, 2], [2.1]), 1],
+    () => [ks2([1, 2], [0.8, 0.9]), 1],
+    () => [ks2([1, 2], [0.9, 1], _discrete_), 1 / 2],
+    () => [ks2([1, 2], [1.1, 1.9]), 1 / 2],
+    () => [ks2([1, 2], [2, 2.1], _discrete_), 1 / 2],
+    () => [ks2([1, 2], [2.1, 2.2]), 1],
+    () => [ks2([1, 2, 3], [0.9]), 1],
+    () => [ks2([1, 2, 3], [1], _discrete_), 2 / 3],
+    () => [ks2([1, 2, 3], [1.5]), 2 / 3],
+    () => [ks2([1, 2, 3], [2], _discrete_), 1 / 3],
+    () => [ks2([1, 2, 3], [2.5]), 2 / 3],
+    () => [ks2([1, 2, 3], [3], _discrete_), 2 / 3],
+    () => [ks2([1, 2, 3], [3.1]), 1],
+    () => [ks2([1, 2, 3], [0.8, 0.9]), 1],
+    () => [ks2([1, 2, 3], [0.8, 1], _discrete_), 2 / 3],
+    () => [ks2([1, 2, 3], [0.8, 2], _discrete_), 1 / 2],
+    () => [ks2([1, 2, 3], [0.8, 3]), 1 / 2],
+    () => [ks2([1, 2, 3], [0.8, 3.1]), 1 / 2],
+    () => [ks2([1, 2, 3], [1, 1.5]), 2 / 3],
+    () => [ks2([1, 2, 3], [1, 2], _discrete_), 1 / 3],
+    () => [ks2([1, 2, 3], [1, 3], _discrete_), 1 / 6],
+    () => [ks2([1, 2, 3], [1, 3.1], _discrete_), 1 / 2],
+    () => [ks2([1, 2, 3], [1.5, 2], _discrete_), 1 / 3],
+    () => [ks2([1, 2, 3], [1.5, 3], _discrete_), 1 / 3],
+    () => [ks2([1, 2, 3], [1.5, 3.1]), 1 / 2],
+    () => [ks2([1, 2, 3], [2, 2.5], _discrete_), 1 / 3],
+    () => [ks2([1, 2, 3], [2, 3], _discrete_), 1 / 3],
+    () => [ks2([1, 2, 3], [2, 3.1], _discrete_), 1 / 2],
+    () => [ks2([1, 2, 3], [2.5, 3], _discrete_), 2 / 3],
+    () => [ks2([1, 2, 3], [2.5, 3.1]), 2 / 3],
+    () => [ks2([1, 2, 3], [3, 3.1], _discrete_), 2 / 3],
+    () => [ks2([1, 2, 3], [3.1, 3.2]), 1],
+    // test that ordering does not matter
+    () => [ks2([3, 2, 1], [0.8, 3.1]), 1 / 2],
+    () => [ks2([3, 2, 1], [3.1, 0.8]), 1 / 2],
+    // test extreme weights equivalent to dropping values
+    () => [ks2([1, 2, 3], [1, 3], { wK: [1, 0], discrete: true }), 2 / 3],
+    () => [ks2([1, 2, 3], [1, 3], { wK: [0, 1], discrete: true }), 2 / 3],
+    () => [ks2([1, 2, 3], [1, 3], { wJ: [1, 0, 1], discrete: true }), 0],
+    () => [ks2([1, 2, 3], [1, 3], { wJ: [1, 0, 1], discrete: true }), 0],
+    () => [ks2([1, 2, 3], [2.5, 3.1], { wK: [0, 1] }), 1],
+    () => [ks2([1, 2, 3], [2.5, 3.1], { wK: [1, 0] }), 2 / 3],
+    // test that sorting can be skipped iff already sorted
+    () =>
+      ks2(xJ.slice(), yK.slice()) == ks2(xJ_sorted.slice(), yK_sorted.slice()),
+    () =>
+      ks2(xJ.slice(), yK.slice(), { xj_sorted: true }) !=
+      ks2(xJ_sorted, yK_sorted),
+    () =>
+      ks2(xJ.slice(), yK.slice(), { yk_sorted: true }) !=
+      ks2(xJ_sorted, yK_sorted),
+    () =>
+      ks2(xJ.slice(), yK.slice()) ==
+      ks2(xJ_sorted, yK_sorted, { xj_sorted: true }),
+    () =>
+      ks2(xJ.slice(), yK.slice()) ==
+      ks2(xJ_sorted, yK_sorted, { yk_sorted: true }),
+    () =>
+      ks2(xJ.slice(), yK.slice()) ==
+      ks2(xJ_sorted, yK_sorted, { xj_sorted: true, yk_sorted: true }),
+    // test unweighted one-sample case is always 0 (empirical against itself)
+    () => [ks2([1]), 0],
+    () => [ks2([1, 2]), 0],
+    () => [ks2([1, 2, 2]), 0],
+    () => [ks2([1, 2, 2], null, _discrete_), 0],
   )
 }
+
+// NOTE: ks1 is a wrapper over ks2 using weights and sorting options, already tested above for ks1
+
+// TODO: test ks2_cdf against previously computed exact CDFs:
+// check_eval_eq('ks_cdf_at(100, 100, .05)', '0.0003667078424175463')
+// check_eval_eq('ks_cdf_at(100, 100, .1)', '0.30062580086898405')
+// check_eval_eq('ks_cdf_at(100, 100, .2)', '0.9633689472928807')
+// check_eval_eq('ks_cdf_at(100, 100, .3)', '0.9997531803918271')
+// check_eval_eq('ks_cdf_at(100, 200, .1)', '0.4824493364181245')
+// check_eval_eq('ks_cdf_at(200, 100, .1)', '0.4824493364181245')

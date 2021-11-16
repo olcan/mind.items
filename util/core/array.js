@@ -32,9 +32,12 @@ function _benchmark_array() {
 const zeroes = J => array(J, 0)
 const ones = J => array(J, 1)
 
-// fills `xJ` as `xJ[j]=f(j) ∀j`
-function fill(xJ, f) {
-  for (let j = 0; j < xJ.length; ++j) xJ[j] = f(j)
+// fill(xJ, f, [js=0], [je=J])
+// fills `xJ` as `xJ[j]=f(j)`
+function fill(xJ, f, js = 0, je = xJ.length) {
+  js = Math.max(0, js)
+  je = Math.min(je, xJ.length)
+  for (let j = js; j < je; ++j) xJ[j] = f(j)
   return xJ
 }
 
@@ -54,6 +57,7 @@ function copy(xJ, yJ, f) {
 // copy_at(xJ, yK, [js=0])
 // copies `yK` into `xJ` starting at `js`
 function copy_at(xJ, yK, js = 0) {
+  js = Math.max(0, js)
   if (js == 0) for (let k = 0; k < yK.length; ++k) xJ[k] = yK[k]
   else for (let k = 0; k < yK.length; ++k) xJ[js + k] = yK[k]
   return xJ
@@ -65,15 +69,21 @@ function _benchmark_copy_at() {
   benchmark(() => copy_at(xJ, yJ, 0))
 }
 
+// each(xJ, f, [js=0], [je=J])
 // invokes `f(x,j)` for each `x` in `xJ`
-function each(xJ, f) {
-  for (let j = 0; j < xJ.length; ++j) f(xJ[j], j)
+function each(xJ, f, js = 0, je = xJ.length) {
+  js = Math.max(0, js)
+  je = Math.min(je, xJ.length)
+  for (let j = js; j < je; ++j) f(xJ[j], j)
   return xJ
 }
 
+// scan(xJ, f, [js=0], [je=J])
 // invokes `f(j,x)` for each `x` in `xJ`
-function scan(xJ, f) {
-  for (let j = 0; j < xJ.length; ++j) f(j, xJ[j])
+function scan(xJ, f, js = 0, je = xJ.length) {
+  js = Math.max(0, js)
+  je = Math.min(je, xJ.length)
+  for (let j = js; j < je; ++j) f(j, xJ[j])
   return xJ
 }
 
@@ -88,17 +98,21 @@ function _benchmark_each() {
 
 const _benchmark_each_functions = ['each', 'scan']
 
+// map(xJ, yJ, f, [js=0], [je=J])
 // maps `yJ` into `xJ` as `f(x,y,j)`
-function map(xJ, yJ, f) {
-  for (let j = 0; j < xJ.length; ++j) xJ[j] = f(xJ[j], yJ[j], j)
+function map(xJ, yJ, f, js = 0, je = xJ.length) {
+  js = Math.max(0, js)
+  je = Math.min(je, xJ.length)
+  for (let j = js; j < je; ++j) xJ[j] = f(xJ[j], yJ[j], j)
   return xJ
 }
 
-// apply(xJ, f, [js=0])
-// applies `f(x,j)` to `xJ` starting at `js`
-const apply = (xJ, f, js = 0) => {
-  if (js == 0) for (let j = 0; j < xJ.length; ++j) xJ[j] = f(xJ[j], j)
-  else for (let j = js; j < xJ.length; ++j) xJ[j] = f(xJ[j], j)
+// apply(xJ, f, [js=0], [je=J])
+// applies `f(x,j)` to `xJ`
+const apply = (xJ, f, js = 0, je = xJ.length) => {
+  js = Math.max(0, js)
+  je = Math.min(je, xJ.length)
+  for (let j = js; j < je; ++j) xJ[j] = f(xJ[j], j)
   return xJ
 }
 
