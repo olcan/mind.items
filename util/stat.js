@@ -173,11 +173,89 @@ function binomial_test(n, k, p) {
 
 const approx_equal = (x, y, ε = 0.000001) => Math.abs(y - x) <= ε
 
-// TODO: continue w/ array.js leading up to one-sided and two-sided ks tests to be used for continuous distributions above
+// TODO: implement ks, ks_cdf, and ks_test for both one-sided and two-sided tests above to be used above for continuous distribution tests
+
+// ks(xJ, yK, [options])
+// [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
+// can be one-sample if `yK==null`, usually w/ cdf encoded in `options.wK`
+// TODO: options ...
+function ks(xJ, yK, options = {}) {
+  if (!is_array(xJ)) fatal(`non-array first argument`)
+  if (yK && !is_array(yK)) fatal(`non-array second argument`)
+  if (!is_object(options)) fatal(`non-object options`)
+  const { wJ, wj_sum, wK, wk_sum, allow_collisions } = options
+  let J = xJ.length
+  let K = yK?.length ?? 0 // if yK missing, K=0 for now, K=J later
+  const xR = array(J + K)
+  copy_at(xR, xJ, 0)
+  if (yK) copy_at(xR, yK, J)
+  const rR = array(J + K)
+  fill(rR, r => r)
+  rR.sort((a, b) => xR[a] - xR[b])
+  let mR // collision mask (multiplied in at the end) if allowed
+  if (allow_collisions) {
+    // construct collision mask
+    mR = array(J + K)
+    map(mR, rR, (mr, rr, r) => (xR[rr] != xR[rR[r + 1]] ? 1 : 0))
+    mR[mR.length - 1] = 1 // force last bit 1 (instead of check NaN)
+  } else {
+    // shuffle collision indices (equivalent to random noise)
+    let last_new = 0
+    each(rR, (rr, r) => {
+      if (xR[rr] != xR[rR[r + 1]]) {
+        // index r is last-of-kind
+        if (last_new < r) shuffle(rR, last_new, r + 1)
+        last_new = r + 1 // index r+1 is new
+      }
+    })
+  }
+  // NOTE: beyond this point J and K are treated as normalization constants
+  if (!yK) K = J // if yK is missing, we assume K=J unless wK is given
+  if (!wJ && !wK) {
+    // unweighted samples
+    if (yK) apply(rR, rr => (rr < J ? K /*≡+1/J*/ : -J) /*≡-1/K*/)
+    else apply(rR, rr => K /*≡+1/J*/ - J /*≡-1/K*/)
+  } else if (wJ && wK) {
+    // both sides (J and K) weighted
+    const _J = J
+    J = wj_sum ?? sum(wJ)
+    K = wk_sum ?? sum(wK)
+    if (yK) apply(rR, rr => (rr < _J ? wJ[rr] * K : -wK[rr - _J] * J))
+    else apply(rR, rr => wJ[rr] * K - wK[rr - _J] * J)
+  } else if (wJ) {
+    // J side weighted
+    const _J = J
+    J = wj_sum ?? sum(wJ)
+    if (yK) apply(rR, rr => (rr < _J ? wJ[rr] * K : -J))
+    else apply(rR, rr => wJ[rr] * K - J)
+  } else {
+    // K side weighted
+    K = wk_sum ?? sum(wK)
+    if (yK) apply(rR, rr => (rr < J ? K : -wK[rr - J] * J))
+    else apply(rR, rr => K - wK[rr - J] * J)
+  }
+  apply(rR, (rr, r) => rr + rR[r - 1], 1) // accumulate
+  if (mR) map(rR, mR, (r, m) => r * m) // mask collisions
+  const ks = max(apply(rR, Math.abs)) / (J * K)
+  if (is_nan(ks) || is_inf(ks)) {
+    console.debug('ks nan/inf', {
+      J,
+      K,
+      allow_collisions,
+      wj_sum,
+      wk_sum,
+      wJ,
+      wK,
+      rR,
+    })
+    fatal('ks nan/inf (see debug console for details)')
+  }
+  return ks
+}
 
 // adapted from https://github.com/jstat/jstat/blob/master/src/vector.js
 function min(xJ) {
-  if (!isArray(xJ)) return min(Array.from(arguments))
+  if (!is_array(xJ)) return min(Array.from(arguments))
   let z = inf
   const J = xJ.length
   for (let j = 0; j < J; ++j) if (xJ[j] < z) z = xJ[j]
@@ -185,7 +263,7 @@ function min(xJ) {
 }
 const min2 = (xJ, z = 0) => (each(xJ, x => x >= z || (z = x)), z) // reference
 function max(xJ) {
-  if (!isArray(xJ)) return max(Array.from(arguments))
+  if (!is_array(xJ)) return max(Array.from(arguments))
   let z = -inf
   const J = xJ.length
   for (let j = 0; j < J; ++j) if (xJ[j] > z) z = xJ[j]

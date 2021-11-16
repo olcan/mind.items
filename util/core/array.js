@@ -49,14 +49,20 @@ function copy(xJ, yJ, f) {
   return xJ
 }
 
-// NOTE: introducing additional indices js, je, ks, ke, etc can significantly slow down these functions unless the arguments are reassigned to const, so we minimize indices for now
+// NOTE: introducing additional indices js, je, ks, ke, etc can significantly slow down these functions (assigning to const or hard-coding common cases such as js=0 can help), so we minimize indices for now
 
 // copy_at(xJ, yK, [js=0])
 // copies `yK` into `xJ` starting at `js`
-function copy_at(xJ, yK, _js = 0) {
-  const js = _js // important optimization
-  for (let k = 0; k < yK.length; ++k) xJ[js + k] = yK[k]
+function copy_at(xJ, yK, js = 0) {
+  if (js == 0) for (let k = 0; k < yK.length; ++k) xJ[k] = yK[k]
+  else for (let k = 0; k < yK.length; ++k) xJ[js + k] = yK[k]
   return xJ
+}
+
+function _benchmark_copy_at() {
+  let yJ = array(10000, Math.random)
+  let xJ = array(10000)
+  benchmark(() => copy_at(xJ, yJ, 0))
 }
 
 // invokes `f(x,j)` for each `x` in `xJ`
@@ -88,9 +94,11 @@ function map(xJ, yJ, f) {
   return xJ
 }
 
-// applies `f(x,j)` to `xJ`
-const apply = (xJ, f) => {
-  for (let j = 0; j < xJ.length; ++j) xJ[j] = f(xJ[j], j)
+// apply(xJ, f, [js=0])
+// applies `f(x,j)` to `xJ` starting at `js`
+const apply = (xJ, f, js = 0) => {
+  if (js == 0) for (let j = 0; j < xJ.length; ++j) xJ[j] = f(xJ[j], j)
+  else for (let j = js; j < xJ.length; ++j) xJ[j] = f(xJ[j], j)
   return xJ
 }
 
