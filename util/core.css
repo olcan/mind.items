@@ -139,8 +139,8 @@
   color: #444;
 }
 
-/* hide spaced args until expanded below */
-.core_js_table .usage .args.spaced {
+/* hide expanded args until expanded below */
+.core_js_table .usage .args.expanded {
   display: none;
 }
 
@@ -165,8 +165,9 @@
   display: inline;
 }
 
-/* change cursor on .has_more descriptions (w/ .more/.less)*/
-.core_js_table .function:is(.has_more, .truncated, .expanded) {
+/* change cursor if function should allow toggle */
+/* this selector should match the condition in onclick handler */
+.core_js_table .function:is(.has_more, .has_defaults, .truncated, .expanded) {
   cursor: pointer;
 }
 
@@ -225,16 +226,16 @@
   border-top-right-radius: 4px;
   border-bottom-right-radius: 0;
 }
-/* show spaced args on expanded .usage */
-.core_js_table .function.expanded .usage .args.spaced,
+/* show expanded args on expanded .usage */
+.core_js_table .function.expanded .usage .args.expanded,
 .container.pushable
   .core_js_table
   .function.has_more:not(.collapsed)
   .usage
-  .args.spaced {
+  .args.expanded {
   display: inline;
 }
-/* hide non-spaced args on expanded .usage */
+/* hide non-expanded args on expanded .usage */
 .core_js_table .function.expanded .usage .args,
 .container.pushable
   .core_js_table

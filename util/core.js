@@ -294,8 +294,8 @@ function js_table(regex) {
         def.comment = def.comment.replace(/\n/g, '')
       }
       if (!def.comment && def.body && !def.body.startsWith('{')) {
-        // take body as comment, escaping `, \, and | (breaks table)
-        def.comment = '`' + def.body.replace(/([`\\|])/g, '\\$1') + '`'
+        // take body as comment, escaping `, \
+        def.comment = '`' + def.body.replace(/([`\\])/g, '\\$1') + '`'
       }
       return def
     },
@@ -357,12 +357,16 @@ function js_table(regex) {
       .map(s => (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s))
       .join(',')
     args = '(' + args + ')'
-    let args_spaced = args.replace(/,/g, ', ').replace(/=/g, ' = ')
+    let args_expanded = args.replace(/,/g, ', ').replace(/=/g, ' = ')
+    const has_defaults = args.match(/\[(.+?)=.+?\]/) ? 'has_defaults' : ''
+    args = args.replace(/\[(.+?)=.+?\]/g, '[$1]') // hide defaults unless expanded
     args = args.replace(/[(\[{}\])]/g, p => _span('parens', p))
-    args_spaced = args_spaced.replace(/[(\[{}\])]/g, p => _span('parens', p))
+    args_expanded = args_expanded.replace(/[(\[{}\])]/g, p =>
+      _span('parens', p),
+    )
     let usage =
       `<span class="name">${name}</span>` +
-      `<span class="args">${args}</span><span class="args spaced">${args_spaced}</span>`
+      `<span class="args">${args}</span><span class="args expanded">${args_expanded}</span>`
 
     // restore toggled state from local store (triggers render on change)
     let toggled = ''
@@ -391,7 +395,7 @@ function js_table(regex) {
 
     lines.push(
       _div(
-        `function name_${def._name} ${has_more} ${toggled} ${ok}`,
+        `function name_${def._name} ${has_more} ${has_defaults} ${toggled} ${ok}`,
         _span(`usage`, bullets + usage) + _span('desc', desc),
       ),
     )
@@ -459,6 +463,7 @@ function _js_table_install_click_handlers() {
     func.classList.toggle('truncated', truncated)
     const expanded = func.classList.contains('expanded')
     const has_more = func.classList.contains('has_more')
+    const has_defaults = func.classList.contains('has_defaults')
     // onmousedown w/ cancelled click tends to be more robust
     // however onclick allows text selection so we use that for now
     //func.onclick = e => (e.stopPropagation(), e.stopPropagation())
@@ -467,7 +472,8 @@ function _js_table_install_click_handlers() {
       if (getSelection().type == 'Range') return // ignore click w/ text selected
       e.stopPropagation()
       e.preventDefault()
-      if (has_more || expanded || truncated) _js_table_toggle(name, e)
+      if (has_more || has_defaults || expanded || truncated)
+        _js_table_toggle(name, e)
     }
     const args = usage.querySelector('.args').innerText
     // usage.onclick = e => (e.stopPropagation(), e.stopPropagation())
@@ -504,7 +510,7 @@ function _js_table_show_function(name) {
   const display_name = func.querySelector('.name').innerText
   // remove all whitespace from args except before commas & around equals
   const args = usage
-    .querySelector('.args')
+    .querySelector('.args.expanded')
     .innerText.replace(/,/g, ', ')
     .replace(/=/g, ' = ')
     .replace(/[(\[{}\])]/g, p => _span('parens', p))
