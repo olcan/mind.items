@@ -130,6 +130,12 @@ function _log_gamma(x) {
   return Math.log((2.5066282746310005 * ser) / xx) - tmp
 }
 
+// `x≈y ≡ |x-y|/max(|x|,|y|))≤ε OR |x-y|≤εa`
+// default `εa=0` means `x==y` is required for small `x,y`
+const approx_equal = (x, y, ε = 1e-6, εa = 0) =>
+  Math.abs(x - y) / Math.max(Math.abs(x), Math.abs(y)) <= ε ||
+  Math.abs(x - y) <= εa
+
 // `P(X<=x)` for [binomial distribution](https://en.wikipedia.org/wiki/Binomial_distribution)
 function binomial_cdf(x, n, p) {
   // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/distribution.js#L764
@@ -167,8 +173,6 @@ function binomial_test(n, k, p) {
   // note this is based on deviation from mean instead of density (slower)
   return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
 }
-
-const approx_equal = (x, y, ε = 1e-6) => Math.abs(y - x) / Math.abs(x) <= ε
 
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic

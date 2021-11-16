@@ -34,6 +34,7 @@ function _test_uniform() {
 // e.g. one-in-a-billion failure/rejection for n=1000, p=1/2 is k<=~400
 // e.g. one-in-a-billion failure/rejection for n=1000, p=1/6 is k<=~100
 // e.g. one-in-a-billion failure/rejection for n=300, p=1/2 is k<=~100
+// e.g. one-in-a-billion failure/rejection for n=100, p=1/2 is k<=~20
 const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 1e-9) => [
   binomial_test(
     n,
@@ -138,6 +139,27 @@ function _test_shuffle() {
     () => _binomial_test_sample(() => shuffle([0, 1, 2]), [1, 2, 0], 1 / 6),
     () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 0, 1], 1 / 6),
     () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 1, 0], 1 / 6),
+  )
+}
+
+function _test_approx_equal() {
+  check(
+    () => approx_equal(0, 0),
+    () => !approx_equal(0, 1e-10),
+    () => !approx_equal(1e-10, 0),
+    () => !approx_equal(1e-10, 0, 0, 1e-11),
+    () => approx_equal(1e-10, 0, 0, 1e-10), // allows sufficient abs error
+    () => !approx_equal(1e-10, 1e-10 + 1e-15, 1e-6),
+    () => !approx_equal(1e-10 + 1e-15, 1e-10, 1e-6),
+    () => !approx_equal(-1e-10, -1e-10 + 1e-15, 1e-6),
+    () => !approx_equal(-1e-10 + 1e-15, -1e-10, 1e-6),
+    () => approx_equal(1e-10, 1e-10 + 1e-16, 1e-6),
+    () => !approx_equal(1e-10, 1e-10 - 1e-16, 1e-6),
+    () => approx_equal(1e-10, 1e-10 - 1e-17, 1e-6),
+    () => approx_equal(-1e-10, -1e-10 - 1e-16, 1e-6),
+    () => !approx_equal(-1e-10, -1e-10 + 1e-16, 1e-6),
+    () => approx_equal(-1e-10, -1e-10 + 1e-17, 1e-6),
+    () => approx_equal(-1e-10 + 1e-17, -1e-10, 1e-6),
   )
 }
 
@@ -319,25 +341,29 @@ function _test_ks2_cdf() {
 
 function _test_ks1_test() {
   // test uniformity of ks1_test (p-value) using both _itself_ and binomial test
-  const sample_ks1_test = () => ks1_test(sample(1000, uniform), x => x)
+  // this is an end-to-end test of ks1, ks1_cdf, and ks1_test
+  // we use smaller sample sizes to manage running time
+  const sample_ks1_test = () => ks1_test(sample(500, uniform), x => x)
   const sample_ks1_test_sign = () => (sample_ks1_test() > 0.5 ? 1 : 0)
   check(
     () => ks1_test(sample(100, sample_ks1_test), x => x) > 1e-9,
-    // e.g. one-in-a-billion failure for n=300, p=1/2 is k<=~100
-    () => _binomial_test_sample(sample_ks1_test_sign, 0, 1 / 2, 300),
+    // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
+    () => _binomial_test_sample(sample_ks1_test_sign, 0, 1 / 2, 100),
   )
 }
 
 function _test_ks2_test() {
   // test uniformity of ks2_test (p-value) using both _itself_ and binomial test
+  // this is an end-to-end test of ks2, ks2_cdf, and ks2_test
+  // we use smaller sample sizes to manage running time
   const sample_ks2_test = () =>
-    ks2_test(sample(1000, uniform), sample(1000, uniform))
+    ks2_test(sample(500, uniform), sample(500, uniform))
   const sample_ks2_test_sign = () => (sample_ks2_test() > 0.5 ? 1 : 0)
   check(
     () =>
       ks2_test(sample(100, sample_ks2_test), sample(100, sample_ks2_test)) >
       1e-9,
-    // e.g. one-in-a-billion failure for n=300, p=1/2 is k<=~100
-    () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 300),
+    // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
+    () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 100),
   )
 }
