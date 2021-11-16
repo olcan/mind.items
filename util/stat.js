@@ -362,16 +362,6 @@ function sum(xJ) {
 
 const mean = xJ => sum(xJ) / xJ.length
 
-// TODO
-
-// [circular mean](https://en.wikipedia.org/wiki/Circular_mean) of `xJ` on `[-r,r]`
-function circular_mean(xJ, r = Math.PI) {
-  if (xJ.length == 0) return NaN
-  const z = r == Math.PI ? 1 : Math.PI / r
-  const θJ = z == 1 ? xJ : xJ.map(x => x * z)
-  return Math.atan2(sumf(θJ, Math.sin), sumf(θJ, Math.cos)) / z
-}
-
 // variance of sample `xJ`
 function variance(xJ) {
   let z = 0
@@ -384,6 +374,14 @@ function variance(xJ) {
   return z / (xJ.length - 1)
 }
 const stdev = xJ => Math.sqrt(variance(xJ))
+
+// [circular mean](https://en.wikipedia.org/wiki/Circular_mean) of `xJ` on `[-r,r]`
+function circular_mean(xJ, r = Math.PI) {
+  if (xJ.length == 0) return NaN
+  const z = r == Math.PI ? 1 : Math.PI / r
+  const θJ = z == 1 ? xJ : xJ.map(x => x * z)
+  return Math.atan2(sumf(θJ, Math.sin), sumf(θJ, Math.cos)) / z
+}
 
 // [circular stdev](https://en.wikipedia.org/wiki/Directional_statistics#Dispersion) of `xJ` on `[-r,r]`
 function circular_stdev(xJ, r = Math.PI) {
