@@ -348,12 +348,18 @@ function js_table(regex) {
     // put together name and args as "usage"
     // trim name (can contain spaces for commands, e.g. "/push [items]")
     // remove all whitespace from args except after commas & around equals
+    // auto-wrap default-valued optionals in brackets
     const name = def.name.trim()
-    const args = def.args
+    let args = def.args
       .replace(/\s+/g, '')
-      .replace(/^\(/, _span('parens', '('))
-      .replace(/\)$/, _span('parens', ')'))
-    const args_spaced = args.replace(/,/g, ', ').replace(/=/g, ' = ')
+      .replace(/^\(|\)$/g, '')
+      .split(',')
+      .map(s => (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s))
+      .join(',')
+    args = '(' + args + ')'
+    let args_spaced = args.replace(/,/g, ', ').replace(/=/g, ' = ')
+    args = args.replace(/[(\[{}\])]/g, p => _span('parens', p))
+    args_spaced = args_spaced.replace(/[(\[{}\])]/g, p => _span('parens', p))
     let usage =
       `<span class="name">${name}</span>` +
       `<span class="args">${args}</span><span class="args spaced">${args_spaced}</span>`
@@ -501,8 +507,7 @@ function _js_table_show_function(name) {
     .querySelector('.args')
     .innerText.replace(/,/g, ', ')
     .replace(/=/g, ' = ')
-    .replace(/^\(/, _span('parens', '('))
-    .replace(/\)$/, _span('parens', ')'))
+    .replace(/[(\[{}\])]/g, p => _span('parens', p))
   const [status] = _js_table_function_status(name)
   _modal_close() // in case invoked from existing modal
   _modal(
