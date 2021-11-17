@@ -1,5 +1,7 @@
 // => _Random
 // random base class
+// TODO: include general documentation here, e.g. why underscored? (to allow convenient and flexible global initializer functions)
+// TODO: remember scoped definitions are not listed in js_table
 class _Random {
   // static initializer <class>.init(...)
   // creates new instance of class w/ given args
