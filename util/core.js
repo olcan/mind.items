@@ -251,62 +251,68 @@ function _js_table_function_status(name) {
 // table of `js` definitions
 // can filter names using optional `regex`
 function js_table(regex) {
-  const defs = Array.from(
-    _this
-      .read('js', { keep_empty_lines: true })
-      .matchAll(
-        /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:async function|function|class|get|set|static|static get|static set|const|let) +)?(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
-      ),
-    m => {
-      const def = _.merge({ args: '', comment: '' }, m.groups)
-      if (def.arrow_args) {
-        def.args = def.arrow_args.replace(/\s*=>$/, '')
-        if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
-      }
-      // remove whitespace in args
-      def.args = def.args.replace(/\s+/g, '')
-      // escape special characters in args: `, \, and | (breaks table)
-      def.args = def.args.replace(/([`\\|])/g, '\\$1')
+  const defs = _.compact(
+    Array.from(
+      _this
+        .read('js', { keep_empty_lines: true })
+        .matchAll(
+          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:function|const|let|class|get|set) +)?(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+        ),
+      m => {
+        const def = _.merge({ args: '', comment: '' }, m.groups)
+        // skip certain types if indented
+        if (def.indent && def.type?.match(/(?:const|let|class|function)$/))
+          return
 
-      // mark scoped definitions
-      def.scoped = def.indent.length > 0
-
-      // save original name (before possible modification via comments)
-      def._name = def.name
-
-      if (def.comment) {
-        // clean up: drop // and insert <br> before \n
-        def.comment = def.comment
-          .replace(/ *\n *(?:\/\/)? */g, '<br>\n')
-          .replace(/^ *\/\/ */, '')
-        // disallow cross-line backticks (causes ugly rendering issues)
-        def.comment = def.comment
-          .split('<br>')
-          .map(s => (_count_unescaped(s, '`') % 2 == 0 ? s : s + '`'))
-          .join('<br>')
-
-        // displayed name/args can be modified via first line of comment:
-        // <name>(...) modifies args, <name> removes args
-        // => <display_name> or => <display_name>(...) modifies name/args
-        if (
-          def.comment.match(/^=> *\S+/) ||
-          def.comment.match(
-            new RegExp(`^${def.name} *(?:\\(.*?\\))?(?:$|<br>)`)
-          )
-        ) {
-          def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
-          def.args = def.comment.match(/^.+?(\(.*?)(?:$|<br>)/)?.pop() ?? ''
-          def.comment = def.comment.replace(/^.+?(?:\(.*?)?(?:$|<br>)/, '')
-          def.modified = true
+        if (def.arrow_args) {
+          def.args = def.arrow_args.replace(/\s*=>$/, '')
+          if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
         }
-        def.comment = def.comment.replace(/\n/g, '')
+        // remove whitespace in args
+        def.args = def.args.replace(/\s+/g, '')
+        // escape special characters in args: `, \, and | (breaks table)
+        def.args = def.args.replace(/([`\\|])/g, '\\$1')
+
+        // mark scoped definitions
+        def.scoped = !!def.indent
+
+        // save original name (before possible modification via comments)
+        def._name = def.name
+
+        if (def.comment) {
+          // clean up: drop // and insert <br> before \n
+          def.comment = def.comment
+            .replace(/ *\n *(?:\/\/)? */g, '<br>\n')
+            .replace(/^ *\/\/ */, '')
+          // disallow cross-line backticks (causes ugly rendering issues)
+          def.comment = def.comment
+            .split('<br>')
+            .map(s => (_count_unescaped(s, '`') % 2 == 0 ? s : s + '`'))
+            .join('<br>')
+
+          // displayed name/args can be modified via first line of comment:
+          // <name>(...) modifies args, <name> removes args
+          // => <display_name> or => <display_name>(...) modifies name/args
+          if (
+            def.comment.match(/^=> *\S+/) ||
+            def.comment.match(
+              new RegExp(`^${def.name} *(?:\\(.*?\\))?(?:$|<br>)`)
+            )
+          ) {
+            def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
+            def.args = def.comment.match(/^.+?(\(.*?)(?:$|<br>)/)?.pop() ?? ''
+            def.comment = def.comment.replace(/^.+?(?:\(.*?)?(?:$|<br>)/, '')
+            def.modified = true
+          }
+          def.comment = def.comment.replace(/\n/g, '')
+        }
+        if (!def.comment && def.body && !def.body.startsWith('{')) {
+          // take body as comment, escaping `, \
+          def.comment = '`' + def.body.replace(/([`\\])/g, '\\$1') + '`'
+        }
+        return def
       }
-      if (!def.comment && def.body && !def.body.startsWith('{')) {
-        // take body as comment, escaping `, \
-        def.comment = '`' + def.body.replace(/([`\\])/g, '\\$1') + '`'
-      }
-      return def
-    }
+    )
   )
   let lines = []
   defs.forEach(def => {
@@ -501,9 +507,7 @@ function _js_table_toggle(name, e) {
   e.stopPropagation()
   const func = e.target.closest('.function')
   const expand =
-    (func.classList.contains('expanded') ||
-      (func.classList.contains('has_more') && !!func.closest('.pushable'))) &&
-    !func.classList.contains('collapsed')
+    func.classList.contains('expanded') && !func.classList.contains('collapsed')
   // update dom immediately before re-render due to local store change
   func.classList.toggle('expanded', !expand)
   func.classList.toggle('collapsed', expand)
