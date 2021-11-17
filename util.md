@@ -1,4 +1,4 @@
-#util defines importable _utilities_: #/core #/math #/stat.
+#util defines importable _utilities_: #/core #/math #/stat #/random
 - Useful collection of constants & functions.
   - Goals: simple, clean, tested, benchmarked, documented.
 - Globally scoped but _optionally_ imported via hidden tags:
@@ -6,5 +6,5 @@
 - Naming convention is short, lowercase, `underscore_separated`.
   - Array indices and sizes are uppercase: `xJ, xJK, J, K, ...`
   - Class names are uppercase: `Map, Set, Array, ...`
-  - Random variables are uppercase: `X, Y, Xt, ...`
-<p> #_/core #_/math #_/stat
+  - [Random](#/random) variables are uppercase: `X, Y, Xt, ...`
+<p> #_/core #_/math #_/stat #_/random
