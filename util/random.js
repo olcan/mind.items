@@ -17,6 +17,8 @@ class _Random {
   }
 
   // …/static properties describe process family. Corresponding instance properties usually invoke the static getters but may also return instance-specific values.
+
+  // => _Random.type
   static get type() {
     return this.prototype.constructor.name
   }
