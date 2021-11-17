@@ -250,13 +250,12 @@ function _js_table_function_status(name) {
 // js_table([regex])
 // table of `js` definitions
 // can filter names using optional `regex`
-// only global (unscoped) definitions are listed
 function js_table(regex) {
   const defs = Array.from(
     _this
       .read('js', { keep_empty_lines: true })
       .matchAll(
-        /(?:^|\n)(?<comment>(\/\/.*?\n)*)(?:async function|function|class|const|let) +(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+        /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:async function|function|class|get|set|static|static get|static set|const|let) +)?(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
       ),
     m => {
       const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -264,16 +263,22 @@ function js_table(regex) {
         def.args = def.arrow_args.replace(/\s*=>$/, '')
         if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
-      def.args = def.args.replace(/\s+/g, '') // remove whitespace in args
+      // remove whitespace in args
+      def.args = def.args.replace(/\s+/g, '')
       // escape special characters in args: `, \, and | (breaks table)
       def.args = def.args.replace(/([`\\|])/g, '\\$1')
 
-      def._name = def.name // save original name (before possible modification)
+      // mark scoped definitions
+      def.scoped = def.indent.length > 0
+
+      // save original name (before possible modification via comments)
+      def._name = def.name
+
       if (def.comment) {
         // clean up: drop // and insert <br> before \n
         def.comment = def.comment
-          .replace(/ *\n(?:\/\/)? */g, '<br>\n')
-          .replace(/^\/\/ */, '')
+          .replace(/ *\n *(?:\/\/)? */g, '<br>\n')
+          .replace(/^ *\/\/ */, '')
         // disallow cross-line backticks (causes ugly rendering issues)
         def.comment = def.comment
           .split('<br>')
@@ -305,8 +310,8 @@ function js_table(regex) {
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
     if (regex && !regex.test(def._name)) return
-    // hide underscore-prefixed names as internal unless modified via comments
-    if (def.name.startsWith('_') && !def.modified) return
+    // hide underscore-prefixed or scoped definitions unless modified via comments
+    if ((def.name.startsWith('_') || def.scoped) && !def.modified) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
