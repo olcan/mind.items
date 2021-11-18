@@ -2,9 +2,14 @@
   margin-top: 5px;
 }
 
-/* override .item br:last-child */
+/* override .item br:last-child to allow blank lines in comment */
 .core_js_table br:last-child {
   display: inline;
+}
+
+/* disable unnecessary <br> after .more and any tables */
+.core_js_table :is(.more, table) + br {
+  display: none;
 }
 
 /* style comment tables */

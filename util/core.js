@@ -403,26 +403,21 @@ function js_table(regex) {
         'bullet' + (benchmark ? ` benchmark ${benchmark.ok ? ' ok' : ''}` : '')
       )
 
-    // convert markdown to html
-    let desc = marked.parse(def.comment)
-    // drop unnecessary line breaks after tables
-    desc = desc.replace(/<\/table>\s*<br>/g, '</table>')
-
+    // NOTE: we prefer returning markdown-inside-table instead of returning a pure _html block, because _html is mostly unparsed whereas markdown is parsed just like other content on item, e.g. for math blocks
     lines.push(
       _div(
         `function name_${def._name} ${has_more} ${has_defaults} ${toggled} ${ok}`,
-        _span(`usage`, bullets + usage) + _span('desc', desc)
+        _span(`usage`, bullets + usage) +
+          _span('desc', '\n' + def.comment + '\n')
       )
     )
   })
 
-  return html(
-    [
-      _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
-      // install click handlers at every render (via uncached script)
-      '<script _uncached> _js_table_install_click_handlers() </script>',
-    ].join('\n')
-  )
+  return [
+    _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
+    // install click handlers at every render (via uncached script)
+    '<script _uncached> _js_table_install_click_handlers() </script>',
+  ].join('\n')
 }
 
 function _install_core_css() {
