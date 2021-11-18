@@ -539,13 +539,13 @@ function _js_table_show_function(name) {
   }
   try {
     // try custom _function_<name>() first
-    // should return either a function
+    // should return either a function or a property descriptor object (w/ .get or .set or both)
     def = _this.eval(
       `typeof _function_${name} == 'function' ? _function_${name}() : null`
     )
     if (def) {
       if (typeof def == 'function') def = unindent(def.toString())
-      else if (typeof def == 'object')
+      else if (typeof def == 'object' && (def.get || def.set))
         // assume property descriptor
         def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
       else throw new Error(`invalid return '${def}' from _function_${name}()`)
