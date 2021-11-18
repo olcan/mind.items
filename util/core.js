@@ -256,7 +256,7 @@ function js_table(regex) {
       _this
         .read('js', { keep_empty_lines: true })
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:function|const|let|class|get|set) +)?(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -370,7 +370,7 @@ function js_table(regex) {
       .split(',')
       .map(s => (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s))
       .join(',')
-    args = '(' + args + ')'
+    if (def.args) args = '(' + args + ')'
     let args_expanded = args.replace(/,/g, ', ').replace(/=/g, ' = ')
     const has_defaults = args.match(/\[(.+?)=.+?\]/) ? 'has_defaults' : ''
     // NOTE: this simple regex does not work for {arg=default} but does for arg={}
@@ -521,12 +521,55 @@ function _js_table_show_function(name) {
   const func = _this.elem.querySelector(`.function.name_${name}`)
   const usage = func.querySelector('.usage')
   const display_name = func.querySelector('.name').innerText
+  const display_args = func.querySelector('.args').innerText
   // remove all whitespace from args except before commas & around equals
   const args = usage
     .querySelector('.args.expanded')
     .innerText.replace(/,/g, ', ')
     .replace(/=/g, ' = ')
     .replace(/[(\[{}\])]/g, p => _span('parens', p))
+  // look up function using _this.eval
+  let ref, def
+  const unindent = fstr => {
+    if (!fstr) return fstr
+    fstr = fstr.toString()
+    const indent = fstr.match(/\n( +)\} *$/)?.pop()
+    if (indent) fstr = fstr.replace(new RegExp(`^${indent}`, 'gm'), '')
+    return fstr
+  }
+  try {
+    // try custom _function_<name>() first
+    // should return either a function
+    def = _this.eval(
+      `typeof _function_${name} == 'function' ? _function_${name}() : null`
+    )
+    if (def) {
+      if (typeof def == 'function') def = unindent(def.toString())
+      else if (typeof def == 'object')
+        // assume property descriptor
+        def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
+      else throw new Error(`invalid return '${def}' from _function_${name}()`)
+    } else {
+      // assume class member if display name has period
+      if (display_name.match(/^\w+\.\w+$/)) {
+        // assume function if has args, otherwise property
+        if (display_args) {
+          ref = `${display_name.replace('.', '.prototype.')} ?? ${display_name}`
+          def = unindent(_this.eval(ref))
+        } else {
+          const [class_name, prop] = display_name.split('.')
+          ref = `Object.getOwnPropertyDescriptor(${class_name}.prototype, '${prop}') ?? Object.getOwnPropertyDescriptor(${class_name}, '${prop}')`
+          def = _this.eval(ref)
+          if (def) def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
+        }
+      } else {
+        ref = name
+        def = _this.eval(ref)
+      }
+    }
+  } catch (e) {
+    alert(`failed to get function '${name}' as '${ref}': ${e}`)
+  }
   const [status] = _js_table_function_status(name)
   _modal_close() // in case invoked from existing modal
   _modal(
@@ -535,7 +578,7 @@ function _js_table_show_function(name) {
       (status ? _div('buttons', status) : '') +
         _div('title', `<code>${display_name}</code>` + _span('args', args)) +
         '\n\n' +
-        block('js', _this.eval(name)) +
+        block('js', def) +
         '\n'
     )
   )

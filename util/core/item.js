@@ -1,6 +1,6 @@
-// => item.eval(code,…)
+// => __eval(code,…)
 // evaluates `code` in context of `item`
-// _invoke on item, can't be aliased for `_this`_
+// _invoke on item; can't be aliased for `_this`_
 // forwards options to `read` for prefix code
 // | `code`  | string  | | code to evaluate
 // | `type`  | string  | `js` | prefix code block type
@@ -53,10 +53,10 @@ const clear = (...args) => _this.clear(...args)
 // removes `type` blocks
 const remove = (...args) => _this.remove(...args)
 
-// => item.delete
+// => __delete()
 // deletes `item` ___permanently___
 // confirmed only for `#named` items
-// _can't be aliased for `_this`_
+// invoke on item; _can't be aliased for `_this`_
 const __delete = (...args) => _this.delete(...args)
 
 // get_log(…)
