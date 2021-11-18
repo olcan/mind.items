@@ -169,12 +169,16 @@ class _Random {
     this._cache = undefined
   }
 
-  // second-level cache is instance-level and self-managed
-  get cache2() {
-    return this._cache2 ?? (this._cache2 = {})
+  // => _Random.instance_cache
+  // cache object tied to random variable (instance)
+  // must be cleared manually via `clear_instance_cache()`
+  get instance_cache() {
+    return this._instance_cache ?? (this._instance_cache = {})
   }
-  clear_cache2() {
-    if (this._cache2) this._cache2 = {}
+
+  // => _Random.clear_instance_cache()
+  clear_instance_cache() {
+    if (this._instance_cache) this._instance_cache = {}
   }
 
   //…/cached properties are those stored under cache, e.g. cache.expensive_reusable_result. Cache is cleared (={}) automatically whenever samples or weights are modified. Convenience method cached(key,func) can compute cached properties as needed. Convenient accessors are also provided for many built-in cached properties such as min, max, mean, ...
@@ -409,7 +413,7 @@ class _Random {
   // returns inferred or assumed target sample from cache
   // returns undefined if missing; can be used to test existence
   get target() {
-    return this.cache2.target?.adjust(this)
+    return this.instance_cache.target?.adjust(this)
   }
 
   // computes ("infers") target sample by updating w/ defaults
@@ -426,7 +430,7 @@ class _Random {
       `invalid target type '${type}'`
     )
     let t = target
-    t = this.cache2.target = {
+    t = this.instance_cache.target = {
       type,
       ess: type == 'exact' ? t.size /*full ess*/ : t.ess /*≤t.size*/,
       exact: type == 'exact', // ⟺ samples=support & weights∝posterior
