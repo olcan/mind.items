@@ -29,7 +29,7 @@ function stringify(x) {
   // array elements stringified recursively
   if (is_array(x)) return '[' + x.map(stringify) + ']'
   // at this point
-  if (!is_object(x)) fatal('cannot stringify ' + x)
+  assert(is_object(x), 'cannot stringify ' + x)
   // object values stringified recursively
   // toString used if overloaded (e.g. Date)
   if (x.toString !== Object.prototype.toString) return x.toString()
@@ -72,25 +72,27 @@ function _test_stringify() {
   )
 }
 
+const assert = (cond, ...args) => cond || fatal(...args)
+
 // throws error if any of `funcs` returns falsy
 // if array is returned, all elements must be `equal`
 // typically used in test functions `_test_*()`
 function check(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
-    if (!is_function(f)) fatal('non-function argument')
+    assert(is_function(f), 'non-function argument')
     const ret = f()
     if (is_array(ret)) {
       const xJ = ret // interpret returned array as values to be compared
       // if last element of returned array is a function, it will be used as the comparison function fcomp(x0,x) in place of equal(x0,x)
       let fcomp = equal
       if (is_function(_.last(xJ))) fcomp = xJ.pop()
-      if (xJ.length < 2)
-        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`)
-      if (!xJ.every((x, j) => j == 0 || fcomp(xJ[0], x)))
-        fatal(`FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`)
-    } else if (!ret) {
-      fatal(`FAILED CHECK: ${stringify(f)}`)
+      assert(xJ.length >= 2, `FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`)
+      assert(
+        xJ.every((x, j) => j == 0 || fcomp(xJ[0], x)),
+        `FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`
+      )
     }
+    assert(ret, `FAILED CHECK: ${stringify(f)}`)
   })
 }
 
@@ -98,7 +100,7 @@ function check(...funcs) {
 // typically used in benchmark functions `_benchmark_*()`
 function benchmark(...funcs) {
   _.flattenDeep([...funcs]).forEach(f => {
-    if (!is_function(f)) fatal('non-function argument')
+    assert(is_function(f), 'non-function argument')
     _run_benchmark(f)
   })
 }
@@ -164,7 +166,7 @@ function _run_benchmark(
 // does function `f` throw an error?
 // `error` can be specific error, type, or predicate
 function throws(f, error) {
-  if (!is_function(f)) fatal(`non-function argument`)
+  assert(is_function(f), 'non-function argument')
   try {
     f()
   } catch (e) {
@@ -185,7 +187,7 @@ function _test_throws() {
 
 // `[output, elapsed_ms]`
 function timing(f) {
-  if (!is_function(f)) fatal('non-function argument')
+  assert(is_function(f), 'non-function argument')
   const start = Date.now()
   const output = f()
   const elapsed = Date.now() - start
@@ -422,7 +424,7 @@ function js_table(regex) {
 
 function _install_core_css() {
   // require local invocation with _this being lexical this
-  if (_this.name != '#util/core') fatal('_install_core_css from non-core')
+  assert(_this.name == '#util/core', '_install_core_css from non-core')
   // use core deephash as a quick check before reading/hashing css
   if (_this.store.css_core_hash == _this.deephash) return // no change to core
   _this.store.css_core_hash = _this.deephash
