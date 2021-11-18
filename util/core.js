@@ -275,11 +275,15 @@ function js_table(regex) {
         // escape special characters in args: `, \, and | (breaks table)
         def.args = def.args.replace(/([`\\|])/g, '\\$1')
 
-        // mark scoped definitions
+        // mark indented definitions as "scoped"
         def.scoped = !!def.indent
 
         // save original name (before possible modification via comments)
-        def._name = def.name
+        // prefix scoped/indented definitions as scoped_<name>
+        // otherwise Class.func can conflict with global func
+        // tests/benchmarks must also use name scoped_<name>
+        // only a single scope is distinguished/allowed
+        def._name = (def.scoped ? 'scoped_' : '') + def.name
 
         if (def.comment) {
           // clean up: drop // and insert <br> before \n
