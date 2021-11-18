@@ -1,4 +1,4 @@
-#util/random defines random utilities #todo port #random  
+#util/random defines base class and utilities for random variables.  
 << js_table() >>
 
 ```js_removed:random.js
