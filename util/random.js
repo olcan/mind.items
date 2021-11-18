@@ -169,18 +169,6 @@ class _Random {
     this._cache = undefined
   }
 
-  // => _Random.instance_cache
-  // cache object tied to random variable (instance)
-  // must be cleared manually via `clear_instance_cache()`
-  get instance_cache() {
-    return this._instance_cache ?? (this._instance_cache = {})
-  }
-
-  // => _Random.clear_instance_cache()
-  clear_instance_cache() {
-    if (this._instance_cache) this._instance_cache = {}
-  }
-
   //…/cached properties are those stored under cache, e.g. cache.expensive_reusable_result. Cache is cleared (={}) automatically whenever samples or weights are modified. Convenience method cached(key,func) can compute cached properties as needed. Convenient accessors are also provided for many built-in cached properties such as min, max, mean, ...
 
   // => _Random.weighted(ε=1e-6)
@@ -408,6 +396,18 @@ class _Random {
       copy_at(_yM, τ.yM, τ.M - m, 0, m)
       return -Math.log2(ks_alpha(_xM.slice(0, τ.M / 2), _yM.slice(-τ.M / 2)))
     })
+  }
+  // => _Random.instance_cache
+  // cache object tied to random variable (instance)
+  // must be cleared manually via `clear_instance_cache()`
+  get instance_cache() {
+    return this._instance_cache ?? (this._instance_cache = {})
+  }
+
+  // => _Random.clear_instance_cache()
+  // clears instance cache
+  clear_instance_cache() {
+    if (this._instance_cache) this._instance_cache = {}
   }
 
   // returns inferred or assumed target sample from cache
