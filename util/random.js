@@ -247,58 +247,72 @@ class _Random {
     return this.cached('circular_stdev.r=' + r, τ => circular_stdev(τ.xJ, r))
   }
 
-  // TODO: fix postX... φJ is actually log-posterior so postX is broken, and may be nice to expose log_posterior w/ appropriate documentation from #random/methods/update/notes
+  // => _Random.values
+  // sample values (unique)
+  get value_counts() {
+    return this.cached('values', τ => _.uniq(τ.xJ))
+  }
 
-  // NOTE: properties/methods below work w/ weighted samples
-  // mode and antimode w.r.t. posterior weights (φJ)
+  // => _Random.value_counts
+  // sample counts by value
+  get value_counts() {
+    return this.cached('value_counts', τ => _.countBy(τ.xJ))
+  }
 
-  get mode() {
-    return this.cached('mode', τ => this.modef(w => w))
-  }
-  get antimode() {
-    return this.cached('antimode', τ => this.modef(w => -w))
-  }
-  modef(f) {
-    const wX = this.postX // counts if unweighted
-    const xK = keys(wX),
-      wK = values(wX)
-    const w_mode = maxf(wK, f)
-    const r = uniform_int(count(wK, w => f(w) == w_mode))
-    for (let k = 0, n = 0; k < wK.length; ++k)
-      if (f(wK[k]) == w_mode && r == n++) return xK[k]
-  }
-  get counts() {
-    return this.cached('counts', τ => counts(τ.xJ))
-  }
-  // NOTE: weightsX aggregates by value so counts become weights
-  get weightsX() {
-    return this.cached('weightsX', τ => {
-      if (!τ.wJ) return τ.counts // treat counts as weights
+  // => _Random.value_weights
+  // sample weights by value
+  get value_weights() {
+    return this.cached('value_weights', τ => {
+      if (!τ.wJ) return τ.value_counts // treat counts as weights
       const wX = {}
-      each(τ.xJ, (x, j) => (wX[x] = (wX[x] || 0) + τ.wJ[j]))
+      each(τ.xJ, (x, j) => (wX[x] = (wX[x] ?? 0) + τ.wJ[j]))
       return wX
     })
   }
-  // posterior (φJ) aggregated by value
-  get postX() {
-    return this.cached('postX', τ => {
-      if (!τ.φJ) return τ.counts // treat counts as posterior weights
+
+  // => _Random.value_probs
+  // sample probabilities by value
+  get value_probs() {
+    return this.cached('value_probs', τ => {
+      const wX = τ.value_weights
+      const z = 1 / (τ.wj_sum ?? τ.J)
+      return _.mapValues(wX, w => w * z)
+    })
+  }
+
+  // => _Random.value_posteriors
+  // "posterior" densities by value
+  // based on last (re)weight with observed descendants
+  // _not true posterior_ if `weight_exponent<1` on last (re)weight
+  // _not true posterior_ in general unless `_weight ∝ likelihood`
+  // _not aggregated_ since may already be reflected in samples/weights
+  get value_posteriors() {
+    return this.cached('value_posteriors', τ => {
+      assert(τ.φJ, 'posterior not available before (re)weight')
+      // log-posterior φJ should NOT be aggregated since it is already baked into the sample (at least prior but also posterior if resampled after reweighting) and any weights (for likelihood but also prior if weighted)
       const φX = {}
-      each(τ.xJ, (x, j) => (φX[x] = (φX[x] || 0) + τ.φJ[j]))
+      each(τ.xJ, (x, j) => (φX[x] = φX[x] ?? τ.φJ[j]))
       return φX
     })
   }
-  get probs() {
-    return this.cached('probs', τ => {
-      if (!τ.wJ) return new Array(τ.J).fill(1 / τ.J)
-      const z = 1 / τ.wj_sum
-      return τ.wJ.map(w => w * z)
-    })
+
+  // NOTE: properties/methods below work w/ weighted samples
+  // mode and antimode w.r.t. posterior density
+
+  get mode() {
+    return this.cached('mode', τ => this._mode(max))
   }
-  probs_at(xJ) {
-    const wX = this.weightsX // counts if unweighted
-    const z = 1 / if_defined(this.wj_sum, this.J)
-    return xJ.map(x => (wX[x] || 0) * z)
+  get antimode() {
+    return this.cached('antimode', τ => this._mode(min))
+  }
+  _mode(f = max) {
+    const wX = this.postX // counts if unweighted
+    const xK = keys(wX),
+      wK = values(wX)
+    const w_mode = f(wK)
+    const r = uniform_int(count(wK, w => w == w_mode))
+    for (let k = 0, n = 0; k < wK.length; ++k)
+      if (wK[k] == w_mode && r == n++) return xK[k]
   }
 
   // negative log posterior probability (NLP) of _distinct_ samples
