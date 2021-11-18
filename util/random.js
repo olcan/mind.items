@@ -1,3 +1,14 @@
+// creates new random variable
+const Random = (...args) => _Random.init(...args)
+
+// is `x` random?
+const is_random = x => x instanceof _Random
+
+// value of (random) variable
+// returns non-random `x` as is
+// resolves nested random variables recursively
+const value = x => (is_random(x) ? value(x.value) : x)
+
 // => class _Random
 // base class for all random variables
 // defines common properties, methods, and hooks
@@ -400,11 +411,3 @@ class _Random {
     if (this._cache2) this._cache2 = {}
   }
 }
-
-const Random = (...args) => _Random.init(...args)
-
-const is_random = x => x instanceof _Random
-
-const value = x => (is_random(x) ? x.value : x)
-
-const value_deep = x => (is_random(x) ? value_deep(x.value) : x)
