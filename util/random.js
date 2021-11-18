@@ -150,46 +150,113 @@ class _Random {
     return this.wj_sum
   }
 
+  // => _Random.cache
+  // cache object tied to (weighted) sample
+  // initialized on first access (may be indirect)
+  // cleared when `samples` or `weights` are set
+  // can be cleared manually via `clear_cache()`
+  get cache() {
+    return this._cache ?? (this._cache = {})
+  }
+  // => _Random.cached(key, f)
+  // `this.cache[key] ?? (this.cache[key] = f(this))`
+  cached(key, f) {
+    return this.cache[k] ?? (this.cache[key] = f(this))
+  }
+  // => _Random.clear_cache()
+  // clears cache
+  clear_cache() {
+    this._cache = undefined
+  }
+
+  // second-level cache is instance-level and self-managed
+  get cache2() {
+    return this._cache2 ?? (this._cache2 = {})
+  }
+  clear_cache2() {
+    if (this._cache2) this._cache2 = {}
+  }
+
   //…/cached properties are those stored under cache, e.g. cache.expensive_reusable_result. Cache is cleared (={}) automatically whenever samples or weights are modified. Convenience method cached(key,func) can compute cached properties as needed. Convenient accessors are also provided for many built-in cached properties such as min, max, mean, ...
 
-  // "weighted" sample means weights that deviate more than 0.001x
-  get weighted() {
-    return this.cached('weighted', τ => {
+  // => _Random.weighted(ε=1e-6)
+  // is sample weighted?
+  // ignores weight deviations within `(1±ε)⨉` mean weight
+  weighted(ε = 1e-6) {
+    return this.cached('weighted_ε=' + ε, τ => {
       if (!τ.wJ || !τ.wj_sum || τ.J == 0) return false
       const w_mean = τ.wj_sum / τ.J
-      const [w_min, w_max] = [0.999 * w_mean, 1.001 * w_mean]
+      const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
       return !every(τ.wJ, w => w > w_min && w < w_max)
     })
   }
-  get unweighted() {
-    return !this.weighted
-  }
-  // NOTE: properties/methods below require unweighted samples
+  // => _Random.min
+  // sample minimum
   get min() {
-    return this.cached('min', τ => min(τ.xJ), true)
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('min', τ => min(τ.xJ))
   }
+  // => _Random.max
+  // sample maximum
   get max() {
-    return this.cached('max', τ => max(τ.xJ), true)
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('max', τ => max(τ.xJ))
   }
+  // => _Random.min_max
+  // sample range `[min,max]`
   get min_max() {
-    return this.cached('min_max', τ => [τ.min, τ.max], true)
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('min_max', τ => [τ.min, τ.max])
   }
+  // => _Random.mean
+  // sample mean
   get mean() {
-    return this.cached('mean', τ => mean(τ.xJ), true)
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('mean', τ => mean(τ.xJ))
   }
+  // => _Random.stdev
+  // sample stdev
   get stdev() {
-    return this.cached('stdev', τ => stdev(τ.xJ), true)
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('stdev', τ => stdev(τ.xJ))
   }
+  // => _Random.median
+  // sample median
   get median() {
-    return this.cached('median', τ => median(τ.xJ), true)
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('median', τ => median(τ.xJ))
   }
-  quantiles(...qQ) {
-    qQ = flatten([...qQ])
-    return this.cached('quantiles-' + qQ, τ => quantiles(τ.xJ, qQ), true)
+  // => _Random.quartiles
+  // sample quartiles
+  get quartiles() {
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.quantiles([0.25, 0.5, 0.75])
   }
+  // => _Random.quantiles(qK)
+  // sample quantiles
+  quantiles(qK) {
+    assert(!this.weighted(), 'weighted sample not supported')
+    if (!is_array(qK)) qK = arguments
+    return this.cached('quantiles_' + qK, τ => quantiles(τ.xJ, qK))
+  }
+  // => _Random.circular_mean([r=pi])
+  // sample circular mean on `[-r,r]`
+  circular_mean(r = pi) {
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('circular_mean.r=' + r, τ => circular_mean(τ.xJ, r))
+  }
+  // => _Random.circular_stdev([r=pi])
+  // sample circular mean on `[-r,r]`
+  circular_stdev(r = pi) {
+    assert(!this.weighted(), 'weighted sample not supported')
+    return this.cached('circular_stdev.r=' + r, τ => circular_stdev(τ.xJ, r))
+  }
+
+  // TODO: clarify concept of postX and maybe rename? or not
 
   // NOTE: properties/methods below work w/ weighted samples
   // mode and antimode w.r.t. posterior weights (φJ)
+
   get mode() {
     return this.cached('mode', τ => this.modef(w => w))
   }
@@ -396,31 +463,5 @@ class _Random {
       t.adjust = () => t
     }
     return this // for chaining
-  }
-
-  // default cache is sample/weight-level and auto-managed
-  get cache() {
-    return this._cache ?? (this._cache = {})
-  }
-  cached(k, f, require_unweighted) {
-    if (require_unweighted)
-      check(this.unweighted, 'unweighted sample required for ' + k)
-    return this.cache[k] ?? (this.cache[k] = f(this))
-  }
-  clear_cache() {
-    if (this._cache) this._cache = {}
-  }
-
-  // second-level cache is instance-level and self-managed
-  get cache2() {
-    return this._cache2 || (this._cache2 = {})
-  }
-  cached2(k, f, require_unweighted) {
-    if (require_unweighted)
-      check(this.unweighted, 'unweighted sample required for ' + k)
-    return this.cache2[k] ?? (this.cache2[k] = f(this))
-  }
-  clear_cache2() {
-    if (this._cache2) this._cache2 = {}
   }
 }

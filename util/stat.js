@@ -154,7 +154,7 @@ function binomial_cdf(x, n, p) {
       _log_gamma(b) -
       _log_gamma(a) +
       a * Math.log(z) +
-      b * Math.log(1 - z),
+      b * Math.log(1 - z)
   )
   if (z < (a + 1) / (s + 2)) betacdf = bt * _betinc(z, a, b, eps)
   else betacdf = 1 - bt * _betinc(1 - z, b, a, eps)
@@ -376,17 +376,17 @@ function variance(xJ) {
 const stdev = xJ => Math.sqrt(variance(xJ))
 
 // [circular mean](https://en.wikipedia.org/wiki/Circular_mean) of `xJ` on `[-r,r]`
-function circular_mean(xJ, r = Math.PI) {
+function circular_mean(xJ, r = pi) {
   if (xJ.length == 0) return NaN
-  const z = r == Math.PI ? 1 : Math.PI / r
+  const z = r == pi ? 1 : pi / r
   const θJ = z == 1 ? xJ : xJ.map(x => x * z)
   return Math.atan2(sumf(θJ, Math.sin), sumf(θJ, Math.cos)) / z
 }
 
 // [circular stdev](https://en.wikipedia.org/wiki/Directional_statistics#Dispersion) of `xJ` on `[-r,r]`
-function circular_stdev(xJ, r = Math.PI) {
+function circular_stdev(xJ, r = pi) {
   if (xJ.length == 0) return NaN
-  const z = r == Math.PI ? 1 : Math.PI / r
+  const z = r == pi ? 1 : pi / r
   const θJ = z == 1 ? xJ : xJ.map(x => x * z)
   const R = Math.sqrt(meanf(θJ, Math.sin) ** 2 + meanf(θJ, Math.cos) ** 2)
   return Math.sqrt(-2 * Math.log(R)) / z
@@ -412,7 +412,7 @@ function _benchmark_median() {
   benchmark(
     () => median(xJ),
     () => median(xJ, { copy: true }),
-    () => median(xJ_sorted, { sorted: true }),
+    () => median(xJ_sorted, { sorted: true })
   )
 }
 

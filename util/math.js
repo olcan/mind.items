@@ -1,3 +1,5 @@
+const pi = Math.PI
+
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0
 // non-array (depth 0) considered flat
