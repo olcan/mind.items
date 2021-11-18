@@ -159,6 +159,7 @@ class _Random {
     return this._cache ?? (this._cache = {})
   }
   // => _Random.cached(key, f)
+  // cached value under `key` of `f(this)`
   // `this.cache[key] ?? (this.cache[key] = f(this))`
   cached(key, f) {
     return this.cache[k] ?? (this.cache[key] = f(this))
