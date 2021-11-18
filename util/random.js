@@ -47,8 +47,45 @@ class _Random {
     return this._domain(this.params)
   }
 
+  // => _Random.samples
+  // sampled values for random variable
+  // can be set to observed or assumed values for inference
+  // can be optionally weighted by also setting `weights`
+  // can be set as `samples=xJ` or `sample(xJ)`
+  // setting triggers `reset()` to initial state
+  get samples() {
+    return this.xJ
+  }
+  set samples(xJ) {
+    const τ = this
+    τ.reset()
+    τ.xJ = xJ
+    τ.J = xJ?.length || 0
+    if (τ.stats) τ.stats.samples++
+  }
+
+  // => _Random.weights
+  // optional sample weights
+  // can be interpreted as $`∝ q(x)/p(x)`$, $`p`$ = sampling distribution
+  // enables sample to behave as $`q(x)≠p(x)`$ _with reduced efficiency_
+  // can be set as `weights=wJ` or `weight(wJ,[wj_sum])` (TODO)
+  // setting resets `cache`
+  get weights() {
+    return this.wJ
+  }
+  set weights(wJ) {
+    const τ = this
+    assert(τ.xJ, 'weights set before samples')
+    assert(wJ.length == τ.J, 'weights wrong size')
+    τ.wJ = wJ
+    τ.wj_sum = wJ._wj_sum ?? sum(wJ)
+    assert(τ.wj_sum > 0, 'invalid weights')
+    τ._cache = undefined
+    if (τ.stats) τ.stats.weights++
+  }
+
   // => _Random.reset()
-  // resets random variable
+  // resets to initial state
   reset() {
     const τ = this
     τ.J = 0
@@ -63,70 +100,14 @@ class _Random {
     if (τ.M) τ.m = 0 // reset move tracking
   }
 
-  // => _Random.samples
-  // sampled values for random variable
-  // can be set to observed/assumed values for inference
-  // can be optionally weighted by also setting `weights`
-  // setting samples resets all relevant internal state
-  // setting `X.samples=xJ` is `≡ X.sample(xJ)`
-  get samples() {
-    return this.xJ
-  }
-  set samples(xJ) {
-    const τ = this
-    τ.reset()
-    τ.xJ = xJ
-    τ.J = xJ?.length || 0
-    if (τ.stats) τ.stats.samples++
-  }
-
-  // set optional weights ∝ q(x)/p(x), p = sample distribution
-  // enables sample to behave as q(x) with reduced efficiency
-  // default weights are uniform, with maximal efficiency
-  // resets all associated state; should be set rarely
-  // equivalent to calling method .weight(wJ)
-  set weights(wJ) {
-    const τ = this
-    check(τ.xJ, 'weights set before samples')
-    check(wJ.length == τ.J, 'weights wrong size')
-    τ.wJ = wJ
-    τ.wj_sum = sum(wJ)
-    check(τ.wj_sum > 0, 'invalid weights')
-    τ.clear_cache()
-    if (τ.stats) τ.stats.weights++
-  }
-
-  // set fixed index/value for random variable
-  // must be set to undefined to reset
-  set index(j) {
-    check(j >= 0 && j < this.J, 'invalid index')
-    this.j = j
-  }
-
-  // set fixed value for random variable
-  // must be set to undefined to reset
+  // => _Random.value
+  // random value
+  // (re)sampled from `samples` (via `index`) if set
+  // otherwise generated internally via `_value(θ)`
+  // can be set to fixed value or `undefined` to reset
+  // set to `null` to store next random value as fixed value
   set value(v) {
     this.v = v
-  }
-
-  // …/getters define aliases for internal properties, except for index and value, which are non-trivial stochastic (thus uncached) methods defined as properties for convenience.
-
-  get size() {
-    return this.J
-  }
-  get weights() {
-    return this.wJ
-  }
-  get weight_sum() {
-    return this.wj_sum
-  }
-  get index() {
-    const τ = this
-    check(τ.J > 0, 'no samples')
-    if (τ.J == 1) return 0
-    if (τ.j >= 0) return τ.j // fixed index
-    if (!τ.wJ) return uniform_int(τ.J)
-    return discrete(τ.wJ, τ.wj_sum)
   }
   get value() {
     // weighted-random value
@@ -139,6 +120,34 @@ class _Random {
     if (τ.v !== undefined) return τ.v // fixed value
     if (τ.J) return τ.xJ[τ.index] // pre-sampled value
     return τ._value(τ.θ._sample()) // random value
+  }
+
+  // => _Random.index
+  // random index into `samples`
+  // can be set to fixed index or `undefined` to reset
+  set index(j) {
+    assert(j >= 0 && j < this.J, 'invalid index')
+    this.j = j
+  }
+  get index() {
+    const τ = this
+    assert(τ.J > 0, 'no samples')
+    if (τ.J == 1) return 0
+    if (τ.j >= 0) return τ.j // fixed index
+    if (!τ.wJ) return uniform_int(τ.J)
+    return discrete(τ.wJ, τ.wj_sum)
+  }
+
+  // => _Random.size
+  // alias for `J`
+  get size() {
+    return this.J
+  }
+
+  // => _Random.weight_sum
+  // alias for `wj_sum`
+  get weight_sum() {
+    return this.wj_sum
   }
 
   //…/cached properties are those stored under cache, e.g. cache.expensive_reusable_result. Cache is cleared (={}) automatically whenever samples or weights are modified. Convenience method cached(key,func) can compute cached properties as needed. Convenient accessors are also provided for many built-in cached properties such as min, max, mean, ...
