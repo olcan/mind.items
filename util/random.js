@@ -47,43 +47,6 @@ class _Random {
     return this._domain(this.params)
   }
 
-  // => _Random.samples
-  // sampled values for random variable
-  // can be set to observed or assumed values for inference
-  // can be optionally weighted by also setting `weights`
-  // can be set as `samples=xJ` or `sample(xJ)`
-  // setting triggers `reset()` to initial state
-  get samples() {
-    return this.xJ
-  }
-  set samples(xJ) {
-    const τ = this
-    τ.reset()
-    τ.xJ = xJ
-    τ.J = xJ?.length || 0
-    if (τ.stats) τ.stats.samples++
-  }
-
-  // => _Random.weights
-  // optional sample weights
-  // can be interpreted as $`∝ q(x)/p(x)`$, $`p`$ = sampling distribution
-  // enables sample to behave as $`q(x)≠p(x)`$ _with reduced efficiency_
-  // can be set as `weights=wJ` or `weight(wJ,[wj_sum])` (TODO)
-  // setting resets `cache`
-  get weights() {
-    return this.wJ
-  }
-  set weights(wJ) {
-    const τ = this
-    assert(τ.xJ, 'weights set before samples')
-    assert(wJ.length == τ.J, 'weights wrong size')
-    τ.wJ = wJ
-    τ.wj_sum = wJ._wj_sum ?? sum(wJ)
-    assert(τ.wj_sum > 0, 'invalid weights')
-    τ._cache = undefined
-    if (τ.stats) τ.stats.weights++
-  }
-
   // => _Random.reset()
   // resets to initial state
   reset() {
@@ -98,6 +61,57 @@ class _Random {
     τ.j = undefined
     τ.observed = undefined // since J=0
     if (τ.M) τ.m = 0 // reset move tracking
+  }
+
+  // => _Random.samples
+  // sampled values `xJ`
+  // can be set to observed or assumed values for inference
+  // can be optionally weighted by also setting `weights`
+  // can be set as `samples=xJ` or `sample(xJ)`
+  // setting triggers `reset()` to initial state
+  // getter is alias for `xJ`
+  get samples() {
+    return this.xJ
+  }
+  set samples(xJ) {
+    const τ = this
+    τ.reset()
+    τ.xJ = xJ
+    τ.J = xJ?.length || 0
+    if (τ.stats) τ.stats.samples++
+  }
+
+  // => _Random.size
+  // sample size `J ≡ xJ.length`
+  get size() {
+    return this.J
+  }
+
+  // => _Random.weights
+  // sample weights `wJ`
+  // can be interpreted as $`∝ q(x)/p(x)`$, $`p`$ = sampling distribution
+  // enables sample to behave as $`q(x)≠p(x)`$ _with reduced efficiency_
+  // can be set as `weights=wJ` or `weight(wJ,[wj_sum])` (TODO)
+  // setting resets `cache` since dependent on weights
+  // getter is alias for `wJ`
+  get weights() {
+    return this.wJ
+  }
+  set weights(wJ) {
+    const τ = this
+    assert(τ.xJ, 'weights set before samples')
+    assert(wJ.length == τ.J, 'weights wrong size')
+    τ.wJ = wJ
+    τ.wj_sum = wJ._wj_sum ?? sum(wJ)
+    assert(τ.wj_sum > 0, 'invalid weights')
+    τ._cache = undefined
+    if (τ.stats) τ.stats.weights++
+  }
+
+  // => _Random.weight_sum
+  // total weight `wj_sum ≡ sum(wJ)`
+  get weight_sum() {
+    return this.wj_sum
   }
 
   // => _Random.value
@@ -136,18 +150,6 @@ class _Random {
     if (τ.j >= 0) return τ.j // fixed index
     if (!τ.wJ) return uniform_int(τ.J)
     return discrete(τ.wJ, τ.wj_sum)
-  }
-
-  // => _Random.size
-  // alias for `J`
-  get size() {
-    return this.J
-  }
-
-  // => _Random.weight_sum
-  // alias for `wj_sum`
-  get weight_sum() {
-    return this.wj_sum
   }
 
   // => _Random.cache
@@ -245,7 +247,7 @@ class _Random {
     return this.cached('circular_stdev.r=' + r, τ => circular_stdev(τ.xJ, r))
   }
 
-  // TODO: clarify concept of postX and maybe rename? or not
+  // TODO: fix postX... φJ is actually log-posterior so postX is broken, and may be nice to expose log_posterior w/ appropriate documentation from #random/methods/update/notes
 
   // NOTE: properties/methods below work w/ weighted samples
   // mode and antimode w.r.t. posterior weights (φJ)
