@@ -1,5 +1,8 @@
 function benchmark_item(item) {
-  if (!item.text.match(/\b_benchmark_\w+/)) return 0 // no benchmarks in item
+  if (!item.text.match(/\b_benchmark_\w+/)) {
+    if (item._global_store._benchmarks) delete item.global_store._benchmarks
+    return 0 // no benchmarks in item
+  }
 
   // serialize via item.store._benchmarker/_tester to avoid mixing up logs
   return (item.store._benchmarker = Promise.allSettled([

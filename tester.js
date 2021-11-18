@@ -1,5 +1,8 @@
 function test_item(item) {
-  if (!item.text.match(/\b_test_\w+/)) return 0 // no tests in item
+  if (!item.text.match(/\b_test_\w+/)) {
+    if (item._global_store._tests) delete item.global_store._tests
+    return 0 // no tests in item
+  }
 
   // serialize via item.store._tester/_benchmarker to avoid mixing up logs
   return (item.store._tester = Promise.allSettled([
