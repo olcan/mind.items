@@ -241,7 +241,7 @@ class _Random {
     return this.cached('circular_mean.r=' + r, τ => circular_mean(τ.xJ, r))
   }
   // => _Random.circular_stdev([r=pi])
-  // sample circular mean on `[-r,r]`
+  // sample circular stdev on `[-r,r]`
   circular_stdev(r = pi) {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('circular_stdev.r=' + r, τ => circular_stdev(τ.xJ, r))
@@ -272,6 +272,7 @@ class _Random {
 
   // => _Random.value_probs
   // sample probabilities by value
+  // probabilities are normalized weights
   get value_probs() {
     return this.cached('value_probs', τ => {
       const wX = τ.value_weights
@@ -280,74 +281,88 @@ class _Random {
     })
   }
 
-  // => _Random.value_posteriors
-  // "posterior" densities by value
-  // based on last (re)weight with observed descendants
+  // => _Random.value_post_weights
+  // posterior weights by value
+  // based on last (re)weight w/ _observed descendants_
   // _not true posterior_ if `weight_exponent<1` on last (re)weight
   // _not true posterior_ in general unless `_weight ∝ likelihood`
   // _not aggregated_ since may already be reflected in samples/weights
-  get value_posteriors() {
-    return this.cached('value_posteriors', τ => {
-      assert(τ.φJ, 'posterior not available before (re)weight')
-      // log-posterior φJ should NOT be aggregated since it is already baked into the sample (at least prior but also posterior if resampled after reweighting) and any weights (for likelihood but also prior if weighted)
+  get value_post_weights() {
+    return this.cached('value_post_weights', τ => {
+      assert(τ.φJ, 'not available before (re)weight')
+      // posterior log-weights φJ should NOT be aggregated since it is already baked into the sample (at least prior but also posterior if resampled after reweighting) and any weights (for likelihood but also prior if weighted)
       const φX = {}
-      each(τ.xJ, (x, j) => (φX[x] = φX[x] ?? τ.φJ[j]))
+      each(τ.xJ, (x, j) => (φX[x] = φX[x] ?? Math.exp(τ.φJ[j])))
       return φX
     })
   }
 
-  // NOTE: properties/methods below work w/ weighted samples
-  // mode and antimode w.r.t. posterior density
+  // => _Random.value_post_probs
+  // posterior probabilities by value
+  // probabilities are normalized weights
+  // based on last (re)weight w/ _observed descendants_
+  // see `value_post_weights` above for caveats
+  get value_post_probs() {
+    return this.cached('value_post_probs', τ => normalize(τ.value_post_weights))
+  }
 
+  // => _Random.mode
+  // weighted sample mode
   get mode() {
-    return this.cached('mode', τ => this._mode(max))
+    return this.cached('mode', τ => τ._mode(τ.value_weights, max))
   }
+  // => _Random.antimode
+  // weighted sample anti-mode
   get antimode() {
-    return this.cached('antimode', τ => this._mode(min))
+    return this.cached('antimode', τ => τ._mode(τ.value_weights, min))
   }
-  _mode(f = max) {
-    const wX = this.postX // counts if unweighted
-    const xK = keys(wX),
-      wK = values(wX)
-    const w_mode = f(wK)
+  // => _Random.post_mode
+  // posterior-weighted mode
+  // can be used for robust step sizes for local move proposals
+  // see `value_post_weights` above for caveats
+  get post_mode() {
+    return this.cached('post_mode', τ => τ._mode(τ.value_post_weights, max))
+  }
+  // => _Random.post_antimode
+  // posterior-weighted anti-mode
+  // can be used for robust step sizes for local move proposals
+  // see `value_post_weights` above for caveats
+  get post_antimode() {
+    return this.cached('post_antimode', τ => τ._mode(τ.value_post_weights, min))
+  }
+  _mode(wX, fw_mode = max) {
+    const [xK, wK] = [keys(wX), values(wX)]
+    const w_mode = fw_mode(wK)
     const r = uniform_int(count(wK, w => w == w_mode))
     for (let k = 0, n = 0; k < wK.length; ++k)
       if (wK[k] == w_mode && r == n++) return xK[k]
   }
 
-  // negative log posterior probability (NLP) of _distinct_ samples
-  get nlp() {
-    return this.cached('nlp', τ => {
-      if (τ.jJ) {
-        // aggregate over indices jJ using _wJ as buffer
-        if (!τ._wJ) τ._wJ = array(τ.J)
-        τ._wJ.fill(0)
-        each(τ.jJ, (jj, j) => (τ._wJ[jj] += τ.wJ[j]))
-        return -sumf(τ.φJ, (φ, j) => (τ._wJ[j] ? φ * τ._wJ[j] : 0)) / sum(τ._wJ)
-      }
-      return -sumf(τ.φJ, (φ, j) => (τ.wJ[j] ? φ * τ.wJ[j] : 0)) / τ.wj_sum
-    })
-  }
-
-  // ess gave excellent agreement with empirical cdf/quantiles
-  // we distinguish (weighted) ess from essu and essr below
+  // => _Random.ess
+  // effective sample size
+  // approximates ideal value `J*Var(target)/MSE(sample)`
+  // equivalent sample size _if we could sample from target_
+  // see [Rethinking the Effective Sample Size](https://arxiv.org/abs/1809.04129) for derivation
+  // esp. section 3.2 "Summary of assumptions and approximations"
+  // used as sample size for `ks1_cdf` and `ks2_cdf`
   get ess() {
     return this.cached('ess', τ => {
       if (!τ.wJ) return τ.essu // no weights so ess=essu
-      if (τ.jJ) {
-        // aggregate over indices jJ using _wJ as buffer
-        if (!τ._wJ) τ._wJ = array(τ.J)
-        τ._wJ.fill(0)
-        each(τ.jJ, (jj, j) => (τ._wJ[jj] += τ.wJ[j]))
-        return ess(τ._wJ)
-      }
-      return ess(τ.wJ)
+      if (!τ.jJ) return ess(τ.wJ) // no duplication
+      // aggregate over indices jJ using _wJ as buffer
+      if (!τ._wJ) τ._wJ = array(τ.J)
+      τ._wJ.fill(0)
+      each(τ.jJ, (jj, j) => (τ._wJ[jj] += τ.wJ[j]))
+      return ess(τ._wJ)
     })
   }
-  // essu ("unweighted" ess) ignores weights
-  // adjusts sample size only for duplication in resampling
-  // resampling can improve ess only up to <~1/2 essu
-  // resampling _shrinks_ essu by ~1/2 or ~k/(k+1) toward ess=1
+
+  // => _Random.essu
+  // _unweighted_ effective sample size
+  // ignores weights but not duplication
+  // resampling can improve ess only up to ≲1/2 essu
+  // resampling _hurts_ essu by ~1/2 or ~k/(k+1), k=1,2,…
+  // resampling guarantees `ess=essu` or `essr=1` (see below)
   get essu() {
     return this.cached('essu', τ => {
       if (!τ.jJ) return τ.J
@@ -357,10 +372,21 @@ class _Random {
       return ess(τ._wJ)
     })
   }
-  // essr is just ess/essu, a natural measure of weight skew
+
+  // => _Random.essr
+  // `ess/essu` ratio
+  // natural measure of weight skew (decoupled from duplication)
+  // natural indicator of when resampling is likely to improve `ess`
+  // resampling should be avoided when `essr>1/2` (likely to hurt `ess`)
+  // resampling rule `essr < essu/J` is good if move rule ensures `essu>J/2`
+  // resampling rule `essr < clip(essu/J, .5, 1)` is recommended in general
+  // TODO: point at a new place for #random/methods/update/notes
+  // TODO: also see good justification in #random/methods/update
   get essr() {
     return this.ess / this.essu
   }
+
+  // TODO: resume cleanup below here; may need a new name for ks_alpha unless you can find justification for it ...
 
   // kolmogorov-smirnov statistic against (cached) target
   // collisions are resolved randomly (as is default for ks)
@@ -438,6 +464,7 @@ class _Random {
   infer(size, options) {
     return this.sample(size).update(options).assume()
   }
+
   // sets ("assumes") current (or given) random sample as "target"
   // type should be 'exact' iff samples=support & weights∝posterior
   // typically used for inference performance evaluation purposes
