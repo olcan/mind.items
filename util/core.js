@@ -431,6 +431,7 @@ function js_table(regex) {
         'bullet' + (benchmark ? ` benchmark ${benchmark.ok ? ' ok' : ''}` : '')
       )
 
+    def.scope ??= '' // used in class name below
     const scoped = def.scope ? 'scoped' : ''
 
     // NOTE: we prefer returning markdown-inside-table instead of returning a pure _html block, because _html is mostly unparsed whereas markdown is parsed just like other content on item, e.g. for math blocks
@@ -545,11 +546,12 @@ function _js_table_show_function(name) {
   if (!_this.elem) return // element not on page, cancel
   const func = _this.elem.querySelector(`.function.name_${name}`)
   const usage = func.querySelector('.usage')
-  const display_name = func.querySelector('.name').innerText
   const display_args = func.querySelector('.args').innerText
+  let display_name = func.querySelector('.name').innerText
   const scope = Array.from(func.classList)
     .find(c => c.startsWith('scope_'))
     .slice(6)
+  if (scope) display_name = scope + '.' + display_name
   // remove all whitespace from args except before commas & around equals
   const args = usage
     .querySelector('.args.expanded')
@@ -606,10 +608,7 @@ function _js_table_show_function(name) {
     _div(
       'core_js_table_modal', // style wrapper, see core.css
       (status ? _div('buttons', status) : '') +
-        _div(
-          'title',
-          `<code>${scope}.${display_name}</code>` + _span('args', args)
-        ) +
+        _div('title', `<code>${display_name}</code>` + _span('args', args)) +
         '\n\n' +
         block('js', def) +
         '\n'
@@ -633,7 +632,11 @@ function _js_table_show_test(name) {
     'function'
   )
   const func = _this.elem.querySelector(`.function.name_${name}`)
-  const display_name = func.querySelector('.name').innerText
+  let display_name = func.querySelector('.name').innerText
+  const scope = Array.from(func.classList)
+    .find(c => c.startsWith('scope_'))
+    .slice(6)
+  if (scope) display_name = scope + '.' + display_name
 
   _modal_close() // in case invoked from existing modal
   _modal(
@@ -719,7 +722,11 @@ function _js_table_show_benchmark(name) {
     'function'
   )
   const func = _this.elem.querySelector(`.function.name_${name}`)
-  const display_name = func.querySelector('.name').innerText
+  let display_name = func.querySelector('.name').innerText
+  const scope = Array.from(func.classList)
+    .find(c => c.startsWith('scope_'))
+    .slice(6)
+  if (scope) display_name = scope + '.' + display_name
 
   _modal_close() // in case invoked from existing modal
   _modal(
