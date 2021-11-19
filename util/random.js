@@ -347,61 +347,47 @@ class _Random {
     return this.ess / this.essu
   }
 
-  // TODO: resume cleanup below here; may need a new name for ks_alpha unless you can find justification for it ...
-
-  // kolmogorov-smirnov statistic against (cached) target
-  // collisions are resolved randomly (as is default for ks)
-  // ess is used instead of length for weighted samples
-  // weighted ks is used to avoid resampling bias
-  // collisions are allowed for exact (⟹discrete) target
-  // (otherwise ks cdf is inaccurate, esp. for small support)
-  // (as can be seen from sensitivity of ks to support size)
-  // (w/ collisions the ks cdf becomes lower-bound ⟹ alpha upper-bound ⟹ 1/alpha lower-bound that can often hit ~zero)
+  // ks statistic against target sample
+  // ess is used as sample size for weighted samples
+  // weighted ks is used to avoid resampling (and resulting bias)
   ks() {
     return this.cached('ks', τ => {
       const t = τ.target
-      return ks(
-        τ.samples,
-        t.samples,
-        t.exact,
-        τ.weighted ? τ.weights : undefined,
-        τ.weighted ? τ.weight_sum : undefined,
-        t.weights,
-        t.weight_sum
-      )
+      return ks2(τ.samples, t.samples, {
+        wJ: τ.weighted ? τ.weights : undefined,
+        wj_sum: τ.weighted ? τ.weight_sum : undefined,
+        wK: t.weights,
+        wk_sum: t.weight_sum,
+      })
     })
-  }
-  // regular cdf (w/o small-sample correction) works well
-  // exact case needs one-sided cdf, equivalent to size 2n on both sides since 2*n*m/(n+m)->2n as m->∞ and 2*2n*2n/(2n+2n)=2n
-  ks_cdf() {
-    return this.cached('ks_cdf', τ => {
-      const t = τ.target
-      if (t.exact)
-        // need one-sided cdf w/ n=m->2n (see above)
-        return ks_cdf_at(2 * τ.ess, 2 * τ.ess, τ.ks())
-      return ks_cdf_at(τ.ess, t.ess, τ.ks())
-    })
-  }
-  ks_alpha() {
-    return clip(1 - this.ks_cdf())
   }
 
-  // mks (move ks) metric used as a convergence/mixing indicator
+  // p-value for ks test against target sample
+  ks_test() {
+    return this.cached('ks_test', τ =>
+      clip(1 - ks2_cdf(τ.ks(), τ.ess, τ.target.ess))
+    )
+  }
+
+  // p-value for ks before-vs-after recent moves
+  // used as a convergence/mixing indicator
+  // negative log is tracked by convention
   get mks() {
     return this.cached('mks', τ => {
       if (!(τ.m >= τ.M)) return inf
       // rotate history so m=0 and we can split in half at M/2
-      const _xM = array(τ.M),
-        _yM = array(τ.M),
-        m = τ.m % τ.M
+      const _xM = array(τ.M)
+      const _yM = array(τ.M)
+      const m = τ.m % τ.M
       copy_at(_xM, τ.xM, 0, m)
       copy_at(_xM, τ.xM, τ.M - m, 0, m)
       copy_at(_yM, τ.yM, 0, m)
       copy_at(_yM, τ.yM, τ.M - m, 0, m)
-      return -Math.log2(ks_alpha(_xM.slice(0, τ.M / 2), _yM.slice(-τ.M / 2)))
+      return -Math.log2(ks_test(_xM.slice(0, τ.M / 2), _yM.slice(-τ.M / 2)))
     })
   }
   // cache object tied to random variable (instance)
+  // used to store `target` sample for evaluation purposes
   // must be cleared manually via `clear_instance_cache()`
   get instance_cache() {
     return this._instance_cache ?? (this._instance_cache = {})
@@ -412,31 +398,24 @@ class _Random {
     if (this._instance_cache) this._instance_cache = {}
   }
 
-  // returns inferred or assumed target sample from cache
-  // returns undefined if missing; can be used to test existence
+  // target sample if defined
+  // can be inferred or assumed
   get target() {
     return this.instance_cache.target?.adjust(this)
   }
 
-  // computes ("infers") target sample by updating w/ defaults
-  // resulting target sample is cached on instance-level cache
+  // computes ("infers") target sample
   infer(size, options) {
     return this.sample(size).update(options).assume()
   }
 
-  // sets ("assumes") current (or given) random sample as "target"
-  // type should be 'exact' iff samples=support & weights∝posterior
-  // typically used for inference performance evaluation purposes
+  // sets ("assumes") current (or given) target
   assume(target = this, type = 'sample') {
-    check(
-      ['sample', 'exact', 'median'].includes(type),
-      `invalid target type '${type}'`
-    )
+    check(['sample', 'median'].includes(type), `invalid target type '${type}'`)
     let t = target
     t = this.instance_cache.target = {
       type,
-      ess: type == 'exact' ? t.size /*full ess*/ : t.ess /*≤t.size*/,
-      exact: type == 'exact', // ⟺ samples=support & weights∝posterior
+      ess: t.ess /*≤t.size*/,
       samples: clone(t.samples),
       weights: t.weighted ? clone(t.weights) : undefined,
       weight_sum: t.weighted ? t.weight_sum : undefined,
