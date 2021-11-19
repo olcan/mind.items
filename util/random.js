@@ -451,6 +451,197 @@ class _Random {
     return this // for chaining
   }
 
+  _update_options(options = {}) {
+    return {
+      // function options take in (this,options) as arguments
+      // update step is passed along as o.step or o.n
+      weight_exponent: (τ, o) => 1, // exponent>=0, 0=unweighted, >>1≈full-weighted
+      weight_rule: (τ, o) => true, // weighting rule (default: always)
+      // resampling rule (default: when essr < ~essu/J)
+      // default rule allows ess→J as sample converges to target
+      // once target is stable, essr stays ~1 after reweights
+      // effective moves s.t. essu→J will then allow ess→essu→J
+      sample_rule: (τ, o) => τ.essr < clip(τ.essu / τ.J, 0.5, 1),
+      // move rule (default: _while_ essu<J/2 OR accepts<J)
+      // essu slack ~J/2 allows up to ~J/2 slow-moving samples
+      // non-moving ("stuck") samples can still prevent mixing
+      // invoked repeatedly until returns false
+      // move step is passed as o.move_step or o.m
+      // move accepts are passed as o.move_accepts or o.a
+      move_rule: (τ, { m, a }) => τ.essu < τ.J / 2 || a < τ.J,
+      max_time: 1000, // max time (ms) until no improvement (Δφ<0)
+      min_ess: this.J / 2, // minimum ess desired (within max_time)
+      max_mks: 3, // maximum mks desired (within max_time)
+      max_mks_steps: 3, // min recent steps that must satisfy max_mks
+      min_time: 0, // minimum time (to test additional steps)
+      ...options,
+    }
+  }
+
+  // updates samples towards posterior
+  // sequence of `weight()`, `sample()`, and `move()` operations
+  // [sequential monte carlo](https://en.m.wikipedia.org/wiki/Particle_filter) for  [approximate bayesian computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation)
+  // derived from [ABC Samplers](https://arxiv.org/abs/1802.09650) algorithm 8 (`ABC-SMC`)
+  // see more intuition and tips, see #/update.
+  update(options = {}) {
+    const τ = this,
+      o = (options = τ._update_options(options))
+
+    // wrap function options specified as constants
+    // also check types while we are at it
+    const wrap_function_option = (n, ...t) => {
+      const tK = flatten([...t])
+      if (tK.includes(typeof o[n])) {
+        o['_' + n] = o[n]
+        o[n] = (τ, o) => o['_' + n]
+      }
+      check(
+        typeof o[n] == 'function',
+        `invalid type ${typeof o[n]} for update option` +
+          ` '${n}', must be function|${tK.join('|')}`
+      )
+    }
+
+    wrap_function_option('weight_exponent', 'number')
+    wrap_function_option('weight_rule', 'boolean')
+    wrap_function_option('sample_rule', 'boolean')
+    wrap_function_option('move_rule', 'boolean')
+    const {
+      weight_exponent,
+      weight_rule,
+      sample_rule,
+      move_rule,
+      max_time,
+      min_ess,
+      max_mks,
+      min_time,
+    } = o
+
+    // convenience function to append to array stats
+    const append_stats = (n, v) => {
+      if (τ.stats) τ.stats[n] = (τ.stats[n] || []).concat(v)
+    }
+
+    // convenience function for tracking timing information
+    let weight_time = 0,
+      sample_time = 0,
+      move_time = 0
+    const time = f => {
+      const start = Date.now()
+      f()
+      return Date.now() - start
+    }
+
+    const start = Date.now(),
+      elapsed = () => Date.now() - start
+    const external_steps = defined(o.step)
+    let n = 0,
+      Δφ = 0,
+      mks = 0
+    do {
+      // while ... (see below)
+
+      // pass current step (n) in options (unless done externally)
+      if (!external_steps) {
+        o.step = o.n = n++
+      }
+
+      // check time allowance
+      if (elapsed() >= max_time) {
+        console.warn(
+          'update ran out of time',
+          json(
+            this.summarize_stats({
+              n,
+              Δφ,
+              mks,
+              ess: τ.ess,
+              min_ess,
+              weighted: τ.weighted,
+              weight_time,
+              sample_time,
+              move_time,
+              stats: τ.stats,
+            })
+          )
+        )
+        break // ran out of time
+      }
+
+      // initialize array stats so index 0 is before first step
+      if (o.step == 0 && τ.stats) {
+        append_stats('essr', round(100 * τ.essr))
+        append_stats('mar', 100) // start at 100
+        append_stats('ess', round(τ.ess))
+        append_stats('essu', round(τ.essu))
+        append_stats('Δφ', 0)
+        if (τ.M) append_stats('mks', 1024)
+      }
+
+      const w_exp = weight_exponent(τ, o)
+
+      // adjust weights for next target relative to current target
+      if (weight_rule(τ, o)) weight_time += timing(() => τ.weight(w_exp), '')
+      append_stats('essr', round(100 * τ.essr))
+
+      // resample to force uniform weights
+      // can increase ess up to ~1/2 essu
+      // _decreases_ essu by ~1/2, or ~k/(k+1)
+      if (sample_rule(τ, o)) sample_time += timing(() => τ.sample(), '')
+
+      // move particles toward current target via markov chain
+      // multiple moves may be needed for mixing/convergence
+      // move_rule is invoked multiple times until it returns false
+      // move step is passed along as options.move_step and options.m
+      // NOTE: if mixing is not achieved, may get harder in next step
+      // NOTE: move_rule should typically check both #accepts and essu, which together provide an indication of ability to ability to move particles in a healthy manner
+      // WARNING: if essu remains low/unchecked, this may lead to ess SPIRAL (ess→1) when weights are skewed, triggering frequent destructive (essu->essu/2) resampling between moves
+      Δφ = 0 // total Δφ across multiple moves
+      const prev_proposals = τ.stats?.proposals
+      const prev_accepts = τ.stats?.accepts
+      let m = (o.m = o.move_step = 0)
+      τ._move_accepts = o.a = o.move_accepts = 0
+      while (move_rule(τ, o) && elapsed() < max_time) {
+        move_time += timing(() => τ.move(w_exp), '')
+        Δφ += τ._φj_move
+        o.m = o.move_step = ++m
+        o.a = o.move_accepts = τ._move_accepts
+      }
+      if (τ.stats) {
+        // report move accept rate ("mar")
+        const accept_rate =
+          (τ.stats.accepts - prev_accepts) /
+          (τ.stats.proposals - prev_proposals)
+        append_stats('mar', round(100 * accept_rate))
+      }
+
+      append_stats('ess', round(τ.ess))
+      append_stats('essu', round(τ.essu))
+      append_stats('Δφ', round(Δφ, 1))
+
+      mks = 0 // disables mks
+      if (τ.M) {
+        mks = Infinity // enables mks checks
+        if (τ.m < τ.M) append_stats('mks', 1024)
+        else {
+          append_stats('mks', Math.min(1024, round(τ.mks, 1)))
+          if (τ.stats.mks.length >= o.max_mks_steps)
+            mks = max(τ.stats.mks.slice(-o.max_mks_steps))
+        }
+      }
+
+      if (external_steps) break // steps managed externally
+    } while (
+      mks > max_mks ||
+      Δφ > 0 ||
+      τ.ess < min_ess ||
+      τ.weighted ||
+      elapsed() < min_time
+    )
+
+    return τ // for chaining
+  }
+
   // TODO: methods, hooks, utils (graph)
   // TODO: tests, benchmarks
   // TODO: processes, tests, benchmarks, evals
