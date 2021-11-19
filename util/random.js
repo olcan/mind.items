@@ -450,4 +450,9 @@ class _Random {
     }
     return this // for chaining
   }
+
+  // TODO: methods, hooks, utils (graph)
+  // TODO: tests, benchmarks
+  // TODO: processes, tests, benchmarks, evals
+  // TODO: generic "program" wrapper?
 }
