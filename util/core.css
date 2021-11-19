@@ -149,6 +149,12 @@
   display: none;
 }
 
+/* prefix usage for scoped functions */
+.core_js_table .function.scoped .name::before {
+  content: '.';
+  color: #666;
+}
+
 /* style .desc, right column of main table */
 .core_js_table .desc {
   padding-left: 10px;

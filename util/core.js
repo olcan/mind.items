@@ -254,6 +254,8 @@ function _js_table_function_status(name) {
 // can filter names using optional `regex`
 function js_table(regex) {
   let scope // class name if inside class scope
+  let scope_indent = {}
+  let names = new Set()
   const defs = _.compact(
     Array.from(
       _this
@@ -267,6 +269,13 @@ function js_table(regex) {
         // skip certain types if indented
         if (def.indent && def.type?.match(/(?:const|let|class|function)$/))
           return
+        // skip constructor unless commented
+        if (!def.type && def.name == 'constructor' && !def.comment) return
+        // skip duplicate names unless commented
+        if (names.has(def.name) && !def.comment) return
+        names.add(def.name)
+        // clear args if getter/setter
+        if (def.type.match(/(?:get|set)$/)) def.args = ''
 
         if (def.arrow_args) {
           def.args = def.arrow_args.replace(/\s*=>$/, '')
@@ -281,8 +290,15 @@ function js_table(regex) {
         if (def.type == 'class') scope = def.name
         else if (!def.indent) scope = null
 
-        // assign indented definition to lass scope
-        if (def.indent && scope) def.scope = scope
+        // assign indented definition to last scope
+        // also record indent level or ensure match to existing level
+        if (
+          (def.indent && scope && !scope_indent[scope]) ||
+          scope_indent[scope] == def.indent
+        ) {
+          def.scope = scope
+          scope_indent[scope] = def.indent
+        }
 
         // save original name (before possible modification via comments)
         // prefix scoped definitions as <scope>__<name>
@@ -329,8 +345,9 @@ function js_table(regex) {
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
     if (regex && !regex.test(def._name)) return
-    // hide underscore-prefixed or indented definitions unless modified via comments
-    if ((def.name.startsWith('_') || def.indent) && !def.modified) return
+    // hide underscore-prefixed or indented definitions unless modified via comments or named-scoped (e.g. under a class scope)
+    if ((def.name.match(/^_/) || (def.indent && !def.scope)) && !def.modified)
+      return
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
@@ -414,10 +431,12 @@ function js_table(regex) {
         'bullet' + (benchmark ? ` benchmark ${benchmark.ok ? ' ok' : ''}` : '')
       )
 
+    const scoped = def.scope ? 'scoped' : ''
+
     // NOTE: we prefer returning markdown-inside-table instead of returning a pure _html block, because _html is mostly unparsed whereas markdown is parsed just like other content on item, e.g. for math blocks
     lines.push(
       _div(
-        `function name_${def._name} ${has_more} ${has_defaults} ${toggled} ${ok}`,
+        `function name_${def._name} scope_${def.scope} ${scoped} ${has_more} ${has_defaults} ${toggled} ${ok}`,
         _span(`usage`, bullets + usage) +
           _span('desc', '\n' + def.comment + '\n')
       )
@@ -528,6 +547,9 @@ function _js_table_show_function(name) {
   const usage = func.querySelector('.usage')
   const display_name = func.querySelector('.name').innerText
   const display_args = func.querySelector('.args').innerText
+  const scope = Array.from(func.classList)
+    .find(c => c.startsWith('scope_'))
+    .slice(6)
   // remove all whitespace from args except before commas & around equals
   const args = usage
     .querySelector('.args.expanded')
@@ -584,7 +606,10 @@ function _js_table_show_function(name) {
     _div(
       'core_js_table_modal', // style wrapper, see core.css
       (status ? _div('buttons', status) : '') +
-        _div('title', `<code>${display_name}</code>` + _span('args', args)) +
+        _div(
+          'title',
+          `<code>${scope}.${display_name}</code>` + _span('args', args)
+        ) +
         '\n\n' +
         block('js', def) +
         '\n'
