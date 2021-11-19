@@ -18,7 +18,6 @@ class _Random {
     // TODO: define and document properties ...
   }
 
-  // => _Random.init(...args)
   // creates new random variable
   // can be invoked on any subclass as `_Type.init`
   // seals created object; use `new _Type` for unsealed
@@ -26,7 +25,6 @@ class _Random {
     return Object.seal(new this.prototype.constructor(...args))
   }
 
-  // => _Random.type
   // type of random variable
   // defined on both class (static) and instances
   static get type() {
@@ -36,7 +34,6 @@ class _Random {
     return this.constructor.type
   }
 
-  // => _Random.domain
   // domain of random variable
   // defined on both class (static) and instances
   // domain representation/encoding depends on type
@@ -47,7 +44,6 @@ class _Random {
     return this._domain(this.params)
   }
 
-  // => _Random.reset()
   // resets to initial state
   reset() {
     const τ = this
@@ -63,7 +59,6 @@ class _Random {
     if (τ.M) τ.m = 0 // reset move tracking
   }
 
-  // => _Random.samples
   // sampled values `xJ`
   // can be set to observed or assumed values for inference
   // can be optionally weighted by also setting `weights`
@@ -81,13 +76,11 @@ class _Random {
     if (τ.stats) τ.stats.samples++
   }
 
-  // => _Random.size
   // sample size `J ≡ xJ.length`
   get size() {
     return this.J
   }
 
-  // => _Random.weights
   // sample weights `wJ`
   // can be interpreted as $`∝ q(x)/p(x)`$, $`p`$ = sampling distribution
   // enables sample to behave as $`q(x)≠p(x)`$ _with reduced efficiency_
@@ -108,13 +101,11 @@ class _Random {
     if (τ.stats) τ.stats.weights++
   }
 
-  // => _Random.weight_sum
   // total weight `wj_sum ≡ sum(wJ)`
   get weight_sum() {
     return this.wj_sum
   }
 
-  // => _Random.value
   // random value
   // (re)sampled from `samples` (via `index`) if set
   // otherwise generated internally via `_value(θ)`
@@ -136,7 +127,6 @@ class _Random {
     return τ._value(τ.θ._sample()) // random value
   }
 
-  // => _Random.index
   // random index into `samples`
   // can be set to fixed index or `undefined` to reset
   set index(j) {
@@ -152,7 +142,6 @@ class _Random {
     return discrete(τ.wJ, τ.wj_sum)
   }
 
-  // => _Random.cache
   // cache object tied to (weighted) sample
   // initialized on first access (may be indirect)
   // cleared when `samples` or `weights` are set
@@ -160,21 +149,16 @@ class _Random {
   get cache() {
     return this._cache ?? (this._cache = {})
   }
-  // => _Random.cached(key, f)
   // cached value under `key` of `f(this)`
   // `this.cache[key] ?? (this.cache[key] = f(this))`
   cached(key, f) {
     return this.cache[k] ?? (this.cache[key] = f(this))
   }
-  // => _Random.clear_cache()
   // clears cache
   clear_cache() {
     this._cache = undefined
   }
 
-  //…/cached properties are those stored under cache, e.g. cache.expensive_reusable_result. Cache is cleared (={}) automatically whenever samples or weights are modified. Convenience method cached(key,func) can compute cached properties as needed. Convenient accessors are also provided for many built-in cached properties such as min, max, mean, ...
-
-  // => _Random.weighted(ε=1e-6)
   // is sample weighted?
   // ignores weight deviations within `(1±ε)⨉` mean weight
   weighted(ε = 1e-6) {
@@ -185,81 +169,68 @@ class _Random {
       return !every(τ.wJ, w => w > w_min && w < w_max)
     })
   }
-  // => _Random.min
   // sample minimum
   get min() {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('min', τ => min(τ.xJ))
   }
-  // => _Random.max
   // sample maximum
   get max() {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('max', τ => max(τ.xJ))
   }
-  // => _Random.min_max
   // sample range `[min,max]`
   get min_max() {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('min_max', τ => [τ.min, τ.max])
   }
-  // => _Random.mean
   // sample mean
   get mean() {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('mean', τ => mean(τ.xJ))
   }
-  // => _Random.stdev
   // sample stdev
   get stdev() {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('stdev', τ => stdev(τ.xJ))
   }
-  // => _Random.median
   // sample median
   get median() {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('median', τ => median(τ.xJ))
   }
-  // => _Random.quartiles
   // sample quartiles
   get quartiles() {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.quantiles([0.25, 0.5, 0.75])
   }
-  // => _Random.quantiles(qK)
   // sample quantiles
   quantiles(qK) {
     assert(!this.weighted(), 'weighted sample not supported')
     if (!is_array(qK)) qK = arguments
     return this.cached('quantiles_' + qK, τ => quantiles(τ.xJ, qK))
   }
-  // => _Random.circular_mean([r=pi])
   // sample circular mean on `[-r,r]`
   circular_mean(r = pi) {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('circular_mean.r=' + r, τ => circular_mean(τ.xJ, r))
   }
-  // => _Random.circular_stdev([r=pi])
   // sample circular stdev on `[-r,r]`
   circular_stdev(r = pi) {
     assert(!this.weighted(), 'weighted sample not supported')
     return this.cached('circular_stdev.r=' + r, τ => circular_stdev(τ.xJ, r))
   }
 
-  // => _Random.values
   // sample values (unique)
-  get value_counts() {
+  get values() {
     return this.cached('values', τ => _.uniq(τ.xJ))
   }
 
-  // => _Random.value_counts
   // sample counts by value
   get value_counts() {
     return this.cached('value_counts', τ => _.countBy(τ.xJ))
   }
 
-  // => _Random.value_weights
   // sample weights by value
   get value_weights() {
     return this.cached('value_weights', τ => {
@@ -270,7 +241,6 @@ class _Random {
     })
   }
 
-  // => _Random.value_probs
   // sample probabilities by value
   // probabilities are normalized weights
   get value_probs() {
@@ -281,7 +251,6 @@ class _Random {
     })
   }
 
-  // => _Random.value_post_weights
   // posterior weights by value
   // based on last (re)weight w/ _observed descendants_
   // _not true posterior_ if `weight_exponent<1` on last (re)weight
@@ -297,7 +266,6 @@ class _Random {
     })
   }
 
-  // => _Random.value_post_probs
   // posterior probabilities by value
   // probabilities are normalized weights
   // based on last (re)weight w/ _observed descendants_
@@ -306,24 +274,20 @@ class _Random {
     return this.cached('value_post_probs', τ => normalize(τ.value_post_weights))
   }
 
-  // => _Random.mode
   // weighted sample mode
   get mode() {
     return this.cached('mode', τ => τ._mode(τ.value_weights, max))
   }
-  // => _Random.antimode
   // weighted sample anti-mode
   get antimode() {
     return this.cached('antimode', τ => τ._mode(τ.value_weights, min))
   }
-  // => _Random.post_mode
   // posterior-weighted mode
   // can be used for robust step sizes for local move proposals
   // see `value_post_weights` above for caveats
   get post_mode() {
     return this.cached('post_mode', τ => τ._mode(τ.value_post_weights, max))
   }
-  // => _Random.post_antimode
   // posterior-weighted anti-mode
   // can be used for robust step sizes for local move proposals
   // see `value_post_weights` above for caveats
@@ -338,7 +302,6 @@ class _Random {
       if (wK[k] == w_mode && r == n++) return xK[k]
   }
 
-  // => _Random.ess
   // effective sample size
   // approximates ideal value `J*Var(target)/MSE(sample)`
   // equivalent sample size _if we could sample from target_
@@ -357,7 +320,6 @@ class _Random {
     })
   }
 
-  // => _Random.essu
   // _unweighted_ effective sample size
   // ignores weights but not duplication
   // resampling can improve ess only up to ≲1/2 essu
@@ -373,7 +335,6 @@ class _Random {
     })
   }
 
-  // => _Random.essr
   // `ess/essu` ratio
   // natural measure of weight skew (decoupled from duplication)
   // natural indicator of when resampling is likely to improve `ess`
@@ -440,14 +401,12 @@ class _Random {
       return -Math.log2(ks_alpha(_xM.slice(0, τ.M / 2), _yM.slice(-τ.M / 2)))
     })
   }
-  // => _Random.instance_cache
   // cache object tied to random variable (instance)
   // must be cleared manually via `clear_instance_cache()`
   get instance_cache() {
     return this._instance_cache ?? (this._instance_cache = {})
   }
 
-  // => _Random.clear_instance_cache()
   // clears instance cache
   clear_instance_cache() {
     if (this._instance_cache) this._instance_cache = {}
