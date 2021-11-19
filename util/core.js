@@ -253,6 +253,7 @@ function _js_table_function_status(name) {
 // table of `js` definitions
 // can filter names using optional `regex`
 function js_table(regex) {
+  let scope // class name if inside class scope
   const defs = _.compact(
     Array.from(
       _this
@@ -262,6 +263,7 @@ function js_table(regex) {
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
+        def.type = def.type.trim() // trim trailing space
         // skip certain types if indented
         if (def.indent && def.type?.match(/(?:const|let|class|function)$/))
           return
@@ -275,15 +277,18 @@ function js_table(regex) {
         // escape special characters in args: `, \, and | (breaks table)
         def.args = def.args.replace(/([`\\|])/g, '\\$1')
 
-        // mark indented definitions as "scoped"
-        def.scoped = !!def.indent
+        // start new scope if class type, end last scope if unindented
+        if (def.type == 'class') scope = def.name
+        else if (!def.indent) scope = null
+
+        // assign indented definition to lass scope
+        if (def.indent && scope) def.scope = scope
 
         // save original name (before possible modification via comments)
-        // prefix scoped/indented definitions as scoped_<name>
+        // prefix scoped definitions as <scope>__<name>
         // otherwise Class.func can conflict with global func
-        // tests/benchmarks must also use name scoped_<name>
-        // only a single scope is distinguished/allowed
-        def._name = (def.scoped ? 'scoped_' : '') + def.name
+        // tests/benchmarks must also use name <scope>__<name>
+        def._name = (def.scope ? def.scope + '__' : '') + def.name
 
         if (def.comment) {
           // clean up: drop // and insert <br> before \n
@@ -324,8 +329,8 @@ function js_table(regex) {
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
     if (regex && !regex.test(def._name)) return
-    // hide underscore-prefixed or scoped definitions unless modified via comments
-    if ((def.name.startsWith('_') || def.scoped) && !def.modified) return
+    // hide underscore-prefixed or indented definitions unless modified via comments
+    if ((def.name.startsWith('_') || def.indent) && !def.modified) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
@@ -551,14 +556,16 @@ function _js_table_show_function(name) {
         def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
       else throw new Error(`invalid return '${def}' from _function_${name}()`)
     } else {
-      // assume class member if display name has period
-      if (display_name.match(/^\w+\.\w+$/)) {
+      // assume class member name has double-underscore in middle
+      if (name.match(/^\w+__\w+$/)) {
         // assume function if has args, otherwise property
         if (display_args) {
-          ref = `${display_name.replace('.', '.prototype.')} ?? ${display_name}`
+          const instance_ref = name.replace('__', '.prototype.')
+          const static_ref = name.replace('__', '.')
+          ref = `${instance_ref} ?? ${static_ref}`
           def = unindent(_this.eval(ref))
         } else {
-          const [class_name, prop] = display_name.split('.')
+          const [class_name, prop] = name.split('__')
           ref = `Object.getOwnPropertyDescriptor(${class_name}.prototype, '${prop}') ?? Object.getOwnPropertyDescriptor(${class_name}, '${prop}')`
           def = _this.eval(ref)
           if (def) def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
