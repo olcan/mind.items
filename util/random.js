@@ -126,6 +126,10 @@ class _Random {
     if (τ.J) return τ.xJ[τ.index] // pre-sampled value
     return τ._value(τ.θ._sample()) // random value
   }
+  // `array(J, j => this.value)`
+  values(J = this.size) {
+    return array(J, j => this.value)
+  }
 
   // random index into `samples`
   // can be set to fixed index or `undefined` to reset
@@ -135,11 +139,15 @@ class _Random {
   }
   get index() {
     const τ = this
-    assert(τ.J > 0, 'no samples')
+    assert(τ.J > 0, 'missing samples')
     if (τ.J == 1) return 0
     if (τ.j >= 0) return τ.j // fixed index
     if (!τ.wJ) return uniform_int(τ.J)
     return discrete(τ.wJ, τ.wj_sum)
+  }
+  // `array(J, j => this.index)`
+  indices(J = this.size) {
+    return array(J, j => this.index)
   }
 
   // cache object tied to (weighted) sample
@@ -221,9 +229,9 @@ class _Random {
     return this.cached('circular_stdev.r=' + r, τ => circular_stdev(τ.xJ, r))
   }
 
-  // sample values (unique)
-  get values() {
-    return this.cached('values', τ => _.uniq(τ.xJ))
+  // sample unique values
+  get unique_values() {
+    return this.cached('unique_values', τ => _.uniq(τ.xJ))
   }
 
   // sample counts by value
@@ -354,8 +362,8 @@ class _Random {
     return this.cached('ks', τ => {
       const t = τ.target
       return ks2(τ.samples, t.samples, {
-        wJ: τ.weighted ? τ.weights : undefined,
-        wj_sum: τ.weighted ? τ.weight_sum : undefined,
+        wJ: τ.weighted() ? τ.weights : undefined,
+        wj_sum: τ.weighted() ? τ.weight_sum : undefined,
         wK: t.weights,
         wk_sum: t.weight_sum,
       })
@@ -386,7 +394,7 @@ class _Random {
       return -Math.log2(ks_test(_xM.slice(0, τ.M / 2), _yM.slice(-τ.M / 2)))
     })
   }
-  // cache object tied to random variable (instance)
+  // cache object tied to instance
   // used to store `target` sample for evaluation purposes
   // must be cleared manually via `clear_instance_cache()`
   get instance_cache() {
@@ -410,7 +418,9 @@ class _Random {
     return this.sample(size).update(options).assume()
   }
 
-  // sets ("assumes") current (or given) target
+  // designates random variable as target
+  // weighted sample is extracted from target variable
+  // TODO: document types, better understand 'median' type
   assume(target = this, type = 'sample') {
     check(['sample', 'median'].includes(type), `invalid target type '${type}'`)
     let t = target
@@ -418,8 +428,8 @@ class _Random {
       type,
       ess: t.ess /*≤t.size*/,
       samples: clone(t.samples),
-      weights: t.weighted ? clone(t.weights) : undefined,
-      weight_sum: t.weighted ? t.weight_sum : undefined,
+      weights: t.weighted() ? clone(t.weights) : undefined,
+      weight_sum: t.weighted() ? t.weight_sum : undefined,
     }
     // set up convenience functions for random (re)sampling
     const size = t.samples.length
@@ -450,6 +460,18 @@ class _Random {
       t.adjust = () => t
     }
     return this // for chaining
+  }
+
+  // observe([xJ|X])
+  // designates random variable as _observed_
+  // can also set `samples` from given array `xJ` or variable `X`
+  observe(xJ) {
+    if (xJ) {
+      if (!is_array(xJ) && !is_random(xJ)) xJ = arguments
+      this.sample(xJ)
+    }
+    this.observed = true
+    return this
   }
 
   _update_options(options = {}) {
@@ -558,7 +580,7 @@ class _Random {
               mks,
               ess: τ.ess,
               min_ess,
-              weighted: τ.weighted,
+              weighted: τ.weighted(),
               weight_time,
               sample_time,
               move_time,
@@ -636,7 +658,7 @@ class _Random {
       mks > max_mks ||
       Δφ > 0 ||
       τ.ess < min_ess ||
-      τ.weighted ||
+      τ.weighted() ||
       elapsed() < min_time
     )
 
@@ -654,9 +676,9 @@ class _Random {
       return τ
     }
     if (isRandom(J)) {
-      // get samples from another random process
+      // get samples/weights from another random process
       τ.samples = clone(J.samples)
-      if (J.weighted) τ.weights = clone(J.weights)
+      if (J.weighted()) τ.weights = clone(J.weights)
       return τ
     }
     check(J >= 1, 'invalid sample size')
@@ -695,7 +717,7 @@ class _Random {
 
   _resample() {
     const τ = this
-    check(τ.J > 0, 'no samples to resample')
+    check(τ.J > 0, 'missing samples to resample')
     check(τ.J > 1, 'resampling single sample')
     if (!τ._xJ) τ._xJ = array(τ.J) // for xJ
     if (!τ._jJ) τ._jJ = array(τ.J) // for jJ
@@ -737,11 +759,11 @@ class _Random {
 
   _reweight(weight_exponent = 1) {
     const τ = this
-    check(τ.J > 0, 'no samples to reweight')
+    check(τ.J > 0, 'missing samples to reweight')
     check(τ.J > 1, 'reweighting redundant for J=1')
-    check(τ.children, 'no children for reweight')
+    check(τ.children, 'missing children for reweight')
     const descendants = τ.observed_descendants()
-    check(descendants.length, 'no observed descendants for reweight')
+    check(descendants.length, 'missing observed descendants for reweight')
     // update weights using log-sum-exp trick
     if (!τ._wJ) τ._wJ = array(τ.J)
     if (!τ.wJ) τ.wJ = array(τ.J).fill(1)
@@ -803,17 +825,17 @@ class _Random {
   }
 
   // move([exponent=1])
-  // moves samples towards posterior
+  // moves `samples` towards posterior
   // takes [Metropolis-Hastings](https://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm) steps along markov chains
   // stationary distribution is prior weighted by `_weight` hook
   // converges to posterior as `_weight → likelihood`
   // move proposals are defined in `_propose` hook
   move(weight_exponent = 1) {
     const τ = this
-    check(τ.J > 0, 'no samples to move')
-    check(τ.children, 'no children for move')
+    check(τ.J > 0, 'missing samples to move')
+    check(τ.children, 'missing children for move')
     const descendants = τ.observed_descendants()
-    check(descendants.length, 'no observed descendants for move')
+    check(descendants.length, 'missing observed descendants for move')
     // reject 'prior moves' since unnecessary complication
     check(τ.φJ, 'can not move before (re)weight')
     if (!τ._xJ) τ._xJ = array(τ.J) // for proposals
@@ -1019,21 +1041,26 @@ class _Random {
     }
   }
 
-  // TODO: naming conflict
-  values(J = this.size) {
-    return array(J, j => this.value)
+  // posterior `pJ` for current `samples` (`xJ`)
+  posterior(log_wJ = array(this.J)) {
+    const obs = this.observed_descendants()
+    assert(obs.length, 'missing observed descendants for posterior marginal')
+    return normalize_exp(this._posterior(this.xJ, log_wJ, obs))
   }
-  indices(J = this.size) {
-    return array(J, j => this.index)
+
+  // posterior marginal over variables `YK`
+  // marginalizes over all combinations of samples of `YK`
+  posterior_marginal(...YK) {
+    assert(YK.length, 'missing variables to marginalize over')
+    const obs = this.observed_descendants()
+    assert(obs.length, 'missing observed descendants for posterior marginal')
+    const pJ = zeroes(this.J)
+    const log_wJ = array(this.J) // buffer for posterior computations
+    this._posterior_marginal(pJ, log_wJ, obs, ...YK)
+    return normalize(pJ) // renormalize across combinations
   }
-  observe(obs) {
-    if (obs) {
-      if (!isArray(obs) && !isRandom(obs)) obs = [obs]
-      this.sample(obs)
-    }
-    this.observed = true
-    return this
-  }
+
+  // descendants that are `observed`
   observed_descendants() {
     if (!this.children) return []
     // NOTE: descendants can be duplicated in a DAG structure
@@ -1045,6 +1072,8 @@ class _Random {
       )
     )
   }
+
+  // descendants w/ `target` defined
   targeted_descendants() {
     if (!this.children) return []
     // NOTE: descendants can be duplicated in a DAG structure
@@ -1056,36 +1085,54 @@ class _Random {
       )
     )
   }
-  has_ancestor(a) {
-    if (this == a) return true
+
+  // is `A` an ancestor?
+  // `A==this` counts as ancestor
+  has_ancestor(A) {
+    if (this == A) return true
     if (!this.parents) return false
-    return this.parents.some(p => p.has_ancestor(a))
+    return this.parents.some(p => p.has_ancestor(A))
   }
-  value_for_ancestor(a, v) {
-    // NOTE: we have to set fixed value (v can be an unsampled proposal)
-    a.v = v
+
+  // random `value` for ancestor `A==a`
+  // temporarily sets fixed value `a` for `A`
+  value_for_ancestor(A, a) {
+    A.v = a
     const x = this.value
-    a.v = undefined
+    A.v = undefined
     return x
   }
-  distance_from_ancestor(a) {
-    if (this == a) return 0
+
+  // distance (nodes) from ancestor `A`
+  // distance is 0 if `A==this`, ∞ if `A` is not an ancestor
+  distance_from_ancestor(A) {
+    if (this == A) return 0
     if (!this.parents) return Infinity
-    return 1 + min(this.parents.map(p => p.distance_from_ancestor(a)))
+    return 1 + min(this.parents.map(p => p.distance_from_ancestor(A)))
   }
-  marginal(...vars) {
-    return this._marginal(zeroes(this.J), array(this.J), ...vars)
-  }
-  _marginal(wK, pK, Y, ...vars) {
-    const descendants = this.observed_descendants()
+
+  _posterior_marginal(pJ, log_wJ, obs, Y, ...YK) {
+    // add to pJ
+    if (!Y) add(pJ, normalize_exp(this._posterior(this.xJ, log_wJ, obs)))
+    // enumerate combinations of samples of variables YK recursively
     repeat(Y.J, j => {
       Y.j = j
-      add_exp(wK, this._posterior(this.xJ, pK, descendants))
-      if (vars.length) this._marginal(wK, pK, vars)
+      this._posterior_marginal(pJ, log_wJ, obs, YK)
     })
     Y.j = undefined
-    return normalize(wK)
   }
+
+  // enable_stats([stats])
+  // enables statistics
+  // |`samples`  | number of initial `samples` set
+  // |`weights`  | number of initial `weights` set
+  // |`reweights`| number of reweights
+  // |`resamples`| number of resamples
+  // |`moves`    | number of moves
+  // |`proposals`| number of proposed values
+  // |`accepts`  | number of accepted proposals
+  // can start/resume from given `stats`
+  // disables stats if `stats` is falsy
   enable_stats(stats) {
     if (defined(stats) && !stats) this.stats = undefined
     else
@@ -1101,9 +1148,14 @@ class _Random {
       }
     return this
   }
+
+  // disables statistics
   disable_stats() {
-    this.enable_stats(false)
+    this.stats = undefined
   }
+
+  // summarizes stats
+  // TODO: this should just be a recursive rounding utility
   summarize_stats(stats = this.stats, digits = 3) {
     if (!stats) return stats
     return mapValues(stats, v => {
@@ -1112,6 +1164,10 @@ class _Random {
       return isNumber(v) ? round(v, digits) : v
     })
   }
+
+  // enables move tracking for last `M` moves
+  // from/to value pair is recorded for last `M` moves
+  // disables move tracking if `M==0`
   enable_move_tracking(M) {
     check(M >= 0, 'invalid move tracking history size')
     if (M == 0) {
@@ -1125,9 +1181,12 @@ class _Random {
     this.yM = array(M).fill(undefined)
     this.m = 0 // next move index
   }
+
+  // disables move tracking
   disable_move_tracking() {
     this.enable_move_tracking(0)
   }
+
   // NOTE: subclass can override this method to change args for shorthand or return undefined if shorthand is not available and named .init({...}) should be used
   init_string(params) {
     return this.type.substring(1) + '(' + this.params_values_string() + ')'
