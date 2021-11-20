@@ -404,6 +404,7 @@ class _Random {
     return this.instance_cache.target?.adjust(this)
   }
 
+  // infer([size],[options])
   // computes ("infers") target sample
   infer(size, options) {
     return this.sample(size).update(options).assume()
@@ -478,11 +479,11 @@ class _Random {
     }
   }
 
-  // updates samples towards posterior
+  // updates `samples` towards posterior
   // sequence of `weight()`, `sample()`, and `move()` operations
   // [sequential monte carlo](https://en.m.wikipedia.org/wiki/Particle_filter) for  [approximate bayesian computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation)
   // derived from [ABC Samplers](https://arxiv.org/abs/1802.09650) algorithm 8 (`ABC-SMC`)
-  // see more intuition and tips, see #/update.
+  // detailed notes in #/update
   update(options = {}) {
     const τ = this,
       o = (options = τ._update_options(options))
@@ -640,6 +641,164 @@ class _Random {
     )
 
     return τ // for chaining
+  }
+
+  // sample([xJ|X|J])
+  // sets, generates, or updates (_resamples_) `samples`
+  // can set from array `xJ` or random variable `X`
+  sample(J) {
+    const τ = this
+    if (J === undefined) return τ._resample() // see below
+    if (isArray(J)) {
+      τ.samples = J
+      return τ
+    }
+    if (isRandom(J)) {
+      // get samples from another random process
+      τ.samples = clone(J.samples)
+      if (J.weighted) τ.weights = clone(J.weights)
+      return τ
+    }
+    check(J >= 1, 'invalid sample size')
+    // if size is unchanged, reuse existing arrays
+    if (J != τ.J) {
+      τ.reset()
+      τ.xJ = array(J)
+      τ.J = J
+    }
+    if (τ._sample_weighted) {
+      if (!τ.wJ) τ.wJ = array(J)
+      τ._sample(τ.xJ, τ.wJ, τ.θ._sample())
+      τ.wj_sum = sum(τ.wJ)
+      check(τ.wj_sum > 0, 'invalid weights')
+    } else {
+      τ._sample(τ.xJ, undefined, τ.θ._sample())
+      if (τ.wJ) {
+        τ.wJ.fill(1)
+        τ.wj_sum = τ.J
+      }
+    }
+    // reset posterior to prior
+    if (τ.φJ) {
+      τ.φJ.fill(0)
+      τ._prior(τ.xJ, τ.φJ, τ.θ._sample())
+    }
+    τ.j = undefined // reset fixed index
+    τ.clear_cache()
+    τ.observed = false // sample generated, not observed
+    if (τ.M) τ.m = 0 // reset move tracking
+    // reset indices and assume full ess if unweighted
+    if (τ.jJ) fill(τ.jJ, j => j)
+    if (τ.stats) τ.stats.samples++
+    return τ // for chaining
+  }
+
+  _resample() {
+    const τ = this
+    check(τ.J > 0, 'no samples to resample')
+    check(τ.J > 1, 'resampling single sample')
+    if (!τ._xJ) τ._xJ = array(τ.J) // for xJ
+    if (!τ._jJ) τ._jJ = array(τ.J) // for jJ
+    if (τ.φJ && !τ._wJ) τ._wJ = array(τ.J) // for φJ
+    // initialize sample indices if needed (first resample)
+    if (!τ.jJ) {
+      τ.jJ = array(τ.J)
+      fill(τ.jJ, j => j)
+    }
+    // resample/shuffle xJ, jJ, maybe φJ
+    repeat(τ.J, j => {
+      const jj = τ.index
+      τ._xJ[j] = τ.xJ[jj]
+      τ._jJ[j] = τ.jJ[jj]
+      if (τ.φJ) τ._wJ[j] = τ.φJ[jj]
+    })
+    τ.xJ = swap(τ._xJ, (τ._xJ = τ.xJ))
+    τ.jJ = swap(τ._jJ, (τ._jJ = τ.jJ))
+    if (τ.φJ) τ.φJ = swap(τ._wJ, (τ._wJ = τ.φJ))
+    // reset weights (now "baked into" sample)
+    if (τ.wJ) {
+      τ.wJ.fill(1)
+      τ.wj_sum = τ.J
+    }
+    τ.clear_cache()
+    if (τ.stats) τ.stats.resamples++
+    return τ // for chaining
+  }
+
+  // weight([wJ|exponent=1])
+  // sets or updates (_reweights_) `weights`
+  // additional notes in #/weight
+  weight(arg = 1 /*weight array or exponent>=0*/) {
+    if (arg >= 0 && arg <= 1) this._reweight(arg)
+    else if (isArray(arg)) this.weights = arg
+    else throw new Error('invalid argument for weight')
+    return this // for chaining
+  }
+
+  _reweight(weight_exponent = 1) {
+    const τ = this
+    check(τ.J > 0, 'no samples to reweight')
+    check(τ.J > 1, 'reweighting redundant for J=1')
+    check(τ.children, 'no children for reweight')
+    const descendants = τ.observed_descendants()
+    check(descendants.length, 'no observed descendants for reweight')
+    // update weights using log-sum-exp trick
+    if (!τ._wJ) τ._wJ = array(τ.J)
+    if (!τ.wJ) τ.wJ = array(τ.J).fill(1)
+    // take log(wJ) minus log-posterior φJ (denominator)
+    // if posterior is missing (first reweight), use prior
+    if (!τ.φJ) {
+      τ.φJ = zeroes(τ.J)
+      τ._prior(τ.xJ, τ.φJ, τ.θ._sample())
+    }
+    log(τ.wJ)
+    τ._wJ = swap(τ.wJ, (τ.wJ = τ._wJ))
+    // NOTE: prior always cancels out here (see last page of ABC Samplers paper) but not in _move and splitting λJ would complicate too much
+    // subtract previous posterior (may be just prior)
+    sub(τ._wJ, τ.φJ)
+    τ._posterior(τ.xJ, τ.φJ, descendants, weight_exponent)
+    add(τ._wJ, τ.φJ)
+    const w_max = max(τ._wJ) // to subtract in log space
+    apply(τ._wJ, w => Math.exp(w - w_max))
+    // exp(τ._wJ)
+    τ.wJ = swap(τ._wJ, (τ._wJ = τ.wJ))
+    τ.wj_sum = sum(τ.wJ)
+    check(τ.wj_sum > 0, 'invalid weights')
+    τ.clear_cache()
+    if (τ.stats) τ.stats.reweights++
+  }
+  // _posterior(xJ, log_wJ, descendants, exponent) computes ~posterior
+  // fills in log_wJ with log-posterior for samples xJ
+  // used in both _weight and _move (for proposals)
+  // clips small weights and applies optional exponent
+  // does NOT normalize or otherwise rescale weights
+  // also returns log_wJ (not intended for chaining)
+  _posterior(xJ, log_wJ, descendants, exponent = 1) {
+    const τ = this
+    log_wJ.fill(0)
+    τ._prior(xJ, log_wJ, τ.θ._sample())
+    // TODO: summing _weight over descendants implies a conditional independence assumption which does not hold e.g. if descendants have other common parents
+    each(descendants, c => {
+      // set up θJ for _weight, which is just c.θ w/ _scan method
+      const θJ = c.θ
+      c.θ._scan = f => {
+        scan(xJ, (j, x) => {
+          θJ._set(this, x)
+          f(j, θJ._sample())
+        })
+        θJ._reset(this)
+      }
+      // NOTE: we do not allow _weight to modify global exponent because there may be multiple descendants and in general we need models to be agnostic of any larger model or learning algorithm that uses them; the downside is that we may have two levels of smoothing driven by the exponent: once w/ kernel-smoothing or annealing (w/ bandwidth or temperature based on exponent), and another with the exponent applied globally across all descendants
+      c._weight(θJ, log_wJ, exponent)
+      θJ._scan = undefined
+    })
+    // check for NaNs, clip -infinities, apply exponent
+    each(log_wJ, w => check(!isNaN(w), '_prior/_weight returned NaN'))
+    // NOTE: clipping -inf helps avoid numerical issues, but clipping too much (even -1000) can cause ks misalignment when prior is far from posterior (see e.g. #random/normal/eval)
+    apply(log_wJ, w => Math.max(-Number.MAX_VALUE, w))
+    // NOTE: exponent=0 forces uniform weights, even for samples where _weight returned -inf due to clipping; if exponent was applied pre-clipping it would need to skip -infs to prevent NaN when exponent=0
+    if (exponent != 1) scale(log_wJ, exponent)
+    return log_wJ
   }
 
   // TODO: methods, hooks, utils (graph)
