@@ -1019,7 +1019,309 @@ class _Random {
     }
   }
 
-  // TODO: other methods, hooks, utils (graph)
+  // TODO: naming conflict
+  values(J = this.size) {
+    return array(J, j => this.value)
+  }
+  indices(J = this.size) {
+    return array(J, j => this.index)
+  }
+  observe(obs) {
+    if (obs) {
+      if (!isArray(obs) && !isRandom(obs)) obs = [obs]
+      this.sample(obs)
+    }
+    this.observed = true
+    return this
+  }
+  observed_descendants() {
+    if (!this.children) return []
+    // NOTE: descendants can be duplicated in a DAG structure
+    return uniq(
+      flatten(
+        this.children.map(c => {
+          return c.observed ? c : c.observed_descendants()
+        })
+      )
+    )
+  }
+  targeted_descendants() {
+    if (!this.children) return []
+    // NOTE: descendants can be duplicated in a DAG structure
+    return uniq(
+      flatten(
+        this.children.map(c => {
+          return c.target ? c : c.targeted_descendants()
+        })
+      )
+    )
+  }
+  has_ancestor(a) {
+    if (this == a) return true
+    if (!this.parents) return false
+    return this.parents.some(p => p.has_ancestor(a))
+  }
+  value_for_ancestor(a, v) {
+    // NOTE: we have to set fixed value (v can be an unsampled proposal)
+    a.v = v
+    const x = this.value
+    a.v = undefined
+    return x
+  }
+  distance_from_ancestor(a) {
+    if (this == a) return 0
+    if (!this.parents) return Infinity
+    return 1 + min(this.parents.map(p => p.distance_from_ancestor(a)))
+  }
+  marginal(...vars) {
+    return this._marginal(zeroes(this.J), array(this.J), ...vars)
+  }
+  _marginal(wK, pK, Y, ...vars) {
+    const descendants = this.observed_descendants()
+    repeat(Y.J, j => {
+      Y.j = j
+      add_exp(wK, this._posterior(this.xJ, pK, descendants))
+      if (vars.length) this._marginal(wK, pK, vars)
+    })
+    Y.j = undefined
+    return normalize(wK)
+  }
+  enable_stats(stats) {
+    if (defined(stats) && !stats) this.stats = undefined
+    else
+      this.stats = {
+        samples: 0,
+        weights: 0,
+        reweights: 0,
+        resamples: 0,
+        moves: 0,
+        proposals: 0,
+        accepts: 0,
+        ...stats,
+      }
+    return this
+  }
+  disable_stats() {
+    this.enable_stats(false)
+  }
+  summarize_stats(stats = this.stats, digits = 3) {
+    if (!stats) return stats
+    return mapValues(stats, v => {
+      if (isArray(v) && isNumber(_.last(v))) return round(_.last(v), digits)
+      if (typeof v == 'object') return this.summarize_stats(v)
+      return isNumber(v) ? round(v, digits) : v
+    })
+  }
+  enable_move_tracking(M) {
+    check(M >= 0, 'invalid move tracking history size')
+    if (M == 0) {
+      // M=0 means disable
+      this.M = this.m = this.xM = this.yM = undefined
+      return
+    }
+    if (M == this.M) return
+    this.M = M
+    this.xM = array(M).fill(undefined)
+    this.yM = array(M).fill(undefined)
+    this.m = 0 // next move index
+  }
+  disable_move_tracking() {
+    this.enable_move_tracking(0)
+  }
+  // NOTE: subclass can override this method to change args for shorthand or return undefined if shorthand is not available and named .init({...}) should be used
+  init_string(params) {
+    return this.type.substring(1) + '(' + this.params_values_string() + ')'
+  }
+  params_string() {
+    return (
+      '{' +
+      entries(this.params)
+        .map(([k, v]) => {
+          v = v?._name || str(v)
+          return k == v ? k : k + ':' + v
+        })
+        .join() +
+      '}'
+    ).replace('{}', '')
+  }
+  params_values_string() {
+    return values(this.params).map(v => v?._name || str(v))
+  }
+  expression(expr) {
+    // if argument is given, use as custom expression
+    if (expr) {
+      this._expr = expr
+      return this
+    }
+    return (
+      this._expr ||
+      this.init_string(this.params) ||
+      this.type + '.init(' + this.params_string() + ')'
+    )
+  }
+  name(name) {
+    this._name = name
+    return this
+  }
+  group(group, expr, ...exclusions) {
+    this._group = group
+    if (expr) this._group_expr = expr
+    if (this.parents)
+      each(this.parents, p => {
+        if (!exclusions.includes(p) && !defined(p._group))
+          p.group(group, expr, ...exclusions)
+      })
+    return this
+  }
+  ungroup() {
+    this._group = undefined
+    if (this.parents) each(this.parents, p => p.ungroup())
+    return this
+  }
+  toString() {
+    return this.expression()
+  }
+  json() {
+    return json(this)
+  }
+  print(msg = x => x) {
+    if (typeof msg == 'function') msg = msg(this)
+    print(msg)
+    return this
+  }
+  graph(options = {}) {
+    options = merge(this._graph_options, options)
+    const name = this._name || options.name || 'X'
+    if (!options.block) options.block = name
+    if (!options.nodes) options.nodes = {}
+    if (isArray(options.nodes))
+      // convert to object keyed by _name
+      options.nodes = Object.fromEntries(options.nodes.map(n => [n._name, n]))
+    options.nodes[name] = this
+    graph(options.nodes, options)
+    return this
+  }
+  graph_options(options) {
+    this._graph_options = options
+    return this
+  }
+  chain(f) {
+    f(this)
+    return this
+  }
+  do(f) {
+    f(this)
+    return this
+  }
+  timing(prop, ...args) {
+    const name = prop + (args.length ? '(' + args + ')' : '')
+    if (typeof this[prop] == 'function') {
+      timing(this[prop].bind(this, ...args), name)
+    } else {
+      check(args.length == 0, 'args for non-function')
+      timing(() => this[prop], name)
+    }
+    return this // for chaining
+  }
+
+  benchmark(prop, args = [], opts = {}) {
+    if (!benchmarks) return
+    const name = prop + (args.length ? '(' + args + ')' : '')
+    opts = _.merge({ N: 10000, name }, opts, this.benchmark_options)
+    if (typeof this[prop] == 'function') {
+      benchmark(this[prop].bind(this, ...args), opts)
+    } else {
+      check(args.length == 0, 'args for non-function')
+      benchmark(() => this[prop], opts)
+    }
+    return this // for chaining
+  }
+  missing(method) {
+    throw new Error(`${this.type}.${method} missing`)
+  }
+  // static version for static properties/methods
+  static missing(method) {
+    throw new Error(`${this.type}.${method} (static) missing`)
+  }
+
+  //   #random/hooks for subclasses are:
+  // - #/_init initializes process state & parameters.
+  // - #/_domain returns domain of random process.
+  // - #/_value and #/_sample return random values from prior.
+  // - #/_prior computes prior density for process at sample points.
+  //   - _Enables inference_ of values via #random/methods/update (after #random/methods/sample).
+  // - #/_weight computes ancestor weights, ideally ∝likelihood.
+  //   - _Enables observation_ of values for _inference on ancestors_ via [update](#random/methods/update).
+  // - #/_propose computes proposals for sampling from _weighted_ prior.
+  //   - _Enables inference_ of values via #random/methods/update.
+  // #_/_init #_/_domain #_/_prior #_/_value #_/_sample #_/_propose #_/_weight
+
+  // _init(params) initializes process state & parameters
+  // must return params object or undefined (no params)
+  _init(params) {
+    return params
+  }
+
+  // optional static and instance methods that describe domain
+  // instances can invoke static members as this.constructor.member
+  // these are type-dependent with no standard yet
+  static _domain() {
+    this.missing('_domain')
+  }
+  _domain(params) {
+    this.missing('_domain')
+  }
+
+  // _value(θ) returns random value from prior
+  _value(θ) {
+    this.missing('_value')
+  }
+
+  // _sample(xJ, wJ, θ) computes samples from prior
+  // must fill xJ with samples, wJ with weights (if weighted)
+  // must marginalize over any random parameters (parents)
+  // can use θ._sample for additional samples from parents
+  // can ignore wJ if this._sample_weighted is false
+  // must ignore wJ if undefined (e.g. when J==1)
+  // ideal weights are p(x)/π(x) if p≠π (p sampling)
+  // default implementation uses _value(θ._sample())
+  _sample(xJ, wJ, θ) {
+    if (wJ) this.missing('_sample (weighted)')
+    fill(xJ, j => this._value(θ._sample()))
+  }
+
+  // _prior(xJ, log_wJ, θ) computes prior density
+  // must _add_ to log_wJ the log-prior for samples xJ
+  // must marginalize over any random parameters (parents)
+  // can use θ._sample for additional samples from parents
+  // can add arbitrary constant, e.g. to shift log(c) to 0
+  // default implementation (no-op) is equivalent to uniform prior
+  _prior(xJ, log_wJ, θ) {}
+
+  // _weight(θK, log_wK, exponent) computes weights for params θK
+  // must _add_ to log_wK from inside θK._scan((k,θ)=>{ ... })
+  // can use destructuring, e.g. θK._scan((k,{a,b})=>{ ... })
+  // must marginalize over any random (intermediate) parents
+  // can use θ._sample for additional samples for parents
+  // can use exponent∈[0,1] as bandwidth or temperature
+  // exponent is always multiplied into returned log_wJ
+  // can use this.cache to cache computations
+  // ideal weights are ∝likelihood
+  _weight(θK, log_wK, exponent) {
+    this.missing('_weight')
+  }
+
+  // _propose(xJ, yJ, log_wJ, exponent, θ) computes proposals
+  // must fill yJ with proposals, _add_ weights to log_wJ
+  // must marginalize over any random parameters (parents)
+  // can use θ._sample for additional samples from parents
+  // may depend on weight_exponent ∈ [0,1] (see _weight)
+  // proposal weights are ratios log(q(x|y)/q(y|x))
+  _propose(xJ, yJ, log_wJ, weight_exponent, θ) {
+    this.missing('_propose')
+  }
+
+  // TODO: #random/graph, and #random/eval_chart
   // TODO: tests, benchmarks
   // TODO: processes, tests, benchmarks, evals
   // TODO: generic "program" wrapper?
