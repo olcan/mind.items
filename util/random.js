@@ -767,6 +767,7 @@ class _Random {
     τ.clear_cache()
     if (τ.stats) τ.stats.reweights++
   }
+
   // _posterior(xJ, log_wJ, descendants, exponent) computes ~posterior
   // fills in log_wJ with log-posterior for samples xJ
   // used in both _weight and _move (for proposals)
@@ -801,7 +802,224 @@ class _Random {
     return log_wJ
   }
 
-  // TODO: methods, hooks, utils (graph)
+  // move([exponent=1])
+  // moves samples towards posterior
+  // takes [Metropolis-Hastings](https://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm) steps along markov chains
+  // stationary distribution is prior weighted by `_weight` hook
+  // converges to posterior as `_weight → likelihood`
+  // move proposals are defined in `_propose` hook
+  move(weight_exponent = 1) {
+    const τ = this
+    check(τ.J > 0, 'no samples to move')
+    check(τ.children, 'no children for move')
+    const descendants = τ.observed_descendants()
+    check(descendants.length, 'no observed descendants for move')
+    // reject 'prior moves' since unnecessary complication
+    check(τ.φJ, 'can not move before (re)weight')
+    if (!τ._xJ) τ._xJ = array(τ.J) // for proposals
+    if (!τ._wJ) τ._wJ = array(τ.J) // for proposal ratios
+    if (!τ._φJ) τ._φJ = array(τ.J) // for proposed posteriors
+    τ._wJ.fill(0) // reset before adding in _propose
+    τ._propose(
+      τ.xJ,
+      τ._xJ /*yJ*/,
+      τ._wJ /*log(q(x|y)/q(y|x))*/,
+      weight_exponent,
+      τ.θ._sample()
+    )
+    τ._posterior(τ._xJ, τ._φJ, descendants, weight_exponent)
+    // accept/reject proposals (∞-∞=NaN treated as 0)
+    τ._φj_move = 0
+    let accepts = 0
+    // once defined, _move_accepts must be reset externally
+    if (!defined(τ._move_accepts)) τ._move_accepts = 0
+    for (let j = 0; j < τ.J; ++j) {
+      if (τ.wJ[j] == 0) continue // skip 0-weight sample
+      if (uniform() < Math.exp(τ._wJ[j] + τ._φJ[j] - τ.φJ[j])) {
+        if (τ.M) {
+          // track moves in buffer
+          const m = τ.m++ % τ.M
+          τ.xM[m] = τ.xJ[j]
+          τ.yM[m] = τ._xJ[j]
+        }
+        τ.xJ[j] = τ._xJ[j]
+        // τ.wJ[j] *= Math.exp(τ._φJ[j] - τ.φJ[j])
+        τ._φj_move += τ._φJ[j] - τ.φJ[j]
+        τ.φJ[j] = τ._φJ[j]
+        if (τ.jJ) τ.jJ[j] = τ.J + j // new index for accepted sample
+        τ._move_accepts++ // counter managed externally
+        accepts++
+      }
+    }
+    if (accepts > 0) {
+      if (τ.jJ) {
+        // reassign indices jJ using _jJ as map
+        if (!τ._jJ) τ._jJ = array(τ.J)
+        τ._jJ.fill(-1)
+        let jjj = 0
+        apply(τ.jJ, (jj, j) => {
+          return jj >= τ.J
+            ? jjj++
+            : τ._jJ[jj] >= 0
+            ? τ._jJ[jj]
+            : (τ._jJ[jj] = jjj++)
+        })
+      }
+      τ.clear_cache() // sample changed
+    }
+    if (τ.stats) {
+      τ.stats.moves++
+      τ.stats.proposals += τ.J
+      τ.stats.accepts += accepts
+    }
+    return τ // for chaining
+  }
+
+  // for charting see #random/eval_chart
+  _eval_options(options = {}) {
+    return merge(
+      {
+        runs: 100, // number of eval runs (w/ fresh sample)
+        steps: 10, // number of update steps
+        size: 100, // sample size
+        move_history_size: 100, // for mks diagnostic (0 to disable),
+        target_size: options.size || 100,
+      },
+      this._update_options(options),
+      options
+    )
+  }
+
+  // evaluates inference performance
+  // runs `update()` and tracks ks against predefined target
+  // tracks various other statistics, e.g. `ess`, `essu`, `mks`, etc
+  // additional notes in #/eval
+  eval(options = {}) {
+    const τ = this
+    const { runs, steps, size } = (options = τ.eval_options(options))
+    const qQ = [0, 0.1, 0.5, 0.9, 1],
+      nQ = ['min', 'q10', 'median', 'q90', 'max']
+    τ.enable_stats()
+    τ.enable_move_tracking(
+      Math.max(options.move_history_size, options.target_size, size)
+    )
+    // confirm eval target, generating internally if necessary
+    const targeted_descendants = τ.targeted_descendants()
+    if (targeted_descendants.length > 0) {
+      check(
+        targeted_descendants.length == 1 && !τ.target,
+        'eval target ambiguous: must be parent or single descendant'
+      )
+    } else if (!τ.target) {
+      // compute target internally using model
+      const [_, target_time] = timing(
+        () => τ.infer(options.target_size, options.target_options),
+        'infer'
+      )
+      const target_stats = clone(τ.stats)
+      τ.enable_stats() // reset stats after target
+      τ.stats.target_stats = target_stats
+      τ.stats.target_time = target_time
+    }
+    // τ.disable_move_tracking()
+    τ.stats.ks_time = 0
+    let essRN = [],
+      essuRN = [],
+      essrRN = [],
+      ΔφRN = [],
+      mksRN = [],
+      marRN = []
+    const [dQN] = timing(
+      () =>
+        transpose(
+          apply(
+            transpose(
+              array(runs, r =>
+                array(steps + 1, n => {
+                  if (n == 0) τ.sample(size)
+                  // sample-only iteration
+                  else {
+                    // update iteration
+                    // note step 1 of eval is actually step 0 (first step) of update
+                    // step 0 of eval is after sample generation but before update
+                    options.step = options.n = n - 1
+                    τ.update(options)
+                  }
+                  if (n == steps) {
+                    essRN.push(τ.stats.ess)
+                    delete τ.stats.ess
+                    essuRN.push(τ.stats.essu)
+                    delete τ.stats.essu
+                    essrRN.push(τ.stats.essr)
+                    delete τ.stats.essr
+                    ΔφRN.push(τ.stats.Δφ)
+                    delete τ.stats.Δφ
+                    if (τ.stats.mks) {
+                      mksRN.push(τ.stats.mks)
+                      delete τ.stats.mks
+                    }
+                    marRN.push(τ.stats.mar)
+                    delete τ.stats.mar
+                  }
+                  if (targeted_descendants.length > 0) {
+                    const X = targeted_descendants[0]
+                    const target = targeted_descendants[0].target
+                    const xJ = array(target.samples.length)
+                    const wJ = X._sample_weighted ? array(xJ.length) : undefined
+                    const wj_sum = wJ ? sum(wJ) : undefined
+                    // NOTE: we sample parameters once per step per run; we could also mix samples from multiple draws but we do not do that for now
+                    X._sample(xJ, wJ, X.θ._sample())
+                    const [d, ks_time] = timing(
+                      () =>
+                        -Math.log2(
+                          ks_alpha(
+                            xJ,
+                            target.samples,
+                            target.exact,
+                            wJ,
+                            wj_sum,
+                            target.weights,
+                            target.weight_sum
+                          )
+                        ),
+                      ''
+                    )
+                    τ.stats.ks_time += ks_time
+                    return d
+                  }
+                  const [d, ks_time] = timing(
+                    () => -Math.log2(τ.ks_alpha()),
+                    ''
+                  )
+                  τ.stats.ks_time += ks_time
+                  return d
+                })
+              )
+            ),
+            dN => quantiles(dN, qQ)
+          )
+        ),
+      'updates'
+    )
+
+    return {
+      data: round(dQN, 3),
+      names: nQ,
+      stats: {
+        ...τ.stats,
+        size: τ.J /* for eval_chart */,
+        ess: round(transpose(essRN).map(median)),
+        essu: round(transpose(essuRN).map(median)),
+        essr: round(transpose(essrRN).map(median)),
+        Δφ: round(transpose(ΔφRN).map(median), 1),
+        mks: round(transpose(mksRN).map(median), 1),
+        mar: round(transpose(marRN).map(median)),
+      },
+      summary: this.summarize_stats({ ...τ.stats }),
+    }
+  }
+
+  // TODO: other methods, hooks, utils (graph)
   // TODO: tests, benchmarks
   // TODO: processes, tests, benchmarks, evals
   // TODO: generic "program" wrapper?
