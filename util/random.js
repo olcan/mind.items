@@ -1152,6 +1152,7 @@ class _Random {
   // disables statistics
   disable_stats() {
     this.stats = undefined
+    return this
   }
 
   // summarizes stats
@@ -1167,6 +1168,7 @@ class _Random {
 
   // enables move tracking for last `M` moves
   // from/to value pair is recorded for last `M` moves
+  // useful for detecting convergence in `update()`
   // disables move tracking if `M==0`
   enable_move_tracking(M) {
     check(M >= 0, 'invalid move tracking history size')
@@ -1180,127 +1182,40 @@ class _Random {
     this.xM = array(M).fill(undefined)
     this.yM = array(M).fill(undefined)
     this.m = 0 // next move index
+    return this
   }
 
   // disables move tracking
   disable_move_tracking() {
     this.enable_move_tracking(0)
+    return this
   }
 
-  // NOTE: subclass can override this method to change args for shorthand or return undefined if shorthand is not available and named .init({...}) should be used
-  init_string(params) {
-    return this.type.substring(1) + '(' + this.params_values_string() + ')'
-  }
-  params_string() {
-    return (
-      '{' +
-      entries(this.params)
-        .map(([k, v]) => {
-          v = v?._name || str(v)
-          return k == v ? k : k + ':' + v
-        })
-        .join() +
-      '}'
-    ).replace('{}', '')
-  }
-  params_values_string() {
-    return values(this.params).map(v => v?._name || str(v))
-  }
-  expression(expr) {
-    // if argument is given, use as custom expression
-    if (expr) {
-      this._expr = expr
+  // name([name])
+  // name of random variable
+  // can set name to `name`
+  name(name) {
+    if (name) {
+      this._name = name
       return this
     }
-    return (
-      this._expr ||
-      this.init_string(this.params) ||
-      this.type + '.init(' + this.params_string() + ')'
+
+    // TODO: think about this more ... is there a better way to structure init or subclasses? these functions that take/return objects... are they some kind of special initializer?
+    Random(
+      { A, B, C },
+      ({ A, B }) => ({ C: `${A}->${B}` }),
+      ({ A, C }) => ({ D: `${A}->${C}` })
     )
-  }
-  name(name) {
-    this._name = name
-    return this
-  }
-  group(group, expr, ...exclusions) {
-    this._group = group
-    if (expr) this._group_expr = expr
-    if (this.parents)
-      each(this.parents, p => {
-        if (!exclusions.includes(p) && !defined(p._group))
-          p.group(group, expr, ...exclusions)
-      })
-    return this
-  }
-  ungroup() {
-    this._group = undefined
-    if (this.parents) each(this.parents, p => p.ungroup())
-    return this
-  }
-  toString() {
-    return this.expression()
-  }
-  json() {
-    return json(this)
-  }
-  print(msg = x => x) {
-    if (typeof msg == 'function') msg = msg(this)
-    print(msg)
-    return this
-  }
-  graph(options = {}) {
-    options = merge(this._graph_options, options)
-    const name = this._name || options.name || 'X'
-    if (!options.block) options.block = name
-    if (!options.nodes) options.nodes = {}
-    if (isArray(options.nodes))
-      // convert to object keyed by _name
-      options.nodes = Object.fromEntries(options.nodes.map(n => [n._name, n]))
-    options.nodes[name] = this
-    graph(options.nodes, options)
-    return this
-  }
-  graph_options(options) {
-    this._graph_options = options
-    return this
-  }
-  chain(f) {
-    f(this)
-    return this
-  }
-  do(f) {
-    f(this)
-    return this
-  }
-  timing(prop, ...args) {
-    const name = prop + (args.length ? '(' + args + ')' : '')
-    if (typeof this[prop] == 'function') {
-      timing(this[prop].bind(this, ...args), name)
-    } else {
-      check(args.length == 0, 'args for non-function')
-      timing(() => this[prop], name)
-    }
-    return this // for chaining
+
+    return name
   }
 
-  benchmark(prop, args = [], opts = {}) {
-    if (!benchmarks) return
-    const name = prop + (args.length ? '(' + args + ')' : '')
-    opts = _.merge({ N: 10000, name }, opts, this.benchmark_options)
-    if (typeof this[prop] == 'function') {
-      benchmark(this[prop].bind(this, ...args), opts)
-    } else {
-      check(args.length == 0, 'args for non-function')
-      benchmark(() => this[prop], opts)
-    }
-    return this // for chaining
-  }
-  missing(method) {
-    throw new Error(`${this.type}.${method} missing`)
+  _missing(method) {
+    fatal(`${this.type}.${method} missing`)
   }
   // static version for static properties/methods
-  static missing(method) {
-    throw new Error(`${this.type}.${method} (static) missing`)
+  static _missing(method) {
+    fatal(`${this.type}.${method} (static) missing`)
   }
 
   //   #random/hooks for subclasses are:
@@ -1325,15 +1240,15 @@ class _Random {
   // instances can invoke static members as this.constructor.member
   // these are type-dependent with no standard yet
   static _domain() {
-    this.missing('_domain')
+    this._missing('_domain')
   }
   _domain(params) {
-    this.missing('_domain')
+    this._missing('_domain')
   }
 
   // _value(θ) returns random value from prior
   _value(θ) {
-    this.missing('_value')
+    this._missing('_value')
   }
 
   // _sample(xJ, wJ, θ) computes samples from prior
@@ -1345,7 +1260,7 @@ class _Random {
   // ideal weights are p(x)/π(x) if p≠π (p sampling)
   // default implementation uses _value(θ._sample())
   _sample(xJ, wJ, θ) {
-    if (wJ) this.missing('_sample (weighted)')
+    if (wJ) this._missing('_sample (weighted)')
     fill(xJ, j => this._value(θ._sample()))
   }
 
@@ -1367,7 +1282,7 @@ class _Random {
   // can use this.cache to cache computations
   // ideal weights are ∝likelihood
   _weight(θK, log_wK, exponent) {
-    this.missing('_weight')
+    this._missing('_weight')
   }
 
   // _propose(xJ, yJ, log_wJ, exponent, θ) computes proposals
@@ -1377,7 +1292,7 @@ class _Random {
   // may depend on weight_exponent ∈ [0,1] (see _weight)
   // proposal weights are ratios log(q(x|y)/q(y|x))
   _propose(xJ, yJ, log_wJ, weight_exponent, θ) {
-    this.missing('_propose')
+    this._missing('_propose')
   }
 
   // TODO: #random/graph, and #random/eval_chart
