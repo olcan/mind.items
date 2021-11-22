@@ -390,9 +390,6 @@ async function update_item(item, updates) {
           })
         )?.data?.content ?? ''
       )
-      // trim spaces, esp. since github likes to add an extra line
-      // this is fine since we use commit sha to detect changes
-      text = text.trim()
 
       // disallow renames during auto-updates
       const parsed_label = _parse_label(text)
