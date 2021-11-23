@@ -114,10 +114,11 @@ function _run() {
   return null // skip
 }
 
-// internal wrappers for options inferred from context in _run
+// internal wrappers for inferred options
 function __learn(inferred, domain, options) {
+  // convert position in eval js to options.context
   const pos = inferred.pos
-  const js = __run_eval_config.orig_js
+  const js = __run_eval_config.orig_js // from _run
   const line = _count_unescaped(js.slice(0, pos), '\n') + 1
   const line_js =
     js.slice(pos).match(/^[^\n]*/) + js.slice(0, pos).match(/[^\n]*$/)
