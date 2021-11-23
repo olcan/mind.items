@@ -261,13 +261,13 @@ function js_table(regex) {
       _this
         .read('js', { keep_empty_lines: true })
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
         def.type = def.type.trim() // trim trailing space
         // skip certain types if indented
-        if (def.indent && def.type?.match(/(?:const|let|class|function)$/))
+        if (def.indent && def.type?.match(/(?:const|let|var|class|function)$/))
           return
         // skip constructor unless commented
         if (!def.type && def.name == 'constructor' && !def.comment) return
