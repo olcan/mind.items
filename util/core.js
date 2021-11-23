@@ -358,9 +358,12 @@ function js_table(regex) {
       .split('<br>')
       .forEach(line => {
         if (line.startsWith('|')) {
+          // escape | inside backticks to avoid breaking table
+          line = line.replace(/(`.+?`)/g, m => m.replace(/\|/g, '%_pipe_%'))
           let cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
           if (!table) table += '<table class="comment">'
-          cells = cells.map(s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
+          apply(cells, s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
+          apply(cells, s => s.replace(/%_pipe_%/g, '|'))
           table += '<tr>' + cells.join('') + '</tr>'
         } else {
           if (table) {
