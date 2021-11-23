@@ -65,7 +65,7 @@ function from(x, domain) {
 function learn(domain, options) {
   log(`learn(${stringify(domain)}, …)`)
   options = _.merge(defaults(domain), options)
-  const { name, context, sampler, weighter, proposer, balancer } = options
+  const { context, name, sampler, weighter, proposer, balancer } = options
   if (!context)
     fatal(
       `missing context for learned value (domain ${stringify(
@@ -103,7 +103,7 @@ function _run() {
     js = js.replace(
       /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
       (m, name, pos) => {
-        const args = name ? `{name:'${name}',_pos:${pos}}` : `{_pos:${pos}}`
+        const args = name ? `{name:'${name}',pos:${pos}}` : `{pos:${pos}}`
         return m.replace(/learn *\($/, `__learn(${args},`)
       }
     )
@@ -116,9 +116,7 @@ function _run() {
 
 // internal wrappers for options inferred from context in _run
 function __learn(inferred, domain, options) {
-  // inferred._pos
-  const pos = inferred._pos
-  delete inferred._pos
+  const pos = inferred.pos
   const js = __run_eval_config.orig_js
   const line = _count_unescaped(js.slice(0, pos), '\n') + 1
   const line_js =
