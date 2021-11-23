@@ -5,20 +5,29 @@ const defined = x => x !== undefined
 function _test_defined() {
   let x = 1
   let y
+  let a = { x: 1 }
   check(
     () => defined(x),
-    () => !defined(y)
+    () => !defined(y),
+    () => defined(a.x),
+    () => !defined(a.y)
   )
 }
 function _benchmark_defined() {
   let x = 1
   let y
+  let a = { x: 1 }
   benchmark(
     // compare these for function call + type check overhead
     () => x !== undefined,
+    () => (0, x !== undefined), // usually faster due to caching of x
     () => typeof x != 'undefined',
     () => defined(x),
-    () => defined(y)
+    () => defined(y),
+    () => defined(a.x),
+    () => defined(a.y),
+    () => 'x' in a,
+    () => 'y' in a
   )
 }
 
