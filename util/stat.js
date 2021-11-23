@@ -62,11 +62,12 @@ const triangular = (a, b, c) => {
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
 
-// sample(J, [sampler=uniform])
+// sample(J|xJ, [sampler=uniform])
 // samples array of `J` values from `sampler`
-function sample(J, sampler = Math.random) {
-  if (J <= 0) return []
-  const xJ = new Array(J)
+function sample(a, sampler = Math.random) {
+  const [J, xJ] = is_array(a)
+    ? [a.length, a]
+    : [~~a, new Array(Math.max(0, ~~a))]
   for (let j = 0; j < J; ++j) xJ[j] = sampler()
   return xJ
 }

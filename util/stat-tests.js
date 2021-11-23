@@ -3,7 +3,7 @@ function _test_flip() {
     () => is_boolean(flip()),
     () => flip(0) === false,
     () => flip(1) === true,
-    () => flip('a') === false, // …<p false for non-number p
+    () => flip('a') === false // …<p false for non-number p
   )
 }
 
@@ -26,7 +26,7 @@ function _test_uniform() {
     () => is_nan(uniform('a')),
     () => is_nan(uniform(0, 'b')),
     // ks test against uniform cdf
-    () => [ks1_test(sample(1000, uniform), x => x), 1e-9, _.gt],
+    () => [ks1_test(sample(1000, uniform), x => x), 1e-9, _.gt]
   )
 }
 
@@ -39,7 +39,7 @@ const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 1e-9) => [
   binomial_test(
     n,
     _.sumBy(sample(n, sampler), s => equal(s, x)),
-    p,
+    p
   ),
   ɑ,
   _.gt, // i.e. can not reject null (correctness) at level ɑ
@@ -63,7 +63,7 @@ function _test_discrete_uniform() {
     () => _binomial_test_sample(() => discrete_uniform(0, 1), 1, 1 / 2),
     () => _binomial_test_sample(() => discrete_uniform(1, 3), 1, 1 / 3),
     () => _binomial_test_sample(() => discrete_uniform(1, 3), 2, 1 / 3),
-    () => _binomial_test_sample(() => discrete_uniform(1, 3), 3, 1 / 3),
+    () => _binomial_test_sample(() => discrete_uniform(1, 3), 3, 1 / 3)
   )
 }
 
@@ -80,7 +80,7 @@ function _test_discrete() {
     () => _binomial_test_sample(() => discrete([1, 1]), 0, 1 / 2),
     () => _binomial_test_sample(() => discrete([1, 1]), 1, 1 / 2),
     () => _binomial_test_sample(() => discrete([1, 2]), 0, 1 / 3),
-    () => _binomial_test_sample(() => discrete([1, 2]), 1, 2 / 3),
+    () => _binomial_test_sample(() => discrete([1, 2]), 1, 2 / 3)
   )
 }
 
@@ -113,7 +113,7 @@ function _test_triangular() {
     () => is_nan(triangular(0, 'b')),
     () => is_nan(triangular(0, 1, 'c')),
     // ks test against triangular cdf
-    () => [ks1_test(sample(1000, triangular), triangular_cdf), 1e-9, _.gt],
+    () => [ks1_test(sample(1000, triangular), triangular_cdf), 1e-9, _.gt]
   )
 }
 
@@ -124,6 +124,9 @@ function _test_sample() {
     () => [sample(1, () => 1), [1]],
     () => [sample(2, () => 1), [1, 1]],
     () => [sample(2, j => j), [undefined, undefined]],
+    () => [sample([], () => 1), []],
+    () => [sample([0], () => 1), [1]],
+    () => [sample([0, 0], () => 1), [1, 1]]
   )
 }
 
@@ -138,7 +141,7 @@ function _test_shuffle() {
     () => _binomial_test_sample(() => shuffle([0, 1, 2]), [1, 0, 2], 1 / 6),
     () => _binomial_test_sample(() => shuffle([0, 1, 2]), [1, 2, 0], 1 / 6),
     () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 0, 1], 1 / 6),
-    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 1, 0], 1 / 6),
+    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 1, 0], 1 / 6)
   )
 }
 
@@ -159,7 +162,7 @@ function _test_approx_equal() {
     () => approx_equal(-1e-10, -1e-10 - 1e-16, 1e-6),
     () => !approx_equal(-1e-10, -1e-10 + 1e-16, 1e-6),
     () => approx_equal(-1e-10, -1e-10 + 1e-17, 1e-6),
-    () => approx_equal(-1e-10 + 1e-17, -1e-10, 1e-6),
+    () => approx_equal(-1e-10 + 1e-17, -1e-10, 1e-6)
   )
 }
 
@@ -178,7 +181,7 @@ function _test_binomial_cdf() {
     () => [binomial_cdf(2, 3, 0.5), 0.875],
     () => [binomial_cdf(5, 10, 0.5), 0.62304687499999866773, approx_equal],
     () => [binomial_cdf(5, 10, 0.1), 0.99985309739999994605, approx_equal],
-    () => [binomial_cdf(5, 10, 0.9), 0.0016349374000000031076, approx_equal],
+    () => [binomial_cdf(5, 10, 0.9), 0.0016349374000000031076, approx_equal]
   )
 }
 
@@ -272,7 +275,7 @@ function _test_ks2() {
     () => [ks2([1]), 0],
     () => [ks2([1, 2]), 0],
     () => [ks2([1, 2, 2]), 0],
-    () => [ks2([1, 2, 2], null, _discrete_), 0],
+    () => [ks2([1, 2, 2], null, _discrete_), 0]
   )
 }
 
@@ -287,7 +290,7 @@ function _test_kolmogorov_cdf() {
     () => [kolmogorov_cdf(1 / 2), 0.0360547563, eq3],
     () => [kolmogorov_cdf(1), 0.7300003283, eq3],
     () => [kolmogorov_cdf(2), 0.9993290747, eq3],
-    () => [kolmogorov_cdf(3), 0.9999999695, eq3],
+    () => [kolmogorov_cdf(3), 0.9999999695, eq3]
   )
 }
 
@@ -311,7 +314,7 @@ function _test_ks1_cdf() {
     () => [ks1_cdf(0.00269619949977585, 10000), 4.83345410767114e-7, eq3],
     // table 12
     () => [ks1_cdf(0.000790565462224666, 100001), 2.90707424915525e-8, eq3],
-    () => [ks1_cdf(0.00632452369779733, 100001), 0.999331933307205, eq3],
+    () => [ks1_cdf(0.00632452369779733, 100001), 0.999331933307205, eq3]
   )
 }
 
@@ -335,7 +338,7 @@ function _test_ks2_cdf() {
     () => within(ks2_cdf(1.48 * scaling(100, 10), 100, 10), 0.975, 0.99),
     () => within(ks2_cdf(1.628 * scaling(100, 10), 100, 10), 0.99, 0.995),
     () => within(ks2_cdf(1.731 * scaling(100, 10), 100, 10), 0.995, 0.999),
-    () => ks2_cdf(1.949 * scaling(100, 10), 100, 10) >= 0.999,
+    () => ks2_cdf(1.949 * scaling(100, 10), 100, 10) >= 0.999
   )
 }
 
@@ -348,7 +351,7 @@ function _test_ks1_test() {
   check(
     () => ks1_test(sample(100, sample_ks1_test), x => x) > 1e-9,
     // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
-    () => _binomial_test_sample(sample_ks1_test_sign, 0, 1 / 2, 100),
+    () => _binomial_test_sample(sample_ks1_test_sign, 0, 1 / 2, 100)
   )
 }
 
@@ -364,7 +367,7 @@ function _test_ks2_test() {
       ks2_test(sample(100, sample_ks2_test), sample(100, sample_ks2_test)) >
       1e-9,
     // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
-    () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 100),
+    () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 100)
   )
 }
 
@@ -376,7 +379,7 @@ function _test_min() {
     () => [min(0, -1), -1],
     () => [min(0, -1, -2), -2],
     () => [min([0, -1, -2]), -2],
-    () => [min([0, -1, -2, 'a']), -2], // elements that fail < are ignored
+    () => [min([0, -1, -2, 'a']), -2] // elements that fail < are ignored
   )
 }
 
@@ -388,7 +391,7 @@ function _test_max() {
     () => [max(0, 1), 1],
     () => [max(0, 1, 2), 2],
     () => [max([0, 1, 2]), 2],
-    () => [max([0, 1, 2, 'a']), 2], // elements that fail > are ignored
+    () => [max([0, 1, 2, 'a']), 2] // elements that fail > are ignored
   )
 }
 
@@ -399,6 +402,6 @@ function _test_sum() {
     () => [sum(0, 1), 1],
     () => [sum(0, 1, 2), 3],
     () => [sum([0, 1, 2]), 3],
-    () => [sum([0, 1, 2, 'a']), '3a'], // invalid for non-numbers
+    () => [sum([0, 1, 2, 'a']), '3a'] // invalid for non-numbers
   )
 }

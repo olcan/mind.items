@@ -1,7 +1,7 @@
 function _benchmark_flip() {
   benchmark(
     () => flip(),
-    () => Math.random(),
+    () => Math.random()
   )
 }
 
@@ -10,7 +10,7 @@ function _benchmark_uniform() {
     () => uniform(),
     () => uniform(1),
     () => uniform(0, 1),
-    () => Math.random(),
+    () => Math.random()
   )
 }
 
@@ -21,7 +21,7 @@ function _benchmark_discrete_uniform() {
     () => discrete_uniform(0, 1),
     () => ~~(2 * Math.random()),
     () => Math.floor(2 * Math.random()),
-    () => Math.random(),
+    () => Math.random()
   )
 }
 
@@ -34,7 +34,7 @@ function _benchmark_discrete() {
     () => discrete([1, 2], 3),
     () => discrete(wJ),
     () => discrete(wJ, sum_wj),
-    () => discrete(wJ_sorted, sum_wj),
+    () => discrete(wJ_sorted, sum_wj)
   )
 }
 
@@ -44,15 +44,16 @@ function _benchmark_triangular() {
     () => triangular(1),
     () => triangular(0, 1, 0.5),
     () => uniform(0, 1),
-    () => Math.random(),
+    () => Math.random()
   )
 }
 
 function _benchmark_sample() {
   benchmark(
     () => sample(100),
+    () => sample(array(100)),
     () => array(100, j => Math.random()),
-    () => array(100, Math.random), // unsafe since args are passed through
+    () => array(100, Math.random) // unsafe since args are passed through
   )
 }
 
@@ -67,7 +68,7 @@ function _benchmark_shuffle() {
     () => shuffle(range10),
     () => shuffle(range100),
     () => shuffle(range1000),
-    () => shuffle(range10000),
+    () => shuffle(range10000)
   )
 }
 
@@ -79,7 +80,7 @@ function _benchmark_binomial_cdf() {
     () => binomial_cdf(5000, 10000, 0.5),
     () => binomial_cdf(500000, 1000000, 0.5),
     () => binomial_cdf(500000, 1000000, 0.001),
-    () => binomial_cdf(500000, 1000000, 0.999),
+    () => binomial_cdf(500000, 1000000, 0.999)
   )
 }
 
@@ -121,7 +122,7 @@ function _benchmark_min() {
     () => min(x10),
     () => min(...x100),
     () => min(x100),
-    () => _min_each(x100),
+    () => _min_each(x100)
   )
 }
 
@@ -136,7 +137,7 @@ function _benchmark_max() {
     () => max(...x10),
     () => max(x10),
     () => max(...x100),
-    () => max(x100),
+    () => max(x100)
   )
 }
 
@@ -151,6 +152,6 @@ function _benchmark_sum() {
     () => sum(...x10),
     () => sum(x10),
     () => sum(...x100),
-    () => sum(x100),
+    () => sum(x100)
   )
 }

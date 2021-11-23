@@ -1,7 +1,7 @@
 // `x !== undefined`
 // for known variable `x` only
 // use `typeof x != 'undefined'` for unknown `x`
-const defined = x => x !== undefined && x !== 'undefined'
+const defined = x => x !== undefined
 function _test_defined() {
   let x = 1
   let y
@@ -22,8 +22,78 @@ function _benchmark_defined() {
   )
 }
 
+// is `x` of `type`? `≡ is_<type>(x)`
+function is(x, type) {
+  switch (type) {
+    case 'undefined':
+      return typeof x == 'undefined'
+    case 'null':
+      return x === null
+    case 'nullish':
+      return x === null || x === undefined
+    case 'finite':
+      return isFinite(x)
+    case 'infinite':
+      return !isFinite(x)
+    case 'inf':
+      return !isFinite(x)
+    case 'nan':
+      return isNaN(x)
+    case 'integer':
+      return Number.isInteger(x)
+    case 'number':
+      return typeof x == 'number'
+    case 'numeric':
+      return is_numeric(x)
+    case 'boolean':
+      return typeof x == 'boolean'
+    case 'string':
+      return typeof x == 'string'
+    case 'function':
+      return typeof x == 'function'
+    case 'object':
+      return typeof x == 'object' && x !== null
+    case 'set':
+      return x instanceof Set
+    case 'map':
+      return x instanceof Map
+    case 'array':
+      return Array.isArray(x)
+    case 'indexed':
+      return is_indexed(x)
+  }
+}
+
+function _test_is() {
+  check(
+    () => is(undefined, 'undefined'),
+    () => is(null, 'null'),
+    () => is(null, 'nullish'),
+    () => is(0, 'finite'),
+    () => is(inf, 'infinite'),
+    () => is(inf, 'inf'),
+    () => is(NaN, 'nan'),
+    () => is(0, 'integer'),
+    () => is(0, 'number'),
+    () => is('0', 'numeric'),
+    () => is(true, 'boolean'),
+    () => is('true', 'string'),
+    () => is(() => 0, 'function'),
+    () => is({}, 'object'),
+    () => is(new Set(), 'set'),
+    () => is(new Map(), 'map'),
+    () => is([], 'array'),
+    () => is({ 0: '0' }, 'indexed')
+  )
+}
+
+const is_defined = defined
+const is_null = x => x === null
+const is_nullish = x => x === null || x === undefined
+
 const is_finite = isFinite
-const is_inf = x => !isFinite(x)
+const is_infinite = x => !isFinite(x)
+const is_inf = is_infinite
 const inf = Infinity
 const is_nan = isNaN
 const is_integer = Number.isInteger
@@ -57,9 +127,9 @@ function _benchmark_is_numeric() {
   )
 }
 
-const is_function = x => typeof x == 'function'
 const is_boolean = x => typeof x == 'boolean'
 const is_string = x => typeof x == 'string'
+const is_function = x => typeof x == 'function'
 const is_object = x => typeof x == 'object' && x !== null
 const is_set = x => x instanceof Set
 const is_map = x => x instanceof Map
