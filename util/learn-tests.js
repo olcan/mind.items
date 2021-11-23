@@ -25,6 +25,11 @@ function _test_from() {
     () => from(0, { lte: 0 }) && from(-1, { lte: 0 }) && !from(1, { lte: 0 }),
     () => !from(0, { gt: 0 }) && from(1, { gt: 0 }) && !from(-1, { gt: 0 }),
     () => !from(0, { lt: 0 }) && from(-1, { lt: 0 }) && !from(1, { lt: 0 }),
+    () => !from(1, { gt: 0, lt: 1 }), // multiple constraints
+    () => from(1, { gt: 0, lte: 1 }),
+    () => from(0.5, { gt: 0, lte: 1 }),
+    () => from(0.5, { gt: 0, lte: 1, eq: 0.5 }),
+    () => !from(0.5, { gt: 0, lte: 1, eq: 0.6 }),
     () => from(1, { or: [{ eq: 0 }, { eq: 1 }] }),
     () => from(1, { or: [{ gt: 1 }, { eq: 1 }] }),
     () => !from(1, { or: [{ gt: 1 }, { eq: 0 }] }),

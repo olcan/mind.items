@@ -51,17 +51,38 @@ function from(x, domain) {
   })
 }
 
+// learn(domain, [options = defaults(domain)])
 // learned value from `domain`
 // value satisfies `from(value, domain)`
 // requires feedback via `need(…)` or `want(…)`
-// | __option__    | __default__           | __description__
-// | `name`        | via context           | name of value
-// | `sample`      | `(xJ)=>…` via domain  | fill `x~P`→`xJ`
-// | `weight`      | `(xJ,wJ)=>{}`         | add `log(p(x))+c`→`wJ`
-// | `propose`     | `(xJ,yJ)=>sample(yJ)` | fill `y~Q(·|x)`→`yJ`
-// | `prop_weight` | `(xJ,yJ,wJ)=>{}`  | add `log(q(x|y)/q(y|x))+c`→`wJ`
-function learn(domain, options = {}) {
-  const { name } = options
+// default `options` are inferred via `defaults(domain)`
+// default `name` may be inferred from code context
+// | `name`         | name of learned value
+// | `sampler`      | `(xJ)=>…` fills `x~P`→`xJ`
+// | `weighter`     | `(xJ,wJ)=>…` adds `log(∝p(x))`→`wJ`
+// | `proposer`     | `(xJ,yJ)=>…` fills `y~Q(·|x)`→`yJ`
+// | `balancer`     | `(xJ,yJ,wJ)=>…` adds `log(∝q(x|y)/q(y|x))`→`wJ`
+function learn(domain, options) {
+  log(`learn(${stringify(domain)}, …)`)
+  options = _.merge(defaults(domain), options)
+  const { name, context, sampler, weighter, proposer, balancer } = options
+  if (!context)
+    fatal(
+      `missing context for learned value (domain ${stringify(
+        domain
+      )}) due to unexpected call syntax`
+    )
+  if (!name)
+    fatal(
+      `missing name for learned value in line ${context.line}: ${context.line_js}`
+    )
+}
+
+// default options for `learn(domain)`
+function defaults(domain) {
+  const defaults = { sampler: xJ => sample(xJ, uniform) }
+  log(`defaults(${stringify(domain)}): ${stringify(defaults)}`)
+  return defaults
 }
 
 // preference for `cond` (`==true`)
@@ -71,13 +92,36 @@ function want(cond, penalty = -1) {}
 // `≡ want(cond, -inf)`
 const need = cond => want(cond, -inf)
 
+let __run_eval_config // eval js shared w/ __learn
+
 function _run() {
-  const js = _this.read('js_input')
+  let js = _this.read('js_input')
+  const orig_js = js
   if (js.match(/\b(?:learn|need|want)\(.*\)/s)) {
     log('run handled by #util/learn')
-    // TODO: rewrite some expressions, e.g. let x = learn(..., {name: 'x'})
+    // parse named learned values for name and position/context
+    js = js.replace(
+      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
+      (m, name, pos) => {
+        const args = name ? `{name:'${name}',_pos:${pos}}` : `{_pos:${pos}}`
+        return m.replace(/learn *\($/, `__learn(${args},`)
+      }
+    )
     // benchmark(() => eval(js))
+    __run_eval_config = { js, orig_js } // for __learn
     return eval(js)
   }
   return null // skip
+}
+
+// internal wrappers for options inferred from context in _run
+function __learn(inferred, domain, options) {
+  // inferred._pos
+  const pos = inferred._pos
+  delete inferred._pos
+  const js = __run_eval_config.orig_js
+  const line = _count_unescaped(js.slice(0, pos), '\n') + 1
+  const line_js =
+    js.slice(pos).match(/^[^\n]*/) + js.slice(0, pos).match(/[^\n]*$/)
+  learn(domain, _.merge(inferred, { context: { line, line_js } }, options))
 }
