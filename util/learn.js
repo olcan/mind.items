@@ -8,18 +8,21 @@ function _run() {
   return null // skip
 }
 
-// returns _learned_ value from `domain`
-// `domain` can be a type string, e.g. `'boolean'`
-// `domain` can be an array of possible values, e.g. `[1,5,10]`
-// `domain` can be a comparison object `{eq, gte, lte, gt, lt, and, or, type}`
+// _learned_ value from `domain`
+// | string | type string, `≡{is:'type'}`
+// | array  | value array, `≡{in:[v0,v1,…]}`
+// | `{eq|gte|lte|gt|lt:value}` | numeric set
+// | `{is:type}` | type, e.g. `{is:'number'}`
+// | `{in:[v0,v1,…]}` | possible values
+// | `{and|or:[{…},…]}` | composite domain
 // requires feedback via `need(…)` or `want(…)`
-// feedback can be delayed
-function learn(domain = 'boolean', options = {}) {
-  const { name = stringify(f) } = options
+function learn(domain = { type: 'boolean' }, options = {}) {
+  const { name } = options
 }
 
-// declares preference for `cond` (to be true)
-function want(cond, [penalty = -1]) {}
+// preference for `cond` (`==true`)
+function want(cond, penalty = -1) {}
 
-// declares requirement `≡ want(cond, -inf)`
+// requirement for `cond` (`==true`)
+// `≡ want(cond, -inf)`
 const need = cond => want(cond, -inf)
