@@ -220,7 +220,7 @@ function _run() {
 
   // benchmark(() => eval(js))
 
-  // TODO: need to maintain joint samples/weights, presumably at run level, so need some restructuring
+  // TODO: need to maintain joint samples/weights, presumably at run level, so need some restructuring, making sure to minimize redundant work, lookups, etc
   for (let i = 0; i < 10; ++i) {
     run = { log_w: 0 }
     eval(js)
