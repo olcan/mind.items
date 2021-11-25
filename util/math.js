@@ -118,13 +118,13 @@ function _test_is_matrix() {
 // `x` can be a function of indices, e.g. `(j,k)=>j*k`
 function matrix(J = 0, K = 0, x) {
   const xJK = new Array(J)
+  for (let j = 0; j < J; ++j) xJK[j] = new Array(K)
   if (typeof x == 'function') {
     for (let j = 0; j < J; ++j) {
-      const xj = (xJK[j] = new Array(K))
+      const xj = xJK[j]
       for (let k = 0; k < K; ++k) xj[k] = x(j, k)
     }
-  } else if (typeof x != 'undefined')
-    for (let j = 0; j < J; ++j) xJK[j] = new Array(K).fill(x)
+  } else if (typeof x != 'undefined') for (let j = 0; j < J; ++j) xJK[j].fill(x)
   return xJK
 }
 
