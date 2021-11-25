@@ -174,6 +174,7 @@ function _run() {
   let js = _this.read('js_input')
   if (!js.match(/\b(?:learn|need|want)\(.*\)/s)) return null // skip
   log('run handled by #util/learn')
+  const start = Date.now()
   const _js = js // js before any replacements
   const _js_lines = _js.split('\n')
   const _js_contexts = [] // filled during js.replace(…) below
@@ -181,32 +182,16 @@ function _run() {
 
   // replace js to insert proxies that append code context & eval state
   function __learn(k, d, o) {
-    // initialize context on first call
+    // initialize context and prior samples on first call
     const context = _js_contexts[k]
     if (!context.domain) {
-      _learn(d, o, context)
+      _learn(d, o, context) // for prior and posterior samplers
       if (!context.prior) fatal(`_learn failed to determine prior`)
       if (!context.posterior) fatal(`_learn failed to determine posterior`)
+      context.prior(_state.xKJ[k], _state.log_wJ[k])
     }
-    const { j, J } = _state
-
-    //   // initialize prior sample & weights
-    //   context.J = 10
-    //   context.xJ = array(context.J)
-    //   context.log_wJ = array(context.J, 0) // init log_wj=0 for uniform wJ
-    //   context.prior(context.xJ, context.log_wJ)
-    //   context.wJ = copy(context.log_wJ, Math.exp)
-    //   context.wj_sum = sum(context.wJ)
-    //   context.weighted = _weighted(context)
-    // }
-    // // return random value from weighted sample
-    // return context.weighted
-    //   ? context.xJ[discrete(context.wJ, context.wj_sum)]
-    //   : context.xJ[discrete_uniform(context.wJ.length)]
-
-    // TODO:
-
-    // _state.xK[k];
+    // return prior sample (k,j)
+    return _state.xKJ[k][_state.j]
   }
   function __want(c, p) {
     _want(c, p, _state)
@@ -214,7 +199,6 @@ function _run() {
   function __need(c, p) {
     _need(c, _state)
   }
-
   js = js.replace(
     /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
     (m, name, offset) => {
@@ -222,9 +206,7 @@ function _run() {
       // pre-compute context into _js_contexts[k]
       const context = { index: k, offset, name }
       context.js = _js
-      const prefix = _js.slice(0, offset)
-      const suffix = _js.slice(offset)
-      context.line = _count_unescaped(prefix, '\n') + 1
+      context.line = _count_unescaped(_js.slice(0, offset), '\n') + 1
       context.line_js = _js_lines[context.line - 1]
       _js_contexts.push(context)
       return m.replace(/learn *\($/, `__learn(${k},`)
@@ -232,25 +214,24 @@ function _run() {
   )
   js = js.replace(/\b(want|need) *\(/g, '__$1(')
 
-  const J = 10
+  // initialize J prior runs in _state
+  const J = 10000
   const K = _js_contexts.length
-  _state.xJK = array(J, j => array(K))
-  _state.log_wJ = array(J)
-
-  _run_benchmark(
-    () => {
-      repeat(J, j => {
-        _state.j = j
-        _state.log_w = 0
-        eval(js)
-        _state.log_wJ[j] = _state.log_w
-      })
-      return J
-    },
-    { unit: 'evals' }
-  )
-
-  // TODO: need to maintain joint samples/weights, presumably at run level, so need some restructuring, making sure to minimize redundant work, lookups, etc
-
-  return eval(js)
+  _state.xKJ = matrix(K, J) // prior samples per context/run
+  _state.rJ = array(J) // return value per run
+  _state.log_wJ = array(J, 0) // log-weight per run
+  repeat(J, j => {
+    _state.j = j
+    _state.log_w = 0
+    _state.rJ[j] = eval(js)
+    _state.log_wJ[j] += _state.log_w // add posterior log-weight
+  })
+  // weighted-sample return value
+  // TODO: allow optimized "unweighted" state if learned _state is reused
+  const max_log_wj = max(_state.log_wJ) // for numerical stability
+  _state.wJ = copy(_state.log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
+  _state.wj_sum = sum(_state.wJ)
+  const ms = Date.now() - start
+  log(`sampled ${J} prior runs (ess ${ess(_state.wJ)}) in ${ms}ms`)
+  return _state.rJ[discrete(_state.wJ, _state.wj_sum)]
 }
