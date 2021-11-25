@@ -124,13 +124,13 @@ function _run_benchmark(
     unit_funcs
   const ret = f() // return value for custom units
   if (unit) {
-    check(isNumber(ret), 'must return number for unit ' + unit)
+    assert(is_number(ret), 'must return number for unit ' + unit)
   } else if (units) {
-    check(
-      isObject(units) && !isArray(units),
+    assert(
+      is_object(units) && !is_array(units),
       'benchmark units must be object of unit:function pairs'
     )
-    check(isObject(ret), 'must return object for units ' + stringify(units))
+    assert(is_object(ret), 'must return object for units ' + stringify(units))
     unit_funcs = values(units)
     units = keys(units)
     counts = zeroes(units.length)
