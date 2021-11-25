@@ -1,6 +1,6 @@
 // converts `x` to a string
 // goals: short, readable, unique
-// | string   | `x` (as is)
+// | string   | `x` wrapped in single quotes
 // | boolean  | `x.toString()`
 // | integer  | `x.toString()`, [commas inserted](https://stackoverflow.com/a/2901298)
 // | number   | `x.toString()`
@@ -13,7 +13,7 @@ function stringify(x) {
   if (!defined(x)) return 'undefined'
   if (x === null) return 'null'
   // string as is
-  if (is_string(x)) return x
+  if (is_string(x)) return `'${x}'`
   // boolean toString
   if (is_boolean(x)) return x.toString()
   // integer toString w/ commas, from https://stackoverflow.com/a/2901298
@@ -44,7 +44,7 @@ function _test_stringify() {
   check(
     () => [stringify(), 'undefined'],
     () => [stringify(undefined), 'undefined'],
-    () => [stringify('test'), 'test'],
+    () => [stringify('test'), `'test'`],
     () => [stringify(true), 'true'],
     () => [stringify(10000), '10,000'],
     () => [stringify(1.01), '1.01'],
@@ -54,7 +54,7 @@ function _test_stringify() {
     () => [stringify(_.set(() => {}, 'test', 1)), '{}{test:1}'],
     () => [
       stringify(_.assign(() => {}, { a: 10000, b: '1', c: 1, d: 1.1 })),
-      '{}{a:10,000,b:1,c:1,d:1.1}',
+      `{}{a:10,000,b:'1',c:1,d:1.1}`,
     ],
     () => [
       stringify(() => {
@@ -64,10 +64,10 @@ function _test_stringify() {
         return 1
       }`,
     ], // whitespace is maintained in function body
-    () => [stringify([10000, '1', 1, 1.1]), '[10,000,1,1,1.1]'],
+    () => [stringify([10000, '1', 1, 1.1]), `[10,000,'1',1,1.1]`],
     () => [
       stringify({ a: 10000, b: '1', c: 1, d: 1.1 }),
-      '{a:10,000,b:1,c:1,d:1.1}',
+      `{a:10,000,b:'1',c:1,d:1.1}`,
     ]
   )
 }

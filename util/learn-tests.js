@@ -1,5 +1,10 @@
 function _test_from() {
   check(
+    () => !from(0), // domain missing
+    () => !from(0, 'unknown_domain'), // domain unknown
+    () => from(0, 'uniform'), // uniform model on [0,1)
+    () => from(0.5, 'uniform'), // uniform model on [0,1)
+    () => !from(1, 'uniform'), // uniform model on [0,1)
     () => from('0', 'string'),
     () => from(0, 'integer'),
     () => from(0, 'number'),
@@ -10,6 +15,7 @@ function _test_from() {
     () => !from(false, [0, 1]), // sameValueZero
     () => from(NaN, [NaN, 1]), // sameValueZero
     () => from(0, {}), // no constraints = everything
+    () => from(0, { via: 'uniform' }),
     () => from(0, { is: 'integer' }),
     () => from(0, { in: [0, 1] }),
     () => from(NaN, { in: [NaN, 1] }), // sameValueZero

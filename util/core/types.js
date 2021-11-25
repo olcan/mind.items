@@ -31,7 +31,9 @@ function _benchmark_defined() {
   )
 }
 
-// is `x` of `type`? `≡ is_<type>(x)`
+// is `x` of `type`?
+// `≡ is_<type>(x)` for known `type`
+// `false` for unknown `type`
 function is(x, type) {
   switch (type) {
     case 'undefined':
@@ -70,11 +72,15 @@ function is(x, type) {
       return Array.isArray(x)
     case 'indexed':
       return is_indexed(x)
+    default:
+      return false
   }
 }
 
 function _test_is() {
   check(
+    () => !is(0), // type missing
+    () => !is(0, 'unknown_type'), // type unknown
     () => is(undefined, 'undefined'),
     () => is(null, 'null'),
     () => is(null, 'nullish'),
