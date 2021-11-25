@@ -106,80 +106,125 @@ function _model(domain) {
 // requires feedback via `need(…)` or `want(…)`
 // default `options` are inferred from `domain`
 // default `name` may be inferred from code context
-// | `name`         | name of learned value
-// | `sampler`      | `(xJ)=>…` fills `x~P`→`xJ`
-// | `weighter`     | `(xJ,wJ)=>…` adds `log(∝p(x))`→`wJ`
-// | `proposer`     | `(xJ,yJ)=>…` fills `y~Q(·|x)`→`yJ`
-// | `balancer`     | `(xJ,yJ,wJ)=>…` adds `log(∝q(x|y)/q(y|x))`→`wJ`
+// | `name`      | name of learned value
+// | `prior`     | prior sampler `(xJ, log_wJ) => …`
+// |             | `fill(xJ, x~S), add(log_wJ, log(∝p(x)/s(x)))`
+// | `posterior` | posterior sampler `(xJ, yJ, log_wJ) => …`
+// |             | `fill(yJ, y~Q(·|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
 function learn(domain, options, context) {
   if (!domain) fatal(`missing domain required for learn(…)`)
   // context should be auto-generated in _run below
   if (!context)
     fatal(
-      `missing auto-generated context in undetected/unparsed call` +
+      `missing auto-generated context in unparsed call` +
         ` learn(${stringify(domain)}, ${stringify(options)})`
     )
-  const line = `line[${context.line}]: ${context.line_js}`
-  // if (!context.name && !options?.name)
-  //   fatal(`missing name for learned value @ ${line}`)
-  context.name ||= options?.name || '·'
-  const id = `${context.name}@${context.pos}`
-  const args = stringify(domain) + (options ? ', ' + stringify(options) : '')
-  const canonical_domain = _domain(domain) ?? domain
-  const model = _model(canonical_domain) // canonical model
-  if (!model) fatal(`missing model for domain ${stringify(domain)} @ ${line}`)
-  const { sampler, weighter, proposer, balancer } = _.merge(
-    _defaults(canonical_domain, model, context),
-    options
-  )
-  log(`[${id}] learn(${args}) → ${model}${stringify(canonical_domain)}`)
+  // initialize context if necessary
+  if (!context.domain) {
+    const line = `line[${context.line}]: ${context.line_js}`
+    // if (!context.name && !options?.name)
+    //   fatal(`missing name for learned value @ ${line}`)
+    context.name ||= options?.name || '·'
+    const index = context.index
+    const args = stringify(domain) + (options ? ', ' + stringify(options) : '')
+    context.domain = _domain(domain) ?? domain // canonical domain
+    context.model = _model(context.domain) // canonical model
+    if (!context.model)
+      fatal(`missing model for domain ${stringify(domain)} @ ${line}`)
+    const defaults = _defaults(context)
+    context.prior = options?.prior ?? defaults.prior
+    context.posterior = options?.posterior ?? defaults.posterior
+    log(
+      `[${index}] learn(${args}) → ` +
+        `${context.model}${stringify(context.domain)}`
+    )
+    // initialize prior sample & weights
+    context.J = 10
+    context.xJ = array(context.J)
+    context.log_wJ = array(context.J, 0) // init log_wj=0 for uniform wJ
+    context.prior(context.xJ, context.log_wJ)
+    context.wJ = copy(context.log_wJ, Math.exp)
+    context.wj_sum = sum(context.wJ)
+    context.weighted = _weighted(context)
+  }
+  // return random value from weighted sample
+  return context.weighted
+    ? context.xJ[discrete(context.wJ, context.wj_sum)]
+    : context.xJ[discrete_uniform(context.wJ.length)]
 }
 
-// default options for canonical domain, model, context
-function _defaults(domain, model, context) {
-  switch (model) {
+// default options for context
+function _defaults(context) {
+  switch (context.model) {
     case 'uniform':
       return {
-        sampler: xJ => sample(xJ, uniform),
+        prior: xJ => sample(xJ, uniform),
+        posterior: (xJ, yJ) => sample(yJ, uniform),
       }
   }
 }
 
+// is `context` is weighted?
+function _weighted(context, ε = 1e-6) {
+  const { J, wJ, wj_sum } = context
+  const w_mean = wj_sum / J
+  const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
+  return wJ.some(w => w < w_min || w > w_max)
+}
+
+// want(cond, [penalty = -1])
 // preference for `cond` (`==true`)
-function want(cond, penalty = -1) {}
+// negative log-weight `penalty` is applied if `!cond`
+function want(cond, penalty = -1, run) {
+  // run should be auto-generated in _run below
+  if (!run) fatal(`missing run state in unparsed call want(…)`)
+  if (!cond) run.log_w += penalty
+}
 
 // requirement for `cond` (`==true`)
 // `≡ want(cond, -inf)`
-const need = cond => want(cond, -inf)
-
-let __run_eval_config // eval js shared w/ __learn
+function need(cond, run) {
+  if (!run) fatal(`missing run state in unparsed call need(…)`)
+  if (!cond) run.log_w += -inf
+}
 
 function _run() {
   let js = _this.read('js_input')
-  const orig_js = js
-  if (js.match(/\b(?:learn|need|want)\(.*\)/s)) {
-    log('run handled by #util/learn')
-    // parse learned values for name & context
-    js = js.replace(
-      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
-      (m, name, pos) => {
-        const args = name ? `{name:'${name}',pos:${pos}}` : `{pos:${pos}}`
-        return m.replace(/learn *\($/, `__learn(${args},`)
-      }
-    )
-    // benchmark(() => eval(js))
-    __run_eval_config = { js, orig_js } // for __learn
-    return eval(js)
-  }
-  return null // skip
-}
+  if (!js.match(/\b(?:learn|need|want)\(.*\)/s)) return null // skip
+  log('run handled by #util/learn')
+  const _js = js // js before any replacements
+  const _js_lines = _js.split('\n')
+  // replace learn(…) to append context
+  const _js_contexts = []
+  const _learn = (i, d, o) => learn(d, o, _js_contexts[i])
+  js = js.replace(
+    /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
+    (m, name, offset) => {
+      const index = _js_contexts.length
+      // pre-compute context into _js_contexts[index]
+      const context = { index, offset, name }
+      context.js = _js
+      const prefix = _js.slice(0, offset)
+      const suffix = _js.slice(offset)
+      context.line = _count_unescaped(prefix, '\n') + 1
+      context.line_js = _js_lines[context.line - 1]
+      _js_contexts.push(context)
+      return m.replace(/learn *\($/, `_learn(${index},`)
+    }
+  )
+  // replace want/need(…) to append run state
+  let run // initialized before eval below
+  const _want = (c, p) => want(c, p, run)
+  const _need = (c, p) => need(c, run)
+  js = js.replace(/\b(want|need) *\(/g, '_$1(')
 
-// internal wrapper for context
-function __learn(context, domain, options) {
-  context.js = __run_eval_config.orig_js // from _run
-  context.line = _count_unescaped(context.js.slice(0, context.pos), '\n') + 1
-  context.line_js =
-    context.js.slice(context.pos).match(/^[^\n]*/) +
-    context.js.slice(0, context.pos).match(/[^\n]*$/)
-  learn(domain, options, context)
+  // benchmark(() => eval(js))
+
+  // TODO: need to maintain joint samples/weights, presumably at run level, so need some restructuring
+  for (let i = 0; i < 10; ++i) {
+    run = { log_w: 0 }
+    eval(js)
+    log(run.log_w)
+  }
+  return eval(js)
 }

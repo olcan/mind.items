@@ -174,7 +174,7 @@ class _Random {
       if (!τ.wJ || !τ.wj_sum || τ.J == 0) return false
       const w_mean = τ.wj_sum / τ.J
       const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
-      return !every(τ.wJ, w => w > w_min && w < w_max)
+      return τ.wJ.some(w => w < w_min || w > w_max)
     })
   }
   // sample minimum
@@ -1257,7 +1257,7 @@ class _Random {
   // can use θ._sample for additional samples from parents
   // can ignore wJ if this._sample_weighted is false
   // must ignore wJ if undefined (e.g. when J==1)
-  // ideal weights are p(x)/π(x) if p≠π (p sampling)
+  // ideal weights are π(x)/p(x) if p≠π (p sampling)
   // default implementation uses _value(θ._sample())
   _sample(xJ, wJ, θ) {
     if (wJ) this._missing('_sample (weighted)')

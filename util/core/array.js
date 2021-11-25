@@ -16,7 +16,7 @@ function _test_array() {
     () => [array(1), [undefined]],
     () => [array(3), [undefined, undefined, undefined]],
     () => [array(3, 0), [0, 0, 0]],
-    () => [array(3, j => j), [0, 1, 2]],
+    () => [array(3, j => j), [0, 1, 2]]
   )
 }
 
@@ -25,7 +25,7 @@ function _benchmark_array() {
     () => new Array(100),
     () => new Array(100).fill(0),
     () => array(100, j => j),
-    () => Array.from({ length: 100 }, j => j),
+    () => Array.from({ length: 100 }, j => j)
   )
 }
 
@@ -46,7 +46,15 @@ function fill(xJ, f, js = 0, je = xJ.length) {
 // can copy `yJ` into existing `xJ`
 // can map copied elements as `f(x,j)`
 function copy(xJ, yJ, f) {
-  if (yJ === undefined) return f ? xJ.map(f) : xJ.slice() // single arg mode
+  if (yJ === undefined) return xJ.slice() // single-arg mode
+  // dual-arg copy(yJ,f) mode: shift args and allocate xJ
+  if (is_function(yJ)) {
+    f = yJ
+    yJ = xJ
+    xJ = array(yJ.length)
+    for (let j = 0; j < xJ.length; ++j) xJ[j] = f(yJ[j], j)
+    return xJ
+  }
   if (f) for (let j = 0; j < xJ.length; ++j) xJ[j] = f(yJ[j], j)
   else for (let j = 0; j < xJ.length; ++j) xJ[j] = yJ[j]
   return xJ
@@ -64,8 +72,8 @@ function copy_at(xJ, yK, js = 0) {
 }
 
 function _benchmark_copy_at() {
-  let yJ = array(10000, Math.random)
-  let xJ = array(10000)
+  let yJ = array(1000, Math.random)
+  let xJ = array(1000)
   benchmark(() => copy_at(xJ, yJ, 0))
 }
 
@@ -92,7 +100,7 @@ function _benchmark_each() {
   benchmark(
     () => xJ.forEach(x => x),
     () => each(xJ, x => x),
-    () => scan(xJ, j => j),
+    () => scan(xJ, j => j)
   )
 }
 
@@ -136,24 +144,26 @@ function _benchmark_swap() {
       x = y
       y = x
     },
-    () => ([x, y] = [y, x]),
+    () => ([x, y] = [y, x])
   )
 }
 
 function _benchmark_map() {
-  let yJ = array(10000, Math.random)
-  let xJ = array(10000)
+  let yJ = array(1000, Math.random)
+  let xJ = array(1000)
   benchmark(
     () => map(xJ, yJ, (x, y) => x + y),
     () => map(xJ, yJ, (x, y) => y * y),
+    () => map(array(1000), yJ, (x, y) => y * y),
     () => copy(xJ, yJ, y => y * y),
+    () => copy(yJ, y => y * y),
     () => apply(yJ, y => y * y),
     () =>
       (xJ = swap(
         apply(yJ, y => y * y),
-        (yJ = xJ),
+        (yJ = xJ)
       )),
-    () => yJ.map(y => y * y),
+    () => yJ.map(y => y * y)
   )
 }
 
