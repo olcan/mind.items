@@ -1,6 +1,6 @@
-// array(J,[x])
+// array([J=0],[x])
 // array `xJ` of length `J`
-// `x` can be given to initialize as `xJ[j]=x ∀j`
+// `x` can be given to fill as `xJ[j]=x ∀j`
 // `x` can be a function of index, e.g. `j=>j`
 const array = (J = 0, x) => {
   const xJ = new Array(J)
@@ -32,12 +32,14 @@ function _benchmark_array() {
 const zeroes = J => array(J, 0)
 const ones = J => array(J, 1)
 
-// fill(xJ, f, [js=0], [je=J])
-// fills `xJ` as `xJ[j]=f(j)`
-function fill(xJ, f, js = 0, je = xJ.length) {
+// fill(xJ, x, [js=0], [je=J])
+// fills `xJ` as `xJ[j]=x ∀j`
+// `x` can be a function of index, e.g. `j=>j`
+function fill(xJ, x, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
-  for (let j = js; j < je; ++j) xJ[j] = f(j)
+  if (typeof x == 'function') for (let j = js; j < je; ++j) xJ[j] = x(j)
+  else for (let j = js; j < je; ++j) xJ[j] = x // can be undefined
   return xJ
 }
 
@@ -48,7 +50,7 @@ function fill(xJ, f, js = 0, je = xJ.length) {
 function copy(xJ, yJ, f) {
   if (yJ === undefined) return xJ.slice() // single-arg mode
   // dual-arg copy(yJ,f) mode: shift args and allocate xJ
-  if (is_function(yJ)) {
+  if (typeof yJ == 'function') {
     f = yJ
     yJ = xJ
     xJ = array(yJ.length)
@@ -95,16 +97,26 @@ function scan(xJ, f, js = 0, je = xJ.length) {
   return xJ
 }
 
+// invokes `f(j)` for `j=0,…,J-1`
+const repeat = (J, f) => {
+  for (let j = 0; j < J; ++j) f(j)
+}
+
 function _benchmark_each() {
   const xJ = array(1000, Math.random)
+  const J = xJ.length
   benchmark(
     () => xJ.forEach(x => x),
     () => each(xJ, x => x),
-    () => scan(xJ, j => j)
+    () => scan(xJ, j => j),
+    () => repeat(J, j => j),
+    () => {
+      for (let j = 0; j < J; ++j) {}
+    }
   )
 }
 
-const _benchmark_each_functions = ['each', 'scan']
+const _benchmark_each_functions = ['each', 'scan', 'repeat']
 
 // map(xJ, yJ, f, [js=0], [je=J])
 // maps `yJ` into `xJ` as `f(x,y,j)`

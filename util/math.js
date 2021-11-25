@@ -112,6 +112,39 @@ function _test_is_matrix() {
   )
 }
 
+// matrix([J=0],[K=0],[x])
+// matrix `xJK` of dimensions `J,K`
+// `x` can be given to fill as `xJK[j][k]=x ∀j,k`
+// `x` can be a function of indices, e.g. `(j,k)=>j*k`
+function matrix(J = 0, K = 0, x) {
+  const xJK = new Array(J)
+  if (typeof x == 'function') {
+    for (let j = 0; j < J; ++j) {
+      const xj = (xJK[j] = new Array(K))
+      for (let k = 0; k < K; ++k) xj[k] = x(j, k)
+    }
+  } else if (typeof x != 'undefined')
+    for (let j = 0; j < J; ++j) xJK[j] = new Array(K).fill(x)
+  return xJK
+}
+
+function _benchmark_matrix() {
+  benchmark(
+    () => matrix(10, 10),
+    () => array(10, k => array(10)),
+    () => matrix(10, 1000),
+    () => array(10, k => array(1000)),
+    () => matrix(1000, 10),
+    () => array(1000, k => array(10)),
+    () => matrix(10, 10, 0),
+    () => array(10, k => array(10, 0)),
+    () => matrix(10, 1000, 0),
+    () => array(10, k => array(1000, 0)),
+    () => matrix(1000, 10, 0),
+    () => array(1000, k => array(10, 0))
+  )
+}
+
 // peels away outer arrays of length 1
 // does not affect longer arrays
 function scalarify(x) {
@@ -162,8 +195,8 @@ function transpose(xJK) {
   // return array(K, k=> array(J, j=> xJK[j][k]))
   const xKJ = new Array(K)
   for (let k = 0; k < K; ++k) {
-    xKJ[k] = new Array(J)
-    for (let j = 0; j < J; ++j) xKJ[k][j] = xJK[j][k]
+    const xk = (xKJ[k] = new Array(J))
+    for (let j = 0; j < J; ++j) xk[j] = xJK[j][k]
   }
   return scalarify(xKJ)
 }
