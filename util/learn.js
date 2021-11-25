@@ -132,7 +132,7 @@ function learn(domain, options, context) {
     _defaults(canonical_domain, model, context),
     options
   )
-  log(`[${id}] learn(${args}) ${model} on ${stringify(canonical_domain)}`)
+  log(`[${id}] learn(${args}) → ${model}${stringify(canonical_domain)}`)
 }
 
 // default options for canonical domain, model, context
