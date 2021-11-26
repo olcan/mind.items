@@ -148,15 +148,10 @@ function _run() {
   const js = _this.read('js_input')
   if (!js.match(/\b(?:learn|need|want)\(.*\)/s)) return null // skip
   log('run handled by #util/learn')
-  const J = 10000
-  const _state = new _State(js, J)
-
-  // TODO: what does a "reweight" mean at this point? normally it would incorporate the log_w as we do above ... the basic idea seems to be to be able to track _changes_ in the posterior weight log_w, which can be done by ensuring that the "old" weight is tracked and subtracted before new one is applied
-
-  return _state.rJ[discrete(_state.wJ, _state.wj_sum)]
+  return new _Runs(js, 10000).sample()
 }
 
-class _State {
+class _Runs {
   constructor(js, J) {
     const lines = js.split('\n')
     this.contexts = [] // filled during js.replace(…) below
@@ -176,28 +171,55 @@ class _State {
     this.J = J
     this.K = this.contexts.length
     this.xKJ = matrix(this.K, J) // prior samples per context/run
-    this.rJ = array(J) // return value per run
     this.log_wJ = array(J, 0) // posterior log-weight per run
     this.log_wJ_penalty = array(J, 0) // observed penalty per run
-    this.wJ = array(J) // sampled run weights
+    this.xJ = array(J) // eval value per run
+    this._cache = {} // init cache for wJ, wj_sum, ess, ...
     // sample prior runs
     const start = Date.now()
     repeat(this.J, j => {
       this.j = j
       this.log_wJ_penalty[j] = 0
-      this.rJ[j] = eval(this.js)
+      this.xJ[j] = eval(this.js)
     })
-    this._update_run_weights()
     const ms = Date.now() - start
-    log(`sampled ${J} prior runs (ess ${ess(this.wJ)}) in ${ms}ms`)
+    log(`sampled ${J} prior runs (ess ${this.ess}) in ${ms}ms`)
   }
 
-  _update_run_weights() {
-    const { wJ, log_wJ, log_wJ_penalty } = this
-    copy(wJ, log_wJ, (log_wj, j) => log_wj + log_wJ_penalty[j])
-    const max_log_wj = max(wJ)
-    apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
-    this.wj_sum = sum(wJ)
+  _cached(key, f) {
+    return (this._cache[key] ??= f(this))
+  }
+
+  get wJ() {
+    return this._cached('wJ', τ => {
+      const { log_wJ, log_wJ_penalty } = τ
+      const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_penalty[j])
+      const max_log_wj = max(wJ)
+      apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
+      return wJ
+    })
+  }
+
+  get wj_sum() {
+    return this._cached('wj_sum', τ => sum(τ.wJ))
+  }
+
+  get ess() {
+    return this._cached('ess', τ => ess(τ.wJ))
+  }
+
+  get weighted() {
+    this._cached('weighted', τ => {
+      const ε = 1e-6
+      const w_mean = this.wj_sum / this.J
+      const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
+      return this.wJ.some(w => w < w_min || w > w_max)
+    })
+  }
+
+  sample() {
+    if (!this.weighted) return this.xJ[discrete_uniform(this.J)]
+    return this.xJ[discrete(this.wJ, this.wj_sum)]
   }
 
   _learn(k, domain, options) {
