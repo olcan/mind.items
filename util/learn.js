@@ -125,13 +125,6 @@ function _defaults(context) {
   }
 }
 
-// is `wJ` weighted?
-function _weighted(wJ, wj_sum = sum(wJ), ε = 1e-6) {
-  const w_mean = wj_sum / wJ.length
-  const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
-  return wJ.some(w => w < w_min || w > w_max)
-}
-
 // preference for `cond` (`==true`)
 // negative log-weight `penalty` is applied if `!cond`
 function want(cond, penalty = -1) {
@@ -142,6 +135,13 @@ function want(cond, penalty = -1) {
 // `≡ want(cond, -inf)`
 function need(cond) {
   fatal(`unexpected (unparsed) call to need(…)`)
+}
+
+// is `wJ` uniform?
+function _is_uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
+  const w_mean = wj_sum / wJ.length
+  const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
+  return wJ.every(w => w >= w_min && w <= w_max)
 }
 
 function _run() {
@@ -182,8 +182,14 @@ class _Run {
     // define cached properties
     cache(this, 'wJ', [])
     cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
-    cache(this, 'weighted', ['wJ'])
-    cache(this, 'ess', ['wJ'], () => ess(this.wJ))
+    cache(this, 'wj_uniform', ['wJ'], () => _is_uniform(this.wJ, this.wj_sum))
+    cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
+    cache(this, 'wJ_prior', [])
+    cache(this, 'wj_prior_sum', ['wJ_prior'], () => sum(this.wJ_prior))
+    cache(this, 'wj_prior_uniform', ['wJ_prior'], () =>
+      _is_uniform(this.wJ_prior, this.wj_prior_sum)
+    )
+    cache(this, 'wj_prior_ess', ['wJ_prior'], () => ess(this.wJ_prior))
 
     // sample prior runs
     const start = Date.now()
@@ -193,29 +199,76 @@ class _Run {
       this.xJ[j] = eval(this.js)
     })
     const ms = Date.now() - start
-    log(`sampled ${J} prior runs (ess ${this.ess}) in ${ms}ms`)
+    log(`sampled ${J} prior runs in ${ms}ms`)
+    log(`ess ${this.wj_prior_ess} prior, ${this.wj_ess} posterior`)
   }
 
   __wJ() {
     const { log_wJ, log_wJ_penalty } = this
     const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_penalty[j])
     const max_log_wj = max(wJ)
-    apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
-    return wJ
+    return apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
   }
 
-  __weighted() {
-    const ε = 1e-6
-    const w_mean = this.wj_sum / this.J
-    const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
-    return this.wJ.some(w => w < w_min || w > w_max)
+  __wJ_prior() {
+    const { log_wJ } = this
+    const max_log_wj = max(log_wJ)
+    return copy(log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
   }
 
-  sample() {
-    const { weighted, J, xJ, wJ, wj_sum } = this
-    const j = weighted ? discrete(wJ, wj_sum) : discrete_uniform(J)
-    // TODO: get values ...
-    return xJ[j]
+  sample_index(options = {}) {
+    if (options.prior) {
+      const { wj_prior_uniform, J, wJ_prior, wj_prior_sum, xJ } = this
+      const j = wj_prior_uniform
+        ? discrete_uniform(J)
+        : discrete(wJ_prior, wj_prior_sum)
+      return j
+    }
+    const { wj_uniform, J, wJ, wj_sum, xJ } = this
+    const j = wj_uniform ? discrete_uniform(J) : discrete(wJ, wj_sum)
+    return j
+  }
+
+  sample_values(options = {}) {
+    const j = this.sample_index(options)
+    switch (options.format) {
+      case 'array':
+        return this.xKJ.map(xkJ => xkJ[j])
+      case 'object':
+      default:
+        return _.set(
+          _.zipObject(
+            this.contexts.map(c => c.name || c.index),
+            this.xKJ.map(xkJ => xkJ[j])
+          ),
+          '_index',
+          j
+        )
+    }
+  }
+
+  sample(options = {}) {
+    const j = this.sample_index(options)
+    if (options.values) {
+      switch (options.format) {
+        case 'array':
+          return [...this.xKJ.map(xkJ => xkJ[j]), this.xJ[j]]
+        case 'object':
+        default:
+          return _.assign(this.sample_values(options), {
+            _output: this.xJ[j],
+            _index: j,
+          })
+        // default:
+        //   return [this.xJ[j], this.sample_values(options)]
+      }
+    } else if (options.index) {
+      return {
+        _output: this.xJ[j],
+        _index: j,
+      }
+    }
+    return this.xJ[j]
   }
 
   _learn(k, domain, options) {
