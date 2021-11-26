@@ -34,12 +34,12 @@ const discrete_uniform = (a, b) => {
 // `≡ discrete_uniform(J)` if `sum_wj==0`
 // assumes `wj>=0` and `sum_wj>=0`
 const discrete = (wJ, sum_wj) => {
-  if (!is_array(wJ)) fatal(`non-array argument`)
+  assert(is_array(wJ), `non-array argument`)
   if (wJ.length == 0) return NaN
   sum_wj ??= sum(wJ)
-  if (sum_wj < 0) fatal(`sum_wj<0: ${sum_wj}`)
+  assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
   if (sum_wj == 0) return discrete_uniform(wJ.length)
-  // if (min(wJ) < 0) fatal(`wj<0: ${min(wJ)}`)
+  // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
   let j = 0
   let w = 0
   let wt = Math.random() * sum_wj
@@ -186,9 +186,9 @@ function binomial_test(n, k, p) {
 // | `yk_sorted` | `false` | assume `yK` already sorted
 // | `discrete`  | `false` | allow identical (discrete) values?
 function ks2(xJ, yK, options = {}) {
-  if (!is_array(xJ)) fatal(`non-array first argument`)
-  if (yK && !is_array(yK)) fatal(`non-array second argument`)
-  if (!is_object(options)) fatal(`non-object options`)
+  assert(is_array(xJ), `non-array first argument`)
+  if (yK) assert(is_array(yK), `non-array second argument`)
+  assert(is_object(options), `non-object options`)
   const { xj_sorted, yk_sorted, wJ, wj_sum, wK, wk_sum, discrete } = options
   let J = xJ.length
   let K = yK?.length ?? 0 // if yK missing, K=0 for now, K=J later
@@ -278,10 +278,10 @@ function ks2(xJ, yK, options = {}) {
 // | `xj_sorted` | `false` | assume `xJ` already sorted
 // | `discrete`  | `false` | allow identical (discrete) values?
 function ks1(xJ, cdf, options = {}) {
-  if (!is_array(xJ)) fatal('non-array argument')
+  assert(is_array(xJ), 'non-array argument')
   let { xj_sorted, wK, wk_sum } = options
-  if (wK) fatal('invalid option wK superceded by cdf for ks1')
-  if (wk_sum) fatal(`invalid option wk_sum superceded by cdf for ks1`)
+  assert(!wK, 'invalid option wK superceded by cdf for ks1')
+  assert(!wk_sum, `invalid option wk_sum superceded by cdf for ks1`)
   if (!xj_sorted) xJ.sort((a, b) => a - b)
   wK = array(xJ.length)
   wK[0] = cdf(xJ[0])
@@ -345,6 +345,17 @@ function min(xJ) {
   return z
 }
 
+// minimum of `f(x,j)` over `xJ`
+function minf(xJ, f = x => x) {
+  assert(is_array(xJ), 'non-array argument')
+  let z = inf
+  for (let j = 0; j < xJ.length; ++j) {
+    const fxj = f(xJ[j], j)
+    if (fxj < z) z = fxj
+  }
+  return z
+}
+
 // maximum element in `xJ`
 function max(xJ) {
   if (!is_array(xJ)) xJ = arguments
@@ -353,11 +364,30 @@ function max(xJ) {
   return z
 }
 
+// maximum of `f(x,j)` over `xJ`
+function maxf(xJ, f = x => x) {
+  assert(is_array(xJ), 'non-array argument')
+  let z = -inf
+  for (let j = 0; j < xJ.length; ++j) {
+    const fxj = f(xJ[j], j)
+    if (fxj > z) z = fxj
+  }
+  return z
+}
+
 // sum of `xJ`
 function sum(xJ) {
   if (!is_array(xJ)) xJ = arguments
   let z = 0
   for (let j = 0; j < xJ.length; ++j) z += xJ[j]
+  return z
+}
+
+// sum of `f(x,j)` over `xJ`
+function sumf(xJ, f = x => x) {
+  assert(is_array(xJ), 'non-array argument')
+  let z = 0
+  for (let j = 0; j < xJ.length; ++j) z += f(xJ[j], j)
   return z
 }
 

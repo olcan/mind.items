@@ -113,26 +113,6 @@ function _model(domain) {
 function learn(domain, options = {}) {
   fatal(`unexpected (unparsed) call to learn(…)`)
 }
-function _learn(domain, options, context) {
-  if (!domain) fatal(`missing domain required for learn(…)`)
-  const line = `line[${context.line}]: ${context.line_js}`
-  // if (!context.name && !options?.name)
-  //   fatal(`missing name for learned value @ ${line}`)
-  context.name ||= options?.name || '·'
-  const index = context.index
-  const args = stringify(domain) + (options ? ', ' + stringify(options) : '')
-  context.domain = _domain(domain) ?? domain // canonical domain
-  context.model = _model(context.domain) // canonical model
-  if (!context.model)
-    fatal(`missing model for domain ${stringify(domain)} @ ${line}`)
-  const defaults = _defaults(context)
-  context.prior = options?.prior ?? defaults.prior
-  context.posterior = options?.posterior ?? defaults.posterior
-  log(
-    `[${index}] learn(${args}) → ` +
-      `${context.model}${stringify(context.domain)}`
-  )
-}
 
 // default options for context
 function _defaults(context) {
@@ -157,81 +137,102 @@ function _weighted(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 function want(cond, penalty = -1) {
   fatal(`unexpected (unparsed) call to want(…)`)
 }
-function _want(cond, penalty = -1, state) {
-  if (!cond) state.log_w += penalty
-}
 
 // requirement for `cond` (`==true`)
 // `≡ want(cond, -inf)`
 function need(cond) {
   fatal(`unexpected (unparsed) call to need(…)`)
 }
-function _need(cond, state) {
-  if (!cond) state.log_w += -inf
-}
 
 function _run() {
-  let js = _this.read('js_input')
+  const js = _this.read('js_input')
   if (!js.match(/\b(?:learn|need|want)\(.*\)/s)) return null // skip
   log('run handled by #util/learn')
-  const start = Date.now()
-  const _js = js // js before any replacements
-  const _js_lines = _js.split('\n')
-  const _js_contexts = [] // filled during js.replace(…) below
-  let _state = {} // filled before each eval(js) below
-
-  // replace js to insert proxies that append code context & eval state
-  function __learn(k, d, o) {
-    // initialize context and prior samples on first call
-    const context = _js_contexts[k]
-    if (!context.domain) {
-      _learn(d, o, context) // for prior and posterior samplers
-      if (!context.prior) fatal(`_learn failed to determine prior`)
-      if (!context.posterior) fatal(`_learn failed to determine posterior`)
-      context.prior(_state.xKJ[k], _state.log_wJ[k])
-    }
-    // return prior sample (k,j)
-    return _state.xKJ[k][_state.j]
-  }
-  function __want(c, p) {
-    _want(c, p, _state)
-  }
-  function __need(c, p) {
-    _need(c, _state)
-  }
-  js = js.replace(
-    /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
-    (m, name, offset) => {
-      const k = _js_contexts.length
-      // pre-compute context into _js_contexts[k]
-      const context = { index: k, offset, name }
-      context.js = _js
-      context.line = _count_unescaped(_js.slice(0, offset), '\n') + 1
-      context.line_js = _js_lines[context.line - 1]
-      _js_contexts.push(context)
-      return m.replace(/learn *\($/, `__learn(${k},`)
-    }
-  )
-  js = js.replace(/\b(want|need) *\(/g, '__$1(')
-
-  // initialize J prior runs in _state
   const J = 10000
-  const K = _js_contexts.length
-  _state.xKJ = matrix(K, J) // prior samples per context/run
-  _state.rJ = array(J) // return value per run
-  _state.log_wJ = array(J, 0) // log-weight per run
-  repeat(J, j => {
-    _state.j = j
-    _state.log_w = 0
-    _state.rJ[j] = eval(js)
-    _state.log_wJ[j] += _state.log_w // add posterior log-weight
-  })
-  // weighted-sample return value
-  // TODO: allow optimized "unweighted" state if learned _state is reused
-  const max_log_wj = max(_state.log_wJ) // for numerical stability
-  _state.wJ = copy(_state.log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
-  _state.wj_sum = sum(_state.wJ)
-  const ms = Date.now() - start
-  log(`sampled ${J} prior runs (ess ${ess(_state.wJ)}) in ${ms}ms`)
+  const _state = new _State(js, J)
+
+  // TODO: what does a "reweight" mean at this point? normally it would incorporate the log_w as we do above ... the basic idea seems to be to be able to track _changes_ in the posterior weight log_w, which can be done by ensuring that the "old" weight is tracked and subtracted before new one is applied
+
   return _state.rJ[discrete(_state.wJ, _state.wj_sum)]
+}
+
+class _State {
+  constructor(js, J) {
+    const lines = js.split('\n')
+    this.contexts = [] // filled during js.replace(…) below
+    this.js = js
+      .replace(/\b(want|need) *\(/g, 'this._$1(')
+      .replace(
+        /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
+        (m, name, offset) => {
+          const k = this.contexts.length
+          const context = { js, index: k, offset, name }
+          context.line = _count_unescaped(js.slice(0, offset), '\n') + 1
+          context.line_js = lines[context.line - 1]
+          this.contexts.push(context)
+          return m.replace(/learn *\($/, `this._learn(${k},`)
+        }
+      )
+    this.J = J
+    this.K = this.contexts.length
+    this.xKJ = matrix(this.K, J) // prior samples per context/run
+    this.rJ = array(J) // return value per run
+    this.log_wJ = array(J, 0) // posterior log-weight per run
+    this.log_wJ_penalty = array(J, 0) // observed penalty per run
+    this.wJ = array(J) // sampled run weights
+    // sample prior runs
+    const start = Date.now()
+    repeat(this.J, j => {
+      this.j = j
+      this.log_wJ_penalty[j] = 0
+      this.rJ[j] = eval(this.js)
+    })
+    this._update_run_weights()
+    const ms = Date.now() - start
+    log(`sampled ${J} prior runs (ess ${ess(this.wJ)}) in ${ms}ms`)
+  }
+
+  _update_run_weights() {
+    const { wJ, log_wJ, log_wJ_penalty } = this
+    copy(wJ, log_wJ, (log_wj, j) => log_wj + log_wJ_penalty[j])
+    const max_log_wj = max(wJ)
+    apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
+    this.wj_sum = sum(wJ)
+  }
+
+  _learn(k, domain, options) {
+    const context = this.contexts[k]
+    const { j, xKJ, log_wJ, xkJ = xKJ[k] } = this
+    if (!context.prior) {
+      if (!domain) fatal(`missing domain required for learn(…)`)
+      const line = `line[${context.line}]: ${context.line_js}`
+      // if (!context.name && !options?.name)
+      //   fatal(`missing name for learned value @ ${line}`)
+      context.name ||= options?.name || '·'
+      const index = context.index
+      const args =
+        stringify(domain) + (options ? ', ' + stringify(options) : '')
+      context.domain = _domain(domain) ?? domain // canonical domain
+      context.model = _model(context.domain) // canonical model
+      if (!context.model)
+        fatal(`missing model for domain ${stringify(domain)} @ ${line}`)
+      const defaults = _defaults(context)
+      context.prior = options?.prior ?? defaults.prior
+      context.posterior = options?.posterior ?? defaults.posterior
+      log(
+        `[${index}] learn(${args}) → ` +
+          `${context.model}${stringify(context.domain)}`
+      )
+      context.prior(xkJ, log_wJ)
+    }
+    return xkJ[j]
+  }
+  _want(cond, penalty = -1) {
+    const { j, log_wJ_penalty } = this
+    if (!cond) log_wJ_penalty[j] += penalty
+  }
+  _need(cond) {
+    const { j, log_wJ_penalty } = this
+    if (!cond) log_wJ_penalty[j] += -inf
+  }
 }

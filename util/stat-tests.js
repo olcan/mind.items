@@ -383,6 +383,16 @@ function _test_min() {
   )
 }
 
+function _test_minf() {
+  check(
+    () => throws(() => minf()),
+    () => throws(() => minf(0)),
+    () => [minf([]), inf],
+    () => [minf([0, -1, -2], x => 2 * x), -4],
+    () => [minf([0, -1, -2, 'a'], x => 2 * x), -4] // elements that fail < are ignored
+  )
+}
+
 function _test_max() {
   check(
     () => [max(), -inf],
@@ -395,6 +405,16 @@ function _test_max() {
   )
 }
 
+function _test_maxf() {
+  check(
+    () => throws(() => maxf()),
+    () => throws(() => maxf(0)),
+    () => [maxf([]), -inf],
+    () => [maxf([0, 1, 2], x => 2 * x), 4],
+    () => [maxf([0, 1, 2, 'a'], x => 2 * x), 4] // elements that fail > are ignored
+  )
+}
+
 function _test_sum() {
   check(
     () => [sum(), 0],
@@ -403,5 +423,14 @@ function _test_sum() {
     () => [sum(0, 1, 2), 3],
     () => [sum([0, 1, 2]), 3],
     () => [sum([0, 1, 2, 'a']), '3a'] // invalid for non-numbers
+  )
+}
+
+function _test_sumf() {
+  check(
+    () => throws(() => sumf()),
+    () => throws(() => sumf(0)),
+    () => [sumf([0, 1, 2], x => 2 * x), 6],
+    () => [sumf([0, 1, 2, 'a'], x => 2 * x), NaN] // invalid for non-numbers
   )
 }
