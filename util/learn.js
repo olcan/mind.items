@@ -148,10 +148,11 @@ function _run() {
   const js = _this.read('js_input')
   if (!js.match(/\b(?:learn|need|want)\(.*\)/s)) return null // skip
   log('run handled by #util/learn')
-  return new _Runs(js, 10000).sample()
+  const run = new _Run(js, 10000)
+  return run.sample()
 }
 
-class _Runs {
+class _Run {
   constructor(js, J) {
     const lines = js.split('\n')
     this.contexts = [] // filled during js.replace(…) below
@@ -174,7 +175,11 @@ class _Runs {
     this.log_wJ = array(J, 0) // posterior log-weight per run
     this.log_wJ_penalty = array(J, 0) // observed penalty per run
     this.xJ = array(J) // eval value per run
-    this._cache = {} // init cache for wJ, wj_sum, ess, ...
+    // define cached properties
+    cache(this, 'wJ', [])
+    cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
+    cache(this, 'weighted', ['wJ'])
+    cache(this, 'ess', ['wJ'], () => ess(this.wJ))
     // sample prior runs
     const start = Date.now()
     repeat(this.J, j => {
@@ -186,40 +191,26 @@ class _Runs {
     log(`sampled ${J} prior runs (ess ${this.ess}) in ${ms}ms`)
   }
 
-  _cached(key, f) {
-    return (this._cache[key] ??= f(this))
+  __wJ() {
+    const { log_wJ, log_wJ_penalty } = this
+    const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_penalty[j])
+    const max_log_wj = max(wJ)
+    apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
+    return wJ
   }
 
-  get wJ() {
-    return this._cached('wJ', τ => {
-      const { log_wJ, log_wJ_penalty } = τ
-      const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_penalty[j])
-      const max_log_wj = max(wJ)
-      apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
-      return wJ
-    })
-  }
-
-  get wj_sum() {
-    return this._cached('wj_sum', τ => sum(τ.wJ))
-  }
-
-  get ess() {
-    return this._cached('ess', τ => ess(τ.wJ))
-  }
-
-  get weighted() {
-    this._cached('weighted', τ => {
-      const ε = 1e-6
-      const w_mean = this.wj_sum / this.J
-      const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
-      return this.wJ.some(w => w < w_min || w > w_max)
-    })
+  __weighted() {
+    const ε = 1e-6
+    const w_mean = this.wj_sum / this.J
+    const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
+    return this.wJ.some(w => w < w_min || w > w_max)
   }
 
   sample() {
-    if (!this.weighted) return this.xJ[discrete_uniform(this.J)]
-    return this.xJ[discrete(this.wJ, this.wj_sum)]
+    const { weighted, J, xJ, wJ, wj_sum } = this
+    const j = weighted ? discrete(wJ, wj_sum) : discrete_uniform(J)
+    // TODO: get values ...
+    return xJ[j]
   }
 
   _learn(k, domain, options) {
@@ -230,8 +221,7 @@ class _Runs {
       const line = `line[${context.line}]: ${context.line_js}`
       // if (!context.name && !options?.name)
       //   fatal(`missing name for learned value @ ${line}`)
-      context.name ||= options?.name || '·'
-      const index = context.index
+      const { index, name } = context
       const args =
         stringify(domain) + (options ? ', ' + stringify(options) : '')
       context.domain = _domain(domain) ?? domain // canonical domain
@@ -242,17 +232,19 @@ class _Runs {
       context.prior = options?.prior ?? defaults.prior
       context.posterior = options?.posterior ?? defaults.posterior
       log(
-        `[${index}] learn(${args}) → ` +
+        `[${index}] ${name ? name + ' = ' : ''}learn(${args}) ← ` +
           `${context.model}${stringify(context.domain)}`
       )
       context.prior(xkJ, log_wJ)
     }
     return xkJ[j]
   }
+
   _want(cond, penalty = -1) {
     const { j, log_wJ_penalty } = this
     if (!cond) log_wJ_penalty[j] += penalty
   }
+
   _need(cond) {
     const { j, log_wJ_penalty } = this
     if (!cond) log_wJ_penalty[j] += -inf

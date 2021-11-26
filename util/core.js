@@ -194,6 +194,44 @@ function timing(f) {
   return [output, elapsed]
 }
 
+// cache property `prop` on object `obj`
+// defines `obj.prop`, cached in `obj._prop`, computed as `obj.__prop()`
+// dependencies must be specified explicitly in array `deps`
+// setting to `obj.prop=null` also sets all dependents to `null`
+// `obj.__prop` method can be specified as argument `f`
+// `options` are passed to `Object.defineProperty` in descriptor argument
+function cache(obj, prop, deps, f, options = {}) {
+  assert(is_string(prop) && prop.match(/^\w+$/), `invalid prop '${prop}'`)
+  assert(is_array(deps), `invalid/missing deps for cached '${prop}'`)
+  assert(!f || is_function(f), `invalid function for cached '${prop}'`)
+  assert(f || obj['__' + prop], `missing method '__${prop}' for cached prop`)
+  if (f) {
+    assert(
+      !obj['__' + prop],
+      `specified function conflicts w/ method '__${prop}' for cached prop`
+    )
+    obj['__' + prop] = function () {
+      return f(this)
+    }.bind(obj)
+  }
+  assert(!obj.__deps?.[prop], `cached prop '${prop} already defined`)
+  obj.__deps ??= {}
+  obj.__deps[prop] = []
+  each(deps, dep => {
+    assert(is_array(obj.__deps[dep]), `unknown dep '${dep}' for '${prop}'`)
+    obj.__deps[dep].push(prop)
+  })
+  Object.defineProperty(obj, prop, {
+    get: () => (obj['_' + prop] ??= obj['__' + prop].call(obj)),
+    set: v => {
+      assert(v === null, `cached property '${prop}' can only be set to null`)
+      each(obj.__deps[prop], dependent => (obj['_' + dependent] = null))
+      obj['_' + prop] = null
+    },
+    ...options,
+  })
+}
+
 // table(cells,[headers])
 // markdown table for `cells`
 // |`cells`   | 2D array | `[['a',1],['b',2]]`
