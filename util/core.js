@@ -269,14 +269,9 @@ function js_table(regex) {
         // skip certain types if indented
         if (def.indent && def.type?.match(/(?:const|let|var|class|function)$/))
           return
-        // skip constructor unless commented
-        if (!def.type && def.name == 'constructor' && !def.comment) return
-        // skip duplicate names unless commented
-        if (names.has(def.name) && !def.comment) return
-        names.add(def.name)
         // clear args if getter/setter
         if (def.type.match(/(?:get|set)$/)) def.args = ''
-
+        // process arrow args
         if (def.arrow_args) {
           def.args = def.arrow_args.replace(/\s*=>$/, '')
           if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
@@ -299,6 +294,13 @@ function js_table(regex) {
           def.scope = scope
           scope_indent[scope] = def.indent
         }
+
+        // skip constructor unless commented
+        if (!def.type && def.name == 'constructor' && !def.comment) return
+
+        // skip duplicate names unless commented
+        if (names.has(def.name) && !def.comment) return
+        names.add(def.name)
 
         // save original name (before possible modification via comments)
         // prefix scoped definitions as <scope>__<name>
@@ -345,9 +347,8 @@ function js_table(regex) {
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
     if (regex && !regex.test(def._name)) return
-    // hide underscore-prefixed or indented definitions unless modified via comments or named-scoped (e.g. under a class scope)
-    if ((def.name.match(/^_/) || (def.indent && !def.scope)) && !def.modified)
-      return
+    // hide underscore-prefixed or indented definitions unless modified
+    if ((def._name.match(/^_/) || def.indent) && !def.modified) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
