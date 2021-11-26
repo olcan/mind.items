@@ -154,8 +154,9 @@ function _run() {
 
 class _Run {
   constructor(js, J) {
+    // replace learn|warn|need calls
     const lines = js.split('\n')
-    this.contexts = [] // filled during js.replace(…) below
+    this.contexts = []
     this.js = js
       .replace(/\b(want|need) *\(/g, 'this._$1(')
       .replace(
@@ -169,17 +170,21 @@ class _Run {
           return m.replace(/learn *\($/, `this._learn(${k},`)
         }
       )
+
+    // initialize run state
     this.J = J
     this.K = this.contexts.length
     this.xKJ = matrix(this.K, J) // prior samples per context/run
     this.log_wJ = array(J, 0) // posterior log-weight per run
     this.log_wJ_penalty = array(J, 0) // observed penalty per run
     this.xJ = array(J) // eval value per run
+
     // define cached properties
     cache(this, 'wJ', [])
     cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
     cache(this, 'weighted', ['wJ'])
     cache(this, 'ess', ['wJ'], () => ess(this.wJ))
+
     // sample prior runs
     const start = Date.now()
     repeat(this.J, j => {
