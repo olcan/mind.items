@@ -106,10 +106,10 @@ function _model(domain) {
 // default `options` are inferred from `domain`
 // default `name` may be inferred from code context
 // | `name`      | name of learned value
-// | `prior`     | prior sampler `(xJ, log_wJ) => …`
-// |             | `fill(xJ, x~S), add(log_wJ, log(∝p(x)/s(x)))`
-// | `posterior` | posterior sampler `(xJ, yJ, log_wJ) => …`
-// |             | `fill(yJ, y~Q(·|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
+// | `prior`     | prior sampler `(xJ, log_pwJ) => …`
+// |             | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
+// | `posterior` | posterior chain sampler `(xJ, yJ, log_wJ) => …`
+// |             | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
 function learn(domain, options = {}) {
   fatal(`unexpected (unparsed) call to learn(…)`)
 }
@@ -138,7 +138,7 @@ function need(cond) {
 }
 
 // is `wJ` uniform?
-function _is_uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
+function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   const w_mean = wj_sum / wJ.length
   const [w_min, w_max] = [(1 - ε) * w_mean, (1 + ε) * w_mean]
   return wJ.every(w => w >= w_min && w <= w_max)
@@ -175,21 +175,21 @@ class _Run {
     this.J = J
     this.K = this.contexts.length
     this.xKJ = matrix(this.K, J) // prior samples per context/run
-    this.log_wJ = array(J, 0) // posterior log-weight per run
-    this.log_wJ_penalty = array(J, 0) // observed penalty per run
-    this.xJ = array(J) // eval value per run
+    this.log_wJ = array(J, 0) // prior log-weight per run
+    this.log_wJ_penalty = array(J, 0) // posterior log-weight penalty per run
+    this.xJ = array(J) // eval output value per run
 
     // define cached properties
+    // prior weights pwJ
+    cache(this, 'pwJ', [])
+    cache(this, 'pwj_sum', ['pwJ'], () => sum(this.pwJ))
+    cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ))
+    cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
+    // posterior (penalized prior) weights wJ
     cache(this, 'wJ', [])
     cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
     cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
-    cache(this, 'wj_uniform', ['wJ'], () => _is_uniform(this.wJ, this.wj_sum))
-    cache(this, 'wJ_prior', [])
-    cache(this, 'wj_prior_sum', ['wJ_prior'], () => sum(this.wJ_prior))
-    cache(this, 'wj_prior_ess', ['wJ_prior'], () => ess(this.wJ_prior))
-    cache(this, 'wj_prior_uniform', ['wJ_prior'], () =>
-      _is_uniform(this.wJ_prior, this.wj_prior_sum)
-    )
+    cache(this, 'wj_uniform', ['wJ'], () => _uniform(this.wJ, this.wj_sum))
 
     // sample prior runs
     const start = Date.now()
@@ -200,7 +200,7 @@ class _Run {
     })
     const ms = Date.now() - start
     log(`sampled ${J} prior runs in ${ms}ms`)
-    log(`ess ${this.wj_prior_ess} prior, ${this.wj_ess} posterior`)
+    log(`ess ${this.pwj_ess} prior, ${this.wj_ess} posterior`)
   }
 
   __wJ() {
@@ -210,7 +210,7 @@ class _Run {
     return apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
   }
 
-  __wJ_prior() {
+  __pwJ() {
     const { log_wJ } = this
     const max_log_wj = max(log_wJ)
     return copy(log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
@@ -218,10 +218,8 @@ class _Run {
 
   sample_index(options = {}) {
     if (options.prior) {
-      const { wj_prior_uniform, J, wJ_prior, wj_prior_sum, xJ } = this
-      const j = wj_prior_uniform
-        ? discrete_uniform(J)
-        : discrete(wJ_prior, wj_prior_sum)
+      const { pwj_uniform, J, pwJ, pwj_sum, xJ } = this
+      const j = pwj_uniform ? discrete_uniform(J) : discrete(pwJ, pwj_sum)
       return j
     }
     const { wj_uniform, J, wJ, wj_sum, xJ } = this
