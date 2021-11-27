@@ -136,7 +136,7 @@ function need(cond) {
 // `≡ weight(cond ? reward : penalty)`
 // convention is to _penalize inconsistent runs_ w/ `penalty<0`
 // default `penalty=-Math.log(2)` _halves_ weight of inconsistent runs
-function want(cond, penalty = -0.6931471805599453, reward = 0) {
+function want(cond, penalty = -Math.log(2), reward = 0) {
   fatal(`unexpected (unparsed) call to want(…)`)
 }
 

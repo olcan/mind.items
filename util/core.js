@@ -299,8 +299,9 @@ function js_table(regex) {
     Array.from(
       _this
         .read('js', { keep_empty_lines: true })
+        // NOTE: currently automated parsing of args works only if arguments are listed on the same line, since multi-line parsing is tricky w/ default values that may also contain parentheses, strings that contain parentheses, etc; if args are wrapped due to automated code formatting, a workaround is to define args in first line of comment, which are rarely wrapped by formatters or can be shortened toa void wrapping
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\(.*?\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\(.*\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -364,12 +365,12 @@ function js_table(regex) {
           if (
             def.comment.match(/^=> *\S+/) ||
             def.comment.match(
-              new RegExp(`^${def.name} *(?:\\(.*?\\))?(?:$|<br>)`)
+              new RegExp(`^${def.name} *(?:\\(.*\\))?(?:$|<br>)`)
             )
           ) {
             def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
-            def.args = def.comment.match(/^.+?(\(.*?)(?:$|<br>)/)?.pop() ?? ''
-            def.comment = def.comment.replace(/^.+?(?:\(.*?)?(?:$|<br>)/, '')
+            def.args = def.comment.match(/^.+?(\(.*)(?:$|<br>)/)?.pop() ?? ''
+            def.comment = def.comment.replace(/^.+?(?:\(.*)?(?:$|<br>)/, '')
             def.modified = true
           }
           def.comment = def.comment.replace(/\n/g, '')
