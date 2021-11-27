@@ -125,16 +125,25 @@ function _defaults(context) {
   }
 }
 
-// preference for `cond` (`==true`)
-// negative log-weight `penalty` is applied if `!cond`
-function want(cond, penalty = -1) {
+// _requires_ run to satisfy `cond`
+// `≡ want(cond, -inf) ≡ weight(cond ? 0 : -inf)`
+// forces inconsistent runs to be discarded, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
+function need(cond) {
+  fatal(`unexpected (unparsed) call to need(…)`)
+}
+
+// _prefers_ runs that satisfy `cond`
+// `≡ weight(cond ? reward : penalty)`
+// convention is to _penalize inconsistent runs_ w/ `penalty<0`
+// default `penalty=-Math.log(2)` _halves_ weight of inconsistent runs
+function want(cond, penalty = -0.6931471805599453, reward = 0) {
   fatal(`unexpected (unparsed) call to want(…)`)
 }
 
-// requirement for `cond` (`==true`)
-// `≡ want(cond, -inf)`
-function need(cond) {
-  fatal(`unexpected (unparsed) call to need(…)`)
+// adjusts log-weight of run by `log_w`
+// interesting special case for inference is `reward==penalty==log_likelihood`
+function weight(log_w) {
+  fatal(`unexpected (unparsed) call to weight(…)`)
 }
 
 // is `wJ` uniform?
@@ -155,10 +164,11 @@ function _run() {
 class _Run {
   constructor(js, J) {
     // replace learn|warn|need calls
+    window.__run = this // for use in replacements instead of `this`
     const lines = js.split('\n')
     this.contexts = []
     this.js = js
-      .replace(/\b(want|need) *\(/g, 'this._$1(')
+      .replace(/\b(need|want|weight) *\(/g, '__run._$1(')
       .replace(
         /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
         (m, name, offset) => {
@@ -167,7 +177,7 @@ class _Run {
           context.line = _count_unescaped(js.slice(0, offset), '\n') + 1
           context.line_js = lines[context.line - 1]
           this.contexts.push(context)
-          return m.replace(/learn *\($/, `this._learn(${k},`)
+          return m.replace(/learn *\($/, `__run._learn(${k},`)
         }
       )
 
@@ -176,7 +186,7 @@ class _Run {
     this.K = this.contexts.length
     this.xKJ = matrix(this.K, J) // prior samples per context/run
     this.log_wJ = array(J, 0) // prior log-weight per run
-    this.log_wJ_penalty = array(J, 0) // posterior log-weight penalty per run
+    this.log_wJ_adj = array(J, 0) // log-weight adjustments per run
     this.xJ = array(J) // eval output value per run
 
     // define cached properties
@@ -185,31 +195,39 @@ class _Run {
     cache(this, 'pwj_sum', ['pwJ'], () => sum(this.pwJ))
     cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ))
     cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
-    // posterior (penalized prior) weights wJ
+    // posterior (want-adjusted prior) weights wJ
     cache(this, 'wJ', [])
     cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
     cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
     cache(this, 'wj_uniform', ['wJ'], () => _uniform(this.wJ, this.wj_sum))
 
     // TODO: remember weights express distributional differences, and write
-    // notes about penalized prior, approximate inference, core ideas of
+    // notes about want-adjusted prior, approximate inference, core ideas of
     // posterior conditional approximation, sequential chain sampling, etc ...
 
     // sample prior runs
     const start = Date.now()
-    repeat(this.J, j => {
-      this.j = j
-      this.log_wJ_penalty[j] = 0
-      this.xJ[j] = eval(this.js)
-    })
+    this.eval()
     const ms = Date.now() - start
     log(`sampled ${J} prior runs in ${ms}ms`)
     log(`ess ${this.pwj_ess} prior, ${this.wj_ess} posterior`)
   }
 
+  eval() {
+    // wrap in function to clear scope except __run and __j (==__run.j)
+    // ~50% faster than pushing wrapper inside for 100K calls to js='1'
+    ;(function () {
+      repeat(__run.J, __j => {
+        __run.j = __j
+        __run.log_wJ_adj[__j] = 0
+        __run.xJ[__j] = eval(__run.js)
+      })
+    })()
+  }
+
   __wJ() {
-    const { log_wJ, log_wJ_penalty } = this
-    const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_penalty[j])
+    const { log_wJ, log_wJ_adj } = this
+    const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_adj[j])
     const max_log_wj = max(wJ)
     return apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
   }
@@ -300,13 +318,15 @@ class _Run {
     return xkJ[j]
   }
 
-  _want(cond, penalty = -1) {
-    const { j, log_wJ_penalty } = this
-    if (!cond) log_wJ_penalty[j] += penalty
+  _need(cond) {
+    if (!cond) this.log_wJ_adj[this.j] += -inf
   }
 
-  _need(cond) {
-    const { j, log_wJ_penalty } = this
-    if (!cond) log_wJ_penalty[j] += -inf
+  _want(cond, penalty = -1, reward = 0) {
+    this.log_wJ_adj[this.j] += cond ? reward : penalty
+  }
+
+  _weight(log_w) {
+    this.log_wJ_adj[this.j] += log_w
   }
 }
