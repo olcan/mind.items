@@ -182,14 +182,14 @@ class _Run {
     // define cached properties
     cache(this, 'wJ', [])
     cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
-    cache(this, 'wj_uniform', ['wJ'], () => _is_uniform(this.wJ, this.wj_sum))
     cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
+    cache(this, 'wj_uniform', ['wJ'], () => _is_uniform(this.wJ, this.wj_sum))
     cache(this, 'wJ_prior', [])
     cache(this, 'wj_prior_sum', ['wJ_prior'], () => sum(this.wJ_prior))
+    cache(this, 'wj_prior_ess', ['wJ_prior'], () => ess(this.wJ_prior))
     cache(this, 'wj_prior_uniform', ['wJ_prior'], () =>
       _is_uniform(this.wJ_prior, this.wj_prior_sum)
     )
-    cache(this, 'wj_prior_ess', ['wJ_prior'], () => ess(this.wJ_prior))
 
     // sample prior runs
     const start = Date.now()
