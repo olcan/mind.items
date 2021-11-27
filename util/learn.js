@@ -126,14 +126,14 @@ function _defaults(context) {
 }
 
 // _requires_ run to satisfy `cond`
-// `≡ want(cond, -inf) ≡ weight(cond ? 0 : -inf)`
+// `≡ want(cond, -inf) ≡ weight(cond ? 0 : -inf)`, see below
 // forces inconsistent runs to be discarded, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
 function need(cond) {
   fatal(`unexpected (unparsed) call to need(…)`)
 }
 
 // _prefers_ runs that satisfy `cond`
-// `≡ weight(cond ? reward : penalty)`
+// `≡ weight(cond ? reward : penalty)`, see below
 // convention is to _penalize inconsistent runs_ w/ `penalty<0`
 // default `penalty=-Math.log(2)` _halves_ weight of inconsistent runs
 function want(cond, penalty = -0.6931471805599453, reward = 0) {
@@ -141,6 +141,7 @@ function want(cond, penalty = -0.6931471805599453, reward = 0) {
 }
 
 // adjusts log-weight of run by `log_w`
+// natural (base e) log is used by convention
 // interesting special case for inference is `reward==penalty==log_likelihood`
 function weight(log_w) {
   fatal(`unexpected (unparsed) call to weight(…)`)
