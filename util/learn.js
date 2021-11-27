@@ -191,6 +191,10 @@ class _Run {
     cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
     cache(this, 'wj_uniform', ['wJ'], () => _uniform(this.wJ, this.wj_sum))
 
+    // TODO: remember weights express distributional differences, and write
+    // notes about penalized prior, approximate inference, core ideas of
+    // posterior conditional approximation, sequential chain sampling, etc ...
+
     // sample prior runs
     const start = Date.now()
     repeat(this.J, j => {
