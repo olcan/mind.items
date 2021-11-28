@@ -350,9 +350,7 @@ function js_table(regex) {
 
         if (def.comment) {
           // clean up: drop //
-          def.comment = def.comment
-            .replace(/ *\n *(?:\/\/)? ?/g, '\n')
-            .replace(/^ *\/\/ */, '')
+          def.comment = def.comment.replace(/(?:^| *\n) *(?:\/\/)? ?/g, '\n')
           // disallow cross-line backticks (causes ugly rendering issues)
           def.comment = def.comment
             .split('\n')
@@ -413,7 +411,7 @@ function js_table(regex) {
     if (comment_table_cells.length)
       comment_lines.push(table(comment_table_cells) + '\n')
 
-    // trim empty lines
+    // trim blank lines
     while (comment_lines[0]?.length == 0) comment_lines.shift()
     while (_.last(comment_lines)?.length == 0) comment_lines.pop()
 
@@ -421,9 +419,9 @@ function js_table(regex) {
     const has_more = comment_lines.length > 1 ? 'has_more' : ''
     if (comment_lines.length > 1) {
       def.comment =
+        '\n' +
         comment_lines[0] +
         _span('less', _span('more-indicator', '')) +
-        '\n' +
         _div('more', '\n' + comment_lines.slice(1).join('\n'))
     } else {
       def.comment = comment_lines[0] || ''
@@ -476,17 +474,20 @@ function js_table(regex) {
     def.scope ??= '' // used in class name below
     const scoped = def.scope ? 'scoped' : ''
 
+    // TODO: figure out why some rows are not markdown-rendered, e.g.
+    // the first one, and not even in .more
+
     // NOTE: we prefer returning markdown-inside-table instead of returning a pure _html block, because _html is mostly unparsed whereas markdown is parsed just like other content on item, e.g. for math blocks
     lines.push(
       _div(
         `function name_${def._name} scope_${def.scope} ${scoped} ${has_more} ${has_defaults} ${toggled} ${ok}`,
-        _span(`usage`, bullets + usage) + _span('desc', def.comment)
+        _span('usage', bullets + usage) + _span('desc', def.comment)
       )
     )
   })
 
   return [
-    _div('core_js_table', lines.join('')), // style wrapper, see core.css
+    _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
     // install click handlers at every render (via uncached script)
     '<script _uncached> _js_table_install_click_handlers() </script>',
   ].join('\n')

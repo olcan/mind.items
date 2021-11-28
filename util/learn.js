@@ -324,11 +324,11 @@ class _Run {
   }
 
   _need(cond) {
-    if (!cond) this.log_wJ_adj[this.j] += -inf
+    if (!cond) this._weight(-inf)
   }
 
   _want(cond, penalty = -1, reward = 0) {
-    this.log_wJ_adj[this.j] += cond ? reward : penalty
+    this._weight(cond ? reward : penalty)
   }
 
   _weight(log_w) {

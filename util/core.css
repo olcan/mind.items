@@ -2,6 +2,16 @@
   margin-top: 5px;
 }
 
+/* ignore breaks between function rows */
+.core_js_table .function + br {
+  display: none;
+}
+
+/* ignore first break insice .more */
+.core_js_table .more br:first-child {
+  display: none;
+}
+
 /* style comment tables */
 .core_js_table table {
   margin: 3px 0; /* leave 3px above/below */
@@ -161,6 +171,11 @@
 
 /* override inline-block display (on .item a) to allow ellipsis */
 .core_js_table .desc a {
+  display: inline;
+}
+
+/* force inline p inside .desc */
+.core_js_table .desc p {
   display: inline;
 }
 
