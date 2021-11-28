@@ -102,7 +102,9 @@ function _model(domain) {
 
 // learned value from `domain`
 // value satisfies `from(value, domain)`
-// requires feedback via `need(…)` or `want(…)`
+// requires feedback via `need|want|weight(…)`
+// ideal feedback for inference produces _~posterior values_
+// ideal feedback for optimization produces _~optimal values_
 // default `options` are inferred from `domain`
 // default `name` may be inferred from code context
 // | `name`      | name of learned value
@@ -142,7 +144,7 @@ function want(cond, penalty = -0.6931471805599453, reward = 0) {
 
 // adjusts log-weight of run by `log_w`
 // natural (base e) log is used by convention
-// interesting special case for inference is `reward==penalty==log_likelihood`
+// if `w ∝ p(obs|run) = likelihood(obs)`, then `learn(…)` samples from posterior `P(value|obs)`
 function weight(log_w) {
   fatal(`unexpected (unparsed) call to weight(…)`)
 }

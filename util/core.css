@@ -2,26 +2,19 @@
   margin-top: 5px;
 }
 
-/* override .item br:last-child to allow blank lines in comment */
-.core_js_table br:last-child {
-  display: inline;
-}
-
-/* disable unnecessary <br> after .more and any tables */
-.core_js_table :is(.more, table) + br {
-  display: none;
-}
-
 /* style comment tables */
-.core_js_table table.comment {
+.core_js_table table {
   margin: 3px 0; /* leave 3px above/below */
   width: fit-content; /* shrink to fit (vs spread across item) */
+}
+.core_js_table table > thead {
+  display: none;
 }
 
 /* minimize width of left column w/o wrapping for comment tables */
 /* need to override .item code for white-space: nowrap */
-.core_js_table table.comment > tbody > tr > td:first-child,
-.core_js_table table.comment > tbody > tr > td:first-child code {
+.core_js_table table > tbody > tr > td:first-child,
+.core_js_table table > tbody > tr > td:first-child code {
   width: 1%;
   text-align: right;
   white-space: nowrap;
@@ -166,13 +159,8 @@
   white-space: nowrap;
 }
 
-/* disable paragraph tags added by markdown */
-.core_js_table .desc p {
-  display: inline;
-}
-
-/* force links inline to allow ellipsis */
-.core_js_table .desc p a {
+/* override inline-block display (on .item a) to allow ellipsis */
+.core_js_table .desc a {
   display: inline;
 }
 

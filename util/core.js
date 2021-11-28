@@ -349,31 +349,28 @@ function js_table(regex) {
         def._name = (def.scope ? def.scope + '__' : '') + def.name
 
         if (def.comment) {
-          // clean up: drop // and insert <br> before \n
+          // clean up: drop //
           def.comment = def.comment
-            .replace(/ *\n *(?:\/\/)? */g, '<br>\n')
+            .replace(/ *\n *(?:\/\/)? ?/g, '\n')
             .replace(/^ *\/\/ */, '')
           // disallow cross-line backticks (causes ugly rendering issues)
           def.comment = def.comment
-            .split('<br>')
+            .split('\n')
             .map(s => (_count_unescaped(s, '`') % 2 == 0 ? s : s + '`'))
-            .join('<br>')
+            .join('\n')
 
           // displayed name/args can be modified via first line of comment:
           // <name>(...) modifies args, <name> removes args
           // => <display_name> or => <display_name>(...) modifies name/args
           if (
             def.comment.match(/^=> *\S+/) ||
-            def.comment.match(
-              new RegExp(`^${def.name} *(?:\\(.*\\))?(?:$|<br>)`)
-            )
+            def.comment.match(new RegExp(`^${def.name} *(?:\\(.*\\))?(?:$|\n)`))
           ) {
             def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
-            def.args = def.comment.match(/^.+?(\(.*)(?:$|<br>)/)?.pop() ?? ''
-            def.comment = def.comment.replace(/^.+?(?:\(.*)?(?:$|<br>)/, '')
+            def.args = def.comment.match(/^.+?(\(.*)(?:$|\n)/)?.pop() ?? ''
+            def.comment = def.comment.replace(/^.+?(?:\(.*)?(?:$|\n)/, '')
             def.modified = true
           }
-          def.comment = def.comment.replace(/\n/g, '')
         }
         if (!def.comment && def.body && !def.body.startsWith('{')) {
           // take body as comment, escaping `, \
@@ -392,29 +389,29 @@ function js_table(regex) {
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
-    let table = ''
+    let comment_table_cells = []
     def.comment
-      .replace(/^(?:<br>)+/g, '') // drop leading empty lines
-      .replace(/(?:<br>)+$/g, '') // drop trailing empty lines
-      .split('<br>')
+      .replace(/^\n+/g, '') // drop leading empty lines
+      .replace(/\n+$/g, '') // drop trailing empty lines
+      .split('\n')
       .forEach(line => {
         if (line.startsWith('|')) {
           // escape | inside backticks to avoid breaking table
-          line = line.replace(/(`.+?`)/g, m => m.replace(/\|/g, '%_pipe_%'))
+          line = line.replace(/`.+?`/g, m => m.replace(/\|/g, '%_pipe_%'))
           let cells = line.split(/\s*\|\s*/).slice(1) // ignore leading |
-          if (!table) table += '<table class="comment">'
-          apply(cells, s => (s.startsWith('<td') ? s : `<td>${s}</td>`))
-          apply(cells, s => s.replace(/%_pipe_%/g, '|'))
-          table += '<tr>' + cells.join('') + '</tr>'
+          apply(cells, s => s.replace(/%_pipe_%/g, '\\|'))
+          comment_table_cells.push(cells)
         } else {
-          if (table) {
-            comment_lines.push(table + '</table>')
-            table = ''
+          if (comment_table_cells.length) {
+            comment_lines.push(table(comment_table_cells))
+            comment_table_cells = []
           }
           comment_lines.push(line)
         }
       })
-    if (table) comment_lines.push(table + '</table>')
+    // add final table w/ new line (unlike inner tables)
+    if (comment_table_cells.length)
+      comment_lines.push(table(comment_table_cells) + '\n')
 
     // trim empty lines
     while (comment_lines[0]?.length == 0) comment_lines.shift()
@@ -426,7 +423,8 @@ function js_table(regex) {
       def.comment =
         comment_lines[0] +
         _span('less', _span('more-indicator', '')) +
-        _div('more', comment_lines.slice(1).join('<br>'))
+        '\n' +
+        _div('more', '\n' + comment_lines.slice(1).join('\n'))
     } else {
       def.comment = comment_lines[0] || ''
     }
@@ -482,14 +480,13 @@ function js_table(regex) {
     lines.push(
       _div(
         `function name_${def._name} scope_${def.scope} ${scoped} ${has_more} ${has_defaults} ${toggled} ${ok}`,
-        _span(`usage`, bullets + usage) +
-          _span('desc', '\n' + def.comment + '\n')
+        _span(`usage`, bullets + usage) + _span('desc', def.comment)
       )
     )
   })
 
   return [
-    _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
+    _div('core_js_table', lines.join('')), // style wrapper, see core.css
     // install click handlers at every render (via uncached script)
     '<script _uncached> _js_table_install_click_handlers() </script>',
   ].join('\n')
