@@ -99,20 +99,19 @@ function _model(domain) {
     return 'uniform'
 }
 
-// learned value from `domain`
-// TODO: consider renaming as sample_from, reject_unless, adjust_weight
-// depends on feedback via `need|want|weight(…)`
-// ⭈ _posterior value_ `x～P(X|Y==y)` under feedback `need(Y==y)`
-// ⭈ _optimal value_ under feedback `need(optimality_condition)`
+// sample `x` from `domain`
+// model `P(X)` is defined or implied by `domain`
+// can be _conditioned_ as `x ～ P(X|…)` using `condition(…)`
+// can be _weighted_ as `x ～ ∝ P(X) × W(X)` using `weight(…)`
 // default `options` are inferred from `domain`
 // `name` can be inferred from code context
-// | `name`      | name of learned value
+// | `name`      | name of sampled value
 // | `prior`     | prior sampler `(xJ, log_pwJ) => …`
 // |             | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
 // | `posterior` | posterior chain sampler `(xJ, yJ, log_wJ) => …`
 // |             | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
-function learn(domain, options = {}) {
-  fatal(`unexpected (unparsed) call to learn(…)`)
+function sample(domain, options = {}) {
+  fatal(`unexpected (unparsed) call to sample(…)`)
 }
 
 // default options for context
@@ -120,36 +119,28 @@ function _defaults(context) {
   switch (context.model) {
     case 'uniform':
       return {
-        prior: xJ => sample(xJ, uniform),
-        posterior: (xJ, yJ) => sample(yJ, uniform),
+        prior: xJ => sample_array(xJ, uniform),
+        posterior: (xJ, yJ) => sample_array(yJ, uniform),
       }
   }
 }
 
-// _requires_ run to satisfy `cond`
-// _discards_ inconsistent runs, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
-// `≡ want(cond, -inf) ≡ weight(cond ? 0 : -inf)`, see below
-function need(cond) {
-  fatal(`unexpected (unparsed) call to need(…)`)
+// condition samples on boolean `cond`
+// conditioning is at run level, i.e. applies to _all_ `sample(…)` calls
+// _discards_ (or _rejects_) inconsistent runs, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
+// corresponds to _extreme weights_ `1` (`log_w=0`) or `0` (`log_w=-∞`)
+function condition(cond) {
+  fatal(`unexpected (unparsed) call to condition(…)`)
 }
 
-// _prefers_ runs that satisfy `cond`
-// adjusts log-weight of run by `(cond ? reward : penalty)`
-// weight (exponentiated) is prop. to sampling rate/probability
-// convention is to _down-sample_ inconsistent runs w/ `penalty<0`
-// default `penalty=-Math.log(2)` _halves_ rate of inconsistent runs
-// `≡ weight(cond ? reward : penalty)`, see below
-function want(cond, penalty = -0.6931471805599453, reward = 0) {
-  fatal(`unexpected (unparsed) call to want(…)`)
-}
-
-// adjusts log-weight of run by `log_w`
-// natural (base e) log is used by convention
-// weight (exponentiated) is prop. to sampling rate/probability
+// weight samples by `log_w`
+// weighting is at run level, i.e. applies to _all_ `sample(…)` calls
+// adjusts sampling rates/probabilities by factor `× exp(log_w)`
+// TODO: interpret as final desired weight, handle annealing internally!
 // see #random/methods/weight for interpretations
 // see #random/methods/update/notes for notes about updating
 // discuss ideal weights for inference, optimization ...
-// if `w ∝ p(obs|run) = likelihood(obs)`, then `learn(…)` samples from posterior `P(value|obs)`
+// if `w ∝ p(obs|run) = likelihood(obs)`, then `sample(…)` samples from posterior `P(value|obs)`
 function weight(log_w) {
   fatal(`unexpected (unparsed) call to weight(…)`)
 }
@@ -163,29 +154,29 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 
 function _run() {
   const js = _this.read('js_input')
-  if (!js.match(/\b(?:learn|need|want)\(.*\)/s)) return null // skip
-  log('run handled by #util/learn')
+  if (!js.match(/\b(?:sample|condition|weight)\(.*\)/s)) return null // skip
+  log('run handled by #util/sample')
   const run = new _Run(js, 10000)
   return run.sample()
 }
 
 class _Run {
   constructor(js, J) {
-    // replace learn|warn|need calls
+    // replace condition|weight calls
     window.__run = this // for use in replacements instead of `this`
     const lines = js.split('\n')
     this.contexts = []
     this.js = js
-      .replace(/\b(need|want|weight) *\(/g, '__run._$1(')
+      .replace(/\b(condition|weight) *\(/g, '__run._$1(')
       .replace(
-        /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)learn *\(/g,
+        /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)sample *\(/g,
         (m, name, offset) => {
           const k = this.contexts.length
           const context = { js, index: k, offset, name }
           context.line = _count_unescaped(js.slice(0, offset), '\n') + 1
           context.line_js = lines[context.line - 1]
           this.contexts.push(context)
-          return m.replace(/learn *\($/, `__run._learn(${k},`)
+          return m.replace(/sample *\($/, `__run._sample(${k},`)
         }
       )
 
@@ -299,14 +290,14 @@ class _Run {
     return this.xJ[j]
   }
 
-  _learn(k, domain, options) {
+  _sample(k, domain, options) {
     const context = this.contexts[k]
     const { j, xKJ, log_wJ, xkJ = xKJ[k] } = this
     if (!context.prior) {
-      if (!domain) fatal(`missing domain required for learn(…)`)
+      if (!domain) fatal(`missing domain required for sample(…)`)
       const line = `line[${context.line}]: ${context.line_js}`
       // if (!context.name && !options?.name)
-      //   fatal(`missing name for learned value @ ${line}`)
+      //   fatal(`missing name for sampled value @ ${line}`)
       const { index, name } = context
       const args =
         stringify(domain) + (options ? ', ' + stringify(options) : '')
@@ -318,7 +309,7 @@ class _Run {
       context.prior = options?.prior ?? defaults.prior
       context.posterior = options?.posterior ?? defaults.posterior
       log(
-        `[${index}] ${name ? name + ' = ' : ''}learn(${args}) ← ` +
+        `[${index}] ${name ? name + ' = ' : ''}sample(${args}) ← ` +
           `${context.model}${stringify(context.domain)}`
       )
       context.prior(xkJ, log_wJ)
@@ -326,12 +317,8 @@ class _Run {
     return xkJ[j]
   }
 
-  _need(cond) {
-    if (!cond) this._weight(-inf) // _weight may clip
-  }
-
-  _want(cond, penalty = -1, reward = 0) {
-    this._weight(cond ? reward : penalty) // _weight may clip
+  _condition(cond) {
+    if (!cond) this._weight(-inf) // -inf is reserved for conditioning
   }
 
   _weight(log_w) {
