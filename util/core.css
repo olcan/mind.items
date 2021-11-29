@@ -16,6 +16,15 @@
 .core_js_table table {
   margin: 3px 0; /* leave 3px above/below */
   width: fit-content; /* shrink to fit (vs spread across item) */
+  line-height: 140%;
+}
+/* space out rows w/ non-empty first column */
+.core_js_table
+  table
+  > tbody
+  > tr:not(:first-child)
+  > :is(td:first-child:not(:empty), td:first-child:not(:empty) ~ td) {
+  padding-top: 5px;
 }
 .core_js_table table > thead {
   display: none;
