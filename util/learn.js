@@ -324,11 +324,11 @@ class _Run {
   }
 
   _need(cond) {
-    if (!cond) this._weight(-inf)
+    if (!cond) this._weight(-inf) // _weight may clip
   }
 
   _want(cond, penalty = -1, reward = 0) {
-    this._weight(cond ? reward : penalty)
+    this._weight(cond ? reward : penalty) // _weight may clip
   }
 
   _weight(log_w) {
