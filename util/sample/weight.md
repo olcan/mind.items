@@ -1,20 +1,20 @@
 #util/sample/weight method sets or updates (_reweights_) sample weights to help guide samples towards a #posterior_sample. Some interpretations:
 - [Discrete measure](https://en.wikipedia.org/wiki/Discrete_measure) μ=∑w(θₙ)δ(θₙ,θ) ~ w·P where θₙ~P is sample distribution.
-  - Measure w·P can be implicit, e.g. as stationary dist. of [markov chains](#//move).
+  - Measure w·P can be implicit, e.g. as stationary dist. of [markov chains](#random/methods/move).
 - [Importance weights](https://en.wikipedia.org/wiki/Importance_sampling) for [efficient](https://en.wikipedia.org/wiki/Efficiency_(statistics)) and [bias/variance-controlled](https://en.wikipedia.org/wiki/Bias–variance_tradeoff) estimators of the form η=(1/N)∑f(θₙ)w(θₙ) → E[f;w·P]=∫f(θ)w(θ)p(θ)dθ. Some [Posterior](#posterior_inference) [MVUEs](https://en.wikipedia.org/wiki/Minimum-variance_unbiased_estimator):
   - MVUE for E[f;Q] is [achieved by](https://en.wikipedia.org/wiki/Importance_sampling#Application_to_simulation) p(θ)∝q(θ)|f(θ)| and w(θ)=q(θ)/p(θ)∝1/|f(θ)|.
   - MVUE for Q(A)=E[𝟙[θ∈A];Q] is achieved by p(θ)∝q(θ|A) and w(θ)=1.
   - MVUE for Q(θ) is achieved by p(θ)=q(θ) and w(θ)=1.
     - If p(θ)=π(θ) _fixed_, then w(θ)=q(θ)/π(θ), but Var[η] ∝ q(θ)²/π(θ)².
     - Can lead to degenerate weights, e.g. in likelihood-weighted prior.
-    - [Resampling](#//sample) resets w=1 but turns variance into bias.
-    - [Markov chains](#//move) can be defined for P→Q.
+    - [Resampling](#random/methods/sample) resets w=1 but turns variance into bias.
+    - [Markov chains](#random/methods/move) can be defined for P→Q.
 - Finite-sample approximation of likelihood
   - Observation indicator (0/1) weights lead to [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
   - Integrating indicators over infinite sample leads to likelihood
 - Non-likelihood weights as data/model augmentation
 
-#random/methods/update method updates samples towards #posterior_sample using a sequence of #//weight, #//sample, and #//move operations. These operations can be interpreted as steps in a [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter) (SMC) algorithm applied to approximate posterior inference in the sense of [Approximate Bayesian Computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation) (ABC), a.k.a. Likelihood-free Inference (LFI). For technical background and derivation, see [ABC Samplers](https://arxiv.org/abs/1802.09650) and in particular the discussion leading up to Algorithm 8 (ABC-SMC). See more intuition and tips, see #/notes.
+#random/methods/update method updates samples towards #posterior_sample using a sequence of #random/methods/weight, #random/methods/sample, and #random/methods/move operations. These operations can be interpreted as steps in a [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter) (SMC) algorithm applied to approximate posterior inference in the sense of [Approximate Bayesian Computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation) (ABC), a.k.a. Likelihood-free Inference (LFI). For technical background and derivation, see [ABC Samplers](https://arxiv.org/abs/1802.09650) and in particular the discussion leading up to Algorithm 8 (ABC-SMC). See more intuition and tips, see #random/methods/update/notes.
 
 #random/methods/update/notes
 - weights `wJ` are NOT same as `_weight`

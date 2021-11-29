@@ -110,7 +110,8 @@ function _model(domain) {
     return 'uniform'
 }
 
-// sample value from `domain`
+// sample value `x` from `domain`
+// random variable is denoted `X ∈ dom(X)`
 // _prior model_ `P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|cond)` using `condition(cond)`
 // can be _weighted_ as `∝ P(X) × weight(X)` using `weight(…)`
@@ -145,23 +146,20 @@ function _defaults(context) {
 }
 
 // condition samples on `cond`
-// scoped by sampling context `sample(function)`
-// _discards_ (or _rejects_) inconsistent runs, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
-// conditioning prior model `P(X)` produces _bayesian posterior_ `P(X|cond)`
+// scoped by _sampling context_ `sample(function)`
+// conditions models `P(X) -> P(X|cond)` for all `X` in context
 // corresponds to _indicator weights_ `(cond ? 1 : 0)`
-// approximates _likelihood weights_ `∝p(cond)`
+// approximates _likelihood weights_ `∝ P(cond|X)`
 // `≡ weight(cond ? 0 : -inf)`, see below
 function condition(cond) {
   fatal(`unexpected call to condition(…)`)
 }
 
 // weight samples by `log_w`
-// scoped by sampling context `sample(function)`
-// adjusts sampling rate `p(x)×exp(log_w)` for all `x` sampled in context
-// _likelihood weights_ `∝p(cond)` produce _bayesian posterior_ `P(X|cond)`
-// TODO: conditions/weights must be interpreted over entire domain, not just a specific sample, and finding a non-degenerate sample under specified conditions/weights is handled by a markov chain that iteratively transitions a prior sample to a posterior sample ...
-// see #random/methods/weight for interpretations
-// see #random/methods/update/notes for notes about updating
+// scoped by _sampling context_ `sample(function)`
+// augments models `P(X) -> ∝ P(X) × weight(X)` for all `X` in context
+// _likelihood weights_ `∝ P(cond|X)` produce conditional models `P(X|cond)`
+// see #/weight for more information
 function weight(log_w) {
   fatal(`unexpected call to weight(…)`)
 }
