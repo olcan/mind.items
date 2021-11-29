@@ -114,6 +114,7 @@ function _model(domain) {
 // model `x ～ P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|…)` using `condition(…)`
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
+// conditions/weights are applied & scoped to execution context
 // samples are identified by lexical context, e.g. are constant in loops
 // | `name`      | name of sampled value
 // |             | default inferred from lexical context
@@ -125,7 +126,10 @@ function _model(domain) {
 // |             | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
 // |             | default inferred from `domain`
 function sample(domain, options = {}) {
-  fatal(`unexpected (unparsed) call to sample(…)`)
+  // allow direct invocation for function domains only
+  // other domains require invocation via _Function sampler
+  if (is_function(domain)) return new _Function(domain, 10000).sample()
+  fatal(`unexpected call to sample(…)`)
 }
 
 // default options for context
@@ -144,7 +148,7 @@ function _defaults(context) {
 // _discards_ (or _rejects_) inconsistent runs, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
 // corresponds to _extreme weights_ `1` (`log_w=0`) or `0` (`log_w=-∞`)
 function condition(boolean) {
-  fatal(`unexpected (unparsed) call to condition(…)`)
+  fatal(`unexpected call to condition(…)`)
 }
 
 // weight samples by `log_w`
@@ -156,7 +160,7 @@ function condition(boolean) {
 // discuss ideal weights for inference, optimization ...
 // if `w ∝ p(obs|run) = likelihood(obs)`, then `sample(…)` samples from posterior `P(value|obs)`
 function weight(log_w) {
-  fatal(`unexpected (unparsed) call to weight(…)`)
+  fatal(`unexpected call to weight(…)`)
 }
 
 // is `wJ` uniform?
@@ -166,28 +170,11 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   return wJ.every(w => w >= w_min && w <= w_max)
 }
 
-// TODO: instead of eval, allow function as domain, extract code from function,
-
-// sample an evaluation of `code`
-// `code` may use `sample(…)`, `condition(…)`, or `weight(…)`
-// can run item as `sample_eval(item.read('js_input'))`
-// performance (evals per second) depends on code size
-// unused code (e.g. via `read_deep`) should be avoided
-function sample_eval(code, options = {}) {
-  return new _Eval(code, 10000).sample(options)
-}
-
-function _run() {
-  const js = _this.read('js_input')
-  if (!js.match(/\b(?:sample|condition|weight)\(.*\)/s)) return null // skip
-  log('run handled by #util/sample')
-  return sample_eval(js)
-}
-
-class _Eval {
-  constructor(js, J) {
+class _Function {
+  constructor(func, J) {
     // replace condition|weight calls
-    window.__run = this // for use in replacements instead of `this`
+    window.__function = this // for use in replacements instead of `this`
+    const js = func.toString()
     const lines = js.split('\n')
     this.contexts = []
     this.js = js.replace(
@@ -228,14 +215,18 @@ class _Eval {
 
         // replace condition|weight call
         if (method == 'condition' || method == 'weight')
-          return `__run._${method}(`
+          return `__function._${method}(`
 
         // replace sample call
         const k = this.contexts.length
         this.contexts.push({ js, index: k, offset, name, line_index, line })
-        return m.replace(/sample *\($/, `__run._sample(${k},`)
+        return m.replace(/sample *\($/, `__function._sample(${k},`)
       }
     )
+    // evaluate new function w/ replacements
+    // wrapping in parentheses is required for named functions
+    this.func = eval('(' + this.js + ')')
+    // console.log(this.js)
 
     // initialize run state
     this.J = J
@@ -259,22 +250,18 @@ class _Eval {
 
     // sample prior runs
     const start = Date.now()
-    this.eval()
+    this.run()
     const ms = Date.now() - start
     log(`sampled ${J} prior runs in ${ms}ms`)
     log(`ess ${this.pwj_ess} prior, ${this.wj_ess} posterior`)
   }
 
-  eval() {
-    // wrap in function to clear scope except __run and __j (==__run.j)
-    // ~50% faster than pushing wrapper inside for 100K calls to js='1'
-    ;(function () {
-      repeat(__run.J, __j => {
-        __run.j = __j
-        __run.log_wJ_adj[__j] = 0
-        __run.xJ[__j] = eval(__run.js)
-      })
-    })()
+  run() {
+    repeat(this.J, j => {
+      this.j = j
+      this.log_wJ_adj[j] = 0
+      this.xJ[j] = this.func()
+    })
   }
 
   __wJ() {
