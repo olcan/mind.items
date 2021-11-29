@@ -1,9 +1,12 @@
 // is `x` from `domain`?
-// | function       | `≡{via:function}`
+// | function       | `≡{via:func}`
 // | model string   | `≡{via:model}`
 // | type string    | `≡{is:type}`
 // | array          | value array, `≡{in:array}`
-// | object         | domain spec ...
+// | object         | domain spec (as constraints) ...
+// | `{}`           | everything (no constraints)
+// | `via:func`     | `func._domain || {}`
+// | `via:model`    | canonical domain for model
 // | `is:type`      | `≡ is(x, type)` see [types](#util/core/types)
 // | `in:[…]`       | `≡ […].includes(x)`, see [sameValueZero](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness)
 // | `in_eq:[…]`    | values `x==y`
