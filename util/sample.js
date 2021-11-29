@@ -103,7 +103,7 @@ function _model(domain) {
 // model `x ～ P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|…)` using `condition(…)`
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
-// sampled values are _tied to lexical context_ (e.g. are constant in loops)
+// samples are identified by lexical context, e.g. are constant in loops
 // | `name`      | name of sampled value
 // |             | default inferred from lexical context
 // |             | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
@@ -157,7 +157,10 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 
 // sample an evaluation of `code`
 // `code` may use `sample(…)`, `condition(…)`, or `weight(…)`
-// running an item is `≡ sample_eval(item.read('js_input'))`
+// can run item as `sample_eval(item.read('js_input'))`
+// performance (evals per second) depends on code size
+// unused code (e.g. via `read_deep`) should be avoided
+// TODO: can sampling be done more efficiently w/o repeated eval?
 function sample_eval(code, options = {}) {
   return new _Eval(code, 10000).sample(options)
 }
@@ -175,31 +178,52 @@ class _Eval {
     window.__run = this // for use in replacements instead of `this`
     const lines = js.split('\n')
     this.contexts = []
-    this.js = js
-      .replace(/\b(condition|weight) *\(/g, '__run._$1(')
-      .replace(
-        /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)sample *\(/g,
-        (m, name, offset) => {
-          // skip comments
-          const prefix = js.slice(0, offset)
-          const prefix_line = prefix.match(/.*$/)[0]
-          const suffix_line = js.slice(offset).match(/^.*/)[0]
-          if (prefix_line.match(/\/\/.*$/)) return m
+    this.js = js.replace(
+      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight) *\(/g,
+      (m, name, method, offset) => {
+        // extract code context
+        if (js[offset] == '\n') offset++ // skip leading \n if matched
+        const prefix = js.slice(0, offset)
+        const line_prefix = prefix.match(/.*$/)[0]
+        const line_suffix = js.slice(offset).match(/^.*/)[0]
+        const line_index = _count_unescaped(prefix, '\n')
+        const line = lines[line_index]
+        check(() => [line_prefix + line_suffix, line]) // sanity check
 
-          // skip function definitions (e.g. from imported #util/sample)
-          if (prefix_line.match(/function *$/)) return m
-          if (suffix_line.match(/{ *$/)) return m
+        // skip matches inside comments
+        if (line_prefix.match(/\/\/.*$/)) return m
 
-          // TODO: fix above exclusions until read_input('js') works, allowing import/invocation of sample/condition/weight calls, presumably inside functions, which is still efficient since we only initialize context on first call from a given lexical context
+        // skip matches inside strings
+        if (
+          _count_unescaped(line_prefix, '`') % 2 ||
+          _count_unescaped(line_suffix, '`') % 2 ||
+          _count_unescaped(line_prefix, "'") % 2 ||
+          _count_unescaped(line_suffix, "'") % 2 ||
+          _count_unescaped(line_prefix, '"') % 2 ||
+          _count_unescaped(line_suffix, '"') % 2
+        )
+          return m
 
-          const k = this.contexts.length
-          const context = { js, index: k, offset, name }
-          context.line = _count_unescaped(prefix, '\n') + 1
-          context.line_js = lines[context.line - 1]
-          this.contexts.push(context)
-          return m.replace(/sample *\($/, `__run._sample(${k},`)
-        }
-      )
+        // skip method calls
+        if (line_prefix.match(/\.$/)) return m
+
+        // skip function definitions (e.g. from imported #util/sample)
+        if (line_prefix.match(/function *$/)) return m
+        if (line_suffix.match(/{ *$/)) return m
+
+        // uncomment to debug replacement issues ...
+        // console.log(offset, line_prefix + line_suffix)
+
+        // replace condition|weight call
+        if (method == 'condition' || method == 'weight')
+          return `__run._${method}(`
+
+        // replace sample call
+        const k = this.contexts.length
+        this.contexts.push({ js, index: k, offset, name, line_index, line })
+        return m.replace(/sample *\($/, `__run._sample(${k},`)
+      }
+    )
 
     // initialize run state
     this.J = J
@@ -313,7 +337,7 @@ class _Eval {
     // initialize context on first call
     if (!context.prior) {
       if (!domain) fatal(`missing domain required for sample(…)`)
-      const line = `line[${context.line}]: ${context.line_js}`
+      const line = `line[${context.line_index}]: ${context.line}`
       // if (!context.name && !options?.name)
       //   fatal(`missing name for sampled value @ ${line}`)
       const { index, name } = context
