@@ -350,7 +350,9 @@ function js_table(regex) {
 
         if (def.comment) {
           // clean up: drop //
-          def.comment = def.comment.replace(/(?:^| *\n) *(?:\/\/)? ?/g, '\n')
+          def.comment = def.comment
+            .replace(/ *\n *(?:\/\/)? ?/g, '\n')
+            .replace(/^ *\/\/ */, '')
           // disallow cross-line backticks (causes ugly rendering issues)
           def.comment = def.comment
             .split('\n')
@@ -419,7 +421,6 @@ function js_table(regex) {
     const has_more = comment_lines.length > 1 ? 'has_more' : ''
     if (comment_lines.length > 1) {
       def.comment =
-        '\n' +
         comment_lines[0] +
         _span('less', _span('more-indicator', '')) +
         _div('more', '\n' + comment_lines.slice(1).join('\n'))
@@ -478,7 +479,7 @@ function js_table(regex) {
     lines.push(
       _div(
         `function name_${def._name} scope_${def.scope} ${scoped} ${has_more} ${has_defaults} ${toggled} ${ok}`,
-        _span('usage', bullets + usage) + _span('desc', def.comment)
+        _span('usage', bullets + usage) + _span('desc', '\n' + def.comment)
       )
     )
   })
