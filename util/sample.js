@@ -114,7 +114,7 @@ function _model(domain) {
 // random variable is denoted `X ∈ dom(X)`
 // _prior model_ `P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|cond)` using `condition(cond)`
-// can be _weighted_ as `∝ P(X) × weight(X)` using `weight(…)`
+// can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
 // non-function `domain` requires _sampling context_ `sample(function)`
 // conditions/weights are scoped by sampling context `sample(function)`
 // samples are identified by _lexical context_, e.g. are constant in loops
@@ -145,22 +145,27 @@ function _defaults(context) {
   }
 }
 
+// condition(cond, [log_wi])
 // condition samples on `cond`
 // scoped by _sampling context_ `sample(function)`
-// conditions models `P(X) -> P(X|cond)` for all `X` in context
-// corresponds to _indicator weights_ `(cond ? 1 : 0)`
-// approximates _likelihood weights_ `∝ P(cond|X)`
-// `≡ weight(cond ? 0 : -inf)`, see below
-function condition(cond) {
+// conditions models `P(X) → P(X|cond)` for all `X` in context
+// corresponds to _indicator weights_ `𝟙(cond|X) = (cond ? 1 : 0)`
+// `≡ weight(cond ? 0 : -inf)`, see more general `weight(…)` below
+// requires `O(1/P(cond))` samples; ___can fail for rare conditions___
+// _weight sequence_ `log_wi(i)=0↘-∞, i=0,1,↗∞` can help, see #/weight
+// _likelihood weights_ `∝ P(cond|X) = E[𝟙(cond|X)]` can help, see `weight(…)`
+function condition(cond, p_cond) {
   fatal(`unexpected call to condition(…)`)
 }
 
+// weight(log_w, [log_wi])
 // weight samples by `log_w`
 // scoped by _sampling context_ `sample(function)`
-// augments models `P(X) -> ∝ P(X) × weight(X)` for all `X` in context
-// _likelihood weights_ `∝ P(cond|X)` produce conditional models `P(X|cond)`
-// see #/weight for more information
-function weight(log_w) {
+// augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
+// _likelihood weights_ `∝ P(cond|X)` condition models `P(X) → P(X|cond)`
+// requires `O(MSE(sample)/Var(target))` samples; ___can fail for extreme weights___
+// see #/weight about _weight sequence_ `log_wi` and other technical details
+function weight(log_w, guide) {
   fatal(`unexpected call to weight(…)`)
 }
 

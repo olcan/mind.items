@@ -1,4 +1,6 @@
-#util/sample/weight method sets or updates (_reweights_) sample weights to help guide samples towards a #posterior_sample. Some interpretations:
+#util/sample/weight function (and its special case `condition` function) defines an augmented model `Q(X) = ∝ P(X) × weight(X)`. Producing samples  from such an augmented model is non-trivial. TODO: mention problem w/ rare conditions and extreme weights and how these are related.
+
+ sets or updates (_reweights_) sample weights to help guide samples towards a #posterior_sample. Some interpretations:
 - [Discrete measure](https://en.wikipedia.org/wiki/Discrete_measure) μ=∑w(θₙ)δ(θₙ,θ) ~ w·P where θₙ~P is sample distribution.
   - Measure w·P can be implicit, e.g. as stationary dist. of [markov chains](#random/methods/move).
 - [Importance weights](https://en.wikipedia.org/wiki/Importance_sampling) for [efficient](https://en.wikipedia.org/wiki/Efficiency_(statistics)) and [bias/variance-controlled](https://en.wikipedia.org/wiki/Bias–variance_tradeoff) estimators of the form η=(1/N)∑f(θₙ)w(θₙ) → E[f;w·P]=∫f(θ)w(θ)p(θ)dθ. Some [Posterior](#posterior_inference) [MVUEs](https://en.wikipedia.org/wiki/Minimum-variance_unbiased_estimator):
