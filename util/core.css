@@ -8,7 +8,7 @@
 }
 
 /* ignore first break insice .more */
-.core_js_table .more br:first-child {
+.core_js_table .more > br:first-child {
   display: none;
 }
 
