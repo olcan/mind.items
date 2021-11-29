@@ -111,11 +111,12 @@ function _model(domain) {
 }
 
 // sample value from `domain`
-// model `x ～ P(X)` is defined or implied by `domain`
-// can be _conditioned_ as `P(X|…)` using `condition(…)`
-// can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
-// conditions/weights are applied & scoped to execution context
-// samples are identified by lexical context, e.g. are constant in loops
+// _prior model_ `P(X)` is defined or implied by `domain`
+// can be _conditioned_ as `P(X|cond)` using `condition(cond)`
+// can be _weighted_ as `∝ P(X) × weight(X)` using `weight(…)`
+// non-function `domain` requires _sampling context_ `sample(function)`
+// conditions/weights are scoped by sampling context `sample(function)`
+// samples are identified by _lexical context_, e.g. are constant in loops
 // | `name`      | name of sampled value
 // |             | default inferred from lexical context
 // |             | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
@@ -124,12 +125,12 @@ function _model(domain) {
 // |             | default inferred from `domain`
 // | `posterior` | posterior chain sampler `(xJ, yJ, log_wJ) => …`
 // |             | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
+// |             | _posterior_ in general sense of a _weighted prior_
 // |             | default inferred from `domain`
 function sample(domain, options = {}) {
-  // allow direct invocation for function domains only
-  // other domains require invocation via _Function sampler
+  // allow top-level invocation for function domains only
   if (is_function(domain)) return new _Function(domain, 10000).sample()
-  fatal(`unexpected call to sample(…)`)
+  fatal(`invalid sample(non-function) invoked outside of sample(function)`)
 }
 
 // default options for context
@@ -143,22 +144,24 @@ function _defaults(context) {
   }
 }
 
-// condition samples on `boolean`
-// conditioning is at run level, i.e. applies to _all_ `sample(…)` calls
+// condition samples on `cond`
+// scoped by sampling context `sample(function)`
 // _discards_ (or _rejects_) inconsistent runs, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
-// corresponds to _extreme weights_ `1` (`log_w=0`) or `0` (`log_w=-∞`)
-function condition(boolean) {
+// conditioning prior model `P(X)` produces _bayesian posterior_ `P(X|cond)`
+// corresponds to _indicator weights_ `(cond ? 1 : 0)`
+// approximates _likelihood weights_ `∝p(cond)`
+// `≡ weight(cond ? 0 : -inf)`, see below
+function condition(cond) {
   fatal(`unexpected call to condition(…)`)
 }
 
 // weight samples by `log_w`
-// weighting is at run level, i.e. applies to _all_ `sample(…)` calls
-// adjusts sampling rates/probabilities by factor `× exp(log_w)`
-// TODO: interpret as final desired weight, handle annealing internally!
+// scoped by sampling context `sample(function)`
+// adjusts sampling rate `p(x)×exp(log_w)` for all `x` sampled in context
+// _likelihood weights_ `∝p(cond)` produce _bayesian posterior_ `P(X|cond)`
+// TODO: conditions/weights must be interpreted over entire domain, not just a specific sample, and finding a non-degenerate sample under specified conditions/weights is handled by a markov chain that iteratively transitions a prior sample to a posterior sample ...
 // see #random/methods/weight for interpretations
 // see #random/methods/update/notes for notes about updating
-// discuss ideal weights for inference, optimization ...
-// if `w ∝ p(obs|run) = likelihood(obs)`, then `sample(…)` samples from posterior `P(value|obs)`
 function weight(log_w) {
   fatal(`unexpected call to weight(…)`)
 }
