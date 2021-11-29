@@ -26,8 +26,8 @@ function _benchmark_discrete_uniform() {
 }
 
 function _benchmark_discrete() {
-  const wJ = sample(100)
-  const wJ_sorted = sample(100).sort((a, b) => b - a)
+  const wJ = sample_array(100)
+  const wJ_sorted = sample_array(100).sort((a, b) => b - a)
   const sum_wj = sum(wJ)
   benchmark(
     () => discrete([1, 2]),
@@ -48,10 +48,10 @@ function _benchmark_triangular() {
   )
 }
 
-function _benchmark_sample() {
+function _benchmark_sample_array() {
   benchmark(
-    () => sample(100),
-    () => sample(array(100)),
+    () => sample_array(100),
+    () => sample_array(array(100)),
     () => array(100, j => Math.random()),
     () => array(100, Math.random) // unsafe since args are passed through
   )
@@ -101,8 +101,8 @@ function _benchmark_ks1() {
 }
 
 function _benchmark_min() {
-  const x10 = sample(10, uniform)
-  const x100 = sample(100, uniform)
+  const x10 = sample_array(10)
+  const x100 = sample_array(100)
   // for reference, we compare to an implementation that uses each(...)
   function _min_each(xJ) {
     if (!is_array(xJ)) xJ = arguments // allow min(a,b,...)
@@ -127,8 +127,8 @@ function _benchmark_min() {
 }
 
 function _benchmark_max() {
-  const x10 = sample(10, uniform)
-  const x100 = sample(100, uniform)
+  const x10 = sample_array(10)
+  const x100 = sample_array(100)
   benchmark(
     () => max(0),
     () => max([0]),
@@ -142,8 +142,8 @@ function _benchmark_max() {
 }
 
 function _benchmark_sum() {
-  const x10 = sample(10, uniform)
-  const x100 = sample(100, uniform)
+  const x10 = sample_array(10)
+  const x100 = sample_array(100)
   benchmark(
     () => sum(0),
     () => sum([0]),

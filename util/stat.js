@@ -62,9 +62,9 @@ const triangular = (a, b, c) => {
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
 
-// sample(J|xJ, [sampler=uniform])
-// samples array of `J` values from `sampler`
-function sample(a, sampler = Math.random) {
+// sample_array(J|xJ, [sampler=uniform])
+// sample array of `J` values from `sampler`
+function sample_array(a, sampler = Math.random) {
   const [J, xJ] = is_array(a)
     ? [a.length, a]
     : [~~a, new Array(Math.max(0, ~~a))]
@@ -438,8 +438,8 @@ function median(xJ, options = {}) {
 }
 
 function _benchmark_median() {
-  const xJ = sample(100, uniform)
-  const xJ_sorted = sample(100, uniform).sort((a, b) => a - b)
+  const xJ = sample_array(100)
+  const xJ_sorted = sample_array(100).sort((a, b) => a - b)
   benchmark(
     () => median(xJ),
     () => median(xJ, { copy: true }),

@@ -26,7 +26,7 @@ function _test_uniform() {
     () => is_nan(uniform('a')),
     () => is_nan(uniform(0, 'b')),
     // ks test against uniform cdf
-    () => [ks1_test(sample(1000, uniform), x => x), 1e-9, _.gt]
+    () => [ks1_test(sample_array(1000, uniform), x => x), 1e-9, _.gt]
   )
 }
 
@@ -38,7 +38,7 @@ function _test_uniform() {
 const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 1e-9) => [
   binomial_test(
     n,
-    _.sumBy(sample(n, sampler), s => equal(s, x)),
+    _.sumBy(sample_array(n, sampler), s => equal(s, x)),
     p
   ),
   ɑ,
@@ -113,20 +113,20 @@ function _test_triangular() {
     () => is_nan(triangular(0, 'b')),
     () => is_nan(triangular(0, 1, 'c')),
     // ks test against triangular cdf
-    () => [ks1_test(sample(1000, triangular), triangular_cdf), 1e-9, _.gt]
+    () => [ks1_test(sample_array(1000, triangular), triangular_cdf), 1e-9, _.gt]
   )
 }
 
-function _test_sample() {
+function _test_sample_array() {
   check(
-    () => [sample(-1), []],
-    () => [sample(0), []],
-    () => [sample(1, () => 1), [1]],
-    () => [sample(2, () => 1), [1, 1]],
-    () => [sample(2, j => j), [undefined, undefined]],
-    () => [sample([], () => 1), []],
-    () => [sample([0], () => 1), [1]],
-    () => [sample([0, 0], () => 1), [1, 1]]
+    () => [sample_array(-1), []],
+    () => [sample_array(0), []],
+    () => [sample_array(1, () => 1), [1]],
+    () => [sample_array(2, () => 1), [1, 1]],
+    () => [sample_array(2, j => j), [undefined, undefined]],
+    () => [sample_array([], () => 1), []],
+    () => [sample_array([0], () => 1), [1]],
+    () => [sample_array([0, 0], () => 1), [1, 1]]
   )
 }
 
@@ -346,10 +346,10 @@ function _test_ks1_test() {
   // test uniformity of ks1_test (p-value) using both _itself_ and binomial test
   // this is an end-to-end test of ks1, ks1_cdf, and ks1_test
   // we use smaller sample sizes to manage running time
-  const sample_ks1_test = () => ks1_test(sample(500, uniform), x => x)
+  const sample_ks1_test = () => ks1_test(sample_array(500, uniform), x => x)
   const sample_ks1_test_sign = () => (sample_ks1_test() > 0.5 ? 1 : 0)
   check(
-    () => ks1_test(sample(100, sample_ks1_test), x => x) > 1e-9,
+    () => ks1_test(sample_array(100, sample_ks1_test), x => x) > 1e-9,
     // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
     () => _binomial_test_sample(sample_ks1_test_sign, 0, 1 / 2, 100)
   )
@@ -360,12 +360,14 @@ function _test_ks2_test() {
   // this is an end-to-end test of ks2, ks2_cdf, and ks2_test
   // we use smaller sample sizes to manage running time
   const sample_ks2_test = () =>
-    ks2_test(sample(500, uniform), sample(500, uniform))
+    ks2_test(sample_array(500, uniform), sample_array(500, uniform))
   const sample_ks2_test_sign = () => (sample_ks2_test() > 0.5 ? 1 : 0)
   check(
     () =>
-      ks2_test(sample(100, sample_ks2_test), sample(100, sample_ks2_test)) >
-      1e-9,
+      ks2_test(
+        sample_array(100, sample_ks2_test),
+        sample_array(100, sample_ks2_test)
+      ) > 1e-9,
     // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
     () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 100)
   )
