@@ -474,9 +474,6 @@ function js_table(regex) {
     def.scope ??= '' // used in class name below
     const scoped = def.scope ? 'scoped' : ''
 
-    // TODO: figure out why some rows are not markdown-rendered, e.g.
-    // the first one, and not even in .more
-
     // NOTE: we prefer returning markdown-inside-table instead of returning a pure _html block, because _html is mostly unparsed whereas markdown is parsed just like other content on item, e.g. for math blocks
     lines.push(
       _div(
