@@ -174,8 +174,8 @@
   display: inline;
 }
 
-/* force inline p inside .desc */
-.core_js_table .desc p {
+/* force inline p under .desc for nowrap and ellipsis */
+.core_js_table .desc > p {
   display: inline;
 }
 
