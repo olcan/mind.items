@@ -1,0 +1,86 @@
+#util/sample/weight method sets or updates (_reweights_) sample weights to help guide samples towards a #posterior_sample. Some interpretations:
+- [Discrete measure](https://en.wikipedia.org/wiki/Discrete_measure) μ=∑w(θₙ)δ(θₙ,θ) ~ w·P where θₙ~P is sample distribution.
+  - Measure w·P can be implicit, e.g. as stationary dist. of [markov chains](#//move).
+- [Importance weights](https://en.wikipedia.org/wiki/Importance_sampling) for [efficient](https://en.wikipedia.org/wiki/Efficiency_(statistics)) and [bias/variance-controlled](https://en.wikipedia.org/wiki/Bias–variance_tradeoff) estimators of the form η=(1/N)∑f(θₙ)w(θₙ) → E[f;w·P]=∫f(θ)w(θ)p(θ)dθ. Some [Posterior](#posterior_inference) [MVUEs](https://en.wikipedia.org/wiki/Minimum-variance_unbiased_estimator):
+  - MVUE for E[f;Q] is [achieved by](https://en.wikipedia.org/wiki/Importance_sampling#Application_to_simulation) p(θ)∝q(θ)|f(θ)| and w(θ)=q(θ)/p(θ)∝1/|f(θ)|.
+  - MVUE for Q(A)=E[𝟙[θ∈A];Q] is achieved by p(θ)∝q(θ|A) and w(θ)=1.
+  - MVUE for Q(θ) is achieved by p(θ)=q(θ) and w(θ)=1.
+    - If p(θ)=π(θ) _fixed_, then w(θ)=q(θ)/π(θ), but Var[η] ∝ q(θ)²/π(θ)².
+    - Can lead to degenerate weights, e.g. in likelihood-weighted prior.
+    - [Resampling](#//sample) resets w=1 but turns variance into bias.
+    - [Markov chains](#//move) can be defined for P→Q.
+- Finite-sample approximation of likelihood
+  - Observation indicator (0/1) weights lead to [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
+  - Integrating indicators over infinite sample leads to likelihood
+- Non-likelihood weights as data/model augmentation
+
+#random/methods/update method updates samples towards #posterior_sample using a sequence of #//weight, #//sample, and #//move operations. These operations can be interpreted as steps in a [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter) (SMC) algorithm applied to approximate posterior inference in the sense of [Approximate Bayesian Computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation) (ABC), a.k.a. Likelihood-free Inference (LFI). For technical background and derivation, see [ABC Samplers](https://arxiv.org/abs/1802.09650) and in particular the discussion leading up to Algorithm 8 (ABC-SMC). See more intuition and tips, see #/notes.
+
+#random/methods/update/notes
+- weights `wJ` are NOT same as `_weight`
+  - relative weight of NEXT target under CURRENT target
+  - target is `φJ=prior*_weight`, sometimes called posterior
+  - reweighting _assumes_ samples ～ current target
+    - if true, guarantees unbiased integrals w.r.t. next target
+  - reweighting w/ same target should leave `wJ` unchanged
+- at initial sampling, target is "prior" and weights uniform
+  - non-uniform initial weights are allowed if sample is NOT from prior
+  - in that case `_sample_weighted` must be set to true
+- reweighting can shift target from current to next
+  - if target does not shift, weights are unchanged
+  - once target=posterior, weights should remain unchanged
+  - if target shifts too much, weights can become heavily skewed
+    - this can happen over multiple steps if no resampling in between
+  - skewed weights cause high integral variance and small ess
+- resampling forces uniform weights by converting weights → counts
+  - samples ∝ weights ⇒ ～ _discrete_ approximation to current target
+  - can be interpreted as _global_ moves, restricted by current sample
+    - small-weight samples can _jump_ globally to higher-weight ones
+  - uniform weights minimize integral variance but introduce/increase bias
+    - bias is random, due to sampling, and _baked into_ sample
+  - _hurts ("shrinks") essu_ by factor ~1/2, or ~k/(k+1) for k'th resampling
+  - _can improve ess_ by matching essu _after shrinkage_
+    - guarantees ess=essu (⟹ esr=1) _post-shrinkage_
+    - can also hurt ess, which can be _higher_ than essu
+      - implies new weights _less skewed_ since last resampling
+  - resampling should be avoided when essr > 1/2
+    - more likely to hurt ess AND essu due to duplication
+  - smart resampling _can increase ess gradually to its maximum_
+    - maximum ess→J requires uniform weights from resampling
+    - once target is stable, essr stays ~1 after reweighting
+    - effective moves s.t. ess→J can then allow ess→essu→J
+    - resampling rule `essr < essu/J` can be sufficient
+      - assuming move rule ensures `essu>J/2`, see below
+      - `essr<clip(essu/J,.5,1)` robust to move rule and numerical issues
+- moving attempts to move samples ～ current target
+  - _can improve essu_ by allowing samples to jump arbitrarily
+    - jumps can be global or local, single or multiple times
+    - weights are unchanged, same as reweight w/ unchanged target
+    - ess improves by deduplication of samples (w/ same weights)
+    - ess improvement depends on weights of deduplicated samples
+      - if weights are uniform, then each move can be +1 ess
+      - zero-weight samples can not improve ess at all
+  - can fail to move samples at all, meaning failure to improve ess
+    - implies low acceptance rate for metropolis-hastings jump proposals
+  - can move samples but fail to move sufficiently to ～ current target
+    - markov chain can fail to mix into its stationary distribution (current target)
+    - can happen even if all samples are moved many times
+  - may be subject to slow-moving or even non-moving samples
+    - these are problematic theoretically, but some slack is desirable
+  - moving rule `essu<J/2 || accepts<J` can ensure reasonable movement while allowing some slow-moving or even non-moving samples
+- two hypothetical scenarios:
+  - initial target is final posterior (`_weight` ~likelihood)
+    - initial weights (~likelihood) will be extremely skewed (= low ess)
+    - resampling will restore uniform weights but duplicate heavily (= still low ess)
+    - burden is on move steps to increase ess & move samples to target
+      - additional reweighting keeps uniform weights since target is final
+      - additional resampling w/ uniform weights can only hurt ess
+        - can be avoided easily based on ess (e.g. < 1/2 essu)
+      - many move steps may be needed to ensure mixing w/ large ess
+        - move steps may be interleaved with reweighting steps
+  - initial target is ~prior (`_weight` ~uniform)
+    - evolves from ~prior to ~posterior (`_weight` ~likelihood)
+    - target evolution can help maintain samples ～ target w/ good (~1/2) ess
+      - may require fewer or faster/simpler (e.g. symmetric) moves overall
+    - process should still be robust to advancing target without full mixing
+      - markov chain mixing diagnostics should be used at least in outer loop
