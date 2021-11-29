@@ -1,4 +1,5 @@
 // is `x` from `domain`?
+// | function       | `≡{via:function}`
 // | model string   | `≡{via:model}`
 // | type string    | `≡{is:type}`
 // | array          | value array, `≡{in:array}`
@@ -27,7 +28,14 @@ function from(x, domain) {
   return Object.keys(domain).every(key => {
     switch (key) {
       case 'via':
-        return from(x, _domain(domain.via))
+        if (is_function(domain.via)) {
+          // function may optionally declare return domain as _domain
+          // otherwise function is allowed to return anything
+          if (domain.via._domain) return from(x, domain.via._domain)
+          else return true // function can return anything
+        } else if (is_string(domain.via)) {
+          return from(x, _domain(domain.via))
+        } else return false // unknown "via" domain
       case 'is':
         return is(x, domain.is)
       case 'in':
@@ -155,12 +163,13 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   return wJ.every(w => w >= w_min && w <= w_max)
 }
 
+// TODO: instead of eval, allow function as domain, extract code from function,
+
 // sample an evaluation of `code`
 // `code` may use `sample(…)`, `condition(…)`, or `weight(…)`
 // can run item as `sample_eval(item.read('js_input'))`
 // performance (evals per second) depends on code size
 // unused code (e.g. via `read_deep`) should be avoided
-// TODO: can sampling be done more efficiently w/o repeated eval?
 function sample_eval(code, options = {}) {
   return new _Eval(code, 10000).sample(options)
 }

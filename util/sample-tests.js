@@ -15,6 +15,11 @@ function _test_from() {
     () => !from(false, [0, 1]), // sameValueZero
     () => from(NaN, [NaN, 1]), // sameValueZero
     () => from(0, {}), // no constraints = everything
+    () => from(0, { via: () => {} }), // function domain == everything
+    () => from(0, { via: _.set(() => {}, '_domain', 'integer') }),
+    () => !from(0, { via: _.set(() => {}, '_domain', 'string') }),
+    () => from('0', { via: _.set(() => {}, '_domain', 'string') }),
+    () => !from(0, { via: [] }), // invalid via domain == nothing
     () => from(0, { via: 'uniform' }),
     () => from(0, { is: 'integer' }),
     () => from(0, { in: [0, 1] }),
