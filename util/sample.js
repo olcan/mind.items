@@ -99,17 +99,20 @@ function _model(domain) {
     return 'uniform'
 }
 
-// sample `x` from `domain`
-// model `P(X)` is defined or implied by `domain`
-// can be _conditioned_ as `x ～ P(X|…)` using `condition(…)`
-// can be _weighted_ as `x ～ ∝ P(X) × W(X)` using `weight(…)`
-// default `options` are inferred from `domain`
-// `name` can be inferred from code context
+// sample value from `domain`
+// model `x ～ P(X)` is defined or implied by `domain`
+// can be _conditioned_ as `P(X|…)` using `condition(…)`
+// can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
+// sampled values are _tied to lexical context_ (e.g. are constant in loops)
 // | `name`      | name of sampled value
+// |             | default inferred from lexical context
+// |             | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
 // | `prior`     | prior sampler `(xJ, log_pwJ) => …`
 // |             | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
+// |             | default inferred from `domain`
 // | `posterior` | posterior chain sampler `(xJ, yJ, log_wJ) => …`
 // |             | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
+// |             | default inferred from `domain`
 function sample(domain, options = {}) {
   fatal(`unexpected (unparsed) call to sample(…)`)
 }
@@ -125,11 +128,11 @@ function _defaults(context) {
   }
 }
 
-// condition samples on boolean `cond`
+// condition samples on `boolean`
 // conditioning is at run level, i.e. applies to _all_ `sample(…)` calls
 // _discards_ (or _rejects_) inconsistent runs, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
 // corresponds to _extreme weights_ `1` (`log_w=0`) or `0` (`log_w=-∞`)
-function condition(cond) {
+function condition(boolean) {
   fatal(`unexpected (unparsed) call to condition(…)`)
 }
 
@@ -152,15 +155,21 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   return wJ.every(w => w >= w_min && w <= w_max)
 }
 
+// sample an evaluation of `code`
+// `code` may use `sample(…)`, `condition(…)`, or `weight(…)`
+// running an item is `≡ sample_eval(item.read('js_input'))`
+function sample_eval(code, options = {}) {
+  return new _Eval(code, 10000).sample(options)
+}
+
 function _run() {
   const js = _this.read('js_input')
   if (!js.match(/\b(?:sample|condition|weight)\(.*\)/s)) return null // skip
   log('run handled by #util/sample')
-  const run = new _Run(js, 10000)
-  return run.sample()
+  return sample_eval(js)
 }
 
-class _Run {
+class _Eval {
   constructor(js, J) {
     // replace condition|weight calls
     window.__run = this // for use in replacements instead of `this`
@@ -171,9 +180,21 @@ class _Run {
       .replace(
         /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)sample *\(/g,
         (m, name, offset) => {
+          // skip comments
+          const prefix = js.slice(0, offset)
+          const prefix_line = prefix.match(/.*$/)[0]
+          const suffix_line = js.slice(offset).match(/^.*/)[0]
+          if (prefix_line.match(/\/\/.*$/)) return m
+
+          // skip function definitions (e.g. from imported #util/sample)
+          if (prefix_line.match(/function *$/)) return m
+          if (suffix_line.match(/{ *$/)) return m
+
+          // TODO: fix above exclusions until read_input('js') works, allowing import/invocation of sample/condition/weight calls, presumably inside functions, which is still efficient since we only initialize context on first call from a given lexical context
+
           const k = this.contexts.length
           const context = { js, index: k, offset, name }
-          context.line = _count_unescaped(js.slice(0, offset), '\n') + 1
+          context.line = _count_unescaped(prefix, '\n') + 1
           context.line_js = lines[context.line - 1]
           this.contexts.push(context)
           return m.replace(/sample *\($/, `__run._sample(${k},`)
@@ -199,10 +220,6 @@ class _Run {
     cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
     cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
     cache(this, 'wj_uniform', ['wJ'], () => _uniform(this.wJ, this.wj_sum))
-
-    // TODO: remember weights express distributional differences, and write
-    // notes about want-adjusted prior, approximate inference, core ideas of
-    // posterior conditional approximation, sequential chain sampling, etc ...
 
     // sample prior runs
     const start = Date.now()
@@ -293,6 +310,7 @@ class _Run {
   _sample(k, domain, options) {
     const context = this.contexts[k]
     const { j, xKJ, log_wJ, xkJ = xKJ[k] } = this
+    // initialize context on first call
     if (!context.prior) {
       if (!domain) fatal(`missing domain required for sample(…)`)
       const line = `line[${context.line}]: ${context.line_js}`
