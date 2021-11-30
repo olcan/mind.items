@@ -1,39 +1,37 @@
-#util/sample/weight function defines weighted models `Q(X) ∝ P(X) × W(X)`
-- unnormalized weights specified on finite sample of points
-  - points = executions of sampling context `sample(function)`
-  - points `(xₙ)` drawn from prior `P` instead of posterior `Q`
-    - weights `w(x) ∝ q(x)/p(x)` necessary for _unbiased integrals_
-    - weights _increase variance_ `× N×E[W²] ∈ [1,N]` to eliminate bias
-      - equivalently _reduce (effective) sample size_ `× 1/(N×E[W²]) ∈ [1/N,1]`
-        - can be derived as `N×Var(weighted_mean)/Var(mean)` for i.i.d. r.v.
-        - considered approximation of `N×Var(target)/MSE(sample)`
-        - see [Rethinking the Effective Sample Size](https://arxiv.org/abs/1809.04129) for technical details
-    - weights can be converted random counts by resampling
-      - considered "unweighted" despite duplication
-      - samples can be _moved_ to reduce duplication
-  - goal: _unweighted unduplicated_ sample from posterior `Q`
+#util/sample/weight function defines weighted models `Q ∝ P×W`
 - defines _posterior_ in general sense of a _weighted prior_
-  - interpretable as conditional `P(X|cond)` in two cases:
-    - _likelihood weights_ `W(X) ∝ P(cond|X) = E[𝟙(cond|X)]`
-    - _indicator weights_ `W(X) ∝ 𝟙(cond|X)`
-
- sets or updates (_reweights_) sample weights to help guide samples towards a #posterior_sample. Some interpretations:
-- [Discrete measure](https://en.wikipedia.org/wiki/Discrete_measure) μ=∑w(θₙ)δ(θₙ,θ) ~ w·P where θₙ~P is sample distribution.
-  - Measure w·P can be implicit, e.g. as stationary dist. of [markov chains](#random/methods/move).
-- [Importance weights](https://en.wikipedia.org/wiki/Importance_sampling) for [efficient](https://en.wikipedia.org/wiki/Efficiency_(statistics)) and [bias/variance-controlled](https://en.wikipedia.org/wiki/Bias–variance_tradeoff) estimators of the form η=(1/N)∑f(θₙ)w(θₙ) → E[f;w·P]=∫f(θ)w(θ)p(θ)dθ. Some [Posterior](#posterior_inference) [MVUEs](https://en.wikipedia.org/wiki/Minimum-variance_unbiased_estimator):
-  - MVUE for E[f;Q] is [achieved by](https://en.wikipedia.org/wiki/Importance_sampling#Application_to_simulation) p(θ)∝q(θ)|f(θ)| and w(θ)=q(θ)/p(θ)∝1/|f(θ)|.
-  - MVUE for Q(A)=E[𝟙[θ∈A];Q] is achieved by p(θ)∝q(θ|A) and w(θ)=1.
-  - MVUE for Q(θ) is achieved by p(θ)=q(θ) and w(θ)=1.
-    - If p(θ)=π(θ) _fixed_, then w(θ)=q(θ)/π(θ), but Var[η] ∝ q(θ)²/π(θ)².
-    - Can lead to degenerate weights, e.g. in likelihood-weighted prior.
-    - [Resampling](#random/methods/sample) resets w=1 but turns variance into bias.
-    - [Markov chains](#random/methods/move) can be defined for P→Q.
-- Finite-sample approximation of likelihood
-  - Observation indicator (0/1) weights lead to [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
-  - Integrating indicators over infinite sample leads to likelihood
-- Non-likelihood weights as data/model augmentation
-
-#random/methods/update method updates samples towards #posterior_sample using a sequence of #random/methods/weight, #random/methods/sample, and #random/methods/move operations. These operations can be interpreted as steps in a [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter) (SMC) algorithm applied to approximate posterior inference in the sense of [Approximate Bayesian Computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation) (ABC), a.k.a. Likelihood-free Inference (LFI). For technical background and derivation, see [ABC Samplers](https://arxiv.org/abs/1802.09650) and in particular the discussion leading up to Algorithm 8 (ABC-SMC). See more intuition and tips, see #random/methods/update/notes.
+  - interpretable as conditional `P(X|c)` in two cases:
+    - _likelihood weights_ `W(X) ∝ P(c|X) = E[𝟙(c|X)]`
+    - _indicator weights_ `W(X) ∝ 𝟙(c|X)`
+- unnormalized weights `w(x)` specified on finite sample of points `(xₙ)～P`
+  - points `(xₙ)` = executions of sampling context `sample(function)`
+  - points `(xₙ)～P` are from prior `P` instead of posterior `Q`
+    - weights `w(x) = q(x)/p(x)` necessary for _unbiased integrals_ w.r.t. Q
+      - note `E[w;P]=1` whereas `E[W;P]=1/N` since `W` is normalized
+      - weights `w=q/p` are [MVUE](https://en.wikipedia.org/wiki/Minimum-variance_unbiased_estimator) for any `E[f;Q]` for _fixed_ `p(x)`
+        - [general MVUE (variable p)](https://en.wikipedia.org/wiki/Importance_sampling#Application_to_simulation) is `p∝q|f|` and `w=q/p∝1/|f|`
+    - weights _increase variance_ `× N×E[W²] ∈ [1,N]` to remove bias
+      - equivalently _reduce (effective) sample size_ `× 1/(N×E[W²]) ∈ [1/N,1]`
+        - can be derived as `N×Var(wtd_mean)/Var(mean)` for i.i.d. r.v.
+        - considered approximation of `N×Var(target)/MSE(sample)`
+          - `target` ve `sample` are estimators based on `Q` vs `P`
+          - bias in `MSE(sample)` is due to self-normalization for `Q`
+            - bias² shrinks as `O(N⁻²)` vs `O(N⁻¹)` for variance
+          - see [Rethinking the Effective Sample Size](https://arxiv.org/abs/1809.04129) for details
+- **Goal**: _unweighted unduplicated_ posterior sample `(xₙ)～Q`
+  - let `Qi->Q, i=0,1,…` denote _target sequence_, starting at `Q0=P`
+    - common in [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter) algorithms
+  - let `Wi->W, i=0,1,…` denote corresponding _weight sequence_ `Wi∝Qi/P`
+    - `W0` can be used to define a (pre-)weighted prior `Q0∝P×W0`
+    - `Wi` can be used to define target sequence `Qi∝P×Wi`
+      - may involve a weight multiplier/exponent
+      - may involve an augmented condition/indicator
+      - common in [Approximate Bayesian Computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation) (ABC), a.k.a. Likelihood-free Inference (LFI). For technical background and derivation, see [ABC Samplers](https://arxiv.org/abs/1802.09650) and in particular the discussion leading up to Algorithm 8 (ABC-SMC).
+  - let `w` denote variable _internal weights_, starting at `w∝W0`
+  - `w` can be adjusted by `× Wi/Wi-1, i=1,2,…`
+  - `w` can be reset to `w=1` by _resampling_ (w/ duplication)
+  - samples `(xₙ)` can be _moved_ along markov chain `(xₙ)→Qi`
+  - can be interpreted as [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter), a.k.a. a Particle Filter
 
 #random/methods/update/notes
 - weights `wJ` are NOT same as `_weight`
