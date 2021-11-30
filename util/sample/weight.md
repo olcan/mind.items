@@ -3,9 +3,11 @@
   - points = executions of sampling context `sample(function)`
   - points `(xₙ)` drawn from prior `P` instead of posterior `Q`
     - weights `w(x) ∝ q(x)/p(x)` necessary for _unbiased integrals_
-    - weights increase variance `× N×E[W²] ∈ [1,N]` to eliminate bias
-      - equivalently reduce effective sample size `N → 1/E[W²] ∈ [1,N]`
-      - can be derived from variance of convex combination of i.i.d. r.v.
+    - weights _increase variance_ `× N×E[W²] ∈ [1,N]` to eliminate bias
+      - equivalently _reduce (effective) sample size_ `× 1/(N×E[W²]) ∈ [1/N,1]`
+        - can be derived as `N×Var(weighted_mean)/Var(mean)` for i.i.d. r.v.
+        - considered approximation of `N×Var(target)/MSE(sample)`
+        - see [Rethinking the Effective Sample Size](https://arxiv.org/abs/1809.04129) for technical details
     - weights can be converted random counts by resampling
       - considered "unweighted" despite duplication
       - samples can be _moved_ to reduce duplication
