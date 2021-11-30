@@ -1,4 +1,19 @@
-#util/sample/weight function (and its special case `condition` function) defines an augmented model `Q(X) = ∝ P(X) × weight(X)`. Producing samples  from such an augmented model is non-trivial. TODO: mention problem w/ rare conditions and extreme weights and how these are related.
+#util/sample/weight function defines weighted models `Q(X) ∝ P(X) × W(X)`
+- unnormalized weights specified on finite sample of points
+  - points = executions of sampling context `sample(function)`
+  - points `(xₙ)` drawn from prior `P` instead of posterior `Q`
+    - weights `w(x) ∝ q(x)/p(x)` necessary for _unbiased integrals_
+    - weights increase variance `×N` to eliminate bias
+      - equivalently reduce effective sample size `N → 1/E[W²]∈N`
+      - can be derived from variance of convex combination of i.i.d. r.v.
+    - weights can be converted random counts by resampling
+      - considered "unweighted" despite duplication
+      - samples can be _moved_ to reduce duplication
+  - goal: _unweighted unduplicated_ sample from posterior `Q`
+- defines _posterior_ in general sense of a _weighted prior_
+  - interpretable as conditional `P(X|cond)` in two cases:
+    - _likelihood weights_ `W(X) ∝ P(cond|X) = E[𝟙(cond|X)]`
+    - _indicator weights_ `W(X) ∝ 𝟙(cond|X)`
 
  sets or updates (_reweights_) sample weights to help guide samples towards a #posterior_sample. Some interpretations:
 - [Discrete measure](https://en.wikipedia.org/wiki/Discrete_measure) μ=∑w(θₙ)δ(θₙ,θ) ~ w·P where θₙ~P is sample distribution.
