@@ -161,9 +161,10 @@ function condition(cond, p_cond) {
 // weight(log_w, [log_wi])
 // weight samples by `log_w`
 // scoped by _sampling context_ `sample(function)`
+// normalized weights can be denoted as prob. dist. `W(X)`
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
 // _likelihood weights_ `∝ P(cond|X)` condition models `P(X) → P(X|cond)`
-// requires `O(1/ess(W)) = O(E[W²]/E[W]²)` samples; ___can fail for extreme weights___
+// requires `O(1/ess(W)) = O(1/E[W²])` samples; ___can fail for extreme weights___
 // see #/weight about _weight sequence_ `log_wi` and other technical details
 function weight(log_w, guide) {
   fatal(`unexpected call to weight(…)`)
