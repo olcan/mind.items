@@ -152,7 +152,7 @@ function sample(domain, options) {
   if (!is_function(domain))
     fatal(`invalid sample(…) outside of sampling context sample(j=>{…})`)
   const { size = 10000 } = options ?? {}
-  return new _Function(domain, size).sample()
+  return new _Sampler(domain, size).sample()
 }
 
 // default options for context
