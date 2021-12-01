@@ -14,7 +14,7 @@
 
 /* style comment tables */
 .core_js_table table {
-  margin: 3px 0; /* leave 3px above/below */
+  margin-top: 5px; /* leave 5px above */
   width: fit-content; /* shrink to fit (vs spread across item) */
   line-height: 140%;
 }
