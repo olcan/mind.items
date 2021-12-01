@@ -12,79 +12,102 @@
         - [general MVUE (variable p)](https://en.wikipedia.org/wiki/Importance_sampling#Application_to_simulation) is `p∝q|f|` and `w=q/p∝1/|f|`
     - weights _increase variance_ `× N×E[W²] ∈ [1,N]` to remove bias
       - equivalently _reduce (effective) sample size_ `× 1/(N×E[W²]) ∈ [1/N,1]`
-        - can be derived as `N×Var(wtd_mean)/Var(mean)` for i.i.d. r.v.
-        - considered approximation of `N×Var(target)/MSE(sample)`
+        - `ess` can be derived as `N×Var(wtd_mean)/Var(mean)` for i.i.d. r.v.
+        - `ess` considered approximation of `N×Var(target)/MSE(sample)`
           - `target` ve `sample` are estimators based on `Q` vs `P`
           - bias in `MSE(sample)` is due to self-normalization for `Q`
             - bias² shrinks as `O(N⁻²)` vs `O(N⁻¹)` for variance
           - see [Rethinking the Effective Sample Size](https://arxiv.org/abs/1809.04129) for details
 - **Goal**: _unweighted unduplicated_ posterior sample `(xₙ)～Q`
-  - let `Qi->Q, i=0,1,…` denote _target sequence_, starting at `Q0=P`
-    - common in [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter) algorithms
-  - let `Wi->W, i=0,1,…` denote corresponding _weight sequence_ `Wi∝Qi/P`
-    - `W0` can be used to define a (pre-)weighted prior `Q0∝P×W0`
-    - `Wi` can be used to define target sequence `Qi∝P×Wi`
-      - may involve a weight multiplier/exponent
-      - may involve an augmented condition/indicator
-      - common in [Approximate Bayesian Computation](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation) (ABC), a.k.a. Likelihood-free Inference (LFI). For technical background and derivation, see [ABC Samplers](https://arxiv.org/abs/1802.09650) and in particular the discussion leading up to Algorithm 8 (ABC-SMC).
-  - let `w` denote variable _internal weights_, starting at `w∝W0`
-  - `w` can be adjusted by `× Wi/Wi-1, i=1,2,…`
-  - `w` can be reset to `w=1` by _resampling_ (w/ duplication)
+  - let `Qi → Q, i=0,1,…` denote _target sequence_, starting at `Q0=P`
+    - goal is to transition samples `(xₙ)～P → (yₙ)～Q`
+    - small changes `Qi → Qi+1` avoid extreme weights
+      - easier to transition samples `(xₙ)→Qi → (zₙ)→Qi+1`
+  - let `Wi → W, i=0,1,…` denote corresponding _weight sequence_ `Wi∝Qi/P`
+    - `W0` can be used to define a (pre-)weighted prior `Q0 ∝ P×W0`
+    - `Wi` can be used to define target sequence `Qi ∝ P×Wi`
+      - should be chosen to avoid extreme ratios `Wᵢ/Wᵢ₋₁`
+        - `W/W₀` can still be extreme (and typically is)
+      - common methods:
+        - weight exponent (or log-weight multiplier)
+        - relaxed (progressively tightened) condition indicator
+      - relevant sources, terms:
+        - [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter) (SMC), a.k.a. Particle Filter
+        - [Approx. Bayesian Comp.](https://en.wikipedia.org/wiki/Approximate_Bayesian_computation) (ABC), a.k.a. Likelihood-free Inference
+          - [ABC Samplers](https://arxiv.org/abs/1802.09650), esp. Algorithm 8 (ABC-SMC).
+  - let `w` denote _internal weights_, starting at `w∝W0`
+    - `(xₙ)～P` considered "distinct" in sense of independence
+    - `essu=n`, `ess` depends on `W0` (`=n` if `W0` uniform)
+      - `ess` tracks weights+counts, `essu` counts only (see below)
+        - can have `ess>essu` or `ess<essu` based on relative skew
+      - initial counts=1 since all samples distinct/independent
+  - `w` can be adjusted by `× Wᵢ/Wᵢ₋₁, i=1,2,…` in _reweighting_ steps
+    - should shrink `ess` but does not affect `essu`
+      - shrinks less as weights converge `w ≈ Wᵢ/Wᵢ₋₁ → W/W = 1`
+      - increase in `ess` unlikely for sensible sequence `Wi`
+    - should be idempotent at same `i` since `Wi/Wi=1`
+    - should be convergent since `Wᵢ/Wᵢ₋₁ → W/W = 1`
+    - can accumulate as `Wᵢ/Wᵢ₋₁ × Wᵢ₋₁/Wᵢ₋₂ × … = Wᵢ/Wⱼ`
+      - accumulated weights `Wᵢ/Wⱼ, j<i-1` can become extreme ...
+  - `w` can be reset to `w(x)=1` in _resampling_ steps
+    - prevents extreme weights `Wᵢ/W₀` or `Wᵢ/Wⱼ, j<i-1`
+    - shrinks `essu` by `~1/2`, or `~k/(k+1), k=1,2,…` if repeated
+    - ensures `ess=essu` since weights are reset (only counts remain)
+      - `ess≈essu/2` w.r.t. pre-resample `essu`
+      - more likely to improve `ess` if `ess<essu/2`, hurt if `ess>essu/2`
+        - i.e. resampling should be avoided when `ess>essu/2` (see below)
+    - can be interpreted as _global moves_, restricted only by sample
+      - small-weight samples can _jump globally_ to large-weight points
+    - converts weights `w(x)` to random counts w/ duplication (count≥2)
+      - duplication in sense of dependence/correlation, not value/equality
+      - weights `Wi` (and `Wᵢ₋₁,Wᵢ₋₂,…`) still guide move steps
+    - considered _unweighted_ sample despite counts ≡ integer weights
+      - counts are about dependence/correlation, not value/equality
+      - counts should be factored into _both_ `ess` and `essu`
+      - key difference: count≥2 can be converted to distinct samples ...
   - samples `(xₙ)` can be _moved_ along markov chain `(xₙ)→Qi`
-  - can be interpreted as [Sequential Monte Carlo](https://en.m.wikipedia.org/wiki/Particle_filter), a.k.a. a Particle Filter
+    - duplicates (correlates) can be _deduplicated_, reducing counts
+      - deduplication in sense of (eventual) independence/decorrelation
+      - necessary but not sufficient for _decorrelation_ (see below)
+    - can improve both `essu` and `ess` as counts are reduced
+      - does not affect weights `w` (aside from multiplicity in sample)
+        - implies `ess/essu` should not change much
+      - `ess` improvement depends on weights of deduplicated samples
+        - best case is `+1` per move for uniform weights (e.g. post-resample)
+        - worst case is `~0` for ~zero-weight samples
+    - mixing/convergence is criticial to achieve goal (see above)
+      - requires deduplication _and decorrelation_ of samples
+        - deduplication is necessary but not sufficient
+        - decorrelation depends on proposals and acceptance
+          - global = less auto-correlated = harder to accept
+          - local = more auto-correlated = easier to accept
+        - can fail to move/deduplicate due to low acceptance rate
+        - can fail to move sufficiently to decorrelate
+          - can happen even after many (accepted) local moves
+        - may be subject to slow-moving or even non-moving samples
+          - these are problematic in theory but may be inevitable
+      - ks diagnostics (esp. between independent samples) important
+  - `Wi` are thus iteratively "baked into" sample as `(xₙ)→Qi`
+
+#todo
+- summarize steps w/ effects on weights, counts, ess/essu
+- specify "default update rules" w/ justification
+- describe two scenarios to illustrate
+- extend options for `sample`
 
 #random/methods/update/notes
-- weights `wJ` are NOT same as `_weight`
-  - relative weight of NEXT target under CURRENT target
-  - target is `φJ=prior*_weight`, sometimes called posterior
-  - reweighting _assumes_ samples ～ current target
-    - if true, guarantees unbiased integrals w.r.t. next target
-  - reweighting w/ same target should leave `wJ` unchanged
-- at initial sampling, target is "prior" and weights uniform
-  - non-uniform initial weights are allowed if sample is NOT from prior
-  - in that case `_sample_weighted` must be set to true
-- reweighting can shift target from current to next
-  - if target does not shift, weights are unchanged
-  - once target=posterior, weights should remain unchanged
-  - if target shifts too much, weights can become heavily skewed
-    - this can happen over multiple steps if no resampling in between
-  - skewed weights cause high integral variance and small ess
+
 - resampling forces uniform weights by converting weights → counts
-  - samples ∝ weights ⇒ ～ _discrete_ approximation to current target
-  - can be interpreted as _global_ moves, restricted by current sample
-    - small-weight samples can _jump_ globally to higher-weight ones
-  - uniform weights minimize integral variance but introduce/increase bias
-    - bias is random, due to sampling, and _baked into_ sample
-  - _hurts ("shrinks") essu_ by factor ~1/2, or ~k/(k+1) for k'th resampling
-  - _can improve ess_ by matching essu _after shrinkage_
-    - guarantees ess=essu (⟹ esr=1) _post-shrinkage_
-    - can also hurt ess, which can be _higher_ than essu
-      - implies new weights _less skewed_ since last resampling
-  - resampling should be avoided when essr > 1/2
-    - more likely to hurt ess AND essu due to duplication
   - smart resampling _can increase ess gradually to its maximum_
     - maximum ess→J requires uniform weights from resampling
     - once target is stable, essr stays ~1 after reweighting
-    - effective moves s.t. ess→J can then allow ess→essu→J
+    - effective moves s.t. essu→J can then allow ess→essu→J
     - resampling rule `essr < essu/J` can be sufficient
       - assuming move rule ensures `essu>J/2`, see below
       - `essr<clip(essu/J,.5,1)` robust to move rule and numerical issues
 - moving attempts to move samples ～ current target
-  - _can improve essu_ by allowing samples to jump arbitrarily
-    - jumps can be global or local, single or multiple times
-    - weights are unchanged, same as reweight w/ unchanged target
-    - ess improves by deduplication of samples (w/ same weights)
-    - ess improvement depends on weights of deduplicated samples
-      - if weights are uniform, then each move can be +1 ess
-      - zero-weight samples can not improve ess at all
-  - can fail to move samples at all, meaning failure to improve ess
-    - implies low acceptance rate for metropolis-hastings jump proposals
-  - can move samples but fail to move sufficiently to ～ current target
-    - markov chain can fail to mix into its stationary distribution (current target)
-    - can happen even if all samples are moved many times
-  - may be subject to slow-moving or even non-moving samples
-    - these are problematic theoretically, but some slack is desirable
   - moving rule `essu<J/2 || accepts<J` can ensure reasonable movement while allowing some slow-moving or even non-moving samples
+
 - two hypothetical scenarios:
   - initial target is final posterior (`_weight` ~likelihood)
     - initial weights (~likelihood) will be extremely skewed (= low ess)
