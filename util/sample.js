@@ -110,28 +110,49 @@ function _model(domain) {
     return 'uniform'
 }
 
+// sample(domain, [options])
 // sample value `x` from `domain`
 // random variable is denoted `X ∈ dom(X)`
 // _prior model_ `P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|cond)` using `condition(cond)`
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
-// non-function `domain` requires _sampling context_ `sample(function)`
-// conditions/weights are scoped by sampling context `sample(function)`
+// function `domain` acts as context/scope for nested `sample(…)`
+// function `domain` is invoked w/ a _sample index_ `j=0,…,J-1`
+// non-function `domain` requires _sampling context_ `sample(j=>{…})`
+// conditions/weights are scoped by sampling context `sample(j=>{…})`
 // samples are identified by _lexical context_, e.g. are constant in loops
-// | `name`      | name of sampled value
-// |             | default inferred from lexical context
-// |             | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
-// | `prior`     | prior sampler `(xJ, log_pwJ) => …`
-// |             | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
-// |             | default inferred from `domain`
-// | `posterior` | posterior chain sampler `(xJ, yJ, log_wJ) => …`
-// |             | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
-// |             | _posterior_ in general sense of a _weighted prior_
-// |             | default inferred from `domain`
-function sample(domain, options = {}) {
-  // allow top-level invocation for function domains only
-  if (is_function(domain)) return new _Function(domain, 10000).sample()
-  fatal(`invalid sample(non-function) invoked outside of sample(function)`)
+// | `name`        | name of sampled value
+// |               | default inferred from lexical context
+// |               | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
+// | `size`        | underlying sample size `J`, default: `10000`
+// |               | ≡ runs of sampling context `sample(j=>{…})`
+// | `prior`       | prior sampler `(xJ, log_pwJ) => …`
+// |               | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
+// |               | default inferred from `domain`
+// | `posterior`   | posterior chain sampler `(xJ, yJ, log_wJ) => …`
+// |               | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
+// |               | _posterior_ in general sense of a _weighted prior_
+// |               | default inferred from `domain`
+// | `reweight_if` | reweight predicate `(context, options) => …`
+// |               | invoked once per update step
+// |               | `options` includes step index `u=0,1,…`
+// |               | default: `() => true`
+// | `resample_if` | resample predicate `(context, options) => …`
+// |               | invoked once per update step
+// |               | `options` includes step index `u=0,1,…`
+// |               | default: `({essr,essu,J}) => essr < clip(essu/J,.5,1)`
+// | `move_while`  | move predicate `(context, options) => …`
+// |               | invoked _until false_ in every update step
+// |               | `options` includes update step index `u=0,1,…`
+// |               | `options` includes move step index `m=0,1,…`
+// |               | `options` includes move accept count `a>=0`
+// |               | default: `({essu,J},{m,a}) => essu < J / 2 || a < J`
+function sample(domain, options) {
+  // decline non-function domain which requires sampling context that would have replaced calls to sample(…)
+  if (!is_function(domain))
+    fatal(`invalid sample(…) outside of sampling context sample(j=>{…})`)
+  const { size = 10000 } = options ?? {}
+  return new _Function(domain, size).sample()
 }
 
 // default options for context
@@ -147,7 +168,7 @@ function _defaults(context) {
 
 // condition(cond, [log_wi])
 // condition samples on `cond`
-// scoped by _sampling context_ `sample(function)`
+// scoped by _sampling context_ `sample(j=>{…})`
 // conditions models `P(X) → P(X|cond)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(cond|X) = (cond ? 1 : 0)`
 // `≡ weight(cond ? 0 : -inf)`, see more general `weight(…)` below
@@ -160,7 +181,7 @@ function condition(cond, p_cond) {
 
 // weight(log_w, [log_wi])
 // weight samples by `log_w`
-// scoped by _sampling context_ `sample(function)`
+// scoped by _sampling context_ `sample(j=>{…})`
 // normalized weights can be denoted as prob. dist. `W(X)`
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
 // _likelihood weights_ `∝ P(cond|X)` condition models `P(X) → P(X|cond)`
@@ -177,10 +198,10 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   return wJ.every(w => w >= w_min && w <= w_max)
 }
 
-class _Function {
+class _Sampler {
   constructor(func, J) {
     // replace condition|weight calls
-    window.__function = this // for use in replacements instead of `this`
+    window.__sampler = this // for use in replacements instead of `this`
     const js = func.toString()
     const lines = js.split('\n')
     this.contexts = []
@@ -222,12 +243,12 @@ class _Function {
 
         // replace condition|weight call
         if (method == 'condition' || method == 'weight')
-          return `__function._${method}(`
+          return `__sampler._${method}(`
 
         // replace sample call
         const k = this.contexts.length
         this.contexts.push({ js, index: k, offset, name, line_index, line })
-        return m.replace(/sample *\($/, `__function._sample(${k},`)
+        return m.replace(/sample *\($/, `__sampler._sample(${k},`)
       }
     )
     // evaluate new function w/ replacements
@@ -267,7 +288,7 @@ class _Function {
     repeat(this.J, j => {
       this.j = j
       this.log_wJ_adj[j] = 0
-      this.xJ[j] = this.func()
+      this.xJ[j] = this.func(j)
     })
   }
 
@@ -284,8 +305,8 @@ class _Function {
     return copy(log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
   }
 
-  sample_index(options = {}) {
-    if (options.prior) {
+  sample_index(options) {
+    if (options?.prior) {
       const { pwj_uniform, J, pwJ, pwj_sum, xJ } = this
       const j = pwj_uniform ? discrete_uniform(J) : discrete(pwJ, pwj_sum)
       return j
@@ -295,9 +316,9 @@ class _Function {
     return j
   }
 
-  sample_values(options = {}) {
+  sample_values(options) {
     const j = this.sample_index(options)
-    switch (options.format) {
+    switch (options?.format) {
       case 'array':
         return this.xKJ.map(xkJ => xkJ[j])
       case 'object':
@@ -313,10 +334,10 @@ class _Function {
     }
   }
 
-  sample(options = {}) {
+  sample(options) {
     const j = this.sample_index(options)
-    if (options.values) {
-      switch (options.format) {
+    if (options?.values) {
+      switch (options?.format) {
         case 'array':
           return [...this.xKJ.map(xkJ => xkJ[j]), this.xJ[j]]
         case 'object':
@@ -328,7 +349,7 @@ class _Function {
         // default:
         //   return [this.xJ[j], this.sample_values(options)]
       }
-    } else if (options.index) {
+    } else if (options?.index) {
       return {
         _output: this.xJ[j],
         _index: j,

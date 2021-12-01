@@ -4,7 +4,7 @@
     - _likelihood weights_ `W(X) ∝ P(c|X) = E[𝟙(c|X)]`
     - _indicator weights_ `W(X) ∝ 𝟙(c|X)`
 - unnormalized weights `w(x)` specified on finite sample of points `(xₙ)～P`
-  - points `(xₙ)` = executions of sampling context `sample(function)`
+  - points `(xₙ)` = runs of sampling context `sample(function)`
   - points `(xₙ)～P` are from prior `P` instead of posterior `Q`
     - weights `w(x) = q(x)/p(x)` necessary for _unbiased integrals_ w.r.t. Q
       - note `E[w;P]=1` whereas `E[W;P]=1/N` since `W` is normalized
@@ -94,8 +94,6 @@
 - specify "default update rules" w/ justification
 - describe two scenarios to illustrate
 - extend options for `sample`
-
-#random/methods/update/notes
 
 - resampling forces uniform weights by converting weights → counts
   - smart resampling _can increase ess gradually to its maximum_
