@@ -26,9 +26,6 @@
   > :is(td:first-child:not(:empty), td:first-child:not(:empty) ~ td) {
   padding-top: 5px;
 }
-.core_js_table table > thead {
-  display: none;
-}
 
 /* minimize width of left column w/o wrapping for comment tables */
 /* need to override .item code for white-space: nowrap */
@@ -319,9 +316,6 @@
     font-size: 10px;
     line-height: 17px;
   }
-}
-.core_js_table_modal .results table thead {
-  display: none;
 }
 .core_js_table_modal .results table td {
   vertical-align: top;
