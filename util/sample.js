@@ -127,11 +127,11 @@ function _model(domain) {
 // |               | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
 // | `model`       | model to use for sampling `domain`
 // |               | _default_: inferred from `domain`
-// | `prior`       | prior sampler `(xJ, log_pwJ) => …`
+// | `prior`       | prior sampler `(xJ, log_pwJ, context) => …`
 // |               | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
 // |               | _default_: inferred from `model`, `domain`
-// | `posterior`   | posterior chain sampler `(xJ, yJ, log_wJ) => …`
-// |               | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
+// | `posterior`   | posterior chain sampler `(xJ, yJ, log_twJ, context) => …`
+// |               | `fill(yJ, y~Q(Y|x), add(log_twJ, log(∝q(x|y)/q(y|x)))`
 // |               | _posterior_ in general sense of a _weighted prior_
 // |               | _default_: inferred from `model`, `domain`
 // `options` for sampler function domains `context=>{ … }`:
@@ -196,7 +196,7 @@ function _defaults({ domain, model }) {
         fatal(`invalid domain ${stringify(domain)} for sampler model`)
       return {
         prior: xJ => sample_array(xJ, () => context.sampler.sample_prior()),
-        posterior: xJ => sample_array(xJ, () => context.sampler.sample()),
+        posterior: (xJ, yJ) => sample_array(yJ, () => context.sampler.sample()),
       }
     case 'uniform':
       // require canonical domain for now
@@ -307,11 +307,16 @@ class _Sampler {
     assert(J > 0, `invalid sample size ${J}`)
     this.K = this.values.length
     this.xJK = matrix(J, this.K) // prior samples per run/value
-    this.xJk = array(J) // tmp array for prior-sampling columns of xJK
-    this.log_pwJ = array(J, 0) // prior log-weights per run
-    this.log_rwJ = array(J, 0) // posterior/sample ratio log-weights
-    this.log_wJ = array(J, 0) // posterior log-weights
+    this.xJk = array(J) // tmp array for sampling columns of xJK
+    this.yJK = matrix(J, this.K) // posterior chain samples per run/value
+    this.yJk = array(J) // tmp array for sampling columns of yJK
+    this.log_pwJ = array(J) // prior log-weights per run
+    this.log_wJ = array(J) // posterior log-weights
+    this.log_rwJ = array(J) // posterior/sample ratio log-weights
+    this.log_mwJ = array(J) // posterior move log-weights
+    this.log_cwJ = array(J) // posterior candidate log-weights
     this.xJ = array(J) // return values
+    this.yJ = array(J) // proposed return values
     this.jJ = array(J) // sample indices
     this.jjJ = array(J) // shuffle indices
     this.stats = {
@@ -359,8 +364,10 @@ class _Sampler {
   }
 
   _sample_prior() {
-    const { func, xJ, jJ, log_pwJ, log_rwJ, log_wJ } = this
+    const { func, xJ, jJ, log_pwJ, log_wJ, log_rwJ } = this
     this.u = 0 // first update step
+    fill(log_pwJ, 0)
+    fill(log_wJ, 0)
     fill(xJ, j => ((this.j = j), func(this)))
     this.u_wj = 0 // update step (u=0) for posterior weights
     // scale & clip posterior@u=0 log-weight adjustments
@@ -390,9 +397,8 @@ class _Sampler {
   }
 
   // fast multi-array buffer-swap shuffle used in _resample
-  _shuffle(jjJ, names) {
-    // init shuffle buffers as needed
-    each(names, n => (this[`_${n}`] ??= array(this[n].length)))
+  _shuffle(jjJ, ...names) {
+    each(names, n => (this[`_${n}`] ??= array(this[n].length))) // init buffers
     each(jjJ, jj => each(names, n => (this[`_${n}`][j] = this[n][jj])))
     each(names, n => (this[n] = swap(this[`_${n}`], (this[`_${n}`] = this[n]))))
   }
@@ -403,13 +409,7 @@ class _Sampler {
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ } = this
     if (rwj_uniform) sample_array(jjJ, () => discrete_uniform(J))
     else sample_array(jjJ, () => discrete(rwJ, rwj_sum))
-    // shuffle all J-indexed array state
-    // only exceptions are jjJ (shuffle indices) and xJk (tmp array)
-    // shuffling once is cleaner than mapping all j indices everywhere
-    this._resample_shuffle_names ??= Object.keys(this).filter(
-      n => is_array(this[n]) && n.includes('J') && n != 'jjJ' && n != 'xJk'
-    )
-    _shuffle(jjJ, this._resample_shuffle_names)
+    this._shuffle(jjJ, 'jJ', 'xJ', 'xJK', 'log_pwJ', 'log_wJ')
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
     stats.resamples++
@@ -418,12 +418,47 @@ class _Sampler {
   // move step
   // take metropolis-hastings steps along posterior chain
   _move() {
-    // TODO: copy from random.js and modify until looks ok
+    const { J, func, yJ, xJ, jJ, jjJ, log_mwJ, log_cwJ, log_wJ } = this
+    this.moving = true // enable posterior chain sampling in _sample
+    this.move_index = (this.move_index ?? 0) + 1 // unique index for this move
+    fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
+    fill(log_cwJ, 0) // reset candidate posterior log-weights
+    const _log_wJ = log_wJ // to be restored below
+    this.log_wJ = log_cwJ // redirect log_wJ -> log_cwJ temporarily
+    fill(yJ, j => ((this.j = j), func(this)))
+    this.moving = false // back to xJK
+    this.log_wJ = _log_wJ // restore log_wJ for current points
+
+    // accept/reject proposals (∞-∞=NaN treated as 0)
+    let accepts = 0
+    this.move_log_w = 0
+    repeat(J, j => {
+      const log_dwj = log_cwJ[j] - log_wJ[j]
+      if (Math.random() < Math.exp(log_mwJ[j] + log_dwj)) {
+        xJ[j] = yJ[j]
+        log_wJ[j] = log_cwJ[j]
+        jJ[j] = J + j // accepted sample index remapped below
+        this.move_log_w += log_dwj
+        accepts++
+      }
+    })
+
+    if (accepts > 0) {
+      // reassign indices jJ using jjJ as map
+      fill(jjJ, -1)
+      let jjj = 0
+      apply(jJ, (jj, j) =>
+        jj >= J ? jjj++ : jjJ[jj] >= 0 ? jjJ[jj] : (jjJ[jj] = jjj++)
+      )
+      // TODO: what to reset exactly? how about prior weights? other state?
+    }
+
     // TODO: test single pass of reweight, resample, move
     // TODO: implement _update() loop w/ history tracking + charting
+
     stats.moves++
-    // this.stats.proposals++
-    // this.stats.accepts++
+    stats.proposals += J
+    stats.accepts += accepts
   }
 
   __pwJ() {
@@ -497,7 +532,7 @@ class _Sampler {
 
   _sample(k, domain, options) {
     const value = this.values[k]
-    const { j, xJK, xJk, log_wJ } = this
+    const { j, xJK, xJk, log_pwJ, log_wJ } = this
     // initialize value sampler and prior sample on first call
     if (!value.sampler) {
       value.sampler = this
@@ -524,8 +559,17 @@ class _Sampler {
       } catch (e) {
         fatal(`can not sample ${stringify(domain)}; ${e} @ ${line}`)
       }
-      value.prior(xJk, log_wJ)
+      value.prior(xJk, log_pwJ, this)
       each(xJk, (x, j) => (xJK[j][k] = x))
+    }
+    // sample from posterior chain if moving
+    if (this.moving && this.move_index != value.move_index) {
+      value.move_index = this.move_index
+      const { yJK, yJk, log_mwJ } = this
+      fill(xJk, j => xJK[j][k])
+      value.posterior(xJk, yJk, log_mwJ, this)
+      each(yJk, (y, j) => (yJK[j][k] = y))
+      return yJk[j]
     }
     return xJK[j][k]
   }
