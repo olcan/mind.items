@@ -187,7 +187,7 @@ function sample(domain, options) {
   return new _Sampler(domain, options).sample()
 }
 
-// default options for context
+// default options for domain/model
 function _defaults({ domain, model }) {
   switch (model) {
     case 'sampler':
@@ -246,15 +246,15 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 class _Sampler {
   constructor(func, options) {
     this.options = options
-    // replace condition|weight calls
+    // replace sample|condition|weight calls
     window._sampler_context = this // for use in replacements instead of `this`
     const js = func.toString()
     const lines = js.split('\n')
-    this.contexts = []
+    this.values = []
     this.js = js.replace(
       /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight) *\(/g,
       (m, name, method, offset) => {
-        // extract code context
+        // extract lexical context
         if (js[offset] == '\n') offset++ // skip leading \n if matched
         const prefix = js.slice(0, offset)
         const line_prefix = prefix.match(/.*$/)[0]
@@ -292,8 +292,8 @@ class _Sampler {
           return `_sampler_context._${method}(`
 
         // replace sample call
-        const k = this.contexts.length
-        this.contexts.push({ js, index: k, offset, name, line_index, line })
+        const k = this.values.length
+        this.values.push({ js, index: k, offset, name, line_index, line })
         return m.replace(/sample *\($/, `_sampler_context._sample(${k},`)
       }
     )
@@ -304,11 +304,23 @@ class _Sampler {
 
     // initialize run state
     const J = (this.J = options.size)
-    this.K = this.contexts.length
-    this.xKJ = matrix(this.K, J) // prior samples per context/run
-    this.log_wJ = array(J, 0) // prior log-weight per run
-    this.log_wJ_adj = array(J, 0) // log-weight adjustments per run
-    this.xJ = array(J) // eval output value per run
+    assert(J > 0, `invalid sample size ${J}`)
+    this.K = this.values.length
+    this.xJK = matrix(J, this.K) // prior samples per run/value
+    this.xJk = array(J) // tmp array for prior-sampling columns of xJK
+    this.log_pwJ = array(J, 0) // prior log-weights per run
+    this.log_rwJ = array(J, 0) // posterior/sample ratio log-weights
+    this.log_wJ = array(J, 0) // posterior log-weights
+    this.xJ = array(J) // return values
+    this.jJ = array(J) // sample indices
+    this.jjJ = array(J) // shuffle indices
+    this.stats = {
+      reweights: 0,
+      resamples: 0,
+      moves: 0,
+      proposals: 0,
+      accepts: 0,
+    }
 
     // define cached properties
     // prior weights pwJ
@@ -316,20 +328,21 @@ class _Sampler {
     cache(this, 'pwj_sum', ['pwJ'], () => sum(this.pwJ))
     cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ))
     cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
-    // posterior (conditioned/weighted prior) weights wJ
-    cache(this, 'wJ', [])
-    cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
-    cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
-    cache(this, 'wj_uniform', ['wJ'], () => _uniform(this.wJ, this.wj_sum))
+    // posterior ratio weights rwJ (for current sample)
+    cache(this, 'rwJ', [])
+    cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
+    cache(this, 'rwj_ess', ['rwJ'], () => ess(this.rwJ))
+    cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
 
-    // update samples
+    // sample prior (along w/ u=0 posterior)
     const start = Date.now()
-    this.update()
+    this._sample_prior()
     const ms = Date.now() - start
-    log(`sampled ${J} runs in ${ms}ms`)
-    log(`ess ${this.pwj_ess} prior, ${this.wj_ess} posterior`)
+    log(`sampled ${J} prior runs in ${ms}ms`)
+    log(`ess ${this.pwj_ess} prior, ${this.rwj_ess} posterior@u=0`)
   }
 
+  // clipped scaling used in _sample_prior and _reweight
   _scale_clipped_weights(log_wJ) {
     // clip weights and apply weight exponent
     // note we can not clip to any fixed absolute value
@@ -345,46 +358,90 @@ class _Sampler {
     })
   }
 
-  update() {
-    this.u = 0
-    const { func, xJ, log_wJ_adj } = this
-    this.wJ = null // reset (exponentiated) posterior weights
-    repeat(this.J, j => {
-      this.j = j
-      log_wJ_adj[j] = 0
-      xJ[j] = func(this)
-    })
-    // scale & clip posterior log-weight adjustments
-    // note this could revert to prior if weight_exp(u=0) == 0
-    // also we do not scale/clip prior log-weights for now
-    //   they are persistent across update steps so scale/clip is tricky
-    //   also they should be coordinated carefully w/ prior sampler
-    this._scale_clipped_weights(this.log_wJ_adj)
+  _sample_prior() {
+    const { func, xJ, jJ, log_pwJ, log_rwJ, log_wJ } = this
+    this.u = 0 // first update step
+    fill(xJ, j => ((this.j = j), func(this)))
+    this.u_wj = 0 // update step (u=0) for posterior weights
+    // scale & clip posterior@u=0 log-weight adjustments
+    // this may have no effect if weight_exp(u=0) == 0
+    // we do not scale/clip prior log-weights (log_wJ)
+    // tricky since log_wJ is computed incrementally across update steps
+    // also log_wJ should be coordinated carefully w/ prior sampler anyway
+    this._scale_clipped_weights(log_wJ)
+    // init log_rwJ = log_wJ + log_pwJ (ratio of u=0 post to sample)
+    fill(log_rwJ, j => log_wJ[j] + log_pwJ[j])
+    fill(jJ, j => j) // init sample indices
+  }
 
-    // TODO: additional update iterations!
+  // reweight step
+  // multiply rwJ by wJ@u/wJ@u' where u' is last update for wJ
+  _reweight() {
+    const { u, func, xJ, log_wJ, log_rwJ, stats } = this
+    assert(u > this.u_wj, '_reweight requires u > u_wj')
+    map(log_rwJ, log_wJ, (a, b) => a - b)
+    fill(log_wJ, 0)
+    fill(xJ, j => ((this.j = j), func(this)))
+    this._scale_clipped_weights(log_wJ)
+    map(log_rwJ, log_wJ, (a, b) => a + b)
+    this.u_wj = u // update step for last posterior reweight
+    this.rwJ = null // reset cached posterior ratio weights and dependents
+    stats.reweights++
+  }
+
+  // fast multi-array buffer-swap shuffle used in _resample
+  _shuffle(jjJ, names) {
+    // init shuffle buffers as needed
+    each(names, n => (this[`_${n}`] ??= array(this[n].length)))
+    each(jjJ, jj => each(names, n => (this[`_${n}`][j] = this[n][jj])))
+    each(names, n => (this[n] = swap(this[`_${n}`], (this[`_${n}`] = this[n]))))
+  }
+
+  // resample step
+  // resample based on rwJ, reset rwJ=1
+  _resample() {
+    const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ } = this
+    if (rwj_uniform) sample_array(jjJ, () => discrete_uniform(J))
+    else sample_array(jjJ, () => discrete(rwJ, rwj_sum))
+    // shuffle all J-indexed array state
+    // only exceptions are jjJ (shuffle indices) and xJk (tmp array)
+    // shuffling once is cleaner than mapping all j indices everywhere
+    this._resample_shuffle_names ??= Object.keys(this).filter(
+      n => is_array(this[n]) && n.includes('J') && n != 'jjJ' && n != 'xJk'
+    )
+    _shuffle(jjJ, this._resample_shuffle_names)
+    fill(log_rwJ, 0) // reset weights now "baked into" sample
+    this.rwJ = null // reset cached posterior ratio weights and dependents
+    stats.resamples++
+  }
+
+  _move() {
+    // TODO
+    stats.moves++
+    // this.stats.proposals++
+    // this.stats.accepts++
   }
 
   __pwJ() {
-    const { log_wJ } = this
-    const max_log_wj = max(log_wJ)
-    return copy(log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
+    const { log_pwJ } = this
+    const max_log_pwj = max(log_pwJ)
+    return copy(log_pwJ, log_pwj => Math.exp(log_pwj - max_log_pwj))
   }
 
-  __wJ() {
-    const { log_wJ, log_wJ_adj } = this
-    const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_adj[j])
-    const max_log_wj = max(wJ)
-    return apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
+  __rwJ() {
+    const { log_rwJ } = this
+    const max_log_rwj = max(log_rwJ)
+    return copy(log_rwJ, log_rwj => Math.exp(log_rwj - max_log_rwj))
   }
 
   sample_index(options) {
     if (options?.prior) {
-      const { pwj_uniform, J, pwJ, pwj_sum, xJ } = this
+      const { J, pwj_uniform, pwJ, pwj_sum } = this
       const j = pwj_uniform ? discrete_uniform(J) : discrete(pwJ, pwj_sum)
       return j
     }
-    const { wj_uniform, J, wJ, wj_sum, xJ } = this
-    const j = wj_uniform ? discrete_uniform(J) : discrete(wJ, wj_sum)
+    const { J, rwj_uniform, rwJ, rwj_sum } = this
+    const j = rwj_uniform ? discrete_uniform(J) : discrete(rwJ, rwj_sum)
     return j
   }
 
@@ -392,13 +449,13 @@ class _Sampler {
     const j = this.sample_index(options)
     switch (options?.format) {
       case 'array':
-        return this.xKJ.map(xkJ => xkJ[j])
+        return this.xJK[j]
       case 'object':
       default:
         return _.set(
           _.zipObject(
-            this.contexts.map(c => c.name || c.index),
-            this.xKJ.map(xkJ => xkJ[j])
+            this.values.map(c => c.name || c.index),
+            this.xJK[j]
           ),
           '_index',
           j
@@ -407,7 +464,7 @@ class _Sampler {
   }
 
   sample_prior(options) {
-    this.sample(Object.assign({ prior: true }, options))
+    return this.sample(Object.assign({ prior: true }, options))
   }
 
   sample(options) {
@@ -415,7 +472,7 @@ class _Sampler {
     if (options?.values) {
       switch (options?.format) {
         case 'array':
-          return [...this.xKJ.map(xkJ => xkJ[j]), this.xJ[j]]
+          return [...this.xJK[j], this.xJ[j]]
         case 'object':
         default:
           return _.assign(this.sample_values(options), {
@@ -435,46 +492,47 @@ class _Sampler {
   }
 
   _sample(k, domain, options) {
-    const context = this.contexts[k]
-    const { j, xKJ, log_wJ, xkJ = xKJ[k] } = this
-    // initialize context on first call
-    if (!context.sampler) {
-      context.sampler = this
+    const value = this.values[k]
+    const { j, xJK, xJk, log_wJ } = this
+    // initialize value sampler and prior sample on first call
+    if (!value.sampler) {
+      value.sampler = this
       if (!domain) fatal(`missing domain required for sample(…)`)
-      const line = `line[${context.line_index}]: ${context.line.trim()}`
-      // if (!context.name && !options?.name)
+      const line = `line[${value.line_index}]: ${value.line.trim()}`
+      // if (!value.name && !options?.name)
       //   fatal(`missing name for sampled value @ ${line}`)
-      const { index, name } = context
+      const { index, name } = value
       const args =
         stringify(domain) + (options ? ', ' + stringify(options) : '')
       // determine canonical domain, model (if any), and defaults (if any)
-      context.domain = _domain(domain) ?? domain
-      context.model = options?.model ?? _model(context.domain)
-      const defaults = _defaults(context) // can be empty
-      context.prior = options?.prior ?? defaults?.prior
-      context.posterior = options?.posterior ?? defaults?.posterior
+      value.domain = _domain(domain) ?? domain
+      value.model = options?.model ?? _model(value.domain)
+      const defaults = _defaults(value) // can be empty
+      value.prior = options?.prior ?? defaults?.prior
+      value.posterior = options?.posterior ?? defaults?.posterior
       try {
-        if (!context.prior) throw 'missing prior sampler'
-        if (!context.posterior) throw 'missing posterior sampler'
+        if (!value.prior) throw 'missing prior sampler'
+        if (!value.posterior) throw 'missing posterior sampler'
         log(
           `[${index}] ${name ? name + ' = ' : ''}sample(${args}) ← ` +
-            `${context.model}@${stringify(context.domain)}`
+            `${value.model}@${stringify(value.domain)}`
         )
       } catch (e) {
         fatal(`can not sample ${stringify(domain)}; ${e} @ ${line}`)
       }
-      context.prior(xkJ, log_wJ)
+      value.prior(xJk, log_wJ)
+      each(xJk, (x, j) => (xJK[j][k] = x))
     }
-    return xkJ[j]
+    return xJK[j][k]
   }
 
   _condition(c, log_wu) {
     // log_wu is invoked regardless of c
-    if (log_wu) this.log_wJ_adj[this.j] += log_wu(this.u)
-    else if (!c) this.log_wJ_adj[this.j] = -inf // indicates hard condition
+    if (log_wu) this.log_wJ[this.j] += log_wu(this.u)
+    else if (!c) this.log_wJ[this.j] = -inf // indicates hard condition
   }
 
   _weight(log_w, log_wu) {
-    this.log_wJ_adj[this.j] += log_wu ? log_wu(this.u) : log_w
+    this.log_wJ[this.j] += log_wu ? log_wu(this.u) : log_w
   }
 }
