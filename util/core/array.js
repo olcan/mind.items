@@ -136,7 +136,6 @@ const apply = (xJ, f, js = 0, je = xJ.length) => {
   return xJ
 }
 
-// swap(y,y=x)
 // swaps `x<=>y` as `x = swap(y, y=x)`
 // `apply+swap` can be faster than `map` or `copy`
 // e.g. `xJ = swap(apply(yJ,y=>y*y), yJ=xJ)`
