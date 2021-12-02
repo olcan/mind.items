@@ -225,12 +225,14 @@ function cache(obj, prop, deps, f, options = {}) {
     get: () => (obj['_' + prop] ??= obj['__' + prop].call(obj)),
     set: v => {
       assert(v === null, `cached property '${prop}' can only be set to null`)
+      if (obj['_' + prop] === null) return // already null
       // set dependents to null using setter (to set their dependents also)
       each(obj.__deps[prop], dependent => (obj[dependent] = null))
       obj['_' + prop] = null
     },
     ...options,
   })
+  obj['_' + prop] = null // init as null
 }
 
 // table(cells,[headers])

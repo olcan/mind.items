@@ -1,23 +1,23 @@
 // is `x` from `domain`?
-// | function       | function return domain, `≡{via:func}`
-// | model string   | model definition domain, `≡{via:model}`
-// | type string    | javascript type domain `≡{is:type}`
-// | array          | value array, `≡{in:array}`
-// | object         | custom domain as constraints ...
-// | `{}`           | everything (no constraints)
-// | `via:func`     | return domain `func._domain || {}`
-// | `via:model`    | canonical domain for model
-// | `is:type`      | `≡ is(x, type)` see [types](#util/core/types)
-// | `in:[…]`       | `≡ […].includes(x)`, see [sameValueZero](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness)
-// | `in_eq:[…]`    | values `x==y`
-// | `in_eqq:[…]`   | values `x===y`
-// | `in_equal:[…]` | values `equal(x,y)`, see [isEqual](https://lodash.com/docs/4.17.15#isEqual)
-// | `eq:y`         | equality `x==y`
-// | `eqq:y`        | strict equality `x===y`
-// | `equal:y`      | equality via `equal(x,y)`
-// | `gte|lte:y`    | inequality `x≥y`, `x≤y`
-// | `gt|lt:y`      | strict inequality `x>y`, `x<y`
-// | `and|or:[…]`   | composite domain
+// | sampler function | function return domain, `≡{via:sampler}`
+// | model string     | model definition domain, `≡{via:model}`
+// | type string      | javascript type domain `≡{is:type}`
+// | array            | value array, `≡{in:array}`
+// | object           | custom domain as constraints ...
+// | `{}`             | everything (no constraints)
+// | `via:sampler`    | return domain `sampler._domain || {}`
+// | `via:model`      | canonical domain for model
+// | `is:type`        | `≡ is(x, type)` see [types](#util/core/types)
+// | `in:[…]`         | `≡ […].includes(x)`, see [sameValueZero](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness)
+// | `in_eq:[…]`      | values `x==y`
+// | `in_eqq:[…]`     | values `x===y`
+// | `in_equal:[…]`   | values `equal(x,y)`, see [isEqual](https://lodash.com/docs/4.17.15#isEqual)
+// | `eq:y`           | equality `x==y`
+// | `eqq:y`          | strict equality `x===y`
+// | `equal:y`        | equality via `equal(x,y)`
+// | `gte|lte:y`      | inequality `x≥y`, `x≤y`
+// | `gt|lt:y`        | strict inequality `x>y`, `x<y`
+// | `and|or:[…]`     | composite domain
 // `false` for unknown (or missing) `domain`
 function from(x, domain) {
   if (!domain) return false
@@ -100,6 +100,7 @@ function _domain(model) {
 // `undefined` for unknown `domain`
 // `undefined` if no canonical model for `domain`
 function _model(domain) {
+  if (is_function(domain)) return 'sampler'
   if (
     is_object(domain) &&
     Object.keys(domain).length == 2 && // gte and lt
@@ -116,48 +117,81 @@ function _model(domain) {
 // _prior model_ `P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|cond)` using `condition(cond)`
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
-// function `domain` acts as context/scope for nested `sample(…)`
-// function `domain` is invoked w/ a _sample index_ `j=0,…,J-1`
-// non-function `domain` requires _sampling context_ `sample(j=>{…})`
-// conditions/weights are scoped by sampling context `sample(j=>{…})`
-// samples are identified by _lexical context_, e.g. are constant in loops
+// sampler function `domain` is passed new _sampler `context`_
+// non-function `domain` requires outer `sample(context=>{ … })`
+// conditions/weights are scoped by outer `sample(context=>{ … })`
+// samples are tied to _lexical context_, e.g. are constant in loops
+// `options` for all domains:
 // | `name`        | name of sampled value
 // |               | default inferred from lexical context
 // |               | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
-// | `size`        | underlying sample size `J`, default: `10000`
-// |               | ≡ runs of sampling context `sample(j=>{…})`
 // | `prior`       | prior sampler `(xJ, log_pwJ) => …`
 // |               | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
-// |               | default inferred from `domain`
+// |               | _default_: inferred from `domain`
 // | `posterior`   | posterior chain sampler `(xJ, yJ, log_wJ) => …`
 // |               | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
 // |               | _posterior_ in general sense of a _weighted prior_
-// |               | default inferred from `domain`
-// | `reweight_if` | reweight predicate `(context, options) => …`
-// |               | invoked once per update step
-// |               | `options` includes step index `u=0,1,…`
-// |               | default: `() => true`
-// | `resample_if` | resample predicate `(context, options) => …`
-// |               | invoked once per update step
-// |               | `options` includes step index `u=0,1,…`
-// |               | default: `({essr,essu,J}) => essr < clip(essu/J,.5,1)`
-// | `move_while`  | move predicate `(context, options) => …`
-// |               | invoked _until false_ in every update step
-// |               | `options` includes update step index `u=0,1,…`
-// |               | `options` includes move step index `m=0,1,…`
-// |               | `options` includes move accept count `a>=0`
-// |               | default: `({essu,J},{m,a}) => essu < J / 2 || a < J`
+// |               | _default_: inferred from `domain`
+// `options` for sampler function domains `context=>{ … }`:
+// | `size`        | sample size `J`, _default_: `10000`
+// |               | ≡ _independent_ runs of `context=>{ … }`
+// |               | ≡ posterior update chains (dependent runs)
+// | `reweight_if` | reweight predicate `context => …`
+// |               | called once per update step `context.u = 0,1,…`
+// |               | _default_: `()=>true` (reweight every update step)
+// |               | default allows smaller reweights w/o skipped steps
+// | `weight_exp`  | weight exponent function `context => …` `∈[0,1]`
+// |               | multiplied into `log_w` and `log_wi(u)` during reweight
+// |               | _default_: `({u})=> Math.min(1, u/10)`
+// | `log_w_range` | maximum log-weight range, _default_: `10`
+// |               | clips minimum `log_w` within range of maximum
+// |               | prevents extreme weights immune to `weight_exp`
+// | `resample_if` | resample predicate `context => …`
+// |               | called once per update step `context.u = 0,1,…`
+// |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
+// |               | default allows `ess→essu→J` w/ effective moves for `essu→J`
+// | `move_while`  | move predicate `context => …`
+// |               | called _until false_ every update step `context.u = 0,1,…`
+// |               | `context.m = 0,1,…` is move step (within update step)
+// |               | `context.a` is accepted move count (in samples)
+// |               | _default_: `({essu,J,m,a}) => essu<J/2 || a<J`
+// |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
+// | `max_time`    | maximum time (ms) for sampling, _default_: `1000` ms
+// | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
+// |               | useful for testing additional update steps
+// | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
+// | `max_mks`     | maximum `mks` desired (within `max_time`), _default_: `3`
+// |               | `mks` is _move KS_ `-log2(ks2_test(xM_from, xM_to))`
+// | `mks_steps`   | (minimum) update steps w/ `mks ≤ max_mks`, _default_: `3`
 function sample(domain, options) {
-  // decline non-function domain which requires sampling context that would have replaced calls to sample(…)
+  // decline non-function domain which requires sampler context that would have replaced calls to sample(…)
   if (!is_function(domain))
-    fatal(`invalid sample(…) outside of sampling context sample(j=>{…})`)
-  const { size = 10000 } = options ?? {}
-  return new _Sampler(domain, size).sample()
+    fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
+
+  options = _.merge(
+    {
+      size: 10000,
+      reweight_if: () => true,
+      resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
+      move_while: ({ essu, J, m, a }) => essu < J / 2 || a < J,
+      weight_exp: ({ u }) => Math.min(1, u / 10),
+      log_w_range: 10,
+      // TODO: other defaults
+    },
+    options
+  )
+
+  return new _Sampler(domain, options).sample()
 }
 
 // default options for context
 function _defaults(context) {
   switch (context.model) {
+    case 'sampler':
+      return {
+        prior: xJ => sample_array(xJ, () => context.sampler.sample_prior()),
+        posterior: xJ => sample_array(xJ, () => context.sampler.sample()),
+      }
     case 'uniform':
       return {
         prior: xJ => sample_array(xJ, uniform),
@@ -168,7 +202,7 @@ function _defaults(context) {
 
 // condition(cond, [log_wi])
 // condition samples on `cond`
-// scoped by _sampling context_ `sample(j=>{…})`
+// scoped by outer `sample(context=>{ … })`
 // conditions models `P(X) → P(X|cond)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(cond|X) = (cond ? 1 : 0)`
 // `≡ weight(cond ? 0 : -inf)`, see more general `weight(…)` below
@@ -181,7 +215,7 @@ function condition(cond, p_cond) {
 
 // weight(log_w, [log_wi])
 // weight samples by `log_w`
-// scoped by _sampling context_ `sample(j=>{…})`
+// scoped by outer `sample(context=>{ … })`
 // normalized weights can be denoted as prob. dist. `W(X)`
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
 // _likelihood weights_ `∝ P(cond|X)` condition models `P(X) → P(X|cond)`
@@ -199,9 +233,10 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 }
 
 class _Sampler {
-  constructor(func, J) {
+  constructor(func, options) {
+    this.options = options
     // replace condition|weight calls
-    window.__sampler = this // for use in replacements instead of `this`
+    window._sampler_context = this // for use in replacements instead of `this`
     const js = func.toString()
     const lines = js.split('\n')
     this.contexts = []
@@ -243,12 +278,12 @@ class _Sampler {
 
         // replace condition|weight call
         if (method == 'condition' || method == 'weight')
-          return `__sampler._${method}(`
+          return `_sampler_context._${method}(`
 
         // replace sample call
         const k = this.contexts.length
         this.contexts.push({ js, index: k, offset, name, line_index, line })
-        return m.replace(/sample *\($/, `__sampler._sample(${k},`)
+        return m.replace(/sample *\($/, `_sampler_context._sample(${k},`)
       }
     )
     // evaluate new function w/ replacements
@@ -257,7 +292,7 @@ class _Sampler {
     // console.log(this.js)
 
     // initialize run state
-    this.J = J
+    const J = (this.J = options.size)
     this.K = this.contexts.length
     this.xKJ = matrix(this.K, J) // prior samples per context/run
     this.log_wJ = array(J, 0) // prior log-weight per run
@@ -270,7 +305,7 @@ class _Sampler {
     cache(this, 'pwj_sum', ['pwJ'], () => sum(this.pwJ))
     cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ))
     cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
-    // posterior (want-adjusted prior) weights wJ
+    // posterior (conditioned/weighted prior) weights wJ
     cache(this, 'wJ', [])
     cache(this, 'wj_sum', ['wJ'], () => sum(this.wJ))
     cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
@@ -285,11 +320,25 @@ class _Sampler {
   }
 
   run() {
+    // NOTE: prior log_wJ (and pwJ) is filled in _sample on first pass
+    // NOTE: posterior log_wJ_adj is filled in each pass
+    // TODO: must set wJ to null at every "reweight"
+    this.wJ = null // reset (exponentiated) posterior weights
     repeat(this.J, j => {
       this.j = j
       this.log_wJ_adj[j] = 0
-      this.xJ[j] = this.func(j)
+      this.xJ[j] = this.func(this)
     })
+    // TODO ...
+
+    this.log_wJ_adj[j] *= this.options.weight_exp(this)
+    // TODO: use log_wi
+  }
+
+  __pwJ() {
+    const { log_wJ } = this
+    const max_log_wj = max(log_wJ)
+    return copy(log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
   }
 
   __wJ() {
@@ -297,12 +346,6 @@ class _Sampler {
     const wJ = copy(log_wJ, (log_wj, j) => log_wj + log_wJ_adj[j])
     const max_log_wj = max(wJ)
     return apply(wJ, log_wj => Math.exp(log_wj - max_log_wj))
-  }
-
-  __pwJ() {
-    const { log_wJ } = this
-    const max_log_wj = max(log_wJ)
-    return copy(log_wJ, log_wj => Math.exp(log_wj - max_log_wj))
   }
 
   sample_index(options) {
@@ -334,6 +377,10 @@ class _Sampler {
     }
   }
 
+  sample_prior(options) {
+    this.sample(Object.assign({ prior: true }, options))
+  }
+
   sample(options) {
     const j = this.sample_index(options)
     if (options?.values) {
@@ -362,7 +409,8 @@ class _Sampler {
     const context = this.contexts[k]
     const { j, xKJ, log_wJ, xkJ = xKJ[k] } = this
     // initialize context on first call
-    if (!context.prior) {
+    if (!context.sampler) {
+      context.sampler = this
       if (!domain) fatal(`missing domain required for sample(…)`)
       const line = `line[${context.line_index}]: ${context.line}`
       // if (!context.name && !options?.name)
