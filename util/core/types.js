@@ -17,6 +17,7 @@ function _benchmark_defined() {
   let x = 1
   let y
   let a = { x: 1 }
+  let nx = 'x'
   benchmark(
     // compare these for function call + type check overhead
     () => x !== undefined,
@@ -25,6 +26,10 @@ function _benchmark_defined() {
     () => defined(x),
     () => defined(y),
     () => defined(a.x),
+    () => defined(a['x']),
+    () => defined(a['' + 'x']),
+    () => defined(a[nx]),
+    () => defined(a[`${nx}`]),
     () => defined(a.y),
     () => 'x' in a,
     () => 'y' in a
