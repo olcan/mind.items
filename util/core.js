@@ -747,6 +747,8 @@ function _js_table_show_benchmark(name) {
       line.match(/^(.+)\s*: ([\d,]+ calls\/sec.*)$/)?.slice(1) ?? []
     if (result) {
       result = result.replace(' calls/sec', '/s') // abbreviate calls/sec
+      // escape special characters in name: `, \, and | (breaks table)
+      name = name.replace(/([`\\|])/g, '\\$1')
       rows.push([result, name])
     } else if (!line.match(/in (\d+)ms$/)) log.push(line)
   }

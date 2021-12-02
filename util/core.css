@@ -317,6 +317,10 @@
     line-height: 17px;
   }
 }
+
+.core_js_table_modal .results table > thead {
+  display: none;
+}
 .core_js_table_modal .results table td {
   vertical-align: top;
 }
