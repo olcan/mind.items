@@ -74,7 +74,7 @@ function from(x, domain) {
 // canonical domain for `model`
 // `undefined` for unknown `model`
 function _domain(model) {
-  if (!is_string(model)) return // model is always string
+  if (!is_string(model)) return // invalid/unknown model
   // uniform(a,b)
   if (model.startsWith('uniform(')) {
     const args = model.match(/^uniform\((?<a>[^,]+),(?<b>[^,]+)\)$/)?.groups
@@ -125,13 +125,15 @@ function _model(domain) {
 // | `name`        | name of sampled value
 // |               | default inferred from lexical context
 // |               | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
+// | `model`       | model to use for sampling `domain`
+// |               | _default_: inferred from `domain`
 // | `prior`       | prior sampler `(xJ, log_pwJ) => …`
 // |               | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
-// |               | _default_: inferred from `domain`
+// |               | _default_: inferred from `model`, `domain`
 // | `posterior`   | posterior chain sampler `(xJ, yJ, log_wJ) => …`
 // |               | `fill(yJ, y~Q(Y|x), add(log_wJ, log(∝q(x|y)/q(y|x)))`
 // |               | _posterior_ in general sense of a _weighted prior_
-// |               | _default_: inferred from `domain`
+// |               | _default_: inferred from `model`, `domain`
 // `options` for sampler function domains `context=>{ … }`:
 // | `size`        | sample size `J`, _default_: `10000`
 // |               | ≡ _independent_ runs of `context=>{ … }`
@@ -186,17 +188,24 @@ function sample(domain, options) {
 }
 
 // default options for context
-function _defaults(context) {
-  switch (context.model) {
+function _defaults({ domain, model }) {
+  switch (model) {
     case 'sampler':
+      // require canonical domain for now
+      if (_model(domain) != 'sampler')
+        fatal(`invalid domain ${stringify(domain)} for sampler model`)
       return {
         prior: xJ => sample_array(xJ, () => context.sampler.sample_prior()),
         posterior: xJ => sample_array(xJ, () => context.sampler.sample()),
       }
     case 'uniform':
+      // require canonical domain for now
+      if (_model(domain) != 'uniform')
+        fatal(`invalid domain ${stringify(domain)} for uniform model`)
+      const [a, b] = [domain.gte, domain.lt]
       return {
-        prior: xJ => sample_array(xJ, uniform),
-        posterior: (xJ, yJ) => sample_array(yJ, uniform),
+        prior: xJ => sample_array(xJ, () => uniform(a, b)),
+        posterior: (xJ, yJ) => sample_array(yJ, () => uniform(a, b)),
       }
   }
 }
@@ -432,23 +441,28 @@ class _Sampler {
     if (!context.sampler) {
       context.sampler = this
       if (!domain) fatal(`missing domain required for sample(…)`)
-      const line = `line[${context.line_index}]: ${context.line}`
+      const line = `line[${context.line_index}]: ${context.line.trim()}`
       // if (!context.name && !options?.name)
       //   fatal(`missing name for sampled value @ ${line}`)
       const { index, name } = context
       const args =
         stringify(domain) + (options ? ', ' + stringify(options) : '')
-      context.domain = _domain(domain) ?? domain // canonical domain
-      context.model = _model(context.domain) // canonical model
-      if (!context.model)
-        fatal(`missing model for domain ${stringify(domain)} @ ${line}`)
-      const defaults = _defaults(context)
-      context.prior = options?.prior ?? defaults.prior
-      context.posterior = options?.posterior ?? defaults.posterior
-      log(
-        `[${index}] ${name ? name + ' = ' : ''}sample(${args}) ← ` +
-          `${context.model}${stringify(context.domain)}`
-      )
+      // determine canonical domain, model (if any), and defaults (if any)
+      context.domain = _domain(domain) ?? domain
+      context.model = options?.model ?? _model(context.domain)
+      const defaults = _defaults(context) // can be empty
+      context.prior = options?.prior ?? defaults?.prior
+      context.posterior = options?.posterior ?? defaults?.posterior
+      try {
+        if (!context.prior) throw 'missing prior sampler'
+        if (!context.posterior) throw 'missing posterior sampler'
+        log(
+          `[${index}] ${name ? name + ' = ' : ''}sample(${args}) ← ` +
+            `${context.model}@${stringify(context.domain)}`
+        )
+      } catch (e) {
+        fatal(`can not sample ${stringify(domain)}; ${e} @ ${line}`)
+      }
       context.prior(xkJ, log_wJ)
     }
     return xkJ[j]
