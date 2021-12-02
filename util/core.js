@@ -366,7 +366,7 @@ function js_table(regex) {
             def.comment.match(/^=> *\S+/) ||
             def.comment.match(new RegExp(`^${def.name} *(?:\\(.*\\))?(?:$|\n)`))
           ) {
-            def.name = def.comment.match(/^[^(<]+/)[0].replace(/^=> */, '')
+            def.name = def.comment.match(/^[^(<\n]+/)[0].replace(/^=> */, '')
             def.args = def.comment.match(/^.+?(\(.*)(?:$|\n)/)?.pop() ?? ''
             def.comment = def.comment.replace(/^.+?(?:\(.*)?(?:$|\n)/, '')
             def.modified = true
