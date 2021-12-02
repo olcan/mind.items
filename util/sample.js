@@ -415,8 +415,12 @@ class _Sampler {
     stats.resamples++
   }
 
+  // move step
+  // take metropolis-hastings steps along posterior chain
   _move() {
-    // TODO
+    // TODO: copy from random.js and modify until looks ok
+    // TODO: test single pass of reweight, resample, move
+    // TODO: implement _update() loop w/ history tracking + charting
     stats.moves++
     // this.stats.proposals++
     // this.stats.accepts++
