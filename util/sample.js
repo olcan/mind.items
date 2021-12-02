@@ -115,7 +115,7 @@ function _model(domain) {
 // sample value `x` from `domain`
 // random variable is denoted `X ∈ dom(X)`
 // _prior model_ `P(X)` is defined or implied by `domain`
-// can be _conditioned_ as `P(X|cond)` using `condition(cond)`
+// can be _conditioned_ as `P(X|c)` using `condition(c)`
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
 // sampler function `domain` is passed new _sampler `context`_
 // non-function `domain` requires outer `sample(context=>{ … })`
@@ -141,11 +141,12 @@ function _model(domain) {
 // |               | _default_: `()=>true` (reweight every update step)
 // |               | default allows smaller reweights w/o skipped steps
 // | `weight_exp`  | weight exponent function `context => …` `∈[0,1]`
-// |               | multiplied into `log_w` and `log_wi(u)` during reweight
+// |               | multiplied into `log_w` and `log_wu(u)` during reweight
 // |               | _default_: `({u})=> Math.min(1, u/10)`
 // | `log_w_range` | maximum log-weight range, _default_: `10`
 // |               | clips minimum `log_w` within range of maximum
-// |               | prevents extreme weights immune to `weight_exp`
+// |               | prevents extreme weights ~immune to `weight_exp`
+// |               | _does not apply_ when `log_w==-inf` as in `condition(c)`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -174,7 +175,7 @@ function sample(domain, options) {
       reweight_if: () => true,
       resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
       move_while: ({ essu, J, m, a }) => essu < J / 2 || a < J,
-      weight_exp: ({ u }) => Math.min(1, u / 10),
+      weight_exp: ({ u }) => Math.min(1, (u + 1) / 10),
       log_w_range: 10,
       // TODO: other defaults
     },
@@ -200,27 +201,28 @@ function _defaults(context) {
   }
 }
 
-// condition(cond, [log_wi])
-// condition samples on `cond`
+// condition(c, [log_wu])
+// condition samples on `c`
 // scoped by outer `sample(context=>{ … })`
-// conditions models `P(X) → P(X|cond)` for all `X` in context
-// corresponds to _indicator weights_ `𝟙(cond|X) = (cond ? 1 : 0)`
-// `≡ weight(cond ? 0 : -inf)`, see more general `weight(…)` below
-// requires `O(1/P(cond))` samples; ___can fail for rare conditions___
-// _weight sequence_ `log_wi(i)=0↘-∞, i=0,1,↗∞` can help, see #/weight
-// _likelihood weights_ `∝ P(cond|X) = E[𝟙(cond|X)]` can help, see `weight(…)`
-function condition(cond, p_cond) {
+// conditions models `P(X) → P(X|c)` for all `X` in context
+// corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
+// `≡ weight(c ? 0 : -inf)`, see more general `weight(…)` below
+// requires `O(1/P(c))` samples; ___can fail for rare conditions___
+// _weight sequence_ `log_wu(u)=0↘-∞, u=0,1,…` can help, see #/weight
+// _likelihood weights_ `∝ P(c|X) = E[𝟙(c|X)]` can help, see `weight(…)`
+function condition(c, log_wu) {
   fatal(`unexpected call to condition(…)`)
 }
 
-// weight(log_w, [log_wi])
+// weight(log_w, [log_wu])
 // weight samples by `log_w`
 // scoped by outer `sample(context=>{ … })`
 // normalized weights can be denoted as prob. dist. `W(X)`
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
-// _likelihood weights_ `∝ P(cond|X)` condition models `P(X) → P(X|cond)`
+// _likelihood weights_ `∝ P(c|X)` condition models `P(X) → P(X|c)`
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
-// see #/weight about _weight sequence_ `log_wi` and other technical details
+// _weight sequence_ `log_wu(u)=0→log_w, u=0,1,…` can help
+// see #/weight for technical details
 function weight(log_w, guide) {
   fatal(`unexpected call to weight(…)`)
 }
@@ -311,28 +313,46 @@ class _Sampler {
     cache(this, 'wj_ess', ['wJ'], () => ess(this.wJ))
     cache(this, 'wj_uniform', ['wJ'], () => _uniform(this.wJ, this.wj_sum))
 
-    // sample prior runs
+    // update samples
     const start = Date.now()
-    this.run()
+    this.update()
     const ms = Date.now() - start
-    log(`sampled ${J} prior runs in ${ms}ms`)
+    log(`sampled ${J} runs in ${ms}ms`)
     log(`ess ${this.pwj_ess} prior, ${this.wj_ess} posterior`)
   }
 
-  run() {
-    // NOTE: prior log_wJ (and pwJ) is filled in _sample on first pass
-    // NOTE: posterior log_wJ_adj is filled in each pass
-    // TODO: must set wJ to null at every "reweight"
+  _scale_clipped_weights(log_wJ) {
+    // clip weights and apply weight exponent
+    // note we can not clip to any fixed absolute value
+    // but we can clip to within specified range of maximum
+    // we only clip -inf to -MAX_VALUE to enable subtraction
+    // scaling (clipped) -inf can not create useful information
+    const { weight_exp, log_w_range } = this.options
+    const min_log_w = Math.max(max(log_wJ) - log_w_range, -Number.MAX_VALUE)
+    apply(log_wJ, log_w => {
+      assert(!is_nan(log_w), 'nan log_w')
+      if (log_w < -Number.MAX_VALUE) return -Number.MAX_VALUE
+      return Math.max(min_log_w, log_w) * weight_exp(this)
+    })
+  }
+
+  update() {
+    this.u = 0
+    const { func, xJ, log_wJ_adj } = this
     this.wJ = null // reset (exponentiated) posterior weights
     repeat(this.J, j => {
       this.j = j
-      this.log_wJ_adj[j] = 0
-      this.xJ[j] = this.func(this)
+      log_wJ_adj[j] = 0
+      xJ[j] = func(this)
     })
-    // TODO ...
+    // scale & clip posterior log-weight adjustments
+    // note this could revert to prior if weight_exp(u=0) == 0
+    // also we do not scale/clip prior log-weights for now
+    //   they are persistent across update steps so scale/clip is tricky
+    //   also they should be coordinated carefully w/ prior sampler
+    this._scale_clipped_weights(this.log_wJ_adj)
 
-    this.log_wJ_adj[j] *= this.options.weight_exp(this)
-    // TODO: use log_wi
+    // TODO: additional update iterations!
   }
 
   __pwJ() {
@@ -434,11 +454,13 @@ class _Sampler {
     return xkJ[j]
   }
 
-  _condition(cond) {
-    if (!cond) this._weight(-inf) // -inf is reserved for conditioning
+  _condition(c, log_wu) {
+    // log_wu is invoked regardless of c
+    if (log_wu) this.log_wJ_adj[this.j] += log_wu(this.u)
+    else if (!c) this.log_wJ_adj[this.j] = -inf // indicates hard condition
   }
 
-  _weight(log_w) {
-    this.log_wJ_adj[this.j] += log_w
+  _weight(log_w, log_wu) {
+    this.log_wJ_adj[this.j] += log_wu ? log_wu(this.u) : log_w
   }
 }
