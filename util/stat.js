@@ -27,6 +27,8 @@ const discrete_uniform = (a, b) => {
     : NaN // {0,…,b}
 }
 
+// discrete_uniform_array(xJ, a, b)
+// fills `xJ` with `discrete_uniform(a, b)`
 const discrete_uniform_array = (xJ, a, b) => {
   if (a === undefined) return fill(xJ, j => ~~(2 * Math.random()))
   if (b === undefined)
@@ -60,6 +62,10 @@ const discrete = (wJ, sum_wj) => {
   return j - 1
 }
 
+// discrete_array(jK, wJ, [sum_wj])
+// fills `jK` with `discrete(wJ, sum_wj)`
+// indices `jK` are ordered due to sampling method
+// use `shuffle(jK)` for random ordering
 function discrete_array(jK, wJ, sum_wj) {
   assert(is_array(jK) && is_array(wJ), `non-array argument`)
   if (jK.length == 0) return jK
