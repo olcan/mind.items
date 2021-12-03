@@ -1,4 +1,9 @@
 const pi = Math.PI
+const exp = Math.exp
+const ln = Math.log
+const loge = Math.log
+const log2 = Math.log2
+const log10 = Math.log10
 
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0
@@ -187,6 +192,8 @@ function _test_matrixify() {
   )
 }
 
+// transposes matrix `xJK → xKJ`
+// matrixifies scalar/vector argument as needed
 function transpose(xJK) {
   xJK = matrixify(xJK)
   const J = xJK.length
@@ -255,6 +262,9 @@ function _benchmark_transpose() {
   benchmark(() => transpose(zKJ))
 }
 
+// dot product `xJZ.transpose(yKZ)`
+// multiplies _rows into rows_ (not rows into columns)
+// matrixifies scalar/vector arguments as needed
 function dot(xJZ, yKZ) {
   // NOTE: rows into rows, NOT rows into cols
   xJZ = matrixify(xJZ)
