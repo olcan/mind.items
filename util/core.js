@@ -78,7 +78,10 @@ function _test_stringify() {
 // `mode` string can be `round`, `floor`, or `ceil`
 const round = (x, d = 0, s = inf, mode = 'round') => {
   // determine d automatically if s<inf
-  if (s < inf) d = Math.min(d, Math.min(_significant_digits(x), s) - _digits(x))
+  if (s < inf) {
+    const sd = _significant_digits(x)
+    if (s < sd) d = Math.min(d, _decimals(x) - (sd - s))
+  }
   // from https://stackoverflow.com/a/19794305
   if (d === undefined || +d === 0) return Math[mode](x)
   x = +x
@@ -92,9 +95,68 @@ const round = (x, d = 0, s = inf, mode = 'round') => {
   return +(x[0] + 'e' + (x[1] ? +x[1] + d : d))
 }
 
+function _test_round() {
+  check(
+    () => [round(1.2345), 1],
+    () => [round(1.2345, -1), 0],
+    () => [round(1.2345, -2), 0],
+    () => [round(1.2345, 1), 1.2],
+    () => [round(1.2345, 2), 1.23],
+    () => [round(1.2345, 3), 1.235],
+    () => [round(1.2345, 4), 1.2345],
+    () => [round(1.2345, 5), 1.2345],
+    () => [round(1.2345, 10), 1.2345],
+    () => [round(1.2345, 100), 1.2345],
+    () => [round(1.2345, 308), 1.2345],
+    () => [round(1.2345, 309), NaN], // > Number.MAX_VALUE
+
+    () => [round(1.2345e4), 12345],
+    () => [round(1.2345e4, -1), round(1.2345e4, 0, 4), 12350],
+    () => [round(1.2345e4, -2), round(1.2345e4, 0, 3), 12300],
+    () => [round(1.2345e4, -3), round(1.2345e4, 0, 2), 12000],
+    () => [round(1.2345e4, -4), round(1.2345e4, 0, 1), 10000],
+    () => [round(1.2345e4, -5), round(1.2345e4, 0, 0), 0],
+    () => [round(1.2345e4, -6), round(1.2345e4, 0, -1), 0],
+    () => [round(1.2345e4, 1), 12345],
+    () => [round(1.2345e4, 304), 12345],
+    () => [round(1.2345e4, 305), NaN], // > Number.MAX_VALUE
+
+    () => [round(1.2345e-2), 0],
+    () => [round(1.2345e-2, 1), 0],
+    () => [round(1.2345e-2, 2), 0.01],
+    () => [round(1.2345e-2, 3), 0.012],
+    () => [round(1.2345e-2, 4), 0.0123],
+    () => [round(1.2345e-2, 5), 0.01235],
+    () => [round(1.2345e-2, 10), 0.012345],
+    () => [round(1.2345e-2, 10, 5), 0.012345],
+    () => [round(1.2345e-2, 10, 4), 0.01235], // fails for naive d=s-_digits(x)
+    () => [round(1.2345e-2, 10, 3), 0.0123],
+
+    () => [round(1.2345, 5, 0), 0],
+    () => [round(1.2345, 5, -1), 0],
+    () => [round(1.2345, 5, -2), 0],
+    () => [round(1.2345, 5, 1), 1],
+    () => [round(1.2345, 5, 2), 1.2],
+    () => [round(1.2345, 5, 3), 1.23],
+    () => [round(1.2345, 5, 4), 1.235],
+    () => [round(1.2345, 5, 5), 1.2345],
+    () => [round(1.2345, 5, 6), 1.2345],
+    () => [round(1.2345, 5, 1000), 1.2345],
+    () => [round(1.2345, 308, 1000), 1.2345],
+    () => [round(1.2345, 309, 1000), NaN],
+    () => [round(1.2345, 309, 5), NaN],
+    () => [round(1.2345, 309, 4), 1.235] // s only kicks in if < sig. digits
+  )
+}
+
 function _digits(x) {
   // from https://stackoverflow.com/a/28203456
   return Math.max(Math.floor(Math.log10(Math.abs(x))), 0) + 1
+}
+function _decimals(x) {
+  // from https://stackoverflow.com/a/17369384
+  if (x % 1 == 0) return 0
+  return x.toString().split('.')[1].length
 }
 function _significant_digits(x) {
   // from https://stackoverflow.com/a/30017843
