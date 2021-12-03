@@ -145,10 +145,6 @@ function _model(domain) {
 // | `weight_exp`  | weight exponent function `context => …` `∈[0,1]`
 // |               | multiplied into `log_w` and `log_wu(u)` during reweight
 // |               | _default_: `({u})=> Math.min(1, u/10)`
-// | `log_w_range` | maximum log-weight range, _default_: `10`
-// |               | clips minimum `log_w` within range of maximum
-// |               | prevents extreme weights ~immune to `weight_exp`
-// |               | _does not apply_ when `log_w==-inf` as in `condition(c)`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -178,8 +174,11 @@ function sample(domain, options) {
       resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
       move_while: ({ essu, J, m, a }) => essu < J / 2 || a < J,
       weight_exp: ({ u }) => Math.min(1, (u + 1) / 10),
-      log_w_range: 10,
-      // TODO: other defaults
+      max_time: 1000,
+      min_time: 0,
+      min_ess: (options?.size ?? 10000) / 2,
+      max_mks: 3,
+      mks_steps: 3,
     },
     options
   )
@@ -306,8 +305,9 @@ class _Sampler {
     const J = (this.J = options.size)
     assert(J > 0, `invalid sample size ${J}`)
     this.K = this.values.length
-    this.xJK = matrix(J, this.K) // prior samples per run/value
+    this.xJK = matrix(J, this.K) // samples per run/value
     this.xJk = array(J) // tmp array for sampling columns of xJK
+    this.pxJK = matrix(J, this.K) // prior samples per run/value
     this.yJK = matrix(J, this.K) // posterior chain samples per run/value
     this.yJk = array(J) // tmp array for sampling columns of yJK
     this.log_pwJ = array(J) // prior log-weights per run
@@ -316,15 +316,26 @@ class _Sampler {
     this.log_mwJ = array(J) // posterior move log-weights
     this.log_cwJ = array(J) // posterior candidate log-weights
     this.xJ = array(J) // return values
+    this.pxJ = array(J) // prior return values
     this.yJ = array(J) // proposed return values
     this.jJ = array(J) // sample indices
     this.jjJ = array(J) // shuffle indices
+    // resample (shuffle) buffers
+    this._jJ = array(J)
+    this._xJ = array(J)
+    this._xJK = array(J)
+    this._log_wJ = array(J)
+    // stats
     this.stats = {
       reweights: 0,
       resamples: 0,
       moves: 0,
       proposals: 0,
       accepts: 0,
+      sample_time: 0,
+      reweight_time: 0,
+      resample_time: 0,
+      move_time: 0,
     }
 
     // define cached properties
@@ -335,142 +346,181 @@ class _Sampler {
     cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
     // posterior ratio weights rwJ (for current sample)
     cache(this, 'rwJ', [])
+    cache(this, 'rwJ_agg', ['rwJ'])
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
-    cache(this, 'rwj_ess', ['rwJ'], () => ess(this.rwJ))
+    cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
 
     // sample prior (along w/ u=0 posterior)
-    const start = Date.now()
+    let start = Date.now()
     this._sample_prior()
-    const ms = Date.now() - start
-    log(`sampled ${J} prior runs in ${ms}ms`)
+    log(`sampled ${J} prior runs in ${Date.now() - start}ms`)
     log(`ess ${this.pwj_ess} prior, ${this.rwj_ess} posterior@u=0`)
+
+    // update sample to posterior
+    start = Date.now()
+    this._update()
+    log(`completed ${this.u} updates in ${Date.now() - start}ms`)
+    log(`ess ${this.pwj_ess} prior, ${this.rwj_ess} posterior@u=0`)
+    log(stringify(this.stats))
   }
 
-  // clipped scaling used in _sample_prior and _reweight
-  _scale_clipped_weights(log_wJ) {
-    // clip weights and apply weight exponent
-    // note we can not clip to any fixed absolute value
-    // but we can clip to within specified range of maximum
-    // we only clip -inf to -MAX_VALUE to enable subtraction
-    // scaling (clipped) -inf can not create useful information
-    const { weight_exp, log_w_range } = this.options
-    const min_log_w = Math.max(max(log_wJ) - log_w_range, -Number.MAX_VALUE)
+  // weight clipping used in _sample_prior and _reweight
+  // we only clip -inf to -MAX_VALUE to enable subtraction
+  _clip_weights(log_wJ) {
     apply(log_wJ, log_w => {
       assert(!is_nan(log_w), 'nan log_w')
-      if (log_w < -Number.MAX_VALUE) return -Number.MAX_VALUE
-      return Math.max(min_log_w, log_w) * weight_exp(this)
+      return Math.max(log_w, -Number.MAX_VALUE)
     })
   }
 
   _sample_prior() {
-    const { func, xJ, jJ, log_pwJ, log_wJ, log_rwJ } = this
+    const start = Date.now()
+    const { func, xJ, pxJ, pxJK, xJK, jJ } = this
+    const { log_pwJ, log_wJ, log_rwJ, stats } = this
     this.u = 0 // first update step
     fill(log_pwJ, 0)
     fill(log_wJ, 0)
     fill(xJ, j => ((this.j = j), func(this)))
     this.u_wj = 0 // update step (u=0) for posterior weights
-    // scale & clip posterior@u=0 log-weight adjustments
-    // this may have no effect if weight_exp(u=0) == 0
-    // we do not scale/clip prior log-weights (log_wJ)
-    // tricky since log_wJ is computed incrementally across update steps
-    // also log_wJ should be coordinated carefully w/ prior sampler anyway
-    this._scale_clipped_weights(log_wJ)
-    // init log_rwJ = log_wJ + log_pwJ (ratio of u=0 post to sample)
+    this._clip_weights(log_pwJ)
+    this._clip_weights(log_wJ)
+    // init log_rwJ = log_pwJ + log_wJ (u=0 posterior/sample ratio)
     fill(log_rwJ, j => log_wJ[j] + log_pwJ[j])
     fill(jJ, j => j) // init sample indices
+    // copy prior samples for sample_prior()
+    each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
+    copy(pxJ, xJ)
+    stats.sample_time += Date.now() - start
   }
 
   // reweight step
   // multiply rwJ by wJ@u/wJ@u' where u' is last update for wJ
   _reweight() {
+    const start = Date.now()
     const { u, func, xJ, log_wJ, log_rwJ, stats } = this
     assert(u > this.u_wj, '_reweight requires u > u_wj')
     map(log_rwJ, log_wJ, (a, b) => a - b)
     fill(log_wJ, 0)
     fill(xJ, j => ((this.j = j), func(this)))
-    this._scale_clipped_weights(log_wJ)
+    this._clip_weights(log_wJ)
     map(log_rwJ, log_wJ, (a, b) => a + b)
     this.u_wj = u // update step for last posterior reweight
     this.rwJ = null // reset cached posterior ratio weights and dependents
     stats.reweights++
+    stats.reweight_time += Date.now() - start
   }
 
-  // fast multi-array buffer-swap shuffle used in _resample
-  _shuffle(jjJ, ...names) {
-    each(names, n => (this[`_${n}`] ??= array(this[n].length))) // init buffers
-    each(jjJ, jj => each(names, n => (this[`_${n}`][j] = this[n][jj])))
+  // swap arrays w/ temporary buffers prefixed w/ _
+  _swap(...names) {
     each(names, n => (this[n] = swap(this[`_${n}`], (this[`_${n}`] = this[n]))))
   }
 
   // resample step
   // resample based on rwJ, reset rwJ=1
   _resample() {
-    const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ } = this
-    if (rwj_uniform) sample_array(jjJ, () => discrete_uniform(J))
-    else sample_array(jjJ, () => discrete(rwJ, rwj_sum))
-    this._shuffle(jjJ, 'jJ', 'xJ', 'xJK', 'log_pwJ', 'log_wJ')
+    const start = Date.now()
+    const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats } = this
+    const { _jJ, jJ, _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ } = this
+    if (rwj_uniform) discrete_uniform_array(jjJ, J)
+    else discrete_array(jjJ, rwJ, rwj_sum)
+    scan(jjJ, (j, jj) => {
+      _jJ[j] = jJ[jj]
+      _xJ[j] = xJ[jj]
+      _xJK[j] = xJK[jj]
+      _log_wJ[j] = log_wJ[jj]
+    })
+    this._swap('jJ', 'xJ', 'xJK', 'log_wJ')
+
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
     stats.resamples++
+    stats.resample_time += Date.now() - start
   }
 
   // move step
   // take metropolis-hastings steps along posterior chain
   _move() {
-    const { J, func, yJ, xJ, jJ, jjJ, log_mwJ, log_cwJ, log_wJ } = this
-    this.moving = true // enable posterior chain sampling in _sample
-    this.move_index = (this.move_index ?? 0) + 1 // unique index for this move
+    const start = Date.now()
+    const { J, func, yJ, yJK, xJ, xJK, jJ, jjJ } = this
+    const { log_mwJ, log_cwJ, log_wJ, stats } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_cwJ, 0) // reset candidate posterior log-weights
+    each(yJK, yjK => fill(yjK, 0))
+    this.moving = true // enable posterior chain sampling into yJK in _sample
+    this.move_index = (this.move_index ?? 0) + 1 // unique index for this move
     const _log_wJ = log_wJ // to be restored below
     this.log_wJ = log_cwJ // redirect log_wJ -> log_cwJ temporarily
     fill(yJ, j => ((this.j = j), func(this)))
-    this.moving = false // back to xJK
-    this.log_wJ = _log_wJ // restore log_wJ for current points
+    this._clip_weights(log_mwJ)
+    this._clip_weights(log_cwJ)
+    this.log_wJ = _log_wJ // restore log_wJ
+    this.moving = false // back to using xJK
 
-    // accept/reject proposals (∞-∞=NaN treated as 0)
-    let accepts = 0
+    // accept/reject proposed moves
+    this.move_accepts = 0
     this.move_log_w = 0
     repeat(J, j => {
       const log_dwj = log_cwJ[j] - log_wJ[j]
       if (Math.random() < Math.exp(log_mwJ[j] + log_dwj)) {
         xJ[j] = yJ[j]
+        xJK[j] = yJK[j]
         log_wJ[j] = log_cwJ[j]
-        jJ[j] = J + j // accepted sample index remapped below
+        // log_dwj is already reflected in sample so log_rwJ is invariant
+        // was confirmed (but not quite understood) in earlier implementations
+        // log_rwJ[j] += log_dwj
+        jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
-        accepts++
+        this.move_accepts++
       }
     })
 
-    if (accepts > 0) {
+    if (this.move_accepts > 0) {
       // reassign indices jJ using jjJ as map
       fill(jjJ, -1)
-      let jjj = 0
-      apply(jJ, (jj, j) =>
-        jj >= J ? jjj++ : jjJ[jj] >= 0 ? jjJ[jj] : (jjJ[jj] = jjj++)
-      )
-      // TODO: what to reset exactly? how about prior weights? other state?
+      let jj = 0 // new indices
+      apply(jJ, j => (j >= J ? jj++ : jjJ[j] >= 0 ? jjJ[j] : (jjJ[j] = jj++)))
+      this.rwJ = null // reset cached posterior ratio weights and dependents
     }
-
-    // TODO: test single pass of reweight, resample, move
-    // TODO: implement _update() loop w/ history tracking + charting
 
     stats.moves++
     stats.proposals += J
-    stats.accepts += accepts
+    stats.accepts += this.move_accepts
+    stats.move_time += Date.now() - start
+  }
+
+  _update() {
+    // TODO: implement _update() loop w/ history tracking, charting, etc
+    // TODO: next step, apply rules (esp. resample) and make sure ess improves
+    repeat(10, () => {
+      this.u++
+      this._reweight()
+      this._resample()
+      this._move()
+    })
   }
 
   __pwJ() {
-    const { log_pwJ } = this
+    const { J, log_pwJ } = this
     const max_log_pwj = max(log_pwJ)
-    return copy(log_pwJ, log_pwj => Math.exp(log_pwj - max_log_pwj))
+    const pwJ = (this.___pwJ ??= array(J))
+    return copy(pwJ, log_pwJ, log_pwj => Math.exp(log_pwj - max_log_pwj))
   }
 
   __rwJ() {
-    const { log_rwJ } = this
+    const { J, log_rwJ } = this
     const max_log_rwj = max(log_rwJ)
-    return copy(log_rwJ, log_rwj => Math.exp(log_rwj - max_log_rwj))
+    const rwJ = (this.___rwJ ??= array(J))
+    return copy(rwJ, log_rwJ, log_rwj => Math.exp(log_rwj - max_log_rwj))
+  }
+
+  __rwJ_agg() {
+    const { J, jJ, rwJ } = this
+    // aggregate over indices jJ using _rwJ_agg as buffer
+    const rwJ_agg = (this.___rwJ_agg ??= array(J))
+    fill(rwJ_agg, 0)
+    each(jJ, (jj, j) => (rwJ_agg[jj] += rwJ[j]))
+    return rwJ_agg
   }
 
   sample_index(options) {
@@ -486,15 +536,16 @@ class _Sampler {
 
   sample_values(options) {
     const j = this.sample_index(options)
+    const xJK = options?.prior ? this.pxJK : this.xJK
     switch (options?.format) {
       case 'array':
-        return this.xJK[j]
+        return xJK[j]
       case 'object':
       default:
         return _.set(
           _.zipObject(
             this.values.map(c => c.name || c.index),
-            this.xJK[j]
+            xJK[j]
           ),
           '_index',
           j
@@ -508,26 +559,29 @@ class _Sampler {
 
   sample(options) {
     const j = this.sample_index(options)
+    const [xJK, xJ] = options?.prior
+      ? [this.pxJK, this.pxJ]
+      : [this.xJK, this.xJ]
     if (options?.values) {
       switch (options?.format) {
         case 'array':
-          return [...this.xJK[j], this.xJ[j]]
+          return [...xJK[j], xJ[j]]
         case 'object':
         default:
           return _.assign(this.sample_values(options), {
-            _output: this.xJ[j],
+            _output: xJ[j],
             _index: j,
           })
         // default:
-        //   return [this.xJ[j], this.sample_values(options)]
+        //   return [xJ[j], this.sample_values(options)]
       }
     } else if (options?.index) {
       return {
-        _output: this.xJ[j],
+        _output: xJ[j],
         _index: j,
       }
     }
-    return this.xJ[j]
+    return xJ[j]
   }
 
   _sample(k, domain, options) {

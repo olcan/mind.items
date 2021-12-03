@@ -70,6 +70,7 @@ function _test_discrete_uniform() {
 function _test_discrete() {
   check(
     () => throws(() => discrete(0)),
+    () => throws(() => discrete([-1])),
     () => throws(() => discrete([0], -1)),
     () => is_nan(discrete([], -1)),
     () => is_nan(discrete([])),
@@ -81,6 +82,25 @@ function _test_discrete() {
     () => _binomial_test_sample(() => discrete([1, 1]), 1, 1 / 2),
     () => _binomial_test_sample(() => discrete([1, 2]), 0, 1 / 3),
     () => _binomial_test_sample(() => discrete([1, 2]), 1, 2 / 3)
+  )
+}
+
+function _test_discrete_array() {
+  check(
+    () => throws(() => discrete_array(0)),
+    () => throws(() => discrete_array([0], [-1])),
+    () => throws(() => discrete_array([0], [0], -1)),
+    () => throws(() => discrete_array(0, [0], 1)),
+    () => throws(() => discrete_array([0], 0, 1)),
+    () => [discrete_array([], [], -1), []],
+    () => [discrete_array([0], [], -1), [NaN]],
+    () => [discrete_array([0], [0]), [0]],
+    () => [discrete_array([0, 0], [0]), [0, 0]],
+    () => [discrete_array([0, 0], [1, 0]), [0, 0]],
+    () => [discrete_array([0, 0], [0, 1]), [1, 1]],
+    () => [discrete_array([0, 0, 0], [0, 0, 1]), [2, 2, 2]],
+    () => [discrete_array([0, 0, 0], [0, 1, 0]), [1, 1, 1]],
+    () => [discrete_array([0, 0, 0], [1, 0, 0]), [0, 0, 0]]
   )
 }
 

@@ -25,6 +25,14 @@ function _benchmark_discrete_uniform() {
   )
 }
 
+function _benchmark_discrete_uniform_array() {
+  const xJ = array(100)
+  benchmark(
+    () => discrete_uniform_array(xJ, 100),
+    () => sample_array(xJ, () => discrete_uniform(100))
+  )
+}
+
 function _benchmark_discrete() {
   const wJ = sample_array(100)
   const wJ_sorted = sample_array(100).sort((a, b) => b - a)
@@ -35,6 +43,17 @@ function _benchmark_discrete() {
     () => discrete(wJ),
     () => discrete(wJ, sum_wj),
     () => discrete(wJ_sorted, sum_wj)
+  )
+}
+
+function _benchmark_discrete_array() {
+  // difference is much more dramatic for 1000+, but benchmark gets slow
+  const wJ = sample_array(100)
+  const xJ = array(100)
+  const sum_wj = sum(wJ)
+  benchmark(
+    () => discrete_array(xJ, wJ, sum_wj),
+    () => sample_array(xJ, () => discrete(wJ, sum_wj))
   )
 }
 

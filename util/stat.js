@@ -27,6 +27,17 @@ const discrete_uniform = (a, b) => {
     : NaN // {0,…,b}
 }
 
+const discrete_uniform_array = (xJ, a, b) => {
+  if (a === undefined) return fill(xJ, j => ~~(2 * Math.random()))
+  if (b === undefined)
+    return is_integer(a) && a > 0
+      ? fill(xJ, j => ~~(Math.random() * a))
+      : fill(xJ, NaN)
+  return is_integer(a) && is_integer(b) && b >= a
+    ? fill(xJ, j => ~~(a + Math.random() * (b + 1 - a)))
+    : fill(xJ, NaN)
+}
+
 // discrete(wJ, [sum_wj])
 // [discrete](https://en.wikipedia.org/wiki/Categorical_distribution) on `{0,…,J-1}` w/ prob. `P(j)∝wJ[j]`
 // normalizer `sum_wj` can be passed if known
@@ -47,6 +58,30 @@ const discrete = (wJ, sum_wj) => {
     w += wJ[j++]
   } while (w < wt && j < wJ.length)
   return j - 1
+}
+
+function discrete_array(jK, wJ, sum_wj) {
+  assert(is_array(jK) && is_array(wJ), `non-array argument`)
+  if (jK.length == 0) return jK
+  if (wJ.length == 0) return fill(jK, NaN)
+  sum_wj ??= sum(wJ)
+  assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
+  if (sum_wj == 0) return discrete_uniform_array(jK, wJ.length)
+  // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
+  // generate (exp) increments for K+1 uniform numbers in [0,sum_wj) w/o sorting
+  let rK = apply(sample_array(jK), r => -Math.log(r))
+  const z = sum_wj / (sum(rK) - Math.log(Math.random()))
+  apply(rK, r => r * z) // rescale to [0,sum_wJ)
+  let k = 0
+  let j = 0
+  let w = 0
+  let wt = 0
+  do {
+    wt += rK[k]
+    while (w < wt && j < wJ.length) w += wJ[j++]
+    rK[k++] = j - 1
+  } while (k < rK.length)
+  return rK
 }
 
 // [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `[0,1]`, `[0,a]`, or `[a,b]`
