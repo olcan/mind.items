@@ -144,7 +144,8 @@ function _model(domain) {
 // |               | default allows smaller reweights w/o skipped steps
 // | `weight_exp`  | weight exponent function `context => …` `∈[0,1]`
 // |               | multiplied into `log_w` and `log_wu(u)` during reweight
-// |               | _default_: `({u})=> Math.min(1, u/10)`
+// |               | does not affect `-inf` weights, e.g. due to conditioning
+// |               | _default_: `({u})=> min(1, u/10)`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -153,7 +154,7 @@ function _model(domain) {
 // |               | called _until false_ every update step `context.u = 0,1,…`
 // |               | `context.m = 0,1,…` is move step (within update step)
 // |               | `context.a` is accepted move count (in samples)
-// |               | _default_: `({essu,J,m,a}) => essu<J/2 || a<J`
+// |               | _default_: `({essu,J,a}) => essu<J/2 || a<J`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `max_time`    | maximum time (ms) for sampling, _default_: `1000` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
@@ -172,8 +173,8 @@ function sample(domain, options) {
       size: 10000,
       reweight_if: () => true,
       resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-      move_while: ({ essu, J, m, a }) => essu < J / 2 || a < J,
-      weight_exp: ({ u }) => Math.min(1, (u + 1) / 10),
+      move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
+      weight_exp: ({ u }) => min(1, (u + 1) / 10),
       max_time: 1000,
       min_time: 0,
       min_ess: (options?.size ?? 10000) / 2,
@@ -342,35 +343,37 @@ class _Sampler {
     // prior weights pwJ
     cache(this, 'pwJ', [])
     cache(this, 'pwj_sum', ['pwJ'], () => sum(this.pwJ))
-    cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ))
+    cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ, this.pwj_sum))
     cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
     // posterior ratio weights rwJ (for current sample)
     cache(this, 'rwJ', [])
     cache(this, 'rwJ_agg', ['rwJ'])
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
-    cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg))
+    cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
+    cache(this, 'counts', [])
+    cache(this, 'essu', ['counts'], () => ess(this.counts, J))
 
     // sample prior (along w/ u=0 posterior)
     let start = Date.now()
     this._sample_prior()
     log(`sampled ${J} prior runs in ${Date.now() - start}ms`)
-    log(`ess ${this.pwj_ess} prior, ${this.rwj_ess} posterior@u=0`)
+    log(`ess ${this.pwj_ess} prior, ${~~this.ess} (essu ${~~this.essu}) @u=0`)
 
     // update sample to posterior
     start = Date.now()
     this._update()
-    log(`completed ${this.u} updates in ${Date.now() - start}ms`)
-    log(`ess ${this.pwj_ess} prior, ${this.rwj_ess} posterior@u=0`)
+    log(`applied ${this.u} updates in ${Date.now() - start}ms`)
+    log(`ess ${this.pwj_ess} prior, ${~~this.ess} (essu ${~~this.essu}) @u=0`)
     log(stringify(this.stats))
   }
 
-  // weight clipping used in _sample_prior and _reweight
-  // we only clip -inf to -MAX_VALUE to enable subtraction
-  _clip_weights(log_wJ) {
+  // scales weights by weight_exp and clips infinities to enable subtraction
+  _clip_scaled_weights(log_wJ) {
+    const w_exp = this.options.weight_exp(this)
     apply(log_wJ, log_w => {
       assert(!is_nan(log_w), 'nan log_w')
-      return Math.max(log_w, -Number.MAX_VALUE)
+      return Math.max(log_w * w_exp, -Number.MAX_VALUE)
     })
   }
 
@@ -383,8 +386,9 @@ class _Sampler {
     fill(log_wJ, 0)
     fill(xJ, j => ((this.j = j), func(this)))
     this.u_wj = 0 // update step (u=0) for posterior weights
-    this._clip_weights(log_pwJ)
-    this._clip_weights(log_wJ)
+    // we can not clip/scale prior since log_pwJ is computed incrementally
+    // log_pwJ should be coordinated carefully w/ prior sampler anyway
+    this._clip_scaled_weights(log_wJ)
     // init log_rwJ = log_pwJ + log_wJ (u=0 posterior/sample ratio)
     fill(log_rwJ, j => log_wJ[j] + log_pwJ[j])
     fill(jJ, j => j) // init sample indices
@@ -403,7 +407,15 @@ class _Sampler {
     map(log_rwJ, log_wJ, (a, b) => a - b)
     fill(log_wJ, 0)
     fill(xJ, j => ((this.j = j), func(this)))
-    this._clip_weights(log_wJ)
+    // each(xJ, (x, j) => {
+    //   this.j = j
+    //   // TODO: make externally/conditionally-random output optional for sampler
+    //   // TODO: also allow the equal() to be configured
+    //   // TODO: it does add to overhead, so figure out what you want
+    //   if (!equal(func(this), x))
+    //     throw 'sampler function has external (non-sample) randomness'
+    // })
+    this._clip_scaled_weights(log_wJ)
     map(log_rwJ, log_wJ, (a, b) => a + b)
     this.u_wj = u // update step for last posterior reweight
     this.rwJ = null // reset cached posterior ratio weights and dependents
@@ -431,9 +443,9 @@ class _Sampler {
       _log_wJ[j] = log_wJ[jj]
     })
     this._swap('jJ', 'xJ', 'xJK', 'log_wJ')
-
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
+    this.counts = null // also reset counts/essu due to change in jJ
     stats.resamples++
     stats.resample_time += Date.now() - start
   }
@@ -446,15 +458,15 @@ class _Sampler {
     const { log_mwJ, log_cwJ, log_wJ, stats } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_cwJ, 0) // reset candidate posterior log-weights
-    each(yJK, yjK => fill(yjK, 0))
+    each(yJK, yjK => fill(yjK, undefined))
     this.moving = true // enable posterior chain sampling into yJK in _sample
     this.move_index = (this.move_index ?? 0) + 1 // unique index for this move
-    const _log_wJ = log_wJ // to be restored below
+    const tmp = log_wJ // to be restored below
     this.log_wJ = log_cwJ // redirect log_wJ -> log_cwJ temporarily
     fill(yJ, j => ((this.j = j), func(this)))
-    this._clip_weights(log_mwJ)
-    this._clip_weights(log_cwJ)
-    this.log_wJ = _log_wJ // restore log_wJ
+    this._clip_scaled_weights(log_mwJ)
+    this._clip_scaled_weights(log_cwJ)
+    this.log_wJ = tmp // restore log_wJ
     this.moving = false // back to using xJK
 
     // accept/reject proposed moves
@@ -464,7 +476,8 @@ class _Sampler {
       const log_dwj = log_cwJ[j] - log_wJ[j]
       if (Math.random() < Math.exp(log_mwJ[j] + log_dwj)) {
         xJ[j] = yJ[j]
-        xJK[j] = yJK[j]
+        xJK[j] = yJK[j] // we can not copy since resample/shuffle can share rows
+        yJK[j] = array(this.K) // replace row moved into xJK
         log_wJ[j] = log_cwJ[j]
         // log_dwj is already reflected in sample so log_rwJ is invariant
         // was confirmed (but not quite understood) in earlier implementations
@@ -475,12 +488,13 @@ class _Sampler {
       }
     })
 
+    // reassign indices and reset state if any moves were accepted
     if (this.move_accepts > 0) {
-      // reassign indices jJ using jjJ as map
       fill(jjJ, -1)
       let jj = 0 // new indices
       apply(jJ, j => (j >= J ? jj++ : jjJ[j] >= 0 ? jjJ[j] : (jjJ[j] = jj++)))
       this.rwJ = null // reset cached posterior ratio weights and dependents
+      this.counts = null // also reset counts/essu due to change in jJ
     }
 
     stats.moves++
@@ -492,11 +506,41 @@ class _Sampler {
   _update() {
     // TODO: implement _update() loop w/ history tracking, charting, etc
     // TODO: next step, apply rules (esp. resample) and make sure ess improves
+    //
+    // TODO: interesting fact, conditioning depends on a random variable, so
+    // log_w becomes random (for fixed samples) and we are basically getting
+    // a point estimate, causing random loss in reweight, meaning move steps
+    // that only enforce essu>J/2 may not get us to essu=J, which may be ok
+    // if min_ess is also <J; in general move_while may need to enforce
+    // same limit as min_ess to ensure convergence with heavy random losses
+    // in reweight
+    //
+    // TODO: alternatively we could weight by likelihood, which is not quite
+    // the same thing as conditioning, and actually reveals the fact that
+    // the outcome is random and conditioning on a single outcome only tells
+    // us so much about the samples; in general random conditions seem to have
+    // a natural limit for ess that they can achieve outside of move steps,
+    // unless we simply take the return and log_wJ from the last move, or simply
+    // avoid reweight when weights will not change, at least in expectation
+    //
+    // another idea would be to ensure all randomness comes from sample()
+    //
+    // that could work, but also, need to understand again the difference
+    // between conditioning and (likelihood) weighting, the latter seems to be outputs from "subsequent runs", whereas condition is output from "same run" ... does
+    // that difference make sense, and is it well documented?
     repeat(10, () => {
       this.u++
-      this._reweight()
-      this._resample()
-      this._move()
+      if (this.options.reweight_if(this)) this._reweight()
+      // log(`post-reweight ess=${this.ess} essu=${this.essu}`)
+      if (this.options.resample_if(this)) this._resample()
+      this.m = 0 // move step (within update step)
+      this.a = 0 // accepted move count
+      while (this.options.move_while(this)) {
+        this._move()
+        this.a += this.move_accepts
+        this.m++
+      }
+      // log(`post-move ess=${this.ess} essu=${this.essu}`)
     })
   }
 
@@ -521,6 +565,21 @@ class _Sampler {
     fill(rwJ_agg, 0)
     each(jJ, (jj, j) => (rwJ_agg[jj] += rwJ[j]))
     return rwJ_agg
+  }
+
+  __counts() {
+    const { J, jJ } = this
+    const counts = (this.___counts ??= array(J))
+    fill(counts, 0)
+    each(jJ, jj => counts[jj]++)
+    return counts
+  }
+
+  get weights() {
+    return this.rwJ
+  }
+  get ess() {
+    return this.rwj_ess
   }
 
   sample_index(options) {
@@ -586,7 +645,7 @@ class _Sampler {
 
   _sample(k, domain, options) {
     const value = this.values[k]
-    const { j, xJK, xJk, log_pwJ, log_wJ } = this
+    const { j, xJK, xJk, log_pwJ } = this
     // initialize value sampler and prior sample on first call
     if (!value.sampler) {
       value.sampler = this
@@ -617,13 +676,15 @@ class _Sampler {
       each(xJk, (x, j) => (xJK[j][k] = x))
     }
     // sample from posterior chain if moving
-    if (this.moving && this.move_index != value.move_index) {
-      value.move_index = this.move_index
+    if (this.moving) {
       const { yJK, yJk, log_mwJ } = this
-      fill(xJk, j => xJK[j][k])
-      value.posterior(xJk, yJk, log_mwJ, this)
-      each(yJk, (y, j) => (yJK[j][k] = y))
-      return yJk[j]
+      if (value.move_index != this.move_index) {
+        value.move_index = this.move_index
+        fill(xJk, j => xJK[j][k])
+        value.posterior(xJk, yJk, log_mwJ, this)
+        each(yJk, (y, j) => (yJK[j][k] = y))
+      }
+      return yJK[j][k]
     }
     return xJK[j][k]
   }
