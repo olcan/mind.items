@@ -72,6 +72,47 @@ function _test_stringify() {
   )
 }
 
+// rounds `x` to `d` decimal places
+// `d` can be negative for digits _before_ decimal point
+// `d` can be restricted to at most `s` significant (non-zero) digits
+// `mode` string can be `round`, `floor`, or `ceil`
+const round = (x, d = 0, s = inf, mode = 'round') => {
+  // determine d automatically if s<inf
+  if (s < inf) d = Math.min(d, Math.min(_significant_digits(x), s) - _digits(x))
+  // from https://stackoverflow.com/a/19794305
+  if (d === undefined || +d === 0) return Math[mode](x)
+  x = +x
+  d = -d // negation more intuitive externally
+  if (!isFinite(x)) return x
+  if (isNaN(x) || !Number.isInteger(d)) return NaN
+  if (x < 0) return -_adjust_decimal(mode, -x, d)
+  x = x.toString().split('e')
+  x = Math[mode](+(x[0] + 'e' + (x[1] ? +x[1] - d : -d)))
+  x = x.toString().split('e')
+  return +(x[0] + 'e' + (x[1] ? +x[1] + d : d))
+}
+
+function _digits(x) {
+  // from https://stackoverflow.com/a/28203456
+  return Math.max(Math.floor(Math.log10(Math.abs(x))), 0) + 1
+}
+function _significant_digits(x) {
+  // from https://stackoverflow.com/a/30017843
+  if (x === 0) return 0
+  const t1 = '' + Math.abs(x)
+  const t2 = t1.replace('.', '')
+  // for scientific notation, we just need position of 'e'
+  //"-234.3e+50" -> "2343e+50" -> indexOf("e") === 4
+  const i = t2.indexOf('e')
+  if (i > -1) return i
+  // w/ decimal point, trailing zeroes are already removed
+  // 0.001230000.toString() -> "0.00123" -> "000123"
+  if (t2.length < t1.length) return t2.replace(/^0+/, '').length
+  // w/o decimal point, leading zeroes are already removed
+  // 000123000.toString() -> "123000"
+  return t2.replace(/0+$/, '').length
+}
+
 const assert = (cond, ...args) => cond || fatal(...args)
 
 // throws error if any of `funcs` returns falsy
