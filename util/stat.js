@@ -511,20 +511,27 @@ function quantiles(xJ, qK, options = {}) {
   return zK
 }
 
+// ess(wJ, [sum_wj])
 // effective sample size for weights `wJ`
 // approximates ideal value `J*Var(target)/MSE(sample)`
 // equivalent sample size _if we could sample from target_
 // see [Rethinking the Effective Sample Size](https://arxiv.org/abs/1809.04129) for derivation
 // esp. section 3.2 "Summary of assumptions and approximations"
 // can be used as sample size for `ks1_cdf` or `ks2_cdf`
-function ess(wJ) {
-  let s = 0
-  let ss = 0
-  const J = wJ.length
-  for (let j = 0; j < J; ++j) {
-    const w = wJ[j]
-    s += w
-    ss += w * w
+function ess(wJ, sum_wj) {
+  let s = sum_wj ?? 0 // sum
+  let ss = 0 // sum of squares
+  if (defined(sum_wj)) {
+    for (let j = 0; j < wJ.length; ++j) {
+      const w = wJ[j]
+      ss += w * w
+    }
+  } else {
+    for (let j = 0; j < wJ.length; ++j) {
+      const w = wJ[j]
+      ss += w * w
+      s += w
+    }
   }
   return (s * s) / ss
 }
