@@ -1,76 +1,84 @@
-function _benchmark_flip() {
+function _benchmark_random_boolean() {
   benchmark(
-    () => flip(),
+    () => random_boolean(),
     () => Math.random()
   )
 }
 
-function _benchmark_uniform() {
+function _benchmark_random_uniform() {
   benchmark(
-    () => uniform(),
-    () => uniform(1),
-    () => uniform(0, 1),
+    () => random_uniform(),
+    () => random_uniform(1),
+    () => random_uniform(0, 1),
     () => Math.random()
   )
 }
 
-function _benchmark_discrete_uniform() {
+function _benchmark_random_uniform_array() {
+  const xJ = array(100)
   benchmark(
-    () => discrete_uniform(),
-    () => discrete_uniform(2),
-    () => discrete_uniform(0, 1),
+    () => random_uniform_array(xJ, 1, 2),
+    () => random_array(xJ, () => random_uniform(1, 2))
+  )
+}
+
+function _benchmark_random_discrete_uniform() {
+  benchmark(
+    () => random_discrete_uniform(),
+    () => random_discrete_uniform(2),
+    () => random_discrete_uniform(0, 1),
     () => ~~(2 * Math.random()),
     () => Math.floor(2 * Math.random()),
     () => Math.random()
   )
 }
 
-function _benchmark_discrete_uniform_array() {
+function _benchmark_random_discrete_uniform_array() {
   const xJ = array(100)
   benchmark(
-    () => discrete_uniform_array(xJ, 100),
-    () => sample_array(xJ, () => discrete_uniform(100))
+    () => random_discrete_uniform_array(xJ, 100),
+    () => random_array(xJ, () => random_discrete_uniform(100))
   )
 }
 
-function _benchmark_discrete() {
-  const wJ = sample_array(100)
-  const wJ_sorted = sample_array(100).sort((a, b) => b - a)
+function _benchmark_random_discrete() {
+  const wJ = random_array(100)
+  const wJ_sorted = random_array(100).sort((a, b) => b - a)
   const sum_wj = sum(wJ)
   benchmark(
-    () => discrete([1, 2]),
-    () => discrete([1, 2], 3),
-    () => discrete(wJ),
-    () => discrete(wJ, sum_wj),
-    () => discrete(wJ_sorted, sum_wj)
+    () => random_discrete([1, 2]),
+    () => random_discrete([1, 2], 3),
+    () => random_discrete(wJ),
+    () => random_discrete(wJ, sum_wj),
+    () => random_discrete(wJ_sorted, sum_wj)
   )
 }
 
-function _benchmark_discrete_array() {
+function _benchmark_random_discrete_array() {
   // difference is much more dramatic for 1000+, but benchmark gets slow
-  const wJ = sample_array(100)
+  const wJ = random_array(100)
   const xJ = array(100)
   const sum_wj = sum(wJ)
   benchmark(
-    () => discrete_array(xJ, wJ, sum_wj),
-    () => sample_array(xJ, () => discrete(wJ, sum_wj))
+    () => random_discrete_array(xJ, wJ, sum_wj),
+    () => random_array(xJ, () => random_discrete(wJ, sum_wj))
   )
 }
 
-function _benchmark_triangular() {
+function _benchmark_random_triangular() {
   benchmark(
-    () => triangular(),
-    () => triangular(1),
-    () => triangular(0, 1, 0.5),
-    () => uniform(0, 1),
+    () => random_triangular(),
+    () => random_triangular(1),
+    () => random_triangular(0, 1, 0.5),
+    () => random_uniform(0, 1),
     () => Math.random()
   )
 }
 
-function _benchmark_sample_array() {
+function _benchmark_random_array() {
   benchmark(
-    () => sample_array(100),
-    () => sample_array(array(100)),
+    () => random_array(100),
+    () => random_array(array(100)),
     () => array(100, j => Math.random()),
     () => array(100, Math.random) // unsafe since args are passed through
   )
@@ -104,24 +112,24 @@ function _benchmark_binomial_cdf() {
 }
 
 function _benchmark_ks2() {
-  const xJ_100 = array(100, () => uniform())
-  const yJ_100 = array(100, () => uniform())
-  const xJ_1000 = array(1000, () => uniform())
-  const yJ_1000 = array(1000, () => uniform())
+  const xJ_100 = array(100, () => random_uniform())
+  const yJ_100 = array(100, () => random_uniform())
+  const xJ_1000 = array(1000, () => random_uniform())
+  const yJ_1000 = array(1000, () => random_uniform())
   benchmark(() => ks2(xJ_100, yJ_100))
   benchmark(() => ks2(xJ_1000, yJ_1000))
 }
 
 function _benchmark_ks1() {
-  const xJ_100 = array(100, () => uniform())
-  const xJ_1000 = array(1000, () => uniform())
+  const xJ_100 = array(100, () => random_uniform())
+  const xJ_1000 = array(1000, () => random_uniform())
   benchmark(() => ks1(xJ_100, x => x))
   benchmark(() => ks1(xJ_1000, x => x))
 }
 
 function _benchmark_min() {
-  const x10 = sample_array(10)
-  const x100 = sample_array(100)
+  const x10 = random_array(10)
+  const x100 = random_array(100)
   // for reference, we compare to an implementation that uses each(...)
   function _min_each(xJ) {
     if (!is_array(xJ)) xJ = arguments // allow min(a,b,...)
@@ -146,8 +154,8 @@ function _benchmark_min() {
 }
 
 function _benchmark_max() {
-  const x10 = sample_array(10)
-  const x100 = sample_array(100)
+  const x10 = random_array(10)
+  const x100 = random_array(100)
   benchmark(
     () => max(0),
     () => max([0]),
@@ -161,8 +169,8 @@ function _benchmark_max() {
 }
 
 function _benchmark_sum() {
-  const x10 = sample_array(10)
-  const x100 = sample_array(100)
+  const x10 = random_array(10)
+  const x100 = random_array(100)
   benchmark(
     () => sum(0),
     () => sum([0]),

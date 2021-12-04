@@ -196,8 +196,8 @@ function _defaults({ domain, model }) {
       if (_model(domain) != 'sampler')
         fatal(`invalid domain ${stringify(domain)} for sampler model`)
       return {
-        prior: xJ => sample_array(xJ, () => context.sampler.sample_prior()),
-        posterior: (xJ, yJ) => sample_array(yJ, () => context.sampler.sample()),
+        prior: xJ => random_array(xJ, () => context.sampler.sample_prior()),
+        posterior: (xJ, yJ) => random_array(yJ, () => context.sampler.sample()),
       }
     case 'uniform':
       // require canonical domain for now
@@ -205,8 +205,8 @@ function _defaults({ domain, model }) {
         fatal(`invalid domain ${stringify(domain)} for uniform model`)
       const [a, b] = [domain.gte, domain.lt]
       return {
-        prior: xJ => sample_array(xJ, () => uniform(a, b)),
-        posterior: (xJ, yJ) => sample_array(yJ, () => uniform(a, b)),
+        prior: xJ => random_uniform_array(xJ, a, b),
+        posterior: (xJ, yJ) => random_uniform_array(yJ, a, b),
       }
   }
 }
@@ -431,8 +431,8 @@ class _Sampler {
     const start = Date.now()
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats } = this
     const { _jJ, jJ, _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ } = this
-    if (rwj_uniform) discrete_uniform_array(jjJ, J)
-    else discrete_array(jjJ, rwJ, rwj_sum) // note: sorted indices
+    if (rwj_uniform) random_discrete_uniform_array(jjJ, J)
+    else random_discrete_array(jjJ, rwJ, rwj_sum) // note: sorted indices
     scan(jjJ, (j, jj) => {
       _jJ[j] = jJ[jj]
       _xJ[j] = xJ[jj]
@@ -565,11 +565,15 @@ class _Sampler {
   sample_index(options) {
     if (options?.prior) {
       const { J, pwj_uniform, pwJ, pwj_sum } = this
-      const j = pwj_uniform ? discrete_uniform(J) : discrete(pwJ, pwj_sum)
+      const j = pwj_uniform
+        ? random_discrete_uniform(J)
+        : random_discrete(pwJ, pwj_sum)
       return j
     }
     const { J, rwj_uniform, rwJ, rwj_sum } = this
-    const j = rwj_uniform ? discrete_uniform(J) : discrete(rwJ, rwj_sum)
+    const j = rwj_uniform
+      ? random_discrete_uniform(J)
+      : random_discrete(rwJ, rwj_sum)
     return j
   }
 

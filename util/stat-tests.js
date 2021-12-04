@@ -1,32 +1,32 @@
-function _test_flip() {
+function _test_random_boolean() {
   check(
-    () => is_boolean(flip()),
-    () => flip(0) === false,
-    () => flip(1) === true,
-    () => flip('a') === false // …<p false for non-number p
+    () => is_boolean(random_boolean()),
+    () => random_boolean(0) === false,
+    () => random_boolean(1) === true,
+    () => random_boolean('a') === false // …<p false for non-number p
   )
 }
 
-function _test_uniform() {
+function _test_random_uniform() {
   check(
-    () => uniform() >= 0,
-    () => uniform() < 1,
-    () => uniform(1) < 1,
-    () => uniform(0.001) < 0.001,
-    () => uniform(0.999, 1) >= 0.999,
-    () => uniform(2, 3) >= 2,
-    () => uniform(2, 3) < 3,
+    () => random_uniform() >= 0,
+    () => random_uniform() < 1,
+    () => random_uniform(1) < 1,
+    () => random_uniform(0.001) < 0.001,
+    () => random_uniform(0.999, 1) >= 0.999,
+    () => random_uniform(2, 3) >= 2,
+    () => random_uniform(2, 3) < 3,
     // empty sets return NaN
-    () => is_nan(uniform(0)),
-    () => is_nan(uniform(0, 0)),
-    () => is_nan(uniform(1, 1)),
-    () => is_nan(uniform(2, 1)),
-    () => is_nan(uniform(2, 2)),
+    () => is_nan(random_uniform(0)),
+    () => is_nan(random_uniform(0, 0)),
+    () => is_nan(random_uniform(1, 1)),
+    () => is_nan(random_uniform(2, 1)),
+    () => is_nan(random_uniform(2, 2)),
     // invalid sets also return NaN
-    () => is_nan(uniform('a')),
-    () => is_nan(uniform(0, 'b')),
+    () => is_nan(random_uniform('a')),
+    () => is_nan(random_uniform(0, 'b')),
     // ks test against uniform cdf
-    () => [ks1_test(sample_array(1000, uniform), x => x), 1e-9, _.gt]
+    () => [ks1_test(random_array(1000), x => x), 1e-9, _.gt]
   )
 }
 
@@ -38,115 +38,119 @@ function _test_uniform() {
 const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 1e-9) => [
   binomial_test(
     n,
-    _.sumBy(sample_array(n, sampler), s => equal(s, x)),
+    _.sumBy(random_array(n, sampler), s => equal(s, x)),
     p
   ),
   ɑ,
   _.gt, // i.e. can not reject null (correctness) at level ɑ
 ]
 
-function _test_discrete_uniform() {
+function _test_random_discrete_uniform() {
   check(
-    () => discrete_uniform() >= 0,
-    () => discrete_uniform() <= 1,
-    () => discrete_uniform(1) === 0,
-    () => discrete_uniform(2, 2) === 2,
-    () => discrete_uniform(2, 3) >= 2,
-    () => discrete_uniform(2, 3) <= 3,
+    () => random_discrete_uniform() >= 0,
+    () => random_discrete_uniform() <= 1,
+    () => random_discrete_uniform(1) === 0,
+    () => random_discrete_uniform(2, 2) === 2,
+    () => random_discrete_uniform(2, 3) >= 2,
+    () => random_discrete_uniform(2, 3) <= 3,
     // empty sets return NaN
-    () => is_nan(discrete_uniform(2, 1)),
-    () => is_nan(discrete_uniform(0)),
+    () => is_nan(random_discrete_uniform(2, 1)),
+    () => is_nan(random_discrete_uniform(0)),
     // invalid sets also return NaN
-    () => is_nan(discrete_uniform('a')),
-    () => is_nan(discrete_uniform(0, 'b')),
-    () => _binomial_test_sample(() => discrete_uniform(0, 1), 0, 1 / 2),
-    () => _binomial_test_sample(() => discrete_uniform(0, 1), 1, 1 / 2),
-    () => _binomial_test_sample(() => discrete_uniform(1, 3), 1, 1 / 3),
-    () => _binomial_test_sample(() => discrete_uniform(1, 3), 2, 1 / 3),
-    () => _binomial_test_sample(() => discrete_uniform(1, 3), 3, 1 / 3)
+    () => is_nan(random_discrete_uniform('a')),
+    () => is_nan(random_discrete_uniform(0, 'b')),
+    () => _binomial_test_sample(() => random_discrete_uniform(0, 1), 0, 1 / 2),
+    () => _binomial_test_sample(() => random_discrete_uniform(0, 1), 1, 1 / 2),
+    () => _binomial_test_sample(() => random_discrete_uniform(1, 3), 1, 1 / 3),
+    () => _binomial_test_sample(() => random_discrete_uniform(1, 3), 2, 1 / 3),
+    () => _binomial_test_sample(() => random_discrete_uniform(1, 3), 3, 1 / 3)
   )
 }
 
-function _test_discrete() {
+function _test_random_discrete() {
   check(
-    () => throws(() => discrete(0)),
-    () => throws(() => discrete([-1])),
-    () => throws(() => discrete([0], -1)),
-    () => is_nan(discrete([], -1)),
-    () => is_nan(discrete([])),
-    () => [discrete([0]), 0],
-    () => [discrete([1, 0]), 0],
-    () => [discrete([0, 1]), 1],
-    () => [discrete([0, 0, 1]), 2],
-    () => _binomial_test_sample(() => discrete([1, 1]), 0, 1 / 2),
-    () => _binomial_test_sample(() => discrete([1, 1]), 1, 1 / 2),
-    () => _binomial_test_sample(() => discrete([1, 2]), 0, 1 / 3),
-    () => _binomial_test_sample(() => discrete([1, 2]), 1, 2 / 3)
+    () => throws(() => random_discrete(0)),
+    () => throws(() => random_discrete([-1])),
+    () => throws(() => random_discrete([0], -1)),
+    () => is_nan(random_discrete([], -1)),
+    () => is_nan(random_discrete([])),
+    () => [random_discrete([0]), 0],
+    () => [random_discrete([1, 0]), 0],
+    () => [random_discrete([0, 1]), 1],
+    () => [random_discrete([0, 0, 1]), 2],
+    () => _binomial_test_sample(() => random_discrete([1, 1]), 0, 1 / 2),
+    () => _binomial_test_sample(() => random_discrete([1, 1]), 1, 1 / 2),
+    () => _binomial_test_sample(() => random_discrete([1, 2]), 0, 1 / 3),
+    () => _binomial_test_sample(() => random_discrete([1, 2]), 1, 2 / 3)
   )
 }
 
-function _test_discrete_array() {
+function _test_random_discrete_array() {
   check(
-    () => throws(() => discrete_array(0)),
-    () => throws(() => discrete_array([0], [-1])),
-    () => throws(() => discrete_array([0], [0], -1)),
-    () => throws(() => discrete_array(0, [0], 1)),
-    () => throws(() => discrete_array([0], 0, 1)),
-    () => [discrete_array([], [], -1), []],
-    () => [discrete_array([0], [], -1), [NaN]],
-    () => [discrete_array([0], [0]), [0]],
-    () => [discrete_array([0, 0], [0]), [0, 0]],
-    () => [discrete_array([0, 0], [1, 0]), [0, 0]],
-    () => [discrete_array([0, 0], [0, 1]), [1, 1]],
-    () => [discrete_array([0, 0, 0], [0, 0, 1]), [2, 2, 2]],
-    () => [discrete_array([0, 0, 0], [0, 1, 0]), [1, 1, 1]],
-    () => [discrete_array([0, 0, 0], [1, 0, 0]), [0, 0, 0]]
+    () => throws(() => random_discrete_array(0)),
+    () => throws(() => random_discrete_array([0], [-1])),
+    () => throws(() => random_discrete_array([0], [0], -1)),
+    () => throws(() => random_discrete_array(0, [0], 1)),
+    () => throws(() => random_discrete_array([0], 0, 1)),
+    () => [random_discrete_array([], [], -1), []],
+    () => [random_discrete_array([0], [], -1), [NaN]],
+    () => [random_discrete_array([0], [0]), [0]],
+    () => [random_discrete_array([0, 0], [0]), [0, 0]],
+    () => [random_discrete_array([0, 0], [1, 0]), [0, 0]],
+    () => [random_discrete_array([0, 0], [0, 1]), [1, 1]],
+    () => [random_discrete_array([0, 0, 0], [0, 0, 1]), [2, 2, 2]],
+    () => [random_discrete_array([0, 0, 0], [0, 1, 0]), [1, 1, 1]],
+    () => [random_discrete_array([0, 0, 0], [1, 0, 0]), [0, 0, 0]]
   )
 }
 
-function _test_triangular() {
+function _test_random_triangular() {
   // triangular cdf from https://en.wikipedia.org/wiki/Triangular_distribution
   function triangular_cdf(x) {
     if (x <= 0.5) return 2 * x * x
     else return 1 - 2 * (1 - x) * (1 - x)
   }
   check(
-    () => triangular() >= 0,
-    () => triangular() <= 1,
-    () => triangular(1) <= 1,
-    () => triangular(0.001) <= 0.001,
-    () => triangular(0.999, 1) >= 0.999,
-    () => triangular(2, 3) >= 2,
-    () => triangular(2, 3) <= 3,
-    () => [triangular(0), 0],
-    () => [triangular(1, 1), 1],
-    () => [triangular(2, 2), 2],
-    () => [triangular(1, 1, 1), 1],
-    () => [triangular(2, 2, 2), 2],
+    () => random_triangular() >= 0,
+    () => random_triangular() <= 1,
+    () => random_triangular(1) <= 1,
+    () => random_triangular(0.001) <= 0.001,
+    () => random_triangular(0.999, 1) >= 0.999,
+    () => random_triangular(2, 3) >= 2,
+    () => random_triangular(2, 3) <= 3,
+    () => [random_triangular(0), 0],
+    () => [random_triangular(1, 1), 1],
+    () => [random_triangular(2, 2), 2],
+    () => [random_triangular(1, 1, 1), 1],
+    () => [random_triangular(2, 2, 2), 2],
     // empty sets return NaN
-    () => is_nan(triangular(-1)),
-    () => is_nan(triangular(1, 0)),
-    () => is_nan(triangular(0, 1, 2)),
-    () => is_nan(triangular(0, 1, -1)),
+    () => is_nan(random_triangular(-1)),
+    () => is_nan(random_triangular(1, 0)),
+    () => is_nan(random_triangular(0, 1, 2)),
+    () => is_nan(random_triangular(0, 1, -1)),
     // invalid sets also return NaN
-    () => is_nan(triangular('a')),
-    () => is_nan(triangular(0, 'b')),
-    () => is_nan(triangular(0, 1, 'c')),
+    () => is_nan(random_triangular('a')),
+    () => is_nan(random_triangular(0, 'b')),
+    () => is_nan(random_triangular(0, 1, 'c')),
     // ks test against triangular cdf
-    () => [ks1_test(sample_array(1000, triangular), triangular_cdf), 1e-9, _.gt]
+    () => [
+      ks1_test(random_array(1000, random_triangular), triangular_cdf),
+      1e-9,
+      _.gt,
+    ]
   )
 }
 
-function _test_sample_array() {
+function _test_random_array() {
   check(
-    () => [sample_array(-1), []],
-    () => [sample_array(0), []],
-    () => [sample_array(1, () => 1), [1]],
-    () => [sample_array(2, () => 1), [1, 1]],
-    () => [sample_array(2, j => j), [undefined, undefined]],
-    () => [sample_array([], () => 1), []],
-    () => [sample_array([0], () => 1), [1]],
-    () => [sample_array([0, 0], () => 1), [1, 1]]
+    () => [random_array(-1), []],
+    () => [random_array(0), []],
+    () => [random_array(1, () => 1), [1]],
+    () => [random_array(2, () => 1), [1, 1]],
+    () => [random_array(2, j => j), [undefined, undefined]],
+    () => [random_array([], () => 1), []],
+    () => [random_array([0], () => 1), [1]],
+    () => [random_array([0, 0], () => 1), [1, 1]]
   )
 }
 
@@ -219,8 +223,8 @@ function _test_binomial_test() {
 
 function _test_ks2() {
   const _discrete_ = { discrete: true }
-  const xJ = array(100, () => uniform())
-  const yK = array(200, () => uniform())
+  const xJ = random_array(100)
+  const yK = random_array(200)
   const xJ_sorted = xJ.slice().sort((a, b) => a - b)
   const yK_sorted = yK.slice().sort((a, b) => a - b)
   check(
@@ -366,10 +370,10 @@ function _test_ks1_test() {
   // test uniformity of ks1_test (p-value) using both _itself_ and binomial test
   // this is an end-to-end test of ks1, ks1_cdf, and ks1_test
   // we use smaller sample sizes to manage running time
-  const sample_ks1_test = () => ks1_test(sample_array(500, uniform), x => x)
+  const sample_ks1_test = () => ks1_test(random_array(500), x => x)
   const sample_ks1_test_sign = () => (sample_ks1_test() > 0.5 ? 1 : 0)
   check(
-    () => ks1_test(sample_array(100, sample_ks1_test), x => x) > 1e-9,
+    () => ks1_test(random_array(100, sample_ks1_test), x => x) > 1e-9,
     // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
     () => _binomial_test_sample(sample_ks1_test_sign, 0, 1 / 2, 100)
   )
@@ -379,14 +383,13 @@ function _test_ks2_test() {
   // test uniformity of ks2_test (p-value) using both _itself_ and binomial test
   // this is an end-to-end test of ks2, ks2_cdf, and ks2_test
   // we use smaller sample sizes to manage running time
-  const sample_ks2_test = () =>
-    ks2_test(sample_array(500, uniform), sample_array(500, uniform))
+  const sample_ks2_test = () => ks2_test(random_array(500), random_array(500))
   const sample_ks2_test_sign = () => (sample_ks2_test() > 0.5 ? 1 : 0)
   check(
     () =>
       ks2_test(
-        sample_array(100, sample_ks2_test),
-        sample_array(100, sample_ks2_test)
+        random_array(100, sample_ks2_test),
+        random_array(100, sample_ks2_test)
       ) > 1e-9,
     // e.g. one-in-a-billion failure for n=100, p=1/2 is k<=~20
     () => _binomial_test_sample(sample_ks2_test_sign, 0, 1 / 2, 100)

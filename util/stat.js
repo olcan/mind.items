@@ -1,57 +1,68 @@
-// flip ([p=0.5])
-const flip = (p = 0.5) => Math.random() < p
+// random_boolean ([p=0.5])
+const random_boolean = (p = 0.5) => Math.random() < p
 
-// uniform ([a],[b])
+// random_uniform ([a],[b])
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
 // | `[0,1)` | if `a` and `b` omitted
 // | `[0,a)` | if `b` omitted
 // | `[a,b)` | otherwise
-const uniform = (a, b) => {
-  if (a === undefined) return Math.random() // shortcut
-  if (b === undefined) return uniform(0, a)
+const random_uniform = (a, b) => {
+  if (a === undefined) return Math.random()
+  if (b === undefined) return is_number(a) && a > 0 ? a * Math.random() : NaN
   if (!is_number(a) || !is_number(b) || b <= a) return NaN
   return a + Math.random() * (b - a)
 }
 
-// discrete_uniform ([a],[b])
+// random_uniform_array(xJ, [a], [b])
+// fills `xJ` with `random_uniform(a,b)`
+const random_uniform_array = (xJ, a, b) => {
+  if (a === undefined) return random_array(xJ, Math.random)
+  if (b === undefined)
+    return is_number(a) && a > 0
+      ? random_array(xJ, () => a * Math.random())
+      : random_array(xJ, NaN)
+  if (!is_number(a) || !is_number(b) || b <= a) return random_array(xJ, NaN)
+  return random_array(xJ, () => a + Math.random() * (b - a))
+}
+
+// random_discrete_uniform ([a],[b])
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on `{0,1}`,`{0,…,a-1}`, or `{a,…,b}`
 // | `{0,1}`     | if `a` and `b` omitted
 // | `{0,…,a-1}` | if `b` omitted
 // | `{a,…,b}`   | otherwise
-const discrete_uniform = (a, b) => {
+const random_discrete_uniform = (a, b) => {
   const u = Math.random()
   if (a === undefined) return ~~(2 * u) // {0,1}
   if (b === undefined) return is_integer(a) && a > 0 ? ~~(u * a) : NaN // {0,…,a-1}
-  return is_integer(a) && is_integer(b) && b >= a
-    ? ~~(a + u * (b + 1 - a))
-    : NaN // {0,…,b}
+  if (!is_integer(a) || !is_integer(b) || b < a) return NaN
+  return ~~(a + u * (b + 1 - a)) // {a,…,b}
 }
 
-// discrete_uniform_array(xJ, a, b)
-// fills `xJ` with `discrete_uniform(a, b)`
-const discrete_uniform_array = (xJ, a, b) => {
-  if (a === undefined) return fill(xJ, j => ~~(2 * Math.random()))
+// random_discrete_uniform_array(xJ, [a], [b])
+// fills `xJ` with `random_discrete_uniform(a,b)`
+const random_discrete_uniform_array = (xJ, a, b) => {
+  if (a === undefined) return random_array(xJ, () => ~~(2 * Math.random()))
   if (b === undefined)
     return is_integer(a) && a > 0
-      ? fill(xJ, j => ~~(Math.random() * a))
-      : fill(xJ, NaN)
+      ? random_array(xJ, () => ~~(Math.random() * a))
+      : random_array(xJ, NaN)
   return is_integer(a) && is_integer(b) && b >= a
-    ? fill(xJ, j => ~~(a + Math.random() * (b + 1 - a)))
-    : fill(xJ, NaN)
+    ? random_array(xJ, () => ~~(a + Math.random() * (b + 1 - a)))
+    : random_array(xJ, NaN)
 }
 
-// discrete(wJ, [sum_wj])
+// random_discrete(wJ, [sum_wj])
 // [discrete](https://en.wikipedia.org/wiki/Categorical_distribution) on `{0,…,J-1}` w/ prob. `P(j)∝wJ[j]`
 // normalizer `sum_wj` can be passed if known
 // faster if `wJ` is sorted by decreasing weight
-// `≡ discrete_uniform(J)` if `sum_wj==0`
+// `≡ random_discrete_uniform(J)` if `sum_wj==0`
 // assumes `wj>=0` and `sum_wj>=0`
-const discrete = (wJ, sum_wj) => {
+const random_discrete = (wJ, sum_wj) => {
   assert(is_array(wJ), `non-array argument`)
   if (wJ.length == 0) return NaN
   sum_wj ??= sum(wJ)
   assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
-  if (sum_wj == 0) return discrete_uniform(wJ.length)
+  if (sum_wj == 0) return random_discrete_uniform(wJ.length)
   // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
   let j = 0
   let w = 0
@@ -62,20 +73,20 @@ const discrete = (wJ, sum_wj) => {
   return j - 1
 }
 
-// discrete_array(jK, wJ, [sum_wj])
+// random_discrete_array(jK, wJ, [sum_wj])
 // fills `jK` with `discrete(wJ, sum_wj)`
 // indices `jK` are ordered due to sampling method
-// use `shuffle(jK)` for random ordering
-function discrete_array(jK, wJ, sum_wj) {
+// use `random_shuffle(jK)` for random ordering
+function random_discrete_array(jK, wJ, sum_wj) {
   assert(is_array(jK) && is_array(wJ), `non-array argument`)
   if (jK.length == 0) return jK
   if (wJ.length == 0) return fill(jK, NaN)
   sum_wj ??= sum(wJ)
   assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
-  if (sum_wj == 0) return discrete_uniform_array(jK, wJ.length)
+  if (sum_wj == 0) return random_discrete_uniform_array(jK, wJ.length)
   // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
   // generate (exp) increments for K+1 uniform numbers in [0,sum_wj) w/o sorting
-  let rK = apply(sample_array(jK), r => -Math.log(r))
+  let rK = apply(random_array(jK), r => -Math.log(r))
   const z = sum_wj / (sum(rK) - Math.log(Math.random()))
   apply(rK, r => r * z) // rescale to [0,sum_wJ)
   let k = 0
@@ -90,11 +101,12 @@ function discrete_array(jK, wJ, sum_wj) {
   return rK
 }
 
+// random_triangular([a],[b],[c])
 // [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `[0,1]`, `[0,a]`, or `[a,b]`
-const triangular = (a, b, c) => {
-  if (a === undefined) return triangular(0, 1, 0.5)
-  if (b === undefined) return triangular(0, a, a / 2)
-  if (c === undefined) return triangular(a, b, (a + b) / 2)
+const random_triangular = (a, b, c) => {
+  if (a === undefined) return random_triangular(0, 1, 0.5)
+  if (b === undefined) return random_triangular(0, a, a / 2)
+  if (c === undefined) return random_triangular(a, b, (a + b) / 2)
   if (!is_number(a) || !is_number(b) || !is_number(c)) return NaN
   if (a > b || c < a || c > b) return NaN
   // from https://github.com/jstat/jstat/blob/master/src/distribution.js
@@ -103,9 +115,9 @@ const triangular = (a, b, c) => {
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
 
-// sample_array(J|xJ, [sampler=uniform])
+// random_array(J|xJ, [sampler=uniform])
 // sample array of `J` values from `sampler`
-function sample_array(a, sampler = Math.random) {
+function random_array(a, sampler = Math.random) {
   const [J, xJ] = is_array(a)
     ? [a.length, a]
     : [~~a, new Array(Math.max(0, ~~a))]
@@ -113,12 +125,12 @@ function sample_array(a, sampler = Math.random) {
   return xJ
 }
 
-// shuffle(xJ, [js=0], [je=J])
+// random_shuffle(xJ, [js=0], [je=J])
 // shuffles elements of array `xJ` _in place_
 // returns array w/ elements shuffled in place
 // can be restricted to indices `js,…,je-1`
 // uses [Fisher-Yates-Durstenfeld algorithm](https://en.wikipedia.org/wiki/Fisher–Yates_shuffle#The_modern_algorithm)
-function shuffle(xJ, js = 0, je = xJ.length) {
+function random_shuffle(xJ, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
   for (let j = je - 1; j > js; j--) {
@@ -259,7 +271,7 @@ function ks2(xJ, yK, options = {}) {
     each(rR, (rr, r) => {
       if (r == R - 1 || xR(rr) != xR(rR[r + 1])) {
         // index r is last-of-kind
-        if (r_new < r) shuffle(rR, r_new, r + 1)
+        if (r_new < r) random_shuffle(rR, r_new, r + 1)
         r_new = r + 1 // index r+1 is new
       }
     })
@@ -479,8 +491,8 @@ function median(xJ, options = {}) {
 }
 
 function _benchmark_median() {
-  const xJ = sample_array(100)
-  const xJ_sorted = sample_array(100).sort((a, b) => a - b)
+  const xJ = random_array(100)
+  const xJ_sorted = random_array(100).sort((a, b) => a - b)
   benchmark(
     () => median(xJ),
     () => median(xJ, { copy: true }),
