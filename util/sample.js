@@ -594,7 +594,7 @@ class _Sampler {
     // value at a time, or at least conditionally one run at a time; good news
     // is that we seem to have the right setup to be able to do this, but
     // it will still take care to minimize overhead and the changes will still
-    // be significant
+    // be significant; take special case to understand what needs to happen in each run and what can be precomputed
     //
 
     // initialize value sampler and prior sample on first call
