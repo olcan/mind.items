@@ -76,9 +76,16 @@ function uniform(a, b) {
   if (b === undefined) return uniform(0, a)
   assert(is_number(a) && is_number(b) && a < b, 'invalid args')
   const dom = { gte: a, lt: b }
-  dom._prior = xJ => random_uniform_array(xJ, a, b)
-  dom._posterior = (xJ, yJ) => random_uniform_array(yJ, a, b)
+  dom._prior = dom._posterior = f => f(random_uniform(a, b))
   return dom
+}
+
+function _benchmark_uniform() {
+  benchmark(
+    () => uniform(),
+    () => uniform(1),
+    () => uniform(0, 1)
+  )
 }
 
 // sample(domain, [options])
@@ -95,12 +102,11 @@ function uniform(a, b) {
 // | `name`        | name of sampled value
 // |               | default inferred from lexical context
 // |               | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
-// | `prior`       | prior sampler `(xJ, log_pwJ, context) => …`
-// |               | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
+// | `prior`       | prior sampler `f => f(x,[log_pw=0])`
+// |               | `x~S(X), log_pw=log(∝p(x)/s(x))`
 // |               | _default_: inferred from `domain`
-// | `posterior`   | posterior (chain) sampler `(xJ, yJ, log_twJ, context) => …`
-// |               | `fill(yJ, y~Q(Y|x), add(log_twJ, log(∝q(x|y)/q(y|x)))`
-// |               | _posterior_ in general sense of a _weighted prior_
+// | `posterior`   | posterior (chain) sampler `(f,x) => f(x,y,[log_mw=0])`
+// |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
 // |               | _default_: inferred from `domain`
 // `options` for sampler function domains `context=>{ … }`:
 // | `size`        | sample size `J`, _default_: `10000`
@@ -192,8 +198,8 @@ class _Sampler {
     )
 
     // set up default prior/posterior sampler functions
-    this._prior = xJ => this.sample_array(xJ, { prior: true })
-    this._posterior = (xJ, yJ) => this.sample_array(yJ)
+    this._prior = f => f(this.sample({ prior: true }))
+    this._posterior = f => f(this.sample())
 
     // replace sample|condition|weight calls
     window.__sampler = this // for use in replacements instead of `this`
@@ -418,7 +424,6 @@ class _Sampler {
     fill(log_cwJ, 0) // reset candidate posterior log-weights
     each(yJK, yjK => fill(yjK, undefined))
     this.moving = true // enable posterior chain sampling into yJK in _sample
-    this.move_index = (this.move_index ?? 0) + 1 // unique index for this move
     const tmp = log_wJ // to be restored below
     this.log_wJ = log_cwJ // redirect log_wJ -> log_cwJ temporarily
     fill(yJ, j => ((this.j = j), func(this)))
@@ -586,48 +591,36 @@ class _Sampler {
 
   _sample(k, domain, options) {
     const value = this.values[k]
-    const { j, xJK, xJk, log_pwJ } = this
-
-    // TODO: we have a serious issue... domain can be random, which seems to
-    // make it very hard to sample across run or even across values, meaning
-    // we may be forced to sample one run at a time and propose moves one
-    // value at a time, or at least conditionally one run at a time; good news
-    // is that we seem to have the right setup to be able to do this, but
-    // it will still take care to minimize overhead and the changes will still
-    // be significant; take special case to understand what needs to happen in each run and what can be precomputed
-    //
-
-    // initialize value sampler and prior sample on first call
+    assert(domain, 'missing domain')
+    // if sampler not yet set, indicate initialization
     if (!value.sampler) {
       value.sampler = this
-      if (!domain) fatal(`missing domain required for sample(…)`)
-      const line = `line[${value.line_index}]: ${value.line.trim()}`
       const { index, name, args } = value
-      // replace function domain w/ _Sampler object
-      if (is_function(domain)) domain = new _Sampler(domain, options)
-      value.domain = domain
-      value.prior = options?.prior ?? domain._prior
-      value.posterior = options?.posterior ?? domain._posterior
-      try {
-        if (!value.prior) throw 'missing prior sampler'
-        if (!value.posterior) throw 'missing posterior (chain) sampler'
-        log(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
-      } catch (e) {
-        fatal(`can not sample ${stringify(domain)}; ${e} @ ${line}`)
-      }
-      value.prior(xJk, log_pwJ, this)
-      each(xJk, (x, j) => (xJK[j][k] = x))
+      log(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
     }
-    // sample from posterior chain if moving
+
+    // if moving, sample posterior chain into yJK
     if (this.moving) {
-      const { yJK, yJk, log_mwJ } = this
-      if (value.move_index != this.move_index) {
-        value.move_index = this.move_index
-        fill(xJk, j => xJK[j][k])
-        value.posterior(xJk, yJk, log_mwJ, this)
-        each(yJk, (y, j) => (yJK[j][k] = y))
+      const { j, yJK, log_mwJ } = this
+      if (yJK[j][k] === undefined) {
+        const posterior = options?.posterior ?? domain._posterior
+        assert(posterior, 'missing posterior (chain) sampler')
+        posterior((y, log_mw = 0) => {
+          yJK[j][k] = y
+          log_mwJ[j] += log_mw
+        })
       }
       return yJK[j][k]
+    }
+
+    const { j, xJK, log_pwJ } = this
+    if (xJK[j][k] === undefined) {
+      const prior = options?.prior ?? domain._prior
+      assert(prior, 'missing prior sampler')
+      prior((x, log_pw = 0) => {
+        xJK[j][k] = x
+        log_pwJ[j] += log_pw
+      })
     }
     return xJK[j][k]
   }
