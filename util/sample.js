@@ -219,17 +219,13 @@ class _Sampler {
         const line = lines[line_index]
         check(() => [line_prefix + line_suffix, line]) // sanity check
 
-        // skip matches inside comments
-        if (line_prefix.match(/\/\/.*$/)) return m
-
-        // skip matches inside strings
+        // skip matches inside comments or strings
         if (
-          _count_unescaped(line_prefix, '`') % 2 ||
-          _count_unescaped(line_suffix, '`') % 2 ||
+          line_prefix.match(/\/\/.*$/) ||
+          _count_unescaped(prefix, '/*') > _count_unescaped(prefix, '*/') ||
+          _count_unescaped(prefix, '`') % 2 ||
           _count_unescaped(line_prefix, "'") % 2 ||
-          _count_unescaped(line_suffix, "'") % 2 ||
-          _count_unescaped(line_prefix, '"') % 2 ||
-          _count_unescaped(line_suffix, '"') % 2
+          _count_unescaped(line_prefix, '"') % 2
         )
           return m
 
@@ -243,9 +239,8 @@ class _Sampler {
         // uncomment to debug replacement issues ...
         // console.log(offset, line_prefix + line_suffix)
 
-        // replace condition|weight call
-        if (method == 'condition' || method == 'weight')
-          return `__sampler._${method}(`
+        // replace non-sample function all
+        if (method != 'sample') return `__sampler._${method}(`
 
         // parse args, allowing nested parentheses
         // this is naive about strings, comments, escaping, etc
