@@ -501,6 +501,10 @@ class _Sampler {
   }
 
   _update() {
+    // TODO: implement model/domain definition functions, e.g. uniform(a,b)
+    //       keep model string arg parsing for now, could be used for params
+    //       unless you introduce model sub-object (vs string) in domain, which
+    //       could make sense generally (you could allow string/name-only models)
     // TODO: implement _update() loop w/ history tracking, charting, etc
     // TODO: next step, apply rules (esp. resample) and make sure ess improves
     const U = 10
