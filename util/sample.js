@@ -1,13 +1,11 @@
 // is `x` from `domain`?
-// | sampler function | function return domain, `≡{via:sampler}`
-// | model string     | model definition domain, `≡{via:model}`
-// | type string      | javascript type domain `≡{is:type}`
-// | array            | value array, `≡{in:array}`
-// | object           | custom domain as constraints ...
+// | sampler function | `x` via function `≡{via:func}`
+// | type string      | `x` is of type `≡{is:type}`
+// | array            | `x` in array, `≡{in:array}`
+// | object           | `x` matching constraints
 // | `{}`             | everything (no constraints)
-// | `via:sampler`    | return domain `sampler._domain || {}`
-// | `via:model`      | canonical domain for model
-// | `is:type`        | `≡ is(x, type)` see [types](#util/core/types)
+// | `via:func`       | `func._domain || {}`
+// | `is:type`        | `≡ is(x,type)` see [types](#util/core/types)
 // | `in:[…]`         | `≡ […].includes(x)`, see [sameValueZero](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness)
 // | `in_eq:[…]`      | values `x==y`
 // | `in_eqq:[…]`     | values `x===y`
@@ -21,11 +19,8 @@
 // `false` for unknown (or missing) `domain`
 function from(x, domain) {
   if (!domain) return false
-  if (is_string(domain)) {
-    const dom = _domain(domain /*model*/)
-    if (dom) return from(x, dom) // ≡{via:model}
-    return is(x, domain) // ≡{is:type}
-  }
+  if (is_function(domain)) return from({ via: domain })
+  if (is_string(domain)) return is(x, domain) // ≡{is:type}
   if (is_array(domain)) return domain.includes(x) // ≡{in:array}
   if (!is_object(domain)) false
   return Object.keys(domain).every(key => {
@@ -36,8 +31,6 @@ function from(x, domain) {
           // otherwise function is allowed to return anything
           if (domain.via._domain) return from(x, domain.via._domain)
           else return true // function can return anything
-        } else if (is_string(domain.via)) {
-          return from(x, _domain(domain.via))
         } else return false // unknown "via" domain
       case 'is':
         return is(x, domain.is)
@@ -67,48 +60,25 @@ function from(x, domain) {
         return domain.and.every(dom => from(x, dom))
       case 'or':
         return domain.or.some(dom => from(x, dom))
+      default:
+        return key[0] == '_' // accept private _key only (for internal use)
     }
   })
 }
 
-// canonical domain for `model`
-// `undefined` for unknown `model`
-function _domain(model) {
-  if (!is_string(model)) return // invalid/unknown model
-  // uniform(a,b)
-  if (model.startsWith('uniform(')) {
-    const args = model.match(/^uniform\((?<a>[^,]+),(?<b>[^,]+)\)$/)?.groups
-    if (
-      !args ||
-      !is_numeric(args.a) ||
-      !is_numeric(args.b) ||
-      parseFloat(args.b) <= parseFloat(args.a)
-    )
-      fatal(`invalid arguments for uniform model: ${model}`)
-    return { gte: parseFloat(args.a), lt: parseFloat(args.b) }
-  }
-  if (model.includes('(')) return // unknown model w/ args
-  // look up canonical domain by model name only (i.e. no args)
-  switch (model) {
-    case 'standard_uniform':
-    case 'uniform':
-      return { gte: 0, lt: 1 }
-  }
-}
-
-// canonical model for `domain`
-// `undefined` for unknown `domain`
-// `undefined` if no canonical model for `domain`
-function _model(domain) {
-  if (is_function(domain)) return 'sampler'
-  if (
-    is_object(domain) &&
-    Object.keys(domain).length == 2 && // gte and lt
-    is_number(domain.gte) &&
-    is_number(domain.lt) &&
-    domain.gte < domain.lt
-  )
-    return 'uniform'
+// uniform([a],[b])
+// [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
+// | `[0,1)` | if `a` and `b` omitted
+// | `[0,a)` | if `b` omitted
+// | `[a,b)` | otherwise
+function uniform(a, b) {
+  if (a === undefined) return uniform(0, 1)
+  if (b === undefined) return uniform(0, a)
+  assert(is_number(a) && is_number(b) && a < b, 'invalid args')
+  const dom = { gte: a, lt: b }
+  dom._prior = xJ => random_uniform_array(xJ, a, b)
+  dom._posterior = (xJ, yJ) => random_uniform_array(yJ, a, b)
+  return dom
 }
 
 // sample(domain, [options])
@@ -125,15 +95,13 @@ function _model(domain) {
 // | `name`        | name of sampled value
 // |               | default inferred from lexical context
 // |               | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
-// | `model`       | model to use for sampling `domain`
-// |               | _default_: inferred from `domain`
 // | `prior`       | prior sampler `(xJ, log_pwJ, context) => …`
 // |               | `fill(xJ, x~S(X)), add(log_pwJ, log(∝p(x)/s(x)))`
-// |               | _default_: inferred from `model`, `domain`
-// | `posterior`   | posterior chain sampler `(xJ, yJ, log_twJ, context) => …`
+// |               | _default_: inferred from `domain`
+// | `posterior`   | posterior (chain) sampler `(xJ, yJ, log_twJ, context) => …`
 // |               | `fill(yJ, y~Q(Y|x), add(log_twJ, log(∝q(x|y)/q(y|x)))`
 // |               | _posterior_ in general sense of a _weighted prior_
-// |               | _default_: inferred from `model`, `domain`
+// |               | _default_: inferred from `domain`
 // `options` for sampler function domains `context=>{ … }`:
 // | `size`        | sample size `J`, _default_: `10000`
 // |               | ≡ _independent_ runs of `context=>{ … }`
@@ -168,47 +136,7 @@ function sample(domain, options) {
   // decline non-function domain which requires sampler context that would have replaced calls to sample(…)
   if (!is_function(domain))
     fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
-
-  options = _.merge(
-    {
-      size: 10000,
-      reweight_if: () => true,
-      resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-      move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
-      weight_exp: ({ u }) => min(1, (u + 1) / 10),
-      max_time: 1000,
-      min_time: 0,
-      min_ess: (options?.size ?? 10000) / 2,
-      max_mks: 3,
-      mks_steps: 3,
-    },
-    options
-  )
-
   return new _Sampler(domain, options).sample()
-}
-
-// default options for domain/model
-function _defaults({ domain, model }) {
-  switch (model) {
-    case 'sampler':
-      // require canonical domain for now
-      if (_model(domain) != 'sampler')
-        fatal(`invalid domain ${stringify(domain)} for sampler model`)
-      return {
-        prior: xJ => random_array(xJ, () => context.sampler.sample_prior()),
-        posterior: (xJ, yJ) => random_array(yJ, () => context.sampler.sample()),
-      }
-    case 'uniform':
-      // require canonical domain for now
-      if (_model(domain) != 'uniform')
-        fatal(`invalid domain ${stringify(domain)} for uniform model`)
-      const [a, b] = [domain.gte, domain.lt]
-      return {
-        prior: xJ => random_uniform_array(xJ, a, b),
-        posterior: (xJ, yJ) => random_uniform_array(yJ, a, b),
-      }
-  }
 }
 
 // condition(c, [log_wu])
@@ -246,9 +174,29 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 
 class _Sampler {
   constructor(func, options) {
-    this.options = options
+    // merge in default options
+    this.options = options = _.merge(
+      {
+        size: 10000,
+        reweight_if: () => true,
+        resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
+        move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
+        weight_exp: ({ u }) => min(1, (u + 1) / 10),
+        max_time: 1000,
+        min_time: 0,
+        min_ess: (options?.size ?? 10000) / 2,
+        max_mks: 3,
+        mks_steps: 3,
+      },
+      options
+    )
+
+    // set up default prior/posterior sampler functions
+    this._prior = xJ => this.sample_array(xJ, { prior: true })
+    this._posterior = (xJ, yJ) => this.sample_array(yJ)
+
     // replace sample|condition|weight calls
-    window._sampler_context = this // for use in replacements instead of `this`
+    window.__sampler = this // for use in replacements instead of `this`
     const js = func.toString()
     const lines = js.split('\n')
     this.values = []
@@ -258,8 +206,9 @@ class _Sampler {
         // extract lexical context
         if (js[offset] == '\n') offset++ // skip leading \n if matched
         const prefix = js.slice(0, offset)
+        const suffix = js.slice(offset)
         const line_prefix = prefix.match(/.*$/)[0]
-        const line_suffix = js.slice(offset).match(/^.*/)[0]
+        const line_suffix = suffix.match(/^.*/)[0]
         const line_index = _count_unescaped(prefix, '\n')
         const line = lines[line_index]
         check(() => [line_prefix + line_suffix, line]) // sanity check
@@ -290,12 +239,24 @@ class _Sampler {
 
         // replace condition|weight call
         if (method == 'condition' || method == 'weight')
-          return `_sampler_context._${method}(`
+          return `__sampler._${method}(`
+
+        // parse args, allowing nested parentheses
+        // this is naive about strings, comments, escaping, etc
+        // but it should work as long as parentheses are balanced
+        let args = ''
+        let depth = 0
+        for (let i = 0; i < suffix.length; i++) {
+          const c = suffix[i]
+          if (c == ')' && --depth == 0) break
+          if (depth) args += c
+          if (c == '(') depth++
+        }
 
         // replace sample call
         const k = this.values.length
-        this.values.push({ js, index: k, offset, name, line_index, line })
-        return m.replace(/sample *\($/, `_sampler_context._sample(${k},`)
+        this.values.push({ js, index: k, offset, name, args, line_index, line })
+        return m.replace(/sample *\($/, `__sampler._sample(${k},`)
       }
     )
     // evaluate new function w/ replacements
@@ -310,7 +271,7 @@ class _Sampler {
     this.xJK = matrix(J, this.K) // samples per run/value
     this.xJk = array(J) // tmp array for sampling columns of xJK
     this.pxJK = matrix(J, this.K) // prior samples per run/value
-    this.yJK = matrix(J, this.K) // posterior chain samples per run/value
+    this.yJK = matrix(J, this.K) // posterior (chain) samples per run/value
     this.yJk = array(J) // tmp array for sampling columns of yJK
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
@@ -501,10 +462,6 @@ class _Sampler {
   }
 
   _update() {
-    // TODO: implement model/domain definition functions, e.g. uniform(a,b)
-    //       keep model string arg parsing for now, could be used for params
-    //       unless you introduce model sub-object (vs string) in domain, which
-    //       could make sense generally (you could allow string/name-only models)
     // TODO: implement _update() loop w/ history tracking, charting, etc
     // TODO: next step, apply rules (esp. resample) and make sure ess improves
     const U = 10
@@ -600,10 +557,6 @@ class _Sampler {
     }
   }
 
-  sample_prior(options) {
-    return this.sample(Object.assign({ prior: true }, options))
-  }
-
   sample(options) {
     const j = this.sample_index(options)
     const [xJK, xJ] = options?.prior
@@ -634,29 +587,31 @@ class _Sampler {
   _sample(k, domain, options) {
     const value = this.values[k]
     const { j, xJK, xJk, log_pwJ } = this
+
+    // TODO: we have a serious issue... domain can be random, which seems to
+    // make it very hard to sample across run or even across values, meaning
+    // we may be forced to sample one run at a time and propose moves one
+    // value at a time, or at least conditionally one run at a time; good news
+    // is that we seem to have the right setup to be able to do this, but
+    // it will still take care to minimize overhead and the changes will still
+    // be significant
+    //
+
     // initialize value sampler and prior sample on first call
     if (!value.sampler) {
       value.sampler = this
       if (!domain) fatal(`missing domain required for sample(…)`)
       const line = `line[${value.line_index}]: ${value.line.trim()}`
-      // if (!value.name && !options?.name)
-      //   fatal(`missing name for sampled value @ ${line}`)
-      const { index, name } = value
-      const args =
-        stringify(domain) + (options ? ', ' + stringify(options) : '')
-      // determine canonical domain, model (if any), and defaults (if any)
-      value.domain = _domain(domain) ?? domain
-      value.model = options?.model ?? _model(value.domain)
-      const defaults = _defaults(value) // can be empty
-      value.prior = options?.prior ?? defaults?.prior
-      value.posterior = options?.posterior ?? defaults?.posterior
+      const { index, name, args } = value
+      // replace function domain w/ _Sampler object
+      if (is_function(domain)) domain = new _Sampler(domain, options)
+      value.domain = domain
+      value.prior = options?.prior ?? domain._prior
+      value.posterior = options?.posterior ?? domain._posterior
       try {
         if (!value.prior) throw 'missing prior sampler'
-        if (!value.posterior) throw 'missing posterior sampler'
-        log(
-          `[${index}] ${name ? name + ' = ' : ''}sample(${args}) ← ` +
-            `${value.model}@${stringify(value.domain)}`
-        )
+        if (!value.posterior) throw 'missing posterior (chain) sampler'
+        log(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
       } catch (e) {
         fatal(`can not sample ${stringify(domain)}; ${e} @ ${line}`)
       }
