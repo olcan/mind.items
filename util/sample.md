@@ -13,4 +13,4 @@
 // sample-benchmarks.js
 ```
 
-<p> #_util #_/weight
+<p> #_util/core #_util/math #_util/stat #_/weight

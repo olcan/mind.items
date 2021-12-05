@@ -465,8 +465,8 @@ class _Sampler {
 
   _update() {
     const {
-      time, // TODO: should override convergence checks
-      updates, // TODO: should override convergence checks
+      time,
+      updates,
       max_time,
       max_updates,
       weight_exp,
@@ -475,8 +475,6 @@ class _Sampler {
       reweight_if,
     } = this.options
     if (updates == 0 || time == 0) return
-    // TODO: implement _update() loop w/ history tracking, charting, etc
-    // TODO: next step, apply rules (esp. resample) and make sure ess improves
     let reweighted = false
     do {
       const t = this.t
@@ -492,7 +490,6 @@ class _Sampler {
           if (this.log_wu_gap != 0)
             warn(`pre-posterior sample w/ log_wu_gap=${this.log_wu_gap}!=0`)
         }
-        // TODO: handle running out of time or reaching update limit
         break
       }
       this.u++
@@ -518,10 +515,9 @@ class _Sampler {
           ilog(`reached target time at t=${t}≥${time}ms (u=${this.u})`)
         break
       }
-    } while (true) // TODO: convergence checks
+    } while (true) // TODO: history tracking, convergence checks
 
     // do final reweight if skipped in last update pass
-    // TODO: force full weight exponent? resample?
     if (!reweighted) this._reweight()
   }
 
@@ -682,7 +678,6 @@ class _Sampler {
     if (log_wu) {
       const log_w = log_wu(this.u)
       const log_w_next = log_wu(this.u + 1)
-      // TODO: alias min/max/abs/sqrt (maybe others see core) and replace uses
       this.log_wu_gap = max(abs(log_w_next - log_w), this.log_wu_gap)
       this.log_wJ[this.j] += log_w
       return
