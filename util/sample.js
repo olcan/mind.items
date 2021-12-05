@@ -108,6 +108,7 @@ function from(x, domain) {
 // |               | called _until false_ every update step `context.u = 0,1,…`
 // |               | `context.m = 0,1,…` is move step (within update step)
 // |               | `context.a` is accepted move count (in samples)
+// |               | `context.p` is proposed move count (in samples)
 // |               | _default_: `({essu,J,a}) => essu<J/2 || a<J`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `max_updates` | maximum number of update steps, _default_: `inf`
@@ -297,6 +298,12 @@ class _Sampler {
       reweight_time: 0,
       resample_time: 0,
       move_time: 0,
+      ess: [],
+      essu: [],
+      essr: [],
+      mar: [],
+      mlw: [],
+      mks: [],
     }
 
     // define cached properties
@@ -430,6 +437,7 @@ class _Sampler {
     this.moving = false // back to using xJK
 
     // accept/reject proposed moves
+    this.move_proposals = 0
     this.move_accepts = 0
     this.move_log_w = 0
     repeat(J, j => {
@@ -447,6 +455,7 @@ class _Sampler {
         this.move_accepts++
       }
     })
+    this.move_proposals += J
 
     // reassign indices and reset state if any moves were accepted
     if (this.move_accepts > 0) {
@@ -474,16 +483,29 @@ class _Sampler {
       move_while,
       reweight_if,
     } = this.options
+
+    assert(this.u == 0, '_update requires u=0')
+
+    // initialize stats for u=0
+    const { stats } = this
+    stats.ess.push(round(this.ess))
+    stats.essu.push(round(this.essu))
+    stats.essr.push(round(100 * clip(this.ess / this.essu)))
+    stats.mar.push(100) // start at 100% acceptance rate
+    stats.mlw.push(0) // start at 0 log_w improvement
+    stats.mks.push(1024) // start at 1024 -log2(ks2_test(...))
+
     if (updates == 0 || time == 0) return
     let reweighted = false
+
     do {
-      const t = this.t
+      // check for early termination
       if (this.t > max_time || this.u > max_updates) {
+        const { t, u } = this
         if (this.options.warn) {
-          if (this.t > max_time)
-            warn(`ran out of time at t=${t}>${max_time}ms (u=${this.u})`)
-          else
-            warn(`ran out of updates at u=${this.u}>${max_updates} (t=${t}ms)`)
+          if (t > max_time)
+            warn(`ran out of time at t=${t}>${max_time}ms (u=${u})`)
+          else warn(`ran out of updates at u=${u}>${max_updates} (t=${t}ms)`)
           // warn about pre-posterior sample w/ weight_exp<1 or log_wu_gap!=0
           if (weight_exp(this) < 1)
             warn(`pre-posterior sample w/ weight_exp=${weight_exp(this)}<1`)
@@ -492,27 +514,44 @@ class _Sampler {
         }
         break
       }
+
+      // start next update step
       this.u++
       this.log_wu_gap = 0 // reset gap for new update step (u)
 
       if (resample_if(this)) this._resample()
       this.m = 0 // move step (within update step)
       this.a = 0 // accepted move count
+      this.p = 0 // proposed move count
+      this.mlw = 0 // log_w improvement
+      const { proposals, accepts } = stats
       while (move_while(this)) {
         this._move()
         this.a += this.move_accepts
+        this.p += this.move_proposals
+        this.mlw += this.move_log_w
         this.m++
       }
       if ((reweighted = reweight_if(this))) this._reweight()
 
+      // append stats for this update step
+      stats.ess.push(round(this.ess))
+      stats.essu.push(round(this.essu))
+      stats.essr.push(round(100 * clip(this.ess / this.essu)))
+      stats.mar.push(round(100 * (this.a / this.p)))
+      stats.mlw.push(round(this.mlw, 1))
+      stats.mks.push(1024) // start at 1024 -log2(ks2_test(...))
+
       if (this.u >= updates) {
+        const { t, u } = this
         if (this.options.log)
-          ilog(`reached target updates at u=${this.u}≥${updates} (t=${t}ms)`)
+          ilog(`reached target updates at u=${u}≥${updates} (t=${t}ms)`)
         break
       }
       if (this.t >= time) {
+        const { t, u } = this
         if (this.options.log)
-          ilog(`reached target time at t=${t}≥${time}ms (u=${this.u})`)
+          ilog(`reached target time at t=${t}≥${time}ms (u=${u})`)
         break
       }
     } while (true) // TODO: history tracking, convergence checks
