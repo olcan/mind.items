@@ -62,22 +62,30 @@ function copy(xJ, yJ, f) {
   return xJ
 }
 
-// NOTE: introducing additional indices js, je, ks, ke, etc can significantly slow down these functions (assigning to const or hard-coding common cases such as js=0 can help), so we minimize indices for now
-
-// copy_at(xJ, yK, [js=0])
-// copies `yK` into `xJ` starting at `js`
-function copy_at(xJ, yK, js = 0) {
+// copy_at(xJ, yK, [js=0], [ks=0], [ke=K])
+// copies `yK[ks…ke-1]` into `xJ[js…]`
+function copy_at(xJ, yK, js = 0, ks = 0, ke = yK.length) {
   js = Math.max(0, js)
-  if (js == 0) for (let k = 0; k < yK.length; ++k) xJ[k] = yK[k]
-  else for (let k = 0; k < yK.length; ++k) xJ[js + k] = yK[k]
+  ks = Math.max(0, ks)
+  ke = Math.min(ke, yK.length)
+  if (js == 0 && ks == 0) for (let k = ks; k < ke; ++k) xJ[k] = yK[k]
+  else if (js == 0) for (let k = ks; k < ke; ++k) xJ[k - ks] = yK[k]
+  else if (ks == 0) for (let k = ks; k < ke; ++k) xJ[js + k] = yK[k]
+  else for (let k = ks; k < ke; ++k) xJ[js + k - ks] = yK[k]
   return xJ
 }
 
 function _benchmark_copy_at() {
   let yJ = array(1000, Math.random)
   let xJ = array(1000)
-  benchmark(() => copy_at(xJ, yJ, 0))
+  benchmark(
+    () => copy_at(xJ, yJ, 0),
+    () => copy_at(xJ, yJ, 500),
+    () => copy_at(xJ, yJ, 500, 500),
+    () => copy(xJ, yJ)
+  )
 }
+const _benchmark_copy_at_functions = ['copy_at', 'copy']
 
 // each(xJ, f, [js=0], [je=J])
 // invokes `f(x,j)` for each `x` in `xJ`

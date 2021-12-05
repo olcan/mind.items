@@ -115,8 +115,8 @@ function from(x, domain) {
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`), _default_: `3`
-// |               | `mks` is _move KS_ `-log2(ks2_test(xM_from, xM_to))`
-// | `mks_moves`   | move buffer size `M` for `mks`, _default_: `1000`
+// |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
+// | `mks_buffer`  | move buffer size `B` for `mks`, _default_: `1000`
 // | `mks_period`  | move buffer period for `mks`, _default_: `ceil(3*J/M)`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
@@ -179,7 +179,8 @@ class _Sampler {
     // merge in default options
     const J = (this.J = options?.size ?? 10000)
     assert(J > 0, `invalid sample size ${J}`)
-    this.M = options?.mks_moves ?? 1000
+    const B = (this.B = options?.mks_buffer ?? 1000)
+    assert(B > 0 && B % 2 == 0, `invalid move buffer size ${B}`)
     this.options = options = _.merge(
       {
         log: false, // silent by default
@@ -195,11 +196,12 @@ class _Sampler {
         min_ess: J / 2,
         max_mks: 3,
         mks_moves: 1000,
-        mks_period: ceil((3 * J) / this.M),
+        mks_period: ceil((3 * J) / B),
       },
       options
     )
-    if (options.log) ilog(`mks_moves: ${this.M} (period ${options.mks_period})`)
+    if (options.log)
+      ilog(`mks_buffer: ${this.B} (period ${options.mks_period})`)
 
     // set up default prior/posterior sampler functions
     this._prior = f => f(this.sample({ prior: true }))
@@ -277,11 +279,10 @@ class _Sampler {
     this.yJK = matrix(J, this.K) // posterior (chain) samples per run/value
     this.yJk = array(J) // tmp array for sampling columns of yJK
     this.m = 0 // move count
-    this.msb = 0 // moves since last buffered move (i.e. unbuffered moves)
-    this.mb = 0 // moves buffered, also index into move buffers xM,yM
-    this.M = this.options.mks_moves
-    this.xM = array(this.M)
-    this.yM = array(this.M)
+    this.mb = 0 // moves since last buffered move (i.e. unbuffered moves)
+    this.b = 0 // moves buffered, also index into move buffers xBK,yBK
+    this.xBK = array(this.B)
+    this.yBK = array(this.B)
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
@@ -452,12 +453,12 @@ class _Sampler {
       if (random() < exp(log_mwJ[j] + log_dwj)) {
         // update move buffer
         this.m++
-        this.msb++
-        if (this.msb == this.options.mks_period) {
-          this.msb = 0 // now 0 moves since last buffered
-          const mb = this.mb++ % this.M
-          this.xM[mb] = xJK[j]
-          this.yM[mb] = yJK[j]
+        this.mb++
+        if (this.mb == this.options.mks_period) {
+          this.mb = 0 // now 0 moves since last buffered
+          const b = this.b++ % this.B
+          this.xBK[b] = xJK[j]
+          this.yBK[b] = yJK[j]
           this.mks = null // reset mks since new move buffered
         }
         // update state to reflect move
@@ -637,20 +638,49 @@ class _Sampler {
 
   __mks() {
     const start = Date.now()
-    const { m, mb, M, stats } = this
-    if (m < M) return inf // not enough data yet
-    // TODO: ...
-    // // rotate history so m=0 and we can split in half at M/2
-    // const _xM = array(τ.M)
-    // const _yM = array(τ.M)
-    // const m = τ.m % τ.M
-    // copy_at(_xM, τ.xM, 0, m)
-    // copy_at(_xM, τ.xM, τ.M - m, 0, m)
-    // copy_at(_yM, τ.yM, 0, m)
-    // copy_at(_yM, τ.yM, τ.M - m, 0, m)
-    // return -log2(ks_test(_xM.slice(0, τ.M / 2), _yM.slice(-τ.M / 2)))
+    const { b, B, K, stats } = this
+    if (b < B) return inf // not enough data yet
+    // rotate buffer so b=0 and we can split in half at B/2
+    const xBK = (this.___mks_xBK ??= array(B))
+    const yBK = (this.___mks_yBK ??= array(B))
+    const bb = b % B
+    copy_at(xBK, this.xBK, 0, bb)
+    copy_at(xBK, this.xBK, B - bb, 0, bb)
+    ilog(_.sumBy(xBK, defined), _.sumBy(this.xBK, defined))
+    copy_at(yBK, this.yBK, 0, bb)
+    copy_at(yBK, this.yBK, B - bb, 0, bb)
+    // initialize single-value buffers for ks2_test
+    const R = B / 2
+    assert(is_integer(R)) // B should be divisible by 2
+    const xR = (this.___mks_xR ??= array(R))
+    const yR = (this.___mks_yR ??= array(R))
+    const mK = (this.___mks_mK ??= array(K))
+    // compute ks2_test for each numeric value
+    // for now we simply test type of first sampled value
+    fill(mK, k => {
+      const value = this.values[k]
+      if (!value.sampler) return 0 // value not sampled
+      let rx = 0
+      let ry = 0
+      for (let b = 0; b < R; ++b) {
+        const xbk = xBK[b][k]
+        if (xbk !== undefined) {
+          if (rx == 0 && typeof xbk != 'number') return 0 // not a number
+          xR[rx++] = xbk
+        }
+        const ybk = yBK[R + b][k]
+        if (ybk !== undefined) {
+          if (ry == 0 && typeof ybk != 'number') return 0 // not a number
+          yR[ry++] = ybk
+        }
+      }
+      if (rx == 0 || ry == 0) return 0 // not enough samples
+      xR.length = rx
+      yR.length = ry
+      return -log2(ks2_test(xR, yR))
+    })
     stats.mks_time += Date.now() - start
-    return inf
+    return maxa(mK)
   }
 
   sample_index(options) {
