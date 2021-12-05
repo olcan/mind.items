@@ -65,7 +65,7 @@ const random_discrete = (wJ, sum_wj) => {
   sum_wj ??= sum(wJ)
   assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
   if (sum_wj == 0) return random_discrete_uniform(wJ.length)
-  // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
+  // assert(mina(wJ) >= 0,`wj<0: ${mina(wJ)}`)
   let j = 0
   let w = 0
   let wt = random() * sum_wj
@@ -86,7 +86,7 @@ function random_discrete_array(jK, wJ, sum_wj) {
   sum_wj ??= sum(wJ)
   assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
   if (sum_wj == 0) return random_discrete_uniform_array(jK, wJ.length)
-  // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
+  // assert(mina(wJ) >= 0,`wj<0: ${mina(wJ)}`)
   // generate (exp) increments for K+1 uniform numbers in [0,sum_wj) w/o sorting
   let rK = apply(random_array(jK), r => -Math.log(r))
   const z = sum_wj / (sum(rK) - Math.log(random()))
@@ -306,7 +306,7 @@ function ks2(xJ, yK, options = {}) {
   }
   apply(rR, (rr, r) => rr + rR[r - 1], 1) // accumulate cdf differences
   if (mR) map(rR, mR, (r, m) => r * m) // mask collisions
-  const ks = max(apply(rR, Math.abs)) / (J * K)
+  const ks = maxa(apply(rR, Math.abs)) / (J * K)
   if (is_nan(ks) || is_inf(ks)) {
     console.debug('ks nan/inf', {
       J,
@@ -393,8 +393,8 @@ function ks1_test(xJ, cdf) {
 }
 
 // minimum element in `xJ`
-function min(xJ) {
-  if (!is_array(xJ)) xJ = arguments
+function mina(xJ) {
+  assert(is_array(xJ), 'non-array argument')
   let z = inf
   for (let j = 0; j < xJ.length; ++j) if (xJ[j] < z) z = xJ[j]
   return z
@@ -412,8 +412,8 @@ function minf(xJ, f = x => x) {
 }
 
 // maximum element in `xJ`
-function max(xJ) {
-  if (!is_array(xJ)) xJ = arguments
+function maxa(xJ) {
+  assert(is_array(xJ), 'non-array argument')
   let z = -inf
   for (let j = 0; j < xJ.length; ++j) if (xJ[j] > z) z = xJ[j]
   return z

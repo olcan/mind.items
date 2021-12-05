@@ -97,8 +97,9 @@ function from(x, domain) {
 // |               | does not apply to last update step w/ reweight required
 // | `weight_exp`  | weight exponent function `context => …` `∈[0,1]`
 // |               | multiplied into `log_w` and `log_wu(u)` during reweight
+// |               | triggers warning if sampling is stopped at `weight_exp<1`
 // |               | does not affect `-inf` weights, e.g. due to conditioning
-// |               | _default_: `({u})=> min(1, u/10)`
+// |               | _default_: `({u})=> min(1, (u+1)/3)`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -127,11 +128,11 @@ function sample(domain, options) {
 function _benchmark_sample() {
   _benchmark_options.N = 10
   benchmark(
-    () => sample(context => {}, { max_updates: 0, size: 1000 }),
-    () => sample(context => {}, { max_updates: 1, size: 1000 }),
-    () => sample(context => {}, { max_updates: 1 }),
-    () => sample(context => {}, { max_updates: 0 }),
-    () => sample(context => sample(uniform()), { max_updates: 1 })
+    () => sample(context => {}, { max_updates: 0, size: 1000, warn: false }),
+    () => sample(context => {}, { max_updates: 1, size: 1000, warn: false }),
+    () => sample(context => {}, { max_updates: 1, warn: false }),
+    () => sample(context => {}, { max_updates: 0, warn: false }),
+    () => sample(context => sample(uniform()), { max_updates: 1, warn: false })
   )
 }
 
@@ -175,11 +176,12 @@ class _Sampler {
     this.options = options = _.merge(
       {
         log: false, // silent by default
+        warn: true,
         size: 10000,
         reweight_if: () => true,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
-        weight_exp: ({ u }) => min(1, (u + 1) / 10),
+        weight_exp: ({ u }) => min(1, (u + 1) / 3),
         max_updates: inf,
         max_time: 100,
         min_time: 0,
@@ -335,7 +337,7 @@ class _Sampler {
     const w_exp = this.options.weight_exp(this)
     apply(log_wJ, log_w => {
       assert(!is_nan(log_w), 'nan log_w')
-      return Math.max(log_w * w_exp, -Number.MAX_VALUE)
+      return max(log_w * w_exp, -Number.MAX_VALUE)
     })
   }
 
@@ -344,6 +346,7 @@ class _Sampler {
     const { func, xJ, pxJ, pxJK, xJK, jJ } = this
     const { log_pwJ, log_wJ, log_rwJ, stats } = this
     this.u = 0 // first update step
+    this.log_wu_gap = 0 // reset gap for u=0
     fill(log_pwJ, 0)
     fill(log_wJ, 0)
     fill(xJ, j => ((this.j = j), func(this)))
@@ -459,14 +462,38 @@ class _Sampler {
   }
 
   _update() {
-    const { max_time, max_updates, resample_if, move_while, reweight_if } =
-      this.options
+    const {
+      max_time,
+      max_updates,
+      weight_exp,
+      resample_if,
+      move_while,
+      reweight_if,
+    } = this.options
     if (max_updates == 0) return
     // TODO: implement _update() loop w/ history tracking, charting, etc
     // TODO: next step, apply rules (esp. resample) and make sure ess improves
     let reweighted = false
     do {
+      const t = this.t
+      if (this.t > max_time || this.u > max_updates) {
+        if (this.options.warn) {
+          if (this.t > max_time)
+            warn(`ran out of time at t=${t}>${max_time}ms (u=${this.u})`)
+          else
+            warn(`ran out of updates at u=${this.u}>${max_updates} (t=${t}ms)`)
+          // warn about pre-posterior sample w/ weight_exp<1 or log_wu_gap!=0
+          if (weight_exp(this) < 1)
+            warn(`pre-posterior sample w/ weight_exp=${weight_exp(this)}<1`)
+          if (this.log_wu_gap != 0)
+            warn(`pre-posterior sample w/ log_wu_gap=${this.log_wu_gap}!=0`)
+        }
+        // TODO: handle running out of time or reaching update limit
+        break
+      }
       this.u++
+      this.log_wu_gap = 0 // reset gap for new update step (u)
+
       if (resample_if(this)) this._resample()
       this.m = 0 // move step (within update step)
       this.a = 0 // accepted move count
@@ -476,11 +503,6 @@ class _Sampler {
         this.m++
       }
       if ((reweighted = reweight_if(this))) this._reweight()
-
-      if (this.elapsed_time > max_time || this.u == max_updates) {
-        // TODO: handle running out of time or reaching update limit
-        break
-      }
     } while (true) // TODO: convergence checks
 
     // do final reweight if skipped in last update pass
@@ -488,20 +510,20 @@ class _Sampler {
     if (!reweighted) this._reweight()
   }
 
-  get elapsed_time() {
+  get t() {
     return Date.now() - this.start_time
   }
 
   __pwJ() {
     const { J, log_pwJ } = this
-    const max_log_pwj = max(log_pwJ)
+    const max_log_pwj = maxa(log_pwJ)
     const pwJ = (this.___pwJ ??= array(J))
     return copy(pwJ, log_pwJ, log_pwj => exp(log_pwj - max_log_pwj))
   }
 
   __rwJ() {
     const { J, log_rwJ } = this
-    const max_log_rwj = max(log_rwJ)
+    const max_log_rwj = maxa(log_rwJ)
     const rwJ = (this.___rwJ ??= array(J))
     return copy(rwJ, log_rwJ, log_rwj => exp(log_rwj - max_log_rwj))
   }
@@ -636,13 +658,21 @@ class _Sampler {
   }
 
   _condition(c, log_wu) {
-    // log_wu is invoked regardless of c
-    if (log_wu) this.log_wJ[this.j] += log_wu(this.u)
-    else if (!c) this.log_wJ[this.j] = -inf // indicates hard condition
+    // log_w=-inf is generally reserved for conditions & immune to weight_exp
+    // log_wu is invoked (in _weight) regardless of condition c
+    this._weight(c ? 0 : -inf, log_wu)
   }
 
   _weight(log_w, log_wu) {
-    this.log_wJ[this.j] += log_wu ? log_wu(this.u) : log_w
+    if (log_wu) {
+      const log_w = log_wu(this.u)
+      const log_w_next = log_wu(this.u + 1)
+      // TODO: alias min/max/abs/sqrt (maybe others see core) and replace uses
+      this.log_wu_gap = max(abs(log_w_next - log_w), this.log_wu_gap)
+      this.log_wJ[this.j] += log_w
+      return
+    }
+    this.log_wJ[this.j] += log_w
   }
 }
 

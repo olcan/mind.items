@@ -396,15 +396,15 @@ function _test_ks2_test() {
   )
 }
 
-function _test_min() {
+function _test_mina() {
   check(
-    () => [min(), inf],
-    () => [min(0), 0],
-    () => [min('a'), inf], // elements that fail < are ignored
-    () => [min(0, -1), -1],
-    () => [min(0, -1, -2), -2],
-    () => [min([0, -1, -2]), -2],
-    () => [min([0, -1, -2, 'a']), -2] // elements that fail < are ignored
+    () => throws(() => mina()),
+    () => throws(() => mina(0)),
+    () => [mina([]), inf],
+    () => [mina([0]), 0],
+    () => [mina([0, -1]), -1],
+    () => [mina([0, -1, -2]), -2],
+    () => [mina([0, -1, -2, 'a']), -2] // elements that fail < are ignored
   )
 }
 
@@ -418,15 +418,15 @@ function _test_minf() {
   )
 }
 
-function _test_max() {
+function _test_maxa() {
   check(
-    () => [max(), -inf],
-    () => [max(0), 0],
-    () => [max('a'), -inf], // elements that fail > are ignored
-    () => [max(0, 1), 1],
-    () => [max(0, 1, 2), 2],
-    () => [max([0, 1, 2]), 2],
-    () => [max([0, 1, 2, 'a']), 2] // elements that fail > are ignored
+    () => throws(() => maxa()),
+    () => throws(() => maxa(0)),
+    () => [maxa([]), -inf],
+    () => [maxa([0]), 0],
+    () => [maxa([0, 1]), 1],
+    () => [maxa([0, 1, 2]), 2],
+    () => [maxa([0, 1, 2, 'a']), 2] // elements that fail > are ignored
   )
 }
 

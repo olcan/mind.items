@@ -5,6 +5,10 @@ const ln = Math.log
 const loge = Math.log
 const log2 = Math.log2
 const log10 = Math.log10
+const sqrt = Math.sqrt
+const abs = Math.abs
+const min = Math.min
+const max = Math.max
 
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0
