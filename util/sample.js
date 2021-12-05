@@ -112,12 +112,14 @@ function from(x, domain) {
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
-// | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
-// |               | useful for testing additional update steps
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`), _default_: `3`
 // |               | `mks` is _move KS_ `-log2(ks2_test(xM_from, xM_to))`
 // | `mks_steps`   | (minimum) update steps w/ `mks ≤ max_mks`, _default_: `3`
+// | `updates`     | target number of update steps, _default_: auto
+// |               | _warning_: can cause pre-posterior sampling w/o warning
+// | `time`        | target time (ms) for sampling, _default_: auto
+// |               | _warning_: can cause pre-posterior sampling w/o warning
 function sample(domain, options) {
   // decline non-function domain which requires sampler context that would have replaced calls to sample(…)
   if (!is_function(domain))
@@ -128,11 +130,11 @@ function sample(domain, options) {
 function _benchmark_sample() {
   _benchmark_options.N = 10
   benchmark(
-    () => sample(context => {}, { max_updates: 0, size: 1000, warn: false }),
-    () => sample(context => {}, { max_updates: 1, size: 1000, warn: false }),
-    () => sample(context => {}, { max_updates: 1, warn: false }),
-    () => sample(context => {}, { max_updates: 0, warn: false }),
-    () => sample(context => sample(uniform()), { max_updates: 1, warn: false })
+    () => sample(context => {}, { updates: 0, size: 1000 }),
+    () => sample(context => {}, { updates: 1, size: 1000 }),
+    () => sample(context => {}, { updates: 1 }),
+    () => sample(context => {}, { updates: 0 }),
+    () => sample(context => sample(uniform()), { updates: 1 })
   )
 }
 
@@ -463,6 +465,8 @@ class _Sampler {
 
   _update() {
     const {
+      time = inf,
+      updates = inf,
       max_time,
       max_updates,
       weight_exp,
@@ -503,7 +507,7 @@ class _Sampler {
         this.m++
       }
       if ((reweighted = reweight_if(this))) this._reweight()
-    } while (true) // TODO: convergence checks
+    } while (this.u < updates && this.t < time) // TODO: convergence checks
 
     // do final reweight if skipped in last update pass
     // TODO: force full weight exponent? resample?
