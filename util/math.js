@@ -9,6 +9,8 @@ const sqrt = Math.sqrt
 const abs = Math.abs
 const min = Math.min
 const max = Math.max
+const ceil = Math.ceil
+const floor = Math.floor
 
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0

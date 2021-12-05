@@ -319,7 +319,10 @@ function cache(obj, prop, deps, f, options = {}) {
   assert(is_string(prop) && prop.match(/^\w+$/), `invalid prop '${prop}'`)
   assert(is_array(deps), `invalid/missing deps for cached '${prop}'`)
   assert(!f || is_function(f), `invalid function for cached '${prop}'`)
-  assert(f || obj['__' + prop], `missing method '__${prop}' for cached prop`)
+  assert(
+    f || is_function(obj['__' + prop]),
+    `missing/invalid  method '__${prop}' for cached prop`
+  )
   if (f) {
     assert(
       !obj['__' + prop],

@@ -106,9 +106,9 @@ function from(x, domain) {
 // |               | default allows `ess→essu→J` w/ effective moves for `essu→J`
 // | `move_while`  | move predicate `context => …`
 // |               | called _until false_ every update step `context.u = 0,1,…`
-// |               | `context.m = 0,1,…` is move step (within update step)
-// |               | `context.p` is proposed move count (in samples)
-// |               | `context.a` is accepted move count (in samples)
+// |               | `context.p` is proposed move count (current update step)
+// |               | `context.a` is accepted move count (current update step)
+// |               | `context.m` is total move count (all update steps)
 // |               | _default_: `({essu,J,a}) => essu<J/2 || a<J`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `max_updates` | maximum number of update steps, _default_: `inf`
@@ -116,7 +116,8 @@ function from(x, domain) {
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`), _default_: `3`
 // |               | `mks` is _move KS_ `-log2(ks2_test(xM_from, xM_to))`
-// | `mks_steps`   | (minimum) update steps w/ `mks ≤ max_mks`, _default_: `3`
+// | `mks_moves`   | move buffer size `M` for `mks`, _default_: `1000`
+// | `mks_period`  | move buffer period for `mks`, _default_: `ceil(3*J/M)`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `time`        | target time (ms) for sampling, _default_: auto
@@ -176,6 +177,9 @@ class _Sampler {
   constructor(func, options) {
     this.start_time = Date.now()
     // merge in default options
+    const J = (this.J = options?.size ?? 10000)
+    assert(J > 0, `invalid sample size ${J}`)
+    this.M = options?.mks_moves ?? 1000
     this.options = options = _.merge(
       {
         log: false, // silent by default
@@ -188,12 +192,14 @@ class _Sampler {
         max_updates: inf,
         max_time: 100,
         min_time: 0,
-        min_ess: (options?.size ?? 10000) / 2,
+        min_ess: J / 2,
         max_mks: 3,
-        mks_steps: 3,
+        mks_moves: 1000,
+        mks_period: ceil((3 * J) / this.M),
       },
       options
     )
+    if (options.log) ilog(`mks_moves: ${this.M} (period ${options.mks_period})`)
 
     // set up default prior/posterior sampler functions
     this._prior = f => f(this.sample({ prior: true }))
@@ -264,14 +270,18 @@ class _Sampler {
     // console.log(this.js)
 
     // initialize run state
-    const J = (this.J = options.size)
-    assert(J > 0, `invalid sample size ${J}`)
     this.K = this.values.length
     this.xJK = matrix(J, this.K) // samples per run/value
     this.xJk = array(J) // tmp array for sampling columns of xJK
     this.pxJK = matrix(J, this.K) // prior samples per run/value
     this.yJK = matrix(J, this.K) // posterior (chain) samples per run/value
     this.yJk = array(J) // tmp array for sampling columns of yJK
+    this.m = 0 // move count
+    this.msb = 0 // moves since last buffered move (i.e. unbuffered moves)
+    this.mb = 0 // moves buffered, also index into move buffers xM,yM
+    this.M = this.options.mks_moves
+    this.xM = array(this.M)
+    this.yM = array(this.M)
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
@@ -298,6 +308,7 @@ class _Sampler {
       reweight_time: 0,
       resample_time: 0,
       move_time: 0,
+      mks_time: 0,
       updates: [],
     }
 
@@ -316,6 +327,7 @@ class _Sampler {
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
+    cache(this, 'mks', [])
 
     // sample prior (along w/ u=0 posterior)
     let start = Date.now()
@@ -438,6 +450,17 @@ class _Sampler {
     repeat(J, j => {
       const log_dwj = log_cwJ[j] - log_wJ[j]
       if (random() < exp(log_mwJ[j] + log_dwj)) {
+        // update move buffer
+        this.m++
+        this.msb++
+        if (this.msb == this.options.mks_period) {
+          this.msb = 0 // now 0 moves since last buffered
+          const mb = this.mb++ % this.M
+          this.xM[mb] = xJK[j]
+          this.yM[mb] = yJK[j]
+          this.mks = null // reset mks since new move buffered
+        }
+        // update state to reflect move
         xJ[j] = yJ[j]
         xJK[j] = yJK[j] // can't copy since rows can share arrays
         yJK[j] = array(this.K) // replace array since moved into xJK
@@ -490,9 +513,9 @@ class _Sampler {
       mar: 100, // start at 100% acceptance rate
       mlw: 0, // start at 0 log_w improvement
       mks: 1024, // start at 1024 -log2(ks2_test(...))
-      m: 0, // no moves yet
       p: 0, // no proposals yet
       a: 0, // no accepts yet
+      m: 0, // no moves yet
       t: this.t, // time so far
     })
 
@@ -521,14 +544,12 @@ class _Sampler {
       this.log_wu_gap = 0 // reset gap for new update step (u)
 
       if (resample_if(this)) this._resample()
-      this.m = 0 // move step (within update step)
       this.p = 0 // proposed move count
       this.a = 0 // accepted move count
       this.mlw = 0 // log_w improvement
       const { proposals, accepts } = stats
       while (move_while(this)) {
         this._move()
-        this.m++
         this.p += this.move_proposals
         this.a += this.move_accepts
         this.mlw += this.move_log_w
@@ -542,10 +563,10 @@ class _Sampler {
         essr: round(100 * clip(this.ess / this.essu)),
         mar: round(100 * (this.a / this.p)),
         mlw: round(this.mlw, 1),
-        mks: 1024, // TODO
-        m: this.m,
+        mks: round(min(1024, this.mks), 1),
         p: this.p,
         a: this.a,
+        m: this.m - last(stats.updates).m,
         t: this.t - last(stats.updates).t, // time so far
       })
 
@@ -612,6 +633,24 @@ class _Sampler {
 
   get ess() {
     return this.rwj_ess
+  }
+
+  __mks() {
+    const start = Date.now()
+    const { m, mb, M, stats } = this
+    if (m < M) return inf // not enough data yet
+    // TODO: ...
+    // // rotate history so m=0 and we can split in half at M/2
+    // const _xM = array(τ.M)
+    // const _yM = array(τ.M)
+    // const m = τ.m % τ.M
+    // copy_at(_xM, τ.xM, 0, m)
+    // copy_at(_xM, τ.xM, τ.M - m, 0, m)
+    // copy_at(_yM, τ.yM, 0, m)
+    // copy_at(_yM, τ.yM, τ.M - m, 0, m)
+    // return -log2(ks_test(_xM.slice(0, τ.M / 2), _yM.slice(-τ.M / 2)))
+    stats.mks_time += Date.now() - start
+    return inf
   }
 
   sample_index(options) {
