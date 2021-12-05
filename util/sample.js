@@ -74,6 +74,7 @@ function from(x, domain) {
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
 // sampler function `domain` is passed new _sampler `context`_
 // non-function `domain` requires outer `sample(context=>{ … })`
+// special _sampler domain_ can specify `domain._prior`, `._posterior`
 // conditions/weights are scoped by outer `sample(context=>{ … })`
 // samples are tied to _lexical context_, e.g. are constant in loops
 // `options` for all domains:
@@ -82,11 +83,16 @@ function from(x, domain) {
 // |               | e.g. `let x = sample(…) ≡ sample(…,{name:'x'})`
 // | `prior`       | prior sampler `f => f(x,[log_pw=0])`
 // |               | `x~S(X), log_pw=log(∝p(x)/s(x))`
-// |               | _default_: inferred from `domain`
+// |               | _default_: `domain._prior`
 // | `posterior`   | posterior (chain) sampler `(f,x) => f(x,y,[log_mw=0])`
 // |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
-// |               | _default_: inferred from `domain`
-// `options` for sampler function domains `context=>{ … }`:
+// |               | _default_: `domain._posterior`
+// | `target`      | target cdf, sample, or sampler domain for `tks` metric
+// |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
+// |               | for sampler domain, sample `size` can be specified
+// |               | default `size` is inherited from context (see below)
+// |               | _default_: no target (`tks=0`)
+// `options` for sampler function (_context_) domains `context=>{ … }`:
 // | `size`        | sample size `J`, _default_: `10000`
 // |               | ≡ _independent_ runs of `context=>{ … }`
 // |               | ≡ posterior update chains (dependent runs)
@@ -123,20 +129,33 @@ function from(x, domain) {
 // | `time`        | target time (ms) for sampling, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 function sample(domain, options) {
-  // decline non-function domain which requires sampler context that would have replaced calls to sample(…)
-  if (!is_function(domain))
-    fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
+  // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
+  assert(
+    is_function(domain),
+    `invalid sample(…) call outside of sample(context=>{ … })`
+  )
+  // decline target for root sampler since that is no parent to track tks
+  assert(!options?.target, `invalid target outside of sample(context=>{ … })`)
   return new _Sampler(domain, options).sample()
 }
 
 function _benchmark_sample() {
   _benchmark_options.N = 10
   benchmark(
-    () => sample(context => {}, { size: 1000, updates: 0 }),
-    () => sample(context => {}, { size: 1000, updates: 1 }),
-    () => sample(context => {}, { updates: 1 }),
-    () => sample(context => {}, { updates: 0 }),
-    () => sample(context => sample(uniform()), { updates: 1 })
+    () => sample(() => {}, { size: 10000, updates: 0 }),
+    () => sample(() => {}, { size: 10000, updates: 1 }),
+    () => sample(() => {}, { size: 1000, updates: 10 }),
+    () => sample(() => {}, { size: 100, updates: 10 }),
+    () => sample(() => sample(uniform()), { size: 100, updates: 10 }),
+    () =>
+      sample(
+        () => {
+          let a = sample(uniform())
+          let b = sample(uniform(a, 1))
+          condition(b > 0.9)
+        },
+        { size: 100, updates: 20 }
+      )
   )
 }
 
@@ -192,7 +211,6 @@ class _Sampler {
         weight_exp: ({ u }) => min(1, (u + 1) / 3),
         max_updates: inf,
         max_time: 100,
-        min_time: 0,
         min_ess: J / 2,
         max_mks: 3,
         mks_moves: 1000,
@@ -310,6 +328,7 @@ class _Sampler {
       resample_time: 0,
       move_time: 0,
       mks_time: 0,
+      tks_time: 0,
       updates: [],
     }
 
@@ -328,6 +347,7 @@ class _Sampler {
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
+    cache(this, 'tks', ['rwJ'])
     cache(this, 'mks', [])
 
     // sample prior (along w/ u=0 posterior)
@@ -497,6 +517,8 @@ class _Sampler {
       updates,
       max_time,
       max_updates,
+      max_mks,
+      min_ess,
       weight_exp,
       resample_if,
       move_while,
@@ -514,6 +536,7 @@ class _Sampler {
       mar: 100, // start at 100% acceptance rate
       mlw: 0, // start at 0 log_w improvement
       mks: 1024, // start at 1024 -log2(ks2_test(...))
+      tks: round(min(1024, this.tks), 1),
       p: 0, // no proposals yet
       a: 0, // no accepts yet
       m: 0, // no moves yet
@@ -529,8 +552,8 @@ class _Sampler {
         const { t, u } = this
         if (this.options.warn) {
           if (t > max_time)
-            warn(`ran out of time at t=${t}>${max_time}ms (u=${u})`)
-          else warn(`ran out of updates at u=${u}>${max_updates} (t=${t}ms)`)
+            warn(`ran out of time t=${t}>${max_time}ms (u=${u})`)
+          else warn(`ran out of updates u=${u}>${max_updates} (t=${t}ms)`)
           // warn about pre-posterior sample w/ weight_exp<1 or log_wu_gap!=0
           if (weight_exp(this) < 1)
             warn(`pre-posterior sample w/ weight_exp=${weight_exp(this)}<1`)
@@ -565,25 +588,41 @@ class _Sampler {
         mar: round(100 * (this.a / this.p)),
         mlw: round(this.mlw, 1),
         mks: round(min(1024, this.mks), 1),
+        tks: round(min(1024, this.tks), 1),
         p: this.p,
         a: this.a,
         m: this.m - last(stats.updates).m,
         t: this.t - last(stats.updates).t, // time so far
       })
 
+      // check for target updates
       if (this.u >= updates) {
         const { t, u } = this
         if (this.options.log)
-          ilog(`reached target updates at u=${u}≥${updates} (t=${t}ms)`)
+          ilog(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
         break
       }
+
+      // check for target time
       if (this.t >= time) {
         const { t, u } = this
         if (this.options.log)
-          ilog(`reached target time at t=${t}≥${time}ms (u=${u})`)
+          ilog(`reached target time t=${t}≥${time}ms (u=${u})`)
         break
       }
-    } while (true) // TODO: convergence checks
+
+      // check target ess/mks/mlw
+      if (this.ess >= min_ess && this.mks <= max_mks && this.mlw <= 0) {
+        const { t, u, ess, mks, mlw } = this
+        if (this.options.log)
+          ilog(
+            `reached target ess=${round(ess)}≥${min_ess}, ` +
+              `mks=${round(mks, 3)}≤${max_mks}, mlw=${round(mlw, 3)}≤0 ` +
+              `@ u=${u}, t=${t}ms`
+          )
+        break
+      }
+    } while (true)
 
     // do final reweight if skipped in last update pass
     if (!reweighted) this._reweight()
@@ -636,6 +675,18 @@ class _Sampler {
     return this.rwj_ess
   }
 
+  __tks() {
+    const start = Date.now()
+    const { K, stats } = this
+    const tksK = (this.___mks_tksK ??= array(K))
+    // compute ks1_test or ks2_test for each (numeric) value w/ target
+    fill(tksK, k => {
+      return 0
+    })
+    stats.tks_time += Date.now() - start
+    return maxa(tksK) // TODO: note this (after exp) is beta distributed
+  }
+
   __mks() {
     const start = Date.now()
     const { b, B, K, stats } = this
@@ -646,7 +697,6 @@ class _Sampler {
     const bb = b % B
     copy_at(xBK, this.xBK, 0, bb)
     copy_at(xBK, this.xBK, B - bb, 0, bb)
-    ilog(_.sumBy(xBK, defined), _.sumBy(this.xBK, defined))
     copy_at(yBK, this.yBK, 0, bb)
     copy_at(yBK, this.yBK, B - bb, 0, bb)
     // initialize single-value buffers for ks2_test
@@ -654,10 +704,10 @@ class _Sampler {
     assert(is_integer(R)) // B should be divisible by 2
     const xR = (this.___mks_xR ??= array(R))
     const yR = (this.___mks_yR ??= array(R))
-    const mK = (this.___mks_mK ??= array(K))
+    const mksK = (this.___mks_mksK ??= array(K))
     // compute ks2_test for each numeric value
     // for now we simply test type of first sampled value
-    fill(mK, k => {
+    fill(mksK, k => {
       const value = this.values[k]
       if (!value.sampler) return 0 // value not sampled
       let rx = 0
@@ -680,7 +730,7 @@ class _Sampler {
       return -log2(ks2_test(xR, yR))
     })
     stats.mks_time += Date.now() - start
-    return maxa(mK)
+    return maxa(mksK) // TODO: note this (after exp) is beta distributed
   }
 
   sample_index(options) {
@@ -753,8 +803,34 @@ class _Sampler {
     if (!value.sampler) {
       value.sampler = this
       const { index, name, args } = value
+      const line = `line ${value.line_index}: ${value.line.trim()}`
       if (this.options.log)
         ilog(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
+      if (options?.target) {
+        const start = Date.now()
+        value.target = options?.target
+        // sample from sampler domain (_prior)
+        if (value.target?._prior) {
+          const T = options?.size ?? this.J
+          const xT = array(T)
+          const log_wT = array(T, 0)
+          const prior = value.target._prior
+          repeat(T, t =>
+            prior((x, log_pw = 0) => {
+              xT[t] = x
+              log_wT[t] += log_pw
+            })
+          )
+          value.target = xT
+          value.target_weights = apply(log_wT, exp)
+          const ms = Date.now() - start
+          if (this.options.log) ilog(`sampled ${T} target values in ${ms}ms`)
+        } else {
+          assert(!defined(options?.size), `unexpected size option @ ${line}`)
+        }
+      } else {
+        assert(!defined(options?.size), `unexpected size option @ ${line}`)
+      }
     }
 
     // if moving and sampled from prior, sample from posterior chain into yJK
@@ -802,8 +878,10 @@ class _Sampler {
 }
 
 // uniform([a],[b])
-// uniform sampler domain
-// see `random_uniform` in #util/stat
+// uniform _sampler domain_
+// range domain w/ uniform `_prior` & `_posterior` samplers
+// range is `[0,1)`,`[0,a)`, or `[a,b)` depending on arguments
+// see `random_uniform` in #//stat for details
 function uniform(a, b) {
   if (a === undefined) return uniform(0, 1)
   if (b === undefined) return uniform(0, a)
