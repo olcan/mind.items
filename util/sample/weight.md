@@ -84,6 +84,8 @@
         - can fail to move/deduplicate due to low acceptance rate
         - can fail to move sufficiently to decorrelate
           - can happen even after many (accepted) local moves
+        - can fail to improve `essu` (and `ess`) sufficiently
+          - could lead to a "spiral" `ess→1` w/ highly skewed reweights and frequent resamples that further reduce `essu→essu/2`
         - may be subject to slow-moving or even non-moving samples
           - these are problematic in theory but may be inevitable
       - ks diagnostics (esp. between independent samples) important
