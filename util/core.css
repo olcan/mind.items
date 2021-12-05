@@ -7,7 +7,7 @@
   display: none;
 }
 
-/* ignore first break insice .more */
+/* ignore first break inside .more */
 .core_js_table .more > br:first-child {
   display: none;
 }

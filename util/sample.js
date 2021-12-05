@@ -130,8 +130,8 @@ function sample(domain, options) {
 function _benchmark_sample() {
   _benchmark_options.N = 10
   benchmark(
-    () => sample(context => {}, { updates: 0, size: 1000 }),
-    () => sample(context => {}, { updates: 1, size: 1000 }),
+    () => sample(context => {}, { size: 1000, updates: 0 }),
+    () => sample(context => {}, { size: 1000, updates: 1 }),
     () => sample(context => {}, { updates: 1 }),
     () => sample(context => {}, { updates: 0 }),
     () => sample(context => sample(uniform()), { updates: 1 })
@@ -465,8 +465,8 @@ class _Sampler {
 
   _update() {
     const {
-      time = inf,
-      updates = inf,
+      time, // TODO: should override convergence checks
+      updates, // TODO: should override convergence checks
       max_time,
       max_updates,
       weight_exp,
@@ -474,7 +474,7 @@ class _Sampler {
       move_while,
       reweight_if,
     } = this.options
-    if (max_updates == 0) return
+    if (updates == 0 || time == 0) return
     // TODO: implement _update() loop w/ history tracking, charting, etc
     // TODO: next step, apply rules (esp. resample) and make sure ess improves
     let reweighted = false
@@ -507,7 +507,18 @@ class _Sampler {
         this.m++
       }
       if ((reweighted = reweight_if(this))) this._reweight()
-    } while (this.u < updates && this.t < time) // TODO: convergence checks
+
+      if (this.u >= updates) {
+        if (this.options.log)
+          ilog(`reached target updates at u=${this.u}≥${updates} (t=${t}ms)`)
+        break
+      }
+      if (this.t >= time) {
+        if (this.options.log)
+          ilog(`reached target time at t=${t}≥${time}ms (u=${this.u})`)
+        break
+      }
+    } while (true) // TODO: convergence checks
 
     // do final reweight if skipped in last update pass
     // TODO: force full weight exponent? resample?
