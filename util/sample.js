@@ -316,17 +316,17 @@ class _Sampler {
     this._sample_prior()
     const ms = Date.now() - start
     if (options.log) {
-      log(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${ms}ms`)
-      log(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
+      ilog(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${ms}ms`)
+      ilog(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
     // update sample to posterior
     start = Date.now()
     this._update()
     if (options.log) {
-      log(`applied ${this.u} updates in ${Date.now() - start}ms`)
-      log(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
-      log(stringify(this.stats))
+      ilog(`applied ${this.u} updates in ${Date.now() - start}ms`)
+      ilog(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
+      ilog(stringify(this.stats))
     }
   }
 
@@ -606,7 +606,7 @@ class _Sampler {
       value.sampler = this
       const { index, name, args } = value
       if (this.options.log)
-        log(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
+        ilog(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
     }
 
     // if moving and sampled from prior, sample from posterior chain into yJK

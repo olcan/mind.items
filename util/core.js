@@ -257,15 +257,15 @@ function _run_benchmark(
   const base = `${name}: ${cps} calls/sec`
   if (unit) {
     const ups = stringify(Math.floor((count / time) * 1000))
-    log(base + ` (${ups} ${unit})`)
+    ilog(base + ` (${ups} ${unit})`)
   } else if (units) {
-    log(
+    ilog(
       base +
         ' (' +
         units.map((u, k) => stringify(counts[k]) + ' ' + u).join(', ') +
         ')'
     )
-  } else log(base)
+  } else ilog(base)
 }
 
 function _benchmark_benchmark() {
