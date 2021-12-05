@@ -66,28 +66,6 @@ function from(x, domain) {
   })
 }
 
-// uniform([a],[b])
-// [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
-// | `[0,1)` | if `a` and `b` omitted
-// | `[0,a)` | if `b` omitted
-// | `[a,b)` | otherwise
-function uniform(a, b) {
-  if (a === undefined) return uniform(0, 1)
-  if (b === undefined) return uniform(0, a)
-  assert(is_number(a) && is_number(b) && a < b, 'invalid args')
-  const dom = { gte: a, lt: b }
-  dom._prior = dom._posterior = f => f(random_uniform(a, b))
-  return dom
-}
-
-function _benchmark_uniform() {
-  benchmark(
-    () => uniform(),
-    () => uniform(1),
-    () => uniform(0, 1)
-  )
-}
-
 // sample(domain, [options])
 // sample value `x` from `domain`
 // random variable is denoted `X ∈ dom(X)`
@@ -131,7 +109,8 @@ function _benchmark_uniform() {
 // |               | `context.a` is accepted move count (in samples)
 // |               | _default_: `({essu,J,a}) => essu<J/2 || a<J`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
-// | `max_time`    | maximum time (ms) for sampling, _default_: `1000` ms
+// | `max_updates` | maximum number of update steps, _default_: `inf`
+// | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // |               | useful for testing additional update steps
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
@@ -143,6 +122,17 @@ function sample(domain, options) {
   if (!is_function(domain))
     fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
   return new _Sampler(domain, options).sample()
+}
+
+function _benchmark_sample() {
+  _benchmark_options.N = 10
+  benchmark(
+    () => sample(context => {}, { max_updates: 0, size: 1000 }),
+    () => sample(context => {}, { max_updates: 1, size: 1000 }),
+    () => sample(context => {}, { max_updates: 1 }),
+    () => sample(context => {}, { max_updates: 0 }),
+    () => sample(context => sample(uniform()), { max_updates: 1 })
+  )
 }
 
 // condition(c, [log_wu])
@@ -180,15 +170,18 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 
 class _Sampler {
   constructor(func, options) {
+    this.start_time = Date.now()
     // merge in default options
     this.options = options = _.merge(
       {
+        log: false, // silent by default
         size: 10000,
         reweight_if: () => true,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
         weight_exp: ({ u }) => min(1, (u + 1) / 10),
-        max_time: 1000,
+        max_updates: inf,
+        max_time: 100,
         min_time: 0,
         min_ess: (options?.size ?? 10000) / 2,
         max_mks: 3,
@@ -322,15 +315,19 @@ class _Sampler {
     let start = Date.now()
     this._sample_prior()
     const ms = Date.now() - start
-    log(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${ms}ms`)
-    log(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
+    if (options.log) {
+      log(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${ms}ms`)
+      log(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
+    }
 
     // update sample to posterior
     start = Date.now()
     this._update()
-    log(`applied ${this.u} updates in ${Date.now() - start}ms`)
-    log(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
-    log(stringify(this.stats))
+    if (options.log) {
+      log(`applied ${this.u} updates in ${Date.now() - start}ms`)
+      log(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
+      log(stringify(this.stats))
+    }
   }
 
   // scales weights by weight_exp and clips infinities to enable subtraction
@@ -462,22 +459,37 @@ class _Sampler {
   }
 
   _update() {
+    const { max_time, max_updates, resample_if, move_while, reweight_if } =
+      this.options
+    if (max_updates == 0) return
     // TODO: implement _update() loop w/ history tracking, charting, etc
     // TODO: next step, apply rules (esp. resample) and make sure ess improves
-    const U = 10
-    repeat(U, () => {
+    let reweighted = false
+    do {
       this.u++
-      if (this.options.resample_if(this)) this._resample()
+      if (resample_if(this)) this._resample()
       this.m = 0 // move step (within update step)
       this.a = 0 // accepted move count
-      while (this.options.move_while(this)) {
+      while (move_while(this)) {
         this._move()
         this.a += this.move_accepts
         this.m++
       }
-      // always reweight after last update for accurate ess
-      if (this.u == U || this.options.reweight_if(this)) this._reweight()
-    })
+      if ((reweighted = reweight_if(this))) this._reweight()
+
+      if (this.elapsed_time > max_time || this.u == max_updates) {
+        // TODO: handle running out of time or reaching update limit
+        break
+      }
+    } while (true) // TODO: convergence checks
+
+    // do final reweight if skipped in last update pass
+    // TODO: force full weight exponent? resample?
+    if (!reweighted) this._reweight()
+  }
+
+  get elapsed_time() {
+    return Date.now() - this.start_time
   }
 
   __pwJ() {
@@ -587,28 +599,31 @@ class _Sampler {
   _sample(k, domain, options) {
     const value = this.values[k]
     assert(domain, 'missing domain')
+    const { j, xJK, log_pwJ, yJK, log_mwJ } = this
+
     // if sampler not yet set, indicate initialization
     if (!value.sampler) {
       value.sampler = this
       const { index, name, args } = value
-      log(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
+      if (this.options.log)
+        log(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
     }
 
-    // if moving, sample posterior chain into yJK
-    if (this.moving) {
-      const { j, yJK, log_mwJ } = this
+    // if moving and sampled from prior, sample from posterior chain into yJK
+    // note any given value may not get triggered in any particular pass
+    if (this.moving && xJK[j][k] !== undefined) {
       if (yJK[j][k] === undefined) {
         const posterior = options?.posterior ?? domain._posterior
         assert(posterior, 'missing posterior (chain) sampler')
         posterior((y, log_mw = 0) => {
           yJK[j][k] = y
           log_mwJ[j] += log_mw
-        })
+        }, xJK[j][k])
       }
       return yJK[j][k]
     }
 
-    const { j, xJK, log_pwJ } = this
+    // sample from prior into xJK
     if (xJK[j][k] === undefined) {
       const prior = options?.prior ?? domain._prior
       assert(prior, 'missing prior sampler')
@@ -629,4 +644,26 @@ class _Sampler {
   _weight(log_w, log_wu) {
     this.log_wJ[this.j] += log_wu ? log_wu(this.u) : log_w
   }
+}
+
+// uniform([a],[b])
+// [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
+// | `[0,1)` | if `a` and `b` omitted
+// | `[0,a)` | if `b` omitted
+// | `[a,b)` | otherwise
+function uniform(a, b) {
+  if (a === undefined) return uniform(0, 1)
+  if (b === undefined) return uniform(0, a)
+  assert(is_number(a) && is_number(b) && a < b, 'invalid args')
+  const dom = { gte: a, lt: b }
+  dom._prior = dom._posterior = f => f(random_uniform(a, b))
+  return dom
+}
+
+function _benchmark_uniform() {
+  benchmark(
+    () => uniform(),
+    () => uniform(1),
+    () => uniform(0, 1)
+  )
 }
