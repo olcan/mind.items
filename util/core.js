@@ -1,3 +1,5 @@
+const last = _.last
+
 // converts `x` to a string
 // goals: short, readable, unique
 // | string   | `x` wrapped in single quotes
@@ -188,7 +190,7 @@ function check(...funcs) {
       const xJ = ret // interpret returned array as values to be compared
       // if last element of returned array is a function, it will be used as the comparison function fcomp(x0,x) in place of equal(x0,x)
       let fcomp = equal
-      if (is_function(_.last(xJ))) fcomp = xJ.pop()
+      if (is_function(last(xJ))) fcomp = xJ.pop()
       assert(xJ.length >= 2, `FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`)
       assert(
         xJ.every((x, j) => j == 0 || fcomp(xJ[0], x)),
@@ -530,7 +532,7 @@ function js_table(regex) {
 
     // trim blank lines
     while (comment_lines[0]?.length == 0) comment_lines.shift()
-    while (_.last(comment_lines)?.length == 0) comment_lines.pop()
+    while (last(comment_lines)?.length == 0) comment_lines.pop()
 
     // hide all non-first comment lines
     const has_more = comment_lines.length > 1 ? 'has_more' : ''

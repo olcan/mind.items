@@ -1160,7 +1160,7 @@ class _Random {
   summarize_stats(stats = this.stats, digits = 3) {
     if (!stats) return stats
     return mapValues(stats, v => {
-      if (isArray(v) && isNumber(_.last(v))) return round(_.last(v), digits)
+      if (isArray(v) && isNumber(last(v))) return round(last(v), digits)
       if (typeof v == 'object') return this.summarize_stats(v)
       return isNumber(v) ? round(v, digits) : v
     })

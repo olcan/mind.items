@@ -107,8 +107,8 @@ function from(x, domain) {
 // | `move_while`  | move predicate `context => …`
 // |               | called _until false_ every update step `context.u = 0,1,…`
 // |               | `context.m = 0,1,…` is move step (within update step)
-// |               | `context.a` is accepted move count (in samples)
 // |               | `context.p` is proposed move count (in samples)
+// |               | `context.a` is accepted move count (in samples)
 // |               | _default_: `({essu,J,a}) => essu<J/2 || a<J`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `max_updates` | maximum number of update steps, _default_: `inf`
@@ -298,12 +298,7 @@ class _Sampler {
       reweight_time: 0,
       resample_time: 0,
       move_time: 0,
-      ess: [],
-      essu: [],
-      essr: [],
-      mar: [],
-      mlw: [],
-      mks: [],
+      updates: [],
     }
 
     // define cached properties
@@ -486,14 +481,20 @@ class _Sampler {
 
     assert(this.u == 0, '_update requires u=0')
 
-    // initialize stats for u=0
+    // push stats for u=0
     const { stats } = this
-    stats.ess.push(round(this.ess))
-    stats.essu.push(round(this.essu))
-    stats.essr.push(round(100 * clip(this.ess / this.essu)))
-    stats.mar.push(100) // start at 100% acceptance rate
-    stats.mlw.push(0) // start at 0 log_w improvement
-    stats.mks.push(1024) // start at 1024 -log2(ks2_test(...))
+    stats.updates.push({
+      ess: round(this.ess),
+      essu: round(this.essu),
+      essr: round(100 * clip(this.ess / this.essu)),
+      mar: 100, // start at 100% acceptance rate
+      mlw: 0, // start at 0 log_w improvement
+      mks: 1024, // start at 1024 -log2(ks2_test(...))
+      m: 0, // no moves yet
+      p: 0, // no proposals yet
+      a: 0, // no accepts yet
+      t: this.t, // time so far
+    })
 
     if (updates == 0 || time == 0) return
     let reweighted = false
@@ -521,26 +522,32 @@ class _Sampler {
 
       if (resample_if(this)) this._resample()
       this.m = 0 // move step (within update step)
-      this.a = 0 // accepted move count
       this.p = 0 // proposed move count
+      this.a = 0 // accepted move count
       this.mlw = 0 // log_w improvement
       const { proposals, accepts } = stats
       while (move_while(this)) {
         this._move()
-        this.a += this.move_accepts
-        this.p += this.move_proposals
-        this.mlw += this.move_log_w
         this.m++
+        this.p += this.move_proposals
+        this.a += this.move_accepts
+        this.mlw += this.move_log_w
       }
       if ((reweighted = reweight_if(this))) this._reweight()
 
       // append stats for this update step
-      stats.ess.push(round(this.ess))
-      stats.essu.push(round(this.essu))
-      stats.essr.push(round(100 * clip(this.ess / this.essu)))
-      stats.mar.push(round(100 * (this.a / this.p)))
-      stats.mlw.push(round(this.mlw, 1))
-      stats.mks.push(1024) // start at 1024 -log2(ks2_test(...))
+      stats.updates.push({
+        ess: round(this.ess),
+        essu: round(this.essu),
+        essr: round(100 * clip(this.ess / this.essu)),
+        mar: round(100 * (this.a / this.p)),
+        mlw: round(this.mlw, 1),
+        mks: 1024, // TODO
+        m: this.m,
+        p: this.p,
+        a: this.a,
+        t: this.t - last(stats.updates).t, // time so far
+      })
 
       if (this.u >= updates) {
         const { t, u } = this
@@ -554,7 +561,7 @@ class _Sampler {
           ilog(`reached target time at t=${t}≥${time}ms (u=${u})`)
         break
       }
-    } while (true) // TODO: history tracking, convergence checks
+    } while (true) // TODO: convergence checks
 
     // do final reweight if skipped in last update pass
     if (!reweighted) this._reweight()
