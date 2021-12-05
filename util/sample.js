@@ -194,7 +194,7 @@ class _Sampler {
     this._prior = f => f(this.sample({ prior: true }))
     this._posterior = f => f(this.sample())
 
-    // replace sample|condition|weight calls
+    // replace sample|condition|weight|... calls
     window.__sampler = this // for use in replacements instead of `this`
     const js = func.toString()
     const lines = js.split('\n')
@@ -647,17 +647,14 @@ class _Sampler {
 }
 
 // uniform([a],[b])
-// [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
-// | `[0,1)` | if `a` and `b` omitted
-// | `[0,a)` | if `b` omitted
-// | `[a,b)` | otherwise
+// uniform sampler domain
+// see `random_uniform` in #util/stat
 function uniform(a, b) {
   if (a === undefined) return uniform(0, 1)
   if (b === undefined) return uniform(0, a)
   assert(is_number(a) && is_number(b) && a < b, 'invalid args')
-  const dom = { gte: a, lt: b }
-  dom._prior = dom._posterior = f => f(random_uniform(a, b))
-  return dom
+  const sampler = f => f(a + Math.random() * (b - a))
+  return { gte: a, lt: b, _prior: sampler, _posterior: sampler }
 }
 
 function _benchmark_uniform() {
