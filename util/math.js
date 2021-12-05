@@ -1,6 +1,7 @@
 const pi = Math.PI
 const exp = Math.exp
-const ln = Math.log // log conflicts w/ item.log from item.js
+const log = Math.log
+const ln = Math.log
 const loge = Math.log
 const log2 = Math.log2
 const log10 = Math.log10

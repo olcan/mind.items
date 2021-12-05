@@ -1,5 +1,7 @@
+const random = Math.random
+
 // random_boolean ([p=0.5])
-const random_boolean = (p = 0.5) => Math.random() < p
+const random_boolean = (p = 0.5) => random() < p
 
 // random_uniform ([a],[b])
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
@@ -7,22 +9,22 @@ const random_boolean = (p = 0.5) => Math.random() < p
 // | `[0,a)` | if `b` omitted
 // | `[a,b)` | otherwise
 const random_uniform = (a, b) => {
-  if (a === undefined) return Math.random()
-  if (b === undefined) return is_number(a) && a > 0 ? a * Math.random() : NaN
+  if (a === undefined) return random()
+  if (b === undefined) return is_number(a) && a > 0 ? a * random() : NaN
   if (!is_number(a) || !is_number(b) || b <= a) return NaN
-  return a + Math.random() * (b - a)
+  return a + random() * (b - a)
 }
 
 // random_uniform_array(xJ, [a], [b])
 // fills `xJ` with `random_uniform(a,b)`
 const random_uniform_array = (xJ, a, b) => {
-  if (a === undefined) return random_array(xJ, Math.random)
+  if (a === undefined) return random_array(xJ, random)
   if (b === undefined)
     return is_number(a) && a > 0
-      ? random_array(xJ, () => a * Math.random())
+      ? random_array(xJ, () => a * random())
       : random_array(xJ, NaN)
   if (!is_number(a) || !is_number(b) || b <= a) return random_array(xJ, NaN)
-  return random_array(xJ, () => a + Math.random() * (b - a))
+  return random_array(xJ, () => a + random() * (b - a))
 }
 
 // random_discrete_uniform ([a],[b])
@@ -31,7 +33,7 @@ const random_uniform_array = (xJ, a, b) => {
 // | `{0,…,a-1}` | if `b` omitted
 // | `{a,…,b}`   | otherwise
 const random_discrete_uniform = (a, b) => {
-  const u = Math.random()
+  const u = random()
   if (a === undefined) return ~~(2 * u) // {0,1}
   if (b === undefined) return is_integer(a) && a > 0 ? ~~(u * a) : NaN // {0,…,a-1}
   if (!is_integer(a) || !is_integer(b) || b < a) return NaN
@@ -41,13 +43,13 @@ const random_discrete_uniform = (a, b) => {
 // random_discrete_uniform_array(xJ, [a], [b])
 // fills `xJ` with `random_discrete_uniform(a,b)`
 const random_discrete_uniform_array = (xJ, a, b) => {
-  if (a === undefined) return random_array(xJ, () => ~~(2 * Math.random()))
+  if (a === undefined) return random_array(xJ, () => ~~(2 * random()))
   if (b === undefined)
     return is_integer(a) && a > 0
-      ? random_array(xJ, () => ~~(Math.random() * a))
+      ? random_array(xJ, () => ~~(random() * a))
       : random_array(xJ, NaN)
   return is_integer(a) && is_integer(b) && b >= a
-    ? random_array(xJ, () => ~~(a + Math.random() * (b + 1 - a)))
+    ? random_array(xJ, () => ~~(a + random() * (b + 1 - a)))
     : random_array(xJ, NaN)
 }
 
@@ -66,7 +68,7 @@ const random_discrete = (wJ, sum_wj) => {
   // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
   let j = 0
   let w = 0
-  let wt = Math.random() * sum_wj
+  let wt = random() * sum_wj
   do {
     w += wJ[j++]
   } while (w < wt && j < wJ.length)
@@ -87,7 +89,7 @@ function random_discrete_array(jK, wJ, sum_wj) {
   // assert(min(wJ) >= 0,`wj<0: ${min(wJ)}`)
   // generate (exp) increments for K+1 uniform numbers in [0,sum_wj) w/o sorting
   let rK = apply(random_array(jK), r => -Math.log(r))
-  const z = sum_wj / (sum(rK) - Math.log(Math.random()))
+  const z = sum_wj / (sum(rK) - Math.log(random()))
   apply(rK, r => r * z) // rescale to [0,sum_wJ)
   let k = 0
   let j = 0
@@ -110,14 +112,14 @@ const random_triangular = (a, b, c) => {
   if (!is_number(a) || !is_number(b) || !is_number(c)) return NaN
   if (a > b || c < a || c > b) return NaN
   // from https://github.com/jstat/jstat/blob/master/src/distribution.js
-  const u = Math.random()
+  const u = random()
   if (u < (c - a) / (b - a)) return a + Math.sqrt(u * (b - a) * (c - a))
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
 
 // random_array(J|xJ, [sampler=uniform])
 // sample array of `J` values from `sampler`
-function random_array(a, sampler = Math.random) {
+function random_array(a, sampler = random) {
   const [J, xJ] = is_array(a)
     ? [a.length, a]
     : [~~a, new Array(Math.max(0, ~~a))]
@@ -134,7 +136,7 @@ function random_shuffle(xJ, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
   for (let j = je - 1; j > js; j--) {
-    const jr = js + ~~(Math.random() * (j - js + 1))
+    const jr = js + ~~(random() * (j - js + 1))
     const tmp = xJ[j]
     xJ[j] = xJ[jr]
     xJ[jr] = tmp

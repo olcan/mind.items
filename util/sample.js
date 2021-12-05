@@ -429,7 +429,7 @@ class _Sampler {
     this.move_log_w = 0
     repeat(J, j => {
       const log_dwj = log_cwJ[j] - log_wJ[j]
-      if (Math.random() < Math.exp(log_mwJ[j] + log_dwj)) {
+      if (random() < exp(log_mwJ[j] + log_dwj)) {
         xJ[j] = yJ[j]
         xJK[j] = yJK[j] // can't copy since rows can share arrays
         yJK[j] = array(this.K) // replace array since moved into xJK
@@ -496,14 +496,14 @@ class _Sampler {
     const { J, log_pwJ } = this
     const max_log_pwj = max(log_pwJ)
     const pwJ = (this.___pwJ ??= array(J))
-    return copy(pwJ, log_pwJ, log_pwj => Math.exp(log_pwj - max_log_pwj))
+    return copy(pwJ, log_pwJ, log_pwj => exp(log_pwj - max_log_pwj))
   }
 
   __rwJ() {
     const { J, log_rwJ } = this
     const max_log_rwj = max(log_rwJ)
     const rwJ = (this.___rwJ ??= array(J))
-    return copy(rwJ, log_rwJ, log_rwj => Math.exp(log_rwj - max_log_rwj))
+    return copy(rwJ, log_rwJ, log_rwj => exp(log_rwj - max_log_rwj))
   }
 
   __rwJ_agg() {
@@ -653,7 +653,7 @@ function uniform(a, b) {
   if (a === undefined) return uniform(0, 1)
   if (b === undefined) return uniform(0, a)
   assert(is_number(a) && is_number(b) && a < b, 'invalid args')
-  const sampler = f => f(a + Math.random() * (b - a))
+  const sampler = f => f(a + random() * (b - a))
   return { gte: a, lt: b, _prior: sampler, _posterior: sampler }
 }
 

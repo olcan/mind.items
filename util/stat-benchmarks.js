@@ -1,7 +1,7 @@
 function _benchmark_random_boolean() {
   benchmark(
     () => random_boolean(),
-    () => Math.random()
+    () => random()
   )
 }
 
@@ -10,7 +10,7 @@ function _benchmark_random_uniform() {
     () => random_uniform(),
     () => random_uniform(1),
     () => random_uniform(0, 1),
-    () => Math.random()
+    () => random()
   )
 }
 
@@ -27,9 +27,9 @@ function _benchmark_random_discrete_uniform() {
     () => random_discrete_uniform(),
     () => random_discrete_uniform(2),
     () => random_discrete_uniform(0, 1),
-    () => ~~(2 * Math.random()),
-    () => Math.floor(2 * Math.random()),
-    () => Math.random()
+    () => ~~(2 * random()),
+    () => Math.floor(2 * random()),
+    () => random()
   )
 }
 
@@ -71,7 +71,7 @@ function _benchmark_random_triangular() {
     () => random_triangular(1),
     () => random_triangular(0, 1, 0.5),
     () => random_uniform(0, 1),
-    () => Math.random()
+    () => random()
   )
 }
 
@@ -79,8 +79,8 @@ function _benchmark_random_array() {
   benchmark(
     () => random_array(100),
     () => random_array(array(100)),
-    () => array(100, j => Math.random()),
-    () => array(100, Math.random) // unsafe since args are passed through
+    () => array(100, j => random()),
+    () => array(100, random) // unsafe since args are passed through
   )
 }
 
@@ -160,6 +160,7 @@ function _benchmark_max() {
     () => max(0),
     () => max([0]),
     () => max(0, 1, 2),
+    () => Math.max(0, 1, 2),
     () => max([0, 1, 2]),
     () => max(...x10),
     () => max(x10),
