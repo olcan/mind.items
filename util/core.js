@@ -215,7 +215,10 @@ function _run_benchmark(
     name = stringify(f),
     T = 10, // fast > accurate
     T_max = 50,
-    N = 1000,
+    // note Date.now itself benchmarks at 10-30M calls/sec
+    // so roughly (and naively) we can hope to measure Nx that
+    // depends how much of Date.now overhead is before/after returned 'now'
+    N = 100, // minimum calls between Date.now
     unit,
     units,
   } = _benchmark_options
@@ -263,6 +266,13 @@ function _run_benchmark(
         ')'
     )
   } else log(base)
+}
+
+function _benchmark_benchmark() {
+  benchmark(
+    () => Date.now(),
+    () => performance.now()
+  )
 }
 
 // throws(f, [error])
