@@ -2,8 +2,9 @@
 // array `xJ` of length `J`
 // `x` can be given to fill as `xJ[j]=x ∀j`
 // `x` can be a function of index, e.g. `j=>j`
+// uses `Array.from` if `J` is not a number
 const array = (J = 0, x) => {
-  const xJ = new Array(J)
+  const xJ = is_number(J) ? new Array(J) : Array.from(J)
   // NOTE: Array.from({length:J}, ...) was much slower
   if (typeof x == 'function') for (let j = 0; j < J; ++j) xJ[j] = x(j)
   else if (typeof x != 'undefined') xJ.fill(x)
@@ -24,6 +25,8 @@ function _benchmark_array() {
   benchmark(
     () => new Array(100),
     () => new Array(100).fill(0),
+    () => array(100),
+    () => array(100, 0),
     () => array(100, j => j),
     () => Array.from({ length: 100 }, j => j)
   )
