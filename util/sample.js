@@ -91,9 +91,10 @@ function from(x, domain) {
 // |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
 // |               | for sampler domain, sample `size` can be specified
 // |               | default `size` is inherited from context (see below)
+// |               | also see below `targets` option for context
 // |               | _default_: no target (`tks=0`)
 // `options` for sampler function (_context_) domains `context=>{ … }`:
-// | `size`        | sample size `J`, _default_: `10000`
+// | `size`        | sample size `J`, _default_: `1000`
 // |               | ≡ _independent_ runs of `context=>{ … }`
 // |               | ≡ posterior update chains (dependent runs)
 // | `reweight_if` | reweight predicate `context => …`
@@ -128,6 +129,8 @@ function from(x, domain) {
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `time`        | target time (ms) for sampling, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
+// | `targets`     | object of targets for named values sampled in this context
+// |               | see `target` option above for possible targets
 function sample(domain, options) {
   // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
   assert(
@@ -196,7 +199,7 @@ class _Sampler {
   constructor(func, options) {
     this.start_time = Date.now()
     // merge in default options
-    const J = (this.J = options?.size ?? 10000)
+    const J = (this.J = options?.size ?? 1000)
     assert(J > 0, `invalid sample size ${J}`)
     const B = (this.B = options?.mks_buffer ?? 1000)
     assert(B > 0 && B % 2 == 0, `invalid move buffer size ${B}`)
@@ -204,7 +207,7 @@ class _Sampler {
       {
         log: false, // silent by default
         warn: true,
-        size: 10000,
+        size: J,
         reweight_if: () => true,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
@@ -213,7 +216,7 @@ class _Sampler {
         max_time: 100,
         min_ess: J / 2,
         max_mks: 3,
-        mks_moves: 1000,
+        mks_buffer: B,
         mks_period: ceil((3 * J) / B),
       },
       options
@@ -286,6 +289,7 @@ class _Sampler {
     )
     // evaluate new function w/ replacements
     // wrapping in parentheses is required for named functions
+    // does not capture variables from calling context
     this.func = eval('(' + this.js + ')')
     // console.log(this.js)
 
@@ -677,11 +681,39 @@ class _Sampler {
 
   __tks() {
     const start = Date.now()
-    const { K, stats } = this
+    const { J, K, xJK, values, stats } = this
     const tksK = (this.___mks_tksK ??= array(K))
     // compute ks1_test or ks2_test for each (numeric) value w/ target
     fill(tksK, k => {
-      return 0
+      const value = values[k]
+      if (!value.target) return 0 // no target so tks=0
+      const xR = (this.___tks_xR ??= array(J))
+      let r = 0
+      repeat(J, j => {
+        const x = xJK[j][k]
+        if (x !== undefined) xR[r++] = x
+      })
+      if (r == 0) return 0 // not enough samples
+      xR.length = r
+      if (is_function(value.target)) {
+        // use ks1_test for cdf target
+        return -log2(
+          ks1_test(xR, value.target, {
+            wJ: this.rwJ,
+            wj_sum: this.rwj_sum,
+          })
+        )
+      }
+      // use ks2_test for sample target
+      const ks = -log2(
+        ks2_test(xR, value.target, {
+          wJ: this.rwj_uniform ? undefined : this.rwJ,
+          wj_sum: this.rwj_uniform ? undefined : this.rwj_sum,
+          wK: value.target_weights,
+          wk_sum: value.target_weight_sum,
+        })
+      )
+      return ks
     })
     stats.tks_time += Date.now() - start
     return maxa(tksK) // TODO: note this (after exp) is beta distributed
@@ -804,32 +836,48 @@ class _Sampler {
       value.sampler = this
       const { index, name, args } = value
       const line = `line ${value.line_index}: ${value.line.trim()}`
-      if (this.options.log)
-        ilog(`[${index}] ${name ? name + ' = ' : ''}sample(${args})`)
-      if (options?.target) {
+      const target = options?.target ?? this.options.targets?.[name]
+      if (target) {
         const start = Date.now()
-        value.target = options?.target
+        value.target = target
         // sample from sampler domain (_prior)
         if (value.target?._prior) {
           const T = options?.size ?? this.J
           const xT = array(T)
-          const log_wT = array(T, 0)
+          let log_wT // weight array allocated below if needed
           const prior = value.target._prior
           repeat(T, t =>
             prior((x, log_pw = 0) => {
               xT[t] = x
+              if (!log_pw) return
+              log_wT ??= array(T, 0)
               log_wT[t] += log_pw
             })
           )
           value.target = xT
-          value.target_weights = apply(log_wT, exp)
+          if (log_wT) {
+            value.target_weights = apply(log_wT, exp)
+            value.target_weight_sum = sum(value.target_weights)
+          }
           const ms = Date.now() - start
           if (this.options.log) ilog(`sampled ${T} target values in ${ms}ms`)
         } else {
+          if (!is_function(value.target) && !is_array(value.target))
+            fatal(`invalid target @ ${line}`)
           assert(!defined(options?.size), `unexpected size option @ ${line}`)
         }
       } else {
         assert(!defined(options?.size), `unexpected size option @ ${line}`)
+      }
+      if (this.options.log) {
+        let target = ''
+        if (is_array(value.target))
+          target =
+            ` --> target sample size=${value.target.length}, ` +
+            `mean=${round(mean(value.target), 3)}`
+        else if (is_function(value.target))
+          target = ` --> target cdf ${stringify(value.target)}`
+        ilog(`[${index}] ${name ? name + ' = ' : ''}sample(${args})${target}`)
       }
     }
 

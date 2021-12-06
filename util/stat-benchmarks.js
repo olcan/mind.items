@@ -79,23 +79,25 @@ function _benchmark_random_array() {
   benchmark(
     () => random_array(100),
     () => random_array(array(100)),
+    () => random_array(100, random, x => x > 0.5),
+    () => random_array(array(100), random, x => x > 0.5),
     () => array(100, j => random()),
     () => array(100, random) // unsafe since args are passed through
   )
 }
 
-function _benchmark_shuffle() {
+function _benchmark_random_shuffle() {
   const range10 = _.range(10)
   const range100 = _.range(100)
   const range1000 = _.range(1000)
   const range10000 = _.range(10000)
   benchmark(
-    () => shuffle([0, 1]),
-    () => shuffle([0, 1, 2]),
-    () => shuffle(range10),
-    () => shuffle(range100),
-    () => shuffle(range1000),
-    () => shuffle(range10000)
+    () => random_shuffle([0, 1]),
+    () => random_shuffle([0, 1, 2]),
+    () => random_shuffle(range10),
+    () => random_shuffle(range100),
+    () => random_shuffle(range1000),
+    () => random_shuffle(range10000)
   )
 }
 

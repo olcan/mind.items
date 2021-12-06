@@ -147,25 +147,32 @@ function _test_random_array() {
     () => [random_array(0), []],
     () => [random_array(1, () => 1), [1]],
     () => [random_array(2, () => 1), [1, 1]],
-    () => [random_array(2, j => j), [undefined, undefined]],
+    () => [random_array(2, j => j), [undefined, undefined]], // no args passed
     () => [random_array([], () => 1), []],
     () => [random_array([0], () => 1), [1]],
-    () => [random_array([0, 0], () => 1), [1, 1]]
+    () => [random_array([0, 0], () => 1), [1, 1]],
+    () => mina(random_array(2, random, x => x > 0.5)) > 0.5
   )
 }
 
-function _test_shuffle() {
+function _test_random_shuffle() {
   check(
-    () => [shuffle([0], 0, 1), [0]],
-    () => [shuffle([0]), [0]],
-    () => _binomial_test_sample(() => shuffle([0, 1]), [0, 1], 1 / 2),
-    () => _binomial_test_sample(() => shuffle([0, 1]), [1, 0], 1 / 2),
-    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [0, 1, 2], 1 / 6),
-    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [0, 2, 1], 1 / 6),
-    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [1, 0, 2], 1 / 6),
-    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [1, 2, 0], 1 / 6),
-    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 0, 1], 1 / 6),
-    () => _binomial_test_sample(() => shuffle([0, 1, 2]), [2, 1, 0], 1 / 6)
+    () => [random_shuffle([0], 0, 1), [0]],
+    () => [random_shuffle([0]), [0]],
+    () => _binomial_test_sample(() => random_shuffle([0, 1]), [0, 1], 1 / 2),
+    () => _binomial_test_sample(() => random_shuffle([0, 1]), [1, 0], 1 / 2),
+    () =>
+      _binomial_test_sample(() => random_shuffle([0, 1, 2]), [0, 1, 2], 1 / 6),
+    () =>
+      _binomial_test_sample(() => random_shuffle([0, 1, 2]), [0, 2, 1], 1 / 6),
+    () =>
+      _binomial_test_sample(() => random_shuffle([0, 1, 2]), [1, 0, 2], 1 / 6),
+    () =>
+      _binomial_test_sample(() => random_shuffle([0, 1, 2]), [1, 2, 0], 1 / 6),
+    () =>
+      _binomial_test_sample(() => random_shuffle([0, 1, 2]), [2, 0, 1], 1 / 6),
+    () =>
+      _binomial_test_sample(() => random_shuffle([0, 1, 2]), [2, 1, 0], 1 / 6)
   )
 }
 

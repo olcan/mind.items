@@ -117,13 +117,19 @@ const random_triangular = (a, b, c) => {
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
 
-// random_array(J|xJ, [sampler=uniform])
+// random_array(J|xJ, [sampler=uniform], [filter])
 // sample array of `J` values from `sampler`
-function random_array(a, sampler = random) {
+// can skip values `x` s.t. `!filter(x)`, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
+function random_array(a, sampler = random, filter) {
   const [J, xJ] = is_array(a)
     ? [a.length, a]
     : [~~a, new Array(Math.max(0, ~~a))]
-  for (let j = 0; j < J; ++j) xJ[j] = sampler()
+  if (!filter) for (let j = 0; j < J; ++j) xJ[j] = sampler()
+  else
+    for (let j = 0; j < J; ++j) {
+      xJ[j] = sampler()
+      while (!filter(xJ[j])) xJ[j] = sampler()
+    }
   return xJ
 }
 
@@ -383,13 +389,13 @@ function ks1_cdf(x, J) {
 }
 
 // p-value for two-sample [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test)
-function ks2_test(xJ, yK) {
-  return 1 - ks2_cdf(ks2(xJ, yK), xJ.length, yK.length)
+function ks2_test(xJ, yK, options = {}) {
+  return 1 - ks2_cdf(ks2(xJ, yK, options), xJ.length, yK.length)
 }
 
 // p-value for one-sample [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test)
-function ks1_test(xJ, cdf) {
-  return 1 - ks1_cdf(ks1(xJ, cdf), xJ.length)
+function ks1_test(xJ, cdf, options = {}) {
+  return 1 - ks1_cdf(ks1(xJ, cdf, options), xJ.length)
 }
 
 // minimum element in `xJ`
