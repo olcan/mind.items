@@ -1,4 +1,9 @@
+const keys = Object.keys
+const values = Object.values
+const entries = Object.entries
+const first = _.first
 const last = _.last
+const range = _.range
 
 // converts `x` to a string
 // goals: short, readable, unique
@@ -79,6 +84,7 @@ function _test_stringify() {
 // `d` can be restricted to at most `s` significant (non-zero) digits
 // `mode` string can be `round`, `floor`, or `ceil`
 const round = (x, d = 0, s = inf, mode = 'round') => {
+  if (d == 0 && s == inf) return Math[mode](x) // fast case
   // determine d automatically if s<inf
   if (s < inf) {
     const sd = _significant_digits(x)
