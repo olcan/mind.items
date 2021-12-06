@@ -121,8 +121,9 @@ function from(x, domain) {
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
-// | `max_mks`     | maximum `mks` desired (within `max_time`), _default_: `3`
+// | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
+// |               | _default_: `3` ≡ failure to reject same-dist at `ɑ<1/8`
 // | `mks_buffer`  | move buffer size `B` for `mks`, _default_: `1000`
 // | `mks_period`  | move buffer period for `mks`, _default_: `ceil(3*J/M)`
 // | `updates`     | target number of update steps, _default_: auto
@@ -682,42 +683,37 @@ class _Sampler {
   __tks() {
     const start = Date.now()
     const { J, K, xJK, values, stats } = this
-    const tksK = (this.___mks_tksK ??= array(K))
+    const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
     // compute ks1_test or ks2_test for each (numeric) value w/ target
-    fill(tksK, k => {
+    fill(pK, k => {
       const value = values[k]
-      if (!value.target) return 0 // no target so tks=0
+      if (!value.target) return 1 // no target
       const xR = (this.___tks_xR ??= array(J))
       let r = 0
       repeat(J, j => {
         const x = xJK[j][k]
         if (x !== undefined) xR[r++] = x
       })
-      if (r == 0) return 0 // not enough samples
+      if (r == 0) return 1 // not enough samples
       xR.length = r
       if (is_function(value.target)) {
         // use ks1_test for cdf target
-        return -log2(
-          ks1_test(xR, value.target, {
-            wJ: this.rwJ,
-            wj_sum: this.rwj_sum,
-          })
-        )
+        return ks1_test(xR, value.target, {
+          wJ: this.rwJ,
+          wj_sum: this.rwj_sum,
+        })
       }
       // use ks2_test for sample target
-      const ks = -log2(
-        ks2_test(xR, value.target, {
-          wJ: this.rwj_uniform ? undefined : this.rwJ,
-          wj_sum: this.rwj_uniform ? undefined : this.rwj_sum,
-          wK: value.target_weights,
-          wk_sum: value.target_weight_sum,
-        })
-      )
-      return ks
+      return ks2_test(xR, value.target, {
+        wJ: this.rwj_uniform ? undefined : this.rwJ,
+        wj_sum: this.rwj_uniform ? undefined : this.rwj_sum,
+        wK: value.target_weights,
+        wk_sum: value.target_weight_sum,
+      })
     })
     stats.tks_time += Date.now() - start
-    // TODO: _remap_ using beta_cdf for maximum of uniform
-    return maxa(tksK)
+    // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
+    return -log2(beta_cdf(mina(pK), 1, K))
   }
 
   __mks() {
@@ -737,34 +733,34 @@ class _Sampler {
     assert(is_integer(R)) // B should be divisible by 2
     const xR = (this.___mks_xR ??= array(R))
     const yR = (this.___mks_yR ??= array(R))
-    const mksK = (this.___mks_mksK ??= array(K))
+    const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
     // compute ks2_test for each numeric value
     // for now we simply test type of first sampled value
-    fill(mksK, k => {
+    fill(pK, k => {
       const value = this.values[k]
-      if (!value.sampler) return 0 // value not sampled
+      if (!value.sampler) return 1 // value not sampled
       let rx = 0
       let ry = 0
       for (let b = 0; b < R; ++b) {
         const xbk = xBK[b][k]
         if (xbk !== undefined) {
-          if (rx == 0 && typeof xbk != 'number') return 0 // not a number
+          if (rx == 0 && typeof xbk != 'number') return 1 // not a number
           xR[rx++] = xbk
         }
         const ybk = yBK[R + b][k]
         if (ybk !== undefined) {
-          if (ry == 0 && typeof ybk != 'number') return 0 // not a number
+          if (ry == 0 && typeof ybk != 'number') return 1 // not a number
           yR[ry++] = ybk
         }
       }
-      if (rx == 0 || ry == 0) return 0 // not enough samples
+      if (rx == 0 || ry == 0) return 1 // not enough samples
       xR.length = rx
       yR.length = ry
-      return -log2(ks2_test(xR, yR))
+      return ks2_test(xR, yR)
     })
     stats.mks_time += Date.now() - start
-    // TODO: _remap_ using beta_cdf for maximum of uniform
-    return maxa(mksK)
+    // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
+    return -log2(beta_cdf(mina(pK), 1, K))
   }
 
   sample_index(options) {
