@@ -28,6 +28,7 @@ function _benchmark_array() {
     () => array(100),
     () => array(100, 0),
     () => array(100, j => j),
+    () => Array.from({ length: 100 }),
     () => Array.from({ length: 100 }, j => j)
   )
 }
@@ -164,7 +165,7 @@ function _benchmark_swap() {
     () => {
       const tmp = x
       x = y
-      y = x
+      y = tmp
     },
     () => ([x, y] = [y, x])
   )
