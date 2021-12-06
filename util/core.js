@@ -1,9 +1,41 @@
 const keys = Object.keys
 const values = Object.values
 const entries = Object.entries
+const assign = Object.assign
+
+const get = _.get
+const set = _.set
+const unset = _.unset
+const update = _.update
+const merge = _.merge
+const clone = _.clone
+const clone_deep = _.cloneDeep
+
+const remove = _.remove
 const first = _.first
 const last = _.last
+const take = _.take
+const pick = _.pick
+const omit = _.omit
+
+const every = _.every
+const some = _.some
+
+const uniq = _.uniq
+const diff = _.difference
+const compact = _.compact
+const without = _.without
+const flatten = _.flatten
+const flatten_deep = _.flattenDeep
+const flat = _.flattenDeep
+
 const range = _.range
+const group = _.groupBy
+
+const sort = (xJ, f = (a, b) => a - b) => xJ.sort(f)
+const sort_by = (xJ, f = x => x) => xJ.sort((a, b) => f(a) - f(b))
+const rank = (xJ, f = (a, b) => a - b) => xJ.sort((a, b) => f(b, a))
+const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
 
 // converts `x` to a string
 // goals: short, readable, unique
@@ -429,9 +461,12 @@ function js_table(regex) {
     Array.from(
       _this
         .read('js', { keep_empty_lines: true })
-        // NOTE: currently automated parsing of args works only if arguments are listed on the same line, since multi-line parsing is tricky w/ default values that may also contain parentheses, strings that contain parentheses, etc; if args are wrapped due to automated code formatting, a workaround is to define args in first line of comment, which are rarely wrapped by formatters or can be shortened toa void wrapping
+        // NOTE: currently automated parsing of args works only if arguments are listed on the same line, since multi-line parsing is tricky w/ default values that may also contain parentheses (which we do allow to some extent), strings that contain parentheses, etc; if args are wrapped due to automated code formatting, a workaround is to define args in first line of comment, which are rarely wrapped by formatters or can be shortened to avoid wrapping
+        // args inner pattern: (?:\(...\) | [^()\n]*?)*?  (ignore spaces,...)
+        // args outer pattern: \(...\)  or  \(...\) | [^()\n]*?
+
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\(.*\))|= *(?<arrow_args>.+? *=>)? *\n?(?<body>[^\n]+))?/g
+          /(?:^|\n)(?<comment>( *\/\/[^\n]*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:\([^()]*?\)|[^()\n]*?)*?\))|= *(?<arrow_args>(?:\((?:\([^()]*?\)|[^()\n]*?)*?\)|[^()\n]*?) *=>)? *\n?(?<body>[^\n]+))?/gs
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -505,6 +540,20 @@ function js_table(regex) {
         if (!def.comment && def.body && !def.body.startsWith('{')) {
           // take body as comment, escaping `, \
           def.comment = '`' + def.body.replace(/([`\\])/g, '\\$1') + '`'
+          // if body is a lodash function, link to docs
+          // note docs are only available for certain versions
+          if (def.body.match(/^_\.\w+$/)) {
+            def.comment =
+              `[${def.comment}](https://lodash.com/docs/` +
+              `4.17.15#${def.body.substring(2)})`
+          }
+          // if body is a static function on a global object, link to docs
+          if (def.body.match(/^[A-Z]\w+\.\w+$/))
+            def.comment =
+              `[${def.comment}](https://developer.mozilla.org/en-US/docs/Web/` +
+              `JavaScript/Reference/Global_Objects/` +
+              def.body.replace('.', '/') +
+              ')'
         }
         return def
       }
@@ -566,7 +615,7 @@ function js_table(regex) {
     let args = def.args
       .replace(/\s+/g, '')
       .replace(/^\(|\)$/g, '')
-      .split(',')
+      .split(/\(.*?\)|,/) // split by commas NOT inside parens
       .map(s => (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s))
       .join(',')
     if (def.args) args = '(' + args + ')'
@@ -880,7 +929,7 @@ function _js_table_show_benchmark(name) {
       rows.push([result, name])
     } else if (!line.match(/in (\d+)ms$/)) log.push(line)
   }
-  rows = _.sortBy(rows, r => -parseInt(r[0].replace(/,/g, '')))
+  sort_by(rows, r => -parseInt(r[0].replace(/,/g, '')))
   const run_link = evallink(
     _this,
     `_js_table_run_benchmark('${name}',event)`,

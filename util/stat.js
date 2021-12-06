@@ -316,8 +316,8 @@ function ks2(xJ, yK, options = {}) {
   let J = xJ.length
   let K = yK?.length ?? 0 // if yK missing, K=0 for now, K=J later
   // sort xJ and yK as needed
-  if (!xj_sorted) xJ.sort((a, b) => a - b)
-  if (!yk_sorted) yK?.sort((a, b) => a - b)
+  if (!xj_sorted) sort(xJ)
+  if (yK && !yk_sorted) sort(yK)
   const R = J + K
   const xR = yK ? r => (r < J ? xJ[r] : yK[r - J]) : r => xJ[r]
   // generate globally sorted indices rR
@@ -405,7 +405,7 @@ function ks1(xJ, cdf, options = {}) {
   let { xj_sorted, wK, wk_sum } = options
   assert(!wK, 'invalid option wK superceded by cdf for ks1')
   assert(!wk_sum, `invalid option wk_sum superceded by cdf for ks1`)
-  if (!xj_sorted) xJ.sort((a, b) => a - b)
+  if (!xj_sorted) sort(xJ)
   wK = array(xJ.length)
   wK[0] = cdf(xJ[0])
   fill(wK, k => cdf(xJ[k]) - cdf(xJ[k - 1]), 1)
@@ -554,7 +554,7 @@ function median(xJ, options = {}) {
   const J = xJ.length
   if (!sorted) {
     if (copy) xJ = xJ.slice()
-    xJ.sort((a, b) => a - b)
+    sort(xJ)
   }
   // NOTE: (x&1)=x%2 and (x|0)=~~x
   return !(J & 1) ? (xJ[J / 2 - 1] + xJ[J / 2]) / 2 : xJ[(J / 2) | 0]
@@ -562,7 +562,7 @@ function median(xJ, options = {}) {
 
 function _benchmark_median() {
   const xJ = random_array(100)
-  const xJ_sorted = random_array(100).sort((a, b) => a - b)
+  const xJ_sorted = sort(random_array(100))
   benchmark(
     () => median(xJ),
     () => median(xJ, { copy: true }),
@@ -586,7 +586,7 @@ function quantiles(xJ, qK, options = {}) {
   if (J <= 1) return array(qK.length, xJ[0])
   if (!sorted) {
     if (copy) xJ = xJ.slice()
-    xJ.sort((a, b) => a - b)
+    sort(xJ)
   }
   let zK = array(qK.length)
   each(qK, (q, k) => {

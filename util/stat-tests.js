@@ -252,8 +252,8 @@ function _test_ks2() {
   const _discrete_ = { discrete: true }
   const xJ = random_array(100)
   const yK = random_array(200)
-  const xJ_sorted = xJ.slice().sort((a, b) => a - b)
-  const yK_sorted = yK.slice().sort((a, b) => a - b)
+  const xJ_sorted = sort(copy(xJ))
+  const yK_sorted = sort(copy(yK))
   check(
     () => [ks2([1], [0.9]), 1],
     () => [ks2([1], [1], _discrete_), 0],

@@ -1,8 +1,14 @@
+// TODO: document histogram, start charting
+
+// TODO: break down histogram into simpler functions
+// TODO: separate representation from visualization
+// TODO: always allow basic _tabular_ visualization
+
 function histogram(xJ, options = {}) {
   let {
     bins = 10,
     weights, // can be function or array
-    range: [xs = mina(xJ), xe = maxa(xJ)] = [],
+    range: [xs = mina(xJ), xe = maxa(xJ)] = [mina(xJ), maxa(xJ)],
     label = 'auto', // auto|lower|upper
     label_format,
     bound_format, // for boundary values in label

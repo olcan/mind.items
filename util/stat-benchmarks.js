@@ -43,7 +43,7 @@ function _benchmark_random_discrete_uniform_array() {
 
 function _benchmark_random_discrete() {
   const wJ = random_array(100)
-  const wJ_sorted = random_array(100).sort((a, b) => b - a)
+  const wJ_sorted = rank(random_array(100))
   const sum_wj = sum(wJ)
   benchmark(
     () => random_discrete([1, 2]),

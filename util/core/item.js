@@ -45,13 +45,15 @@ const read_input = (...args) => _this.read_input(...args)
 // | `keep_time` | bool | `false` | write w/o updating time
 const write = (...args) => _this.write(...args)
 
-// clear(type)
+// => item.clear(type)
 // clears (empties out) `type` blocks
-const clear = (...args) => _this.clear(...args)
+// invoke on item; _not aliased for `_this`_
+const __clear = (...args) => _this.clear(...args)
 
-// remove(type)
+// => item.remove(type)
 // removes `type` blocks
-const remove = (...args) => _this.remove(...args)
+// invoke on item; _not aliased for `_this`_
+const __remove = (...args) => _this.remove(...args)
 
 // => item.delete()
 // deletes `item` ___permanently___
