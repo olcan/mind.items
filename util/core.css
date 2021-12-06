@@ -2,6 +2,11 @@
   margin-top: 5px;
 }
 
+/* ignore break after table */
+.core_js_table + br {
+  display: none;
+}
+
 /* ignore breaks between function rows */
 .core_js_table .function + br {
   display: none;
