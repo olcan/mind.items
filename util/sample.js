@@ -234,6 +234,7 @@ class _Sampler {
     const js = func.toString()
     const lines = js.split('\n')
     this.values = []
+    this.names = []
     this.js = js.replace(
       /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight) *\(/g,
       (m, name, method, offset) => {
@@ -285,6 +286,7 @@ class _Sampler {
         // replace sample call
         const k = this.values.length
         this.values.push({ js, index: k, offset, name, args, line_index, line })
+        this.names.push(name || k)
         return m.replace(/sample *\($/, `__sampler._sample(${k},`)
       }
     )
@@ -411,11 +413,11 @@ class _Sampler {
     const start = Date.now()
     const { u, func, xJ, log_wJ, log_rwJ, stats } = this
     assert(u > this.u_wj, '_reweight requires u > u_wj')
-    map(log_rwJ, log_wJ, (a, b) => a - b)
+    sub(log_rwJ, log_wJ)
     fill(log_wJ, 0)
     fill(xJ, j => ((this.j = j), func(this)))
     this._clip_scaled_weights(log_wJ)
-    map(log_rwJ, log_wJ, (a, b) => a + b)
+    add(log_rwJ, log_wJ)
     this.u_wj = u // update step for last posterior reweight
     this.rwJ = null // reset cached posterior ratio weights and dependents
     // check ess>0 to precompute (cache) & force weight consistency check
@@ -665,7 +667,7 @@ class _Sampler {
         )
       else rwJ_agg[jj] = rwJ[j]
     })
-    return map(rwJ_agg, this.counts, (w, n) => w * n)
+    return mul(rwJ_agg, this.counts)
   }
 
   __counts() {
@@ -786,14 +788,7 @@ class _Sampler {
         return xJK[j]
       case 'object':
       default:
-        return _.set(
-          _.zipObject(
-            this.values.map(c => c.name || c.index),
-            xJK[j]
-          ),
-          '_index',
-          j
-        )
+        return _.set(_.zipObject(this.names, xJK[j]), '_index', j)
     }
   }
 
