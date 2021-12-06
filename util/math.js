@@ -11,6 +11,35 @@ const min = Math.min
 const max = Math.max
 const ceil = Math.ceil
 const floor = Math.floor
+const trunc = Math.trunc
+
+// many alternatives to floor ...
+// https://stackoverflow.com/a/5971668
+// https://stackoverflow.com/a/1822769
+// https://stackoverflow.com/a/5971668
+function _test_floor() {
+  const x = Math.random() * 1000
+  check(() => [floor(x), trunc(x), ~~x, x | 0, x >> 0, x >> 0, x >>> 0])
+  check(() => [floor(-x) + 1, trunc(-x), ~~-x, -x | 0, -x >> 0, -x << 0])
+}
+
+// benchmark to settle rumors of performance differences
+// unfortunately varies by browser, but in Safari everything is quite close
+// trunc and ~~ should be slightly faster as they do less work
+// floor and trunc seem preferable where readability matters
+function _benchmark_floor() {
+  const x = Math.random() * 10000
+  _benchmark_options = { N: 10000000 }
+  benchmark(
+    () => floor(x),
+    () => trunc(x),
+    // see https://stackoverflow.com/a/5971668
+    // similar to Math.trunc, chops decimal part, positive floor, never NaN
+    () => ~~x,
+    () => x | 0,
+    () => x >> 0
+  )
+}
 
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0
