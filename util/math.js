@@ -405,3 +405,16 @@ const _benchmark_dot = () => {
     () => dot(zJK, zJK)
   )
 }
+
+const scale = (xJ, y) => apply(xJ, x => x * y)
+const negate = xJ => scale(xJ, -1)
+const shift = (xJ, y) => apply(xJ, x => x + y)
+
+const add = (xJ, yJ) => map(xJ, yJ, (x, y) => x + y)
+const addf = (xJ, yJ, f) => map(xJ, yJ, (x, y) => x + f(y))
+const sub = (xJ, yJ) => map(xJ, yJ, (x, y) => x - y)
+const subf = (xJ, yJ) => map(xJ, yJ, (x, y) => x - f(y))
+const mul = (xJ, yJ) => map(xJ, yJ, (x, y) => x * y)
+const mulf = (xJ, yJ, f) => map(xJ, yJ, (x, y) => x * f(y))
+const div = (xJ, yJ) => map(xJ, yJ, (x, y) => x / y)
+const divf = (xJ, yJ, f) => map(xJ, yJ, (x, y) => x / f(y))
