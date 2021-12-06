@@ -716,7 +716,8 @@ class _Sampler {
       return ks
     })
     stats.tks_time += Date.now() - start
-    return maxa(tksK) // TODO: note this (after exp) is beta distributed
+    // TODO: _remap_ using beta_cdf for maximum of uniform
+    return maxa(tksK)
   }
 
   __mks() {
@@ -762,7 +763,8 @@ class _Sampler {
       return -log2(ks2_test(xR, yR))
     })
     stats.mks_time += Date.now() - start
-    return maxa(mksK) // TODO: note this (after exp) is beta distributed
+    // TODO: _remap_ using beta_cdf for maximum of uniform
+    return maxa(mksK)
   }
 
   sample_index(options) {
