@@ -236,6 +236,68 @@ function binomial_test(n, k, p) {
   return binomial_cdf(k, n, p) + 1 - binomial_cdf(~~(2 * n * p - k), n, p)
 }
 
+// continued fraction for incomplete beta function by modified Lentz's method
+// from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/special.js#L206
+function _betacf(x, a, b) {
+  const fpmin = 1e-30
+  const qab = a + b
+  const qap = a + 1
+  const qam = a - 1
+  let m = 1
+  let c = 1
+  let d = 1 - (qab * x) / qap
+  let m2, aa, del, h
+  if (Math.abs(d) < fpmin) d = fpmin
+  d = 1 / d
+  h = d
+  for (; m <= 100; m++) {
+    m2 = 2 * m
+    aa = (m * (b - m) * x) / ((qam + m2) * (a + m2))
+    d = 1 + aa * d
+    if (Math.abs(d) < fpmin) d = fpmin
+    c = 1 + aa / c
+    if (Math.abs(c) < fpmin) c = fpmin
+    d = 1 / d
+    h *= d * c
+    aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2))
+    d = 1 + aa * d
+    if (Math.abs(d) < fpmin) d = fpmin
+    c = 1 + aa / c
+    if (Math.abs(c) < fpmin) c = fpmin
+    d = 1 / d
+    del = d * c
+    h *= del
+    if (Math.abs(del - 1.0) < 3e-7) break
+  }
+  return h
+}
+
+// incomplete beta function I_x(a,b)
+// from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/special.js#L419
+function _ibeta(x, a, b) {
+  const bt =
+    x === 0 || x === 1
+      ? 0
+      : Math.exp(
+          _log_gamma(a + b) -
+            _log_gamma(a) -
+            _log_gamma(b) +
+            a * Math.log(x) +
+            b * Math.log(1 - x)
+        )
+  if (x < 0 || x > 1) return false
+  if (x < (a + 1) / (a + b + 2)) return (bt * _betacf(x, a, b)) / a
+  return 1 - (bt * _betacf(1 - x, b, a)) / b
+}
+
+// `P(X<=x)` for [beta distribution](https://en.wikipedia.org/wiki/Beta_distribution)
+function beta_cdf(x, a, b) {
+  // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/distribution.js#L88
+  if (x < 0) return 0
+  if (x > 1) return 1
+  return _ibeta(x, a, b)
+}
+
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
 // sorts arrays `xJ` and `yK` _in place_

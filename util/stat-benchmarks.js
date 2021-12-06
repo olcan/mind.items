@@ -113,6 +113,22 @@ function _benchmark_binomial_cdf() {
   )
 }
 
+function _benchmark_beta_cdf() {
+  benchmark(
+    () => [beta_cdf(0.5, 1, 1), 0.5, approx_equal],
+    () => [beta_cdf(0.5, 2, 1), 0.25, approx_equal],
+    () => [beta_cdf(0.5, 1, 2), 1 - 0.25, approx_equal],
+    () => [beta_cdf(0.5, 3, 10), 0.980712890625, approx_equal],
+    () => [beta_cdf(0.5, 10, 3), 1 - 0.980712890625, approx_equal],
+    () => [beta_cdf(0.999, 3, 10), 0.99999978148025725488, approx_equal],
+    () => [beta_cdf(0.999999, 3, 10), 0.999999999999999778, approx_equal],
+    () => [beta_cdf(0.001, 3, 10), 2.1851974277186961696e-7, approx_equal],
+    () => [beta_cdf(0.000001, 3, 10), 2.1999851500475359838e-16, approx_equal],
+    () => [beta_cdf(0.000001, 3, 10000), 1.6547140615697164e-7, approx_equal],
+    () => [beta_cdf(0.000001, 3, 1000000), 0.080301673036051512, approx_equal]
+  )
+}
+
 function _benchmark_ks2() {
   const xJ_100 = array(100, () => random_uniform())
   const yJ_100 = array(100, () => random_uniform())

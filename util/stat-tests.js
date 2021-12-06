@@ -228,6 +228,26 @@ function _test_binomial_test() {
     ])
 }
 
+function _test_beta_cdf() {
+  check(
+    () => [beta_cdf(-0.1, 1, 1), 0],
+    () => [beta_cdf(1.1, 1, 1), 1],
+    // reference values from Mathematica
+    //   SetPrecision[CDF[BetaDistribution[a,b],x],20]
+    () => [beta_cdf(0.5, 1, 1), 0.5, approx_equal],
+    () => [beta_cdf(0.5, 2, 1), 0.25, approx_equal],
+    () => [beta_cdf(0.5, 1, 2), 1 - 0.25, approx_equal],
+    () => [beta_cdf(0.5, 3, 10), 0.980712890625, approx_equal],
+    () => [beta_cdf(0.5, 10, 3), 1 - 0.980712890625, approx_equal],
+    () => [beta_cdf(0.999, 3, 10), 0.99999978148025725488, approx_equal],
+    () => [beta_cdf(0.999999, 3, 10), 0.999999999999999778, approx_equal],
+    () => [beta_cdf(0.001, 3, 10), 2.1851974277186961696e-7, approx_equal],
+    () => [beta_cdf(0.000001, 3, 10), 2.1999851500475359838e-16, approx_equal],
+    () => [beta_cdf(0.000001, 3, 10000), 1.6547140615697164e-7, approx_equal],
+    () => [beta_cdf(0.000001, 3, 1000000), 0.080301673036051512, approx_equal]
+  )
+}
+
 function _test_ks2() {
   const _discrete_ = { discrete: true }
   const xJ = random_array(100)
