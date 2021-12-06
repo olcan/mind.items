@@ -5,4 +5,4 @@
 // math.js
 ```
 
-#_util/core
+#_//core

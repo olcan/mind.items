@@ -5,4 +5,4 @@
 // random.js
 ```
 
-<p> #_util/core #_/update #_/weight #_/eval
+<p> #_//core #_/update #_/weight #_/eval

@@ -5,4 +5,4 @@
 // hash.js
 ```
 
-#_util/core
+#_///core

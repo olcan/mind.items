@@ -13,4 +13,4 @@
 // stat-benchmarks.js
 ```
 
-#_util/core
+#_//core
