@@ -203,8 +203,11 @@ function check(...funcs) {
 
 // measures calls/sec for each of `funcs`
 // typically used in benchmark functions `_benchmark_*()`
+// uses shuffle & silent pass to reduce & randomize ordering bias
 function benchmark(...funcs) {
-  _.flattenDeep([...funcs]).forEach(f => {
+  funcs = _.shuffle(_.flattenDeep([...funcs]))
+  funcs.forEach(f => _run_benchmark(f, { ..._benchmark_options, silent: true }))
+  funcs.forEach(f => {
     assert(is_function(f), 'non-function argument')
     _run_benchmark(f)
   })
@@ -215,14 +218,14 @@ function _run_benchmark(
   f,
   {
     name = stringify(f),
-    T = 10, // fast > accurate
-    T_max = 50,
     // note Date.now itself benchmarks at 10-30M calls/sec
     // so roughly (and naively) we can hope to measure Nx that
     // depends how much of Date.now overhead is before/after returned 'now'
     N = 100, // minimum calls between Date.now
+    T = 20, // maximum time (after minimum N calls)
     unit,
     units,
+    silent, // can be used for warmups
   } = _benchmark_options
 ) {
   let time = 0,
@@ -254,7 +257,8 @@ function _run_benchmark(
     } else for (let n = 0; n < N; ++n) f()
     time += Date.now() - start
     calls += N
-  } while (time < T && time < T_max)
+  } while (time < T)
+  if (silent) return
   const cps = stringify(Math.floor((calls / time) * 1000))
   const base = `${name}: ${cps} calls/sec`
   if (unit) {
