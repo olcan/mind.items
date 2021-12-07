@@ -10,11 +10,16 @@ const update = _.update
 const merge = _.merge
 const clone = _.clone
 const clone_deep = _.cloneDeep
+const zip = _.zip
+const zip_with = _.zipWith
+const zip_object = _.zipObject
+const unzip = _.unzip
 
 const remove = _.remove
 const first = _.first
 const last = _.last
 const take = _.take
+const take_while = _.takeWhile
 const pick = _.pick
 const omit = _.omit
 
@@ -129,11 +134,16 @@ const round = (x, d = 0, s = inf, mode = 'round') => {
   d = -d // negation more intuitive externally
   if (!isFinite(x)) return x
   if (isNaN(x) || !Number.isInteger(d)) return NaN
-  if (x < 0) return -_adjust_decimal(mode, -x, d)
+  let negate = false
+  if (x < 0) {
+    x = -x
+    negate = true
+  }
   x = x.toString().split('e')
   x = Math[mode](+(x[0] + 'e' + (x[1] ? +x[1] - d : -d)))
   x = x.toString().split('e')
-  return +(x[0] + 'e' + (x[1] ? +x[1] + d : d))
+  x = +(x[0] + 'e' + (x[1] ? +x[1] + d : d))
+  return negate ? -x : x
 }
 
 function _test_round() {
@@ -409,8 +419,11 @@ function cache(obj, prop, deps, f, options = {}) {
 // |`headers` | array    | `['a','b']`
 function table(cells, headers) {
   let lines = []
-  if (headers) lines.push('|' + headers.join('|') + '|')
-  else lines.push(array(cells[0].length + 1, k => '|').join(''))
+  if (headers) {
+    apply(headers, h => (is_string(h) ? h : stringify(h)))
+    lines.push('|' + headers.join('|') + '|')
+  } else lines.push(array(cells[0].length + 1, k => '|').join(''))
+  apply(cells, r => apply(r, c => (is_string(c) ? c : stringify(c))))
   lines.push(
     '|' +
       array(cells[0].length, k =>
