@@ -99,10 +99,7 @@ async function init_pusher() {
     const path = `items/${item.saved_id}.md`
     const remote_sha = path_sha.get(path)
     const sha = github_sha(item.text)
-    _this.store.items[item.saved_id] = {
-      sha: github_sha(item.text),
-      remote_sha: path_sha.get(path),
-    }
+    _this.store.items[item.saved_id] = { sha, remote_sha }
   }
   _this.log(
     `verified sha for ${_items().length} items in ${Date.now() - start} ms`
