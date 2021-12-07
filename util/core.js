@@ -198,7 +198,13 @@ function _test_round() {
     () => [round(1.2345, 308, 1000), 1.2345],
     () => [round(1.2345, 309, 1000), NaN],
     () => [round(1.2345, 309, 5), NaN],
-    () => [round(1.2345, 309, 4), 1.235] // s only kicks in if < sig. digits
+    () => [round(1.2345, 309, 4), 1.235], // s only kicks in if < sig. digits
+
+    // basic tests for floor/ceil modes
+    () => [round(1.2345, 5, 3, 'ceil'), 1.24],
+    () => [round(1.2345, 5, 3, 'floor'), 1.23],
+    () => [round(-1.2345, 5, 3, 'ceil'), -1.23],
+    () => [round(-1.2345, 5, 3, 'floor'), -1.24]
   )
 }
 
