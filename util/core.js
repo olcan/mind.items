@@ -487,7 +487,7 @@ function js_table(regex) {
         // args outer pattern: \(...\)  or  \(...\) | [^()\n]*?
 
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:\([^()]*?\)|[^()\n]*?)*?\))|= *(?<arrow_args>(?:\((?:\([^()]*?\)|[^()\n]*?)*?\)|[^()\n]*?) *=>)? *\n?(?<body>[^\n]+))?/gs
+          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:\([^()]*?\)|[^()\n]*?)*?\))|= *(?<arrow_args>(?:\((?:\([^()]*?\)|[^()\n]*?)*?\)|[^()\n]*?) *=>)? *\n?(?<body>[^\n]+))?/gs
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
