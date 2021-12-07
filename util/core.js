@@ -481,13 +481,13 @@ function js_table(regex) {
   const defs = _.compact(
     Array.from(
       _this
-        .read('js', { keep_empty_lines: true })
+        .read('js', { keep_empty_lines: true, keep_comment_lines: true })
         // NOTE: currently automated parsing of args works only if arguments are listed on the same line, since multi-line parsing is tricky w/ default values that may also contain parentheses (which we do allow to some extent), strings that contain parentheses, etc; if args are wrapped due to automated code formatting, a workaround is to define args in first line of comment, which are rarely wrapped by formatters or can be shortened to avoid wrapping
         // args inner pattern: (?:\(...\) | [^()\n]*?)*?  (ignore spaces,...)
         // args outer pattern: \(...\)  or  \(...\) | [^()\n]*?
 
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/[^\n]*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:\([^()]*?\)|[^()\n]*?)*?\))|= *(?<arrow_args>(?:\((?:\([^()]*?\)|[^()\n]*?)*?\)|[^()\n]*?) *=>)? *\n?(?<body>[^\n]+))?/gs
+          /(?:^|\n)(?<comment>( *\/\/.*?\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:\([^()]*?\)|[^()\n]*?)*?\))|= *(?<arrow_args>(?:\((?:\([^()]*?\)|[^()\n]*?)*?\)|[^()\n]*?) *=>)? *\n?(?<body>[^\n]+))?/gs
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
