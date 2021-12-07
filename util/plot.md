@@ -4,4 +4,4 @@
 ```js_removed:plot.js
 // plot.js
 ```
-<p> #_//core #_//math
+<p> #_//core #_//math #_//stat
