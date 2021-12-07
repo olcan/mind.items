@@ -65,7 +65,7 @@ const random_discrete = (wJ, sum_wj) => {
   sum_wj ??= sum(wJ)
   assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
   if (sum_wj == 0) return random_discrete_uniform(wJ.length)
-  // assert(mina(wJ) >= 0,`wj<0: ${mina(wJ)}`)
+  // assert(min_in(wJ) >= 0,`wj<0: ${min_in(wJ)}`)
   let j = 0
   let w = 0
   let wt = random() * sum_wj
@@ -86,7 +86,7 @@ function random_discrete_array(jK, wJ, sum_wj) {
   sum_wj ??= sum(wJ)
   assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
   if (sum_wj == 0) return random_discrete_uniform_array(jK, wJ.length)
-  // assert(mina(wJ) >= 0,`wj<0: ${mina(wJ)}`)
+  // assert(min_in(wJ) >= 0,`wj<0: ${min_in(wJ)}`)
   // generate (exp) increments for K+1 uniform numbers in [0,sum_wj) w/o sorting
   let rK = apply(random_array(jK), r => -Math.log(r))
   const z = sum_wj / (sum(rK) - Math.log(random()))
@@ -374,7 +374,7 @@ function ks2(xJ, yK, options = {}) {
   }
   apply(rR, (rr, r) => rr + rR[r - 1], 1) // accumulate cdf differences
   if (mR) map(rR, mR, (r, m) => r * m) // mask collisions
-  const ks = maxa(apply(rR, Math.abs)) / (J * K)
+  const ks = max_in(apply(rR, Math.abs)) / (J * K)
   if (is_nan(ks) || is_inf(ks)) {
     console.debug('ks nan/inf', {
       J,
@@ -461,7 +461,7 @@ function ks1_test(xJ, cdf, options = {}) {
 }
 
 // minimum element in `xJ`
-function mina(xJ) {
+function min_in(xJ) {
   assert(is_array(xJ), 'non-array argument')
   let z = inf
   for (let j = 0; j < xJ.length; ++j) if (xJ[j] < z) z = xJ[j]
@@ -469,7 +469,7 @@ function mina(xJ) {
 }
 
 // minimum of `f(x,j)` over `xJ`
-function minf(xJ, f = x => x) {
+function min_of(xJ, f = x => x) {
   assert(is_array(xJ), 'non-array argument')
   let z = inf
   for (let j = 0; j < xJ.length; ++j) {
@@ -479,8 +479,10 @@ function minf(xJ, f = x => x) {
   return z
 }
 
+const min_by = _.minBy
+
 // maximum element in `xJ`
-function maxa(xJ) {
+function max_in(xJ) {
   assert(is_array(xJ), 'non-array argument')
   let z = -inf
   for (let j = 0; j < xJ.length; ++j) if (xJ[j] > z) z = xJ[j]
@@ -488,7 +490,7 @@ function maxa(xJ) {
 }
 
 // maximum of `f(x,j)` over `xJ`
-function maxf(xJ, f = x => x) {
+function max_of(xJ, f = x => x) {
   assert(is_array(xJ), 'non-array argument')
   let z = -inf
   for (let j = 0; j < xJ.length; ++j) {
@@ -498,19 +500,14 @@ function maxf(xJ, f = x => x) {
   return z
 }
 
-// sum of `xJ`
-function sum(xJ) {
-  if (!is_array(xJ)) xJ = arguments
-  let z = 0
-  for (let j = 0; j < xJ.length; ++j) z += xJ[j]
-  return z
-}
+const max_by = _.maxBy
 
-// sum of `f(x,j)` over `xJ`
-function sumf(xJ, f = x => x) {
+// sum of `xJ`, or `f(x,j)` over `xJ`
+function sum(xJ, f) {
   assert(is_array(xJ), 'non-array argument')
   let z = 0
-  for (let j = 0; j < xJ.length; ++j) z += f(xJ[j], j)
+  if (!f) for (let j = 0; j < xJ.length; ++j) z += xJ[j]
+  else for (let j = 0; j < xJ.length; ++j) z += f(xJ[j], j)
   return z
 }
 
@@ -534,7 +531,7 @@ function circular_mean(xJ, r = pi) {
   if (xJ.length == 0) return NaN
   const z = r == pi ? 1 : pi / r
   const θJ = z == 1 ? xJ : xJ.map(x => x * z)
-  return Math.atan2(sumf(θJ, Math.sin), sumf(θJ, Math.cos)) / z
+  return Math.atan2(sum(θJ, Math.sin), sum(θJ, Math.cos)) / z
 }
 
 // [circular stdev](https://en.wikipedia.org/wiki/Directional_statistics#Dispersion) of `xJ` on `[-r,r]`

@@ -641,14 +641,14 @@ class _Sampler {
 
   __pwJ() {
     const { J, log_pwJ } = this
-    const max_log_pwj = maxa(log_pwJ)
+    const max_log_pwj = max_in(log_pwJ)
     const pwJ = (this.___pwJ ??= array(J))
     return copy(pwJ, log_pwJ, log_pwj => exp(log_pwj - max_log_pwj))
   }
 
   __rwJ() {
     const { J, log_rwJ } = this
-    const max_log_rwj = maxa(log_rwJ)
+    const max_log_rwj = max_in(log_rwJ)
     const rwJ = (this.___rwJ ??= array(J))
     return copy(rwJ, log_rwJ, log_rwj => exp(log_rwj - max_log_rwj))
   }
@@ -715,7 +715,7 @@ class _Sampler {
     })
     stats.tks_time += Date.now() - start
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
-    return -log2(beta_cdf(mina(pK), 1, K))
+    return -log2(beta_cdf(min_in(pK), 1, K))
   }
 
   __mks() {
@@ -762,7 +762,7 @@ class _Sampler {
     })
     stats.mks_time += Date.now() - start
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
-    return -log2(beta_cdf(mina(pK), 1, K))
+    return -log2(beta_cdf(min_in(pK), 1, K))
   }
 
   sample_index(options) {

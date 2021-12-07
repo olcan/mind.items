@@ -151,7 +151,7 @@ function _test_random_array() {
     () => [random_array([], () => 1), []],
     () => [random_array([0], () => 1), [1]],
     () => [random_array([0, 0], () => 1), [1, 1]],
-    () => mina(random_array(2, random, x => x > 0.5)) > 0.5
+    () => min_in(random_array(2, random, x => x > 0.5)) > 0.5
   )
 }
 
@@ -423,66 +423,57 @@ function _test_ks2_test() {
   )
 }
 
-function _test_mina() {
+function _test_min_in() {
   check(
-    () => throws(() => mina()),
-    () => throws(() => mina(0)),
-    () => [mina([]), inf],
-    () => [mina([0]), 0],
-    () => [mina([0, -1]), -1],
-    () => [mina([0, -1, -2]), -2],
-    () => [mina([0, -1, -2, 'a']), -2] // elements that fail < are ignored
+    () => throws(() => min_in()),
+    () => throws(() => min_in(0)),
+    () => [min_in([]), inf],
+    () => [min_in([0]), 0],
+    () => [min_in([0, -1]), -1],
+    () => [min_in([0, -1, -2]), -2],
+    () => [min_in([0, -1, -2, 'a']), -2] // elements that fail < are ignored
   )
 }
 
-function _test_minf() {
+function _test_min_of() {
   check(
-    () => throws(() => minf()),
-    () => throws(() => minf(0)),
-    () => [minf([]), inf],
-    () => [minf([0, -1, -2], x => 2 * x), -4],
-    () => [minf([0, -1, -2, 'a'], x => 2 * x), -4] // elements that fail < are ignored
+    () => throws(() => min_of()),
+    () => throws(() => min_of(0)),
+    () => [min_of([]), inf],
+    () => [min_of([0, -1, -2], x => 2 * x), -4],
+    () => [min_of([0, -1, -2, 'a'], x => 2 * x), -4] // elements that fail < are ignored
   )
 }
 
-function _test_maxa() {
+function _test_max_in() {
   check(
-    () => throws(() => maxa()),
-    () => throws(() => maxa(0)),
-    () => [maxa([]), -inf],
-    () => [maxa([0]), 0],
-    () => [maxa([0, 1]), 1],
-    () => [maxa([0, 1, 2]), 2],
-    () => [maxa([0, 1, 2, 'a']), 2] // elements that fail > are ignored
+    () => throws(() => max_in()),
+    () => throws(() => max_in(0)),
+    () => [max_in([]), -inf],
+    () => [max_in([0]), 0],
+    () => [max_in([0, 1]), 1],
+    () => [max_in([0, 1, 2]), 2],
+    () => [max_in([0, 1, 2, 'a']), 2] // elements that fail > are ignored
   )
 }
 
-function _test_maxf() {
+function _test_max_of() {
   check(
-    () => throws(() => maxf()),
-    () => throws(() => maxf(0)),
-    () => [maxf([]), -inf],
-    () => [maxf([0, 1, 2], x => 2 * x), 4],
-    () => [maxf([0, 1, 2, 'a'], x => 2 * x), 4] // elements that fail > are ignored
+    () => throws(() => max_of()),
+    () => throws(() => max_of(0)),
+    () => [max_of([]), -inf],
+    () => [max_of([0, 1, 2], x => 2 * x), 4],
+    () => [max_of([0, 1, 2, 'a'], x => 2 * x), 4] // elements that fail > are ignored
   )
 }
 
 function _test_sum() {
   check(
-    () => [sum(), 0],
-    () => [sum(0), 0],
-    () => [sum(0, 1), 1],
-    () => [sum(0, 1, 2), 3],
+    () => throws(() => sum()),
+    () => throws(() => sum(0)),
     () => [sum([0, 1, 2]), 3],
-    () => [sum([0, 1, 2, 'a']), '3a'] // invalid for non-numbers
-  )
-}
-
-function _test_sumf() {
-  check(
-    () => throws(() => sumf()),
-    () => throws(() => sumf(0)),
-    () => [sumf([0, 1, 2], x => 2 * x), 6],
-    () => [sumf([0, 1, 2, 'a'], x => 2 * x), NaN] // invalid for non-numbers
+    () => [sum([0, 1, 2, 'a']), '3a'], // invalid for non-numbers
+    () => [sum([0, 1, 2], x => 2 * x), 6],
+    () => [sum([0, 1, 2, 'a'], x => 2 * x), NaN] // invalid for non-numbers
   )
 }

@@ -145,12 +145,12 @@ function _benchmark_ks1() {
   benchmark(() => ks1(xJ_1000, x => x))
 }
 
-function _benchmark_mina() {
+function _benchmark_min_in() {
   const x10 = random_array(10)
   const x100 = random_array(100)
   // for reference, we compare to an implementation that uses each(...)
   function _min_each(xJ) {
-    if (!is_array(xJ)) xJ = arguments // allow mina(a,b,...)
+    if (!is_array(xJ)) xJ = arguments // allow min_in(a,b,...)
     let z = inf
     each(xJ, x => {
       if (x < z) z = x
@@ -158,33 +158,33 @@ function _benchmark_mina() {
     return z
   }
   benchmark(
-    () => mina([0]),
+    () => min_in([0]),
     () => Math.min(0, -1, -2),
-    () => mina([0, -1, -2]),
+    () => min_in([0, -1, -2]),
     () => _min_each([0, -1, -2]),
     () => Math.min(...x10),
     () => Math.min.apply(null, x10),
-    () => mina(x10),
+    () => min_in(x10),
     () => Math.min(...x100),
     () => Math.min.apply(null, x100),
-    () => mina(x100),
+    () => min_in(x100),
     () => _min_each(x100)
   )
 }
 
-function _benchmark_maxa() {
+function _benchmark_max_in() {
   const x10 = random_array(10)
   const x100 = random_array(100)
   benchmark(
-    () => maxa([0]),
+    () => max_in([0]),
     () => Math.max(0, 1, 2),
-    () => maxa([0, 1, 2]),
+    () => max_in([0, 1, 2]),
     () => Math.max(...x10),
     () => Math.max.apply(null, x10),
-    () => maxa(x10),
+    () => max_in(x10),
     () => Math.max(...x100),
     () => Math.max.apply(null, x100),
-    () => maxa(x100)
+    () => max_in(x100)
   )
 }
 
@@ -192,13 +192,13 @@ function _benchmark_sum() {
   const x10 = random_array(10)
   const x100 = random_array(100)
   benchmark(
-    () => sum(0),
     () => sum([0]),
-    () => sum(0, 1, 2),
+    () => _.sum([0]),
     () => sum([0, 1, 2]),
-    () => sum(...x10),
+    () => _.sum([0, 1, 2]),
     () => sum(x10),
-    () => sum(...x100),
-    () => sum(x100)
+    () => _.sum(x10),
+    () => sum(x100),
+    () => _.sum(x100)
   )
 }

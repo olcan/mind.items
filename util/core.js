@@ -245,7 +245,14 @@ function check(...funcs) {
 // uses shuffle & silent pass to reduce & randomize ordering bias
 function benchmark(...funcs) {
   funcs = _.shuffle(_.flattenDeep([...funcs]))
-  funcs.forEach(f => _run_benchmark(f, { ..._benchmark_options, silent: true }))
+  funcs.forEach(f =>
+    _run_benchmark(f, {
+      ..._benchmark_options,
+      silent: true,
+      N: _benchmark_options.N / 2,
+      T: _benchmark_options.T / 2,
+    })
+  )
   funcs.forEach(f => {
     assert(is_function(f), 'non-function argument')
     _run_benchmark(f)
