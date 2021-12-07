@@ -1,8 +1,7 @@
-// TODO: document histogram, start charting
-
 // TODO: break down histogram into simpler functions
 // TODO: separate representation from visualization
 // TODO: always allow basic _tabular_ visualization
+// TODO: document histogram, start charting
 
 function histogram(xJ, options = {}) {
   let {
@@ -22,25 +21,29 @@ function histogram(xJ, options = {}) {
   bound_format ??= x => round(x, ...[bound_precision].flat())
   weight_format ??= x => round(x, ...[weight_precision].flat())
 
-  const J = xJ.length
-  const K = bins
+  // determine weight function wJ(j)
   const wJ = j => 1
   if (weights) {
     if (is_function(weights)) wJ = weights
     else if (is_array(weights)) wJ = j => weights[j]
     else fatal(`invalid weights`)
   }
+
+  // bin xJ into K bins and aggregate wJ(j) into wK
+  const J = xJ.length
+  const K = bins
   const d = (xe - xs) / K
   const wK = array(K, 0)
   each(xJ, (x, j) => {
     if (x >= xs && x <= xe) wK[x == xe ? K - 1 : floor((x - xs) / d)] += wJ(j)
   })
-  const xj_max = maxa(xJ) // for last bucket
+
+  // generate bin labels
   const labels = array(K, k => {
     const lower = bound_format(xs + k * d)
     const upper = bound_format(k == K - 1 ? xe : xs + (k + 1) * d)
     const range =
-      `[${lower}, ${upper}` + (k == K - 1 && xe == xj_max ? ']' : ')')
+      `[${lower}, ${upper}` + (k == K - 1 && xe == maxa(xJ) ? ']' : ')')
     switch (label) {
       case 'range':
         return range
@@ -60,6 +63,8 @@ function histogram(xJ, options = {}) {
         fatal(`invalid label '${label}'`)
     }
   })
+
+  // output as requested
   switch (output) {
     case 'array':
       return [labels, wK]
