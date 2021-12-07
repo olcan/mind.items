@@ -138,6 +138,8 @@ const round = (x, d = 0, s = inf, mode = 'round') => {
   if (x < 0) {
     x = -x
     negate = true
+    if (mode == 'floor') mode = 'ceil'
+    else if (mode == 'ceil') mode = 'floor'
   }
   x = x.toString().split('e')
   x = Math[mode](+(x[0] + 'e' + (x[1] ? +x[1] - d : -d)))
