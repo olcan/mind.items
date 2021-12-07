@@ -36,6 +36,8 @@ function _benchmark_array() {
 const zeroes = J => array(J, 0)
 const ones = J => array(J, 1)
 
+// NOTE: using min/max to bound js/je enables significant speedup in benchmarks
+
 // fill(xJ, x, [js=0], [je=J])
 // fills `xJ` as `xJ[j]=x ∀j`
 // `x` can be a function of index, e.g. `j=>j`
