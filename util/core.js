@@ -27,6 +27,7 @@ const every = _.every
 const some = _.some
 
 const uniq = _.uniq
+const uniq_by = _.uniqBy
 const diff = _.difference
 const compact = _.compact
 const without = _.without
