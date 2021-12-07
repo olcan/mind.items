@@ -27,11 +27,8 @@ function bins(xJ, K = 10, d = 2) {
   while (last(xK) <= xe) xK.push(round(last(xK) + xd, d))
   K = xK.length
   // shift (and re-round) bins to equalize gap from first/last value
-  const r = xs - xsr - (last(xK) - xe)
-  if (abs(r) > p)
-    apply(xK, (x, k) =>
-      round(x + r / 2, d, inf, k == 0 ? 'floor' : k == K - 1 ? 'ceil' : 'round')
-    )
+  const r = round(xs - xsr - (last(xK) - xe), d)
+  if (abs(r) > p) apply(xK, (x, k) => round(x + r / 2, d))
   assert(xK[0] < xs, `binning error: first bin ${xK[0]} ≥ ${xs}`)
   assert(xe < xK[K - 1], `binning error: last bin ${xK[K - 1]} ≤ ${xe}`)
   return xK
