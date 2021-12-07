@@ -616,14 +616,16 @@ function js_table(regex) {
     let args = def.args
       .replace(/\s+/g, '')
       .replace(/^\(|\)$/g, '')
-      .split(/\(.*?\)|,/) // split by commas NOT inside parens
+      .split(/\,\s?(?![^\(]*\)|[^\[]*\])/) // matches commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568; TODO: refactor this, used in three places
       .map(s => (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s))
       .join(',')
     if (def.args) args = '(' + args + ')'
-    let args_expanded = args.replace(/,/g, ', ').replace(/=/g, ' = ')
+    let args_expanded = args
+      .replace(/\,\s?(?![^\(]*\)|[^\[]*\])/g, ', ')
+      .replace(/=(?!>)/g, ' = ')
     const has_defaults = args.match(/\[(.+?)=.+?\]/) ? 'has_defaults' : ''
     // NOTE: this simple regex does not work for {arg=default} but does for arg={}
-    args = args.replace(/\[(.+?)=.+?\]/g, '[$1]') // hide defaults unless expanded
+    args = args.replace(/\[(.+?)=(?!>).+?\]/g, '[$1]') // hide defaults unless expanded
     args = args.replace(/[(\[{}\])]/g, p => _span('parens', p))
     args_expanded = args_expanded.replace(/[(\[{}\])]/g, p =>
       _span('parens', p)
@@ -775,8 +777,8 @@ function _js_table_show_function(name) {
   // remove all whitespace from args except before commas & around equals
   const args = usage
     .querySelector('.args.expanded')
-    .innerText.replace(/,/g, ', ')
-    .replace(/=/g, ' = ')
+    .innerText.replace(/\,\s?(?![^\(]*\)|[^\[]*\])/g, ', ')
+    .replace(/=(?!>)/g, ' = ')
     .replace(/[(\[{}\])]/g, p => _span('parens', p))
   // look up function using _this.eval
   let ref, def
