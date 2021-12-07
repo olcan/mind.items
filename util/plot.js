@@ -1,4 +1,3 @@
-// TODO: dependency changes should trigger rerunning of tests/benchmarks, fails should be treated as errors on items
 // TODO: break down histogram into simpler functions
 //       consider binner function, linear binner, etc
 //       (maybe keep around histogram until you have the pieces)
@@ -6,20 +5,17 @@
 // TODO: always allow basic _tabular_ visualization
 // TODO: document histogram, start charting
 
-function linear_binner(xJ, range = [min_in(xJ), max_in(xJ)]) {}
-
 function histogram(xJ, options = {}) {
   let {
     bins = 10,
     weights, // can be function or array
-    range: [xs = min_in(xJ), xe = max_in(xJ)] = [min_in(xJ), max_in(xJ)],
+    range = min_max_in(xJ),
     label = 'auto', // auto|lower|upper
     label_format,
     bound_format, // for boundary values in label
     weight_format,
     bound_precision = 2, // args for round(x,...) for default bound_format
     weight_precision = 2, // args for round(x,...) for default weight_format
-    output = 'array', // array|object|object_map|map
   } = options
 
   label_format ??= x => x
@@ -34,9 +30,10 @@ function histogram(xJ, options = {}) {
     else fatal(`invalid weights`)
   }
 
-  // bin xJ into K bins and aggregate wJ(j) into wK
+  // bin xJ into K linear bins and aggregate wJ(j) into wK
   const J = xJ.length
   const K = bins
+  const [xs, xe] = range
   const d = (xe - xs) / K
   const wK = array(K, 0)
   each(xJ, (x, j) => {
@@ -47,6 +44,7 @@ function histogram(xJ, options = {}) {
   const labels = array(K, k => {
     const lower = bound_format(xs + k * d)
     const upper = bound_format(k == K - 1 ? xe : xs + (k + 1) * d)
+    // TODO: fix unused label_format... pass label as pair? also the linear binning is hard-coded inside this loop, which is not great and may be worth restructuring
     const range =
       `[${lower}, ${upper}` + (k == K - 1 && xe == max_in(xJ) ? ']' : ')')
     switch (label) {
@@ -69,18 +67,5 @@ function histogram(xJ, options = {}) {
     }
   })
 
-  // output as requested
-  // note object does not guarantee key ordering so we don't output label-keyed object
-  switch (output) {
-    case 'array':
-      return [labels, wK]
-    case 'object':
-      return { labels: labels, weights: wK }
-    case 'object_map':
-      return _.zipObject(labels, wK) // see https://stackoverflow.com/a/5525820
-    case 'map':
-      return new Map(_.zip(labels, wK))
-    default:
-      fatal(`invalid output '${output}'`)
-  }
+  return zip(labels, wK)
 }
