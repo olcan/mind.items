@@ -76,7 +76,8 @@ function stringify(x) {
 }
 
 function _stringify_object(x) {
-  return '{' + Object.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
+  // _.entries uses .entries() for maps
+  return '{' + _.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
 }
 
 function _test_stringify() {
