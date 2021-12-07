@@ -467,6 +467,19 @@ function _test_max_of() {
   )
 }
 
+function _test_min_max_in() {
+  check(
+    () => throws(() => min_max_in()),
+    () => throws(() => min_max_in(0)),
+    () => [min_max_in([]), [inf, -inf]],
+    () => [min_max_in([0]), [0, 0]],
+    () => [min_max_in([0, -1]), [-1, 0]],
+    () => [min_max_in([0, -1, -2]), [-2, 0]],
+    // elements that fail < and > are ignored
+    () => [min_max_in([0, -1, -2, 'a']), [-2, 0]]
+  )
+}
+
 function _test_sum() {
   check(
     () => throws(() => sum()),

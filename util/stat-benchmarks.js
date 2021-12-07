@@ -188,6 +188,19 @@ function _benchmark_max_in() {
   )
 }
 
+function _benchmark_min_max_in() {
+  const x10 = random_array(10)
+  const x100 = random_array(100)
+  benchmark(
+    () => min_max_in([0, 1, 2]),
+    () => min_max_in(x10),
+    () => min_max_in(x100),
+    () => [min_in([0, 1, 2]), max_in([0, 1, 2])],
+    () => [min_in(x10), max_in(x10)],
+    () => [min_in(x100), max_in(x100)]
+  )
+}
+
 function _benchmark_sum() {
   const x10 = random_array(10)
   const x100 = random_array(100)
