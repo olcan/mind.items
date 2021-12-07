@@ -82,7 +82,7 @@ function _stringify_object(x) {
 
 function _test_stringify() {
   check(
-    () => [stringify(), 'undefined'],
+    () => [stringify(), 'undefine'],
     () => [stringify(undefined), 'undefined'],
     () => [stringify('test'), `'test'`],
     () => [stringify(true), 'true'],

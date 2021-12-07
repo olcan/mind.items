@@ -73,7 +73,9 @@ function test_item(item) {
 }
 
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
-  if (dependency) return // dependencies should have own tests
+  // NOTE: we auto-retest dependents when dependencies change
+  //       (another reason why tests need to be FAST)
+  // if (dependency) return // dependencies should have own tests
   if (remote) return // remote changes should be tested locally
   if (deleted) return // no need to test deleted items
   test_item(_item(id))
