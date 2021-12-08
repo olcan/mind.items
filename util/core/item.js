@@ -1,4 +1,4 @@
-// => item.eval(code,…)
+// => item.eval(code,{…})
 // evaluates `code` in context of `item`
 // _invoke on item; can't be aliased for `_this`_
 // forwards options to `read` for prefix code
@@ -11,7 +11,7 @@
 // | `trigger`        | string  | `other` | eval trigger name
 const __eval = (...args) => _this.eval(...args)
 
-// read([type],…)
+// read([type],{…})
 // reads text from item
 // `type` can indicate block(s) to read, e.g. `js`
 // `type` can be regex, e.g. `js|js_tests?`
@@ -26,20 +26,20 @@ const __eval = (...args) => _this.eval(...args)
 // | <td colspan=3 style="text-align:center"> all options default to `false`</td>
 const read = (...args) => _this.read(...args)
 
-// read_deep(type,…)
+// read_deep(type,{…})
 // reads from block `type` in item _& dependencies_
 // uses `include_deps=true` by default
 // other options same as `read`
 const read_deep = (...args) => _this.read_deep(...args)
 
-// read_input(type,…)
+// read_input(type,{…})
 // reads _input_ for `type` from item _& dependencies_
 // reads `<type>_input` from item, `type` from deps
 // uses `replace_ids=true` by default
 // other options same as `read`
 const read_input = (...args) => _this.read_input(...args)
 
-// write(text,[type],…)
+// write(text,[type],{…})
 // writes `text` to block `type` in item
 // default block `type` is `'_output'`
 // writes _whole item_ if `type==''`
@@ -62,7 +62,7 @@ const __remove = (...args) => _this.remove(...args)
 // invoke on item; _can't be aliased for `_this`_
 const __delete = (...args) => _this.delete(...args)
 
-// get_log(…)
+// get_log({…})
 // log messages for item
 // |`source` | string   | `self*`, `any`, item `#name` or id
 // |         |          | append `?` to include unknown (empty stack)
@@ -72,13 +72,13 @@ const __delete = (...args) => _this.delete(...args)
 // |         |          | `*` indicates defaults
 const get_log = (...args) => _this.get_log(...args)
 
-// write_log(…)
+// write_log({…})
 // writes log messages into item
 // | `type` | output block type, default `'_log'`
 // | ...    | same options as `get_log`
 const write_log = (...args) => _this.write_log(...args)
 
-// write_log_any(…)
+// write_log_any({…})
 // writes _all_ log messages into item
 // uses `source='any'` by default
 // other options same as `write_log`
@@ -184,7 +184,7 @@ const fatal = (...args) => _this.fatal(...args)
 // `≡ promise(resolve => dispatch(resolve, ms))`
 const delay = (...args) => _this.delay(...args)
 
-// images(…)
+// images({…})
 // _uploaded_ images in item
 // as sources (`src` in text), urls, or blob
 // returns string array for sources
