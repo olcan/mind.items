@@ -1,3 +1,9 @@
+// => _Item
+// class for all items
+// as returned by `_item(…)`, `_items(…)`, `_create(…)`, etc
+// extendable as `_Item.prototype.method = function(…) { … }`
+const _Item = _this.constructor
+
 // => item.eval(code,{…})
 // evaluates `code` in context of `item`
 // _invoke on item; can't be aliased for `_this`_
@@ -45,6 +51,12 @@ const read_input = (...args) => _this.read_input(...args)
 // writes _whole item_ if `type==''`
 // | `keep_time` | bool | `false` | write w/o updating time
 const write = (...args) => _this.write(...args)
+
+// write_lines(...lines)
+const write_lines = (...args) => _this.write_lines(...args)
+_Item.prototype.write_lines = function (...lines) {
+  this.write(flat(lines).join('\n').trim(), '')
+}
 
 // => item.clear(type)
 // clears (empties out) `type` blocks
