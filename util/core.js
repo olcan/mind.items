@@ -126,6 +126,7 @@ const round = (x, d = 0, s = inf, mode = 'round') => {
   if (d == 0 && s == inf) return Math[mode](x) // fast case
   // determine d automatically if s<inf
   if (s < inf) {
+    assert(s > 0, `invalid significant digits ${s}`)
     const sd = _significant_digits(x)
     if (s < sd) d = Math.min(d, _decimals(x) - (sd - s))
   }
@@ -169,8 +170,6 @@ function _test_round() {
     () => [round(1.2345e4, -2), round(1.2345e4, 0, 3), 12300],
     () => [round(1.2345e4, -3), round(1.2345e4, 0, 2), 12000],
     () => [round(1.2345e4, -4), round(1.2345e4, 0, 1), 10000],
-    () => [round(1.2345e4, -5), round(1.2345e4, 0, 0), 0],
-    () => [round(1.2345e4, -6), round(1.2345e4, 0, -1), 0],
     () => [round(1.2345e4, 1), 12345],
     () => [round(1.2345e4, 304), 12345],
     () => [round(1.2345e4, 305), NaN], // > Number.MAX_VALUE
@@ -186,9 +185,9 @@ function _test_round() {
     () => [round(1.2345e-2, 10, 4), 0.01235], // fails for naive d=s-_digits(x)
     () => [round(1.2345e-2, 10, 3), 0.0123],
 
-    () => [round(1.2345, 5, 0), 0],
-    () => [round(1.2345, 5, -1), 0],
-    () => [round(1.2345, 5, -2), 0],
+    () => throws(() => round(1.2345, 5, 0)),
+    () => throws(() => round(1.2345, 5, -1)),
+    () => throws(() => round(1.2345, 5, -2)),
     () => [round(1.2345, 5, 1), 1],
     () => [round(1.2345, 5, 2), 1.2],
     () => [round(1.2345, 5, 3), 1.23],
