@@ -223,7 +223,7 @@ class _Sampler {
       options
     )
     if (options.log)
-      ilog(`mks_buffer: ${this.B} (period ${options.mks_period})`)
+      print(`mks_buffer: ${this.B} (period ${options.mks_period})`)
 
     // set up default prior/posterior sampler functions
     this._prior = f => f(this.sample({ prior: true }))
@@ -362,17 +362,17 @@ class _Sampler {
     this._sample_prior()
     const ms = Date.now() - start
     if (options.log) {
-      ilog(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${ms}ms`)
-      ilog(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
+      print(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${ms}ms`)
+      print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
     // update sample to posterior
     start = Date.now()
     this._update()
     if (options.log) {
-      ilog(`applied ${this.u} updates in ${Date.now() - start}ms`)
-      ilog(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
-      ilog(str(this.stats))
+      print(`applied ${this.u} updates in ${Date.now() - start}ms`)
+      print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
+      print(str(this.stats))
     }
   }
 
@@ -606,7 +606,7 @@ class _Sampler {
       if (this.u >= updates) {
         const { t, u } = this
         if (this.options.log)
-          ilog(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
+          print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
         break
       }
 
@@ -614,7 +614,7 @@ class _Sampler {
       if (this.t >= time) {
         const { t, u } = this
         if (this.options.log)
-          ilog(`reached target time t=${t}≥${time}ms (u=${u})`)
+          print(`reached target time t=${t}≥${time}ms (u=${u})`)
         break
       }
 
@@ -622,7 +622,7 @@ class _Sampler {
       if (this.ess >= min_ess && this.mks <= max_mks && this.mlw <= 0) {
         const { t, u, ess, mks, mlw } = this
         if (this.options.log)
-          ilog(
+          print(
             `reached target ess=${round(ess)}≥${min_ess}, ` +
               `mks=${round(mks, 3)}≤${max_mks}, mlw=${round(mlw, 3)}≤0 ` +
               `@ u=${u}, t=${t}ms`
@@ -853,7 +853,7 @@ class _Sampler {
             value.target_weight_sum = sum(value.target_weights)
           }
           const ms = Date.now() - start
-          if (this.options.log) ilog(`sampled ${T} target values in ${ms}ms`)
+          if (this.options.log) print(`sampled ${T} target values in ${ms}ms`)
         } else {
           if (!is_function(value.target) && !is_array(value.target))
             fatal(`invalid target @ ${line}`)
@@ -870,7 +870,7 @@ class _Sampler {
             `mean=${round(mean(value.target), 3)}`
         else if (is_function(value.target))
           target = ` --> target cdf ${str(value.target)}`
-        ilog(`[${index}] ${name ? name + ' = ' : ''}sample(${args})${target}`)
+        print(`[${index}] ${name ? name + ' = ' : ''}sample(${args})${target}`)
       }
     }
 

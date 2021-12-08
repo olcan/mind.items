@@ -158,10 +158,9 @@ const resolve = (...args) => _this.resolve(...args)
 // `≡ invoke(() => console.debug(...))`
 const debug = (...args) => _this.debug(...args)
 
-// ilog(...)
+// print(...)
 // `invoke(() => console.log(...))`
-// `i` is for `item` to avoid confusion w/ `log` in #util/math
-const ilog = (...args) => _this.log(...args)
+const print = (...args) => _this.log(...args)
 
 // info(...)
 // `invoke(() => console.info(...))`

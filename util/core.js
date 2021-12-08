@@ -347,15 +347,15 @@ function _run_benchmark(
   const base = `${name}: ${cps} calls/sec`
   if (unit) {
     const ups = str(Math.floor((count / time) * 1000))
-    ilog(base + ` (${ups} ${unit})`)
+    print(base + ` (${ups} ${unit})`)
   } else if (units) {
-    ilog(
+    print(
       base +
         ' (' +
         units.map((u, k) => str(counts[k]) + ' ' + u).join(', ') +
         ')'
     )
-  } else ilog(base)
+  } else print(base)
 }
 
 function _benchmark_benchmark() {
@@ -753,6 +753,7 @@ function _install_core_css() {
 // install core.css on init
 function _init() {
   _install_core_css()
+  delete window.print // prevent any ambiguity w/ print() in #/item
 }
 
 // re-install core.css on any changes to core (or dependencies)
