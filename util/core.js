@@ -50,10 +50,14 @@ const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
 const sorted_index = _.sortedIndex
 const sorted_last_index = _.sortedLastIndex
 
+const stringify = JSON.stringify
+const parse = JSON.parse
+
 // converts `x` to a string
 // goals: short, readable, unique
-// intended for presentation and hashing
-// not intended for parsing (unlike e.g. `JSON.stringify`)
+// mainly intended for clean presentation
+// also used as default stringifier in #/hash
+// not intended for parsing, unlike e.g. `JSON.stringify`
 // | string   | `x` wrapped in single quotes
 // | boolean  | `x.toString()`
 // | integer  | `x.toString()`, [commas inserted](https://stackoverflow.com/a/2901298)
