@@ -652,7 +652,12 @@ function js_table(regex) {
       .replace(/\s+/g, '')
       .replace(/^\(|\)$/g, '')
       .split(/\,\s?(?![^\(]*\)|[^\[]*\])/) // matches commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568; TODO: refactor this, used in three places
-      .map(s => (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s))
+      .map(s =>
+        (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s).replace(
+          /=undefined]$/, // =undefined can be used to indicate optionals
+          ']'
+        )
+      )
       .join(',')
     if (def.args) args = '(' + args + ')'
     let args_expanded = args
