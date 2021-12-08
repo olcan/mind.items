@@ -1,10 +1,10 @@
-// bins `xJ` into `≤K` bins `xB`
+// bin `xJ` into `≤K` bins `xB`
 // `B` values encode `B-1` _right-open intervals_ $`[x_b,x_{b+1})`$
 // can be given only range pair `[xs,xe]` or `min_max_in(xJ)`
 // rounds boundary values to `d` decimal places
 // can also round to at most `s` significant digits
 // drops empty or small bins to return `≤K` bins
-function bins(xJ, K = 10, d = 2, s = inf) {
+function bin(xJ, K = 10, d = 2, s = inf) {
   assert(is_array(xJ), 'non-array argument')
   assert(xJ.length, 'empty array argument')
   assert(is_integer(K) && K > 0, `invalid bin count ${K}`)
@@ -43,49 +43,46 @@ function bins(xJ, K = 10, d = 2, s = inf) {
   return xK
 }
 
-function _test_bins() {
+function _test_bin() {
   check(
-    () => throws(() => bins([])),
-    () => throws(() => bins([inf])),
-    () => throws(() => bins([-inf])),
-    () => throws(() => bins([0], 0)),
-    () => throws(() => bins([0], -1)),
-    () => [bins([0], 1), [-0.01, 0.01]],
-    () => [bins([0]), [-0.01, 0.01]], // empty bins dropped/merged
-    () => [bins([0]), [-0.01, 0.01]],
-    () => [bins([0, 0.009]), [-0.01, 0.01]], // too close to create bin
-    () => [bins([-0.009, 0]), [-0.01, 0.01]], // too close to create bin
-    () => [bins([0, 0.01]), [-0.01, 0.01, 0.03]],
-    () => [bins([0, 1], 1), [-0.01, 1.01]],
-    () => [bins([0, 1], 2), [-0.01, 0.5, 1.01]],
-    () => [bins([0, 1], 3), [-0.01, 0.33, 0.67, 1.01]],
+    () => throws(() => bin([])),
+    () => throws(() => bin([inf])),
+    () => throws(() => bin([-inf])),
+    () => throws(() => bin([0], 0)),
+    () => throws(() => bin([0], -1)),
+    () => [bin([0], 1), [-0.01, 0.01]],
+    () => [bin([0]), [-0.01, 0.01]], // empty bins dropped/merged
+    () => [bin([0]), [-0.01, 0.01]],
+    () => [bin([0, 0.009]), [-0.01, 0.01]], // too close to create bin
+    () => [bin([-0.009, 0]), [-0.01, 0.01]], // too close to create bin
+    () => [bin([0, 0.01]), [-0.01, 0.01, 0.03]],
+    () => [bin([0, 1], 1), [-0.01, 1.01]],
+    () => [bin([0, 1], 2), [-0.01, 0.5, 1.01]],
+    () => [bin([0, 1], 3), [-0.01, 0.33, 0.67, 1.01]],
     // test varying precision from -10 to 10
-    () => [bins([0, 1], 3, 2), [-0.01, 0.33, 0.67, 1.01]],
-    () => [bins([0, 1], 3, 3), [-0.001, 0.333, 0.667, 1.001]],
-    () => [bins([0, 1], 3, 4), [-0.0001, 0.3333, 0.6667, 1.0001]],
-    () => [bins([0, 1], 3, 5), [-0.00001, 0.33333, 0.66667, 1.00001]],
+    () => [bin([0, 1], 3, 2), [-0.01, 0.33, 0.67, 1.01]],
+    () => [bin([0, 1], 3, 3), [-0.001, 0.333, 0.667, 1.001]],
+    () => [bin([0, 1], 3, 4), [-0.0001, 0.3333, 0.6667, 1.0001]],
+    () => [bin([0, 1], 3, 5), [-0.00001, 0.33333, 0.66667, 1.00001]],
     // test reducing significant digits ...
-    () => [bins([0, 1], 3, 5, 6), [-0.00001, 0.33333, 0.66667, 1.00001]],
-    () => [bins([0, 1], 3, 5, 5), [-0.00001, 0.33333, 0.66667, 1.0001]],
-    () => [bins([0, 1], 3, 5, 4), [-0.00001, 0.3333, 0.6667, 1.001]],
-    () => [bins([0, 1], 3, 5, 3), [-0.00001, 0.333, 0.667, 1.01]],
-    () => [bins([0, 1], 3, 5, 2), [-0.00001, 0.33, 0.67, 1.1]],
-    () => [bins([0, 1], 3, 5, 1), [-0.00001, 0.3, 0.7, 2]],
-    () => [
-      bins([0, 1], 3, 10),
-      [-1e-10, 0.3333333333, 0.6666666667, 1 + 1e-10],
-    ],
-    () => [bins([0, 1], 3, 1), [-0.3, 0.3, 0.8, 1.3]],
-    () => [bins([0, 1], 3, 0), [-1, 1, 3]],
-    () => [bins([0, 1], 3, -1), [-10, 10]],
-    () => [bins([0, 1], 3, -2), [-100, 100]],
-    () => [bins([0, 1], 3, -10), [-1e10, 1e10]]
+    () => [bin([0, 1], 3, 5, 6), [-0.00001, 0.33333, 0.66667, 1.00001]],
+    () => [bin([0, 1], 3, 5, 5), [-0.00001, 0.33333, 0.66667, 1.0001]],
+    () => [bin([0, 1], 3, 5, 4), [-0.00001, 0.3333, 0.6667, 1.001]],
+    () => [bin([0, 1], 3, 5, 3), [-0.00001, 0.333, 0.667, 1.01]],
+    () => [bin([0, 1], 3, 5, 2), [-0.00001, 0.33, 0.67, 1.1]],
+    () => [bin([0, 1], 3, 5, 1), [-0.00001, 0.3, 0.7, 2]],
+    () => [bin([0, 1], 3, 10), [-1e-10, 0.3333333333, 0.6666666667, 1 + 1e-10]],
+    () => [bin([0, 1], 3, 1), [-0.3, 0.3, 0.8, 1.3]],
+    () => [bin([0, 1], 3, 0), [-1, 1, 3]],
+    () => [bin([0, 1], 3, -1), [-10, 10]],
+    () => [bin([0, 1], 3, -2), [-100, 100]],
+    () => [bin([0, 1], 3, -10), [-1e10, 1e10]]
   )
 }
 
-// counts `xJ` into bins `xB`
+// count `xJ` into bins `xB`
 // can aggregate optional weights `wJ`
-function bin_counts(xJ, xB = bins(xJ), wJ = undefined) {
+function count(xJ, xB = bin(xJ), wJ = undefined) {
   assert(is_array(xJ), 'non-array argument')
   assert(xJ.length, 'empty array')
   assert(is_array(xB), 'non-array bins')
@@ -113,8 +110,8 @@ function bin_counts(xJ, xB = bins(xJ), wJ = undefined) {
 // TODO: document options
 function histogram(xJ, options = {}) {
   let {
-    max_bins = 10,
-    precision = 1, // d or [d,s] arguments to bins(xJ,…) or round(…)
+    bins, // can be array or integer (for max bins)
+    precision = 1, // d or [d,s] arguments to bin(xJ,…) or round(…)
     label_precision, // for fixed precision (decimal places); default is auto
     value_formatter = x => x.toFixed(label_precision),
     labeler = (a, b) => [value_formatter(a), value_formatter(b)],
@@ -122,20 +119,50 @@ function histogram(xJ, options = {}) {
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
   } = options
+  // interpret integer bins as max_bins
+  if (is_integer(bins)) {
+    max_bins = bins
+    bins = undefined
+  }
   const [d, s] = flat(precision)
-  const xB = options.bins ?? bins(xJ, max_bins, d, s)
+  const xB = is_array(bins) ? bins : bin(xJ, is_integer(bins) ? bins : 10, d, s)
   label_precision ??= min_of(xB, _decimal_places)
   assert(is_array(xB), 'non-array bins')
-  const cK = bin_counts(xJ, xB, weights)
+  const cK = count(xJ, xB, weights)
   const [wd, ws] = flat(weight_precision)
   if (weights) apply(cK, w => round(w, wd, ws))
   const lK = labels ?? array(cK.length, k => labeler(xB[k], xB[k + 1]))
-  return transpose([lK, cK]).map(flatten)
+  const data = transpose([lK, cK]).map(flatten)
+  return { data }
 }
 
-// plot(data, {…})
+// plot(obj, {…})
 // TODO: document options
-async function plot(data, options = {}) {
+async function plot(obj, options = {}) {
+  assert(is_object(obj), 'non-object argument')
+  let {
+    data, // required
+    renderer = 'table', // can be function or string
+    // data<->text encoder/decoder
+    encoding = 'json', // block type/name (_removed is appended)
+    encoder = stringify, // must be function
+    decoder = 'parse', // can be function or string
+    deps, // optional dependencies (besides #_util/core)
+  } = obj
+  assert(data, 'missing obj.data')
+  assert(renderer, 'missing obj.renderer')
+  assert(is_function(renderer) || is_string(renderer), 'invalid obj.renderer')
+  assert(is_function(decoder) || is_string(decoder), 'invalid obj.decoder')
+  assert(is_function(encoder), 'invalid obj.encoder')
+  // convert renderer and parser to strings embeddable in macro
+  if (is_function(renderer)) renderer = renderer.toString()
+  if (!renderer.match(/^\w+$/)) renderer = `(${renderer})`
+  if (is_function(decoder)) decoder = decoder.toString()
+  if (!decoder.match(/^\w+$/)) decoder = `(${decoder})`
+  const macro = `${renderer}(${decoder}(read('${encoding}')))`
+  deps = flat('#_util/core', deps ?? []).join(' ')
+  const text = encoder(data)
+
   assert(_this.name.startsWith('#'), 'plot called from unnamed item')
   let { name = '#/plot' } = options
   if (name.match(/^\w/)) name = '/' + name
@@ -165,12 +192,13 @@ async function plot(data, options = {}) {
   }
 
   item.write_lines(
-    item.name + ' #_util',
-    `\<<table(parse(read('json')))>>`,
-    block('json_removed', stringify(data))
+    item.name,
+    `\<<${macro}>>`,
+    block(encoding + '_removed', text),
+    deps
   )
 
-  // write any logs
+  // write any logs to calling item
   write_log()
 }
 
