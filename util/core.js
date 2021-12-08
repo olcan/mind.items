@@ -52,6 +52,8 @@ const sorted_last_index = _.sortedLastIndex
 
 // converts `x` to a string
 // goals: short, readable, unique
+// intended for presentation and hashing
+// not intended for parsing (unlike e.g. `JSON.stringify`)
 // | string   | `x` wrapped in single quotes
 // | boolean  | `x.toString()`
 // | integer  | `x.toString()`, [commas inserted](https://stackoverflow.com/a/2901298)
@@ -61,7 +63,7 @@ const sorted_last_index = _.sortedLastIndex
 // | array    | `[...]`, elements stringified recursively
 // | object   | `{...}`, values stringified recursively
 // |          | `x.toString()` if overloaded (e.g. Date)
-function stringify(x) {
+function str(x) {
   if (!defined(x)) return 'undefined'
   if (x === null) return 'null'
   // string as is
@@ -76,50 +78,57 @@ function stringify(x) {
   if (is_function(x))
     return (
       x.toString().replace(/^\(\)\s*=>\s*/, '') +
-      (Object.keys(x).length ? _stringify_object(x) : '')
+      (_.keys(x).length ? ' ' + _str_object(x) : '')
     )
   // array elements stringified recursively
-  if (is_array(x)) return '[' + x.map(stringify) + ']'
+  if (is_array(x)) return '[' + x.map(str) + ']'
   // at this point
   assert(is_object(x), 'cannot stringify ' + x)
   // object values stringified recursively
   // toString used if overloaded (e.g. Date)
   if (x.toString !== Object.prototype.toString) return x.toString()
-  return _stringify_object(x)
+  return _str_object(x)
 }
 
-function _stringify_object(x) {
+function _str_object(x) {
   // _.entries uses .entries() for maps
-  return '{' + _.entries(x).map(([k, v]) => `${k}:${stringify(v)}`) + '}'
+  return (
+    (x.constructor.name != 'Object'
+      ? `[${typeof x} ${x.constructor.name}] `
+      : '') +
+    '{' +
+    _.entries(x).map(([k, v]) => `${k}:${str(v)}`) +
+    '}'
+  )
 }
 
-function _test_stringify() {
+function _test_str() {
   check(
-    () => [stringify(), 'undefined'],
-    () => [stringify(undefined), 'undefined'],
-    () => [stringify('test'), `'test'`],
-    () => [stringify(true), 'true'],
-    () => [stringify(10000), '10,000'],
-    () => [stringify(1.01), '1.01'],
-    () => [stringify(() => 1), '1'],
-    () => [stringify(() => (1, 2)), '(1, 2)'],
-    () => [stringify(() => {}), '{}'],
-    () => [stringify(_.set(() => {}, 'test', 1)), '{}{test:1}'],
+    () => [str(), 'undefined'],
+    () => [str(undefined), 'undefined'],
+    () => [str('test'), `'test'`],
+    () => [str(true), 'true'],
+    () => [str(10000), '10,000'],
+    () => [str(1.01), '1.01'],
+    () => [str(() => 1), '1'],
+    () => [str(() => (1, 2)), '(1, 2)'],
+    () => [str(() => {}), '{}'],
+    () => [str(set(() => {}, 'test', 1)), '{} [function Function] {test:1}'],
     () => [
-      stringify(_.assign(() => {}, { a: 10000, b: '1', c: 1, d: 1.1 })),
-      `{}{a:10,000,b:'1',c:1,d:1.1}`,
+      str(_.assign(() => {}, { a: 10000, b: '1', c: 1, d: 1.1 })),
+      `{} [function Function] {a:10,000,b:'1',c:1,d:1.1}`,
     ],
     () => [
-      stringify(() => {
+      str(() => {
         return 1
       }),
       `{
         return 1
       }`,
     ], // whitespace is maintained in function body
-    () => [stringify([10000, '1', 1, 1.1]), `[10,000,'1',1,1.1]`],
+    () => [str([10000, '1', 1, 1.1]), `[10,000,'1',1,1.1]`],
     () => [
-      stringify({ a: 10000, b: '1', c: 1, d: 1.1 }),
+      str({ a: 10000, b: '1', c: 1, d: 1.1 }),
       `{a:10,000,b:'1',c:1,d:1.1}`,
     ]
   )
@@ -135,7 +144,7 @@ const round = (x, d = 0, s = inf, mode = 'round') => {
   if (s < inf) {
     assert(s > 0, `invalid significant digits ${s}`)
     const sd = _significant_digits(x)
-    if (s < sd) d = Math.min(d, _decimals(x) - (sd - s))
+    if (s < sd) d = Math.min(d, _decimal_places(x) - (sd - s))
   }
   // from https://stackoverflow.com/a/19794305
   if (d === undefined || +d === 0) return Math[mode](x)
@@ -219,7 +228,7 @@ function _digits(x) {
   // from https://stackoverflow.com/a/28203456
   return Math.max(Math.floor(Math.log10(Math.abs(x))), 0) + 1
 }
-function _decimals(x) {
+function _decimal_places(x) {
   // from https://stackoverflow.com/a/17369384
   if (x % 1 == 0) return 0
   return x.toString().split('.')[1].length
@@ -255,13 +264,13 @@ function check(...funcs) {
       // if last element of returned array is a function, it will be used as the comparison function fcomp(x0,x) in place of equal(x0,x)
       let fcomp = equal
       if (is_function(last(xJ))) fcomp = xJ.pop()
-      assert(xJ.length >= 2, `FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`)
+      assert(xJ.length >= 2, `FAILED CHECK: ${str(f)} → ${str(xJ)}`)
       assert(
         xJ.every((x, j) => j == 0 || fcomp(xJ[0], x)),
-        `FAILED CHECK: ${stringify(f)} → ${stringify(xJ)}`
+        `FAILED CHECK: ${str(f)} → ${str(xJ)}`
       )
     }
-    assert(ret, `FAILED CHECK: ${stringify(f)}`)
+    assert(ret, `FAILED CHECK: ${str(f)}`)
   })
 }
 
@@ -288,7 +297,7 @@ let _benchmark_options = {}
 function _run_benchmark(
   f,
   {
-    name = stringify(f),
+    name = str(f),
     // note Date.now itself benchmarks at 10-30M calls/sec
     // so roughly (and naively) we can hope to measure Nx that
     // depends how much of Date.now overhead is before/after returned 'now'
@@ -312,7 +321,7 @@ function _run_benchmark(
       is_object(units) && !is_array(units),
       'benchmark units must be object of unit:function pairs'
     )
-    assert(is_object(ret), 'must return object for units ' + stringify(units))
+    assert(is_object(ret), 'must return object for units ' + str(units))
     unit_funcs = values(units)
     units = keys(units)
     counts = zeroes(units.length)
@@ -330,16 +339,16 @@ function _run_benchmark(
     calls += N
   } while (time < T)
   if (silent) return
-  const cps = stringify(Math.floor((calls / time) * 1000))
+  const cps = str(Math.floor((calls / time) * 1000))
   const base = `${name}: ${cps} calls/sec`
   if (unit) {
-    const ups = stringify(Math.floor((count / time) * 1000))
+    const ups = str(Math.floor((count / time) * 1000))
     ilog(base + ` (${ups} ${unit})`)
   } else if (units) {
     ilog(
       base +
         ' (' +
-        units.map((u, k) => stringify(counts[k]) + ' ' + u).join(', ') +
+        units.map((u, k) => str(counts[k]) + ' ' + u).join(', ') +
         ')'
     )
   } else ilog(base)
@@ -435,10 +444,10 @@ function cache(obj, prop, deps, f, options = {}) {
 function table(cells, headers) {
   let lines = []
   if (headers) {
-    apply(headers, h => (is_string(h) ? h : stringify(h)))
+    apply(headers, h => (is_string(h) ? h : str(h)))
     lines.push('|' + headers.join('|') + '|')
   } else lines.push(array(cells[0].length + 1, k => '|').join(''))
-  apply(cells, r => apply(r, c => (is_string(c) ? c : stringify(c))))
+  apply(cells, r => apply(r, c => (is_string(c) ? c : str(c))))
   lines.push(
     '|' +
       array(cells[0].length, k =>
@@ -801,7 +810,7 @@ function _js_table_toggle(name, e) {
   func.classList.toggle('collapsed', expand)
   // store toggle state in local store (triggers render on change)
   const ls = _this.local_store
-  ls._js_table = _.set(ls._js_table || {}, name, !expand)
+  ls._js_table = set(ls._js_table || {}, name, !expand)
 }
 
 function _js_table_show_function(name) {

@@ -372,7 +372,7 @@ class _Sampler {
     if (options.log) {
       ilog(`applied ${this.u} updates in ${Date.now() - start}ms`)
       ilog(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
-      ilog(stringify(this.stats))
+      ilog(str(this.stats))
     }
   }
 
@@ -869,7 +869,7 @@ class _Sampler {
             ` --> target sample size=${value.target.length}, ` +
             `mean=${round(mean(value.target), 3)}`
         else if (is_function(value.target))
-          target = ` --> target cdf ${stringify(value.target)}`
+          target = ` --> target cdf ${str(value.target)}`
         ilog(`[${index}] ${name ? name + ' = ' : ''}sample(${args})${target}`)
       }
     }

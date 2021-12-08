@@ -89,60 +89,59 @@ function _test_bins() {
 }
 
 // counts `xJ` into bins `xB`
-function bin_counts(xJ, xB = bins(xJ)) {
+// can aggregate optional weights `wJ`
+function bin_counts(xJ, xB = bins(xJ), wJ = undefined) {
   assert(is_array(xJ), 'non-array argument')
   assert(xJ.length, 'empty array')
   assert(is_array(xB), 'non-array bins')
   const K = xB.length - 1 // number of bins
   assert(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1]), 'invalid bins')
   const cK = array(xB.length - 1, 0)
-  each(xJ, x => {
-    const k = sorted_last_index(xB, x) - 1
-    if (k < 0 || k >= K) return // outside first/last bin
-    cK[k]++
-  })
+  if (wJ) {
+    assert(is_array(wJ) && wJ.length == xJ.length, 'invalid weights')
+    each(xJ, (x, j) => {
+      const k = sorted_last_index(xB, x) - 1
+      if (k < 0 || k >= K) return // outside first/last bin
+      cK[k] += wJ[j]
+    })
+  } else {
+    each(xJ, x => {
+      const k = sorted_last_index(xB, x) - 1
+      if (k < 0 || k >= K) return // outside first/last bin
+      cK[k]++
+    })
+  }
   return cK
-}
-
-// sums weights `wJ` for `xJ` into bins `xB`
-function bin_weights(xJ, wJ, xB = bins(xJ)) {
-  assert(
-    is_array(xJ) && is_array(wJ) && xJ.length == wJ.length,
-    'invalid arguments'
-  )
-  assert(xJ.length, 'empty array')
-  assert(is_array(xB), 'non-array bins')
-  const K = xB.length - 1 // number of bins
-  assert(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1]), 'invalid bins')
-  const cK = array(xB.length - 1, 0)
-  each(xJ, (x, j) => {
-    const k = sorted_last_index(bins, x) - 1
-    if (k < 0 || k >= K) return // outside first/last bin
-    cK[k] += wJ[j]
-  })
-  return cK
-}
-
-// labels for bins `xB` using labeler `f`
-function bin_labels(xB, f = (a, b) => a + '…' + b) {
-  assert(is_array(xB), 'non-array bins')
-  const K = xB.length - 1 // number of bins
-  assert(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1]), 'invalid bins')
-  return array(K, k => f(xB[k], xB[k + 1]))
 }
 
 function histogram(xJ, options = {}) {
-  const {
+  let {
     max_bins = 10,
-    precision = 2, // d or [d,s] arguments to bins(xJ,…) or round(…)
-    labels,
-    weights,
+    precision = 1, // d or [d,s] arguments to bins(xJ,…) or round(…)
+    label_precision, // for fixed precision (decimal places); default is auto
+    value_formatter = x => x.toFixed(label_precision),
+    labeler = (a, b) => [value_formatter(a), value_formatter(b)],
+    labels, // custom labels
+    weights, // optional weights
+    weight_precision = 2, // ignored if no weights
   } = options
-  const xB = options.bins ?? bins(xJ, max_bins, ...flat(precision))
+  const [d, s] = flat(precision)
+  const xB = options.bins ?? bins(xJ, max_bins, d, s)
+  label_precision ??= min_of(xB, _decimal_places)
   assert(is_array(xB), 'non-array bins')
-  const sK = labels ?? bin_labels(xB)
-  assert(is_array(sK), 'non-array labels')
-  const cK = weights ? bin_weights(xJ, weights, xB) : bin_counts(xJ, xB)
-  assert(is_array(cK) && cK.length == sK.length, 'bin/label mismatch')
-  return transpose([sK, cK])
+  const cK = bin_counts(xJ, xB, weights)
+  const [wd, ws] = flat(weight_precision)
+  if (weights) apply(cK, w => round(w, wd, ws))
+  const lK = labels ?? array(cK.length, k => labeler(xB[k], xB[k + 1]))
+  return transpose([lK, cK]).map(flatten)
 }
+
+// TODO: what is the ideal way to present output?
+// TODO: need a robust "read and hide" or "consume" operation that can hide
+// blocks that are used as input to macros/etc
+// TODO: need to figure out how to "parse" back stringified output
+//       may need to go back to JSON.stringify for output, to allow it to be
+//       parsed back _robustly_ using JSON.parse; note stringify can always
+//       be used manually for output, so the idea is that we use JSON for
+//       intermediate output only
+// << table(JSON.parse(read('_output'))) >>
