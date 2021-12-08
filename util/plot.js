@@ -1,8 +1,3 @@
-// TODO: bin_labels
-// TODO: separate representation from visualization
-// TODO: always allow basic _tabular_ visualization
-// TODO: document histogram, start charting
-
 // bins `xJ` into `≤K` bins `xB`
 // `B` values encode `B-1` _right-open intervals_ $`[x_b,x_{b+1})`$
 // can be given only range pair `[xs,xe]` or `min_max_in(xJ)`
@@ -114,6 +109,8 @@ function bin_counts(xJ, xB = bins(xJ), wJ = undefined) {
   return cK
 }
 
+// histogram(xJ, {…})
+// TODO: document options
 function histogram(xJ, options = {}) {
   let {
     max_bins = 10,
@@ -136,12 +133,16 @@ function histogram(xJ, options = {}) {
   return transpose([lK, cK]).map(flatten)
 }
 
+// plot({…})
+// TODO: document options
+function plot(options = {}) {
+  // auto-default-name sub-items #/plot1, #/plot2, etc
+  // generic plot options/specs should be self-contained and detailed/explicit
+  // would have many wrappers for different types of plots that greatly
+  // simplify plot specs; for example, it is fine to fully specify output block
+  // type/name instead of trying to infer it or generate it at this level, even though it can certainly be inferred/generated for higher level functions!
+  // so this function should mainly handle plot item creation, tagging, navigation, etc, and a perfect starter case is a simple random histogram table
+}
+
 // TODO: what is the ideal way to present output?
-// TODO: need a robust "read and hide" or "consume" operation that can hide
-// blocks that are used as input to macros/etc
-// TODO: need to figure out how to "parse" back stringified output
-//       may need to go back to JSON.stringify for output, to allow it to be
-//       parsed back _robustly_ using JSON.parse; note stringify can always
-//       be used manually for output, so the idea is that we use JSON for
-//       intermediate output only
-// << table(JSON.parse(read('_output'))) >>
+// TODO: document histogram, start charting
