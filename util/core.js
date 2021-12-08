@@ -532,8 +532,8 @@ function js_table(regex) {
         }
         // remove whitespace in args
         def.args = def.args.replace(/\s+/g, '')
-        // escape special characters in args: `, \, and | (breaks table)
-        def.args = def.args.replace(/([`\\|])/g, '\\$1')
+        // escape ` in args:
+        def.args = def.args.replace(/([`])/g, '\\$1')
 
         // start new scope if class type, end last scope if unindented
         if (def.type == 'class') scope = def.name
@@ -587,8 +587,9 @@ function js_table(regex) {
           }
         }
         if (!def.comment && def.body && !def.body.startsWith('{')) {
-          // take body as comment, escaping `, \
-          def.comment = '`' + def.body.replace(/([`\\])/g, '\\$1') + '`'
+          // take body as comment, escaping `
+          def.comment =
+            '<code>' + def.body.replace(/([`])/g, '\\$1') + '</code>'
           // if body is a lodash function, link to docs
           // note docs are only available for certain versions
           if (def.body.match(/^_\.\w+$/)) {
