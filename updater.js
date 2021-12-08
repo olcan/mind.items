@@ -154,7 +154,7 @@ function _on_global_store_change(id, remote) {
   if (!pending_updates[id]) return // not pending any updates
   // if last update in global store contains pending update, cancel locally
   const last_update = item.global_store._updater?.last_update
-  if (_.values(last_update).includes(pending_updates[id])) {
+  if (values(last_update).includes(pending_updates[id])) {
     _this.log(`detected remote update for ${item.name}`)
     // remove item/update from local update queue
     modified_ids.splice(modified_ids.indexOf(item.id), 1)
@@ -337,13 +337,13 @@ async function check_updates(item, mark_pushables = false) {
   } catch (e) {
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
-  if (_.isEmpty(updates)) {
+  if (empty(updates)) {
     // _this.log(`no updates to ${item.name} from ${source}/${path}`)
     return null
   } else {
     _this.log(
-      `found ${_.size(updates)} updates to ${item.name} from ` +
-        `${source} at paths: ${_.keys(updates).join(', ')}`
+      `found ${size(updates)} updates to ${item.name} from ` +
+        `${source} at paths: ${keys(updates).join(', ')}`
     )
   }
   return updates
@@ -528,7 +528,7 @@ async function update_item(item, updates) {
     // update attr.embeds array
     const prev_embeds = attr.embeds
     attr.embeds = null // start w/ null = no embeds
-    for (let path of _.uniq(embeds)) {
+    for (let path of uniq(embeds)) {
       try {
         // start w/ sha of existing embed, or undefined if missing
         let sha = prev_embeds?.find(e => e.path == path)?.sha

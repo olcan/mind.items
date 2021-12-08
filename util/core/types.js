@@ -191,7 +191,6 @@ function _benchmark_is_indexed() {
   )
 }
 
-// [`_.isEmpty`](https://lodash.com/docs/4.17.15#isEmpty)
 const empty = _.isEmpty
 
 function _benchmark_empty() {
@@ -201,5 +200,4 @@ function _benchmark_empty() {
   )
 }
 
-// [`_.isEqual`](https://lodash.com/docs/4.17.15#isEqual)
 const equal = _.isEqual

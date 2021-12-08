@@ -25,6 +25,7 @@ const omit = _.omit
 
 const every = _.every
 const some = _.some
+const size = _.size
 
 const uniq = _.uniq
 const uniq_by = _.uniqBy
@@ -33,15 +34,21 @@ const compact = _.compact
 const without = _.without
 const flatten = _.flatten
 const flatten_deep = _.flattenDeep
-const flat = _.flattenDeep
+const flat = (...args) => _.flattenDeep(args)
 
 const range = _.range
 const group = _.groupBy
+const count_by = _.countBy
+const sum_by = _.sumBy
+const map_values = _.mapValues
+const map_keys = _.mapKeys
 
 const sort = (xJ, f = (a, b) => a - b) => xJ.sort(f)
 const sort_by = (xJ, f = x => x) => xJ.sort((a, b) => f(a) - f(b))
 const rank = (xJ, f = (a, b) => a - b) => xJ.sort((a, b) => f(b, a))
 const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
+const sorted_index = _.sortedIndex
+const sorted_last_index = _.sortedLastIndex
 
 // converts `x` to a string
 // goals: short, readable, unique
@@ -240,7 +247,7 @@ const assert = (cond, ...args) => cond || fatal(...args)
 // if array is returned, all elements must be `equal`
 // typically used in test functions `_test_*()`
 function check(...funcs) {
-  _.flattenDeep([...funcs]).forEach(f => {
+  flat(funcs).forEach(f => {
     assert(is_function(f), 'non-function argument')
     const ret = f()
     if (is_array(ret)) {
@@ -262,7 +269,7 @@ function check(...funcs) {
 // typically used in benchmark functions `_benchmark_*()`
 // uses shuffle & silent pass to reduce & randomize ordering bias
 function benchmark(...funcs) {
-  funcs = _.shuffle(_.flattenDeep([...funcs]))
+  funcs = _.shuffle(flat(funcs))
   funcs.forEach(f =>
     _run_benchmark(f, {
       ..._benchmark_options,

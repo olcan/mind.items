@@ -41,7 +41,7 @@ function benchmark_item(item) {
       if (done) {
         benchmarks_done++
         const log = item.get_log({ since: 'eval' })
-        gs._benchmarks = _.set(gs._benchmarks || {}, name, { ms, ok: !e, log })
+        gs._benchmarks = set(gs._benchmarks || {}, name, { ms, ok: !e, log })
         // look up benchmarked function names
         let names
         try {
@@ -53,7 +53,7 @@ function benchmark_item(item) {
         } catch (e) {}
         if (is_array(names) && names.every(is_string)) {
           names.forEach(name => {
-            gs._benchmarks = _.set(gs._benchmarks || {}, name, {
+            gs._benchmarks = set(gs._benchmarks || {}, name, {
               ms,
               ok: !e,
               log,

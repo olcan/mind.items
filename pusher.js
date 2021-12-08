@@ -363,8 +363,8 @@ async function _side_push_item(item, manual = false) {
   let attr_modified = false
   const attr = item.attr // null if not installed
   try {
-    let dests = _.compact(_.flattenDeep([item.global_store._pusher?.sidepush]))
-    const source_dest = _.pick(attr, ['owner', 'repo', 'path', 'branch'])
+    let dests = compact(flat(item.global_store._pusher?.sidepush))
+    const source_dest = pick(attr, ['owner', 'repo', 'path', 'branch'])
     if (attr) dests.push(source_dest)
     // embed block text & type by path (last block for each path)
     const embed_text = {}
@@ -453,7 +453,7 @@ async function _side_push_item(item, manual = false) {
     // if installable w/ embeds, also side-push embeds
     if (attr?.embeds) {
       for (let embed of attr.embeds) {
-        const dest = _.assign(source_dest, { path: embed.path })
+        const dest = assign(source_dest, { path: embed.path })
         const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
         // get sidepush text from embed_text, which should be populated above
         const sidepush_text = embed_text[embed.path]

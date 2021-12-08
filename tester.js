@@ -41,7 +41,7 @@ function test_item(item) {
       if (done) {
         tests_done++
         const log = item.get_log({ since: 'eval' })
-        gs._tests = _.set(gs._tests || {}, name, { ms, ok: !e, log })
+        gs._tests = set(gs._tests || {}, name, { ms, ok: !e, log })
         // look up tested function names
         let names
         try {
@@ -53,7 +53,7 @@ function test_item(item) {
         } catch (e) {}
         if (is_array(names) && names.every(is_string)) {
           names.forEach(name => {
-            gs._tests = _.set(gs._tests || {}, name, {
+            gs._tests = set(gs._tests || {}, name, {
               ms,
               ok: !e,
               log,

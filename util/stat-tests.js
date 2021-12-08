@@ -38,7 +38,7 @@ function _test_random_uniform() {
 const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 1e-9) => [
   binomial_test(
     n,
-    _.sumBy(random_array(n, sampler), s => equal(s, x)),
+    sum_by(random_array(n, sampler), s => equal(s, x)),
     p
   ),
   ɑ,

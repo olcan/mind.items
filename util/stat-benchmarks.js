@@ -87,10 +87,10 @@ function _benchmark_random_array() {
 }
 
 function _benchmark_random_shuffle() {
-  const range10 = _.range(10)
-  const range100 = _.range(100)
-  const range1000 = _.range(1000)
-  const range10000 = _.range(10000)
+  const range10 = range(10)
+  const range100 = range(100)
+  const range1000 = range(1000)
+  const range10000 = range(10000)
   benchmark(
     () => random_shuffle([0, 1]),
     () => random_shuffle([0, 1, 2]),

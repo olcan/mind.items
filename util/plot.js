@@ -1,16 +1,17 @@
-// TODO: bin_counts and bin_weights
+// TODO: bin_labels
 // TODO: separate representation from visualization
 // TODO: always allow basic _tabular_ visualization
 // TODO: document histogram, start charting
 
-// up to `K` bins (`K+1` values) for `xJ`
-// `K+1` values encode `K` half-open intervals $`[x_i,x_{i+1})`$
+// bins `xJ` into `≤K` bins `xB`
+// `B` values encode `B-1` _right-open intervals_ $`[x_b,x_{b+1})`$
 // can be given only range pair `[xs,xe]` or `min_max_in(xJ)`
-// rounds boundary values `x` to `d` decimal places
-// drops empty/small bins to return _up to_ `K` bins
-function bins(xJ, K = 10, d = 2) {
-  assert(is_array(xJ), `non-array argument`)
-  assert(xJ.length, `empty array argument`)
+// rounds boundary values to `d` decimal places
+// can also round to at most `s` significant digits
+// drops empty or small bins to return `≤K` bins
+function bins(xJ, K = 10, d = 2, s = inf) {
+  assert(is_array(xJ), 'non-array argument')
+  assert(xJ.length, 'empty array argument')
   assert(is_integer(K) && K > 0, `invalid bin count ${K}`)
   let [xs, xe] = min_max_in(xJ)
   assert(is_finite(xs) && is_finite(xe), `array contains infinities`)
@@ -31,6 +32,19 @@ function bins(xJ, K = 10, d = 2) {
   if (abs(r) > p) apply(xK, (x, k) => round(x + r / 2, d))
   assert(xK[0] < xs, `binning error: first bin ${xK[0]} ≥ ${xs}`)
   assert(xe < xK[K - 1], `binning error: last bin ${xK[K - 1]} ≤ ${xe}`)
+  // apply additional rounding for significant digits
+  if (s < inf) {
+    assert(s > 0, `invalid significant digits ${s}`)
+    apply(xK, (x, k) =>
+      round(x, d, s, k == 0 ? 'floor' : k == K - 1 ? 'ceil' : 'round')
+    )
+    xK = uniq(xK)
+    K = xK.length
+    assert(
+      xK.length > 1 && xK[0] < xs && xe < xK[K - 1],
+      `failed to adjust bins for s=${s}, range=[${xs},${xe}], bins=[${xK}]`
+    )
+  }
   return xK
 }
 
@@ -55,6 +69,13 @@ function _test_bins() {
     () => [bins([0, 1], 3, 3), [-0.001, 0.333, 0.667, 1.001]],
     () => [bins([0, 1], 3, 4), [-0.0001, 0.3333, 0.6667, 1.0001]],
     () => [bins([0, 1], 3, 5), [-0.00001, 0.33333, 0.66667, 1.00001]],
+    // test reducing significant digits ...
+    () => [bins([0, 1], 3, 5, 6), [-0.00001, 0.33333, 0.66667, 1.00001]],
+    () => [bins([0, 1], 3, 5, 5), [-0.00001, 0.33333, 0.66667, 1.0001]],
+    () => [bins([0, 1], 3, 5, 4), [-0.00001, 0.3333, 0.6667, 1.001]],
+    () => [bins([0, 1], 3, 5, 3), [-0.00001, 0.333, 0.667, 1.01]],
+    () => [bins([0, 1], 3, 5, 2), [-0.00001, 0.33, 0.67, 1.1]],
+    () => [bins([0, 1], 3, 5, 1), [-0.00001, 0.3, 0.7, 2]],
     () => [
       bins([0, 1], 3, 10),
       [-1e-10, 0.3333333333, 0.6666666667, 1 + 1e-10],
@@ -67,67 +88,61 @@ function _test_bins() {
   )
 }
 
-function histogram(xJ, options = {}) {
-  let {
-    bins = 10,
-    weights, // can be function or array
-    range = min_max_in(xJ),
-    label = 'auto', // auto|lower|upper
-    label_format,
-    bound_format, // for boundary values in label
-    weight_format,
-    bound_precision = 2, // args for round(x,...) for default bound_format
-    weight_precision = 2, // args for round(x,...) for default weight_format
-  } = options
+// counts `xJ` into bins `xB`
+function bin_counts(xJ, xB = bins(xJ)) {
+  assert(is_array(xJ), 'non-array argument')
+  assert(xJ.length, 'empty array')
+  assert(is_array(xB), 'non-array bins')
+  const K = xB.length - 1 // number of bins
+  assert(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1]), 'invalid bins')
+  const cK = array(xB.length - 1, 0)
+  each(xJ, x => {
+    const k = sorted_last_index(xB, x) - 1
+    if (k < 0 || k >= K) return // outside first/last bin
+    cK[k]++
+  })
+  return cK
+}
 
-  label_format ??= x => x
-  bound_format ??= x => round(x, ...[bound_precision].flat())
-  weight_format ??= x => round(x, ...[weight_precision].flat())
-
-  // determine weight function wJ(j)
-  const wJ = j => 1
-  if (weights) {
-    if (is_function(weights)) wJ = weights
-    else if (is_array(weights)) wJ = j => weights[j]
-    else fatal(`invalid weights`)
-  }
-
-  // bin xJ into K linear bins and aggregate wJ(j) into wK
-  const J = xJ.length
-  const K = bins
-  const [xs, xe] = range
-  const d = (xe - xs) / K
-  const wK = array(K, 0)
+// sums weights `wJ` for `xJ` into bins `xB`
+function bin_weights(xJ, wJ, xB = bins(xJ)) {
+  assert(
+    is_array(xJ) && is_array(wJ) && xJ.length == wJ.length,
+    'invalid arguments'
+  )
+  assert(xJ.length, 'empty array')
+  assert(is_array(xB), 'non-array bins')
+  const K = xB.length - 1 // number of bins
+  assert(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1]), 'invalid bins')
+  const cK = array(xB.length - 1, 0)
   each(xJ, (x, j) => {
-    if (x >= xs && x <= xe) wK[x == xe ? K - 1 : floor((x - xs) / d)] += wJ(j)
+    const k = sorted_last_index(bins, x) - 1
+    if (k < 0 || k >= K) return // outside first/last bin
+    cK[k] += wJ[j]
   })
+  return cK
+}
 
-  // generate bin labels
-  const labels = array(K, k => {
-    const lower = bound_format(xs + k * d)
-    const upper = bound_format(k == K - 1 ? xe : xs + (k + 1) * d)
-    // TODO: fix unused label_format... pass label as pair? also the linear binning is hard-coded inside this loop, which is not great and may be worth restructuring
-    const range =
-      `[${lower}, ${upper}` + (k == K - 1 && xe == max_in(xJ) ? ']' : ')')
-    switch (label) {
-      case 'range':
-        return range
-      case 'lower':
-        return lower
-      case 'upper':
-        return upper
-      case 'auto':
-        if (
-          range.endsWith(')') &&
-          is_integer(parseFloat(lower)) &&
-          upper == parseFloat(lower) + 1
-        )
-          return lower
-        return range
-      default:
-        fatal(`invalid label '${label}'`)
-    }
-  })
+// labels for bins `xB` using labeler `f`
+function bin_labels(xB, f = (a, b) => a + '…' + b) {
+  assert(is_array(xB), 'non-array bins')
+  const K = xB.length - 1 // number of bins
+  assert(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1]), 'invalid bins')
+  return array(K, k => f(xB[k], xB[k + 1]))
+}
 
-  return zip(labels, wK)
+function histogram(xJ, options = {}) {
+  const {
+    max_bins = 10,
+    precision = 2, // d or [d,s] arguments to bins(xJ,…) or round(…)
+    labels,
+    weights,
+  } = options
+  const xB = options.bins ?? bins(xJ, max_bins, ...flat(precision))
+  assert(is_array(xB), 'non-array bins')
+  const sK = labels ?? bin_labels(xB)
+  assert(is_array(sK), 'non-array labels')
+  const cK = weights ? bin_weights(xJ, weights, xB) : bin_counts(xJ, xB)
+  assert(is_array(cK) && cK.length == sK.length, 'bin/label mismatch')
+  return transpose([sK, cK])
 }

@@ -231,12 +231,12 @@ class _Random {
 
   // sample unique values
   get unique_values() {
-    return this.cached('unique_values', τ => _.uniq(τ.xJ))
+    return this.cached('unique_values', τ => uniq(τ.xJ))
   }
 
   // sample counts by value
   get value_counts() {
-    return this.cached('value_counts', τ => _.countBy(τ.xJ))
+    return this.cached('value_counts', τ => count_by(τ.xJ))
   }
 
   // sample weights by value
@@ -255,7 +255,7 @@ class _Random {
     return this.cached('value_probs', τ => {
       const wX = τ.value_weights
       const z = 1 / (τ.wj_sum ?? τ.J)
-      return _.mapValues(wX, w => w * z)
+      return map_values(wX, w => w * z)
     })
   }
 
