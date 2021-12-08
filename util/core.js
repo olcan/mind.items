@@ -83,7 +83,7 @@ function str(x) {
   // array elements stringified recursively
   if (is_array(x)) return '[' + x.map(str) + ']'
   // at this point
-  assert(is_object(x), 'cannot stringify ' + x)
+  assert(is_object(x), 'str: unexpected type ' + typeof x)
   // object values stringified recursively
   // toString used if overloaded (e.g. Date)
   if (x.toString !== Object.prototype.toString) return x.toString()
