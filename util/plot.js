@@ -107,7 +107,6 @@ function count(xJ, xB = bin(xJ), wJ = undefined) {
 }
 
 // histogram(xJ, {…})
-// TODO: document options
 function histogram(xJ, options = {}) {
   let {
     bins, // can be array or integer (for max bins)
@@ -132,14 +131,13 @@ function histogram(xJ, options = {}) {
   const [wd, ws] = flat(weight_precision)
   if (weights) apply(cK, w => round(w, wd, ws))
   const lK = labels ?? array(cK.length, k => labeler(xB[k], xB[k + 1]))
-  const data = transpose([lK, cK]).map(flatten)
-  return { data }
+  return set(transpose([lK, cK]).map(flatten), 'name', 'histogram')
 }
 
-// plot(obj, {…})
-// TODO: document options
-async function plot(obj, options = {}) {
+function plot(obj, name = undefined) {
   assert(is_object(obj), 'non-object argument')
+  name ||= obj.name || '#/plot' // default name can also be specified in obj
+  if (!obj.data) obj = { data: obj } // data-only obj
   let {
     data, // required
     renderer = 'table', // can be function or string
@@ -149,11 +147,12 @@ async function plot(obj, options = {}) {
     decoder = 'parse', // can be function or string
     deps, // optional dependencies (besides #_util/core)
   } = obj
-  assert(data, 'missing obj.data')
-  assert(renderer, 'missing obj.renderer')
-  assert(is_function(renderer) || is_string(renderer), 'invalid obj.renderer')
-  assert(is_function(decoder) || is_string(decoder), 'invalid obj.decoder')
-  assert(is_function(encoder), 'invalid obj.encoder')
+
+  assert(data, 'missing data')
+  assert(renderer, 'missing renderer')
+  assert(is_function(renderer) || is_string(renderer), 'invalid renderer')
+  assert(is_function(decoder) || is_string(decoder), 'invalid decoder')
+  assert(is_function(encoder), 'invalid encoder')
   // convert renderer and parser to strings embeddable in macro
   if (is_function(renderer)) renderer = renderer.toString()
   if (!renderer.match(/^\w+$/)) renderer = `(${renderer})`
@@ -163,23 +162,13 @@ async function plot(obj, options = {}) {
   deps = flat('#_util/core', deps ?? []).join(' ')
   const text = encoder(data)
 
+  // determine item
   assert(_this.name.startsWith('#'), 'plot called from unnamed item')
-  let { name = '#/plot' } = options
   if (name.match(/^\w/)) name = '/' + name
   if (name.match(/^\/\w/)) name = '#' + name
   if (name.match(/^#\/\w/)) name = name.replace(/^#\//, _this.name + '/')
   let item = _item(name, false /* do not log errors */)
   item ??= _create(name)
-
-  // focus on item
-  if (MindBox.get() != item.name) {
-    MindBox.set(item.name)
-    await _update_dom() // wait for page to update
-  }
-
-  // scroll item to ~middle of screen if too low
-  if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
-    document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
 
   // tag item if not tagged already
   if (!_this.tags_visible.includes(item.name)) {
@@ -200,7 +189,19 @@ async function plot(obj, options = {}) {
 
   // write any logs to calling item
   write_log()
-}
 
-// TODO: what is the ideal way to present output?
-// TODO: document histogram, start charting
+  // focus on output item
+  dispatch(async () => {
+    if (MindBox.get() != item.name) {
+      MindBox.set(item.name)
+      await _update_dom() // wait for page update
+    }
+    if (!item.elem) {
+      console.warn(`missing element for ${item.name}`)
+      return
+    }
+    // scroll item to ~middle of screen if too low
+    if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
+      document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
+  })
+}
