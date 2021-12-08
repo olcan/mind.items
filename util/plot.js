@@ -133,15 +133,45 @@ function histogram(xJ, options = {}) {
   return transpose([lK, cK]).map(flatten)
 }
 
-// plot({…})
+// plot(data, {…})
 // TODO: document options
-function plot(options = {}) {
-  // auto-default-name sub-items #/plot1, #/plot2, etc
-  // generic plot options/specs should be self-contained and detailed/explicit
-  // would have many wrappers for different types of plots that greatly
-  // simplify plot specs; for example, it is fine to fully specify output block
-  // type/name instead of trying to infer it or generate it at this level, even though it can certainly be inferred/generated for higher level functions!
-  // so this function should mainly handle plot item creation, tagging, navigation, etc, and a perfect starter case is a simple random histogram table
+async function plot(data, options = {}) {
+  assert(_this.name.startsWith('#'), 'plot called from unnamed item')
+  let { name = '#/plot' } = options
+  if (name.match(/^\w/)) name = '/' + name
+  if (name.match(/^\/\w/)) name = '#' + name
+  if (name.match(/^#\/\w/)) name = name.replace(/^#\//, _this.name + '/')
+  let item = _item(name, false /* do not log errors */)
+  item ??= _create(name)
+
+  // focus on item
+  if (MindBox.get() != item.name) {
+    MindBox.set(item.name)
+    await _update_dom() // wait for page to update
+  }
+
+  // scroll item to ~middle of screen if too low
+  if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
+    document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
+
+  // tag item if not tagged already
+  if (!_this.tags_visible.includes(item.name)) {
+    const tag = item.name.replace(_this.name, '#') // make relative
+    let text = read()
+    // if item does not end with a line of tags, create a new line
+    if (!text.match(/\n *#[^\n]*$/)) text += '\n' + tag
+    else text += ' ' + tag
+    write(text, '')
+  }
+
+  item.write_lines(
+    item.name + ' #_util',
+    `\<<table(parse(read('json')))>>`,
+    block('json_removed', stringify(data))
+  )
+
+  // write any logs
+  write_log()
 }
 
 // TODO: what is the ideal way to present output?
