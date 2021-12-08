@@ -661,17 +661,23 @@ function js_table(regex) {
     // remove all whitespace from args except after commas & around equals
     // auto-wrap default-valued optionals in brackets
     const name = def.name.trim()
-    let args = def.args
-      .replace(/\s+/g, '')
-      .replace(/^\(|\)$/g, '')
-      .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/) // matches commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568; TODO: refactor this, used in three places
-      .map(s =>
-        (s[0] != '[' && s.includes('=') ? '[' + s + ']' : s).replace(
-          /=undefined]$/, // =undefined can be used to indicate optionals
-          ']'
-        )
-      )
-      .join(',')
+    const wrap_defaults = args =>
+      args
+        .replace(/\s+/g, '')
+        .replace(/^\(|\)$/g, '')
+        .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/) // matches commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568; TODO: refactor this, used in three places
+        .map(s => {
+          // for object destructuring, just recursively parse inside braces
+          if (s.match(/^\{.*\}$/))
+            return '{' + wrap_defaults(s.slice(1, -1)) + '}'
+          // avoid initial [ since thatcan be used to wrap/indicate defaults in hand-typed comments, but unfortunately this also prohibits array destructuring syntax (e.g. [a=1,b=2]=[]) for now
+          if (s[0] != '[' && s.match(/=(?!>|[^{]*\})/)) s = '[' + s + ']'
+          // drop =undefined as that can be used to indicate optionals
+          return s.replace(/=undefined]$/, ']')
+        })
+        .join(',')
+
+    let args = wrap_defaults(def.args)
     if (def.args) args = '(' + args + ')'
     let args_expanded = args
       .replace(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/g, ', ')
