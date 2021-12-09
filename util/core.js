@@ -459,11 +459,11 @@ function cache(obj, prop, deps, f, options = {}) {
   obj['_' + prop] = null // init as null
 }
 
-// table(cells,[headers])
 // markdown table for `cells`
-// |`cells`   | 2D array | `[['a',1],['b',2]]`
-// |`headers` | array    | `['a','b']`
-function table(cells, headers) {
+// `cells` is 2D array, e.g. `[['a',1],['b',2]]`
+// allows optional header row `options.headers`
+function table(cells, options = {}) {
+  const { headers } = options
   let lines = []
   if (headers) {
     apply(headers, h => (is_string(h) ? h : str(h)))
@@ -529,14 +529,16 @@ function js_table(regex) {
       _this
         .read('js', { keep_empty_lines: true, keep_comment_lines: true })
         // NOTE: currently automated parsing of args works only if arguments are listed on the same line, since multi-line parsing is tricky w/ default values that may also contain parentheses (which we do allow to some extent), strings that contain parentheses, etc; if args are wrapped due to automated code formatting, a workaround is to define args in first line of comment, which are rarely wrapped by formatters or can be shortened to avoid wrapping
-        // args inner pattern: (?:\(...\) | [^()\n]*?)*?  (ignore spaces,...)
-        // args outer pattern: \(...\)  or  \(...\) | [^()\n]*?
-
+        //
+        // args inner pattern: ( [^()]*? | ?:\(...\) )*?
+        // args outer pattern: \(...\)  OR  [^()]*? | \(...\)
+        //
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:\([^()]*?\)|[^()\n]*?)*?\))|= *(?<arrow_args>(?:\((?:\([^()]*?\)|[^()\n]*?)*?\)|[^()\n]*?) *=>)? *\n?(?<body>[^\n]+))?/gs
+          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:[^()]*?|\([^()]*?\))\))|= *(?<arrow_args>(?:[^()]*?|\((?:[^()]*?|\([^()]*?\))*?\)) *=>)? *\n?(?<body>[^\n]+))?/gs
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
+
         def.type = def.type.trim() // trim trailing space
         // skip certain types if indented
         if (def.indent && def.type?.match(/(?:const|let|var|class|function)$/))
