@@ -53,6 +53,9 @@ const read_input = (...args) => _this.read_input(...args)
 const write = (...args) => _this.write(...args)
 
 // write_lines(...lines)
+// writes `lines` to item
+// replaces existing item text
+// `≡ write(flat(lines).filter(defined).join('\n').trim(),'')`
 const write_lines = (...args) => _this.write_lines(...args)
 _Item.prototype.write_lines = function (...lines) {
   this.write(flat(lines).filter(defined).join('\n').trim(), '')
