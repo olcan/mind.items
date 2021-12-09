@@ -109,11 +109,11 @@ function hist(xJ, options = {}) {
   // automatically disable binning if:
   // - values option (integer or array) is defined
   // - xJ contains any non-numbers
-  // - xJ has too few distinct elements, either <K, or <J/2
+  // - xJ has too few distinct elements, < max(K,J/2)
   if (
     defined(values) ||
     !every(xJ, is_number) ||
-    uniq(xJ).length < min(max_bins, xJ.length / 2)
+    uniq(xJ).length < max(max_bins, xJ.length / 2)
   ) {
     // rank non-numeric values
     values ??= 10 // 10 values by default
