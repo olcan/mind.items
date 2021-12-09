@@ -374,6 +374,22 @@ class _Sampler {
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
       print(str(this.stats))
     }
+
+    // plot posteriors vs targets
+    if (options.targets) {
+      each(this.values, (value, k) => {
+        if (!value.target) return // no target
+        if (is_function(value.target)) return // cdf target not supported yet
+        const name = value.name
+        assert(is_array(value.target))
+        const jR = array(value.target.length)
+        this.sample_indices(jR)
+        const xR = array(jR.length, r => this.xJK[jR[r]][k])
+        // TODO: compare hist(xR) to hist(value.target) (baseline)
+        // hist(value.target).hbars({ name: 'hist_' + name })
+        hist(xR).hbars({ name: 'hist_' + name })
+      })
+    }
   }
 
   // scales weights by weight_exp and clips infinities to enable subtraction
@@ -777,6 +793,21 @@ class _Sampler {
     const j = rwj_uniform
       ? random_discrete_uniform(J)
       : random_discrete(rwJ, rwj_sum)
+    return j
+  }
+
+  sample_indices(jR, options) {
+    if (options?.prior) {
+      const { J, pwj_uniform, pwJ, pwj_sum } = this
+      const j = pwj_uniform
+        ? random_discrete_uniform_array(jR, J)
+        : random_discrete_array(jR, pwJ, pwj_sum)
+      return j
+    }
+    const { J, rwj_uniform, rwJ, rwj_sum } = this
+    const j = rwj_uniform
+      ? random_discrete_uniform_array(jR, J)
+      : random_discrete_array(jR, rwJ, rwj_sum)
     return j
   }
 
