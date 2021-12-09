@@ -6,12 +6,12 @@
 // plot.js
 ```
 
-```html_bar_chart_removed:plot-bar_chart.html
+```html_bars_removed:plot-bars.html
 // plot-bar_chart.html
 ```
 
-```html_horizontal_bar_chart_removed:plot-horizontal_bar_chart.html
-// plot-horizontal_bar_chart.html
+```html_hbars_removed:plot-hbars.html
+// plot-hbars.html
 ```
 
 <p> #_//core #_//math #_//stat

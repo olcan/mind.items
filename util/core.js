@@ -38,7 +38,7 @@ const flat = (...args) => _.flattenDeep(args)
 
 const range = _.range
 const group = _.groupBy
-const count_by = _.countBy
+const count = _.countBy
 const sum_by = _.sumBy
 const map_values = _.mapValues
 const map_keys = _.mapKeys
@@ -52,6 +52,9 @@ const sorted_last_index = _.sortedLastIndex
 
 const stringify = JSON.stringify
 const parse = JSON.parse
+
+const lower = x => x.toLowerCase()
+const upper = x => x.toUpperCase()
 
 const lookup = (obj, keys, missing = undefined) =>
   keys.map(k => obj[k] ?? missing)

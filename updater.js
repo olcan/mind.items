@@ -474,7 +474,7 @@ async function update_item(item, updates) {
                 `failed to install dependency ${dep} for ${label}`
               )
             // name/path consistency should be enforced by _install for dependency
-            if (item.name.toLowerCase() != dep.toLowerCase())
+            if (lower(item.name) != lower(dep))
               throw new Error(
                 `invalid name ${item.name} for installed ` +
                   `dependency ${dep} of ${label}`

@@ -1,6 +1,6 @@
-<div id="bar_chart-__cid__" class="c3 __classes__" __style__>
+<div id="bars-__cid__" class="c3 __classes__" __style__>
   <script>
-    const { data, options } = _this.store['bar_chart-__cid__']
+    const { data, options } = _this.store['bars-__cid__']
     const { labels, values, baseline } = data
     let change
     if (baseline)
@@ -8,7 +8,7 @@
         .map((x, i) => x - baseline[i])
         .map(d3.format(options.y_format))
     c3._chart(
-      '#bar_chart-__cid__',
+      '#bars-__cid__',
       merge(
         {
           data: {

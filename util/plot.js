@@ -1,3 +1,180 @@
+// plot `obj` into item `name`
+function plot(obj, name = undefined) {
+  assert(is_object(obj), 'non-object argument')
+  name ||= obj.name || '#/plot' // default name can also be specified in obj
+  assert(_this.name.startsWith('#'), 'plot called from unnamed item')
+  assert(name.match(/^#?\/?\w+$/), `invalid name '${name}' for plot item`)
+  // prefix name with #/ if missing and convert to absolute name
+  if (name.match(/^\w/)) name = '#/' + name
+  else if (name.match(/^\/\w/)) name = '#' + name
+  name = name.replace(/^#\//, _this.name + '/')
+
+  if (!obj.data) obj = { data: obj } // data-only obj
+  let {
+    data, // required
+    renderer = 'table', // string or portable function
+    renderer_options, // optional options for renderer
+    encoding = 'json', // used as language for markdown block
+    encoder = stringify, // must be function (invoked by plot)
+    decoder = 'parse', // string or portable function
+    dependencies, // optional dependencies (besides #_util/plot)
+  } = obj
+
+  assert(data, 'missing data')
+  assert(renderer, 'missing renderer')
+  assert(is_function(renderer) || is_string(renderer), 'invalid renderer')
+  assert(is_function(decoder) || is_string(decoder), 'invalid decoder')
+  assert(is_function(encoder), 'invalid encoder')
+  // convert renderer and parser to strings embeddable in macro
+  if (is_function(renderer)) renderer = renderer.toString()
+  if (!renderer.match(/^\w+$/)) renderer = `(${renderer})`
+  if (is_function(decoder)) decoder = decoder.toString()
+  if (!decoder.match(/^\w+$/)) decoder = `(${decoder})`
+  const ro = renderer_options ? `,parse(read('json_options'))` : ''
+  const macro = `${renderer}(${decoder}(read('${encoding}_data'))${ro})`
+  dependencies = flat('#_util/plot', dependencies ?? []).join(' ')
+  const text = encoder(data)
+
+  // look up item, create if missing
+  let item = _item(name, false /* do not log errors */)
+  item ??= _create(name)
+
+  // tag item if not tagged already
+  if (!_this.tags_visible.includes(item.name)) {
+    const tag = item.name.replace(_this.name, '#') // make relative
+    let text = read()
+    // if item does not end with a line of tags, create a new line
+    if (!text.match(/\n *#[^\n]*$/)) text += '\n' + tag
+    else text += ' ' + tag
+    write(text, '')
+  }
+
+  item.write_lines(
+    item.name,
+    `\<<${macro}>>`,
+    `<!--removed-->`,
+    block(encoding + '_data', text),
+    renderer_options
+      ? block('json_options', stringify(renderer_options ?? {}))
+      : undefined,
+    `<!--/removed-->`,
+    dependencies
+  )
+
+  // write any logs to calling item
+  write_log()
+
+  // focus on plot item if focused on calling item
+  // this prevents re-focusing for multiple plots in same js run
+  if (lower(MindBox.get().trim()) == lower(_this.name)) {
+    dispatch(async () => {
+      if (lower(MindBox.get().trim()) != lower(item.name)) {
+        MindBox.set(item.name)
+        await _update_dom() // wait for page update
+      }
+      if (!item.elem) {
+        console.warn(`missing element for ${item.name}`)
+        return
+      }
+      // scroll item to ~middle of screen if too low
+      if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
+        document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
+    })
+  }
+}
+
+// histogram for `xJ`
+function hist(xJ, options = {}) {
+  const _options = options // original user options (no defaults)
+  let {
+    bins, // can be array or integer (for max bins)
+    precision = 2, // d or [d,s] arguments to bin(xJ,…) or round(…)
+    labeler = 'mid', // string or function (a,b,k) => label
+    label_precision, // for fixed precision (decimal places); default is auto
+    stringifier = x => x.toFixed(label_precision),
+    weights, // optional weights
+    weight_precision = 2, // ignored if no weights
+  } = options
+  // interpret integer bins as max_bins
+  if (is_integer(bins)) {
+    max_bins = bins
+    bins = undefined
+  }
+  const [d, s] = flat(precision)
+  const xB = is_array(bins) ? bins : bin(xJ, is_integer(bins) ? bins : 10, d, s)
+  assert(is_array(xB), 'non-array bins')
+  label_precision ??= max_of(xB, _decimal_places)
+  const K = xB.length - 1
+  const cK = count_bins(xJ, xB, weights)
+  const [wd, ws] = flat(weight_precision)
+  if (weights) apply(cK, w => round(w, wd, ws))
+  const values = cK
+
+  // helper to convert string labeler to function
+  function _labeler(labeler) {
+    if (is_function(labeler)) return labeler
+    assert(is_string(labeler), 'invalid labeler')
+    switch (labeler) {
+      case 'left':
+        return (a, b) => stringifier(a)
+      case 'right':
+        return (a, b) => stringifier(b)
+      case 'range':
+        return (a, b) => stringifier(a) + '…' + stringifier(b)
+      case 'mid':
+        return (a, b) => stringifier(round((a + b) / 2, d, s))
+      default:
+        fatal(`unknown labeler '${labeler}'`)
+    }
+  }
+
+  // helper to convert labeler to labels
+  function _labels(labeler) {
+    labeler = _labeler(labeler)
+    return array(K, k => labeler(xB[k], xB[k + 1], k))
+  }
+
+  // returned data array w/ default labels & plotting methods attached below
+  const data = transpose([_labels(labeler), cK])
+
+  // helper for plotting
+  function _plot(type, ...args) {
+    let [name, options] = lookup_types(args, ['string', 'object'])
+    name ??= options?.name ?? 'hist_' + type
+    let labeler = options?.labeler ?? _options.labeler ?? 'range'
+    let obj = { name, renderer_options: options }
+    switch (type) {
+      case 'table':
+        return plot({ ...obj, data: transpose([_labels(labeler), cK]) })
+      case 'bars': {
+        labeler = options?.labeler ?? _options.labeler ?? 'mid'
+        return plot({
+          ...obj,
+          data: { labels: _labels(labeler), values },
+          renderer: 'bars',
+          dependencies: ['#_c3'],
+        })
+      }
+      case 'hbars': {
+        return plot({
+          ...obj,
+          data: { labels: _labels(labeler), values },
+          renderer: 'hbars',
+          renderer_options: merge({ height: K * 25 }, options),
+          dependencies: ['#_c3'],
+        })
+      }
+    }
+  }
+
+  return assign(data, {
+    table: (...args) => _plot('table', ...args),
+    bars: (...args) => _plot('bars', ...args),
+    vbars: (...args) => _plot('bars', ...args),
+    hbars: (...args) => _plot('hbars', ...args),
+  })
+}
+
 // bin `xJ` into `≤K` bins `xB`
 // `B` values encode `B-1` _right-open intervals_ $`[x_b,x_{b+1})`$
 // can be given only range pair `[xs,xe]` or `min_max_in(xJ)`
@@ -82,7 +259,7 @@ function _test_bin() {
 
 // count `xJ` into bins `xB`
 // can aggregate optional weights `wJ`
-function count(xJ, xB = bin(xJ), wJ = undefined) {
+function count_bins(xJ, xB = bin(xJ), wJ = undefined) {
   assert(is_array(xJ), 'non-array argument')
   assert(xJ.length, 'empty array')
   assert(is_array(xB), 'non-array bins')
@@ -106,91 +283,8 @@ function count(xJ, xB = bin(xJ), wJ = undefined) {
   return cK
 }
 
-// histogram for `xJ`
-function histogram(xJ, options = {}) {
-  let {
-    bins, // can be array or integer (for max bins)
-    precision = 2, // d or [d,s] arguments to bin(xJ,…) or round(…)
-    label_precision, // for fixed precision (decimal places); default is auto
-    stringifier = x => x.toFixed(label_precision),
-    labeler = 'mid', // string or function (a,b,k) => label
-    weights, // optional weights
-    weight_precision = 2, // ignored if no weights
-  } = options
-  // interpret integer bins as max_bins
-  if (is_integer(bins)) {
-    max_bins = bins
-    bins = undefined
-  }
-  const [d, s] = flat(precision)
-  const xB = is_array(bins) ? bins : bin(xJ, is_integer(bins) ? bins : 10, d, s)
-  label_precision ??= max_of(xB, _decimal_places)
-  assert(is_array(xB), 'non-array bins')
-  const K = xB.length - 1
-  const cK = count(xJ, xB, weights)
-  const [wd, ws] = flat(weight_precision)
-  if (weights) apply(cK, w => round(w, wd, ws))
-  const values = cK
-  // helper to convert string labeler to function
-  function _labeler(labeler) {
-    if (is_function(labeler)) return labeler
-    assert(is_string(labeler), 'invalid labeler')
-    switch (labeler) {
-      case 'left':
-        return (a, b) => stringifier(a)
-      case 'right':
-        return (a, b) => stringifier(b)
-      case 'range':
-        return (a, b) => stringifier(a) + '…' + stringifier(b)
-      case 'mid':
-        return (a, b) => stringifier(round((a + b) / 2, d, s))
-      default:
-        fatal(`unknown labeler '${labeler}'`)
-    }
-  }
-  // helper to convert labeler to labels
-  function _labels(labeler) {
-    labeler = _labeler(labeler)
-    return array(K, k => labeler(xB[k], xB[k + 1], k))
-  }
-  const data = transpose([_labels(labeler), cK])
-  const _options = options // user-specified histogram options (no defaults)
-  return assign(data, {
-    table: (...args) => {
-      const [name, options] = lookup_types(args, ['string', 'object'])
-      const labeler = options?.labeler ?? _options.labeler ?? 'mid'
-      plot({
-        name: name ?? options?.name ?? 'histogram',
-        renderer_options: options,
-        data: { labels: _labels(labeler), values },
-      })
-    },
-    bar_chart: (...args) => {
-      const [name, options] = lookup_types(args, ['string', 'object'])
-      const labeler = options?.labeler ?? _options.labeler ?? 'mid'
-      plot({
-        name: name ?? options?.name ?? 'histogram',
-        data: { labels: _labels(labeler), values },
-        renderer: 'bar_chart',
-        renderer_options: options,
-        dependencies: ['#_c3'],
-      })
-    },
-    horizontal_bar_chart: (...args) => {
-      const [name, options] = lookup_types(args, ['string', 'object'])
-      const labeler = options?.labeler ?? _options.labeler ?? 'range'
-      plot({
-        name: name ?? options?.name ?? 'histogram',
-        data: { labels: _labels(labeler), values },
-        renderer: 'horizontal_bar_chart',
-        renderer_options: merge({ height: K * 25 }, options),
-        dependencies: ['#_c3'],
-      })
-    },
-  })
-}
-
-function bar_chart(data, options = {}) {
+// bar chart
+function bars(data, options = {}) {
   // extract template arguments out of options
   const template_props = ['width', 'height', 'style', 'classes']
   let {
@@ -221,10 +315,10 @@ function bar_chart(data, options = {}) {
   // pass along data/options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
   // macro cid is preferred to html script cid for consistency
-  _this.store['bar_chart-$cid'] = { data, options }
+  _this.store['bars-$cid'] = { data, options }
   return html(
     _item('#util/plot')
-      .read('html_bar_chart')
+      .read('html_bars')
       .replaceAll('__cid__', '$cid')
       .replaceAll('__classes__', classes)
       // style is templatized as html attribute to work around css validation
@@ -232,7 +326,8 @@ function bar_chart(data, options = {}) {
   )
 }
 
-function horizontal_bar_chart(data, options = {}) {
+// horizontal bar chart
+function hbars(data, options = {}) {
   // extract template arguments out of options
   const template_props = ['width', 'height', 'style', 'classes']
   let {
@@ -260,97 +355,13 @@ function horizontal_bar_chart(data, options = {}) {
   // pass along data/options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
   // macro cid is preferred to html script cid for consistency
-  _this.store['horizontal_bar_chart-$cid'] = { data, options }
+  _this.store['hbars-$cid'] = { data, options }
   return html(
     _item('#util/plot')
-      .read('html_horizontal_bar_chart')
+      .read('html_hbars')
       .replaceAll('__cid__', '$cid')
       .replaceAll('__classes__', classes)
       // style is templatized as html attribute to work around css validation
       .replaceAll('__style__', `style="${style}"`)
   )
-}
-
-// plot `obj` into item `name`
-function plot(obj, name = undefined) {
-  assert(is_object(obj), 'non-object argument')
-  name ||= obj.name || '#/plot' // default name can also be specified in obj
-  assert(_this.name.startsWith('#'), 'plot called from unnamed item')
-  assert(name.match(/^#?\/?\w+$/), `invalid name '${name}' for plot item`)
-  // prefix name with #/ if missing and convert to absolute name
-  if (name.match(/^\w/)) name = '#/' + name
-  else if (name.match(/^\/\w/)) name = '#' + name
-  name = name.replace(/^#\//, _this.name + '/')
-
-  if (!obj.data) obj = { data: obj } // data-only obj
-  let {
-    data, // required
-    renderer = 'table', // string or portable function
-    renderer_options, // optional options for renderer
-    encoding = 'json', // used as language for markdown block
-    encoder = stringify, // must be function (invoked by plot)
-    decoder = 'parse', // string or portable function
-    dependencies, // optional dependencies (besides #_util/plot)
-  } = obj
-
-  assert(data, 'missing data')
-  assert(renderer, 'missing renderer')
-  assert(is_function(renderer) || is_string(renderer), 'invalid renderer')
-  assert(is_function(decoder) || is_string(decoder), 'invalid decoder')
-  assert(is_function(encoder), 'invalid encoder')
-  // convert renderer and parser to strings embeddable in macro
-  if (is_function(renderer)) renderer = renderer.toString()
-  if (!renderer.match(/^\w+$/)) renderer = `(${renderer})`
-  if (is_function(decoder)) decoder = decoder.toString()
-  if (!decoder.match(/^\w+$/)) decoder = `(${decoder})`
-  const ro = renderer_options ? `,parse(read('json_options'))` : ''
-  const macro = `${renderer}(${decoder}(read('${encoding}_data'))${ro})`
-  dependencies = flat('#_util/plot', dependencies ?? []).join(' ')
-  const text = encoder(data)
-
-  // look up item, create if missing
-  let item = _item(name, false /* do not log errors */)
-  item ??= _create(name)
-
-  // tag item if not tagged already
-  if (!_this.tags_visible.includes(item.name)) {
-    const tag = item.name.replace(_this.name, '#') // make relative
-    let text = read()
-    // if item does not end with a line of tags, create a new line
-    if (!text.match(/\n *#[^\n]*$/)) text += '\n' + tag
-    else text += ' ' + tag
-    write(text, '')
-  }
-
-  item.write_lines(
-    item.name,
-    `\<<${macro}>>`,
-    `<!--removed-->`,
-    block(encoding + '_data', text),
-    renderer_options
-      ? block('json_options', stringify(renderer_options ?? {}))
-      : undefined,
-    `<!--/removed-->`,
-    dependencies
-  )
-
-  // write any logs to calling item
-  write_log()
-
-  // focus on plot item if focused on calling item
-  // this prevents re-focusing for multiple plots in same js run
-  if (MindBox.get() == _this.name)
-    dispatch(async () => {
-      if (MindBox.get() != item.name) {
-        MindBox.set(item.name)
-        await _update_dom() // wait for page update
-      }
-      if (!item.elem) {
-        console.warn(`missing element for ${item.name}`)
-        return
-      }
-      // scroll item to ~middle of screen if too low
-      if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
-        document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
-    })
 }
