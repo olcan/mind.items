@@ -112,10 +112,8 @@ function histogram(xJ, options = {}) {
     bins, // can be array or integer (for max bins)
     precision = 2, // d or [d,s] arguments to bin(xJ,…) or round(…)
     label_precision, // for fixed precision (decimal places); default is auto
-    value_formatter = x => x.toFixed(label_precision),
-    labeler = (a, b) => value_formatter(a) + '…' + value_formatter(b),
-    // labeler = (a, b) => ((a + b) / 2).toFixed(label_precision + 1),
-    labels, // custom labels
+    stringifier = x => x.toFixed(label_precision),
+    labeler = 'mid', // string or function (a,b,k) => label
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
   } = options
@@ -128,34 +126,67 @@ function histogram(xJ, options = {}) {
   const xB = is_array(bins) ? bins : bin(xJ, is_integer(bins) ? bins : 10, d, s)
   label_precision ??= max_of(xB, _decimal_places)
   assert(is_array(xB), 'non-array bins')
+  const K = xB.length - 1
   const cK = count(xJ, xB, weights)
   const [wd, ws] = flat(weight_precision)
   if (weights) apply(cK, w => round(w, wd, ws))
-  const lK = labels ?? array(cK.length, k => labeler(xB[k], xB[k + 1], k))
-  const data = transpose([lK, cK])
+  const values = cK
+  // helper to convert string labeler to function
+  function _labeler(labeler) {
+    if (is_function(labeler)) return labeler
+    assert(is_string(labeler), 'invalid labeler')
+    switch (labeler) {
+      case 'left':
+        return (a, b) => stringifier(a)
+      case 'right':
+        return (a, b) => stringifier(b)
+      case 'range':
+        return (a, b) => stringifier(a) + '…' + stringifier(b)
+      case 'mid':
+        return (a, b) => stringifier(round((a + b) / 2, d, s))
+      default:
+        fatal(`unknown labeler '${labeler}'`)
+    }
+  }
+  // helper to convert labeler to labels
+  function _labels(labeler) {
+    labeler = _labeler(labeler)
+    return array(K, k => labeler(xB[k], xB[k + 1], k))
+  }
+  const data = transpose([_labels(labeler), cK])
+  const _options = options // user-specified histogram options (no defaults)
   return assign(data, {
-    table: options =>
+    table: (...args) => {
+      const [name, options] = lookup_types(args, ['string', 'object'])
+      const labeler = options?.labeler ?? _options.labeler ?? 'mid'
       plot({
-        name: options?.name ?? 'histogram',
+        name: name ?? options?.name ?? 'histogram',
         renderer_options: options,
-        data,
-      }),
-    bar_chart: options =>
+        data: { labels: _labels(labeler), values },
+      })
+    },
+    bar_chart: (...args) => {
+      const [name, options] = lookup_types(args, ['string', 'object'])
+      const labeler = options?.labeler ?? _options.labeler ?? 'mid'
       plot({
-        name: options?.name ?? 'histogram',
-        data: { labels: lK, values: cK },
+        name: name ?? options?.name ?? 'histogram',
+        data: { labels: _labels(labeler), values },
         renderer: 'bar_chart',
         renderer_options: options,
         dependencies: ['#_c3'],
-      }),
-    horizontal_bar_chart: options =>
+      })
+    },
+    horizontal_bar_chart: (...args) => {
+      const [name, options] = lookup_types(args, ['string', 'object'])
+      const labeler = options?.labeler ?? _options.labeler ?? 'range'
       plot({
-        name: options?.name ?? 'histogram',
-        data: { labels: lK, values: cK },
+        name: name ?? options?.name ?? 'histogram',
+        data: { labels: _labels(labeler), values },
         renderer: 'horizontal_bar_chart',
-        renderer_options: merge({ height: lK.length * 25 }, options),
+        renderer_options: merge({ height: K * 25 }, options),
         dependencies: ['#_c3'],
-      }),
+      })
+    },
   })
 }
 
@@ -306,18 +337,20 @@ function plot(obj, name = undefined) {
   // write any logs to calling item
   write_log()
 
-  // focus on plot item
-  dispatch(async () => {
-    if (MindBox.get() != item.name) {
-      MindBox.set(item.name)
-      await _update_dom() // wait for page update
-    }
-    if (!item.elem) {
-      console.warn(`missing element for ${item.name}`)
-      return
-    }
-    // scroll item to ~middle of screen if too low
-    if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
-      document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
-  })
+  // focus on plot item if focused on calling item
+  // this prevents re-focusing for multiple plots in same js run
+  if (MindBox.get() == _this.name)
+    dispatch(async () => {
+      if (MindBox.get() != item.name) {
+        MindBox.set(item.name)
+        await _update_dom() // wait for page update
+      }
+      if (!item.elem) {
+        console.warn(`missing element for ${item.name}`)
+        return
+      }
+      // scroll item to ~middle of screen if too low
+      if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
+        document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
+    })
 }

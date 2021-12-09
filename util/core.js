@@ -53,6 +53,21 @@ const sorted_last_index = _.sortedLastIndex
 const stringify = JSON.stringify
 const parse = JSON.parse
 
+const lookup = (obj, keys, missing = undefined) =>
+  keys.map(k => obj[k] ?? missing)
+
+// look up values by type
+// returns last value of each type
+function lookup_types(values, ...types) {
+  return lookup(
+    zip_object(
+      values.map(x => typeof x),
+      values
+    ),
+    flat(types)
+  )
+}
+
 // converts `x` to a string
 // goals: short, readable, unique
 // mainly intended for clean presentation
@@ -530,7 +545,7 @@ function js_table(regex) {
           def.args = def.arrow_args.replace(/\s*=>$/, '')
           if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
         }
-        if (!def.args) return // skip if no args
+        if (!def.args && !def.body) return // skip if no args and no body
         // remove whitespace in args
         def.args = def.args.replace(/\s+/g, '')
         // escape ` in args:
