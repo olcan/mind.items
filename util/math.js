@@ -407,7 +407,6 @@ const _benchmark_dot = () => {
 }
 
 const scale = (xJ, y) => apply(xJ, x => x * y)
-const negate = xJ => scale(xJ, -1)
 const shift = (xJ, y) => apply(xJ, x => x + y)
 
 const add = (xJ, yJ) => map(xJ, yJ, (x, y) => x + y)
