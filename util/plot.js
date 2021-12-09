@@ -1,4 +1,4 @@
-// plot `obj` into item `name`
+// plot `obj` in item `name`
 function plot(obj, name = undefined) {
   assert(is_object(obj), 'non-object argument')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
@@ -84,58 +84,92 @@ function plot(obj, name = undefined) {
 }
 
 // histogram for `xJ`
+// labeled counts or weights
 function hist(xJ, options = {}) {
   const _options = options // original user options (no defaults)
   let {
     bins, // can be array or integer (for max bins)
+    values, // can be array or integer, disables binning
     precision = 2, // d or [d,s] arguments to bin(xJ,…) or round(…)
     labeler = 'mid', // string or function (a,b,k) => label
     label_precision, // for fixed precision (decimal places); default is auto
-    stringifier = x => x.toFixed(label_precision),
+    stringifier, // stringifier for numbers
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
+    sort_values_by, // default is rank_by count/weight; non-binned mode only
   } = options
-  // interpret integer bins as max_bins
-  if (is_integer(bins)) {
-    max_bins = bins
-    bins = undefined
-  }
-  const [d, s] = flat(precision)
-  const xB = is_array(bins) ? bins : bin(xJ, is_integer(bins) ? bins : 10, d, s)
-  assert(is_array(xB), 'non-array bins')
-  label_precision ??= max_of(xB, _decimal_places)
-  const K = xB.length - 1
-  const cK = count_bins(xJ, xB, weights)
-  const [wd, ws] = flat(weight_precision)
-  if (weights) apply(cK, w => round(w, wd, ws))
-  const values = cK
+  const wJ = weights
+  if (wJ) assert(is_array(wJ) && wJ.length == xJ.length, 'invalid weights')
 
-  // helper to convert string labeler to function
-  function _labeler(labeler) {
-    if (is_function(labeler)) return labeler
-    assert(is_string(labeler), 'invalid labeler')
-    switch (labeler) {
-      case 'left':
-        return (a, b) => stringifier(a)
-      case 'right':
-        return (a, b) => stringifier(b)
-      case 'range':
-        return (a, b) => stringifier(a) + '…' + stringifier(b)
-      case 'mid':
-        return (a, b) => stringifier(round((a + b) / 2, d, s))
-      default:
-        fatal(`unknown labeler '${labeler}'`)
+  let K // rows (bins or values)
+  let cK // array of counts or weights
+  let lK // function for labels, defined below
+  const max_bins = is_integer(bins) ? bins : 10
+
+  // automatically disable binning if:
+  // - values option (integer or array) is defined
+  // - xJ contains any non-numbers
+  // - xJ has too few distinct elements, either <K, or <J/2
+  if (
+    defined(values) ||
+    !every(xJ, is_number) ||
+    uniq(xJ).length < min(max_bins, xJ.length / 2)
+  ) {
+    // rank non-numeric values
+    values ??= 10 // 10 values by default
+    let cX = {}
+    if (wJ) each(xJ, (x, j) => (cX[x] = (cX[x] ?? 0) + wJ[j]))
+    else each(xJ, x => (cX[x] = (cX[x] ?? 0) + 1))
+    if (is_integer(values)) {
+      assert(values > 0, 'invalid values <= 0')
+      // we rank by count/weight by default
+      // arbitrary ordering is possible w/ values array
+      // alternatively can pass sort_values_by option
+      values = take(
+        sort_values_by
+          ? sort_by(keys(cX), sort_values_by)
+          : rank_by(keys(cX), x => cX[x]),
+        values
+      )
+    }
+    assert(is_array(values), 'invalid values')
+    K = values.length
+    cK = lookup(cX, values, 0)
+    const labels = values //.map(stringifier ?? str)
+    lK = () => labels
+  } else {
+    // bin numeric values
+    const [d, s] = flat(precision)
+    const xB = is_array(bins) ? bins : bin(xJ, max_bins, d, s)
+    assert(is_array(xB), 'non-array bins')
+    label_precision ??= max_of(xB, _decimal_places)
+    stringifier ??= x => x.toFixed(label_precision) // default numeric stringifier
+    K = xB.length - 1
+    cK = count_bins(xJ, xB, wJ)
+
+    lK = labeler => {
+      if (is_string(labeler)) {
+        if (labeler == 'left') labeler = (a, b) => stringifier(a)
+        else if (labeler == 'right') labeler = (a, b) => stringifier(b)
+        else if (labeler == 'range')
+          labeler = (a, b) => stringifier(a) + '…' + stringifier(b)
+        else if (labeler == 'mid')
+          labeler = (a, b) => stringifier(round((a + b) / 2, d, s))
+        else fatal(`unknown labeler '${labeler}'`)
+      }
+      assert(is_function(labeler), 'invalid labeler')
+      return array(K, k => labeler(xB[k], xB[k + 1], k))
     }
   }
 
-  // helper to convert labeler to labels
-  function _labels(labeler) {
-    labeler = _labeler(labeler)
-    return array(K, k => labeler(xB[k], xB[k + 1], k))
+  // round weights if weighted
+  if (wJ) {
+    const [wd, ws] = flat(weight_precision)
+    apply(cK, w => round(w, wd, ws))
   }
 
   // returned data array w/ default labels & plotting methods attached below
-  const data = transpose([_labels(labeler), cK])
+  const data = transpose([lK(labeler), cK])
 
   // helper for plotting
   function _plot(type, ...args) {
@@ -145,12 +179,12 @@ function hist(xJ, options = {}) {
     let obj = { name, renderer_options: options }
     switch (type) {
       case 'table':
-        return plot({ ...obj, data: transpose([_labels(labeler), cK]) })
+        return plot({ ...obj, data: transpose([lK(labeler), cK]) })
       case 'bars': {
         labeler = options?.labeler ?? _options.labeler ?? 'mid'
         return plot({
           ...obj,
-          data: { labels: _labels(labeler), values },
+          data: { labels: lK(labeler), values: cK },
           renderer: 'bars',
           dependencies: ['#_c3'],
         })
@@ -158,7 +192,7 @@ function hist(xJ, options = {}) {
       case 'hbars': {
         return plot({
           ...obj,
-          data: { labels: _labels(labeler), values },
+          data: { labels: lK(labeler), values: cK },
           renderer: 'hbars',
           renderer_options: merge({ height: K * 25 }, options),
           dependencies: ['#_c3'],
