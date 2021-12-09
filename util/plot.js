@@ -106,14 +106,14 @@ function count(xJ, xB = bin(xJ), wJ = undefined) {
   return cK
 }
 
-// histogram(xJ, {…})
+// histogram for `xJ`
 function histogram(xJ, options = {}) {
   let {
     bins, // can be array or integer (for max bins)
     precision = 1, // d or [d,s] arguments to bin(xJ,…) or round(…)
     label_precision, // for fixed precision (decimal places); default is auto
     value_formatter = x => x.toFixed(label_precision),
-    labeler = (a, b) => [value_formatter(a), value_formatter(b)],
+    labeler = (a, b) => value_formatter(a) + '…' + value_formatter(b),
     labels, // custom labels
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
@@ -131,21 +131,48 @@ function histogram(xJ, options = {}) {
   const [wd, ws] = flat(weight_precision)
   if (weights) apply(cK, w => round(w, wd, ws))
   const lK = labels ?? array(cK.length, k => labeler(xB[k], xB[k + 1]))
-  return set(transpose([lK, cK]).map(flatten), 'name', 'histogram')
+  return {
+    data: transpose([lK, cK]),
+    name: 'histogram', // default name of plot item
+    table: function () {
+      this.renderer = 'table'
+      delete this.renderer_options
+      return this
+    },
+    bar_chart: function () {
+      this.renderer = 'bar_chart'
+      this.renderer_options = {}
+      return this
+    },
+  }.bar_chart() // default view
 }
 
+function bar_chart(data, options = {}) {
+  return 'hello bar chart'
+  // TODO: you have data and options, so go crazy :)
+  // bar_chart html should probably go into plot_bar_chart.html
+}
+
+// plot `obj` into item `name`
 function plot(obj, name = undefined) {
   assert(is_object(obj), 'non-object argument')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
+  assert(_this.name.startsWith('#'), 'plot called from unnamed item')
+  assert(name.match(/^#?\/?\w+$/), `invalid name '${name}' for plot item`)
+  // prefix name with #/ if missing and convert to absolute name
+  if (name.match(/^\w/)) name = '#/' + name
+  else if (name.match(/^\/\w/)) name = '#' + name
+  name = name.replace(/^#\//, _this.name + '/')
+
   if (!obj.data) obj = { data: obj } // data-only obj
   let {
     data, // required
-    renderer = 'table', // can be function or string
-    // data<->text encoder/decoder
-    encoding = 'json', // block type/name (_removed is appended)
-    encoder = stringify, // must be function
-    decoder = 'parse', // can be function or string
-    deps, // optional dependencies (besides #_util/core)
+    renderer = 'table', // string or portable function
+    renderer_options, // optional options for renderer
+    encoding = 'json', // used as language for markdown block
+    encoder = stringify, // must be function (invoked by plot)
+    decoder = 'parse', // string or portable function
+    deps, // optional dependencies (besides #_util/plot)
   } = obj
 
   assert(data, 'missing data')
@@ -158,15 +185,12 @@ function plot(obj, name = undefined) {
   if (!renderer.match(/^\w+$/)) renderer = `(${renderer})`
   if (is_function(decoder)) decoder = decoder.toString()
   if (!decoder.match(/^\w+$/)) decoder = `(${decoder})`
-  const macro = `${renderer}(${decoder}(read('${encoding}')))`
-  deps = flat('#_util/core', deps ?? []).join(' ')
+  const ro = renderer_options ? `,parse(read('json_options'))` : ''
+  const macro = `${renderer}(${decoder}(read('${encoding}_data'))${ro})`
+  deps = flat('#_util/plot', deps ?? []).join(' ')
   const text = encoder(data)
 
-  // determine item
-  assert(_this.name.startsWith('#'), 'plot called from unnamed item')
-  if (name.match(/^\w/)) name = '/' + name
-  if (name.match(/^\/\w/)) name = '#' + name
-  if (name.match(/^#\/\w/)) name = name.replace(/^#\//, _this.name + '/')
+  // look up item, create if missing
   let item = _item(name, false /* do not log errors */)
   item ??= _create(name)
 
@@ -183,14 +207,19 @@ function plot(obj, name = undefined) {
   item.write_lines(
     item.name,
     `\<<${macro}>>`,
-    block(encoding + '_removed', text),
+    `<!--removed-->`,
+    block(encoding + '_data', text),
+    renderer_options
+      ? block('json_options', stringify(renderer_options ?? {}))
+      : undefined,
+    `<!--/removed-->`,
     deps
   )
 
   // write any logs to calling item
   write_log()
 
-  // focus on output item
+  // focus on plot item
   dispatch(async () => {
     if (MindBox.get() != item.name) {
       MindBox.set(item.name)
