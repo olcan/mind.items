@@ -1,5 +1,6 @@
 #util/sample defines sampling-based inference & optimization utilities.
 << js_table() >>
+#/playground
 
 ```js_removed:sample.js
 // sample.js

@@ -110,10 +110,11 @@ function count(xJ, xB = bin(xJ), wJ = undefined) {
 function histogram(xJ, options = {}) {
   let {
     bins, // can be array or integer (for max bins)
-    precision = 1, // d or [d,s] arguments to bin(xJ,…) or round(…)
+    precision = 2, // d or [d,s] arguments to bin(xJ,…) or round(…)
     label_precision, // for fixed precision (decimal places); default is auto
     value_formatter = x => x.toFixed(label_precision),
     labeler = (a, b) => value_formatter(a) + '…' + value_formatter(b),
+    // labeler = (a, b) => ((a + b) / 2).toFixed(label_precision + 1),
     labels, // custom labels
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
@@ -125,32 +126,118 @@ function histogram(xJ, options = {}) {
   }
   const [d, s] = flat(precision)
   const xB = is_array(bins) ? bins : bin(xJ, is_integer(bins) ? bins : 10, d, s)
-  label_precision ??= min_of(xB, _decimal_places)
+  label_precision ??= max_of(xB, _decimal_places)
   assert(is_array(xB), 'non-array bins')
   const cK = count(xJ, xB, weights)
   const [wd, ws] = flat(weight_precision)
   if (weights) apply(cK, w => round(w, wd, ws))
-  const lK = labels ?? array(cK.length, k => labeler(xB[k], xB[k + 1]))
-  return {
-    data: transpose([lK, cK]),
-    name: 'histogram', // default name of plot item
-    table: function () {
-      this.renderer = 'table'
-      delete this.renderer_options
-      return this
-    },
-    bar_chart: function () {
-      this.renderer = 'bar_chart'
-      this.renderer_options = {}
-      return this
-    },
-  }.bar_chart() // default view
+  const lK = labels ?? array(cK.length, k => labeler(xB[k], xB[k + 1], k))
+  const data = transpose([lK, cK])
+  return assign(data, {
+    table: options =>
+      plot({
+        name: options?.name ?? 'histogram',
+        renderer_options: options,
+        data,
+      }),
+    bar_chart: options =>
+      plot({
+        name: options?.name ?? 'histogram',
+        data: { labels: lK, values: cK },
+        renderer: 'bar_chart',
+        renderer_options: options,
+        dependencies: ['#_c3'],
+      }),
+    horizontal_bar_chart: options =>
+      plot({
+        name: options?.name ?? 'histogram',
+        data: { labels: lK, values: cK },
+        renderer: 'horizontal_bar_chart',
+        renderer_options: merge({ height: lK.length * 25 }, options),
+        dependencies: ['#_c3'],
+      }),
+  })
 }
 
 function bar_chart(data, options = {}) {
-  return 'hello bar chart'
-  // TODO: you have data and options, so go crazy :)
-  // bar_chart html should probably go into plot_bar_chart.html
+  // extract template arguments out of options
+  const template_props = ['width', 'height', 'style', 'classes']
+  let {
+    width = 'auto',
+    height = 200,
+    style = '',
+    classes = '',
+  } = pick(options, template_props)
+  options = omit(options, template_props)
+  if (is_number(width)) width += 'px'
+  if (is_number(height)) height += 'px'
+  style = `width:${width};height:${height};${style}`
+
+  options = merge(
+    {
+      y_label: 'value',
+      y_format: '.2~f',
+      y_axis: false,
+      x_ticks: outerWidth < 1024 ? 13 : Infinity,
+      x_tick_angle: 0,
+      label: '',
+      label_position: 'upper-center',
+      baseline_label: 'baseline',
+      change_label: 'change',
+    },
+    options
+  )
+  // pass along data/options via item store keyed by macro cid
+  // macro cid is also passed to html via template string __cid__
+  // macro cid is preferred to html script cid for consistency
+  _this.store['bar_chart-$cid'] = { data, options }
+  return html(
+    _item('#util/plot')
+      .read('html_bar_chart')
+      .replaceAll('__cid__', '$cid')
+      .replaceAll('__classes__', classes)
+      // style is templatized as html attribute to work around css validation
+      .replaceAll('__style__', `style="${style}"`)
+  )
+}
+
+function horizontal_bar_chart(data, options = {}) {
+  // extract template arguments out of options
+  const template_props = ['width', 'height', 'style', 'classes']
+  let {
+    width = 'auto',
+    height = 250,
+    style = '',
+    classes = '',
+  } = pick(options, template_props)
+  options = omit(options, template_props)
+  if (is_number(width)) width += 'px'
+  if (is_number(height)) height += 'px'
+  style = `width:${width};height:${height};${style}`
+
+  options = merge(
+    {
+      y_label: 'value',
+      y_format: '.2~f',
+      baseline_label: 'baseline',
+      change_label: 'change',
+      labels: false,
+      x_labels: [],
+    },
+    options
+  )
+  // pass along data/options via item store keyed by macro cid
+  // macro cid is also passed to html via template string __cid__
+  // macro cid is preferred to html script cid for consistency
+  _this.store['horizontal_bar_chart-$cid'] = { data, options }
+  return html(
+    _item('#util/plot')
+      .read('html_horizontal_bar_chart')
+      .replaceAll('__cid__', '$cid')
+      .replaceAll('__classes__', classes)
+      // style is templatized as html attribute to work around css validation
+      .replaceAll('__style__', `style="${style}"`)
+  )
 }
 
 // plot `obj` into item `name`
@@ -172,7 +259,7 @@ function plot(obj, name = undefined) {
     encoding = 'json', // used as language for markdown block
     encoder = stringify, // must be function (invoked by plot)
     decoder = 'parse', // string or portable function
-    deps, // optional dependencies (besides #_util/plot)
+    dependencies, // optional dependencies (besides #_util/plot)
   } = obj
 
   assert(data, 'missing data')
@@ -187,7 +274,7 @@ function plot(obj, name = undefined) {
   if (!decoder.match(/^\w+$/)) decoder = `(${decoder})`
   const ro = renderer_options ? `,parse(read('json_options'))` : ''
   const macro = `${renderer}(${decoder}(read('${encoding}_data'))${ro})`
-  deps = flat('#_util/plot', deps ?? []).join(' ')
+  dependencies = flat('#_util/plot', dependencies ?? []).join(' ')
   const text = encoder(data)
 
   // look up item, create if missing
@@ -213,7 +300,7 @@ function plot(obj, name = undefined) {
       ? block('json_options', stringify(renderer_options ?? {}))
       : undefined,
     `<!--/removed-->`,
-    deps
+    dependencies
   )
 
   // write any logs to calling item
