@@ -55,7 +55,7 @@ const write = (...args) => _this.write(...args)
 // write_lines(...lines)
 const write_lines = (...args) => _this.write_lines(...args)
 _Item.prototype.write_lines = function (...lines) {
-  this.write(flat(lines).join('\n').trim(), '')
+  this.write(flat(lines).filter(defined).join('\n').trim(), '')
 }
 
 // => item.clear(type)
