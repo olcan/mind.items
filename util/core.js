@@ -530,6 +530,7 @@ function js_table(regex) {
           def.args = def.arrow_args.replace(/\s*=>$/, '')
           if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
         }
+        if (!def.args) return // skip if no args
         // remove whitespace in args
         def.args = def.args.replace(/\s+/g, '')
         // escape ` in args:
