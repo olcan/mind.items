@@ -2,8 +2,10 @@
   <script>
     const { data, options } = _this.store['lines-__cid__']
     const { x_values, values } = data
+    const labels = options.series?.map(s => s.label) ?? []
+    const colors = options.series?.map(s => s.color) ?? []
+    const axes = options.series?.map(s => s.axis) ?? []
     const xSJ = matrixify(values)
-    const { labels, colors } = clone_deep(options)
     c3._chart(
       '#lines-__cid__',
       merge(
@@ -16,10 +18,14 @@
             ],
             labels: options.bar_values,
             colors: zip_object(labels, colors),
+            axes: zip_object(labels, axes),
           },
           axis: {
             x: {},
             y: {},
+            y2: {
+              show: axes?.includes('y2'),
+            },
           },
           legend: { show: xSJ.length > 1 },
         },

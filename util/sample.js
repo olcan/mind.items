@@ -375,23 +375,48 @@ class _Sampler {
       print(str(this.stats))
     }
 
-    // plot posteriors vs targets
-    if (options.targets) {
-      each(this.values, (value, k) => {
-        if (!value.target) return // no target
-        if (is_function(value.target)) return // cdf target not supported yet
-        const name = value.name
-        assert(is_array(value.target))
-        const jR = array(value.target.length)
-        this.sample_indices(jR)
-        const xR = array(jR.length, r => this.xJK[jR[r]][k])
-        hist([xR, value.target]).hbars({
-          name: 'hist_' + name,
-          labels: ['posterior', 'target'],
-          colors: ['#d61', 'gray'],
-          delta: true,
-        })
+    // plot stats
+    if (options.plot) {
+      const values = []
+      const series = []
+      const add_line = (prop, options = {}, f = x => x) => {
+        values.push(this.stats.updates.map(su => f(su[prop])))
+        options.label ??= prop
+        options.axis ??= 'y'
+        series.push(options)
+      }
+      // y is logarithmic ks p-value axis
+      // y2 is linear percentage axis
+      add_line('mks')
+      add_line('ess', { axis: 'y2' }, x => (100 * x) / J)
+      plot({
+        name: 'stats',
+        data: { values },
+        renderer: 'lines',
+        renderer_options: { series },
+        dependencies: ['#_c3'],
       })
+
+      // plot posteriors vs targets
+      if (options.targets) {
+        each(this.values, (value, k) => {
+          if (!value.target) return // no target
+          if (is_function(value.target)) return // cdf target not supported yet
+          const name = value.name
+          assert(is_array(value.target))
+          const jR = array(value.target.length)
+          this.sample_indices(jR)
+          const xR = array(jR.length, r => this.xJK[jR[r]][k])
+          hist([xR, value.target]).hbars({
+            name: 'hist_' + name,
+            series: [
+              { label: 'posterior', color: '#d61' },
+              { label: 'target', color: 'gray' },
+            ],
+            delta: true, // append delta series
+          })
+        })
+      }
     }
   }
 

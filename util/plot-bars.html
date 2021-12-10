@@ -3,8 +3,8 @@
     const { data, options } = _this.store['bars-__cid__']
     const { labels, values } = data
     const xSJ = matrixify(values)
-    const series_labels = copy(options.labels)
-    const series_colors = copy(options.colors)
+    const series_labels = options.series?.map(s => s.label) ?? []
+    const series_colors = options.series?.map(s => s.color) ?? []
     if (options.delta && xSJ.length == 2) {
       xSJ.push(sub(copy(xSJ[0]), xSJ[1]))
       series_labels.push('delta')

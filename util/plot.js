@@ -371,8 +371,7 @@ function _extract_template_options(options = {}, defaults = {}) {
 function bars(data, _options = {}) {
   let { style, classes, options } = _extract_template_options(_options)
   options = {
-    labels: [],
-    colors: [],
+    series: [], // {label, color, axis}
     bar_axis: false,
     bar_values: false,
     delta: false, // add delta column? (for 2-column data only)
@@ -383,7 +382,6 @@ function bars(data, _options = {}) {
     label_angle: 0,
     ...options, // can contain any c3 chart options, e.g. title
   }
-  check(() => [options.labels.length, options.colors.length])
 
   // pass along data/options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
@@ -403,8 +401,7 @@ function bars(data, _options = {}) {
 function hbars(data, _options = {}) {
   let { style, classes, options } = _extract_template_options(_options)
   options = {
-    labels: [],
-    colors: [],
+    series: [], // {label, color, axis}
     bar_axis: false,
     bar_values: false,
     value_format: '.2~f',
@@ -412,7 +409,6 @@ function hbars(data, _options = {}) {
     delta_color: '#48d',
     ...options, // can contain any c3 chart options, e.g. title
   }
-  check(() => [options.labels.length, options.colors.length])
 
   _this.store['hbars-$cid'] = { data, options }
   return html(
@@ -429,11 +425,9 @@ function hbars(data, _options = {}) {
 function lines(data, _options = {}) {
   let { style, classes, options } = _extract_template_options(_options)
   options = {
-    labels: [],
-    colors: [],
+    series: [], // {label, color, axis}
     ...options, // can contain any c3 chart options, e.g. title
   }
-  check(() => [options.labels.length, options.colors.length])
 
   _this.store['lines-$cid'] = { data, options }
   return html(
