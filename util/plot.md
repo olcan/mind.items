@@ -14,4 +14,8 @@
 // plot-hbars.html
 ```
 
+```html_lines_removed:plot-lines.html
+// plot-lines.html
+```
+
 <p> #_//core #_//math #_//stat

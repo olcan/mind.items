@@ -83,7 +83,7 @@ function plot(obj, name = undefined) {
   }
 }
 
-// hist(xJ|xSJ, [options])
+// hist(xJ|xSJ, {…})
 // histogram(s) for `xJ` or `xSJ`
 // labeled counts or weights
 function hist(xSJ, options = {}) {
@@ -213,7 +213,19 @@ function hist(xSJ, options = {}) {
           ...obj,
           data: { labels: lK(labeler), values: cSK },
           renderer: 'hbars',
-          renderer_options: merge({ height: K * 25 }, options),
+          renderer_options: { height: K * 25, ...options },
+          dependencies: ['#_c3'],
+        })
+      }
+      case 'lines': {
+        assert(!values, 'hist(…).lines(…) requires binned mode')
+        labeler = options?.labeler ?? _options.labeler ?? 'mid'
+        const labels = lK(labeler)
+        assert(is_numeric(labels[0]), 'hist(…).lines(…) needs numeric labels')
+        return plot({
+          ...obj,
+          data: { x_values: labels, values: cSK },
+          renderer: 'lines',
           dependencies: ['#_c3'],
         })
       }
@@ -225,6 +237,7 @@ function hist(xSJ, options = {}) {
     bars: (...args) => _plot('bars', ...args),
     vbars: (...args) => _plot('bars', ...args),
     hbars: (...args) => _plot('hbars', ...args),
+    lines: (...args) => _plot('lines', ...args),
   })
 }
 
@@ -336,38 +349,42 @@ function count_bins(xJ, xB = bin(xJ), wJ = undefined) {
   return cK
 }
 
-// bar chart
-function bars(data, options = {}) {
-  // extract template arguments out of options
-  const template_props = ['width', 'height', 'style', 'classes']
+function _extract_template_options(options = {}, defaults = {}) {
+  const props = ['width', 'max_width', 'height', 'style', 'classes']
   let {
     width = 'auto',
+    max_width = 'none',
     height = 200,
     style = '',
     classes = '',
-  } = pick(options, template_props)
-  options = omit(options, template_props)
+  } = merge(defaults, pick(options, props))
+  options = omit(options, props) // remove props from options
   if (is_number(width)) width += 'px'
+  if (is_number(max_width)) max_width += 'px'
   if (is_number(height)) height += 'px'
-  style = `width:${width};height:${height};${style}`
+  style = `width:${width};max-width:${max_width};height:${height};${style}`
+  return { style, classes, options }
+}
 
-  options = merge(
-    {
-      title: '',
-      title_position: 'upper-center',
-      bar_values: false,
-      bar_axis: false,
-      value_format: '.2~f',
-      labels: [],
-      colors: [],
-      delta: false, // add delta column? (for 2-column data only)
-      delta_color: '#48d',
-      // options to help fit labels on narrow screens
-      max_labels: outerWidth < 1024 ? 13 : Infinity,
-      label_angle: 0,
-    },
-    options
-  )
+// bars(data, {…})
+// bar chart
+function bars(data, _options = {}) {
+  let { style, classes, options } = _extract_template_options(_options)
+  options = {
+    labels: [],
+    colors: [],
+    bar_axis: false,
+    bar_values: false,
+    delta: false, // add delta column? (for 2-column data only)
+    delta_color: '#48d',
+    value_format: '.2~f',
+    // options to help fit labels on narrow screens
+    max_labels: outerWidth < 1024 ? 13 : Infinity,
+    label_angle: 0,
+    ...options, // can contain any c3 chart options, e.g. title
+  }
+  check(() => [options.labels.length, options.colors.length])
+
   // pass along data/options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
   // macro cid is preferred to html script cid for consistency
@@ -377,50 +394,53 @@ function bars(data, options = {}) {
       .read('html_bars')
       .replaceAll('__cid__', '$cid')
       .replaceAll('__classes__', classes)
-      // style is templatized as html attribute to work around css validation
       .replaceAll('__style__', `style="${style}"`)
   )
 }
 
+// hbars(data, {…})
 // horizontal bar chart
-function hbars(data, options = {}) {
-  // extract template arguments out of options
-  const template_props = ['width', 'height', 'style', 'classes']
-  let {
-    width = 'auto',
-    height = 250,
-    style = '',
-    classes = '',
-  } = pick(options, template_props)
-  options = omit(options, template_props)
-  if (is_number(width)) width += 'px'
-  if (is_number(height)) height += 'px'
-  style = `width:${width};height:${height};${style}`
+function hbars(data, _options = {}) {
+  let { style, classes, options } = _extract_template_options(_options)
+  options = {
+    labels: [],
+    colors: [],
+    bar_axis: false,
+    bar_values: false,
+    value_format: '.2~f',
+    delta: false, // add delta column? (for 2-column data only)
+    delta_color: '#48d',
+    ...options, // can contain any c3 chart options, e.g. title
+  }
+  check(() => [options.labels.length, options.colors.length])
 
-  options = merge(
-    {
-      title: '',
-      title_position: 'upper-center',
-      bar_values: false,
-      bar_axis: false,
-      value_format: '.2~f',
-      labels: [],
-      colors: [],
-      delta: false, // add delta column? (for 2-column data only)
-      delta_color: '#48d',
-    },
-    options
-  )
-  // pass along data/options via item store keyed by macro cid
-  // macro cid is also passed to html via template string __cid__
-  // macro cid is preferred to html script cid for consistency
   _this.store['hbars-$cid'] = { data, options }
   return html(
     _item('#util/plot')
       .read('html_hbars')
       .replaceAll('__cid__', '$cid')
       .replaceAll('__classes__', classes)
-      // style is templatized as html attribute to work around css validation
+      .replaceAll('__style__', `style="${style}"`)
+  )
+}
+
+// lines(data, {…})
+// line chart
+function lines(data, _options = {}) {
+  let { style, classes, options } = _extract_template_options(_options)
+  options = {
+    labels: [],
+    colors: [],
+    ...options, // can contain any c3 chart options, e.g. title
+  }
+  check(() => [options.labels.length, options.colors.length])
+
+  _this.store['lines-$cid'] = { data, options }
+  return html(
+    _item('#util/plot')
+      .read('html_lines')
+      .replaceAll('__cid__', '$cid')
+      .replaceAll('__classes__', classes)
       .replaceAll('__style__', `style="${style}"`)
   )
 }
