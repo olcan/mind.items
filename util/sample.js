@@ -385,9 +385,12 @@ class _Sampler {
         const jR = array(value.target.length)
         this.sample_indices(jR)
         const xR = array(jR.length, r => this.xJK[jR[r]][k])
-        // TODO: compare hist(xR) to hist(value.target) (baseline)
-        // hist(value.target).hbars({ name: 'hist_' + name })
-        hist(xR).hbars({ name: 'hist_' + name })
+        hist([xR, value.target]).hbars({
+          name: 'hist_' + name,
+          labels: ['posterior', 'target'],
+          colors: ['#d61', 'gray'],
+          delta: true,
+        })
       })
     }
   }

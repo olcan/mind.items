@@ -1,13 +1,15 @@
 <div id="hbars-__cid__" class="c3 __classes__" __style__>
   <script>
     const { data, options } = _this.store['hbars-__cid__']
-    const { labels, values, baseline } = data
-    let change
-    if (baseline)
-      change = values
-        .map((x, i) => x - baseline[i])
-        .map(d3.format(options.y_format))
-
+    const { labels, values } = data
+    const xSJ = matrixify(values)
+    const series_labels = copy(options.labels)
+    const series_colors = copy(options.colors)
+    if (options.delta && xSJ.length == 2) {
+      xSJ.push(sub(copy(xSJ[0]), xSJ[1]))
+      series_labels.push('delta')
+      series_colors.push(options.delta_color)
+    }
     c3._chart(
       '#hbars-__cid__',
       merge(
@@ -16,26 +18,31 @@
             x: 'x',
             columns: [
               ['x', ...labels],
-              ...(baseline ? [[options.baseline_label, ...baseline]] : []),
-              [options.y_label, ...values],
-              ...(change ? [[options.change_label, ...change]] : []),
+              ...xSJ.map((xsJ, s) => [
+                series_labels[s] ?? 'series_' + s,
+                ...xsJ,
+              ]),
             ],
-            labels: options.labels,
+            labels: options.bar_values,
+            colors: zip_object(series_labels, series_colors),
             type: 'bar',
-            colors: _.fromPairs([
-              [options.y_label, baseline ? '#d61' : 'gray'],
-              [options.baseline_label, 'gray'],
-              [options.change_label, '#48d'],
-            ]),
           },
           bar: { space: 0.25 },
           axis: {
-            rotated: true,
+            rotated: true, // x vertical, y horizontal
             x: { type: 'category' },
-            y: { show: false },
+            y: {
+              show: options.bar_axis,
+              tick: { format: d3.format(options.value_format) },
+            },
           },
           padding: { bottom: 7 }, // also done by _chart
-          legend: { show: baseline != undefined, position: 'right' },
+          legend: { show: true /*TODO*/, position: 'right' },
+          // https://stackoverflow.com/a/51570780
+          title: {
+            text: options.title,
+            position: options.title_position,
+          },
         },
         options
       )

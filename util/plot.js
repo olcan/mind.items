@@ -83,9 +83,12 @@ function plot(obj, name = undefined) {
   }
 }
 
-// histogram for `xJ`
+// hist(xJ|xSJ, [options])
+// histogram(s) for `xJ` or `xSJ`
 // labeled counts or weights
-function hist(xJ, options = {}) {
+function hist(xSJ, options = {}) {
+  xSJ = matrixify(xSJ) // convert to matrix in case of single series xJ
+  const S = xSJ.length // number of series
   const _options = options // original user options (no defaults)
   let {
     bins, // can be array or integer (for max bins)
@@ -98,28 +101,32 @@ function hist(xJ, options = {}) {
     weight_precision = 2, // ignored if no weights
     sort_values_by, // default is rank_by count/weight; non-binned mode only
   } = options
-  const wJ = weights
-  if (wJ) assert(is_array(wJ) && wJ.length == xJ.length, 'invalid weights')
+  const wSJ = weights
+  if (wSJ) assert(equal(dimensions(wSJ), dimensions(xSJ)), 'invalid weights')
 
   let K // rows (bins or values)
-  let cK // array of counts or weights
   let lK // function for labels, defined below
+  let cSK // array of counts or weights
   const max_bins = is_integer(bins) ? bins : 10
+
+  // flatten xSJ and wSJ for binning or ranking
+  const xZ = flat(xSJ)
+  const wZ = wSJ ? flat(wSJ) : undefined
 
   // automatically disable binning if:
   // - values option (integer or array) is defined
-  // - xJ contains any non-numbers
-  // - xJ has too few distinct elements, < max(K,J/2)
+  // - xZ contains any non-numbers
+  // - xZ has too few distinct elements, < max(K,J/2)
   if (
     defined(values) ||
-    !every(xJ, is_number) ||
-    uniq(xJ).length < max(max_bins, xJ.length / 2)
+    !every(xZ, is_number) ||
+    uniq(xZ).length < max(max_bins, xZ.length / 2)
   ) {
     // rank non-numeric values
     values ??= 10 // 10 values by default
     let cX = {}
-    if (wJ) each(xJ, (x, j) => (cX[x] = (cX[x] ?? 0) + wJ[j]))
-    else each(xJ, x => (cX[x] = (cX[x] ?? 0) + 1))
+    if (wZ) each(xZ, (x, z) => (cX[x] = (cX[x] ?? 0) + wZ[z]))
+    else each(xZ, x => (cX[x] = (cX[x] ?? 0) + 1))
     if (is_integer(values)) {
       assert(values > 0, 'invalid values <= 0')
       // we rank by count/weight by default
@@ -134,18 +141,26 @@ function hist(xJ, options = {}) {
     }
     assert(is_array(values), 'invalid values')
     K = values.length
-    cK = lookup(cX, values, 0)
+    const cSX = array(S, s => {
+      const xsJ = xSJ[s]
+      const wsJ = wSJ?.[s]
+      let csX = {}
+      if (wsJ) each(xsJ, (x, j) => (csX[x] = (csX[x] ?? 0) + wsJ[j]))
+      else each(xsJ, (x, j) => (csX[x] = (csX[x] ?? 0) + 1))
+      return csX
+    })
+    cSK = array(S, s => lookup(cSX[s], values, 0))
     const labels = values //.map(stringifier ?? str)
     lK = () => labels
   } else {
     // bin numeric values
     const [d, s] = flat(precision)
-    const xB = is_array(bins) ? bins : bin(xJ, max_bins, d, s)
+    const xB = is_array(bins) ? bins : bin(xZ, max_bins, d, s)
     assert(is_array(xB), 'non-array bins')
     label_precision ??= max_of(xB, _decimal_places)
     stringifier ??= x => x.toFixed(label_precision) // default numeric stringifier
     K = xB.length - 1
-    cK = count_bins(xJ, xB, wJ)
+    cSK = array(S, s => count_bins(xSJ[s], xB, wSJ?.[s]))
 
     lK = labeler => {
       if (is_string(labeler)) {
@@ -163,13 +178,14 @@ function hist(xJ, options = {}) {
   }
 
   // round weights if weighted
-  if (wJ) {
+  if (weights) {
     const [wd, ws] = flat(weight_precision)
-    apply(cK, w => round(w, wd, ws))
+    apply(cSK, csK => apply(csK, w => round(w, wd, ws)))
   }
 
   // returned data array w/ default labels & plotting methods attached below
-  const data = transpose([lK(labeler), cK])
+  const cKS = transpose(cSK)
+  const data = lK(labeler).map((lk, k) => [lk, ...cKS[k]])
 
   // helper for plotting
   function _plot(type, ...args) {
@@ -179,12 +195,15 @@ function hist(xJ, options = {}) {
     let obj = { name, renderer_options: options }
     switch (type) {
       case 'table':
-        return plot({ ...obj, data: transpose([lK(labeler), cK]) })
+        return plot({
+          ...obj,
+          data: lK(labeler).map((lk, k) => [lk, ...cKS[k]]),
+        })
       case 'bars': {
         labeler = options?.labeler ?? _options.labeler ?? 'mid'
         return plot({
           ...obj,
-          data: { labels: lK(labeler), values: cK },
+          data: { labels: lK(labeler), values: cSK },
           renderer: 'bars',
           dependencies: ['#_c3'],
         })
@@ -192,7 +211,7 @@ function hist(xJ, options = {}) {
       case 'hbars': {
         return plot({
           ...obj,
-          data: { labels: lK(labeler), values: cK },
+          data: { labels: lK(labeler), values: cSK },
           renderer: 'hbars',
           renderer_options: merge({ height: K * 25 }, options),
           dependencies: ['#_c3'],
@@ -334,15 +353,18 @@ function bars(data, options = {}) {
 
   options = merge(
     {
-      y_label: 'value',
-      y_format: '.2~f',
-      y_axis: false,
-      x_ticks: outerWidth < 1024 ? 13 : Infinity,
-      x_tick_angle: 0,
-      label: '',
-      label_position: 'upper-center',
-      baseline_label: 'baseline',
-      change_label: 'change',
+      title: '',
+      title_position: 'upper-center',
+      bar_values: false,
+      bar_axis: false,
+      value_format: '.2~f',
+      labels: [],
+      colors: [],
+      delta: false, // add delta column? (for 2-column data only)
+      delta_color: '#48d',
+      // options to help fit labels on narrow screens
+      max_labels: outerWidth < 1024 ? 13 : Infinity,
+      label_angle: 0,
     },
     options
   )
@@ -377,12 +399,15 @@ function hbars(data, options = {}) {
 
   options = merge(
     {
-      y_label: 'value',
-      y_format: '.2~f',
-      baseline_label: 'baseline',
-      change_label: 'change',
-      labels: false,
-      x_labels: [],
+      title: '',
+      title_position: 'upper-center',
+      bar_values: false,
+      bar_axis: false,
+      value_format: '.2~f',
+      labels: [],
+      colors: [],
+      delta: false, // add delta column? (for 2-column data only)
+      delta_color: '#48d',
     },
     options
   )
