@@ -50,9 +50,6 @@ const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
 const sorted_index = _.sortedIndex
 const sorted_last_index = _.sortedLastIndex
 
-const stringify = JSON.stringify
-const parse = JSON.parse
-
 const lower = x => x.toLowerCase()
 const upper = x => x.toUpperCase()
 
@@ -71,7 +68,35 @@ function lookup_types(values, ...types) {
   )
 }
 
-// converts `x` to a string
+// [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
+function stringify(value) {
+  return JSON.stringify(value, function (k, v) {
+    if (is_function(v)) {
+      v = v.toString()
+      // collapse all leading spaces not inside backticks
+      v = v.replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n '))
+      return `__function:${v}`
+    }
+    return v
+  })
+}
+
+// [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
+function parse(text) {
+  return JSON.parse(text, function (k, v) {
+    if (is_string(v) && v.match(/^__function:/)) {
+      v = v.replace(/^__function:/, '')
+      if (!this.__function_context) return eval(v)
+      const context = this.__function_context
+      // we use a wrapper to emulate original function context/scope
+      const wrapper = `(function({${keys(context)}}) { return ${v} })`
+      return eval(wrapper)(context)
+    }
+    return v
+  })
+}
+
+// converts `x` to a (short) string
 // goals: short, readable, unique
 // mainly intended for clean presentation
 // also used as default stringifier in #/hash

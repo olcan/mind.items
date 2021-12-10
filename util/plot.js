@@ -13,7 +13,7 @@ function plot(obj, name = undefined) {
   let {
     data, // required
     renderer = 'table', // string or portable function
-    renderer_options, // optional options for renderer
+    renderer_options, // options for renderer, passed via stringify_options
     encoding = 'json', // used as language for markdown block
     encoder = stringify, // must be function (invoked by plot)
     decoder = 'parse', // string or portable function
@@ -48,6 +48,8 @@ function plot(obj, name = undefined) {
     else text += ' ' + tag
     write(text, '')
   }
+
+  // TODO: use special stringify_options
 
   item.write_lines(
     item.name,
@@ -350,12 +352,13 @@ function count_bins(xJ, xB = bin(xJ), wJ = undefined) {
 }
 
 function _extract_template_options(options = {}, defaults = {}) {
-  const props = ['width', 'max_width', 'height', 'style', 'classes']
+  const props = ['width', 'max_width', 'height', 'style', 'styles', 'classes']
   let {
     width = 'auto',
     max_width = 'none',
     height = 200,
     style = '',
+    styles = '',
     classes = '',
   } = merge(defaults, pick(options, props))
   options = omit(options, props) // remove props from options
@@ -363,13 +366,15 @@ function _extract_template_options(options = {}, defaults = {}) {
   if (is_number(max_width)) max_width += 'px'
   if (is_number(height)) height += 'px'
   style = `width:${width};max-width:${max_width};height:${height};${style}`
-  return { style, classes, options }
+  style = `style="${style}"`
+  styles = flat(styles).join('\n')
+  return { style, styles, classes, options }
 }
 
 // bars(data, {…})
 // bar chart
 function bars(data, _options = {}) {
-  let { style, classes, options } = _extract_template_options(_options)
+  let { style, styles, classes, options } = _extract_template_options(_options)
   options = {
     series: [], // {label, color, axis}
     bar_axis: false,
@@ -382,7 +387,6 @@ function bars(data, _options = {}) {
     label_angle: 0,
     ...options, // can contain any c3 chart options, e.g. title
   }
-
   // pass along data/options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
   // macro cid is preferred to html script cid for consistency
@@ -392,14 +396,15 @@ function bars(data, _options = {}) {
       .read('html_bars')
       .replaceAll('__cid__', '$cid')
       .replaceAll('__classes__', classes)
-      .replaceAll('__style__', `style="${style}"`)
+      .replaceAll('__style__', style)
+      .replaceAll('/* __styles__ */', styles)
   )
 }
 
 // hbars(data, {…})
 // horizontal bar chart
 function hbars(data, _options = {}) {
-  let { style, classes, options } = _extract_template_options(_options)
+  let { style, styles, classes, options } = _extract_template_options(_options)
   options = {
     series: [], // {label, color, axis}
     bar_axis: false,
@@ -409,32 +414,32 @@ function hbars(data, _options = {}) {
     delta_color: '#48d',
     ...options, // can contain any c3 chart options, e.g. title
   }
-
   _this.store['hbars-$cid'] = { data, options }
   return html(
     _item('#util/plot')
       .read('html_hbars')
       .replaceAll('__cid__', '$cid')
       .replaceAll('__classes__', classes)
-      .replaceAll('__style__', `style="${style}"`)
+      .replaceAll('__style__', style)
+      .replaceAll('/* __styles__ */', styles)
   )
 }
 
 // lines(data, {…})
 // line chart
 function lines(data, _options = {}) {
-  let { style, classes, options } = _extract_template_options(_options)
+  let { style, styles, classes, options } = _extract_template_options(_options)
   options = {
     series: [], // {label, color, axis}
     ...options, // can contain any c3 chart options, e.g. title
   }
-
   _this.store['lines-$cid'] = { data, options }
   return html(
     _item('#util/plot')
       .read('html_lines')
       .replaceAll('__cid__', '$cid')
       .replaceAll('__classes__', classes)
-      .replaceAll('__style__', `style="${style}"`)
+      .replaceAll('__style__', style)
+      .replaceAll('/* __styles__ */', styles)
   )
 }

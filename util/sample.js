@@ -389,11 +389,98 @@ class _Sampler {
       // y2 is linear percentage axis
       add_line('mks')
       add_line('ess', { axis: 'y2' }, x => (100 * x) / J)
+      const formatters = {
+        mks: x => (2 ** x < 1000 ? round(2 ** x, 2) : '>10^' + ~~log10(2 ** x)),
+        ess: x => `${x}%`,
+      }
+      const y_ticks = apply(
+        [
+          [1, '1---'],
+          [2, '2'],
+          [10, '10'],
+          [100, '10²'],
+          [1000, '10³'],
+          [10 ** 4, '10⁴'],
+          [10 ** 5, '10⁵'],
+          [10 ** 6, '10⁶'],
+          [10 ** 7, '10⁷'],
+        ],
+        yt => apply(yt, y => round(log2(y), 2), 0, 1)
+      )
+
       plot({
         name: 'stats',
         data: { values },
         renderer: 'lines',
-        renderer_options: { series },
+        renderer_options: {
+          series,
+          axis: {
+            y: {
+              min: 0,
+              max: first(last(y_ticks)),
+              tick: {
+                values: y_ticks.map(first),
+                format: y => y_ticks.find(yt => yt[0] === y)?.[1] ?? '?',
+                __function_context: { y_ticks },
+              },
+            },
+            y2: {
+              show: true,
+              min: 0,
+              tick: {
+                values: [0, 20, 40, 60, 80, 100],
+                format: y => y + '%',
+              },
+            },
+          },
+          tooltip: {
+            format: {
+              title: x => 'step ' + x,
+              value: (v, _, n) => formatters[n]?.(v) ?? v,
+              __function_context: { formatters },
+            },
+          },
+          grid: {
+            y: {
+              lines: [
+                { value: 1, class: 'accept strong' },
+                { value: log2(10), class: 'accept' },
+                { value: log2(100), class: 'reject' },
+                { value: log2(10 ** 6), class: 'reject strong' },
+              ],
+            },
+          },
+          // point: { show: false },
+          padding: { right: 50, left: 35 },
+          // TODO: clean this up, esp. as you add more stats ...
+          // ks: #444,#777,#ddd,#777,#444
+          //   qQ = [0,.1,.5,.9,1]
+          //   nQ = ['min','q10','median','q90','max']
+          // ess: #36f
+          // essu: #36f
+          // essr: #36f
+          // mar: #a0a // #4f4 // #f70
+          // mks: #f00
+          // Δφ: #f00
+          styles: [
+            `.c3-grid { opacity: 1 }`,
+            `text.c3-axis-y-label { fill: #fff }`,
+            `text.c3-axis-y2-label { fill: #36f }`,
+            `.c3-ygrid-line line { stroke:#0f0; /*stroke-dasharray:7,5;*/ stroke-width:5px; opacity: .1 !important }`,
+            `.c3-ygrid-line.strong line { opacity: .25 !important }`,
+            `.c3-ygrid-line text { fill:#0f0; transform:translate(5px,8px); font-size:14px }`,
+            `.c3-ygrid-line.reject line { stroke:#f00 }`,
+            `.c3-ygrid-line.reject text { fill:#f00 }`,
+            `.c3-ygrid-line.accept text { transform:translate(5px,8px) }`,
+            `.c3-target path { stroke-width:1px }`,
+            `.c3-target { opacity:1 !important }`,
+            `.c3-target-median path { stroke-width:5px }`,
+            `.c3-target-ess path { stroke-width:3px }`,
+            `.c3-target-essu path { stroke-dasharray:7,5; }`,
+            `.c3-target-essr path { stroke-dasharray:5,3; }`,
+            `.c3-target-Δφ path { stroke-dasharray:5,3; }`,
+          ],
+        },
         dependencies: ['#_c3'],
       })
 
@@ -586,8 +673,8 @@ class _Sampler {
       essr: round(100 * clip(this.ess / this.essu)),
       mar: 100, // start at 100% acceptance rate
       mlw: 0, // start at 0 log_w improvement
-      mks: 1024, // start at 1024 -log2(ks2_test(...))
-      tks: round(min(1024, this.tks), 1),
+      mks: inf, // no data yet
+      tks: round(this.tks, 1),
       p: 0, // no proposals yet
       a: 0, // no accepts yet
       m: 0, // no moves yet
@@ -638,8 +725,8 @@ class _Sampler {
         essr: round(100 * clip(this.ess / this.essu)),
         mar: round(100 * (this.a / this.p)),
         mlw: round(this.mlw, 1),
-        mks: round(min(1024, this.mks), 1),
-        tks: round(min(1024, this.tks), 1),
+        mks: round(this.mks, 1),
+        tks: round(this.tks, 1),
         p: this.p,
         a: this.a,
         m: this.m - last(stats.updates).m,
