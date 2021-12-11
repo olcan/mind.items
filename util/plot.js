@@ -371,11 +371,28 @@ function _extract_template_options(options = {}, defaults = {}) {
   return { style, styles, classes, options }
 }
 
+function _plot(type, data, _options, defaults = {}) {
+  const { style, styles, classes, options } =
+    _extract_template_options(_options)
+  // pass along data/options via item store keyed by macro cid
+  // macro cid is also passed to html via template string __cid__
+  // macro cid is preferred to html script cid for consistency
+  _this.store[`${type}-$cid`] = { data, options: merge(defaults, options) }
+  return html(
+    _item('#util/plot')
+      .read(`html_${type}`)
+      .replace(/__classes__/g, classes)
+      .replace(/__style__/g, style)
+      .replace(/\/\* *__styles__ *\*\//g, styles)
+      .replace(/#plot\b/g, `#${type}-__cid__`)
+      .replace(/__cid__/g, '$cid')
+  )
+}
+
 // bars(data, {…})
 // bar chart
-function bars(data, _options = {}) {
-  let { style, styles, classes, options } = _extract_template_options(_options)
-  options = {
+function bars(data, options = {}) {
+  return _plot('bars', data, options, {
     series: [], // {label, color, axis}
     bar_axis: false,
     bar_values: false,
@@ -385,61 +402,27 @@ function bars(data, _options = {}) {
     // options to help fit labels on narrow screens
     max_labels: outerWidth < 1024 ? 13 : Infinity,
     label_angle: 0,
-    ...options, // can contain any c3 chart options, e.g. title
-  }
-  // pass along data/options via item store keyed by macro cid
-  // macro cid is also passed to html via template string __cid__
-  // macro cid is preferred to html script cid for consistency
-  _this.store['bars-$cid'] = { data, options }
-  return html(
-    _item('#util/plot')
-      .read('html_bars')
-      .replaceAll('__cid__', '$cid')
-      .replaceAll('__classes__', classes)
-      .replaceAll('__style__', style)
-      .replaceAll('/* __styles__ */', styles)
-  )
+  })
 }
 
 // hbars(data, {…})
 // horizontal bar chart
-function hbars(data, _options = {}) {
-  let { style, styles, classes, options } = _extract_template_options(_options)
-  options = {
+function hbars(data, options = {}) {
+  return _plot('hbars', data, options, {
     series: [], // {label, color, axis}
     bar_axis: false,
     bar_values: false,
     value_format: '.2~f',
     delta: false, // add delta column? (for 2-column data only)
     delta_color: '#48d',
-    ...options, // can contain any c3 chart options, e.g. title
-  }
-  _this.store['hbars-$cid'] = { data, options }
-  return html(
-    _item('#util/plot')
-      .read('html_hbars')
-      .replaceAll('__cid__', '$cid')
-      .replaceAll('__classes__', classes)
-      .replaceAll('__style__', style)
-      .replaceAll('/* __styles__ */', styles)
-  )
+  })
 }
 
 // lines(data, {…})
 // line chart
-function lines(data, _options = {}) {
-  let { style, styles, classes, options } = _extract_template_options(_options)
-  options = {
+function lines(data, options = {}) {
+  return _plot('lines', data, options, {
     series: [], // {label, color, axis}
     ...options, // can contain any c3 chart options, e.g. title
-  }
-  _this.store['lines-$cid'] = { data, options }
-  return html(
-    _item('#util/plot')
-      .read('html_lines')
-      .replaceAll('__cid__', '$cid')
-      .replaceAll('__classes__', classes)
-      .replaceAll('__style__', style)
-      .replaceAll('/* __styles__ */', styles)
-  )
+  })
 }
