@@ -392,7 +392,23 @@ class _Sampler {
       // y is logarithmic ks p-value axis
       // y2 is linear percentage axis
       add_line('mks')
+      add_line('tks')
+      add_line('mlw')
       add_line('ess', { axis: 'y2' }, x => (100 * x) / J)
+      add_line('essu', { axis: 'y2' }, x => (100 * x) / J)
+      add_line('essr', { axis: 'y2' })
+      add_line('mar', { axis: 'y2' })
+      // colors and labels from previous eval chart in case useful:
+      // ks: #444,#777,#ddd,#777,#444
+      //   qQ = [0,.1,.5,.9,1]
+      //   nQ = ['min','q10','median','q90','max']
+      // ess: #36f
+      // essu: #36f
+      // essr: #36f
+      // mar: #a0a // #4f4 // #f70
+      // mks: #f00
+      // Δφ: #f00
+      //
       const formatters = {
         mks: x => (2 ** x < 1000 ? round(2 ** x, 2) : '>10^' + ~~log10(2 ** x)),
         ess: x => `${x}%`,
@@ -454,25 +470,12 @@ class _Sampler {
           },
           // point: { show: false },
           padding: { right: 50, left: 35 },
-          // TODO: clean this up, esp. as you add more stats ...
-          // ks: #444,#777,#ddd,#777,#444
-          //   qQ = [0,.1,.5,.9,1]
-          //   nQ = ['min','q10','median','q90','max']
-          // ess: #36f
-          // essu: #36f
-          // essr: #36f
-          // mar: #a0a // #4f4 // #f70
-          // mks: #f00
-          // Δφ: #f00
           styles: [
-            // `#plot .c3-grid { opacity: 1 }`,
-            // `#plot text.c3-axis-y-label { fill: #fff }`,
-            // `#plot text.c3-axis-y2-label { fill: #36f }`,
-            // `#plot .c3-ygrid-line line { stroke:#0f0; /*stroke-dasharray:7,5;*/ stroke-width:5px; opacity: .1 !important }`,
-            // `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
-            // `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
-            // `#plot .c3-target path { stroke-width:3px }`,
-            // `#plot .c3-target { opacity:1 !important }`,
+            `#plot .c3-ygrid-line line { stroke:#0f0; stroke-width:5px; opacity: .1 !important }`,
+            `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
+            `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
+            `#plot .c3-target path { stroke-width:2px }`,
+            `#plot .c3-target { opacity:1 !important }`,
             // `#plot .c3-target-median path { stroke-width:5px }`,
             // `#plot .c3-target-ess path { stroke-width:3px }`,
             // `#plot .c3-target-essu path { stroke-dasharray:7,5; }`,
