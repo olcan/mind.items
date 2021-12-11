@@ -119,7 +119,9 @@ function from(x, domain) {
 // |               | _default_: `({essu,J,a}) => essu<J/2 || a<J`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `max_updates` | maximum number of update steps, _default_: `inf`
+// | `min_updates` | minimum number of update steps, _default_: `0`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
+// | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
@@ -214,7 +216,9 @@ class _Sampler {
         move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
         weight_exp: ({ u }) => min(1, (u + 1) / 3),
         max_updates: inf,
+        min_updates: 0,
         max_time: 100,
+        min_time: 0,
         min_ess: J / 2,
         max_mks: 3,
         mks_buffer: B,
@@ -395,8 +399,7 @@ class _Sampler {
       }
       const y_ticks = apply(
         [
-          [1, '1---'],
-          [2, '2'],
+          [1, '1'],
           [10, '10'],
           [100, '10²'],
           [1000, '10³'],
@@ -443,10 +446,9 @@ class _Sampler {
           grid: {
             y: {
               lines: [
-                { value: 1, class: 'accept strong' },
+                { value: 0, class: 'accept strong' },
                 { value: log2(10), class: 'accept' },
-                { value: log2(100), class: 'reject' },
-                { value: log2(10 ** 6), class: 'reject strong' },
+                { value: log2(100), class: 'accept weak' },
               ],
             },
           },
@@ -463,22 +465,19 @@ class _Sampler {
           // mks: #f00
           // Δφ: #f00
           styles: [
-            `.c3-grid { opacity: 1 }`,
-            `text.c3-axis-y-label { fill: #fff }`,
-            `text.c3-axis-y2-label { fill: #36f }`,
-            `.c3-ygrid-line line { stroke:#0f0; /*stroke-dasharray:7,5;*/ stroke-width:5px; opacity: .1 !important }`,
-            `.c3-ygrid-line.strong line { opacity: .25 !important }`,
-            `.c3-ygrid-line text { fill:#0f0; transform:translate(5px,8px); font-size:14px }`,
-            `.c3-ygrid-line.reject line { stroke:#f00 }`,
-            `.c3-ygrid-line.reject text { fill:#f00 }`,
-            `.c3-ygrid-line.accept text { transform:translate(5px,8px) }`,
-            `.c3-target path { stroke-width:1px }`,
-            `.c3-target { opacity:1 !important }`,
-            `.c3-target-median path { stroke-width:5px }`,
-            `.c3-target-ess path { stroke-width:3px }`,
-            `.c3-target-essu path { stroke-dasharray:7,5; }`,
-            `.c3-target-essr path { stroke-dasharray:5,3; }`,
-            `.c3-target-Δφ path { stroke-dasharray:5,3; }`,
+            // `#plot .c3-grid { opacity: 1 }`,
+            // `#plot text.c3-axis-y-label { fill: #fff }`,
+            // `#plot text.c3-axis-y2-label { fill: #36f }`,
+            // `#plot .c3-ygrid-line line { stroke:#0f0; /*stroke-dasharray:7,5;*/ stroke-width:5px; opacity: .1 !important }`,
+            // `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
+            // `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
+            // `#plot .c3-target path { stroke-width:3px }`,
+            // `#plot .c3-target { opacity:1 !important }`,
+            // `#plot .c3-target-median path { stroke-width:5px }`,
+            // `#plot .c3-target-ess path { stroke-width:3px }`,
+            // `#plot .c3-target-essu path { stroke-dasharray:7,5; }`,
+            // `#plot .c3-target-essr path { stroke-dasharray:5,3; }`,
+            // `#plot .c3-target-Δφ path { stroke-dasharray:5,3; }`,
           ],
         },
         dependencies: ['#_c3'],
@@ -654,7 +653,9 @@ class _Sampler {
       time,
       updates,
       max_time,
+      min_time,
       max_updates,
+      min_updates,
       max_mks,
       min_ess,
       weight_exp,
@@ -685,20 +686,22 @@ class _Sampler {
     let reweighted = false
 
     do {
-      // check for early termination
-      if (this.t > max_time || this.u > max_updates) {
-        const { t, u } = this
-        if (this.options.warn) {
-          if (t > max_time)
-            warn(`ran out of time t=${t}>${max_time}ms (u=${u})`)
-          else warn(`ran out of updates u=${u}>${max_updates} (t=${t}ms)`)
-          // warn about pre-posterior sample w/ weight_exp<1 or log_wu_gap!=0
-          if (weight_exp(this) < 1)
-            warn(`pre-posterior sample w/ weight_exp=${weight_exp(this)}<1`)
-          if (this.log_wu_gap != 0)
-            warn(`pre-posterior sample w/ log_wu_gap=${this.log_wu_gap}!=0`)
+      // check for early termination if min_time/updates satisfied
+      if (this.t >= min_time && this.u >= min_updates) {
+        if (this.t > max_time || this.u > max_updates) {
+          const { t, u } = this
+          if (this.options.warn) {
+            if (t > max_time)
+              warn(`ran out of time t=${t}>${max_time}ms (u=${u})`)
+            else warn(`ran out of updates u=${u}>${max_updates} (t=${t}ms)`)
+            // warn about pre-posterior sample w/ weight_exp<1 or log_wu_gap!=0
+            if (weight_exp(this) < 1)
+              warn(`pre-posterior sample w/ weight_exp=${weight_exp(this)}<1`)
+            if (this.log_wu_gap != 0)
+              warn(`pre-posterior sample w/ log_wu_gap=${this.log_wu_gap}!=0`)
+          }
+          break
         }
-        break
       }
 
       // start next update step
@@ -749,16 +752,18 @@ class _Sampler {
         break
       }
 
-      // check target ess/mks/mlw
-      if (this.ess >= min_ess && this.mks <= max_mks && this.mlw <= 0) {
-        const { t, u, ess, mks, mlw } = this
-        if (this.options.log)
-          print(
-            `reached target ess=${round(ess)}≥${min_ess}, ` +
-              `mks=${round(mks, 3)}≤${max_mks}, mlw=${round(mlw, 3)}≤0 ` +
-              `@ u=${u}, t=${t}ms`
-          )
-        break
+      // check target ess/mks/mlw if min_time/updates satisfied
+      if (this.t >= min_time && this.u >= min_updates) {
+        if (this.ess >= min_ess && this.mks <= max_mks && this.mlw <= 0) {
+          const { t, u, ess, mks, mlw } = this
+          if (this.options.log)
+            print(
+              `reached target ess=${round(ess)}≥${min_ess}, ` +
+                `mks=${round(mks, 3)}≤${max_mks}, mlw=${round(mlw, 3)}≤0 ` +
+                `@ u=${u}, t=${t}ms`
+            )
+          break
+        }
       }
     } while (true)
 
