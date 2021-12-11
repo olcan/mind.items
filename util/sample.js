@@ -376,7 +376,7 @@ class _Sampler {
     if (options.log) {
       print(`applied ${this.u} updates in ${Date.now() - start}ms`)
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
-      print(str(this.stats))
+      // print(str(this.stats))
     }
 
     // plot stats
@@ -393,39 +393,23 @@ class _Sampler {
       // y2 is linear percentage axis
       add_line('mks')
       add_line('tks')
-      add_line('mlw')
       add_line('ess', { axis: 'y2' }, x => (100 * x) / J)
       add_line('essu', { axis: 'y2' }, x => (100 * x) / J)
       add_line('essr', { axis: 'y2' })
       add_line('mar', { axis: 'y2' })
-      // colors and labels from previous eval chart in case useful:
-      // ks: #444,#777,#ddd,#777,#444
-      //   qQ = [0,.1,.5,.9,1]
-      //   nQ = ['min','q10','median','q90','max']
-      // ess: #36f
-      // essu: #36f
-      // essr: #36f
-      // mar: #a0a // #4f4 // #f70
-      // mks: #f00
-      // Δφ: #f00
-      //
+      const [mlw_a, mlw_b] = min_max_in(this.stats.updates.map(u => u.mlw))
+      add_line('mlw', { axis: 'y2' }, x =>
+        round((100 * (x - mlw_a)) / (mlw_b - mlw_a), 1)
+      )
       const formatters = {
+        mlw: x => round((x / 100) * (mlw_b - mlw_a) + mlw_a, 1),
         mks: x => (2 ** x < 1000 ? round(2 ** x, 2) : '>10^' + ~~log10(2 ** x)),
         ess: x => `${x}%`,
+        __function_context: { mlw_a, mlw_b },
       }
-      const y_ticks = apply(
-        [
-          [1, '1'],
-          [10, '10'],
-          [100, '10²'],
-          [1000, '10³'],
-          [10 ** 4, '10⁴'],
-          [10 ** 5, '10⁵'],
-          [10 ** 6, '10⁶'],
-          [10 ** 7, '10⁷'],
-        ],
-        yt => apply(yt, y => round(log2(y), 2), 0, 1)
-      )
+      const y_ticks = range(8).map(e => round(log2(`1e${e}`), 2))
+      const y_labels = ['1', '10', '10²', '10³', '10⁴', '10⁵', '10⁶', '10⁷']
+      const mlw_0_on_y = ((0 - mlw_a) / (mlw_b - mlw_a)) * last(y_ticks)
 
       plot({
         name: 'stats',
@@ -433,14 +417,17 @@ class _Sampler {
         renderer: 'lines',
         renderer_options: {
           series,
+          data: {
+            colors: { mlw: 'gray' },
+          },
           axis: {
             y: {
               min: 0,
-              max: first(last(y_ticks)),
+              max: last(y_ticks),
               tick: {
-                values: y_ticks.map(first),
-                format: y => y_ticks.find(yt => yt[0] === y)?.[1] ?? '?',
-                __function_context: { y_ticks },
+                values: y_ticks,
+                format: y => y_labels[round(log10(2 ** y))] ?? '?',
+                __function_context: { y_labels },
               },
             },
             y2: {
@@ -463,24 +450,26 @@ class _Sampler {
             y: {
               lines: [
                 { value: 0, class: 'accept strong' },
-                { value: log2(10), class: 'accept' },
-                { value: log2(100), class: 'accept weak' },
+                { value: round(log2(10), 2), class: 'accept' },
+                { value: round(log2(100), 2), class: 'accept weak' },
+                { value: mlw_0_on_y, class: 'mlw' },
               ],
             },
           },
           // point: { show: false },
           padding: { right: 50, left: 35 },
           styles: [
-            `#plot .c3-ygrid-line line { stroke:#0f0; stroke-width:5px; opacity: .1 !important }`,
+            `#plot .c3-ygrid-line line { opacity: 1 !important }`,
+            `#plot .c3-ygrid-line.mlw line { opacity: 1 !important; stroke-dasharray:5,3;}`,
+            `#plot .c3-ygrid-line.accept line { opacity: .1 !important; stroke:#0f0; stroke-width:5px }`,
             `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
             `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
             `#plot .c3-target path { stroke-width:2px }`,
             `#plot .c3-target { opacity:1 !important }`,
-            // `#plot .c3-target-median path { stroke-width:5px }`,
-            // `#plot .c3-target-ess path { stroke-width:3px }`,
-            // `#plot .c3-target-essu path { stroke-dasharray:7,5; }`,
-            // `#plot .c3-target-essr path { stroke-dasharray:5,3; }`,
-            // `#plot .c3-target-Δφ path { stroke-dasharray:5,3; }`,
+            // dashed line, legend, and tooltip for mlw
+            `#plot .c3-target-mlw path { stroke-dasharray:5,3; }`,
+            `#plot .c3-legend-item-mlw line { stroke-dasharray:2,2; }`,
+            `#plot .c3-tooltip-name--mlw span { background: repeating-linear-gradient(90deg, #666, #666 2px, transparent 2px, transparent 4px) !important }`,
           ],
         },
         dependencies: ['#_c3'],
