@@ -47,6 +47,7 @@ const sort = (xJ, f = (a, b) => a - b) => xJ.sort(f)
 const sort_by = (xJ, f = x => x) => xJ.sort((a, b) => f(a) - f(b))
 const rank = (xJ, f = (a, b) => a - b) => xJ.sort((a, b) => f(b, a))
 const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
+
 const sorted_index = _.sortedIndex
 const sorted_last_index = _.sortedLastIndex
 
@@ -553,13 +554,9 @@ function js_table(regex) {
     Array.from(
       _this
         .read('js', { keep_empty_lines: true, keep_comment_lines: true })
-        // NOTE: currently automated parsing of args works only if arguments are listed on the same line, since multi-line parsing is tricky w/ default values that may also contain parentheses (which we do allow to some extent), strings that contain parentheses, etc; if args are wrapped due to automated code formatting, a workaround is to define args in first line of comment, which are rarely wrapped by formatters or can be shortened to avoid wrapping
-        //
-        // args inner pattern: ( ?:\([^()]*?\) | .+? )*?,  [^()]*? to be replaced for additional levels
-        // args outer pattern: \(...\)  OR  [^()]+? | \(...\)
-        //
+        // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows at most one level of nesting w/ an equals character required before the inner parentheses, and can also ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:\([^()]*?\)|.+?)*?\))|= *(?<arrow_args>(?:[^()]+?|\((?:\([^()]*?\)|.+?)*?\)) *=>)? *\n?(?<body>[^\n]+))?/gs
+          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`[^\n]*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\(.*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`[^\n]*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\(.*?\)|.*?)*?\)|[^()\n]+?) *=>)? *\n?(?<body>[^\n]+))?/gs
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
@@ -578,8 +575,6 @@ function js_table(regex) {
         if (!def.args && !def.body) return // skip if no args and no body
         // remove whitespace in args
         def.args = def.args.replace(/\s+/g, '')
-        // escape ` in args:
-        def.args = def.args.replace(/([`])/g, '\\$1')
 
         // start new scope if class type, end last scope if unindented
         if (def.type == 'class') scope = def.name
@@ -634,8 +629,7 @@ function js_table(regex) {
         }
         if (!def.comment && def.body && !def.body.startsWith('{')) {
           // take body as comment, escaping `
-          def.comment =
-            '<code>' + def.body.replace(/([`])/g, '\\$1') + '</code>'
+          def.comment = '`` ' + def.body + ' ``'
           // if body is a lodash function, link to docs
           // note docs are only available for certain versions
           if (def.body.match(/^_\.\w+$/)) {
