@@ -640,3 +640,19 @@ function clip(x, a = 0, b = 1) {
   if (x > b) return b
   return x
 }
+
+// clips `xJ` to `[a,b]`
+function clip_in(xJ, a = 0, b = 1) {
+  assert(is_array(xJ), 'non-array argument')
+  if (is_finite(a) && is_finite(b)) {
+    for (let j = 0; j < xJ.length; ++j) {
+      if (xJ[j] < a) xJ[j] = a
+      else if (xJ[j] > b) xJ[j] = b
+    }
+  } else if (is_finite(a)) {
+    for (let j = 0; j < xJ.length; ++j) if (xJ[j] < a) xJ[j] = a
+  } else {
+    for (let j = 0; j < xJ.length; ++j) if (xJ[j] > b) xJ[j] = b
+  }
+  return xJ
+}
