@@ -339,7 +339,6 @@ class _Sampler {
       move_time: 0,
       mks_time: 0,
       tks_time: 0,
-      flw_time: 0,
       updates: [],
     }
 
@@ -357,7 +356,8 @@ class _Sampler {
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
-    cache(this, 'flw', [])
+    cache(this, 'wsum', [], () => sum(this.log_wJ, exp))
+    cache(this, 'elw', ['rwJ'])
     cache(this, 'tks', ['rwJ'])
     cache(this, 'mks', [])
 
@@ -393,19 +393,30 @@ class _Sampler {
       // y2 is linear percentage axis
       add_line('mks')
       add_line('tks')
+      add_line('gap')
       add_line('ess', { axis: 'y2' }, x => (100 * x) / J)
       add_line('essu', { axis: 'y2' }, x => (100 * x) / J)
       add_line('essr', { axis: 'y2' })
       add_line('mar', { axis: 'y2' })
+      const [wsum_a, wsum_b] = min_max_in(this.stats.updates.map(u => u.wsum))
+      add_line('wsum', { axis: 'y2' }, x =>
+        round((100 * (x - wsum_a)) / max(wsum_b - wsum_a, 1e-6), 1)
+      )
+      const [elw_a, elw_b] = min_max_in(this.stats.updates.map(u => u.elw))
+      add_line('elw', { axis: 'y2' }, x =>
+        round((100 * (x - elw_a)) / max(elw_b - elw_a, 1e-6), 2)
+      )
       const [mlw_a, mlw_b] = min_max_in(this.stats.updates.map(u => u.mlw))
       add_line('mlw', { axis: 'y2' }, x =>
-        round((100 * (x - mlw_a)) / (mlw_b - mlw_a), 1)
+        round((100 * (x - mlw_a)) / max(mlw_b - mlw_a, 1e-6), 1)
       )
       const formatters = {
+        elw: x => round((x / 100) * (elw_b - elw_a) + elw_a, 2),
+        wsum: x => round((x / 100) * (wsum_b - wsum_a) + wsum_a, 1),
         mlw: x => round((x / 100) * (mlw_b - mlw_a) + mlw_a, 1),
         mks: x => (2 ** x < 1000 ? round(2 ** x, 2) : '>10^' + ~~log10(2 ** x)),
         ess: x => `${x}%`,
-        __function_context: { mlw_a, mlw_b },
+        __function_context: { wsum_a, wsum_b, elw_a, elw_b, mlw_a, mlw_b },
       }
       const y_ticks = range(8).map(e => round(log2(`1e${e}`), 2))
       const y_labels = ['1', '10', '10²', '10³', '10⁴', '10⁵', '10⁶', '10⁷']
@@ -418,7 +429,7 @@ class _Sampler {
         renderer_options: {
           series,
           data: {
-            colors: { mlw: 'gray' },
+            colors: { mlw: '#666', elw: '#666', wsum: '#666' },
           },
           axis: {
             y: {
@@ -452,7 +463,7 @@ class _Sampler {
                 { value: 0, class: 'accept strong' },
                 { value: round(log2(10), 2), class: 'accept' },
                 { value: round(log2(100), 2), class: 'accept weak' },
-                { value: mlw_0_on_y, class: 'mlw' },
+                { value: round(mlw_0_on_y, 2), class: 'mlw' },
               ],
             },
           },
@@ -501,7 +512,14 @@ class _Sampler {
   _fill_log_wuj(log_wuJ, u = this.u) {
     const { log_wJ, log_wufJ } = this
     const w_exp = this.options.weight_exp(u)
+    // note w_exp has no effect on infinities
     fill(log_wuJ, j => (log_wufJ[j] ? log_wufJ[j](u) : w_exp * log_wJ[j]))
+    // compute gap allowing for infinities (w/o creating NaNs)
+    const gap = (a, b) => (a == b ? 0 : abs(a - b))
+    this.log_wuj_gap = max_of(this.log_wuJ, (lwuj, j) => gap(lwuj, log_wJ[j]))
+    if (this.log_wuj_gap < 1e-6) this.log_wuj_gap = 0 // chop to 0 below 1e-6
+    // clip infinities to enable subtraction in _reweight & _move
+    clip_in(log_wuJ, -Number.MAX_VALUE, Number.MAX_VALUE)
   }
 
   _sample_prior() {
@@ -513,7 +531,6 @@ class _Sampler {
     fill(log_wJ, 0)
     fill(log_wufJ, undefined)
     fill(xJ, j => ((this.j = j), func(this)))
-    clip_in(log_wJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this._fill_log_wuj(log_wuJ)
     // init log_rwJ = log_pwJ + log_wuJ
     fill(log_rwJ, j => log_pwJ[j] + log_wuJ[j])
@@ -526,22 +543,20 @@ class _Sampler {
 
   // reweight for next step (u+1)
   // multiply rwJ by wJ@u+1/wJ@u (could be 1)
+  // stop once wJ@u -> ~wJ; difference is called "gap" (max norm)
   _reweight() {
+    if (this.log_wuj_gap == 0) return // no longer needed
     const start = Date.now()
-    // stop reweighting if gap from last reweight was zero
-    if (this.log_wuj_gap == 0) {
-      this.stats.reweight_time += Date.now() - start
-      return // no longer needed
-    }
-    const { log_wJ } = this
-    this.log_wuj_gap = max_of(this.log_wuJ, (lwuj, j) => abs(lwuj - log_wJ[j]))
+    const { u, log_wJ } = this
+    print(`reweighting ${u}->${u + 1}, gap ${this.log_wuj_gap}`)
     this._swap('log_wuJ') // store weights for last step (u) in _log_wuJ
-    this._fill_log_wuj(this.log_wuJ, this.u + 1) // compute weights for u+1
+    this._fill_log_wuj(this.log_wuJ, u + 1) // compute weights for u+1
     const { log_wuJ, _log_wuJ, log_rwJ, stats } = this
     apply(log_rwJ, (lw, j) => lw + log_wuJ[j] - _log_wuJ[j])
     this.rwJ = null // reset cached posterior ratio weights and dependents
     stats.reweights++
     stats.reweight_time += Date.now() - start
+    this.stats.reweight_time += Date.now() - start
   }
 
   // swap arrays w/ temporary buffers prefixed w/ _
@@ -570,7 +585,7 @@ class _Sampler {
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // also reset counts/essu due to change in jJ
-    this.flw = null // since log_wJ changed
+    this.wsum = null // since log_wJ changed
     stats.resamples++
     stats.resample_time += Date.now() - start
   }
@@ -591,8 +606,6 @@ class _Sampler {
     this.log_wJ = log_cwJ // redirect log_wJ -> log_cwJ temporarily
     this.log_wufJ = log_cwufJ // redirect log_wufJ -> log_cwufJ temporarily
     fill(yJ, j => ((this.j = j), func(this)))
-    clip_in(log_wJ, -Number.MAX_VALUE, Number.MAX_VALUE)
-    clip_in(log_mwJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this.log_wJ = tmp_log_wJ // restore log_wJ
     this.log_wufJ = tmp_log_wufJ // restore log_wufJ
     this.moving = false // back to using xJK
@@ -603,7 +616,8 @@ class _Sampler {
     this.move_log_w = 0
     const w_exp = this.options.weight_exp(u)
     repeat(J, j => {
-      const log_cwuj = log_cwufJ[j] ? log_cwufJ[j](u) : w_exp * log_cwJ[j]
+      let log_cwuj = log_cwufJ[j] ? log_cwufJ[j](u) : w_exp * log_cwJ[j]
+      log_cwuj = clip(log_cwuj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwuj - log_wuJ[j]
       if (random() < exp(log_mwJ[j] + log_dwj)) {
         // update move buffer
@@ -640,7 +654,7 @@ class _Sampler {
       apply(jJ, j => (j >= J ? jj++ : jjJ[j] >= 0 ? jjJ[j] : (jjJ[j] = jj++)))
       this.rwJ = null // reset cached posterior ratio weights and dependents
       this.counts = null // also reset counts/essu due to change in jJ
-      this.flw = null // since log_wJ changed
+      this.wsum = null // since log_wJ changed
     }
 
     stats.moves++
@@ -672,11 +686,13 @@ class _Sampler {
       ess: round(this.ess),
       essu: round(this.essu),
       essr: round(100 * clip(this.ess / this.essu)),
-      flw: round(this.flw, 1), // start at u=0 posterior log-weight
+      elw: round(this.elw, 2), // expected log weight for u=0
+      wsum: round(this.wsum, 1), // total weight for u=0
       mar: 100, // start at 100% acceptance rate
       mlw: 0, // start at 0 log_w improvement
       mks: inf, // no data yet
       tks: round(this.tks, 1),
+      gap: round(this.log_wuj_gap, 1),
       p: 0, // no proposals yet
       a: 0, // no accepts yet
       m: 0, // no moves yet
@@ -687,9 +703,7 @@ class _Sampler {
     if (updates == 0 || time == 0) return
 
     do {
-      // TODO: is this reweight needed to go from u=0 to u=1?
-      // TODO: why is there one less reweight for conditioning?
-      // TODO: is conditioning (w/ -inf weights) ok for e.g. gap check?
+      const gap = this.log_wuj_gap // save gap before reweight for stat
       this._reweight() // reweight for step u+1
 
       // append stats for last update step u (except u=0)
@@ -698,11 +712,13 @@ class _Sampler {
           ess: round(this.ess),
           essu: round(this.essu),
           essr: round(100 * clip(this.ess / this.essu)),
-          flw: round(this.flw, 1),
+          elw: round(this.elw, 2),
+          wsum: round(this.wsum, 1),
           mar: round(100 * (this.a / this.p)),
           mlw: round(this.mlw, 1),
           mks: round(this.mks, 1),
           tks: round(this.tks, 1),
+          gap: round(gap, 1),
           p: this.p,
           a: this.a,
           m: this.m - last(stats.updates).m,
@@ -824,30 +840,15 @@ class _Sampler {
     return this.rwj_ess
   }
 
-  // TODO: this is unnecessarily expensive ...
-  // TODO: this should just use the new log_fwJ
-  // TODO: review reset times for this
-  __flw() {
-    return 0
-    // const start = Date.now()
-    // const { J, func, xJ, log_fwJ, log_wJ, stats } = this
-    // fill(log_fwJ, 0) // reset future log-weights
-    // const tmp = log_wJ // to be restored below
-    // this.log_wJ = log_fwJ // redirect log_wJ -> log_cwJ temporarily
-    // this.u += 1000000 // advance 1M steps into "future"
-    // fill(xJ, j => ((this.j = j), func(this)))
-    // this.u -= 1000000 // come back to current step
-    // this._clip_scaled_weights(log_fwJ)
-    // this.log_wJ = tmp // restore log_wJ
-    // // compute fwJ
-    // const { J, log_fwJ } = this
-    // const max_log_fwj = max_in(log_fwJ)
-    // const fwJ = (this.___fwJ ??= array(J))
-    // copy(fwJ, log_fwJ, log_fwj => exp(log_fwj - max_log_fwj))
-    // const z = 1 / sum(fwJ)
-    // const flw = sum(log_fwJ, (log_fwj, j) => log_fwj * fwJ[j] * z)
-    // stats.flw_time += Date.now() - start
-    // return flw
+  __elw() {
+    const { rwJ, rwj_sum, log_wJ } = this
+    const z = 1 / rwj_sum
+    const elw = sum(log_wJ, (log_wj, j) => {
+      // NOTE: when conditioning w/ log_wj either 0 or -inf, elw==0 always
+      if (rwJ[j] == 0) return 0 // take 0 * -inf == 0 instead of NaN
+      return log_wj * rwJ[j] * z
+    })
+    return elw
   }
 
   __tks() {
