@@ -293,8 +293,8 @@ function _ibeta(x, a, b) {
 // `P(X<=x)` for [beta distribution](https://en.wikipedia.org/wiki/Beta_distribution)
 function beta_cdf(x, a, b) {
   // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/distribution.js#L88
-  if (x < 0) return 0
-  if (x > 1) return 1
+  if (x <= 0) return 0
+  if (x >= 1) return 1
   return _ibeta(x, a, b)
 }
 

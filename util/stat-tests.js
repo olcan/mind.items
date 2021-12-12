@@ -230,6 +230,8 @@ function _test_binomial_test() {
 
 function _test_beta_cdf() {
   check(
+    () => [beta_cdf(0, 1, 1), 0],
+    () => [beta_cdf(1, 1, 1), 1],
     () => [beta_cdf(-0.1, 1, 1), 0],
     () => [beta_cdf(1.1, 1, 1), 1],
     // reference values from Mathematica
