@@ -326,21 +326,6 @@ class _Sampler {
     this._log_wJ = array(J)
     this._log_wufJ = array(J)
     this._log_wuJ = array(J)
-    // stats
-    this.stats = {
-      reweights: 0,
-      resamples: 0,
-      moves: 0,
-      proposals: 0,
-      accepts: 0,
-      sample_time: 0,
-      reweight_time: 0,
-      resample_time: 0,
-      move_time: 0,
-      mks_time: 0,
-      tks_time: 0,
-      updates: [],
-    }
 
     // define cached properties
     cache(this, 'pwJ', [])
@@ -361,152 +346,94 @@ class _Sampler {
     cache(this, 'tks', ['rwJ'])
     cache(this, 'mks', [])
 
+    // initialize stats
+    this._init_stats()
+
     // sample prior (along w/ u=0 posterior)
-    let start = Date.now()
+    let start = options.log ? Date.now() : 0
     this._sample_prior()
-    const ms = Date.now() - start
     if (options.log) {
+      const ms = Date.now() - start
       print(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${ms}ms`)
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
     // update sample to posterior
-    start = Date.now()
+    start = options.log ? Date.now() : 0
     this._update()
     if (options.log) {
       print(`applied ${this.u} updates in ${Date.now() - start}ms`)
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
-      print(str(omit(this.stats, 'updates')))
+      if (this.stats) print(str(omit(this.stats, 'updates')))
     }
 
     // plot stats
-    if (options.plot) {
-      const values = []
-      const series = []
-      const add_line = (prop, options = {}, f = x => x) => {
-        values.push(this.stats.updates.map(su => f(su[prop])))
-        options.label ??= prop
-        options.axis ??= 'y'
-        series.push(options)
-      }
-      // y is logarithmic ks p-value axis
-      // y2 is linear percentage axis
-      add_line('mks')
-      add_line('tks')
-      add_line('gap')
-      add_line('ess', { axis: 'y2' }, x => (100 * x) / J)
-      add_line('essu', { axis: 'y2' }, x => (100 * x) / J)
-      add_line('essr', { axis: 'y2' })
-      add_line('mar', { axis: 'y2' })
-      const [wsum_a, wsum_b] = min_max_in(this.stats.updates.map(u => u.wsum))
-      add_line('wsum', { axis: 'y2' }, x =>
-        round((100 * (x - wsum_a)) / max(wsum_b - wsum_a, 1e-6), 1)
-      )
-      const [elw_a, elw_b] = min_max_in(this.stats.updates.map(u => u.elw))
-      add_line('elw', { axis: 'y2' }, x =>
-        round((100 * (x - elw_a)) / max(elw_b - elw_a, 1e-6), 2)
-      )
-      const [mlw_a, mlw_b] = min_max_in(this.stats.updates.map(u => u.mlw))
-      add_line('mlw', { axis: 'y2' }, x =>
-        round((100 * (x - mlw_a)) / max(mlw_b - mlw_a, 1e-6), 1)
-      )
-      const formatters = {
-        elw: x => round((x / 100) * (elw_b - elw_a) + elw_a, 2),
-        wsum: x => round((x / 100) * (wsum_b - wsum_a) + wsum_a, 1),
-        mlw: x => round((x / 100) * (mlw_b - mlw_a) + mlw_a, 1),
-        mks: x => (2 ** x < 1000 ? round(2 ** x, 2) : '>10^' + ~~log10(2 ** x)),
-        ess: x => `${x}%`,
-        __function_context: { wsum_a, wsum_b, elw_a, elw_b, mlw_a, mlw_b },
-      }
-      const y_ticks = range(8).map(e => round(log2(`1e${e}`), 2))
-      const y_labels = ['1', '10', '10²', '10³', '10⁴', '10⁵', '10⁶', '10⁷']
-      const mlw_0_on_y = ((0 - mlw_a) / (mlw_b - mlw_a)) * last(y_ticks)
+    if (options.plot) this._plot()
+  }
 
-      plot({
-        name: 'stats',
-        data: { values },
-        renderer: 'lines',
-        renderer_options: {
-          series,
-          data: {
-            colors: { mlw: '#666', elw: '#666', wsum: '#666' },
-          },
-          axis: {
-            y: {
-              min: 0,
-              max: last(y_ticks),
-              tick: {
-                values: y_ticks,
-                format: y => y_labels[round(log10(2 ** y))] ?? '?',
-                __function_context: { y_labels },
-              },
-            },
-            y2: {
-              show: true,
-              min: 0,
-              tick: {
-                values: [0, 20, 40, 60, 80, 100],
-                format: y => y + '%',
-              },
-            },
-          },
-          tooltip: {
-            format: {
-              title: x => 'step ' + x,
-              value: (v, _, n) => formatters[n]?.(v) ?? v,
-              __function_context: { formatters },
-            },
-          },
-          grid: {
-            y: {
-              lines: [
-                { value: 0, class: 'accept strong' },
-                { value: round(log2(10), 2), class: 'accept' },
-                { value: round(log2(100), 2), class: 'accept weak' },
-                { value: round(mlw_0_on_y, 2), class: 'mlw' },
-              ],
-            },
-          },
-          // point: { show: false },
-          padding: { right: 50, left: 35 },
-          styles: [
-            `#plot .c3-ygrid-line line { opacity: 1 !important }`,
-            `#plot .c3-ygrid-line.mlw line { opacity: 1 !important; stroke-dasharray:5,3;}`,
-            `#plot .c3-ygrid-line.accept line { opacity: .1 !important; stroke:#0f0; stroke-width:5px }`,
-            `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
-            `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
-            `#plot .c3-target path { stroke-width:2px }`,
-            `#plot .c3-target { opacity:1 !important }`,
-            // dashed line, legend, and tooltip for mlw
-            `#plot .c3-target-mlw path { stroke-dasharray:5,3; }`,
-            `#plot .c3-legend-item-mlw line { stroke-dasharray:2,2; }`,
-            `#plot .c3-tooltip-name--mlw span { background: repeating-linear-gradient(90deg, #666, #666 2px, transparent 2px, transparent 4px) !important }`,
-          ],
-        },
-        dependencies: ['#_c3'],
-      })
-
-      // plot posteriors vs targets
-      if (options.targets) {
-        each(this.values, (value, k) => {
-          if (!value.target) return // no target
-          if (is_function(value.target)) return // cdf target not supported yet
-          const name = value.name
-          assert(is_array(value.target))
-          const jR = array(value.target.length)
-          this.sample_indices(jR)
-          const xR = array(jR.length, r => this.xJK[jR[r]][k])
-          hist([xR, value.target]).hbars({
-            name: 'hist_' + name,
-            series: [
-              { label: 'posterior', color: '#d61' },
-              { label: 'target', color: 'gray' },
-            ],
-            delta: true, // append delta series
-          })
-        })
-      }
+  _init_stats() {
+    const options = this.options
+    if (!options.stats) return // stats disabled
+    // enable ALL stats for stats == true
+    if (options.stats == true)
+      options.stats = 'ess essu essr elw wsum mar mlw mks tks gap p a m t'
+    // convert string to array of keys
+    if (is_string(options.stats)) options.stats = options.stats.split(/\W+/)
+    // convert array of string keys to object of booleans (true)
+    if (is_array(options.stats)) {
+      assert(every(options.stats, is_string), 'invalid option stats')
+      options.stats = Object.fromEntries(options.stats.map(k => [k, true]))
     }
+    // require that options.stats is an object of booleans
+    assert(
+      is_object(options.stats) && every(values(options.stats), is_boolean),
+      'invalid option stats'
+    )
+
+    this.stats = {
+      reweights: 0,
+      resamples: 0,
+      moves: 0,
+      proposals: 0,
+      accepts: 0,
+      sample_time: 0,
+      reweight_time: 0,
+      resample_time: 0,
+      move_time: 0,
+      mks_time: 0,
+      tks_time: 0,
+    }
+  }
+
+  _update_stats() {
+    const { stats } = this
+    if (!stats) return // stats disabled
+    const spec = this.options.stats
+    if (empty(spec)) return // no update stats enabled
+
+    const update = {}
+    if (spec.ess) update.ess = round(this.ess)
+    if (spec.essu) update.essu = round(this.essu)
+    if (spec.essr) update.essr = round(100 * clip(this.ess / this.essu))
+    if (spec.elw) update.elw = round(this.elw, 2)
+    if (spec.wsum) update.wsum = round(this.wsum, 1)
+    if (spec.mar)
+      update.mar = this.u == 0 ? 100 : round(100 * (this.a / this.p))
+    if (spec.mlw) update.mlw = this.u == 0 ? 0 : round(this.mlw, 1)
+    if (spec.mks) update.mks = this.u == 0 ? inf : round(this.mks, 1)
+    if (spec.tks) update.tks = round(this.tks, 1)
+    if (spec.gap)
+      update.gap =
+        this.u == 0
+          ? round(this.log_wuj_gap, 1)
+          : round(this.log_wuj_gap_before_reweight, 1)
+    if (spec.p) update.p = this.p ?? 0
+    if (spec.a) update.a = this.a ?? 0
+    if (spec.m) update.m = this.u == 0 ? 0 : this.m - last(stats.updates).m
+    if (spec.t) update.t = this.u == 0 ? 0 : this.t - last(stats.updates).t
+
+    if (this.u == 0) stats.updates = [update]
+    else stats.updates.push(update)
   }
 
   _fill_log_wuj(log_wuJ, u = this.u) {
@@ -523,7 +450,7 @@ class _Sampler {
   }
 
   _sample_prior() {
-    const start = Date.now()
+    const start = this.stats ? Date.now() : 0
     const { func, xJ, pxJ, pxJK, xJK, jJ } = this
     const { log_pwJ, log_wJ, log_wufJ, log_wuJ, log_rwJ, stats } = this
     this.u = 0 // prior is zero'th update step
@@ -538,15 +465,15 @@ class _Sampler {
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
     copy(pxJ, xJ)
-    stats.sample_time += Date.now() - start
+    if (stats) stats.sample_time += Date.now() - start
   }
 
   // reweight for next step (u+1)
   // multiply rwJ by wJ@u+1/wJ@u (could be 1)
   // stop once wJ@u -> ~wJ; difference is called "gap" (max norm)
   _reweight() {
+    const start = this.stats ? Date.now() : 0
     if (this.log_wuj_gap == 0) return // no longer needed
-    const start = Date.now()
     const { u, log_wJ } = this
     print(`reweighting ${u}->${u + 1}, gap ${this.log_wuj_gap}`)
     this._swap('log_wuJ') // store weights for last step (u) in _log_wuJ
@@ -554,9 +481,10 @@ class _Sampler {
     const { log_wuJ, _log_wuJ, log_rwJ, stats } = this
     apply(log_rwJ, (lw, j) => lw + log_wuJ[j] - _log_wuJ[j])
     this.rwJ = null // reset cached posterior ratio weights and dependents
-    stats.reweights++
-    stats.reweight_time += Date.now() - start
-    this.stats.reweight_time += Date.now() - start
+    if (stats) {
+      stats.reweights++
+      stats.reweight_time += Date.now() - start
+    }
   }
 
   // swap arrays w/ temporary buffers prefixed w/ _
@@ -567,7 +495,7 @@ class _Sampler {
   // resample step
   // resample based on rwJ, reset rwJ=1
   _resample() {
-    const start = Date.now()
+    const start = this.stats ? Date.now() : 0
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ, _log_wufJ, log_wufJ } = this
     const { _log_wuJ, log_wuJ } = this
@@ -586,14 +514,16 @@ class _Sampler {
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // also reset counts/essu due to change in jJ
     this.wsum = null // since log_wJ changed
-    stats.resamples++
-    stats.resample_time += Date.now() - start
+    if (stats) {
+      stats.resamples++
+      stats.resample_time += Date.now() - start
+    }
   }
 
   // move step
   // take metropolis-hastings steps along posterior chain
   _move() {
-    const start = Date.now()
+    const start = this.stats ? Date.now() : 0
     const { J, u, func, yJ, yJK, xJ, xJK, jJ, jjJ, log_mwJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
@@ -657,10 +587,12 @@ class _Sampler {
       this.wsum = null // since log_wJ changed
     }
 
-    stats.moves++
-    stats.proposals += J
-    stats.accepts += this.move_accepts
-    stats.move_time += Date.now() - start
+    if (stats) {
+      stats.moves++
+      stats.proposals += J
+      stats.accepts += this.move_accepts
+      stats.move_time += Date.now() - start
+    }
   }
 
   _update() {
@@ -680,50 +612,21 @@ class _Sampler {
 
     assert(this.u == 0, '_update requires u=0')
 
-    // push stats for u=0
-    const { stats } = this
-    stats.updates.push({
-      ess: round(this.ess),
-      essu: round(this.essu),
-      essr: round(100 * clip(this.ess / this.essu)),
-      elw: round(this.elw, 2), // expected log weight for u=0
-      wsum: round(this.wsum, 1), // total weight for u=0
-      mar: 100, // start at 100% acceptance rate
-      mlw: 0, // start at 0 log_w improvement
-      mks: inf, // no data yet
-      tks: round(this.tks, 1),
-      gap: round(this.log_wuj_gap, 1),
-      p: 0, // no proposals yet
-      a: 0, // no accepts yet
-      m: 0, // no moves yet
-      t: this.t, // time so far
-    })
+    // update stats for u=0
+    this._update_stats()
 
     // skip updates if target updates=0 or time=0
     if (updates == 0 || time == 0) return
 
     do {
-      const gap = this.log_wuj_gap // save gap before reweight for stat
+      // save gap before reweight (recorded in stats for this step)
+      this.log_wuj_gap_before_reweight = this.log_wuj_gap
       this._reweight() // reweight for step u+1
 
-      // append stats for last update step u (except u=0)
+      // stats updates and termination checks must be done at this point (after reewight, before resample & move) but not on first pass (u=0)
       if (this.u > 0) {
-        stats.updates.push({
-          ess: round(this.ess),
-          essu: round(this.essu),
-          essr: round(100 * clip(this.ess / this.essu)),
-          elw: round(this.elw, 2),
-          wsum: round(this.wsum, 1),
-          mar: round(100 * (this.a / this.p)),
-          mlw: round(this.mlw, 1),
-          mks: round(this.mks, 1),
-          tks: round(this.tks, 1),
-          gap: round(gap, 1),
-          p: this.p,
-          a: this.a,
-          m: this.m - last(stats.updates).m,
-          t: this.t - last(stats.updates).t, // time so far
-        })
+        // update stats for u=1,...
+        this._update_stats()
 
         // continue based on min_time/updates
         // minimums supercede maximum and target settings
@@ -783,7 +686,6 @@ class _Sampler {
       this.p = 0 // proposed move count
       this.a = 0 // accepted move count
       this.mlw = 0 // log_w improvement
-      const { proposals, accepts } = stats
       while (move_while(this)) {
         this._move()
         this.p += this.move_proposals
@@ -791,6 +693,177 @@ class _Sampler {
         this.mlw += this.move_log_w
       }
     } while (true)
+  }
+
+  _plot() {
+    const updates = this.stats?.updates
+    if (!updates) return // no update stats to plot
+    const spec = this.options.stats
+
+    // y is logarithmic ks p-value axis
+    // y2 is linear percentage axis
+    // stats that do not fit either are rescaled to 0-100 and plotted on y2
+    const y_ticks = range(8).map(e => round(log2(`1e${e}`), 2))
+    const y_labels = ['1', '10', '10²', '10³', '10⁴', '10⁵', '10⁶', '10⁷']
+
+    const values = []
+    const series = []
+    const formatters = { __function_context: {} }
+    const formatter_context = formatters.__function_context
+    // function for adding line to plot
+    const add_line = (prop, options = {}) => {
+      const f = options.mapper ?? (x => x)
+      delete options.mapper
+      values.push(updates.map(su => f(su[prop])))
+      options.label ??= prop
+      options.axis ??= 'y'
+      if (options.formatter) {
+        formatters[prop] = options.formatter
+        delete options.formatter
+      }
+      if (options.formatter_context)
+        merge(formatter_context, options.formatter_context)
+      series.push(options)
+    }
+    // function for adding a "rescaled" line to plot (y2 axis)
+    function add_rescaled_line(n) {
+      const [a, b] = min_max_in(updates.map(u => u[n]))
+      add_line(n, {
+        axis: 'y2',
+        mapper: x => round((100 * (x - a)) / max(b - a, 1e-6), 1),
+        formatter: eval(
+          `(x => round((x / 100) * (${n}_b - ${n}_a) + ${n}_a, 1))`
+        ),
+        formatter_context: { [`${n}_a`]: a, [`${n}_b`]: b },
+      })
+    }
+
+    if (spec.mks)
+      add_line('mks', {
+        formatter: x =>
+          2 ** x < 1000 ? round(2 ** x, 2) : '>10^' + ~~log10(2 ** x),
+      })
+    if (spec.tks) add_line('tks')
+    if (spec.gap) add_line('gap')
+    if (spec.ess)
+      add_line('ess', {
+        axis: 'y2',
+        mapper: x => (100 * x) / this.J,
+        formatter: x => `${x}%`,
+      })
+    if (spec.essu)
+      add_line('essu', {
+        axis: 'y2',
+        mapper: x => (100 * x) / this.J,
+        formatter: x => `${x}%`,
+      })
+    if (spec.essr) add_line('essr', { axis: 'y2', formatter: x => `${x}%` })
+    if (spec.mar) add_line('mar', { axis: 'y2', formatter: x => `${x}%` })
+
+    if (spec.wsum) add_rescaled_line('wsum')
+    if (spec.elw) add_rescaled_line('elw')
+    let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
+    if (spec.mlw) {
+      add_rescaled_line('mlw')
+      const [a, b] = min_max_in(updates.map(u => u.mlw))
+      mlw_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
+    }
+    if (spec.p) add_rescaled_line('p')
+    if (spec.a) add_rescaled_line('a')
+    if (spec.m) add_rescaled_line('m')
+    if (spec.t) add_rescaled_line('t')
+
+    plot({
+      name: 'stats',
+      data: { values },
+      renderer: 'lines',
+      renderer_options: {
+        series,
+        data: {
+          // weight-related stats are gray
+          // mlw is also dashed, elw & wsum are related/similar
+          colors: {
+            mlw: '#666', // also dashed
+            elw: '#666',
+            wsum: '#666',
+          },
+        },
+        axis: {
+          y: {
+            show: series.some(s => s.axis === 'y'),
+            min: 0,
+            max: last(y_ticks),
+            tick: {
+              values: y_ticks,
+              format: y => y_labels[round(log10(2 ** y))] ?? '?',
+              __function_context: { y_labels },
+            },
+          },
+          y2: {
+            show: series.some(s => s.axis === 'y2'),
+            min: 0,
+            tick: {
+              values: [0, 20, 40, 60, 80, 100],
+              format: y => y + '%',
+            },
+          },
+        },
+        tooltip: {
+          format: {
+            title: x => 'step ' + x,
+            value: (v, _, n) => formatters[n]?.(v) ?? v,
+            __function_context: { formatters },
+          },
+        },
+        grid: {
+          y: {
+            lines: compact([
+              { value: 0, class: 'accept strong' },
+              { value: round(log2(10), 2), class: 'accept' },
+              { value: round(log2(100), 2), class: 'accept weak' },
+              mlw_0_on_y ? { value: round(mlw_0_on_y, 2), class: 'mlw' } : null,
+            ]),
+          },
+        },
+        // point: { show: false },
+        padding: { right: 50, left: 35 },
+        styles: [
+          `#plot .c3-ygrid-line line { opacity: 1 !important }`,
+          `#plot .c3-ygrid-line.mlw line { opacity: 1 !important; stroke-dasharray:5,3;}`,
+          `#plot .c3-ygrid-line.accept line { opacity: .1 !important; stroke:#0f0; stroke-width:5px }`,
+          `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
+          `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
+          `#plot .c3-target path { stroke-width:2px }`,
+          `#plot .c3-target { opacity:1 !important }`,
+          // dashed line, legend, and tooltip for mlw
+          `#plot .c3-target-mlw path { stroke-dasharray:5,3; }`,
+          `#plot .c3-legend-item-mlw line { stroke-dasharray:2,2; }`,
+          `#plot .c3-tooltip-name--mlw span { background: repeating-linear-gradient(90deg, #666, #666 2px, transparent 2px, transparent 4px) !important }`,
+        ],
+      },
+      dependencies: ['#_c3'],
+    })
+
+    // plot posteriors vs targets
+    if (this.options.targets) {
+      each(this.values, (value, k) => {
+        if (!value.target) return // no target
+        if (is_function(value.target)) return // cdf target not supported yet
+        const name = value.name
+        assert(is_array(value.target))
+        const jR = array(value.target.length)
+        this.sample_indices(jR)
+        const xR = array(jR.length, r => this.xJK[jR[r]][k])
+        hist([xR, value.target]).hbars({
+          name: 'hist_' + name,
+          series: [
+            { label: 'posterior', color: '#d61' },
+            { label: 'target', color: 'gray' },
+          ],
+          delta: true, // append delta series
+        })
+      })
+    }
   }
 
   get t() {
@@ -852,7 +925,7 @@ class _Sampler {
   }
 
   __tks() {
-    const start = Date.now()
+    const start = this.stats ? Date.now() : 0
     const { J, K, xJK, values, stats } = this
     const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
     // compute ks1_test or ks2_test for each (numeric) value w/ target
@@ -882,13 +955,13 @@ class _Sampler {
         wk_sum: value.target_weight_sum,
       })
     })
-    stats.tks_time += Date.now() - start
+    if (stats) stats.tks_time += Date.now() - start
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
     return -log2(beta_cdf(min_in(pK), 1, K))
   }
 
   __mks() {
-    const start = Date.now()
+    const start = this.stats ? Date.now() : 0
     const { b, B, K, stats } = this
     if (b < B) return inf // not enough data yet
     // rotate buffer so b=0 and we can split in half at B/2
@@ -929,7 +1002,7 @@ class _Sampler {
       yR.length = ry
       return ks2_test(xR, yR)
     })
-    stats.mks_time += Date.now() - start
+    if (stats) stats.mks_time += Date.now() - start
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
     return -log2(beta_cdf(min_in(pK), 1, K))
   }
@@ -1015,7 +1088,7 @@ class _Sampler {
       const line = `line ${value.line_index}: ${value.line.trim()}`
       const target = options?.target ?? this.options.targets?.[name]
       if (target) {
-        const start = Date.now()
+        const start = this.options.log ? Date.now() : 0
         value.target = target
         // sample from sampler domain (_prior)
         if (value.target?._prior) {
@@ -1036,8 +1109,8 @@ class _Sampler {
             value.target_weights = apply(log_wT, exp)
             value.target_weight_sum = sum(value.target_weights)
           }
-          const ms = Date.now() - start
-          if (this.options.log) print(`sampled ${T} target values in ${ms}ms`)
+          if (this.options.log)
+            print(`sampled ${T} target values in ${Date.now() - start}ms`)
         } else {
           if (!is_function(value.target) && !is_array(value.target))
             fatal(`invalid target @ ${line}`)
