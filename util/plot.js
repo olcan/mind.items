@@ -58,14 +58,7 @@ function plot(obj, name = undefined) {
     caption = caption.replace(/_removed$/, '') // drop required suffix
     caption_text = read(caption + '_removed')
     assert(caption_text, `could not read caption block '${caption}_removed'`)
-    caption_sync_js = [
-      `function _on_item_change() {`,
-      `  const caption = read('${caption}', {keep_empty_lines:true})`,
-      `  const source = _item('${_this.name}')`,
-      `  if (caption != source.read('${caption}'))`,
-      `    source.write(caption, '${caption}_removed')`,
-      `}`,
-    ].join('\n')
+    caption_sync_js = `function _on_item_change() { _sync_caption('${caption}') }`
   }
 
   // look up item, create if missing
@@ -116,6 +109,13 @@ function plot(obj, name = undefined) {
         document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
     })
   }
+}
+
+function _sync_caption(caption) {
+  const text = read(caption, { keep_empty_lines: true })
+  const parent_name = _this.name.replace(/\/[^\/]*$/, '')
+  const parent = _item(parent_name)
+  if (caption != parent.read(caption)) parent.write(text, caption + '_removed')
 }
 
 // hist(xJ|xSJ, {…})
