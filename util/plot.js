@@ -128,7 +128,7 @@ function hist(xSJ, options = {}) {
   let {
     bins, // can be array or integer (for max bins)
     values, // can be array or integer, disables binning
-    precision = 2, // d or [d,s] arguments to bin(xJ,…) or round(…)
+    precision = 2, // d or [d,s] arguments to bin(xJ,…) or round_to(…)
     labeler = 'mid', // string or function (a,b,k) => label
     label_precision, // for fixed precision (decimal places); default is auto
     stringifier, // stringifier for numbers
@@ -204,7 +204,7 @@ function hist(xSJ, options = {}) {
         else if (labeler == 'range')
           labeler = (a, b) => stringifier(a) + '…' + stringifier(b)
         else if (labeler == 'mid')
-          labeler = (a, b) => stringifier(round((a + b) / 2, d, s))
+          labeler = (a, b) => stringifier(round_to((a + b) / 2, d, s))
         else fatal(`unknown labeler '${labeler}'`)
       }
       assert(is_function(labeler), 'invalid labeler')
@@ -215,7 +215,7 @@ function hist(xSJ, options = {}) {
   // round weights if weighted
   if (weights) {
     const [wd, ws] = flat(weight_precision)
-    apply(cSK, csK => apply(csK, w => round(w, wd, ws)))
+    apply(cSK, csK => apply(csK, w => round_to(w, wd, ws)))
   }
 
   // returned data array w/ default labels & plotting methods attached below
@@ -290,26 +290,26 @@ function bin(xJ, K = 10, d = 2, s = inf) {
   assert(is_finite(xs) && is_finite(xe), `array contains infinities`)
   const p = parseFloat(`1e${-d}`) // absolute precision
   // align first/last bins to precision, shifting for strict containment
-  let xsr = round(xs, d, inf, 'floor')
-  let xer = round(xe, d, inf, 'ceil')
+  let xsr = round_to(xs, d, inf, 'floor')
+  let xer = round_to(xe, d, inf, 'ceil')
   if (xsr == xs) xsr -= p
   if (xer == xe) xer += p
   // round up bin width to at least 2x precision
-  const xd = max(2 * p, round((xer - xsr) / K, d, inf, 'ceil'))
+  const xd = max(2 * p, round_to((xer - xsr) / K, d, inf, 'ceil'))
   // generate bins until last value is contained
   let xK = [xsr]
-  while (last(xK) <= xe) xK.push(round(last(xK) + xd, d))
+  while (last(xK) <= xe) xK.push(round_to(last(xK) + xd, d))
   K = xK.length
   // shift (and re-round) bins to equalize gap from first/last value
-  const r = round(xs - xsr - (last(xK) - xe), d)
-  if (abs(r) > p) apply(xK, (x, k) => round(x + r / 2, d))
+  const r = round_to(xs - xsr - (last(xK) - xe), d)
+  if (abs(r) > p) apply(xK, (x, k) => round_to(x + r / 2, d))
   assert(xK[0] < xs, `binning error: first bin ${xK[0]} ≥ ${xs}`)
   assert(xe < xK[K - 1], `binning error: last bin ${xK[K - 1]} ≤ ${xe}`)
   // apply additional rounding for significant digits
   if (s < inf) {
     assert(s > 0, `invalid significant digits ${s}`)
     apply(xK, (x, k) =>
-      round(x, d, s, k == 0 ? 'floor' : k == K - 1 ? 'ceil' : 'round')
+      round_to(x, d, s, k == 0 ? 'floor' : k == K - 1 ? 'ceil' : 'round')
     )
     xK = uniq(xK)
     K = xK.length

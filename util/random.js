@@ -640,14 +640,14 @@ class _Random {
 
       append_stats('ess', round(τ.ess))
       append_stats('essu', round(τ.essu))
-      append_stats('Δφ', round(Δφ, 1))
+      append_stats('Δφ', round_to(Δφ, 1))
 
       mks = 0 // disables mks
       if (τ.M) {
         mks = Infinity // enables mks checks
         if (τ.m < τ.M) append_stats('mks', 1024)
         else {
-          append_stats('mks', Math.min(1024, round(τ.mks, 1)))
+          append_stats('mks', Math.min(1024, round_to(τ.mks, 1)))
           if (τ.stats.mks.length >= o.max_mks_steps)
             mks = max(τ.stats.mks.slice(-o.max_mks_steps))
         }
@@ -1025,7 +1025,7 @@ class _Random {
     )
 
     return {
-      data: round(dQN, 3),
+      data: round_to(dQN, 3),
       names: nQ,
       stats: {
         ...τ.stats,
@@ -1033,8 +1033,8 @@ class _Random {
         ess: round(transpose(essRN).map(median)),
         essu: round(transpose(essuRN).map(median)),
         essr: round(transpose(essrRN).map(median)),
-        Δφ: round(transpose(ΔφRN).map(median), 1),
-        mks: round(transpose(mksRN).map(median), 1),
+        Δφ: round_to(transpose(ΔφRN).map(median), 1),
+        mks: round_to(transpose(mksRN).map(median), 1),
         mar: round(transpose(marRN).map(median)),
       },
       summary: this.summarize_stats({ ...τ.stats }),
@@ -1160,9 +1160,9 @@ class _Random {
   summarize_stats(stats = this.stats, digits = 3) {
     if (!stats) return stats
     return mapValues(stats, v => {
-      if (isArray(v) && isNumber(last(v))) return round(last(v), digits)
+      if (isArray(v) && isNumber(last(v))) return round_to(last(v), digits)
       if (typeof v == 'object') return this.summarize_stats(v)
-      return isNumber(v) ? round(v, digits) : v
+      return isNumber(v) ? round_to(v, digits) : v
     })
   }
 

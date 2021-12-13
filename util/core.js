@@ -187,8 +187,10 @@ function _test_str() {
 // `d` can be negative for digits _before_ decimal point
 // `d` can be restricted to at most `s` significant (non-zero) digits
 // `mode` string can be `round`, `floor`, or `ceil`
-const round = (x, d = 0, s = inf, mode = 'round') => {
-  if (d == 0 && s == inf) return Math[mode](x) // fast case
+// rounds arrays recursively by copying
+const round_to = (x, d = 0, s = inf, mode = 'round') => {
+  if (is_array(x)) return x.map(xj => round_to(xj, d, s, mode))
+  if (d == 0 && s == inf) return Math[mode](x) // just use Math.*
   // determine d automatically if s<inf
   if (s < inf) {
     assert(s > 0, `invalid significant digits ${s}`)
@@ -215,61 +217,61 @@ const round = (x, d = 0, s = inf, mode = 'round') => {
   return negate ? -x : x
 }
 
-function _test_round() {
+function _test_round_to() {
   check(
-    () => [round(1.2345), 1],
-    () => [round(1.2345, -1), 0],
-    () => [round(1.2345, -2), 0],
-    () => [round(1.2345, 1), 1.2],
-    () => [round(1.2345, 2), 1.23],
-    () => [round(1.2345, 3), 1.235],
-    () => [round(1.2345, 4), 1.2345],
-    () => [round(1.2345, 5), 1.2345],
-    () => [round(1.2345, 10), 1.2345],
-    () => [round(1.2345, 100), 1.2345],
-    () => [round(1.2345, 308), 1.2345],
-    () => [round(1.2345, 309), NaN], // > Number.MAX_VALUE
+    () => [round_to(1.2345), 1],
+    () => [round_to(1.2345, -1), 0],
+    () => [round_to(1.2345, -2), 0],
+    () => [round_to(1.2345, 1), 1.2],
+    () => [round_to(1.2345, 2), 1.23],
+    () => [round_to(1.2345, 3), 1.235],
+    () => [round_to(1.2345, 4), 1.2345],
+    () => [round_to(1.2345, 5), 1.2345],
+    () => [round_to(1.2345, 10), 1.2345],
+    () => [round_to(1.2345, 100), 1.2345],
+    () => [round_to(1.2345, 308), 1.2345],
+    () => [round_to(1.2345, 309), NaN], // > Number.MAX_VALUE
 
-    () => [round(1.2345e4), 12345],
-    () => [round(1.2345e4, -1), round(1.2345e4, 0, 4), 12350],
-    () => [round(1.2345e4, -2), round(1.2345e4, 0, 3), 12300],
-    () => [round(1.2345e4, -3), round(1.2345e4, 0, 2), 12000],
-    () => [round(1.2345e4, -4), round(1.2345e4, 0, 1), 10000],
-    () => [round(1.2345e4, 1), 12345],
-    () => [round(1.2345e4, 304), 12345],
-    () => [round(1.2345e4, 305), NaN], // > Number.MAX_VALUE
+    () => [round_to(1.2345e4), 12345],
+    () => [round_to(1.2345e4, -1), round_to(1.2345e4, 0, 4), 12350],
+    () => [round_to(1.2345e4, -2), round_to(1.2345e4, 0, 3), 12300],
+    () => [round_to(1.2345e4, -3), round_to(1.2345e4, 0, 2), 12000],
+    () => [round_to(1.2345e4, -4), round_to(1.2345e4, 0, 1), 10000],
+    () => [round_to(1.2345e4, 1), 12345],
+    () => [round_to(1.2345e4, 304), 12345],
+    () => [round_to(1.2345e4, 305), NaN], // > Number.MAX_VALUE
 
-    () => [round(1.2345e-2), 0],
-    () => [round(1.2345e-2, 1), 0],
-    () => [round(1.2345e-2, 2), 0.01],
-    () => [round(1.2345e-2, 3), 0.012],
-    () => [round(1.2345e-2, 4), 0.0123],
-    () => [round(1.2345e-2, 5), 0.01235],
-    () => [round(1.2345e-2, 10), 0.012345],
-    () => [round(1.2345e-2, 10, 5), 0.012345],
-    () => [round(1.2345e-2, 10, 4), 0.01235], // fails for naive d=s-_digits(x)
-    () => [round(1.2345e-2, 10, 3), 0.0123],
+    () => [round_to(1.2345e-2), 0],
+    () => [round_to(1.2345e-2, 1), 0],
+    () => [round_to(1.2345e-2, 2), 0.01],
+    () => [round_to(1.2345e-2, 3), 0.012],
+    () => [round_to(1.2345e-2, 4), 0.0123],
+    () => [round_to(1.2345e-2, 5), 0.01235],
+    () => [round_to(1.2345e-2, 10), 0.012345],
+    () => [round_to(1.2345e-2, 10, 5), 0.012345],
+    () => [round_to(1.2345e-2, 10, 4), 0.01235], // fails for naive d=s-_digits(x)
+    () => [round_to(1.2345e-2, 10, 3), 0.0123],
 
-    () => throws(() => round(1.2345, 5, 0)),
-    () => throws(() => round(1.2345, 5, -1)),
-    () => throws(() => round(1.2345, 5, -2)),
-    () => [round(1.2345, 5, 1), 1],
-    () => [round(1.2345, 5, 2), 1.2],
-    () => [round(1.2345, 5, 3), 1.23],
-    () => [round(1.2345, 5, 4), 1.235],
-    () => [round(1.2345, 5, 5), 1.2345],
-    () => [round(1.2345, 5, 6), 1.2345],
-    () => [round(1.2345, 5, 1000), 1.2345],
-    () => [round(1.2345, 308, 1000), 1.2345],
-    () => [round(1.2345, 309, 1000), NaN],
-    () => [round(1.2345, 309, 5), NaN],
-    () => [round(1.2345, 309, 4), 1.235], // s only kicks in if < sig. digits
+    () => throws(() => round_to(1.2345, 5, 0)),
+    () => throws(() => round_to(1.2345, 5, -1)),
+    () => throws(() => round_to(1.2345, 5, -2)),
+    () => [round_to(1.2345, 5, 1), 1],
+    () => [round_to(1.2345, 5, 2), 1.2],
+    () => [round_to(1.2345, 5, 3), 1.23],
+    () => [round_to(1.2345, 5, 4), 1.235],
+    () => [round_to(1.2345, 5, 5), 1.2345],
+    () => [round_to(1.2345, 5, 6), 1.2345],
+    () => [round_to(1.2345, 5, 1000), 1.2345],
+    () => [round_to(1.2345, 308, 1000), 1.2345],
+    () => [round_to(1.2345, 309, 1000), NaN],
+    () => [round_to(1.2345, 309, 5), NaN],
+    () => [round_to(1.2345, 309, 4), 1.235], // s only kicks in if < sig. digits
 
     // basic tests for floor/ceil modes
-    () => [round(1.2345, 5, 3, 'ceil'), 1.24],
-    () => [round(1.2345, 5, 3, 'floor'), 1.23],
-    () => [round(-1.2345, 5, 3, 'ceil'), -1.23],
-    () => [round(-1.2345, 5, 3, 'floor'), -1.24]
+    () => [round_to(1.2345, 5, 3, 'ceil'), 1.24],
+    () => [round_to(1.2345, 5, 3, 'floor'), 1.23],
+    () => [round_to(-1.2345, 5, 3, 'ceil'), -1.23],
+    () => [round_to(-1.2345, 5, 3, 'floor'), -1.24]
   )
 }
 

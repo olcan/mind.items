@@ -12,6 +12,7 @@ const max = Math.max
 const ceil = Math.ceil
 const floor = Math.floor
 const trunc = Math.trunc
+const round = Math.round
 
 // many alternatives to floor ...
 // https://stackoverflow.com/a/5971668

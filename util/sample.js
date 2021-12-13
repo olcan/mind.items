@@ -422,18 +422,18 @@ class _Sampler {
     if (spec.ess) update.ess = round(this.ess)
     if (spec.essu) update.essu = round(this.essu)
     if (spec.essr) update.essr = round(100 * clip(this.ess / this.essu))
-    if (spec.elw) update.elw = round(this.elw, 2)
-    if (spec.wsum) update.wsum = round(this.wsum, 1)
+    if (spec.elw) update.elw = round_to(this.elw, 2)
+    if (spec.wsum) update.wsum = round_to(this.wsum, 1)
     if (spec.mar)
       update.mar = this.u == 0 ? 100 : round(100 * (this.a / this.p))
-    if (spec.mlw) update.mlw = this.u == 0 ? 0 : round(this.mlw, 1)
-    if (spec.mks) update.mks = this.u == 0 ? inf : round(this.mks, 1)
-    if (spec.tks) update.tks = round(this.tks, 1)
+    if (spec.mlw) update.mlw = this.u == 0 ? 0 : round_to(this.mlw, 1)
+    if (spec.mks) update.mks = this.u == 0 ? inf : round_to(this.mks, 1)
+    if (spec.tks) update.tks = round_to(this.tks, 1)
     if (spec.gap)
       update.gap =
         this.u == 0
-          ? round(this.log_wuj_gap, 1)
-          : round(this.log_wuj_gap_before_reweight, 1)
+          ? round_to(this.log_wuj_gap, 1)
+          : round_to(this.log_wuj_gap_before_reweight, 1)
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.m) update.m = this.u == 0 ? 0 : this.m - last(stats.updates).m
@@ -657,10 +657,11 @@ class _Sampler {
           // check target ess/mks/mlw if min_time/updates satisfied
           if (this.ess >= min_ess && this.mks <= max_mks && this.mlw <= 0) {
             const { t, u, ess, mks, mlw } = this
+            const rt = round_to
             if (this.options.log)
               print(
                 `reached target ess=${round(ess)}≥${min_ess}, ` +
-                  `mks=${round(mks, 3)}≤${max_mks}, mlw=${round(mlw, 3)}≤0 ` +
+                  `mks=${rt(mks, 3)}≤${max_mks}, mlw=${rt(mlw, 3)}≤0 ` +
                   `@ u=${u}, t=${t}ms`
               )
             break
@@ -723,8 +724,9 @@ class _Sampler {
     assert(is_array(qQ) && qQ.every(is_prob), 'invalid option quantiles')
     const qR = n => quantiles(map(sR, n), qQ)
 
-    const stats = map_values(omit(this.stats, 'updates'), (v, k) =>
-      quantiles(map(sR, k), qQ)
+    const s = omit(this.stats, 'updates')
+    const stats = map_values(s, (v, k) =>
+      round_to(quantiles(map(sR, k), qQ), 2)
     )
     if (options.log) print(str(stats))
 
@@ -732,11 +734,13 @@ class _Sampler {
     const sn = keys(options.stats)[0]
     const sUQ = apply(
       transpose(sR.map(sr => map(sr.updates, sn))) /*sUR*/,
-      suR => quantiles(suR, qQ)
+      suR => round_to(quantiles(suR, qQ), 2)
     )
     print(str(sUQ))
+    // each(sUQ, suQ => {
+    // })
 
-    // TODO: generate quantiles for N-1 extra runs for a _single_ stat, e.g. tks (specified via stats), omit log/plot from options, and replace stats.updates to be quantiles instead of original stat, so _plot can treat the quantiles just like other stats (but never mixed w/ them); just create new objects, reusing this object is unnecessary because constructor time is small (can see from t plots), model quantile computation after #random/methods/eval
+    // TODO: _plot quantile stats just like other stats (but not mixed w/ them)
   }
 
   _plot() {
@@ -747,7 +751,7 @@ class _Sampler {
     // y is logarithmic ks p-value axis
     // y2 is linear percentage axis
     // stats that do not fit either are rescaled to 0-100 and plotted on y2
-    const y_ticks = range(8).map(e => round(log2(`1e${e}`), 2))
+    const y_ticks = range(8).map(e => round_to(log2(`1e${e}`), 2))
     const y_labels = ['1', '10', '10²', '10³', '10⁴', '10⁵', '10⁶', '10⁷']
 
     const values = []
@@ -774,9 +778,9 @@ class _Sampler {
       const [a, b] = min_max_in(updates.map(u => u[n]))
       add_line(n, {
         axis: 'y2',
-        mapper: x => round((100 * (x - a)) / max(b - a, 1e-6), 1),
+        mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), 1),
         formatter: eval(
-          `(x => round((x / 100) * (${n}_b - ${n}_a) + ${n}_a, 1))`
+          `(x => round_to((x / 100) * (${n}_b - ${n}_a) + ${n}_a, 1))`
         ),
         formatter_context: { [`${n}_a`]: a, [`${n}_b`]: b },
       })
@@ -785,7 +789,7 @@ class _Sampler {
     if (spec.mks)
       add_line('mks', {
         formatter: x =>
-          2 ** x < 1000 ? round(2 ** x, 2) : '>10^' + ~~log10(2 ** x),
+          2 ** x < 1000 ? round_to(2 ** x, 2) : '>10^' + ~~log10(2 ** x),
       })
     if (spec.tks) add_line('tks')
     if (spec.gap) add_line('gap')
@@ -863,9 +867,11 @@ class _Sampler {
           y: {
             lines: compact([
               { value: 0, class: 'accept strong' },
-              { value: round(log2(10), 2), class: 'accept' },
-              { value: round(log2(100), 2), class: 'accept weak' },
-              mlw_0_on_y ? { value: round(mlw_0_on_y, 2), class: 'mlw' } : null,
+              { value: round_to(log2(10), 2), class: 'accept' },
+              { value: round_to(log2(100), 2), class: 'accept weak' },
+              mlw_0_on_y
+                ? { value: round_to(mlw_0_on_y, 2), class: 'mlw' }
+                : null,
             ]),
           },
         },
@@ -1168,7 +1174,7 @@ class _Sampler {
         if (is_array(value.target))
           target =
             ` --> target sample size=${value.target.length}, ` +
-            `mean=${round(mean(value.target), 3)}`
+            `mean=${round_to(mean(value.target), 3)}`
         else if (is_function(value.target))
           target = ` --> target cdf ${str(value.target)}`
         print(`[${index}] ${name ? name + ' = ' : ''}sample(${args})${target}`)
