@@ -663,6 +663,7 @@ async function _on_command_pull(label) {
         content: `Pulling ${i + 1}/${items.length} (${item.name}) ...`,
       })
       await pull_item(item)
+      item.pushable = false // clear warning, resume side-push
     }
     update_branch('last_pull')
     await _modal_update(modal, {
