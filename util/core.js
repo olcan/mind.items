@@ -40,8 +40,9 @@ const range = _.range
 const group = _.groupBy
 const count = _.countBy
 const sum_by = _.sumBy
-const map_values = _.mapValues
+const map = _.map
 const map_keys = _.mapKeys
+const map_values = _.mapValues
 
 const sort = (xJ, f = (a, b) => a - b) => xJ.sort(f)
 const sort_by = (xJ, f = x => x) => xJ.sort((a, b) => f(a) - f(b))

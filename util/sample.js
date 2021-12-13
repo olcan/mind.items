@@ -195,6 +195,7 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 
 class _Sampler {
   constructor(func, options) {
+    this.domain = func // save sampler function as domain
     this.start_time = Date.now()
     // merge in default options
     const J = (this.J = options?.size ?? 1000)
@@ -203,8 +204,11 @@ class _Sampler {
     assert(B > 0 && B % 2 == 0, `invalid move buffer size ${B}`)
     this.options = options = _.merge(
       {
+        stats: false,
+        quantiles: false,
         log: false, // silent by default
         warn: true,
+        quantile_runs: 100,
         size: J,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
@@ -367,18 +371,18 @@ class _Sampler {
       if (this.stats) print(str(omit(this.stats, 'updates')))
     }
 
-    // TODO: generate quantiles for N-1 extra runs for a _single_ stat, e.g. tks (specified via stats), omit log/plot from options, and replace stats.updates to be quantiles instead of original stat, so _plot can treat the quantiles just like other stats (but never mixed w/ them); just create new objects, reusing this object is unnecessary because constructor time is small (can see from t plots), model quantile computation after #random/methods/eval
-
-    // plot stats
+    if (options.quantiles) this._quantiles()
     if (options.plot) this._plot()
   }
+
+  static stats_keys =
+    'ess essu essr elw wsum mar mlw mks tks gap p a m t'.split(/\W+/)
 
   _init_stats() {
     const options = this.options
     if (!options.stats) return // stats disabled
     // enable ALL stats for stats == true
-    if (options.stats == true)
-      options.stats = 'ess essu essr elw wsum mar mlw mks tks gap p a m t'
+    if (options.stats == true) options.stats = stats_keys
     // convert string to array of keys
     if (is_string(options.stats)) options.stats = options.stats.split(/\W+/)
     // convert array of string keys to object of booleans (true)
@@ -386,11 +390,12 @@ class _Sampler {
       assert(every(options.stats, is_string), 'invalid option stats')
       options.stats = Object.fromEntries(options.stats.map(k => [k, true]))
     }
-    // require that options.stats is an object of booleans
     assert(
       is_object(options.stats) && every(values(options.stats), is_boolean),
       'invalid option stats'
     )
+    const unknown_keys = diff(keys(options.stats), _Sampler.stats_keys)
+    assert(empty(unknown_keys), `unknown stats: ${unknown_keys}`)
 
     this.stats = {
       reweights: 0,
@@ -477,7 +482,7 @@ class _Sampler {
     const start = this.stats ? Date.now() : 0
     if (this.log_wuj_gap == 0) return // no longer needed
     const { u, log_wJ } = this
-    print(`reweighting ${u}->${u + 1}, gap ${this.log_wuj_gap}`)
+    // print(`reweighting ${u}->${u + 1}, gap ${this.log_wuj_gap}`)
     this._swap('log_wuJ') // store weights for last step (u) in _log_wuJ
     this._fill_log_wuj(this.log_wuJ, u + 1) // compute weights for u+1
     const { log_wuJ, _log_wuJ, log_rwJ, stats } = this
@@ -695,6 +700,43 @@ class _Sampler {
         this.mlw += this.move_log_w
       }
     } while (true)
+  }
+
+  _quantiles() {
+    const options = this.options
+    assert(size(options.stats) == 1, 'quantiles require single stats:<name>')
+    // enable default quantiles for quantiles == true
+    if (options.quantiles == true) options.quantiles = [0, 0.1, 0.5, 0.9, 1]
+
+    // execute necessary runs
+    const R = options.quantile_runs
+    assert(is_integer(R) && R > 0, 'invalid option quantile_runs')
+    const f = this.domain // sampler domain function
+    const o = clone_deep(options)
+    o.updates = o.min_updates = o.max_updates = this.u // fix update steps
+    o.log = o.plot = o.warn = o.quantiles = false // disable quantiles, output
+    const sR = [this.stats, ...array(R - 1, r => new _Sampler(f, o).stats)]
+    if (options.log) print(`completed ${R} quantile runs in ${this.t}ms`)
+
+    // compute quantiles of global stats
+    const qQ = options.quantiles
+    assert(is_array(qQ) && qQ.every(is_prob), 'invalid option quantiles')
+    const qR = n => quantiles(map(sR, n), qQ)
+
+    const stats = map_values(omit(this.stats, 'updates'), (v, k) =>
+      quantiles(map(sR, k), qQ)
+    )
+    if (options.log) print(str(stats))
+
+    // compute quantiles of update stats
+    const sn = keys(options.stats)[0]
+    const sUQ = apply(
+      transpose(sR.map(sr => map(sr.updates, sn))) /*sUR*/,
+      suR => quantiles(suR, qQ)
+    )
+    print(str(sUQ))
+
+    // TODO: generate quantiles for N-1 extra runs for a _single_ stat, e.g. tks (specified via stats), omit log/plot from options, and replace stats.updates to be quantiles instead of original stat, so _plot can treat the quantiles just like other stats (but never mixed w/ them); just create new objects, reusing this object is unnecessary because constructor time is small (can see from t plots), model quantile computation after #random/methods/eval
   }
 
   _plot() {

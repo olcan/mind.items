@@ -57,6 +57,9 @@ function is(x, type) {
       return isNaN(x)
     case 'integer':
       return Number.isInteger(x)
+    case 'probability':
+    case 'prob':
+      return typeof x == 'number' && x >= 0 && x <= 1
     case 'number':
       return typeof x == 'number'
     case 'numeric':
@@ -94,6 +97,7 @@ function _test_is() {
     () => is(inf, 'inf'),
     () => is(NaN, 'nan'),
     () => is(0, 'integer'),
+    () => is(0, 'prob'),
     () => is(0, 'number'),
     () => is('0', 'numeric'),
     () => is(true, 'boolean'),
@@ -117,6 +121,8 @@ const is_inf = is_infinite
 const inf = Infinity
 const is_nan = isNaN
 const is_integer = Number.isInteger
+const is_probability = x => typeof x == 'number' && x >= 0 && x <= 1
+const is_prob = is_probability
 const is_number = x => typeof x == 'number'
 
 // is `x` number or [numeric string](https://stackoverflow.com/a/175787)?

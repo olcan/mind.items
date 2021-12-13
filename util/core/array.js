@@ -132,9 +132,9 @@ function _benchmark_each() {
 
 const _benchmark_each_functions = ['each', 'scan', 'repeat']
 
-// map(xJ, yJ, f, [js=0], [je=J])
+// map2(xJ, yJ, f, [js=0], [je=J])
 // maps `yJ` into `xJ` as `f(x,y,j)`
-function map(xJ, yJ, f, js = 0, je = xJ.length) {
+function map2(xJ, yJ, f, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
   for (let j = js; j < je; ++j) xJ[j] = f(xJ[j], yJ[j], j)
@@ -173,13 +173,13 @@ function _benchmark_swap() {
   )
 }
 
-function _benchmark_map() {
+function _benchmark_map2() {
   let yJ = array(1000, Math.random)
   let xJ = array(1000)
   benchmark(
-    () => map(xJ, yJ, (x, y) => x + y),
-    () => map(xJ, yJ, (x, y) => y * y),
-    () => map(array(1000), yJ, (x, y) => y * y),
+    () => map2(xJ, yJ, (x, y) => x + y),
+    () => map2(xJ, yJ, (x, y) => y * y),
+    () => map2(array(1000), yJ, (x, y) => y * y),
     () => copy(xJ, yJ, y => y * y),
     () => copy(yJ, y => y * y),
     () => apply(yJ, y => y * y),

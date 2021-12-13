@@ -373,7 +373,7 @@ function ks2(xJ, yK, options = {}) {
     else apply(rR, rr => K - wK[rr] * J)
   }
   apply(rR, (rr, r) => rr + rR[r - 1], 1) // accumulate cdf differences
-  if (mR) map(rR, mR, (r, m) => r * m) // mask collisions
+  if (mR) map2(rR, mR, (r, m) => r * m) // mask collisions
   const ks = max_in(apply(rR, Math.abs)) / (J * K)
   if (is_nan(ks) || is_inf(ks)) {
     console.debug('ks nan/inf', {
