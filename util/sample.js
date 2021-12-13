@@ -367,8 +367,7 @@ class _Sampler {
       if (this.stats) print(str(omit(this.stats, 'updates')))
     }
 
-    // TODO: generate quantiles for N-1 extra runs for a _single_ stat, e.g. tks (specified via stats)
-    //       omit log/plot from options, and replace stats.updates to be quantiles instead of original stat, so _plot can treat the quantiles just like other stats (but never mixed w/ them); just create new objects, reusing this object is unnecessary because constructor time is small (can see from t plots)
+    // TODO: generate quantiles for N-1 extra runs for a _single_ stat, e.g. tks (specified via stats), omit log/plot from options, and replace stats.updates to be quantiles instead of original stat, so _plot can treat the quantiles just like other stats (but never mixed w/ them); just create new objects, reusing this object is unnecessary because constructor time is small (can see from t plots), model quantile computation after #random/methods/eval
 
     // plot stats
     if (options.plot) this._plot()
