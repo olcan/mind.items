@@ -13,11 +13,12 @@ function plot(obj, name = undefined) {
   let {
     data, // required
     renderer = 'table', // string or portable function
-    renderer_options, // options for renderer, passed via stringify_options
+    renderer_options, // options for renderer, passed via stringify/parse
     encoding = 'json', // used as language for markdown block
     encoder = stringify, // must be function (invoked by plot)
     decoder = 'parse', // string or portable function
     dependencies, // optional dependencies (besides #_util/plot)
+    caption, // optional caption block (default: _md|markdown_<name> if exists)
   } = obj
 
   assert(data, 'missing data')
@@ -35,6 +36,38 @@ function plot(obj, name = undefined) {
   dependencies = flat('#_util/plot', dependencies ?? []).join(' ')
   const text = encoder(data)
 
+  // if no caption, check for default caption blocks
+  if (!caption) {
+    const plot_name = name.replace(/^.*\//, '')
+    for (let pfx of ['_md_', '_markdown_', '_html_']) {
+      if (read(`${pfx}${plot_name}_removed`)) {
+        caption = pfx + plot_name
+        break
+      }
+    }
+  }
+
+  // read caption if any
+  let caption_text
+  let caption_sync_js
+  if (caption) {
+    assert(
+      is_string(caption) && caption.match(/^\w+$/),
+      'invalid caption (must be block name)'
+    )
+    caption = caption.replace(/_removed$/, '') // drop required suffix
+    caption_text = read(caption + '_removed')
+    assert(caption_text, `could not read caption block '${caption}_removed'`)
+    caption_sync_js = [
+      `function _on_item_change() {`,
+      `  const caption = read('${caption}', {keep_empty_lines:true})`,
+      `  const source = _item('${_this.name}')`,
+      `  if (caption != source.read('${caption}'))`,
+      `    source.write(caption, '${caption}_removed')`,
+      `}`,
+    ].join('\n')
+  }
+
   // look up item, create if missing
   let item = _item(name, false /* do not log errors */)
   item ??= _create(name)
@@ -49,24 +82,24 @@ function plot(obj, name = undefined) {
     write(text, '')
   }
 
-  // TODO: use special stringify_options
-
   item.write_lines(
     item.name,
     `\<<${macro}>>`,
+    caption_text ? block(caption, caption_text) : undefined,
     `<!--removed-->`,
     block(encoding + '_data', text),
     renderer_options
       ? block('json_options', stringify(renderer_options ?? {}))
       : undefined,
+    caption_sync_js ? block('js', caption_sync_js) : undefined,
     `<!--/removed-->`,
     dependencies
   )
 
-  // write any logs to calling item
+  // write any logs to plotting item
   write_log()
 
-  // focus on plot item if focused on calling item
+  // focus on plot item if focused on plotting item
   // this prevents re-focusing for multiple plots in same js run
   if (lower(MindBox.get().trim()) == lower(_this.name)) {
     dispatch(async () => {
@@ -194,7 +227,7 @@ function hist(xSJ, options = {}) {
     let [name, options] = lookup_types(args, ['string', 'object'])
     name ??= options?.name ?? 'hist_' + type
     let labeler = options?.labeler ?? _options.labeler ?? 'range'
-    let obj = { name, renderer_options: options }
+    let obj = { name, renderer_options: options, caption: options?.caption }
     switch (type) {
       case 'table':
         return plot({
