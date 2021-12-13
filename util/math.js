@@ -231,6 +231,7 @@ function _test_matrixify() {
 
 // transposes matrix `xJK → xKJ`
 // matrixifies scalar/vector argument as needed
+// scalarifies transposed matrix
 function transpose(xJK) {
   xJK = matrixify(xJK)
   const J = xJK.length

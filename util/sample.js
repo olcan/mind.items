@@ -388,7 +388,7 @@ class _Sampler {
     // convert array of string keys to object of booleans (true)
     if (is_array(options.stats)) {
       assert(every(options.stats, is_string), 'invalid option stats')
-      options.stats = Object.fromEntries(options.stats.map(k => [k, true]))
+      options.stats = from_entries(options.stats.map(k => [k, true]))
     }
     assert(
       is_object(options.stats) && every(values(options.stats), is_boolean),
@@ -733,14 +733,13 @@ class _Sampler {
     // compute quantiles of update stats
     const sn = keys(options.stats)[0]
     const sUQ = apply(
-      transpose(sR.map(sr => map(sr.updates, sn))) /*sUR*/,
+      matrixify(transpose(sR.map(sr => map(sr.updates, sn)))) /*sUR*/,
       suR => round_to(quantiles(suR, qQ), 2)
     )
-    print(str(sUQ))
-    // each(sUQ, suQ => {
-    // })
-
-    // TODO: _plot quantile stats just like other stats (but not mixed w/ them)
+    // print(str(sUQ))
+    this.stats.updates = sUQ.map(suQ =>
+      from_entries(qQ.map((qq, q) => ['q' + round(100 * qq), suQ[q]]))
+    )
   }
 
   _plot() {
@@ -760,6 +759,8 @@ class _Sampler {
     const formatter_context = formatters.__function_context
     // function for adding line to plot
     const add_line = (prop, options = {}) => {
+      // TODO: push quantile series in quantile mode
+
       const f = options.mapper ?? (x => x)
       delete options.mapper
       values.push(updates.map(su => f(su[prop])))
@@ -775,6 +776,8 @@ class _Sampler {
     }
     // function for adding a "rescaled" line to plot (y2 axis)
     function add_rescaled_line(n) {
+      // TODO: push (rescaled) quantile series in quantile mode
+
       const [a, b] = min_max_in(updates.map(u => u[n]))
       add_line(n, {
         axis: 'y2',

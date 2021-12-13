@@ -588,6 +588,7 @@ function _benchmark_median() {
 // default parameters `ɑ=β=.375` are ~unbiased for normal `X`
 // see [scipy.stats docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.mstats.mquantiles.html#scipy-stats-mstats-mquantiles) for details and alternatives
 function quantiles(xJ, qK, options = {}) {
+  assert(is_array(xJ), 'non-array argument')
   // based on https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/vector.js#L303
   // originally from https://github.com/scipy/scipy/blob/47bb6febaa10658c72962b9615d5d5aa2513fa3a/scipy/stats/mstats_basic.py#L2659-L2784
   const { sorted, copy, ɑ = 0.375, β = 0.375 } = options

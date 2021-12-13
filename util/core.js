@@ -2,6 +2,7 @@ const keys = Object.keys
 const values = Object.values
 const entries = Object.entries
 const assign = Object.assign
+const from_entries = Object.fromEntries
 
 const get = _.get
 const set = _.set
