@@ -367,6 +367,9 @@ class _Sampler {
       if (this.stats) print(str(omit(this.stats, 'updates')))
     }
 
+    // TODO: generate quantiles for N-1 extra runs for a _single_ stat, e.g. tks (specified via stats)
+    //       omit log/plot from options, and replace stats.updates to be quantiles instead of original stat, so _plot can treat the quantiles just like other stats (but never mixed w/ them); just create new objects, reusing this object is unnecessary because constructor time is small (can see from t plots)
+
     // plot stats
     if (options.plot) this._plot()
   }
@@ -427,8 +430,8 @@ class _Sampler {
         this.u == 0
           ? round(this.log_wuj_gap, 1)
           : round(this.log_wuj_gap_before_reweight, 1)
-    if (spec.p) update.p = this.p ?? 0
-    if (spec.a) update.a = this.a ?? 0
+    if (spec.p) update.p = this.u == 0 ? 0 : this.p
+    if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.m) update.m = this.u == 0 ? 0 : this.m - last(stats.updates).m
     if (spec.t) update.t = this.u == 0 ? 0 : this.t - last(stats.updates).t
 
