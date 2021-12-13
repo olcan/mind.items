@@ -149,7 +149,7 @@ function hist(xSJ, options = {}) {
   const wZ = wSJ ? flat(wSJ) : undefined
 
   // automatically disable binning if:
-  // - values option (integer or array) is defined
+  // - values option (integer or array) is defined˝
   // - xZ contains any non-numbers
   // - xZ has too few distinct elements, < max(K,J/2)
   if (
