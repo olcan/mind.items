@@ -3,6 +3,8 @@ const values = Object.values
 const entries = Object.entries
 const assign = Object.assign
 const from_entries = Object.fromEntries
+const from_pairs = _.fromPairs
+const to_pairs = _.toPairs
 
 const get = _.get
 const set = _.set

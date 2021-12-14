@@ -746,6 +746,9 @@ class _Sampler {
     const updates = this.stats?.updates
     if (!updates) return // no update stats to plot
     const spec = this.options.stats
+    let quantiles
+    if (this.options.quantiles)
+      quantiles = this.options.quantiles.map(q => 'q' + round(100 * q))
 
     // y is logarithmic ks p-value axis
     // y2 is linear percentage axis
@@ -759,26 +762,28 @@ class _Sampler {
     const formatter_context = formatters.__function_context
     // function for adding line to plot
     const add_line = (prop, options = {}) => {
-      // TODO: push quantile series in quantile mode
-
+      if (quantiles && !quantiles.includes(prop)) {
+        each(quantiles, k => add_line(k, omit(options, 'label')))
+        return
+      }
       const f = options.mapper ?? (x => x)
-      delete options.mapper
       values.push(updates.map(su => f(su[prop])))
       options.label ??= prop
       options.axis ??= 'y'
-      if (options.formatter) {
-        formatters[prop] = options.formatter
-        delete options.formatter
-      }
+      if (options.formatter) formatters[prop] = options.formatter
       if (options.formatter_context)
         merge(formatter_context, options.formatter_context)
-      series.push(options)
+      series.push(omit(options, ['mapper', 'formatter']))
     }
-    // function for adding a "rescaled" line to plot (y2 axis)
-    function add_rescaled_line(n) {
-      // TODO: push (rescaled) quantile series in quantile mode
-
-      const [a, b] = min_max_in(updates.map(u => u[n]))
+    // function for adding a "rescaled" line to y2 axis of plot
+    const add_rescaled_line = (n, range) => {
+      if (quantiles && !quantiles.includes(prop)) {
+        // push quantile series instead, rescaling across all quantiles
+        const [a, b] = range ?? min_max_in(flat(updates.map(_.values)))
+        each(quantiles, k => add_rescaled_line(k, [a, b]))
+        return
+      }
+      const [a, b] = range ?? min_max_in(updates.map(u => u[n]))
       add_line(n, {
         axis: 'y2',
         mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), 1),
@@ -831,12 +836,22 @@ class _Sampler {
       renderer_options: {
         series,
         data: {
-          // weight-related stats are gray
-          // mlw is also dashed, elw & wsum are related/similar
           colors: {
-            mlw: '#666', // also dashed
+            // weight-related stats are gray
+            // elw & wsum are closely related, mlw is dashed to distinguish
+            mlw: '#666',
             elw: '#666',
             wsum: '#666',
+            ...from_pairs(
+              quantiles?.map(q => [
+                q,
+                q == 'q50'
+                  ? '#ddd'
+                  : q == 'q0' || q == 'q100'
+                  ? '#444'
+                  : '#777',
+              ])
+            ),
           },
         },
         axis: {
@@ -869,7 +884,7 @@ class _Sampler {
         grid: {
           y: {
             lines: compact([
-              { value: 0, class: 'accept strong' },
+              { value: 1, class: 'accept strong' },
               { value: round_to(log2(10), 2), class: 'accept' },
               { value: round_to(log2(100), 2), class: 'accept weak' },
               mlw_0_on_y
