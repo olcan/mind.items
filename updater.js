@@ -420,6 +420,7 @@ async function update_item(item, updates) {
     }
 
     // install missing dependencies based on updated text
+    // all tags (not just hidden tags) are considered dependencies
     // dependency paths MUST match the (resolved) hidden tags
     // confirmation is required to prevent installs at multiple tabs/devices
     // dependencies are rechecked and update is checked and restarted as needed
@@ -429,7 +430,7 @@ async function update_item(item, updates) {
       if (label) {
         const deps = _resolve_tags(
           label,
-          _parse_tags(text).hidden.filter(t => !_special_tag(t))
+          _parse_tags(text).all.filter(t => t != label && !_special_tag(t))
         )
         const missing_deps = deps.filter(dep => !_exists(dep))
         if (missing_deps.length) {
