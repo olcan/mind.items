@@ -1,4 +1,4 @@
-#util/sample defines sampling-based #/learning utilities.  
+#util/sample defines _conditional_ sampling utilities. See #/examples.    
 << js_table() >>
 
 ```js_removed:sample.js
@@ -13,4 +13,4 @@
 // sample-benchmarks.js
 ```
 
-<p> #_//core #_//math #_//stat #_/weight #_/learning
+<p> #_//core #_//math #_//stat #_/weight #_/examples
