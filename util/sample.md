@@ -1,6 +1,5 @@
-#util/sample defines sampling-based inference & optimization utilities.
+#util/sample defines sampling-based #/learning utilities.  
 << js_table() >>
-#/playground
 
 ```js_removed:sample.js
 // sample.js
@@ -14,4 +13,4 @@
 // sample-benchmarks.js
 ```
 
-<p> #_//core #_//math #_//stat #_/weight
+<p> #_//core #_//math #_//stat #_/weight #_/learning
