@@ -93,11 +93,7 @@
       - ks diagnostics (esp. between independent samples) important
   - `Wi` are thus iteratively "baked into" sample as `(xₙ)→Qi`
 
-#todo
-- summarize steps w/ effects on weights, counts, ess/essu
-- specify "default update rules" w/ justification
-- describe two scenarios to illustrate
-- extend options for `sample`
+... resume here ...
 
 - resampling forces uniform weights by converting weights → counts
   - smart resampling _can increase ess gradually to its maximum_
