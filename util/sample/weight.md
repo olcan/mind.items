@@ -2,7 +2,7 @@
 - defines _posterior_ in general sense of a _weighted prior_
   - interpretable as conditional `P(X|c)` in two cases:
     - _likelihood weights_ `W(X) ∝ P(c|X) = E[𝟙(c|X)]`
-      - equivalent to _past-conditioning_ `P(X|c_past)` on past run(s)
+      - equivalent to _fork-conditioning_ `P(X|c')` on "forked" run(s) `{…,c'}`
     - _indicator weights_ `W(X) ∝ 𝟙(c|X)` 
       - equivalent to conditioning `P(X|c_now)` on same/current run
 - unnormalized weights `w(x)` specified on finite sample of points `(xₙ)～P`

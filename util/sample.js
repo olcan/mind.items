@@ -178,7 +178,7 @@ function condition(c, log_wu) {
 // scoped by outer `sample(context=>{ … })`
 // normalized weights can be denoted as prob. dist. `W(X)`
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
-// _likelihood weights_ `∝ P(c|X)` _past-condition_ models `P(X) → P(X|c_past)`
+// _likelihood weights_ `∝ P(c|X)` _fork-condition_ models `P(X) → P(X|c')`
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
 // _weight sequence_ `log_wu(u)=0→log_w, u=0,1,…` can help
 // see #/weight for technical details
@@ -292,6 +292,8 @@ class _Sampler {
         return m.replace(/sample *\($/, `__sampler._sample(${k},`)
       }
     )
+    if (options.log) print(`found ${this.values.length} sampled values`)
+
     // evaluate new function w/ replacements
     // wrapping in parentheses is required for named functions
     // does not capture variables from calling context
