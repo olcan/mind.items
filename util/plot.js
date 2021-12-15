@@ -136,8 +136,11 @@ function hist(xSJ, options = {}) {
     weight_precision = 2, // ignored if no weights
     sort_values_by, // default is rank_by count/weight; non-binned mode only
   } = options
-  const wSJ = weights
-  if (wSJ) assert(equal(dimensions(wSJ), dimensions(xSJ)), 'invalid weights')
+  let wSJ = weights
+  if (wSJ) {
+    wSJ = matrixify(wSJ)
+    assert(equal(dimensions(wSJ), dimensions(xSJ)), 'invalid weights')
+  }
 
   let K // rows (bins or values)
   let lK // function for labels, defined below
