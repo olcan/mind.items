@@ -830,7 +830,7 @@ class _Sampler {
     if (spec.t) add_rescaled_line('t')
 
     plot({
-      name: 'stats',
+      name: 'updates',
       data: { values },
       renderer: 'lines',
       renderer_options: {
@@ -914,16 +914,39 @@ class _Sampler {
 
     // plot posteriors vs targets
     if (this.options.targets) {
+      const { J, rwJ, rwj_sum } = this
       each(this.values, (value, k) => {
-        if (!value.target) return // no target
-        if (is_function(value.target)) return // cdf target not supported yet
         const name = value.name
-        assert(is_array(value.target))
-        const jR = array(value.target.length)
-        this.sample_indices(jR)
-        const xR = array(jR.length, r => this.xJK[jR[r]][k])
-        hist([xR, value.target]).hbars({
-          name: 'hist_' + name,
+
+        // include any undefined values for now
+        const xJ = array(J, j => this.xJK[j][k])
+        const wJ = scale(copy(rwJ), J / rwj_sum) // rescale to sum to J
+
+        if (!value.target) {
+          hist(xJ, { weights: rwJ }).hbars({
+            name,
+            series: [{ label: 'posterior', color: '#d61' }],
+          })
+          return
+        }
+
+        if (is_function(value.target)) {
+          warn(`cdf target not yet supported for value '${name}'`)
+          return // cdf target not supported yet
+        }
+
+        // get target sample w/ weights that sum to J
+        const yR = value.target
+        const wR = array(value.target.length)
+        if (value.target_weights) {
+          copy(wR, value.target_weights)
+          scale(wR, J / value.target_weight_sum) // rescale to sum to J
+        } else {
+          fill(wR, J / value.target.length) // rescale to sum to J
+        }
+
+        hist([xJ, yR], { weights: [wJ, wR] }).hbars({
+          name,
           series: [
             { label: 'posterior', color: '#d61' },
             { label: 'target', color: 'gray' },
@@ -994,31 +1017,35 @@ class _Sampler {
 
   __tks() {
     const start = this.stats ? Date.now() : 0
-    const { J, K, xJK, values, stats } = this
+    const { J, K, xJK, rwJ, rwj_uniform, values, stats } = this
     const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
     // compute ks1_test or ks2_test for each (numeric) value w/ target
     fill(pK, k => {
       const value = values[k]
       if (!value.target) return 1 // no target
       const xR = (this.___tks_xR ??= array(J))
+      const wR = (this.___tks_wR ??= array(J))
+      let wr_sum = 0
       let r = 0
       repeat(J, j => {
         const x = xJK[j][k]
-        if (x !== undefined) xR[r++] = x
+        const w = rwJ[j]
+        if (x !== undefined) {
+          xR[r] = x
+          wR[r++] = w
+          wr_sum += w
+        }
       })
-      if (r == 0) return 1 // not enough samples
-      xR.length = r
+      if (r == 0 || wr_sum == 0) return 1 // not enough samples/weight
+      xR.length = wR.length = r
       if (is_function(value.target)) {
         // use ks1_test for cdf target
-        return ks1_test(xR, value.target, {
-          wJ: this.rwJ,
-          wj_sum: this.rwj_sum,
-        })
+        return ks1_test(xR, value.target, { wJ: wR, wj_sum: wr_sum })
       }
       // use ks2_test for sample target
       return ks2_test(xR, value.target, {
-        wJ: this.rwj_uniform ? undefined : this.rwJ,
-        wj_sum: this.rwj_uniform ? undefined : this.rwj_sum,
+        wJ: rwj_uniform ? undefined : wR,
+        wj_sum: rwj_uniform ? undefined : wr_sum,
         wK: value.target_weights,
         wk_sum: value.target_weight_sum,
       })
