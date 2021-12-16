@@ -225,16 +225,10 @@ class _Sampler {
     )
     // set up default prior/posterior sampler functions
     // note posterior here refers to posterior in parent context
-    // for posterior we need to consider weights for log(∝q(x|y)/q(y|x))
-    this._prior = f => f(this.sample())
-    this._posterior = (f, x) => {
-      const rwX = this.rwX
-      const y = this.sample()
-      const wx = rwX.get(x) ?? 0
-      const wy = rwX.get(y)
-      const log_mw = log(wx) - log(wy)
-      f(y, log_mw)
-    }
+    // for posterior, we need to consider weights for log(∝q(x|y)/q(y|x))
+    // for efficiency, we require parent to ensure ess≈J s.t. weights≈0
+    const sampler = f => f(this.sample())
+    this._prior = this._posterior = sampler
 
     assign(this, this._parse_func(func))
     this.K = this.values.length
@@ -947,7 +941,6 @@ class _Sampler {
       const wJ = scale(copy(rwJ), J / rwj_sum) // rescale to sum to J
 
       if (!value.target) {
-        print(name, uniq(xJ).length, xJ.length)
         hist(xJ, { weights: rwJ }).hbars({
           name,
           series: [{ label: 'posterior', color: '#d61' }],
@@ -1230,7 +1223,8 @@ class _Sampler {
 
       // pre-process function domain if parameter-free
       // otherwise have to do it on every call before sampling (see below)
-      if (is_function(domain) && size(options?.params) == 0)
+      value.sampler_domain = is_function(domain)
+      if (value.sampler_domain && size(options?.params) == 0)
         value.domain = new _Sampler(domain, options)
 
       const { index, name, args } = value
@@ -1284,13 +1278,20 @@ class _Sampler {
       }
     }
 
+    // process sampler domain (unless pre-processed)
+    // also ensure ~full ess since that is assumed by posterior sampler
+    if (value.sampler_domain) {
+      domain = value.domain ?? new _Sampler(domain, options)
+      assert(
+        approx_equal(domain.ess, domain.J, 1e-3),
+        'sampler domain failed to achieve full ess'
+      )
+    }
+
     // sample from prior into xJK (if not yet sampled)
     const xjK = xJK[j]
     let xjk = xjK[k]
     if (xjk === undefined) {
-      // process function domain (unless pre-processed above)
-      if (is_function(domain))
-        domain = value.domain ?? new _Sampler(domain, options)
       const prior = options?.prior ?? domain._prior
       assert(prior, 'missing prior sampler')
       prior((x, log_pw = 0) => {
@@ -1304,9 +1305,6 @@ class _Sampler {
       const yjK = yJK[j]
       let yjk = yjK[k]
       if (yjk === undefined) {
-        // process function domain (unless pre-processed above)
-        if (is_function(domain))
-          domain = value.domain ?? new _Sampler(domain, options)
         const posterior = options?.posterior ?? domain._posterior
         assert(posterior, 'missing posterior (chain) sampler')
         posterior((y, log_mw = 0) => {
