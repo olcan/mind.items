@@ -1,6 +1,5 @@
 #util/plot defines plotting utilities.  
 << js_table() >>
-#/playground
 
 ```js_removed:plot.js
 // plot.js
