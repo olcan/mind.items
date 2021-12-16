@@ -1,4 +1,4 @@
-// hash (x,[hasher=_hash_64_fmv1a],[stringifier=str])
+// hash (x,[hasher=_hash_64_fmv1a],[stringifier=stringify])
 // hashes `x` using `hasher`
 // applies `stringifier` to non-string `x`
 // integer for ≤52 bits, hex string for >52
