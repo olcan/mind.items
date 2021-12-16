@@ -129,6 +129,7 @@ function from(x, domain) {
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `targets`     | object of targets for named values sampled in this context
 // |               | see `target` option above for possible targets
+// | `params`      | object of parameters to be captured from parent context
 function sample(domain, options) {
   // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
   assert(
@@ -170,7 +171,7 @@ function _benchmark_sample() {
 // _weight sequence_ `log_wu(u)=0↘-∞, u=0,1,…` can help, see #/weight
 // _likelihood weights_ `∝ P(c|X) = E[𝟙(c|X)]` can help, see `weight(…)`
 function condition(c, log_wu) {
-  fatal(`unexpected call to condition(…)`)
+  fatal(`unexpected (unparsed) call to condition(…)`)
 }
 
 // weight(log_w, [log_wu])
@@ -183,7 +184,7 @@ function condition(c, log_wu) {
 // _weight sequence_ `log_wu(u)=0→log_w, u=0,1,…` can help
 // see #/weight for technical details
 function weight(log_w, guide) {
-  fatal(`unexpected call to weight(…)`)
+  fatal(`unexpected (unparsed) call to weight(…)`)
 }
 
 // is `wJ` uniform?
@@ -202,12 +203,13 @@ class _Sampler {
     assert(J > 0, `invalid sample size ${J}`)
     const B = (this.B = options?.mks_buffer ?? 1000)
     assert(B > 0 && B % 2 == 0, `invalid move buffer size ${B}`)
-    this.options = options = _.merge(
+    this.options = options = assign(
       {
         stats: false,
         quantiles: false,
         log: false, // silent by default
         warn: true,
+        params: {},
         quantile_runs: 100,
         size: J,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
@@ -224,84 +226,18 @@ class _Sampler {
       },
       options
     )
-    if (options.log)
-      print(`mks_buffer: ${this.B} (period ${options.mks_period})`)
-
     // set up default prior/posterior sampler functions
     this._prior = f => f(this.sample({ prior: true }))
     this._posterior = f => f(this.sample())
+    if (options.log) print(`parsed options in ${this.t}ms`)
 
-    // replace sample|condition|weight|... calls
-    window.__sampler = this // for use in replacements instead of `this`
-    const js = func.toString()
-    const lines = js.split('\n')
-    this.values = []
-    this.names = []
-    this.js = js.replace(
-      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight) *\(/g,
-      (m, name, method, offset) => {
-        // extract lexical context
-        if (js[offset] == '\n') offset++ // skip leading \n if matched
-        const prefix = js.slice(0, offset)
-        const suffix = js.slice(offset)
-        const line_prefix = prefix.match(/.*$/)[0]
-        const line_suffix = suffix.match(/^.*/)[0]
-        const line_index = _count_unescaped(prefix, '\n')
-        const line = lines[line_index]
-        check(() => [line_prefix + line_suffix, line]) // sanity check
-
-        // skip matches inside comments or strings
-        if (
-          line_prefix.match(/\/\/.*$/) ||
-          _count_unescaped(prefix, '/*') > _count_unescaped(prefix, '*/') ||
-          _count_unescaped(prefix, '`') % 2 ||
-          _count_unescaped(line_prefix, "'") % 2 ||
-          _count_unescaped(line_prefix, '"') % 2
-        )
-          return m
-
-        // skip method calls
-        if (line_prefix.match(/\.$/)) return m
-
-        // skip function definitions (e.g. from imported #util/sample)
-        if (line_prefix.match(/function *$/)) return m
-        if (line_suffix.match(/{ *$/)) return m
-
-        // uncomment to debug replacement issues ...
-        // console.log(offset, line_prefix + line_suffix)
-
-        // replace non-sample function all
-        if (method != 'sample') return `__sampler._${method}(`
-
-        // parse args, allowing nested parentheses
-        // this is naive about strings, comments, escaping, etc
-        // but it should work as long as parentheses are balanced
-        let args = ''
-        let depth = 0
-        for (let i = 0; i < suffix.length; i++) {
-          const c = suffix[i]
-          if (c == ')' && --depth == 0) break
-          if (depth) args += c
-          if (c == '(') depth++
-        }
-
-        // replace sample call
-        const k = this.values.length
-        this.values.push({ js, index: k, offset, name, args, line_index, line })
-        this.names.push(name || k)
-        return m.replace(/sample *\($/, `__sampler._sample(${k},`)
-      }
-    )
-    if (options.log) print(`found ${this.values.length} sampled values`)
-
-    // evaluate new function w/ replacements
-    // wrapping in parentheses is required for named functions
-    // does not capture variables from calling context
-    this.func = eval('(' + this.js + ')')
-    // console.log(this.js)
+    let start = options.log ? Date.now() : 0
+    assign(this, this._parse_func(func))
+    this.K = this.values.length
+    if (options.log)
+      print(`parsed ${this.K} sampled values in ${Date.now() - start}ms`)
 
     // initialize run state
-    this.K = this.values.length
     this.xJK = matrix(J, this.K) // samples per run/value
     this.xJk = array(J) // tmp array for sampling columns of xJK
     this.pxJK = matrix(J, this.K) // prior samples per run/value
@@ -356,7 +292,7 @@ class _Sampler {
     this._init_stats()
 
     // sample prior (along w/ u=0 posterior)
-    let start = options.log ? Date.now() : 0
+    start = options.log ? Date.now() : 0
     this._sample_prior()
     if (options.log) {
       const ms = Date.now() - start
@@ -375,6 +311,88 @@ class _Sampler {
 
     if (options.quantiles) this._quantiles()
     if (options.plot) this._plot()
+  }
+
+  _parse_func(func) {
+    // replace sample|condition|weight|... calls
+    const js = func.toString()
+    const lines = js.split('\n')
+    const values = []
+    const names = new Set()
+    // argument pattern allowing nested parentheses is derived from that in core.js
+    // this particular pattern allows up to 5 levels of nesting and can be extended if needed
+    window.__sampler_regex ??=
+      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\)|.+?)*?)\)/gs
+    this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
+      assert(!names.has(name), `duplicate name '${name}' for sampled value`)
+      // extract lexical context
+      let mt = m
+      if (js[offset] == '\n') {
+        offset++ // skip leading \n if matched
+        mt = m.slice(1)
+      }
+      const prefix = js.slice(0, offset)
+      const suffix = js.slice(offset + mt.length)
+      const line_prefix = prefix.match(/.*$/)[0]
+      const line_suffix = suffix.match(/^.*/)[0]
+      const line_index = _count_unescaped(prefix, '\n')
+      const line = lines[line_index]
+      check(() => [
+        line_prefix + mt + line_suffix,
+        line,
+        (a, b) => a.startsWith(b),
+      ]) // sanity check
+
+      // skip matches inside comments or strings
+      if (
+        line_prefix.match(/\/\/.*$/) ||
+        _count_unescaped(prefix, '/*') > _count_unescaped(prefix, '*/') ||
+        _count_unescaped(prefix, '`') % 2 ||
+        _count_unescaped(line_prefix, "'") % 2 ||
+        _count_unescaped(line_prefix, '"') % 2
+      )
+        return m
+
+      // skip method calls
+      if (line_prefix.match(/\.$/)) return m
+
+      // skip function definitions (e.g. from imported #util/sample)
+      if (line_prefix.match(/function *$/)) return m
+      if (line_suffix.match(/{ *$/)) return m
+
+      // uncomment to debug replacement issues ...
+      // console.log(offset, line_prefix + line_suffix)
+
+      // replace non-sample function all
+      if (method != 'sample') return `__sampler._${method}(${args})`
+
+      // parse args, allowing nested parentheses
+      // this is naive about strings, comments, escaping, etc
+      // but it should work as long as parentheses are balanced
+      // let args = ''
+      // let depth = 0
+      // for (let i = 0; i < suffix.length; i++) {
+      //   const c = suffix[i]
+      //   if (c == ')' && --depth == 0) break
+      //   if (depth) args += c
+      //   if (c == '(') depth++
+      // }
+
+      // replace sample call
+      const k = values.length
+      values.push({ js, index: k, offset, name, args, line_index, line })
+      names.add(name || k)
+      return m.replace(/sample *\(.+\)$/s, `__sampler._sample(${k},${args})`)
+    })
+
+    // evaluate new function w/ replacements
+    // use wrapper to pass along variables from calling scope/context
+    const __sampler = this // since 'this' is overloaded in function(){...}
+    // this.func = eval('(' + this.js + ')')
+    const params = this.options.params
+    const wrapper = `(function({${keys(params)}}) { return ${this.js} })`
+    func = eval(wrapper)(params)
+    return { func, values, names }
   }
 
   static stats_keys =
@@ -746,217 +764,216 @@ class _Sampler {
 
   _plot() {
     const updates = this.stats?.updates
-    if (!updates) return // no update stats to plot
-    const spec = this.options.stats
-    let quantiles
-    if (this.options.quantiles)
-      quantiles = this.options.quantiles.map(q => 'q' + round(100 * q))
+    if (updates) {
+      const spec = this.options.stats
+      let quantiles
+      if (this.options.quantiles)
+        quantiles = this.options.quantiles.map(q => 'q' + round(100 * q))
 
-    // y is logarithmic ks p-value axis
-    // y2 is linear percentage axis
-    // stats that do not fit either are rescaled to 0-100 and plotted on y2
-    const y_ticks = range(8).map(e => round_to(log2(`1e${e}`), 2))
-    const y_labels = ['1', '10', '10²', '10³', '10⁴', '10⁵', '10⁶', '10⁷']
+      // y is logarithmic ks p-value axis
+      // y2 is linear percentage axis
+      // stats that do not fit either are rescaled to 0-100 and plotted on y2
+      const y_ticks = range(8).map(e => round_to(log2(`1e${e}`), 2))
+      const y_labels = ['1', '10', '10²', '10³', '10⁴', '10⁵', '10⁶', '10⁷']
 
-    const values = []
-    const series = []
-    const formatters = { __function_context: {} }
-    const formatter_context = formatters.__function_context
-    // function for adding line to plot
-    const add_line = (prop, options = {}) => {
-      if (quantiles && !quantiles.includes(prop)) {
-        each(quantiles, k => add_line(k, omit(options, 'label')))
-        return
-      }
-      const f = options.mapper ?? (x => x)
-      values.push(updates.map(su => f(su[prop])))
-      options.label ??= prop
-      options.axis ??= 'y'
-      if (options.formatter) formatters[prop] = options.formatter
-      if (options.formatter_context)
-        merge(formatter_context, options.formatter_context)
-      series.push(omit(options, ['mapper', 'formatter']))
-    }
-    // function for adding a "rescaled" line to y2 axis of plot
-    const add_rescaled_line = (n, range) => {
-      if (quantiles && !quantiles.includes(prop)) {
-        // push quantile series instead, rescaling across all quantiles
-        const [a, b] = range ?? min_max_in(flat(updates.map(_.values)))
-        each(quantiles, k => add_rescaled_line(k, [a, b]))
-        return
-      }
-      const [a, b] = range ?? min_max_in(updates.map(u => u[n]))
-      add_line(n, {
-        axis: 'y2',
-        mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), 1),
-        formatter: eval(
-          `(x => round_to((x / 100) * (${n}_b - ${n}_a) + ${n}_a, 1))`
-        ),
-        formatter_context: { [`${n}_a`]: a, [`${n}_b`]: b },
-      })
-    }
-
-    if (spec.mks)
-      add_line('mks', {
-        formatter: x =>
-          2 ** x < 1000 ? round_to(2 ** x, 2) : '>10^' + ~~log10(2 ** x),
-      })
-    if (spec.tks) add_line('tks')
-    if (spec.gap) add_line('gap')
-    if (spec.ess)
-      add_line('ess', {
-        axis: 'y2',
-        mapper: x => (100 * x) / this.J,
-        formatter: x => `${x}%`,
-      })
-    if (spec.essu)
-      add_line('essu', {
-        axis: 'y2',
-        mapper: x => (100 * x) / this.J,
-        formatter: x => `${x}%`,
-      })
-    if (spec.essr) add_line('essr', { axis: 'y2', formatter: x => `${x}%` })
-    if (spec.mar) add_line('mar', { axis: 'y2', formatter: x => `${x}%` })
-
-    if (spec.wsum) add_rescaled_line('wsum')
-    if (spec.elw) add_rescaled_line('elw')
-    let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
-    if (spec.mlw) {
-      add_rescaled_line('mlw')
-      const [a, b] = min_max_in(updates.map(u => u.mlw))
-      mlw_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
-    }
-    if (spec.p) add_rescaled_line('p')
-    if (spec.a) add_rescaled_line('a')
-    if (spec.m) add_rescaled_line('m')
-    if (spec.t) add_rescaled_line('t')
-
-    plot({
-      name: 'updates',
-      data: { values },
-      renderer: 'lines',
-      renderer_options: {
-        series,
-        data: {
-          colors: {
-            // weight-related stats are gray
-            // elw & wsum are closely related, mlw is dashed to distinguish
-            mlw: '#666',
-            elw: '#666',
-            wsum: '#666',
-            ...from_pairs(
-              quantiles?.map(q => [
-                q,
-                q == 'q50'
-                  ? '#ddd'
-                  : q == 'q0' || q == 'q100'
-                  ? '#444'
-                  : '#777',
-              ])
-            ),
-          },
-        },
-        axis: {
-          y: {
-            show: series.some(s => s.axis === 'y'),
-            min: 0,
-            max: last(y_ticks),
-            tick: {
-              values: y_ticks,
-              format: y => y_labels[round(log10(2 ** y))] ?? '?',
-              __function_context: { y_labels },
-            },
-          },
-          y2: {
-            show: series.some(s => s.axis === 'y2'),
-            min: 0,
-            tick: {
-              values: [0, 20, 40, 60, 80, 100],
-              format: y => y + '%',
-            },
-          },
-        },
-        tooltip: {
-          format: {
-            title: x => 'step ' + x,
-            value: (v, _, n) => formatters[n]?.(v) ?? v,
-            __function_context: { formatters },
-          },
-        },
-        grid: {
-          y: {
-            lines: compact([
-              { value: 1, class: 'accept strong' },
-              { value: round_to(log2(10), 2), class: 'accept' },
-              { value: round_to(log2(100), 2), class: 'accept weak' },
-              mlw_0_on_y
-                ? { value: round_to(mlw_0_on_y, 2), class: 'mlw' }
-                : null,
-            ]),
-          },
-        },
-        // point: { show: false },
-        padding: { right: 50, left: 35 },
-        styles: [
-          `#plot .c3-ygrid-line line { opacity: 1 !important }`,
-          `#plot .c3-ygrid-line.mlw line { opacity: 1 !important; stroke-dasharray:5,3;}`,
-          `#plot .c3-ygrid-line.accept line { opacity: .1 !important; stroke:#0f0; stroke-width:5px }`,
-          `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
-          `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
-          `#plot .c3-target path { stroke-width:2px }`,
-          `#plot .c3-target { opacity:1 !important }`,
-          // dashed line, legend, and tooltip for mlw
-          `#plot .c3-target-mlw path { stroke-dasharray:5,3; }`,
-          `#plot .c3-legend-item-mlw line { stroke-dasharray:2,2; }`,
-          `#plot .c3-tooltip-name--mlw span { background: repeating-linear-gradient(90deg, #666, #666 2px, transparent 2px, transparent 4px) !important }`,
-        ],
-      },
-      dependencies: ['#_c3'],
-    })
-
-    // plot posteriors vs targets
-    if (this.options.targets) {
-      const { J, rwJ, rwj_sum } = this
-      each(this.values, (value, k) => {
-        const name = value.name
-
-        // include any undefined values for now
-        const xJ = array(J, j => this.xJK[j][k])
-        const wJ = scale(copy(rwJ), J / rwj_sum) // rescale to sum to J
-
-        if (!value.target) {
-          hist(xJ, { weights: rwJ }).hbars({
-            name,
-            series: [{ label: 'posterior', color: '#d61' }],
-          })
+      const values = []
+      const series = []
+      const formatters = { __function_context: {} }
+      const formatter_context = formatters.__function_context
+      // function for adding line to plot
+      const add_line = (prop, options = {}) => {
+        if (quantiles && !quantiles.includes(prop)) {
+          each(quantiles, k => add_line(k, omit(options, 'label')))
           return
         }
-
-        if (is_function(value.target)) {
-          warn(`cdf target not yet supported for value '${name}'`)
-          return // cdf target not supported yet
+        const f = options.mapper ?? (x => x)
+        values.push(updates.map(su => f(su[prop])))
+        options.label ??= prop
+        options.axis ??= 'y'
+        if (options.formatter) formatters[prop] = options.formatter
+        if (options.formatter_context)
+          merge(formatter_context, options.formatter_context)
+        series.push(omit(options, ['mapper', 'formatter']))
+      }
+      // function for adding a "rescaled" line to y2 axis of plot
+      const add_rescaled_line = (n, range) => {
+        if (quantiles && !quantiles.includes(prop)) {
+          // push quantile series instead, rescaling across all quantiles
+          const [a, b] = range ?? min_max_in(flat(updates.map(_.values)))
+          each(quantiles, k => add_rescaled_line(k, [a, b]))
+          return
         }
-
-        // get target sample w/ weights that sum to J
-        const yR = value.target
-        const wR = array(value.target.length)
-        if (value.target_weights) {
-          copy(wR, value.target_weights)
-          scale(wR, J / value.target_weight_sum) // rescale to sum to J
-        } else {
-          fill(wR, J / value.target.length) // rescale to sum to J
-        }
-
-        hist([xJ, yR], { weights: [wJ, wR] }).hbars({
-          name,
-          series: [
-            { label: 'posterior', color: '#d61' },
-            { label: 'target', color: 'gray' },
-          ],
-          delta: true, // append delta series
+        const [a, b] = range ?? min_max_in(updates.map(u => u[n]))
+        add_line(n, {
+          axis: 'y2',
+          mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), 1),
+          formatter: eval(
+            `(x => round_to((x / 100) * (${n}_b - ${n}_a) + ${n}_a, 1))`
+          ),
+          formatter_context: { [`${n}_a`]: a, [`${n}_b`]: b },
         })
+      }
+
+      if (spec.mks)
+        add_line('mks', {
+          formatter: x =>
+            2 ** x < 1000 ? round_to(2 ** x, 2) : '>10^' + ~~log10(2 ** x),
+        })
+      if (spec.tks) add_line('tks')
+      if (spec.gap) add_line('gap')
+      if (spec.ess)
+        add_line('ess', {
+          axis: 'y2',
+          mapper: x => (100 * x) / this.J,
+          formatter: x => `${x}%`,
+        })
+      if (spec.essu)
+        add_line('essu', {
+          axis: 'y2',
+          mapper: x => (100 * x) / this.J,
+          formatter: x => `${x}%`,
+        })
+      if (spec.essr) add_line('essr', { axis: 'y2', formatter: x => `${x}%` })
+      if (spec.mar) add_line('mar', { axis: 'y2', formatter: x => `${x}%` })
+
+      if (spec.wsum) add_rescaled_line('wsum')
+      if (spec.elw) add_rescaled_line('elw')
+      let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
+      if (spec.mlw) {
+        add_rescaled_line('mlw')
+        const [a, b] = min_max_in(updates.map(u => u.mlw))
+        mlw_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
+      }
+      if (spec.p) add_rescaled_line('p')
+      if (spec.a) add_rescaled_line('a')
+      if (spec.m) add_rescaled_line('m')
+      if (spec.t) add_rescaled_line('t')
+
+      plot({
+        name: 'updates',
+        data: { values },
+        renderer: 'lines',
+        renderer_options: {
+          series,
+          data: {
+            colors: {
+              // weight-related stats are gray
+              // elw & wsum are closely related, mlw is dashed to distinguish
+              mlw: '#666',
+              elw: '#666',
+              wsum: '#666',
+              ...from_pairs(
+                quantiles?.map(q => [
+                  q,
+                  q == 'q50'
+                    ? '#ddd'
+                    : q == 'q0' || q == 'q100'
+                    ? '#444'
+                    : '#777',
+                ])
+              ),
+            },
+          },
+          axis: {
+            y: {
+              show: series.some(s => s.axis === 'y'),
+              min: 0,
+              max: last(y_ticks),
+              tick: {
+                values: y_ticks,
+                format: y => y_labels[round(log10(2 ** y))] ?? '?',
+                __function_context: { y_labels },
+              },
+            },
+            y2: {
+              show: series.some(s => s.axis === 'y2'),
+              min: 0,
+              tick: {
+                values: [0, 20, 40, 60, 80, 100],
+                format: y => y + '%',
+              },
+            },
+          },
+          tooltip: {
+            format: {
+              title: x => 'step ' + x,
+              value: (v, _, n) => formatters[n]?.(v) ?? v,
+              __function_context: { formatters },
+            },
+          },
+          grid: {
+            y: {
+              lines: compact([
+                { value: 1, class: 'accept strong' },
+                { value: round_to(log2(10), 2), class: 'accept' },
+                { value: round_to(log2(100), 2), class: 'accept weak' },
+                mlw_0_on_y
+                  ? { value: round_to(mlw_0_on_y, 2), class: 'mlw' }
+                  : null,
+              ]),
+            },
+          },
+          // point: { show: false },
+          padding: { right: 50, left: 35 },
+          styles: [
+            `#plot .c3-ygrid-line line { opacity: 1 !important }`,
+            `#plot .c3-ygrid-line.mlw line { opacity: 1 !important; stroke-dasharray:5,3;}`,
+            `#plot .c3-ygrid-line.accept line { opacity: .1 !important; stroke:#0f0; stroke-width:5px }`,
+            `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
+            `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
+            `#plot .c3-target path { stroke-width:2px }`,
+            `#plot .c3-target { opacity:1 !important }`,
+            // dashed line, legend, and tooltip for mlw
+            `#plot .c3-target-mlw path { stroke-dasharray:5,3; }`,
+            `#plot .c3-legend-item-mlw line { stroke-dasharray:2,2; }`,
+            `#plot .c3-tooltip-name--mlw span { background: repeating-linear-gradient(90deg, #666, #666 2px, transparent 2px, transparent 4px) !important }`,
+          ],
+        },
+        dependencies: ['#_c3'],
       })
     }
+
+    // plot posteriors (vs targets if specified)
+    const { J, rwJ, rwj_sum } = this
+    each(this.values, (value, k) => {
+      const name = value.name
+
+      // include any undefined values for now
+      const xJ = array(J, j => this.xJK[j][k])
+      const wJ = scale(copy(rwJ), J / rwj_sum) // rescale to sum to J
+
+      if (!value.target) {
+        hist(xJ, { weights: rwJ }).hbars({
+          name,
+          series: [{ label: 'posterior', color: '#d61' }],
+        })
+        return
+      }
+
+      if (is_function(value.target)) {
+        warn(`cdf target not yet supported for value '${name}'`)
+        return // cdf target not supported yet
+      }
+
+      // get target sample w/ weights that sum to J
+      const yR = value.target
+      const wR = array(value.target.length)
+      if (value.target_weights) {
+        copy(wR, value.target_weights)
+        scale(wR, J / value.target_weight_sum) // rescale to sum to J
+      } else {
+        fill(wR, J / value.target.length) // rescale to sum to J
+      }
+
+      hist([xJ, yR], { weights: [wJ, wR] }).hbars({
+        name,
+        series: [
+          { label: 'posterior', color: '#d61' },
+          { label: 'target', color: 'gray' },
+        ],
+        delta: true, // append delta series
+      })
+    })
   }
 
   get t() {
@@ -1052,6 +1069,7 @@ class _Sampler {
         wk_sum: value.target_weight_sum,
       })
     })
+    if (min_in(pK) == 1) return inf // no target or not enough samples/weight
     if (stats) stats.tks_time += Date.now() - start
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
     return -log2(beta_cdf(min_in(pK), 1, K))
@@ -1142,7 +1160,7 @@ class _Sampler {
         return xJK[j]
       case 'object':
       default:
-        return _.set(_.zipObject(this.names, xJK[j]), '_index', j)
+        return set(zip_object(values(this.names), xJK[j]), '_index', j)
     }
   }
 
@@ -1157,7 +1175,7 @@ class _Sampler {
           return [...xJK[j], xJ[j]]
         case 'object':
         default:
-          return _.assign(this.sample_values(options), {
+          return assign(this.sample_values(options), {
             _output: xJ[j],
             _index: j,
           })
@@ -1178,9 +1196,18 @@ class _Sampler {
     assert(domain, 'missing domain')
     const { j, xJK, log_pwJ, yJK, log_mwJ } = this
 
-    // if sampler not yet set, indicate initialization
+    // initialize on first call
     if (!value.sampler) {
       value.sampler = this
+      if (options?.name) {
+        assert(
+          !this.names.has(options.name),
+          `duplicate name '${options.name}' for sampled value`
+        )
+        value.name = options.name
+        this.names.add(value.name)
+      }
+
       const { index, name, args } = value
       const line = `line ${value.line_index}: ${value.line.trim()}`
       const target = options?.target ?? this.options.targets?.[name]
@@ -1228,30 +1255,38 @@ class _Sampler {
       }
     }
 
-    // if moving and sampled from prior, sample from posterior chain into yJK
-    // note any given value may not get triggered in any particular pass
-    if (this.moving && xJK[j][k] !== undefined) {
-      if (yJK[j][k] === undefined) {
-        const posterior = options?.posterior ?? domain._posterior
-        assert(posterior, 'missing posterior (chain) sampler')
-        posterior((y, log_mw = 0) => {
-          yJK[j][k] = y
-          log_mwJ[j] += log_mw
-        }, xJK[j][k])
-      }
-      return yJK[j][k]
-    }
-
-    // sample from prior into xJK
-    if (xJK[j][k] === undefined) {
+    // sample from prior into xJK (if not yet sampled)
+    const xjK = xJK[j]
+    let xjk = xjK[k]
+    if (xjk === undefined) {
+      if (is_function(domain)) domain = new _Sampler(domain, options)
       const prior = options?.prior ?? domain._prior
       assert(prior, 'missing prior sampler')
       prior((x, log_pw = 0) => {
-        xJK[j][k] = x
+        xjK[k] = x
         log_pwJ[j] += log_pw
       })
+      xjk = xjK[k]
     }
-    return xJK[j][k]
+
+    // if moving, sample from posterior chain into yJK
+    if (this.moving) {
+      const yjK = yJK[j]
+      let yjk = yjK[k]
+      if (yjk === undefined) {
+        if (is_function(domain)) domain = new _Sampler(domain, options)
+        const posterior = options?.posterior ?? domain._posterior
+        assert(posterior, 'missing posterior (chain) sampler')
+        posterior((y, log_mw = 0) => {
+          yjK[k] = y
+          log_mwJ[j] += log_mw
+        }, xjk)
+        yjk = yjK[k]
+      }
+      return yjk
+    }
+
+    return xjk
   }
 
   _condition(c, log_wu) {
