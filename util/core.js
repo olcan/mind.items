@@ -557,15 +557,16 @@ function js_table(regex) {
   let scope_indent = {}
   let names = new Set()
 
-  // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows up to 3 levels of nesting and can also ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
+  // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows a single level of nesting for optional arguments only (i.e. only after an equals sign) and can ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
   //
   // key pattern for nested parentheses w/o strings:
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]+?)*? <-- requires sufficient nesting, can hang on android
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*? <-- allows insufficient nesting (w/ imperfect parsing that may require balance checks), does not hang on android
+  // the |=[^(){}]*?\(... prefix restricts pattern to optional arguments and seems to be necessary (including the {} exclusion) for robust parsing
   //
   // also note javascript engine _should_ cache the compiled regex
   const __js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\)|[^()]+?) *=>)?\s*(?<body>[^\n]+))/gs
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.+?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.+?)*?\)|[^()]+?) *=>)?\s*(?<body>[^\n]+))/gs
 
   const defs = _.compact(
     Array.from(
