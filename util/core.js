@@ -101,9 +101,9 @@ function parse(text) {
   })
 }
 
-// converts `x` to a (short) string
-// goals: short, readable, unique
-// mainly intended for clean presentation
+// converts `x` to a string
+// goals: clean, readable, short, unique
+// mainly intended for logging, output, etc
 // also used as default stringifier in #/hash
 // not intended for parsing, unlike e.g. `JSON.stringify`
 // | string   | `x` wrapped in single quotes
@@ -123,7 +123,7 @@ function str(x) {
   // boolean toString
   if (is_boolean(x)) return x.toString()
   // integer toString w/ commas, from https://stackoverflow.com/a/2901298
-  if (is_integer(x)) return x.toString() //.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (is_integer(x)) return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   // number toString
   if (is_number(x)) return x.toString()
   // function toString w/ ()=> prefix dropped
@@ -133,7 +133,7 @@ function str(x) {
       (_.keys(x).length ? ' ' + _str_object(x) : '')
     )
   // array elements stringified recursively
-  if (is_array(x)) return '[' + x.map(str) + ']'
+  if (is_array(x)) return '[ ' + x.map(str).join(', ') + ' ]'
   // at this point
   assert(is_object(x), 'str: unexpected type ' + typeof x)
   // object values stringified recursively
@@ -148,9 +148,11 @@ function _str_object(x) {
     (x.constructor.name != 'Object'
       ? `[${typeof x} ${x.constructor.name}] `
       : '') +
-    '{' +
-    _.entries(x).map(([k, v]) => `${k}:${str(v)}`) +
-    '}'
+    '{ ' +
+    _.entries(x)
+      .map(([k, v]) => `${k}:${str(v)}`)
+      .join(', ') +
+    ' }'
   )
 }
 
@@ -165,10 +167,10 @@ function _test_str() {
     () => [str(() => 1), '1'],
     () => [str(() => (1, 2)), '(1, 2)'],
     () => [str(() => {}), '{}'],
-    () => [str(set(() => {}, 'test', 1)), '{} [function Function] {test:1}'],
+    () => [str(set(() => {}, 'test', 1)), '{} [function Function] { test:1 }'],
     () => [
       str(_.assign(() => {}, { a: 10000, b: '1', c: 1, d: 1.1 })),
-      `{} [function Function] {a:10,000,b:'1',c:1,d:1.1}`,
+      `{} [function Function] { a:10,000, b:'1', c:1, d:1.1 }`,
     ],
     () => [
       str(() => {
@@ -178,10 +180,10 @@ function _test_str() {
         return 1
       }`,
     ], // whitespace is maintained in function body
-    () => [str([10000, '1', 1, 1.1]), `[10,000,'1',1,1.1]`],
+    () => [str([10000, '1', 1, 1.1]), `[ 10,000, '1', 1, 1.1 ]`],
     () => [
       str({ a: 10000, b: '1', c: 1, d: 1.1 }),
-      `{a:10,000,b:'1',c:1,d:1.1}`,
+      `{ a:10,000, b:'1', c:1, d:1.1 }`,
     ]
   )
 }
