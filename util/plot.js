@@ -135,6 +135,7 @@ function hist(xSJ, options = {}) {
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
     sort_values_by, // default is rank_by count/weight; non-binned mode only
+    min_distinct_ratio = 0.5, // disable binning if <max(K+1,r*J) distinct
   } = options
   let wSJ = weights
   if (wSJ) {
@@ -152,13 +153,13 @@ function hist(xSJ, options = {}) {
   const wZ = wSJ ? flat(wSJ) : undefined
 
   // automatically disable binning if:
-  // - values option (integer or array) is defined˝
+  // - values option (integer or array) is defined
   // - xZ contains any non-numbers
-  // - xZ has too few distinct elements, < max(K,J/2)
+  // - xZ has too few distinct numbers: < max(K+1, J*min_distinct_ratio))
   if (
     defined(values) ||
     !every(xZ, is_number) ||
-    uniq(xZ).length < max(max_bins, xZ.length / 2)
+    uniq(xZ).length < max(max_bins + 1, xZ.length * min_distinct_ratio)
   ) {
     // rank non-numeric values
     values ??= 10 // 10 values by default
