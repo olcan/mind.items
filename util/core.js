@@ -561,7 +561,7 @@ function js_table(regex) {
   //
   // key pattern for nested parentheses w/o strings:
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]+?)*? <-- requires sufficient nesting, can hang on android
-  // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*? <-- allows insufficient nesting (w/ imperfect parsing), does not hang on android
+  // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*? <-- allows insufficient nesting (w/ imperfect parsing that may require balance checks), does not hang on android
   //
   const __js_table_regex =
     /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\)|[^()]+?) *=>)?\s*(?<body>[^\n]+))/gs
@@ -573,7 +573,9 @@ function js_table(regex) {
         .matchAll(__js_table_regex),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
-
+        // skip imbalanced args (due to occasional regex failure)
+        if (_count_unescaped(def.args, '(') != _count_unescaped(def.args, ')'))
+          return
         def.type = def.type.trim() // trim trailing space
         // skip certain types if indented
         if (def.indent && def.type?.match(/(?:const|let|var|class|function)$/))
