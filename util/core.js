@@ -549,6 +549,15 @@ function _js_table_function_status(name) {
   return [status, test, benchmark]
 }
 
+// NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows up to 3 levels of nesting and can also ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
+//
+// key pattern for nested parentheses w/o strings:
+// (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]+?)*? <-- requires sufficient nesting, can hang on android
+// (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*? <-- allows insufficient nesting (w/ imperfect parsing), does not hang on android
+//
+const _js_table_regex =
+  /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\)|[^()]+?) *=>)? *\n?(?<body>[^\n]+))?/gs
+
 // js_table([regex])
 // table of `js` definitions
 // can filter names using optional `regex`
@@ -560,10 +569,12 @@ function js_table(regex) {
     Array.from(
       _this
         .read('js', { keep_empty_lines: true, keep_comment_lines: true })
-        // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows up to 6 levels of nesting and can also ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
-        .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]+?) *=>)? *\n?(?<body>[^\n]+))?/gs
-        ),
+        // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows up to 3 levels of nesting and can also ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
+        //
+        // key pattern for nested parentheses w/o strings:
+        // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]+?)*? <-- requires sufficient nesting, can hang on android
+        // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*? <-- allows insufficient nesting (w/ imperfect parsing), does not hang on android
+        .matchAll(_js_table_regex),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
 
