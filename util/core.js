@@ -563,7 +563,7 @@ function js_table(regex) {
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]+?)*? <-- requires sufficient nesting, can hang on android
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*? <-- allows insufficient nesting (w/ imperfect parsing), does not hang on android
   //
-  window.__js_table_regex ??=
+  const __js_table_regex =
     /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\)|[^()]+?) *=>)? *\n?(?<body>[^\n]+))?/gs
 
   const defs = _.compact(
@@ -812,6 +812,7 @@ function _init() {
 
 // re-install core.css on any changes to core (or dependencies)
 function _on_item_change() {
+  if (_this.name != '#util/core') return // invoked from dependent
   _install_core_css()
 }
 
