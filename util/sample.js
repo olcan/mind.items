@@ -508,7 +508,7 @@ class _Sampler {
     this.rwJ = null // reset cached posterior ratio weights and dependents
     if (stats) {
       stats.reweights++
-      stats.reweight_time += this.timer()
+      stats.reweight_time += this.timer
     }
   }
 
