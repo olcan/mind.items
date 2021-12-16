@@ -642,6 +642,7 @@ async function update_item(item, updates) {
     return false
   }
 }
+
 // => /edit item [editor=github]
 // opens `item` for editing in `editor`
 // | `item`   | item `#name` or id
@@ -679,5 +680,44 @@ async function _on_command_edit(args, name, editor = 'github') {
   } else {
     alert(`/edit: unknown editor '${editor}'`)
     return `/edit ${args}`
+  }
+}
+
+// => /update [items]
+// update items
+// `items` can be specific `#label` or id
+async function _on_command_update(label) {
+  let modal // modal promise if open
+  try {
+    const items = _items(label)
+    const s = items.length > 1 ? 's' : ''
+    if (items.length == 0) {
+      alert(`/update: ${label} not found`)
+      return '/update ' + label
+    }
+    modal = _modal({
+      content: `Updating ${items.length} item${s} ...`,
+      background: 'block',
+    })
+    await (_this.store._update = Promise.allSettled([
+      _this.store._update,
+      _item('#pusher', false)?.store._push,
+    ]).then(async () => {
+      for (const [i, item] of items.entries()) {
+        _modal_update(modal, {
+          content: `Updating ${i + 1}/${items.length} (${item.name}) ...`,
+        })
+        const updates = await check_updates(item)
+        if (updates) await update_item(item, updates)
+      }
+      await _modal_update(modal, {
+        content: `Updated ${items.length} item${s}`,
+        confirm: 'OK',
+        background: 'confirm',
+      })
+      modal = null // closed by await
+    }))
+  } finally {
+    if (modal) _modal_close(modal) // close if left open
   }
 }
