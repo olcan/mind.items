@@ -123,7 +123,7 @@ function str(x) {
   // boolean toString
   if (is_boolean(x)) return x.toString()
   // integer toString w/ commas, from https://stackoverflow.com/a/2901298
-  if (is_integer(x)) return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (is_integer(x)) return x.toString() //.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   // number toString
   if (is_number(x)) return x.toString()
   // function toString w/ ()=> prefix dropped
@@ -563,6 +563,7 @@ function js_table(regex) {
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]+?)*? <-- requires sufficient nesting, can hang on android
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*? <-- allows insufficient nesting (w/ imperfect parsing that may require balance checks), does not hang on android
   //
+  // also note javascript engine _should_ cache the compiled regex
   const __js_table_regex =
     /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.+?)*?\)|.+?)*?\)|.+?)*?\)|[^()]+?) *=>)?\s*(?<body>[^\n]+))/gs
 
