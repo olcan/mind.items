@@ -560,9 +560,9 @@ function js_table(regex) {
     Array.from(
       _this
         .read('js', { keep_empty_lines: true, keep_comment_lines: true })
-        // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows at most one level of nesting w/ an equals character required before the inner parentheses, and can also ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
+        // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows up to 6 levels of nesting and can also ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
         .matchAll(
-          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`[^\n]*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\(.*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`[^\n]*?`|'[^\n]*?'|"[^\n]*?"|=[^()]*?\(.*?\)|.*?)*?\)|[^()\n]+?) *=>)? *\n?(?<body>[^\n]+))?/gs
+          /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]*?)*?\)|[^()]+?) *=>)? *\n?(?<body>[^\n]+))?/gs
         ),
       m => {
         const def = _.merge({ args: '', comment: '' }, m.groups)
