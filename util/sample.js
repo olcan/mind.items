@@ -948,7 +948,7 @@ class _Sampler {
         hist([pxJ, xJ], { weights: [pwJ, rwJ] }).hbars({
           name,
           series: [
-            { label: 'prior', color: 'gray' },
+            { label: 'prior', color: '#555' },
             { label: 'posterior', color: '#d61' },
           ],
         })
@@ -973,7 +973,7 @@ class _Sampler {
       hist([pxJ, xJ, yR], { weights: [pwJ, wJ, wR] }).hbars({
         name,
         series: [
-          { label: 'prior', color: 'gray' },
+          { label: 'prior', color: '#555' },
           { label: 'posterior', color: '#d61' },
           { label: 'target', color: '#6a6' },
         ],
