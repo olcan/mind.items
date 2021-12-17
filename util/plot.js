@@ -252,7 +252,7 @@ function hist(xSJ, options = {}) {
           ...obj,
           data: { labels: lK(labeler), values: cSK },
           renderer: 'hbars',
-          renderer_options: { height: K * 25, ...options },
+          renderer_options: { height: K * max(20, S * 10), ...options },
           dependencies: ['#_c3'],
         })
       }

@@ -931,19 +931,26 @@ class _Sampler {
       })
     }
 
-    // plot posteriors (vs targets if specified)
-    const { J, rwJ, rwj_sum } = this
+    // plot posteriors (vs priors and targets if specified)
+    const { J, rwJ, rwj_sum, xJK, pxJK, pwj_sum } = this
     each(this.values, (value, k) => {
       const name = value.name
 
+      // get prior w/ weights that sum to J
+      const pxJ = array(J, j => pxJK[j][k])
+      const pwJ = scale(copy(this.pwJ), J / pwj_sum)
+
       // include any undefined values for now
-      const xJ = array(J, j => this.xJK[j][k])
+      const xJ = array(J, j => xJK[j][k])
       const wJ = scale(copy(rwJ), J / rwj_sum) // rescale to sum to J
 
       if (!value.target) {
-        hist(xJ, { weights: rwJ }).hbars({
+        hist([pxJ, xJ], { weights: [pwJ, rwJ] }).hbars({
           name,
-          series: [{ label: 'posterior', color: '#d61' }],
+          series: [
+            { label: 'prior', color: 'gray' },
+            { label: 'posterior', color: '#d61' },
+          ],
         })
         return
       }
@@ -963,11 +970,12 @@ class _Sampler {
         fill(wR, J / value.target.length) // rescale to sum to J
       }
 
-      hist([xJ, yR], { weights: [wJ, wR] }).hbars({
+      hist([pxJ, xJ, yR], { weights: [pwJ, wJ, wR] }).hbars({
         name,
         series: [
+          { label: 'prior', color: 'gray' },
           { label: 'posterior', color: '#d61' },
-          { label: 'target', color: 'gray' },
+          { label: 'target', color: '#6a6' },
         ],
         delta: true, // append delta series
       })
