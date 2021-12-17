@@ -90,7 +90,7 @@ function from(x, domain) {
 // |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
 // |               | for sampler domain, sample `size` can be specified
 // |               | default `size` is inherited from context (see below)
-// |               | also see below `targets` option for context
+// |               | also see `targets` and `max_tks` options below
 // |               | _default_: no target (`tks=0`)
 // `options` for sampler function (_context_) domains `context=>{ … }`:
 // | `size`        | sample size `J`, _default_: `1000`
@@ -128,6 +128,11 @@ function from(x, domain) {
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `targets`     | object of targets for named values sampled in this context
 // |               | see `target` option above for possible targets
+// | `max_tks`     | maximum `tks` desired once updates are complete
+// |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
+// |               | ignored if no targets specified via `target(s)` option
+// |               | used only as diagnostic test, not as stopping condition
+// |               | _default_: `5` ≡ failure to reject same-dist at `ɑ<1/32`
 // | `params`      | object of parameters to be captured from parent context
 function sample(domain, options = undefined) {
   // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
@@ -220,6 +225,7 @@ class _Sampler {
         max_mks: 3,
         mks_buffer: B,
         mks_period: ceil((3 * J) / B),
+        max_tks: 5,
       },
       options
     )
@@ -629,8 +635,8 @@ class _Sampler {
       max_updates,
       min_updates,
       max_mks,
+      max_tks,
       min_ess,
-      weight_exp,
       resample_if,
       move_while,
     } = this.options
@@ -672,7 +678,7 @@ class _Sampler {
             break
           }
 
-          // check target ess/mks/mlw if min_time/updates satisfied
+          // check target ess/mks/tks/mlw if min_time/updates satisfied
           if (this.ess >= min_ess && this.mks <= max_mks && this.mlw <= 0) {
             const { t, u, ess, mks, mlw } = this
             const rt = round_to
@@ -719,6 +725,10 @@ class _Sampler {
         this.mlw += this.move_log_w
       }
     } while (true)
+
+    // check target tks if warnings enabled
+    if (this.options.warn && this.tks > max_tks)
+      warn(`failed to achieve target tks=${this.tks}≤${max_tks}`)
   }
 
   _quantiles() {
@@ -1078,7 +1088,7 @@ class _Sampler {
           wr_sum += w
         }
       })
-      if (r == 0 || wr_sum == 0) return 1 // not enough samples/weight
+      if (r == 0 || wr_sum == 0) return 0 // not enough samples/weight
       xR.length = wR.length = r
       if (is_function(value.target)) {
         // use ks1_test for cdf target
@@ -1092,7 +1102,6 @@ class _Sampler {
         wk_sum: value.target_weight_sum,
       })
     })
-    if (min_in(pK) == 1) return inf // no target or not enough samples/weight
     if (stats) stats.tks_time += this.timer
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
     return -log2(beta_cdf(min_in(pK), 1, K))
