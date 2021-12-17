@@ -19,6 +19,7 @@ function plot(obj, name = undefined) {
     decoder = 'parse', // string or portable function
     dependencies, // optional dependencies (besides #_util/plot)
     caption, // optional caption block (default: _md|markdown_<name> if exists)
+    title, // optional title markdown placed immediately after label
   } = obj
 
   assert(data, 'missing data')
@@ -76,7 +77,7 @@ function plot(obj, name = undefined) {
   }
 
   item.write_lines(
-    item.name,
+    item.name + (title ? ' ' + title : ''),
     `\<<${macro}>>`,
     caption_text ? block(caption, caption_text) : undefined,
     `<!--removed-->`,

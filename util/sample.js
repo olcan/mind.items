@@ -461,7 +461,7 @@ class _Sampler {
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.m) update.m = this.u == 0 ? 0 : this.m - last(stats.updates).m
-    if (spec.t) update.t = this.u == 0 ? 0 : this.t - last(stats.updates).t
+    if (spec.t) update.t = this.u == 0 ? this.t : this.t - last(stats.updates).t
 
     if (this.u == 0) stats.updates = [update]
     else stats.updates.push(update)
@@ -859,6 +859,7 @@ class _Sampler {
 
       plot({
         name: 'updates',
+        title: `\`${this.u}\` updates in \`${this.t}ms\``,
         data: { values },
         renderer: 'lines',
         renderer_options: {
