@@ -74,7 +74,7 @@ function lookup_types(values, ...types) {
 }
 
 // => tranpose_objects(xJN|xNJ)
-// tranpose object of arrays or vice versa
+// tranpose array of objects or vice versa
 function transpose_objects(z) {
   if (is_array(z)) {
     const xJN = z
