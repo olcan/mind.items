@@ -73,6 +73,70 @@ function lookup_types(values, ...types) {
   )
 }
 
+// => tranpose_objects(xJN|xNJ)
+// tranpose object of arrays or vice versa
+function transpose_objects(z) {
+  if (is_array(z)) {
+    const xJN = z
+    if (xJN.length == 0) return {}
+    assert(is_object(xJN[0]), 'invalid first element')
+    const nK = keys(xJN[0])
+    assert(
+      xJN.every(xjN => equal(keys(xjN), nK)),
+      'non-rectangular transpose'
+    )
+    return zip_object(
+      nK,
+      nK.map(n => map(xJN, n))
+    )
+  } else if (is_object(z)) {
+    const xNJ = z
+    if (empty(xNJ)) return []
+    const nK = keys(xNJ)
+    const xKJ = values(xNJ)
+    assert(is_array(xKJ[0]), 'invalid first value')
+    const J = xKJ[0].length
+    assert(
+      xKJ.every(xkJ => xkJ.length == J),
+      'non-rectangular transpose'
+    )
+    return array(J, j =>
+      zip_object(
+        nK,
+        nK.map(n => xNJ[n][j])
+      )
+    )
+  } else fatal('invalid argument')
+}
+
+function _test_transpose_objects() {
+  check(
+    () => throws(() => transpose_objects()),
+    () => throws(() => transpose_objects([0])),
+    () => throws(() => transpose_objects([{ a: 0 }, {}])),
+    () => throws(() => transpose_objects({ a: 0 })),
+    () => throws(() => transpose_objects({ a: [0], b: [] })),
+    () => [transpose_objects({}), []],
+    () => [transpose_objects({ a: [0], b: [0] }), [{ a: 0, b: 0 }]],
+    () => [
+      transpose_objects({ a: [0, 1], b: [0, 1] }),
+      [
+        { a: 0, b: 0 },
+        { a: 1, b: 1 },
+      ],
+    ],
+    () => [transpose_objects([]), {}],
+    () => [transpose_objects([{ a: 0, b: 0 }]), { a: [0], b: [0] }],
+    () => [
+      transpose_objects([
+        { a: 0, b: 0 },
+        { a: 1, b: 1 },
+      ]),
+      { a: [0, 1], b: [0, 1] },
+    ]
+  )
+}
+
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
 function stringify(value) {
   return JSON.stringify(value, function (k, v) {
