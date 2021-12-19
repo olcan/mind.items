@@ -83,7 +83,7 @@ function from(x, domain) {
 // | `prior`       | prior sampler `f => f(x,[log_pw=0])`
 // |               | `x~S(X), log_pw=log(∝p(x)/s(x))`
 // |               | _default_: `domain._prior`
-// | `posterior`   | posterior (chain) sampler `(f,x,σ) => f(y,[log_mw=0])`
+// | `posterior`   | posterior (chain) sampler `(f,x,…) => f(y,[log_mw=0])`
 // |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
 // |               | _default_: `domain._posterior`
 // | `target`      | target cdf, sample, or sampler domain for `tks` metric
@@ -104,8 +104,9 @@ function from(x, domain) {
 // |               | called _until false_ every update step `context.u = 0,1,…`
 // |               | `context.p` is proposed move count (current update step)
 // |               | `context.a` is accepted move count (current update step)
+// |               | `context.aK` is accepted move count per value
 // |               | `context.m` is total move count (all update steps)
-// |               | _default_: `({essu,J,a}) => essu<J/2 || a<J`
+// |               | _default_: `({essu,J,K,a,aK}) => essu<J/2 || a < J || min_in(aK)<J/K`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `weight_exp`  | weight exponent function `u => …` `∈[0,1]`
 // |               | multiplied into `log_w` and `log_wu(u)` (if defined)
@@ -114,6 +115,8 @@ function from(x, domain) {
 // |               | _default_: `u => min(1, (u+1)/3)`
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `min_updates` | minimum number of update steps, _default_: `0`
+// | `min_stable_updates` | minimum stable update steps, _default_: `3`
+// | `min_unweighted_updates` | minimum stable update steps, _default_: `5`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
@@ -222,10 +225,13 @@ class _Sampler {
         quantile_runs: 100,
         size: J,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-        move_while: ({ essu, J, a }) => essu < 0.75 * J || a < 5 * J, // TODO
+        move_while: ({ essu, J, K, a, aK }) =>
+          essu < 0.75 * J || a < J || min_in(aK) < J / K,
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
         min_updates: 0,
+        min_stable_updates: 3,
+        min_unweighted_updates: 5,
         max_time: 100,
         min_time: 0,
         min_ess: J / 2,
@@ -254,6 +260,8 @@ class _Sampler {
     this.b = 0 // moves buffered, also index into move buffers xBK,yBK
     this.xBK = array(this.B)
     this.yBK = array(this.B)
+    this.aK = array(K) // move accepts per value
+    this.pK = array(K) // move proposals per value
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
     this.log_wufJ = array(J) // posterior log-weight sequences
@@ -413,7 +421,7 @@ class _Sampler {
   }
 
   static stats_keys =
-    'ess essu essr elw wsum mar mlw mks tks gap p a m t'.split(/\W+/)
+    'ess essu essr elw wsum mar mark mlw mks tks gap p pk a m t'.split(/\W+/)
 
   _init_stats() {
     const options = this.options
@@ -462,7 +470,14 @@ class _Sampler {
     if (spec.elw) update.elw = round_to(this.elw, 2)
     if (spec.wsum) update.wsum = round_to(this.wsum, 1)
     if (spec.mar)
-      update.mar = this.u == 0 ? 100 : round(100 * (this.a / this.p))
+      update.mar = this.u == 0 ? 100 : round(100 * (this.a / this.p), 3, 3)
+    if (spec.mark)
+      update.mark = zip_object(
+        array(this.names),
+        this.u == 0
+          ? array(this.K, 100)
+          : round_to(scale(div(this.aK, this.pK), 100), 3, 3)
+      )
     if (spec.mlw) update.mlw = this.u == 0 ? 0 : round_to(this.mlw, 1)
     if (spec.mks) update.mks = this.u == 0 ? inf : round_to(this.mks, 1)
     if (spec.tks) update.tks = round_to(this.tks, 1)
@@ -472,6 +487,11 @@ class _Sampler {
           ? round_to(this.log_wuj_gap, 1)
           : round_to(this.log_wuj_gap_before_reweight, 1)
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
+    if (spec.pk)
+      update.pk = zip_object(
+        array(this.names),
+        this.u == 0 ? array(this.K, 0) : this.pK
+      )
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.m) update.m = this.m
     if (spec.t) update.t = this.t
@@ -586,11 +606,12 @@ class _Sampler {
     this.moving = false // back to using xJK
 
     // accept/reject proposed moves
-    this.move_proposals = 0
-    this.move_accepts = 0
+    let accepts = 0
     this.move_log_w = 0
     const w_exp = this.options.weight_exp(u)
     repeat(J, j => {
+      this.p++
+      this.pK[kJ[j]]++
       let log_cwuj = log_cwufJ[j] ? log_cwufJ[j](u) : w_exp * log_cwJ[j]
       log_cwuj = clip(log_cwuj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwuj - log_wuJ[j]
@@ -617,13 +638,14 @@ class _Sampler {
         // log_rwJ[j] += log_dwj
         jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
-        this.move_accepts++
+        this.aK[kJ[j]]++
+        this.a++
+        accepts++
       }
     })
-    this.move_proposals += J
 
     // reassign indices and reset state if any moves were accepted
-    if (this.move_accepts > 0) {
+    if (accepts > 0) {
       fill(jjJ, -1)
       let jj = 0 // new indices
       apply(jJ, j => (j >= J ? jj++ : jjJ[j] >= 0 ? jjJ[j] : (jjJ[j] = jj++)))
@@ -635,7 +657,7 @@ class _Sampler {
     if (stats) {
       stats.moves++
       stats.proposals += J
-      stats.accepts += this.move_accepts
+      stats.accepts += accepts
       stats.move_time += this.timer
     }
   }
@@ -648,6 +670,8 @@ class _Sampler {
       min_time,
       max_updates,
       min_updates,
+      min_stable_updates,
+      min_unweighted_updates,
       max_mks,
       max_tks,
       min_ess,
@@ -662,6 +686,9 @@ class _Sampler {
 
     // skip updates if target updates=0 or time=0
     if (updates == 0 || time == 0) return
+
+    let stable_updates = 0
+    let unweighted_updates = 0
 
     do {
       // save gap before reweight (recorded in stats for this step)
@@ -692,20 +719,26 @@ class _Sampler {
             break
           }
 
-          // check target ess/mks/tks/mlw and wuj_gap
+          // check gap=0 and target ess, mks, and
           if (
+            this.log_wuj_gap == 0 &&
             this.ess >= min_ess &&
-            this.mks <= max_mks &&
-            this.mlw <= 0 &&
-            this.log_wuj_gap == 0
+            this.mks <= max_mks
+          )
+            stable_updates++
+          else stable_updates = 0
+          if (this.log_wuj_gap == 0) unweighted_updates++
+          if (
+            stable_updates >= min_stable_updates &&
+            unweighted_updates >= min_unweighted_updates
           ) {
-            const { t, u, ess, mks, mlw } = this
-            const rt = round_to
+            const { t, u, ess, mks } = this
             if (this.options.log)
               print(
                 `reached target ess=${round(ess)}≥${min_ess}, ` +
-                  `mks=${rt(mks, 3)}≤${max_mks}, mlw=${rt(mlw, 3)}≤0, gap=0 ` +
-                  `@ u=${u}, t=${t}ms`
+                  `gap=0, mks=${round_to(mks, 3)}≤${max_mks} ` +
+                  `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
+                  `unweighted_updates=${unweighted_updates}`
               )
             break
           }
@@ -733,11 +766,11 @@ class _Sampler {
       // must be done after reweights (w/ same u) for accurate mlw
       this.p = 0 // proposed move count
       this.a = 0 // accepted move count
+      fill(this.pK, 0) // proposed move count by value
+      fill(this.aK, 0) // accepted move count by value
       this.mlw = 0 // log_w improvement
       while (move_while(this)) {
         this._move()
-        this.p += this.move_proposals
-        this.a += this.move_accepts
         this.mlw += this.move_log_w
       }
     } while (true)
@@ -818,7 +851,7 @@ class _Sampler {
           return
         }
         const f = options.mapper ?? (x => x)
-        values.push(updates.map(su => f(su[prop])))
+        values.push(updates.map(su => f(get(su, prop))))
         options.label ??= prop
         options.axis ??= 'y'
         if (options.formatter) formatters[prop] = options.formatter
@@ -827,21 +860,22 @@ class _Sampler {
         series.push(omit(options, ['mapper', 'formatter']))
       }
       // function for adding a "rescaled" line to y2 axis of plot
-      const add_rescaled_line = (n, range) => {
+      const add_rescaled_line = (n, range, d = 1, s = inf) => {
         if (quantiles && !quantiles.includes(prop)) {
           // push quantile series instead, rescaling across all quantiles
           const [a, b] = range ?? min_max_in(flat(updates.map(_.values)))
           each(quantiles, k => add_rescaled_line(k, [a, b]))
           return
         }
-        const [a, b] = range ?? min_max_in(updates.map(u => u[n]))
+        const [a, b] = range ?? min_max_in(map(updates, n))
+        const _n = n.replace(/\./g, '_') // periods don't work well w/ context
         add_line(n, {
           axis: 'y2',
-          mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), 1),
+          mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), d, s),
           formatter: eval(
-            `(x => round_to((x / 100) * (${n}_b - ${n}_a) + ${n}_a, 1))`
+            `(x => round_to((x / 100) * (${_n}_b - ${_n}_a) + ${_n}_a, ${d}, ${s}))`
           ),
-          formatter_context: { [`${n}_a`]: a, [`${n}_b`]: b },
+          formatter_context: { [`${_n}_a`]: a, [`${_n}_b`]: b },
         })
       }
 
@@ -868,18 +902,26 @@ class _Sampler {
       if (spec.essr) add_line('essr', { axis: 'y2', formatter: x => `${x}%` })
       if (spec.mar) add_line('mar', { axis: 'y2', formatter: x => `${x}%` })
 
+      if (spec.mark) {
+        for (let n of this.names)
+          add_line('mark.' + n, { axis: 'y2', formatter: x => `${x}%` })
+      }
+
       if (spec.wsum) add_rescaled_line('wsum')
       if (spec.elw) add_rescaled_line('elw')
       let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
       if (spec.mlw) {
         add_rescaled_line('mlw')
-        const [a, b] = min_max_in(updates.map(u => u.mlw))
+        const [a, b] = min_max_in(map(updates, 'mlw'))
         mlw_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
       }
       if (spec.p) add_rescaled_line('p')
       if (spec.a) add_rescaled_line('a')
       if (spec.m) add_rescaled_line('m')
       if (spec.t) add_rescaled_line('t')
+
+      if (spec.pk)
+        for (let n of this.names) add_rescaled_line('pk.' + n, null, 0)
 
       plot({
         name: 'updates',
@@ -1098,7 +1140,9 @@ class _Sampler {
       }
       if (w == 0) return inf // not enough samples/weight
       const m = s / w
-      return sqrt(ss / w - m * m)
+      const stdev = sqrt(ss / w - m * m)
+      if (stdev < 1e-6) return 0 // stdev too small, return 0 to be dealt with
+      return stdev
     })
   }
 
@@ -1272,7 +1316,7 @@ class _Sampler {
   _sample(k, domain, options) {
     const value = this.values[k]
     assert(domain, 'missing domain')
-    const { j, xJK, log_pwJ, yJK, log_mwJ, moving, kJ } = this
+    const { j, xJK, log_pwJ, yJK, log_mwJ, moving } = this
 
     // initialize on first call
     if (!value.sampler) {
@@ -1364,39 +1408,25 @@ class _Sampler {
       return prior((x, log_pw = 0) => ((log_pwJ[j] += log_pw), (xJK[j][k] = x)))
 
     // if moving, sample into yJK using xJK as start point
-    const yjk = (yJK[j][k] = xJK[j][k])
-    const move_k = kJ[j]
+    const xjk = xJK[j][k]
+    const move_k = this.kJ[j]
 
-    // if prior to move_k, stay at yjk = xjk
-    if (yJK[j][move_k] === undefined) {
-      assert(yjk, 'unexpected missing prior value')
-      return yjk
+    // if prior to move_k, stay at xjk
+    if (k != move_k && yJK[j][move_k] === undefined) {
+      assert(xjk !== undefined, 'unexpected missing prior value')
+      return (yJK[j][k] = xjk)
     }
 
-    // if at move_k, _move_ from yjk = xjk
-    if (k == move_k) {
-      const posterior = options?.posterior ?? domain._posterior
-      assert(posterior, 'missing posterior (chain) sampler')
-      return posterior(
-        (y, log_mw = 0) => ((log_mwJ[j] += log_mw), (yJK[j][k] = y)),
-        yjk, // = xjk
-        this.stdevK[k]
-      )
-    }
-
-    // if past move_k, resample from prior into yJK
-    // TODO: should log_pwJ affect log_mwJ somehow?
-    return prior(y => (yJK[j][k] = y))
-
-    // TODO: does this make sense to move on subsequent steps also?
-    // prior(y => (yJK[j][k] = y))
-    // const posterior = options?.posterior ?? domain._posterior
-    // assert(posterior, 'missing posterior (chain) sampler')
-    // return posterior(
-    //   (y, log_mw = 0) => ((log_mwJ[j] += log_mw), (yJK[j][k] = y)),
-    //   yJK[j][k],
-    //   this.stdevK[k]
-    // )
+    // if at or past move_k, _move_ from xjk
+    // for k != move_k, xjk can be missing (undefined) or outside support
+    const posterior = options?.posterior ?? domain._posterior
+    assert(posterior, 'missing posterior (chain) sampler')
+    return posterior(
+      (y, log_mw = 0) => ((log_mwJ[j] += log_mw), (yJK[j][k] = y)),
+      xjk, // can be missing (undefined) or outside support
+      k == move_k, // pivot?
+      this.stdevK[k]
+    )
   }
 
   _condition(c, log_wu) {
@@ -1425,7 +1455,7 @@ function uniform(a, b) {
   return {
     gte: a,
     lt: b,
-    _prior: f => f(a + random() * (b - a)),
+    _prior: f => f(a + (b - a) * random()),
     //
     // TODO: key to better convergence turns out to be for move_while to
     //       ensure sufficient accepts, e.g. up to 5J accepts... is that
@@ -1453,15 +1483,35 @@ function uniform(a, b) {
     //       proposals -> accepts -> moves, which is why presumably why
     //       increasing that helps so much
     //
-    // TODO: if all other examples are fine (w.r.t. tks), we could move on for now
+    // TODO: if all other examples are fine (esp w.r.t. tks), we could move on
+    //       for now ... maybe an option for min_unweighted_updates (zero gap) or min_convergent_updates (target achieved) could make sense in general and especially for examples like this one; remember you had max_mks_steps for a similar reason
     //
     // _posterior: f => f(a + random() * (b - a)),
-    _posterior: (f, x, σ) => {
-      const p_global = 0.25
+    _posterior: (f, x, pivot, stdev) => {
       let u = random()
-      if (u < p_global) return f(a + (u / p_global) * (b - a))
-      u = (u - p_global) / (1 - p_global) // rescale to [0,1)
-      const r = σ * random_discrete_uniform(1, 5)
+      // x can be missing or outside support (when past pivot)
+      if (x === undefined) return f(a + (b - a) * u)
+      if (x < a || x >= b) return f(a + (b - a) * u)
+      // if (x < a || x >= b) return f((a + b) / 2, -inf) // reject
+      // if (x < a || x >= b) x = (a + b) / 2 // reset to middle
+      // if (x < a || x >= b) x = max(a, min(b, x)) // reset to bounds
+      if (stdev == 0) return f(a + (b - a) * u)
+      assert(stdev < inf)
+      if (random_boolean(0.5)) return f(a + (b - a) * u)
+
+      // TODO: why is "local" movement helping a lot at pivot but breaking past?
+      //       especially since we mix in global movements too?
+      //       are the transition probabilities only valid at pivot?
+      //       it is NOT about additional move steps (tested until 1000)
+      //       it is NOT about handling of out-of-bounds (see above)
+      //
+      //       local movement past pivot REALLY helps mar and t (given move_while)
+      //       but it definitely breaks convergence, even after 1000 steps
+      //       if probabilities need adjustment, how?
+      //
+      if (!pivot) return f(a + (b - a) * u)
+
+      const r = stdev
       const xa = max(x - r, a)
       const xb = min(x + r, b)
       const y = xa + (xb - xa) * u
