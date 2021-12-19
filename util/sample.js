@@ -222,7 +222,7 @@ class _Sampler {
         quantile_runs: 100,
         size: J,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-        move_while: ({ essu, J, a }) => essu < J / 2 || a < J,
+        move_while: ({ essu, J, a }) => essu < 0.75 * J || a < 5 * J, // TODO
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
         min_updates: 0,
@@ -608,7 +608,7 @@ class _Sampler {
         // update state to reflect move
         xJ[j] = yJ[j]
         xJK[j] = yJK[j] // can't copy since rows can share arrays
-        yJK[j] = array(this.K) // replace array since moved into xJK
+        yJK[j] = array(K) // replace array since moved into xJK
         log_wJ[j] = log_cwJ[j]
         log_wufJ[j] = log_cwufJ[j]
         log_wuJ[j] = log_cwuj
@@ -1385,8 +1385,18 @@ class _Sampler {
     }
 
     // if past move_k, resample from prior into yJK
-    // TODO: should this affect log_mwJ or log_pwJ
+    // TODO: should log_pwJ affect log_mwJ somehow?
     return prior(y => (yJK[j][k] = y))
+
+    // TODO: does this make sense to move on subsequent steps also?
+    // prior(y => (yJK[j][k] = y))
+    // const posterior = options?.posterior ?? domain._posterior
+    // assert(posterior, 'missing posterior (chain) sampler')
+    // return posterior(
+    //   (y, log_mw = 0) => ((log_mwJ[j] += log_mw), (yJK[j][k] = y)),
+    //   yJK[j][k],
+    //   this.stdevK[k]
+    // )
   }
 
   _condition(c, log_wu) {
@@ -1416,24 +1426,49 @@ function uniform(a, b) {
     gte: a,
     lt: b,
     _prior: f => f(a + random() * (b - a)),
-    // TODO: why is it so hard to get tks down? is the target incorrect, or
-    //       something is wrong w/ the posterior sampling?
-    _posterior: f => f(a + random() * (b - a)),
-    // _posterior: (f, x, σ) => {
-    //   // assert(x >= a && x < b, 'invalid x for _posterior', x, a, b)
-    //   const p_global = 0.25
-    //   let u = random()
-    //   if (u < p_global) return f(a + (u / p_global) * (b - a))
-    //   u = (u - p_global) / (1 - p_global) // rescale to [0,1)
-    //   const r = σ
-    //   // const r = (b - a) * 0.001
-    //   const xa = max(x - r, a)
-    //   const xb = min(x + r, b)
-    //   const y = xa + (xb - xa) * u
-    //   const ya = max(y - r, a)
-    //   const yb = min(y + r, b)
-    //   return f(y, log(xb - xa) - log(yb - ya))
-    // },
+    //
+    // TODO: key to better convergence turns out to be for move_while to
+    //       ensure sufficient accepts, e.g. up to 5J accepts... is that
+    //       because information is lost (and convergence becomes impossible)
+    //       when you adjust weights too quickly, or just that it becomes
+    //       harder and harder to move?
+    //
+    // TODO: one reason it could become harder to move is that stdev is
+    //       weighted, so sigma could be getting too small due to high
+    //       weight points and small weight points could have trouble
+    //       moving to high weight region, but it is not clear that the
+    //       weights are ever skewed when you enter move step
+    //
+    // TODO: global moves seem more robust for decreasing tks quickly in iters
+    //       but not always in time since acceptance rate falls -- what we want
+    //       is larger moves accepted at a higher rate, so one way to do this
+    //       may be to adapt using relevant statistics, e.g. to maximize
+    //       "movement rate"
+    //
+    // TODO: a main problem here may well be that log_wuJ is
+    //       not providing any information inside the accept region, e.g. to
+    //       concentrate points around .5, which happens naturally once
+    //       likelihood is used; once wsum hits 1000, basically all points
+    //       are in the accept region, so the only information is coming from
+    //       proposals -> accepts -> moves, which is why presumably why
+    //       increasing that helps so much
+    //
+    // TODO: if all other examples are fine (w.r.t. tks), we could move on for now
+    //
+    // _posterior: f => f(a + random() * (b - a)),
+    _posterior: (f, x, σ) => {
+      const p_global = 0.25
+      let u = random()
+      if (u < p_global) return f(a + (u / p_global) * (b - a))
+      u = (u - p_global) / (1 - p_global) // rescale to [0,1)
+      const r = σ * random_discrete_uniform(1, 5)
+      const xa = max(x - r, a)
+      const xb = min(x + r, b)
+      const y = xa + (xb - xa) * u
+      const ya = max(y - r, a)
+      const yb = min(y + r, b)
+      return f(y, log(xb - xa) - log(yb - ya))
+    },
   }
 }
 
