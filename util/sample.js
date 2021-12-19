@@ -83,7 +83,7 @@ function from(x, domain) {
 // | `prior`       | prior sampler `f => f(x,[log_pw=0])`
 // |               | `x~S(X), log_pw=log(∝p(x)/s(x))`
 // |               | _default_: `domain._prior`
-// | `posterior`   | posterior (chain) sampler `(f,x) => f(y,[log_mw=0])`
+// | `posterior`   | posterior (chain) sampler `(f,x,σ) => f(y,[log_mw=0])`
 // |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
 // |               | _default_: `domain._posterior`
 // | `target`      | target cdf, sample, or sampler domain for `tks` metric
@@ -119,9 +119,9 @@ function from(x, domain) {
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
-// |               | _default_: `3` ≡ failure to reject same-dist at `ɑ<1/8`
+// |               | _default_: `1` ≡ failure to reject same-dist at `ɑ<1/2`
 // | `mks_buffer`  | move buffer size `B` for `mks`, _default_: `1000`
-// | `mks_period`  | move buffer period for `mks`, _default_: `ceil(3*J/M)`
+// | `mks_period`  | move buffer period for `mks`, _default_: `ceil(3*J*K/B)`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `time`        | target time (ms) for sampling, _default_: auto
@@ -198,8 +198,15 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
 
 class _Sampler {
   constructor(func, options) {
+    this.options = options
     this.domain = func // save sampler function as domain
     this.start_time = Date.now()
+
+    // parse sampled values and determine K
+    assign(this, this._parse_func(func))
+    const K = (this.K = this.values.length)
+    if (options.log) print(`parsed ${K} sampled values in ${this.func}`)
+
     // merge in default options
     const J = (this.J = options?.size ?? 1000)
     assert(J > 0, `invalid sample size ${J}`)
@@ -222,13 +229,14 @@ class _Sampler {
         max_time: 100,
         min_time: 0,
         min_ess: J / 2,
-        max_mks: 3,
+        max_mks: 1,
         mks_buffer: B,
-        mks_period: ceil((3 * J) / B),
+        mks_period: ceil((3 * J * K) / B),
         max_tks: 5,
       },
       options
     )
+
     // set up default prior/posterior sampler functions
     // note posterior here refers to posterior in parent context
     // for posterior, we need to consider weights for log(∝q(x|y)/q(y|x))
@@ -236,16 +244,11 @@ class _Sampler {
     const sampler = f => f(this.sample())
     this._prior = this._posterior = sampler
 
-    assign(this, this._parse_func(func))
-    this.K = this.values.length
-    if (options.log) print(`parsed ${this.K} sampled values in ${this.func}`)
-
     // initialize run state
-    this.xJK = matrix(J, this.K) // samples per run/value
-    this.xJk = array(J) // tmp array for sampling columns of xJK
-    this.pxJK = matrix(J, this.K) // prior samples per run/value
-    this.yJK = matrix(J, this.K) // posterior (chain) samples per run/value
-    this.yJk = array(J) // tmp array for sampling columns of yJK
+    this.xJK = matrix(J, K) // samples per run/value
+    this.pxJK = matrix(J, K) // prior samples per run/value
+    this.yJK = matrix(J, K) // posterior (chain) samples per run/value
+    this.kJ = array(J) // array of target values to be moved in _move
     this.m = 0 // move count
     this.mb = 0 // moves since last buffered move (i.e. unbuffered moves)
     this.b = 0 // moves buffered, also index into move buffers xBK,yBK
@@ -287,27 +290,34 @@ class _Sampler {
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
     cache(this, 'wsum', [], () => sum(this.log_wJ, exp))
+    cache(this, 'wusum', [], () => sum(this.log_wuJ, exp))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
     cache(this, 'tks', ['rwJ'])
+    cache(this, 'stdevK', ['rwJ'])
     cache(this, 'mks', [])
 
     // initialize stats
     this._init_stats()
 
     // sample prior (along w/ u=0 posterior)
-    this._start_timer()
+    let ts = Date.now()
     this._sample_prior()
+    // require wsum>0 for ess to be meaningful
+    assert(this.wusum > 0, 'prior sampling failed w/ wusum==0')
     if (options.log) {
-      print(`sampled ${J} prior runs (ess ${this.pwj_ess}) in ${this.timer}ms`)
+      print(
+        `sampled ${J} prior runs (ess ${this.pwj_ess}, ` +
+          `wsum ${this.wsum}) in ${Date.now() - ts}ms`
+      )
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
     // update sample to posterior
-    this._start_timer()
+    ts = Date.now()
     this._update()
     if (options.log) {
-      print(`applied ${this.u} updates in ${this.timer}ms`)
+      print(`applied ${this.u} updates in ${Date.now() - ts}ms`)
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
       if (this.stats) print(str(omit(this.stats, 'updates')))
     }
@@ -394,8 +404,11 @@ class _Sampler {
     const __sampler = this // since 'this' is overloaded in function(){...}
     // this.func = eval('(' + this.js + ')')
     const params = this.options.params
-    const wrapper = `(function({${keys(params)}}) { return ${this.js} })`
-    func = eval(wrapper)(params)
+    if (!params) func = eval('(' + this.js + ')')
+    else {
+      const wrapper = `(function({${_.keys(params)}}) { return ${this.js} })`
+      func = eval(wrapper)(params)
+    }
     return { func, values, names }
   }
 
@@ -460,8 +473,8 @@ class _Sampler {
           : round_to(this.log_wuj_gap_before_reweight, 1)
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
-    if (spec.m) update.m = this.u == 0 ? 0 : this.m - last(stats.updates).m
-    if (spec.t) update.t = this.u == 0 ? this.t : this.t - last(stats.updates).t
+    if (spec.m) update.m = this.m
+    if (spec.t) update.t = this.t
 
     if (this.u == 0) stats.updates = [update]
     else stats.updates.push(update)
@@ -505,7 +518,7 @@ class _Sampler {
   _reweight() {
     if (this.log_wuj_gap == 0) return // no longer needed
     this._start_timer()
-    const { u, log_wJ } = this
+    const { u } = this
     // print(`reweighting ${u}->${u + 1}, gap ${this.log_wuj_gap}`)
     this._swap('log_wuJ') // store weights for last step (u) in _log_wuJ
     this._fill_log_wuj(this.log_wuJ, u + 1) // compute weights for u+1
@@ -555,12 +568,13 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     this._start_timer()
-    const { J, u, func, yJ, yJK, xJ, xJK, jJ, jjJ, log_mwJ } = this
+    const { J, K, u, func, yJ, yJK, kJ, xJ, xJK, jJ, jjJ, log_mwJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
     fill(log_cwufJ, undefined) // reset posterior candidate future log-weights
     each(yJK, yjK => fill(yjK, undefined))
+    random_discrete_uniform_array(kJ, K) // random values to be moved
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wJ = log_wJ // to be restored below
     const tmp_log_wufJ = log_wufJ // to be restored below
@@ -678,14 +692,19 @@ class _Sampler {
             break
           }
 
-          // check target ess/mks/tks/mlw if min_time/updates satisfied
-          if (this.ess >= min_ess && this.mks <= max_mks && this.mlw <= 0) {
+          // check target ess/mks/tks/mlw and wuj_gap
+          if (
+            this.ess >= min_ess &&
+            this.mks <= max_mks &&
+            this.mlw <= 0 &&
+            this.log_wuj_gap == 0
+          ) {
             const { t, u, ess, mks, mlw } = this
             const rt = round_to
             if (this.options.log)
               print(
                 `reached target ess=${round(ess)}≥${min_ess}, ` +
-                  `mks=${rt(mks, 3)}≤${max_mks}, mlw=${rt(mlw, 3)}≤0 ` +
+                  `mks=${rt(mks, 3)}≤${max_mks}, mlw=${rt(mlw, 3)}≤0, gap=0 ` +
                   `@ u=${u}, t=${t}ms`
               )
             break
@@ -699,9 +718,6 @@ class _Sampler {
               if (t > max_time)
                 warn(`ran out of time t=${t}>${max_time}ms (u=${u})`)
               else warn(`ran out of updates u=${u}>${max_updates} (t=${t}ms)`)
-              // warn about pre-posterior sample w/ log_wuj_gap>0
-              if (log_wuj_gap > 0)
-                warn(`pre-posterior sample w/ log_wuj_gap=${log_wuj_gap}>0`)
             }
             break
           }
@@ -726,9 +742,16 @@ class _Sampler {
       }
     } while (true)
 
-    // check target tks if warnings enabled
-    if (this.options.warn && this.tks > max_tks)
-      warn(`failed to achieve target tks=${this.tks}≤${max_tks}`)
+    // check wuj gap and target tks if warnings enabled
+    if (this.options.warn) {
+      // warn about pre-posterior sample w/ log_wuj_gap>0
+      if (this.log_wuj_gap > 0)
+        warn(`pre-posterior sample w/ log_wuj_gap=${this.log_wuj_gap}>0`)
+      if (this.tks > max_tks) {
+        warn(`failed to achieve target tks=${this.tks}≤${max_tks}`)
+        print(str(zip_object(array(this.names), round_to(this.___tks_pK, 3))))
+      }
+    }
   }
 
   _quantiles() {
@@ -825,7 +848,8 @@ class _Sampler {
       if (spec.mks)
         add_line('mks', {
           formatter: x =>
-            2 ** x < 1000 ? round_to(2 ** x, 2) : '>10^' + ~~log10(2 ** x),
+            (2 ** x < 1000 ? round_to(2 ** x, 2) : '>10^' + ~~log10(2 ** x)) +
+            ` (${x})`,
         })
       if (spec.tks) add_line('tks')
       if (spec.gap) add_line('gap')
@@ -1053,6 +1077,31 @@ class _Sampler {
     return rwX
   }
 
+  __stdevK() {
+    const { J, K, xJK, rwJ } = this
+    const stdevK = (this.___stdevK ??= array(K))
+    return fill(stdevK, k => {
+      const value = this.values[k]
+      if (!value.sampler) return 1 // value not sampled
+      let w = 0
+      let s = 0
+      let ss = 0
+      for (let j = 0; j < J; ++j) {
+        const wj = rwJ[j]
+        if (wj == 0) continue // skip run
+        const xjk = xJK[j][k]
+        if (xjk === undefined) continue // skip run
+        if (w == 0 && typeof xjk != 'number') return inf // skip value
+        w += wj
+        s += wj * xjk
+        ss += wj * xjk * xjk
+      }
+      if (w == 0) return inf // not enough samples/weight
+      const m = s / w
+      return sqrt(ss / w - m * m)
+    })
+  }
+
   get ess() {
     return this.rwj_ess
   }
@@ -1071,7 +1120,7 @@ class _Sampler {
   __tks() {
     this._start_timer()
     const { J, K, xJK, rwJ, rwj_uniform, values, stats } = this
-    const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
+    const pK = (this.___tks_pK ??= array(K)) // array of ks-test p-values
     // compute ks1_test or ks2_test for each (numeric) value w/ target
     fill(pK, k => {
       const value = values[k]
@@ -1189,7 +1238,7 @@ class _Sampler {
         return xJK[j]
       case 'object':
       default:
-        return set(zip_object(values(this.names), xJK[j]), '_index', j)
+        return set(zip_object(array(this.names), xJK[j]), '_index', j)
     }
   }
 
@@ -1223,7 +1272,7 @@ class _Sampler {
   _sample(k, domain, options) {
     const value = this.values[k]
     assert(domain, 'missing domain')
-    const { j, xJK, log_pwJ, yJK, log_mwJ } = this
+    const { j, xJK, log_pwJ, yJK, log_mwJ, moving, kJ } = this
 
     // initialize on first call
     if (!value.sampler) {
@@ -1259,12 +1308,13 @@ class _Sampler {
           const xT = array(T)
           let log_wT // weight array allocated below if needed
           const prior = value.target._prior
-          repeat(T, t =>
+          fill(xT, t =>
             prior((x, log_pw = 0) => {
-              xT[t] = x
-              if (!log_pw) return
-              log_wT ??= array(T, 0)
-              log_wT[t] += log_pw
+              if (log_pw) {
+                log_wT ??= array(T, 0)
+                log_wT[t] += log_pw
+              }
+              return x
             })
           )
           value.target = xT
@@ -1306,34 +1356,37 @@ class _Sampler {
       )
     }
 
-    // sample from prior into xJK (if not yet sampled)
-    const xjK = xJK[j]
-    let xjk = xjK[k]
-    if (xjk === undefined) {
-      const prior = options?.prior ?? domain._prior
-      assert(prior, 'missing prior sampler')
-      prior((x, log_pw = 0) => {
-        xjk = xjK[k] = x
-        log_pwJ[j] += log_pw
-      })
-    }
+    const prior = options?.prior ?? domain._prior
+    assert(prior, 'missing prior sampler')
 
-    // if moving, sample from posterior chain into yJK
-    if (this.moving) {
-      const yjK = yJK[j]
-      let yjk = yjK[k]
-      if (yjk === undefined) {
-        const posterior = options?.posterior ?? domain._posterior
-        assert(posterior, 'missing posterior (chain) sampler')
-        posterior((y, log_mw = 0) => {
-          yjk = yjK[k] = y
-          log_mwJ[j] += log_mw
-        }, xjk)
-      }
+    // if not moving, just sample from prior into xJK and log_pwJ
+    if (!moving)
+      return prior((x, log_pw = 0) => ((log_pwJ[j] += log_pw), (xJK[j][k] = x)))
+
+    // if moving, sample into yJK using xJK as start point
+    const yjk = (yJK[j][k] = xJK[j][k])
+    const move_k = kJ[j]
+
+    // if prior to move_k, stay at yjk = xjk
+    if (yJK[j][move_k] === undefined) {
+      assert(yjk, 'unexpected missing prior value')
       return yjk
     }
 
-    return xjk
+    // if at move_k, _move_ from yjk = xjk
+    if (k == move_k) {
+      const posterior = options?.posterior ?? domain._posterior
+      assert(posterior, 'missing posterior (chain) sampler')
+      return posterior(
+        (y, log_mw = 0) => ((log_mwJ[j] += log_mw), (yJK[j][k] = y)),
+        yjk, // = xjk
+        this.stdevK[k]
+      )
+    }
+
+    // if past move_k, resample from prior into yJK
+    // TODO: should this affect log_mwJ or log_pwJ
+    return prior(y => (yJK[j][k] = y))
   }
 
   _condition(c, log_wu) {
@@ -1358,9 +1411,30 @@ class _Sampler {
 function uniform(a, b) {
   if (a === undefined) return uniform(0, 1)
   if (b === undefined) return uniform(0, a)
-  assert(is_number(a) && is_number(b) && a < b, 'invalid args')
-  const sampler = f => f(a + random() * (b - a))
-  return { gte: a, lt: b, _prior: sampler, _posterior: sampler }
+  assert(is_number(a) && is_number(b) && a < b, 'invalid args', a, b)
+  return {
+    gte: a,
+    lt: b,
+    _prior: f => f(a + random() * (b - a)),
+    // TODO: why is it so hard to get tks down? is the target incorrect, or
+    //       something is wrong w/ the posterior sampling?
+    _posterior: f => f(a + random() * (b - a)),
+    // _posterior: (f, x, σ) => {
+    //   // assert(x >= a && x < b, 'invalid x for _posterior', x, a, b)
+    //   const p_global = 0.25
+    //   let u = random()
+    //   if (u < p_global) return f(a + (u / p_global) * (b - a))
+    //   u = (u - p_global) / (1 - p_global) // rescale to [0,1)
+    //   const r = σ
+    //   // const r = (b - a) * 0.001
+    //   const xa = max(x - r, a)
+    //   const xb = min(x + r, b)
+    //   const y = xa + (xb - xa) * u
+    //   const ya = max(y - r, a)
+    //   const yb = min(y + r, b)
+    //   return f(y, log(xb - xa) - log(yb - ya))
+    // },
+  }
 }
 
 function _benchmark_uniform() {

@@ -47,10 +47,10 @@ const random_discrete_uniform_array = (xJ, a, b) => {
   if (b === undefined)
     return is_integer(a) && a > 0
       ? random_array(xJ, () => ~~(random() * a))
-      : random_array(xJ, NaN)
+      : array(xJ, NaN)
   return is_integer(a) && is_integer(b) && b >= a
     ? random_array(xJ, () => ~~(a + random() * (b + 1 - a)))
-    : random_array(xJ, NaN)
+    : array(xJ, NaN)
 }
 
 // random_discrete(wJ, [sum_wj])
@@ -121,6 +121,7 @@ const random_triangular = (a, b, c) => {
 // sample array of `J` values from `sampler`
 // can skip values `x` s.t. `!filter(x)`, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
 function random_array(a, sampler = random, filter) {
+  assert(is_function(sampler), `non-function sampler`)
   const [J, xJ] = is_array(a)
     ? [a.length, a]
     : [~~a, new Array(Math.max(0, ~~a))]
