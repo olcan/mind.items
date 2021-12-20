@@ -202,6 +202,24 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   return wJ.every(w => w >= w_min && w <= w_max)
 }
 
+class _Timer {
+  constructor() {
+    this.start = Date.now()
+  }
+  toString() {
+    return Date.now() - this.start + 'ms'
+  }
+  get t() {
+    Date.now() - start
+  }
+}
+function _timer() {
+  return new _Timer()
+}
+function _timer_if(c) {
+  return c ? _timer() : undefined
+}
+
 class _Sampler {
   constructor(func, options) {
     this.options = options
@@ -314,23 +332,23 @@ class _Sampler {
     this._init_stats()
 
     // sample prior (along w/ u=0 posterior)
-    let ts = Date.now()
+    let timer = _timer_if(options.log)
     this._sample_prior()
     // require wsum>0 for ess to be meaningful
     assert(this.wusum > 0, 'prior sampling failed w/ wusum==0')
     if (options.log) {
       print(
         `sampled ${J} prior runs (ess ${this.pwj_ess}, ` +
-          `wsum ${this.wsum}) in ${Date.now() - ts}ms`
+          `wsum ${this.wsum}) in ${timer}`
       )
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
     // update sample to posterior
-    ts = Date.now()
+    timer = _timer_if(options.log)
     this._update()
     if (options.log) {
-      print(`applied ${this.u} updates in ${Date.now() - ts}ms`)
+      print(`applied ${this.u} updates in ${timer}`)
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
       if (this.stats) print(str(omit(this.stats, 'updates')))
     }
@@ -532,7 +550,7 @@ class _Sampler {
   }
 
   _sample_prior() {
-    this._start_timer()
+    const timer = _timer_if(this.stats)
     const { func, xJ, pxJ, pxJK, xJK, jJ } = this
     const { log_pwJ, log_wJ, log_wufJ, log_wuJ, log_rwJ, stats } = this
     this.u = 0 // prior is zero'th update step
@@ -547,7 +565,7 @@ class _Sampler {
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
     copy(pxJ, xJ)
-    if (stats) stats.sample_time += this.timer
+    if (stats) stats.sample_time += timer.t
   }
 
   // reweight for next step (u+1)
@@ -555,7 +573,7 @@ class _Sampler {
   // stop once wJ@u -> ~wJ; difference is called "gap" (max norm)
   _reweight() {
     if (this.log_wuj_gap == 0) return // no longer needed
-    this._start_timer()
+    const timer = _timer_if(this.stats)
     const { u } = this
     // print(`reweighting ${u}->${u + 1}, gap ${this.log_wuj_gap}`)
     this._swap('log_wuJ') // store weights for last step (u) in _log_wuJ
@@ -565,7 +583,7 @@ class _Sampler {
     this.rwJ = null // reset cached posterior ratio weights and dependents
     if (stats) {
       stats.reweights++
-      stats.reweight_time += this.timer
+      stats.reweight_time += timer.t
     }
   }
 
@@ -577,7 +595,7 @@ class _Sampler {
   // resample step
   // resample based on rwJ, reset rwJ=1
   _resample() {
-    this._start_timer()
+    const timer = _timer_if(this.stats)
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ, _log_wufJ, log_wufJ } = this
     const { _log_wuJ, log_wuJ } = this
@@ -598,14 +616,14 @@ class _Sampler {
     this.wsum = null // since log_wJ changed
     if (stats) {
       stats.resamples++
-      stats.resample_time += this.timer
+      stats.resample_time += timer.t
     }
   }
 
   // move step
   // take metropolis-hastings steps along posterior chain
   _move() {
-    this._start_timer()
+    const timer = _timer_if(this.stats)
     const { J, K, wK, u, func, yJ, yJK, kJ, xJ, xJK, jJ, jjJ, log_mwJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
@@ -676,7 +694,7 @@ class _Sampler {
       stats.moves++
       stats.proposals += J
       stats.accepts += accepts
-      stats.move_time += this.timer
+      stats.move_time += timer.t
     }
   }
 
@@ -1086,14 +1104,6 @@ class _Sampler {
     return Date.now() - this.start_time
   }
 
-  _start_timer() {
-    this.timer_start = Date.now()
-  }
-
-  get timer() {
-    return Date.now() - this.timer_start
-  }
-
   __pwJ() {
     const { J, log_pwJ } = this
     const max_log_pwj = max_in(log_pwJ)
@@ -1187,7 +1197,7 @@ class _Sampler {
   }
 
   __tks() {
-    this._start_timer()
+    const timer = _timer_if(this.stats)
     const { J, K, xJK, rwJ, rwj_uniform, values, stats } = this
     const pK = (this.___tks_pK ??= array(K)) // array of ks-test p-values
     // compute ks1_test or ks2_test for each (numeric) value w/ target
@@ -1221,13 +1231,13 @@ class _Sampler {
         wk_sum: value.target_weight_sum,
       })
     })
-    if (stats) stats.tks_time += this.timer
+    if (stats) stats.tks_time += timer.t
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
     return -log2(beta_cdf(min_in(pK), 1, K))
   }
 
   __mks() {
-    this._start_timer()
+    const timer = _timer_if(this.stats)
     const { b, B, K, stats } = this
     if (b < B) return inf // not enough data yet
     // rotate buffer so b=0 and we can split in half at B/2
@@ -1268,7 +1278,7 @@ class _Sampler {
       yR.length = ry
       return ks2_test(xR, yR)
     })
-    if (stats) stats.mks_time += this.timer
+    if (stats) stats.mks_time += timer.t
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
     return -log2(beta_cdf(min_in(pK), 1, K))
   }
@@ -1374,7 +1384,7 @@ class _Sampler {
       // process target if specified
       const target = options?.target ?? this.options.targets?.[name]
       if (target) {
-        this._start_timer()
+        const timer = _timer_if(this.options.log)
         value.target = target
         // sample from sampler domain (_prior)
         if (value.target?._prior) {
@@ -1396,8 +1406,7 @@ class _Sampler {
             value.target_weights = apply(log_wT, exp)
             value.target_weight_sum = sum(value.target_weights)
           }
-          if (this.options.log)
-            print(`sampled ${T} target values in ${this.timer}ms`)
+          if (this.options.log) print(`sampled ${T} target values in ${timer}`)
         } else {
           if (!is_function(value.target) && !is_array(value.target))
             fatal(`invalid target @ ${line}`)
