@@ -104,10 +104,13 @@ function from(x, domain) {
 // |               | called _until false_ every update step `context.u = 0,1,…`
 // |               | `context.p` is proposed move count (current update step)
 // |               | `context.a` is accepted move count (current update step)
-// |               | `context.aK` is accepted move count per value
+// |               | `context.aK` is accepted move count per value (K values)
 // |               | `context.m` is total move count (all update steps)
 // |               | _default_: `({essu,J,K,a,aK}) => essu<.9*J || a < J || min_in(aK)<J/K`
-// |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
+// |               | default allows `essu→J` w/ up to `J/10` slow-moving samples
+// | `move_weights`| move weight function `(context, wK) => …`
+// |               | _default_: `({aK},wK) => fill(wK,k=>max(0,J/K-aK[k]))`
+// |               | default concentrates on deficiencies w.r.t. `move_while`
 // | `weight_exp`  | weight exponent function `u => …` `∈[0,1]`
 // |               | multiplied into `log_w` and `log_wu(u)` (if defined)
 // |               | triggers warning if sampling is stopped at `weight_exp<1`
@@ -227,6 +230,7 @@ class _Sampler {
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, K, a, aK }) =>
           essu < 0.9 * J || a < J || min_in(aK) < J / K,
+        move_weights: ({ aK }, wK) => fill(wK, k => max(0, J / K - aK[k])),
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
         min_updates: 0,
@@ -254,7 +258,8 @@ class _Sampler {
     this.xJK = matrix(J, K) // samples per run/value
     this.pxJK = matrix(J, K) // prior samples per run/value
     this.yJK = matrix(J, K) // posterior (chain) samples per run/value
-    this.kJ = array(J) // array of target values to be moved in _move
+    this.kJ = array(J) // array of pivot values to be moved in _move
+    this.wK = array(K) // array of move weights by pivot value
     this.m = 0 // move count
     this.mb = 0 // moves since last buffered move (i.e. unbuffered moves)
     this.b = 0 // moves buffered, also index into move buffers xBK,yBK
@@ -588,13 +593,13 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     this._start_timer()
-    const { J, K, u, func, yJ, yJK, kJ, xJ, xJK, jJ, jjJ, log_mwJ } = this
+    const { J, K, wK, u, func, yJ, yJK, kJ, xJ, xJK, jJ, jjJ, log_mwJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
     fill(log_cwufJ, undefined) // reset posterior candidate future log-weights
     each(yJK, yjK => fill(yjK, undefined))
-    random_discrete_uniform_array(kJ, K) // random values to be moved
+    random_discrete_array(kJ, wK) // random "pivot" values
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wJ = log_wJ // to be restored below
     const tmp_log_wufJ = log_wufJ // to be restored below
@@ -677,6 +682,7 @@ class _Sampler {
       min_ess,
       resample_if,
       move_while,
+      move_weights,
     } = this.options
 
     assert(this.u == 0, '_update requires u=0')
@@ -770,6 +776,7 @@ class _Sampler {
       fill(this.aK, 0) // accepted move count by value
       this.mlw = 0 // log_w improvement
       while (move_while(this)) {
+        move_weights(this, this.wK)
         this._move()
         this.mlw += this.move_log_w
       }
@@ -1409,22 +1416,28 @@ class _Sampler {
 
     // if moving, sample into yJK using xJK as start point
     const xjk = xJK[j][k]
-    const move_k = this.kJ[j]
+    const k_pivot = this.kJ[j]
 
-    // if prior to move_k, stay at xjk
-    if (k != move_k && yJK[j][move_k] === undefined) {
+    // if prior to k_pivot, stay at xjk
+    if (k != k_pivot && yJK[j][k_pivot] === undefined) {
       assert(xjk !== undefined, 'unexpected missing prior value')
       return (yJK[j][k] = xjk)
     }
 
-    // if at or past move_k, _move_ from xjk
-    // for k != move_k, xjk can be missing (undefined) or outside support
+    // if past pivot, ignore xjk and resample from prior
+    // note xjk can be missing (undefined) or outside support
+    // in experiments, local movements did NOT work for past-pivot points
+    //   likely due to incorrect transition probabilities
+    //   was not about handling of out-of-support points
+    //   was not about additional move steps
+    if (k != k_pivot) return prior(y => (yJK[j][k] = y))
+
+    // if at k_pivot, _move_ from xjk
     const posterior = options?.posterior ?? domain._posterior
     assert(posterior, 'missing posterior (chain) sampler')
     return posterior(
       (y, log_mw = 0) => ((log_mwJ[j] += log_mw), (yJK[j][k] = y)),
-      xjk, // can be missing (undefined) or outside support
-      k == move_k, // pivot?
+      xjk,
       this.stdevK[k]
     )
   }
@@ -1456,30 +1469,14 @@ function uniform(a, b) {
     gte: a,
     lt: b,
     _prior: f => f(a + (b - a) * random()),
-    _posterior: (f, x, pivot, stdev) => {
+    _posterior: (f, x, stdev) => {
       let u = random()
-      // x can be missing or outside support (when past pivot)
-      if (x === undefined) return f(a + (b - a) * u)
-      if (x < a || x >= b) return f(a + (b - a) * u)
-      // if (x < a || x >= b) return f((a + b) / 2, -inf) // reject
-      // if (x < a || x >= b) x = (a + b) / 2 // reset to middle
-      // if (x < a || x >= b) x = max(a, min(b, x)) // reset to bounds
+      // stdev can be 0 w/ single positive-weight point
       if (stdev == 0) return f(a + (b - a) * u)
-
+      // random global movements are essential for robust convergence
       if (random_boolean(0.5)) return f(a + (b - a) * u)
-
-      // TODO: why is "local" movement helping a lot at pivot but breaking past?
-      //       especially since we mix in global movements too?
-      //       are the transition probabilities only valid at pivot?
-      //       it is NOT about additional move steps (tested until 1000)
-      //       it is NOT about handling of out-of-bounds (see above)
-      //
-      //       local movement past pivot REALLY helps mar and t (given move_while)
-      //       but it definitely breaks convergence, even after 1000 steps
-      //       if probabilities need adjustment, how?
-      //
-      if (!pivot) return f(a + (b - a) * u)
-      // we shift fixed-size sampling region to avoid asymmetric jumps x<->y
+      // sample around x w/ random radius proportional to stdev
+      // shift sampling region inside (a,b) to avoid asymmetric jumps x<->y
       const r = min((b - a) / 2, stdev * random_discrete_uniform(1, 4) * 0.5)
       let ya = x - r
       let yb = x + r
