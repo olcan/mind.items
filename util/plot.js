@@ -94,22 +94,20 @@ function plot(obj, name = undefined) {
   write_log()
 
   // focus on plot item if focused on plotting item
-  // this prevents re-focusing for multiple plots in same js run
-  if (lower(MindBox.get().trim()) == lower(_this.name)) {
-    dispatch(async () => {
-      if (lower(MindBox.get().trim()) != lower(item.name)) {
-        MindBox.set(item.name)
-        await _update_dom() // wait for page update
-      }
-      if (!item.elem) {
-        console.warn(`missing element for ${item.name}`)
-        return
-      }
-      // scroll item to ~middle of screen if too low
-      if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
-        document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
-    })
-  }
+  // (prevents re-focusing for multiple plots in same js run)
+  dispatch(async () => {
+    if (lower(MindBox.get().trim()) == lower(_this.name)) {
+      MindBox.set(item.name)
+      await _update_dom() // wait for page update
+    }
+    if (!item.elem) {
+      console.warn(`missing element for ${item.name}`)
+      return
+    }
+    // scroll item to ~middle of screen if too low
+    if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
+      document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
+  })
 }
 
 function _sync_caption(caption) {
