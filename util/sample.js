@@ -83,7 +83,7 @@ function from(x, domain) {
 // | `prior`       | prior sampler `f => f(x,[log_pw=0])`
 // |               | `x~S(X), log_pw=log(∝p(x)/s(x))`
 // |               | _default_: `domain._prior`
-// | `posterior`   | posterior (chain) sampler `(f,x,…) => f(y,[log_mw=0])`
+// | `posterior`   | posterior (chain) sampler `(f,x,stdev) => f(y,[log_mw=0])`
 // |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
 // |               | _default_: `domain._posterior`
 // | `target`      | target cdf, sample, or sampler domain for `tks` metric
