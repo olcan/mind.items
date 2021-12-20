@@ -12,6 +12,7 @@ function _test_from() {
     () => !from(2, [0, 1]),
     () => !from(false, [0, 1]), // sameValueZero
     () => from(NaN, [NaN, 1]), // sameValueZero
+    () => !from(0, null), // empty domain = nothing
     () => from(0, {}), // no constraints = everything
     () => from(0, { via: () => {} }), // function domain == everything
     () => from(0, { via: set(() => {}, '_domain', 'integer') }),

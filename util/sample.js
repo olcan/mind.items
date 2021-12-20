@@ -1353,7 +1353,8 @@ class _Sampler {
 
   _sample(k, domain, options) {
     const value = this.values[k]
-    assert(domain, 'missing domain')
+    assert(domain !== undefined, 'missing domain')
+    if (domain === null) return undefined // empty domain
     const { j, xJK, log_pwJ, yJK, log_mwJ, moving } = this
 
     // initialize on first call
@@ -1450,7 +1451,7 @@ class _Sampler {
       return prior((x, log_pw = 0) => ((log_pwJ[j] += log_pw), (xJK[j][k] = x)))
 
     // if moving, sample into yJK using xJK as start point
-    const xjk = xJK[j][k]
+    let xjk = xJK[j][k]
     const k_pivot = this.kJ[j]
 
     // if prior to k_pivot, stay at xjk
@@ -1460,11 +1461,13 @@ class _Sampler {
     }
 
     // if past pivot, ignore xjk and resample from prior
-    // note xjk can be missing (undefined) or outside support
+    // note xjk can be outside domain or missing (undefined)
     // in experiments, local movements did NOT work for past-pivot points
     //   likely due to incorrect transition probabilities
-    //   was not about handling of out-of-support points
+    //   was not about handling of out-of-domain points
     //   was not about additional move steps
+    // if (!from(xjk, domain)) prior(x => (xjk = x))
+    // if (k != k_pivot) return (yJK[j][k] = xJK[this.sample_index()][k])
     if (k != k_pivot) return prior(y => (yJK[j][k] = y))
 
     // if at k_pivot, _move_ from xjk
@@ -1499,10 +1502,12 @@ class _Sampler {
 function uniform(a, b) {
   if (a === undefined) return uniform(0, 1)
   if (b === undefined) return uniform(0, a)
-  assert(is_number(a) && is_number(b) && a < b, 'invalid args', a, b)
+  if (!(a < b)) return null // empty domain
   return {
     gte: a,
     lt: b,
+    _p: x => (x <= a && x < b ? 1 / (b - a) : 0),
+    _log_p: x => (x <= a && x < b ? -log(b - a) : -inf),
     _prior: f => f(a + (b - a) * random()),
     _posterior: (f, x, stdev) => {
       let u = random()
