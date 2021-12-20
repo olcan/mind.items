@@ -7,6 +7,7 @@ function _test_from() {
     () => from(0, 'number'),
     () => from(true, 'boolean'),
     () => !from('true', 'boolean'),
+    () => from(0, 0, 1) && from(0.5, 0, 1) && !from(1, 0, 1),
     () => from(1, [0, 1]),
     () => !from(2, [0, 1]),
     () => !from(false, [0, 1]), // sameValueZero

@@ -1,7 +1,9 @@
+// from(x, domain)
 // is `x` from `domain`?
 // | sampler function | `x` via function `≡{via:func}`
 // | type string      | `x` is of type `≡{is:type}`
 // | array            | `x` in array, `≡{in:array}`
+// | numbers `a,b`      | `x` in interval `[a,b)`, `≡{gte:a, lt:b}`
 // | object           | `x` matching constraints
 // | `{}`             | everything (no constraints)
 // | `via:func`       | `func._domain || {}`
@@ -17,8 +19,9 @@
 // | `gt|lt:y`        | strict inequality `x>y`, `x<y`
 // | `and|or:[…]`     | composite domain
 // `false` for unknown (or missing) `domain`
-function from(x, domain) {
-  if (!domain) return false
+function from(x, domain, b) {
+  if (is_nullish(domain)) return false
+  if (is_number(domain) && is_number(b)) return x >= domain && x < b
   if (is_function(domain)) return from({ via: domain })
   if (is_string(domain)) return is(x, domain) // ≡{is:type}
   if (is_array(domain)) return domain.includes(x) // ≡{in:array}
@@ -127,7 +130,7 @@ function from(x, domain) {
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
 // |               | _default_: `1` ≡ failure to reject same-dist at `ɑ<1/2`
 // | `mks_buffer`  | move buffer size `B` for `mks`, _default_: `1000`
-// | `mks_period`  | move buffer period for `mks`, _default_: `ceil(3*J*K/B)`
+// | `mks_period`  | move buffer period for `mks`, _default_: `ceil(J*K/B)`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `time`        | target time (ms) for sampling, _default_: auto
@@ -175,7 +178,7 @@ function _benchmark_sample() {
 // scoped by outer `sample(context=>{ … })`
 // conditions models `P(X) → P(X|c)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
-// `≡ weight(c ? 0 : -inf)`, see more general `weight(…)` below
+// `≡ weight(c ? 0 : -inf) ≡ weight(log(c))`, see `weight(…)`
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
 // _weight sequence_ `log_wu(u)=0↘-∞, u=0,1,…` can help, see #/weight
 // _likelihood weights_ `∝ P(c|X) = E[𝟙(c|X)]` can help, see `weight(…)`
@@ -253,13 +256,13 @@ class _Sampler {
         max_updates: inf,
         min_updates: 0,
         min_stable_updates: 2,
-        min_unweighted_updates: 5,
+        min_unweighted_updates: 3,
         max_time: 100,
         min_time: 0,
         min_ess: J / 2,
         max_mks: 1,
         mks_buffer: B,
-        mks_period: ceil((3 * J * K) / B),
+        mks_period: ceil((J * K) / B),
         max_tks: 5,
       },
       options
@@ -1523,6 +1526,8 @@ function uniform(a, b) {
     },
   }
 }
+
+const interval = (a, b) => ({ gte: a, lt: b })
 
 function _benchmark_uniform() {
   benchmark(
