@@ -351,7 +351,16 @@ class _Sampler {
     const __sampler_regex =
       /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
     this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
-      assert(!names.has(name), `duplicate name '${name}' for sampled value`)
+      if (name) {
+        assert(
+          !names.has(name),
+          `invalid duplicate name '${name}' for sampled value`
+        )
+        assert(
+          !name.match(/^\d/),
+          `invalid numeric name '${name}' for sampled value`
+        )
+      }
       // extract lexical context
       let mt = m
       if (js[offset] == '\n') {
@@ -408,7 +417,7 @@ class _Sampler {
       // replace sample call
       const k = values.length
       values.push({ js, index: k, offset, name, args, line_index, line })
-      names.add(name || k)
+      names.add(name || k) // aligned w/ values & unique since name non-numeric
       return m.replace(/sample *\(.+\)$/s, `__sampler._sample(${k},${args})`)
     })
 
@@ -422,19 +431,23 @@ class _Sampler {
       const wrapper = `(function({${_.keys(params)}}) { return ${this.js} })`
       func = eval(wrapper)(params)
     }
-    return { func, values, names }
+    return { func, values, names, nK: array(names) }
   }
-
-  static stats_keys =
-    'ess essu essr elw wsum mar mark mlw mks tks gap p pk a m t'.split(/\W+/)
 
   _init_stats() {
     const options = this.options
     if (!options.stats) return // stats disabled
     // enable ALL stats for stats == true
-    if (options.stats == true) options.stats = stats_keys
+    const known_keys = flat(
+      'ess essu essr elw wsum mar mlw mks tks gap p a m t'.split(/\W+/),
+      this.nK.map(n => `mar.${n}`),
+      this.nK.map(n => `p.${n}`),
+      this.nK.map(n => `pp.${n}`)
+    )
+    if (options.stats == true) options.stats = known_keys
     // convert string to array of keys
-    if (is_string(options.stats)) options.stats = options.stats.split(/\W+/)
+    if (is_string(options.stats))
+      options.stats = options.stats.split(/[^\.\w]+/)
     // convert array of string keys to object of booleans (true)
     if (is_array(options.stats)) {
       assert(every(options.stats, is_string), 'invalid option stats')
@@ -444,7 +457,7 @@ class _Sampler {
       is_object(options.stats) && every(values(options.stats), is_boolean),
       'invalid option stats'
     )
-    const unknown_keys = diff(keys(options.stats), _Sampler.stats_keys)
+    const unknown_keys = diff(keys(options.stats), known_keys)
     assert(empty(unknown_keys), `unknown stats: ${unknown_keys}`)
 
     this.stats = {
@@ -475,14 +488,12 @@ class _Sampler {
     if (spec.elw) update.elw = round_to(this.elw, 2)
     if (spec.wsum) update.wsum = round_to(this.wsum, 1)
     if (spec.mar)
-      update.mar = this.u == 0 ? 100 : round(100 * (this.a / this.p), 3, 3)
-    if (spec.mark)
-      update.mark = zip_object(
-        array(this.names),
-        this.u == 0
-          ? array(this.K, 100)
-          : round_to(scale(div(this.aK, this.pK), 100), 3, 3)
-      )
+      update.mar = this.u == 0 ? 100 : round_to(100 * (this.a / this.p), 3, 3)
+    each(this.nK, (n, k) => {
+      if (spec[`mar.${n}`])
+        update[`mar.${n}`] =
+          this.u == 0 ? 100 : round_to(100 * (this.aK[k] / this.pK[k]), 3, 3)
+    })
     if (spec.mlw) update.mlw = this.u == 0 ? 0 : round_to(this.mlw, 1)
     if (spec.mks) update.mks = this.u == 0 ? inf : round_to(this.mks, 1)
     if (spec.tks) update.tks = round_to(this.tks, 1)
@@ -492,11 +503,13 @@ class _Sampler {
           ? round_to(this.log_wuj_gap, 1)
           : round_to(this.log_wuj_gap_before_reweight, 1)
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
-    if (spec.pk)
-      update.pk = zip_object(
-        array(this.names),
-        this.u == 0 ? array(this.K, 0) : this.pK
-      )
+    each(this.nK, (n, k) => {
+      if (spec[`p.${n}`]) update[`p.${n}`] = this.u == 0 ? 0 : this.pK[k]
+      if (spec[`pp.${n}`])
+        update[`pp.${n}`] = round(
+          this.u == 0 ? 100 / this.K : 100 * (this.pK[k] / this.p)
+        )
+    })
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.m) update.m = this.m
     if (spec.t) update.t = this.t
@@ -789,7 +802,7 @@ class _Sampler {
         warn(`pre-posterior sample w/ log_wuj_gap=${this.log_wuj_gap}>0`)
       if (this.tks > max_tks) {
         warn(`failed to achieve target tks=${this.tks}≤${max_tks}`)
-        print(str(zip_object(array(this.names), round_to(this.___tks_pK, 3))))
+        print(str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
       }
     }
   }
@@ -909,10 +922,12 @@ class _Sampler {
       if (spec.essr) add_line('essr', { axis: 'y2', formatter: x => `${x}%` })
       if (spec.mar) add_line('mar', { axis: 'y2', formatter: x => `${x}%` })
 
-      if (spec.mark) {
-        for (let n of this.names)
-          add_line('mark.' + n, { axis: 'y2', formatter: x => `${x}%` })
-      }
+      each(this.nK, n => {
+        if (spec[`mar.${n}`])
+          add_line(`mar.${n}`, { axis: 'y2', formatter: x => `${x}%` })
+        if (spec[`pp.${n}`])
+          add_line(`pp.${n}`, { axis: 'y2', formatter: x => `${x}%` })
+      })
 
       if (spec.wsum) add_rescaled_line('wsum')
       if (spec.elw) add_rescaled_line('elw')
@@ -927,8 +942,9 @@ class _Sampler {
       if (spec.m) add_rescaled_line('m')
       if (spec.t) add_rescaled_line('t')
 
-      if (spec.pk)
-        for (let n of this.names) add_rescaled_line('pk.' + n, null, 0)
+      each(this.nK, n => {
+        if (spec[`p.${n}`]) add_rescaled_line(`p.${n}`, null, 0)
+      })
 
       plot({
         name: 'updates',
@@ -1148,6 +1164,8 @@ class _Sampler {
       if (w == 0) return inf // not enough samples/weight
       const m = s / w
       const stdev = sqrt(ss / w - m * m)
+      assert(!is_nan(stdev), 'nan stdev')
+      assert(!is_inf(stdev), 'inf stdev')
       if (stdev < 1e-6) return 0 // stdev too small, return 0 to be dealt with
       return stdev
     })
@@ -1289,7 +1307,7 @@ class _Sampler {
         return xJK[j]
       case 'object':
       default:
-        return set(zip_object(array(this.names), xJK[j]), '_index', j)
+        return set(zip_object(this.nK, xJK[j]), '_index', j)
     }
   }
 
@@ -1333,10 +1351,15 @@ class _Sampler {
       if (options?.name) {
         assert(
           !this.names.has(options.name),
-          `duplicate name '${options.name}' for sampled value`
+          `invalid duplicate name '${options.name}' for sampled value`
+        )
+        assert(
+          !options.match(/^\d/),
+          `invalid numeric name '${options.name}' for sampled value`
         )
         value.name = options.name
         this.names.add(value.name)
+        this.nK[k] = value.name
       }
 
       // pre-process function domain if parameter-free
@@ -1477,7 +1500,7 @@ function uniform(a, b) {
       if (random_boolean(0.5)) return f(a + (b - a) * u)
       // sample around x w/ random radius proportional to stdev
       // shift sampling region inside (a,b) to avoid asymmetric jumps x<->y
-      const r = min((b - a) / 2, stdev * random_discrete_uniform(1, 4) * 0.5)
+      const r = min((b - a) / 2, stdev)
       let ya = x - r
       let yb = x + r
       if (ya < a) {
