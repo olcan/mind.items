@@ -106,7 +106,7 @@ function from(x, domain) {
 // |               | `context.a` is accepted move count (current update step)
 // |               | `context.aK` is accepted move count per value
 // |               | `context.m` is total move count (all update steps)
-// |               | _default_: `({essu,J,K,a,aK}) => essu<J/2 || a < J || min_in(aK)<J/K`
+// |               | _default_: `({essu,J,K,a,aK}) => essu<.9*J || a < J || min_in(aK)<J/K`
 // |               | default allows `essu→J` w/ up to `J/2` slow-moving samples
 // | `weight_exp`  | weight exponent function `u => …` `∈[0,1]`
 // |               | multiplied into `log_w` and `log_wu(u)` (if defined)
@@ -115,8 +115,8 @@ function from(x, domain) {
 // |               | _default_: `u => min(1, (u+1)/3)`
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `min_updates` | minimum number of update steps, _default_: `0`
-// | `min_stable_updates` | minimum stable update steps, _default_: `3`
-// | `min_unweighted_updates` | minimum stable update steps, _default_: `5`
+// | `min_stable_updates` | minimum stable update steps, _default_: `2`
+// | `min_unweighted_updates` | minimum stable update steps, _default_: `3`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
@@ -226,11 +226,11 @@ class _Sampler {
         size: J,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, K, a, aK }) =>
-          essu < 0.75 * J || a < J || min_in(aK) < J / K,
+          essu < 0.9 * J || a < J || min_in(aK) < J / K,
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
         min_updates: 0,
-        min_stable_updates: 3,
+        min_stable_updates: 2,
         min_unweighted_updates: 5,
         max_time: 100,
         min_time: 0,
@@ -1456,37 +1456,6 @@ function uniform(a, b) {
     gte: a,
     lt: b,
     _prior: f => f(a + (b - a) * random()),
-    //
-    // TODO: key to better convergence turns out to be for move_while to
-    //       ensure sufficient accepts, e.g. up to 5J accepts... is that
-    //       because information is lost (and convergence becomes impossible)
-    //       when you adjust weights too quickly, or just that it becomes
-    //       harder and harder to move?
-    //
-    // TODO: one reason it could become harder to move is that stdev is
-    //       weighted, so sigma could be getting too small due to high
-    //       weight points and small weight points could have trouble
-    //       moving to high weight region, but it is not clear that the
-    //       weights are ever skewed when you enter move step
-    //
-    // TODO: global moves seem more robust for decreasing tks quickly in iters
-    //       but not always in time since acceptance rate falls -- what we want
-    //       is larger moves accepted at a higher rate, so one way to do this
-    //       may be to adapt using relevant statistics, e.g. to maximize
-    //       "movement rate"
-    //
-    // TODO: a main problem here may well be that log_wuJ is
-    //       not providing any information inside the accept region, e.g. to
-    //       concentrate points around .5, which happens naturally once
-    //       likelihood is used; once wsum hits 1000, basically all points
-    //       are in the accept region, so the only information is coming from
-    //       proposals -> accepts -> moves, which is why presumably why
-    //       increasing that helps so much
-    //
-    // TODO: if all other examples are fine (esp w.r.t. tks), we could move on
-    //       for now ... maybe an option for min_unweighted_updates (zero gap) or min_convergent_updates (target achieved) could make sense in general and especially for examples like this one; remember you had max_mks_steps for a similar reason
-    //
-    // _posterior: f => f(a + random() * (b - a)),
     _posterior: (f, x, pivot, stdev) => {
       let u = random()
       // x can be missing or outside support (when past pivot)
@@ -1496,7 +1465,7 @@ function uniform(a, b) {
       // if (x < a || x >= b) x = (a + b) / 2 // reset to middle
       // if (x < a || x >= b) x = max(a, min(b, x)) // reset to bounds
       if (stdev == 0) return f(a + (b - a) * u)
-      assert(stdev < inf)
+
       if (random_boolean(0.5)) return f(a + (b - a) * u)
 
       // TODO: why is "local" movement helping a lot at pivot but breaking past?
@@ -1510,14 +1479,18 @@ function uniform(a, b) {
       //       if probabilities need adjustment, how?
       //
       if (!pivot) return f(a + (b - a) * u)
-
-      const r = stdev
-      const xa = max(x - r, a)
-      const xb = min(x + r, b)
-      const y = xa + (xb - xa) * u
-      const ya = max(y - r, a)
-      const yb = min(y + r, b)
-      return f(y, log(xb - xa) - log(yb - ya))
+      // we shift fixed-size sampling region to avoid asymmetric jumps x<->y
+      const r = min((b - a) / 2, stdev * random_discrete_uniform(1, 4) * 0.5)
+      let ya = x - r
+      let yb = x + r
+      if (ya < a) {
+        yb += a - ya
+        ya = a
+      } else if (yb > b) {
+        ya += b - yb
+        yb = b
+      }
+      return f(ya + (yb - ya) * u)
     },
   }
 }
