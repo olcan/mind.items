@@ -86,7 +86,7 @@ function from(x, domain, b) {
 // | `prior`       | prior sampler `f => f(x,[log_pw=0])`
 // |               | `x~S(X), log_pw=log(∝p(x)/s(x))`
 // |               | _default_: `domain._prior`
-// | `posterior`   | posterior (chain) sampler `(f,x,stdev) => f(y,[log_mw=0])`
+// | `posterior`   | posterior (chain) sampler `(f,x,…) => f(y,[log_mw=0])`
 // |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
 // |               | _default_: `domain._posterior`
 // | `target`      | target cdf, sample, or sampler domain for `tks` metric
@@ -279,7 +279,10 @@ class _Sampler {
     this.xJK = matrix(J, K) // samples per run/value
     this.pxJK = matrix(J, K) // prior samples per run/value
     this.yJK = matrix(J, K) // posterior (chain) samples per run/value
+    this.log_p_xJK = matrix(J, K, 0) // sample log-densities
+    this.log_p_yJK = matrix(J, K) // posterior (chain) sample log-densities
     this.kJ = array(J) // array of pivot values to be moved in _move
+    this.rJ = array(J) // sampling mode for past-pivot values in _move
     this.wK = array(K) // array of move weights by pivot value
     this.m = 0 // move count
     this.mb = 0 // moves since last buffered move (i.e. unbuffered moves)
@@ -305,6 +308,7 @@ class _Sampler {
     this._jJ = array(J)
     this._xJ = array(J)
     this._xJK = array(J)
+    this._log_p_xJK = array(J)
     this._log_wJ = array(J)
     this._log_wufJ = array(J)
     this._log_wuJ = array(J)
@@ -601,18 +605,19 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ, _log_wufJ, log_wufJ } = this
-    const { _log_wuJ, log_wuJ } = this
+    const { _log_wuJ, log_wuJ, log_p_xJK, _log_p_xJK } = this
     if (rwj_uniform) random_discrete_uniform_array(jjJ, J)
     else random_discrete_array(jjJ, rwJ, rwj_sum) // note: sorted indices
     scan(jjJ, (j, jj) => {
       _jJ[j] = jJ[jj]
       _xJ[j] = xJ[jj]
       _xJK[j] = xJK[jj]
+      _log_p_xJK[j] = log_p_xJK[jj]
       _log_wJ[j] = log_wJ[jj]
       _log_wufJ[j] = log_wufJ[jj]
       _log_wuJ[j] = log_wuJ[jj]
     })
-    this._swap('jJ', 'xJ', 'xJK', 'log_wJ', 'log_wufJ', 'log_wuJ')
+    this._swap('jJ', 'xJ', 'xJK', 'log_p_xJK', 'log_wJ', 'log_wufJ', 'log_wuJ')
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // since jJ changed
@@ -627,13 +632,16 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     const timer = _timer_if(this.stats)
-    const { J, K, wK, u, func, yJ, yJK, kJ, xJ, xJK, jJ, jjJ, log_mwJ } = this
+    const { J, K, wK, u, func, yJ, yJK, kJ, rJ, xJ, xJK, jJ, jjJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
+    const { log_mwJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
     fill(log_cwufJ, undefined) // reset posterior candidate future log-weights
     each(yJK, yjK => fill(yjK, undefined))
+    each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     random_discrete_array(kJ, wK) // random "pivot" values
+    random_discrete_uniform_array(rJ, 2) // random past-pivot sampling mode
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wJ = log_wJ // to be restored below
     const tmp_log_wufJ = log_wufJ // to be restored below
@@ -649,8 +657,9 @@ class _Sampler {
     this.move_log_w = 0
     const w_exp = this.options.weight_exp(u)
     repeat(J, j => {
+      const k_pivot = kJ[j]
       this.p++
-      this.pK[kJ[j]]++
+      this.pK[k_pivot]++
       let log_cwuj = log_cwufJ[j] ? log_cwufJ[j](u) : w_exp * log_cwJ[j]
       log_cwuj = clip(log_cwuj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwuj - log_wuJ[j]
@@ -669,6 +678,8 @@ class _Sampler {
         xJ[j] = yJ[j]
         xJK[j] = yJK[j] // can't copy since rows can share arrays
         yJK[j] = array(K) // replace array since moved into xJK
+        log_p_xJK[j] = log_p_yJK[j]
+        log_p_yJK[j] = array(K)
         log_wJ[j] = log_cwJ[j]
         log_wufJ[j] = log_cwufJ[j]
         log_wuJ[j] = log_cwuj
@@ -677,7 +688,7 @@ class _Sampler {
         // log_rwJ[j] += log_dwj
         jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
-        this.aK[kJ[j]]++
+        this.aK[k_pivot]++
         this.a++
         accepts++
       }
@@ -1354,8 +1365,15 @@ class _Sampler {
   _sample(k, domain, options) {
     const value = this.values[k]
     assert(domain !== undefined, 'missing domain')
-    if (domain === null) return undefined // empty domain
-    const { j, xJK, log_pwJ, yJK, log_mwJ, moving } = this
+    const { j, xJK, log_pwJ, yJK, log_mwJ, log_wJ, moving } = this
+    const { log_p_xJK, log_p_yJK } = this
+
+    // reject run on empty domain
+    if (domain === null) this._weight(-inf)
+
+    // return undefined on rejected run
+    if (log_wJ[j] == -inf) return undefined
+    if (moving && log_mwJ[j] == -inf) return undefined
 
     // initialize on first call
     if (!value.sampler) {
@@ -1443,38 +1461,67 @@ class _Sampler {
       )
     }
 
+    const log_p = domain._log_p
     const prior = options?.prior ?? domain._prior
     assert(prior, 'missing prior sampler')
 
     // if not moving, just sample from prior into xJK and log_pwJ
-    if (!moving)
-      return prior((x, log_pw = 0) => ((log_pwJ[j] += log_pw), (xJK[j][k] = x)))
+    if (!moving) {
+      return prior((x, log_pw = 0) => {
+        log_pwJ[j] += log_pw
+        log_p_xJK[j][k] = log_p(x)
+        return (xJK[j][k] = x)
+      })
+    }
 
     // if moving, sample into yJK using xJK as start point
-    let xjk = xJK[j][k]
+    const xjk = xJK[j][k]
+    const log_p_xjk = log_p_xJK[j][k]
     const k_pivot = this.kJ[j]
+    const past_pivot_mode = this.rJ[j] // TODO: does this help?
 
     // if prior to k_pivot, stay at xjk
     if (k != k_pivot && yJK[j][k_pivot] === undefined) {
       assert(xjk !== undefined, 'unexpected missing prior value')
+      log_p_yJK[j][k] = log_p_xjk
       return (yJK[j][k] = xjk)
     }
 
     // if past pivot, ignore xjk and resample from prior
     // note xjk can be outside domain or missing (undefined)
-    // in experiments, local movements did NOT work for past-pivot points
-    //   likely due to incorrect transition probabilities
-    //   was not about handling of out-of-domain points
-    //   was not about additional move steps
-    // if (!from(xjk, domain)) prior(x => (xjk = x))
-    // if (k != k_pivot) return (yJK[j][k] = xJK[this.sample_index()][k])
-    if (k != k_pivot) return prior(y => (yJK[j][k] = y))
+    // if (k != k_pivot)
+    //   return prior(y => {
+    //     log_p_yJK[j][k] = log_p(y)
+    //     return (yJK[j][k] = y)
+    //   })
+    if (k != k_pivot) {
+      // past_pivot_mode==1 is random global movement past pivot
+      // random global movements are essential for robust convergence
+      if (past_pivot_mode || random_boolean(0.5) || xjk === undefined)
+        return prior(y => {
+          log_p_yJK[j][k] = log_p(y)
+          return (yJK[j][k] = y)
+        })
+      // TODO: how to deal w/ mks becoming much less useful?
+      //       try tracking "mlp" metric similar to "mlw" and require it to
+      //       stabilize or achieve <=0; can do it via separate log_dpJ[j]
+      //       if you do this right, you can play w/ global movement rate also
+      //
+      log_p_yJK[j][k] = log_p(xjk) // not log_p_xjk but new log_p under pivot
+      log_mwJ[j] += log_p_yJK[j][k] - log_p_xjk // reusing log_mwJ for log_dpj
+      return (yJK[j][k] = xjk)
+    }
 
-    // if at k_pivot, _move_ from xjk
+    // if at or past k_pivot, _move_ from xjk
+    // note when past pivot, xjk can be outside domain or missing (undefined)
     const posterior = options?.posterior ?? domain._posterior
     assert(posterior, 'missing posterior (chain) sampler')
     return posterior(
-      (y, log_mw = 0) => ((log_mwJ[j] += log_mw), (yJK[j][k] = y)),
+      (y, log_mw = 0) => {
+        log_mwJ[j] += log_mw
+        log_p_yJK[j][k] = log_p(y)
+        return (yJK[j][k] = y)
+      },
       xjk,
       this.stdevK[k]
     )
@@ -1506,8 +1553,8 @@ function uniform(a, b) {
   return {
     gte: a,
     lt: b,
-    _p: x => (x <= a && x < b ? 1 / (b - a) : 0),
-    _log_p: x => (x <= a && x < b ? -log(b - a) : -inf),
+    _p: x => (x >= a && x < b ? 1 / (b - a) : 0),
+    _log_p: x => (x >= a && x < b ? -log(b - a) : -inf),
     _prior: f => f(a + (b - a) * random()),
     _posterior: (f, x, stdev) => {
       let u = random()
