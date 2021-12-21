@@ -278,9 +278,9 @@ class _Sampler {
     // initialize run state
     this.xJK = matrix(J, K) // samples per run/value
     this.pxJK = matrix(J, K) // prior samples per run/value
-    this.yJK = matrix(J, K) // posterior (chain) samples per run/value
+    this.yJK = matrix(J, K) // posterior samples per run/value
     this.log_p_xJK = matrix(J, K, 0) // sample log-densities
-    this.log_p_yJK = matrix(J, K) // posterior (chain) sample log-densities
+    this.log_p_yJK = matrix(J, K) // posterior sample log-densities
     this.kJ = array(J) // array of pivot values to be moved in _move
     this.rJ = array(J) // sampling mode for past-pivot values in _move
     this.wK = array(K) // array of move weights by pivot value
@@ -297,6 +297,7 @@ class _Sampler {
     this.log_wuJ = array(J) // posterior log-weights for step u
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
+    this.log_mpJ = array(J) // posterior move log-densities
     this.log_cwJ = array(J) // posterior candidate log-weights
     this.log_cwufJ = array(J) // posterior candidate log-weight sequences
     this.xJ = array(J) // return values
@@ -331,6 +332,7 @@ class _Sampler {
     cache(this, 'wusum', [], () => sum(this.log_wuJ, exp))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
+    cache(this, 'elp', ['rwJ'])
     cache(this, 'tks', ['rwJ'])
     cache(this, 'stdevK', ['rwJ'])
     cache(this, 'mks', [])
@@ -464,7 +466,7 @@ class _Sampler {
     if (!options.stats) return // stats disabled
     // enable ALL stats for stats == true
     const known_keys = flat(
-      'ess essu essr elw wsum mar mlw mks tks gap p a m t'.split(/\W+/),
+      'ess essu essr elw elp wsum mar mlw mlp mks tks gap p a m t'.split(/\W+/),
       this.nK.map(n => `mar.${n}`),
       this.nK.map(n => `p.${n}`),
       this.nK.map(n => `pp.${n}`)
@@ -511,6 +513,7 @@ class _Sampler {
     if (spec.essu) update.essu = round(this.essu)
     if (spec.essr) update.essr = round(100 * clip(this.ess / this.essu))
     if (spec.elw) update.elw = round_to(this.elw, 2)
+    if (spec.elp && this.log_wuj_gap == 0) update.elp = round_to(this.elp, 3)
     if (spec.wsum) update.wsum = round_to(this.wsum, 1)
     if (spec.mar)
       update.mar = this.u == 0 ? 100 : round_to(100 * (this.a / this.p), 3, 3)
@@ -520,6 +523,7 @@ class _Sampler {
           this.u == 0 ? 100 : round_to(100 * (this.aK[k] / this.pK[k]), 3, 3)
     })
     if (spec.mlw) update.mlw = this.u == 0 ? 0 : round_to(this.mlw, 1)
+    if (spec.mlp) update.mlp = this.u == 0 ? 0 : round_to(this.mlp, 1)
     if (spec.mks) update.mks = this.u == 0 ? inf : round_to(this.mks, 1)
     if (spec.tks) update.tks = round_to(this.tks, 1)
     if (spec.gap)
@@ -634,8 +638,9 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const { J, K, wK, u, func, yJ, yJK, kJ, rJ, xJ, xJK, jJ, jjJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
-    const { log_mwJ, log_p_xJK, log_p_yJK } = this
+    const { log_mwJ, log_mpJ, log_rwJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
+    fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
     fill(log_cwufJ, undefined) // reset posterior candidate future log-weights
     each(yJK, yjK => fill(yjK, undefined))
@@ -655,6 +660,7 @@ class _Sampler {
     // accept/reject proposed moves
     let accepts = 0
     this.move_log_w = 0
+    this.move_log_p = 0
     const w_exp = this.options.weight_exp(u)
     repeat(J, j => {
       const k_pivot = kJ[j]
@@ -663,7 +669,7 @@ class _Sampler {
       let log_cwuj = log_cwufJ[j] ? log_cwufJ[j](u) : w_exp * log_cwJ[j]
       log_cwuj = clip(log_cwuj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwuj - log_wuJ[j]
-      if (random() < exp(log_mwJ[j] + log_dwj)) {
+      if (random() < exp(log_mwJ[j] + log_mpJ[j] + log_dwj)) {
         // update move buffer
         this.m++
         this.mb++
@@ -683,11 +689,14 @@ class _Sampler {
         log_wJ[j] = log_cwJ[j]
         log_wufJ[j] = log_cwufJ[j]
         log_wuJ[j] = log_cwuj
-        // log_dwj is already reflected in sample so log_rwJ is invariant
-        // was confirmed (but not quite understood) in earlier implementations
+        // log_dwj and any other factors in p(accept) are already reflected in
+        // post-accept sample so log_rwJ is invariant; this was confirmed
+        // (but not quite understood) in earlier implementations
         // log_rwJ[j] += log_dwj
+        // log_rwJ[j] += log_mpJ[j]
         jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
+        this.move_log_p += log_mpJ[j]
         this.aK[k_pivot]++
         this.a++
         accepts++
@@ -820,10 +829,12 @@ class _Sampler {
       fill(this.pK, 0) // proposed move count by value
       fill(this.aK, 0) // accepted move count by value
       this.mlw = 0 // log_w improvement
+      this.mlp = 0 // log_p improvement
       while (move_while(this)) {
         move_weights(this, this.wK)
         this._move()
         this.mlw += this.move_log_w
+        this.mlp += this.move_log_p
       }
     } while (true)
 
@@ -963,11 +974,18 @@ class _Sampler {
 
       if (spec.wsum) add_rescaled_line('wsum')
       if (spec.elw) add_rescaled_line('elw')
+      if (spec.elp) add_rescaled_line('elp', null, 3)
       let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
       if (spec.mlw) {
         add_rescaled_line('mlw')
         const [a, b] = min_max_in(map(updates, 'mlw'))
         mlw_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
+      }
+      let mlp_0_on_y // for grid line to indicate 0 level for mlp on y axis
+      if (spec.mlp) {
+        add_rescaled_line('mlp')
+        const [a, b] = min_max_in(map(updates, 'mlp'))
+        mlp_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
       }
       if (spec.p) add_rescaled_line('p')
       if (spec.a) add_rescaled_line('a')
@@ -988,9 +1006,11 @@ class _Sampler {
           data: {
             colors: {
               // weight-related stats are gray
-              // elw & wsum are closely related, mlw is dashed to distinguish
+              // elw/elp/wsum closely related, mlw/mlp is dashed to distinguish
               mlw: '#666',
+              mlp: '#666',
               elw: '#666',
+              elp: '#666',
               wsum: '#666',
               ...from_pairs(
                 quantiles?.map(q => [
@@ -1040,6 +1060,9 @@ class _Sampler {
                 mlw_0_on_y
                   ? { value: round_to(mlw_0_on_y, 2), class: 'mlw' }
                   : null,
+                mlp_0_on_y
+                  ? { value: round_to(mlp_0_on_y, 2), class: 'mlp' }
+                  : null,
               ]),
             },
           },
@@ -1047,16 +1070,16 @@ class _Sampler {
           padding: { right: 50, left: 35 },
           styles: [
             `#plot .c3-ygrid-line line { opacity: 1 !important }`,
-            `#plot .c3-ygrid-line.mlw line { opacity: 1 !important; stroke-dasharray:5,3;}`,
             `#plot .c3-ygrid-line.accept line { opacity: .1 !important; stroke:#0f0; stroke-width:5px }`,
             `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
             `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
             `#plot .c3-target path { stroke-width:2px }`,
             `#plot .c3-target { opacity:1 !important }`,
-            // dashed line, legend, and tooltip for mlw
-            `#plot .c3-target-mlw path { stroke-dasharray:5,3; }`,
-            `#plot .c3-legend-item-mlw line { stroke-dasharray:2,2; }`,
-            `#plot .c3-tooltip-name--mlw span { background: repeating-linear-gradient(90deg, #666, #666 2px, transparent 2px, transparent 4px) !important }`,
+            // dashed line, grid line legend, and tooltip for mlw/mlp
+            `#plot :is(.c3-target-mlw,.c3-target-mlp) path { stroke-dasharray:5,3; }`,
+            `#plot :is(.c3-ygrid-line.mlw,.c3-ygrid-line.mlp) line { opacity: 1 !important; stroke-dasharray:5,3;}`,
+            `#plot :is(.c3-legend-item-mlw,.c3-legend-item-mlp) line { stroke-dasharray:2,2; }`,
+            `#plot :is(.c3-tooltip-name--mlw, c3-tooltip-name--mlp) span { background: repeating-linear-gradient(90deg, #666, #666 2px, transparent 2px, transparent 4px) !important }`,
           ],
         },
         dependencies: ['#_c3'],
@@ -1202,12 +1225,20 @@ class _Sampler {
   __elw() {
     const { rwJ, rwj_sum, log_wJ } = this
     const z = 1 / rwj_sum
-    const elw = sum(log_wJ, (log_wj, j) => {
-      // NOTE: when conditioning w/ log_wj either 0 or -inf, elw==0 always
+    return sum(log_wJ, (log_wj, j) => {
+      // NOTE: elw==0 when conditioning (log_wj 0 or -inf for all j)
       if (rwJ[j] == 0) return 0 // take 0 * -inf == 0 instead of NaN
       return log_wj * rwJ[j] * z
     })
-    return elw
+  }
+
+  __elp() {
+    const { rwJ, rwj_sum, log_p_xJK } = this
+    const z = 1 / rwj_sum
+    return sum(log_p_xJK, (log_p_xjK, j) => {
+      if (rwJ[j] == 0) return 0 // take 0 * -inf == 0 instead of NaN
+      return sum(log_p_xjK) * rwJ[j] * z
+    })
   }
 
   __tks() {
@@ -1365,7 +1396,7 @@ class _Sampler {
   _sample(k, domain, options) {
     const value = this.values[k]
     assert(domain !== undefined, 'missing domain')
-    const { j, xJK, log_pwJ, yJK, log_mwJ, log_wJ, moving } = this
+    const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
     const { log_p_xJK, log_p_yJK } = this
 
     // reject run on empty domain
@@ -1373,7 +1404,7 @@ class _Sampler {
 
     // return undefined on rejected run
     if (log_wJ[j] == -inf) return undefined
-    if (moving && log_mwJ[j] == -inf) return undefined
+    if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
 
     // initialize on first call
     if (!value.sampler) {
@@ -1487,6 +1518,12 @@ class _Sampler {
       return (yJK[j][k] = xjk)
     }
 
+    if (xjk === undefined || random_boolean(0.8))
+      return prior(y => {
+        log_p_yJK[j][k] = log_p(y)
+        return (yJK[j][k] = y)
+      })
+
     // if past pivot, ignore xjk and resample from prior
     // note xjk can be outside domain or missing (undefined)
     // if (k != k_pivot)
@@ -1495,27 +1532,48 @@ class _Sampler {
     //     return (yJK[j][k] = y)
     //   })
     if (k != k_pivot) {
-      // past_pivot_mode==1 is random global movement past pivot
-      // random global movements are essential for robust convergence
-      if (past_pivot_mode || random_boolean(0.5) || xjk === undefined)
-        return prior(y => {
-          log_p_yJK[j][k] = log_p(y)
-          return (yJK[j][k] = y)
-        })
+      // if (xjk === undefined || random_boolean(0.8))
+      //   return prior(y => {
+      //     log_p_yJK[j][k] = log_p(y)
+      //     return (yJK[j][k] = y)
+      //   })
+
+      // TODO: why is convergence not so good?
+      //       is it because we were updating log_mpJ even on global moves?
+      //       likely yes, appears to converge "eventually" if we don't update on global moves
+      //       .9 seems pretty robust, .7-.8 ok (and much faster)
+      //
+      //       is it because we should be more intelligent about global moves?
+      //       also feels arbitrary to have to pick high enough global moves prob.
+      //       when is it high enough? there should be a principled way to pick
+      //
       // TODO: how to deal w/ mks becoming much less useful?
-      //       try tracking "mlp" metric similar to "mlw" and require it to
-      //       stabilize or achieve <=0; can do it via separate log_dpJ[j]
-      //       if you do this right, you can play w/ global movement rate also
+      //       mlp and elp were promising but do not seem correlated w/ tks
+      //       if you resample out-of-domain values, then elp goes up monotonically, but tks never gets good
+      //       so either we do not want it to go up, or we are calculating it incorrectly
       //
       log_p_yJK[j][k] = log_p(xjk) // not log_p_xjk but new log_p under pivot
-      log_mwJ[j] += log_p_yJK[j][k] - log_p_xjk // reusing log_mwJ for log_dpj
+      log_mpJ[j] += log_p_yJK[j][k] - log_p_xjk
+      // if (!from(xjk, domain)) return undefined // run rejected
       return (yJK[j][k] = xjk)
+
+      // const posterior = options?.posterior ?? domain._posterior
+      // assert(posterior, 'missing posterior sampler')
+      // return posterior(
+      //   (y, log_mw = 0) => {
+      //     log_mwJ[j] += log_mw
+      //     log_p_yJK[j][k] = log_p(y)
+      //     return (yJK[j][k] = y)
+      //   },
+      //   xjk,
+      //   this.stdevK[k]
+      // )
     }
 
     // if at or past k_pivot, _move_ from xjk
     // note when past pivot, xjk can be outside domain or missing (undefined)
     const posterior = options?.posterior ?? domain._posterior
-    assert(posterior, 'missing posterior (chain) sampler')
+    assert(posterior, 'missing posterior sampler')
     return posterior(
       (y, log_mw = 0) => {
         log_mwJ[j] += log_mw
@@ -1558,10 +1616,21 @@ function uniform(a, b) {
     _prior: f => f(a + (b - a) * random()),
     _posterior: (f, x, stdev) => {
       let u = random()
+
       // stdev can be 0 w/ single positive-weight point
       if (stdev == 0) return f(a + (b - a) * u)
+
       // random global movements are essential for robust convergence
-      if (random_boolean(0.5)) return f(a + (b - a) * u)
+      // if (random_boolean(0.7)) return f(a + (b - a) * u)
+
+      // const r = stdev // * random_discrete_uniform(1, 3)
+      // const xa = max(x - r, a)
+      // const xb = min(x + r, b)
+      // const y = xa + (xb - xa) * u
+      // const ya = max(y - r, a)
+      // const yb = min(y + r, b)
+      // return f(y, log(xb - xa) - log(yb - ya))
+
       // sample around x w/ random radius proportional to stdev
       // shift sampling region inside (a,b) to avoid asymmetric jumps x<->y
       const r = min((b - a) / 2, stdev)
@@ -1571,7 +1640,7 @@ function uniform(a, b) {
         yb += a - ya
         ya = a
       } else if (yb > b) {
-        ya += b - yb
+        ya -= yb - b
         yb = b
       }
       return f(ya + (yb - ya) * u)
