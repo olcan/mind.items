@@ -279,10 +279,9 @@ class _Sampler {
     this.xJK = matrix(J, K) // samples per run/value
     this.pxJK = matrix(J, K) // prior samples per run/value
     this.yJK = matrix(J, K) // posterior samples per run/value
-    this.log_p_xJK = matrix(J, K, 0) // sample log-densities
+    this.log_p_xJK = matrix(J, K) // sample log-densities
     this.log_p_yJK = matrix(J, K) // posterior sample log-densities
     this.kJ = array(J) // array of pivot values to be moved in _move
-    this.rJ = array(J) // sampling mode for past-pivot values in _move
     this.wK = array(K) // array of move weights by pivot value
     this.m = 0 // move count
     this.mb = 0 // moves since last buffered move (i.e. unbuffered moves)
@@ -562,12 +561,13 @@ class _Sampler {
 
   _sample_prior() {
     const timer = _timer_if(this.stats)
-    const { func, xJ, pxJ, pxJK, xJK, jJ } = this
+    const { func, xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
     const { log_pwJ, log_wJ, log_wufJ, log_wuJ, log_rwJ, stats } = this
     this.u = 0 // prior is zero'th update step
     fill(log_pwJ, 0)
     fill(log_wJ, 0)
     fill(log_wufJ, undefined)
+    each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
     fill(xJ, j => ((this.j = j), func(this)))
     this._fill_log_wuj(log_wuJ)
     // init log_rwJ = log_pwJ + log_wuJ
@@ -636,9 +636,9 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     const timer = _timer_if(this.stats)
-    const { J, K, wK, u, func, yJ, yJK, kJ, rJ, xJ, xJK, jJ, jjJ } = this
+    const { J, K, wK, u, func, yJ, yJK, kJ, xJ, xJK, jJ, jjJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
-    const { log_mwJ, log_mpJ, log_rwJ, log_p_xJK, log_p_yJK } = this
+    const { log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
@@ -646,7 +646,6 @@ class _Sampler {
     each(yJK, yjK => fill(yjK, undefined))
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     random_discrete_array(kJ, wK) // random "pivot" values
-    random_discrete_uniform_array(rJ, 2) // random past-pivot sampling mode
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wJ = log_wJ // to be restored below
     const tmp_log_wufJ = log_wufJ // to be restored below
@@ -1509,69 +1508,33 @@ class _Sampler {
     const xjk = xJK[j][k]
     const log_p_xjk = log_p_xJK[j][k]
     const k_pivot = this.kJ[j]
-    const past_pivot_mode = this.rJ[j] // TODO: does this help?
 
-    // if prior to k_pivot, stay at xjk
+    // if prior to pivot point, stay at xjk
     if (k != k_pivot && yJK[j][k_pivot] === undefined) {
       assert(xjk !== undefined, 'unexpected missing prior value')
       log_p_yJK[j][k] = log_p_xjk
       return (yJK[j][k] = xjk)
     }
 
-    if (xjk === undefined || random_boolean(0.8))
+    // if at or past pivot, randomly sample globally from prior
+    // past pivot xjk can be outside domain or missing (undefined)
+    // TODO: why does the global sampling need to be so high?
+    //       how do we pick the "right" value?
+    //       how do we detect convergence?
+    if (xjk === undefined || random_boolean(0.9))
       return prior(y => {
         log_p_yJK[j][k] = log_p(y)
         return (yJK[j][k] = y)
       })
 
-    // if past pivot, ignore xjk and resample from prior
-    // note xjk can be outside domain or missing (undefined)
-    // if (k != k_pivot)
-    //   return prior(y => {
-    //     log_p_yJK[j][k] = log_p(y)
-    //     return (yJK[j][k] = y)
-    //   })
+    // if past pivot, stay at xjk but factor in density ratio p(y)/p(x)
     if (k != k_pivot) {
-      // if (xjk === undefined || random_boolean(0.8))
-      //   return prior(y => {
-      //     log_p_yJK[j][k] = log_p(y)
-      //     return (yJK[j][k] = y)
-      //   })
-
-      // TODO: why is convergence not so good?
-      //       is it because we were updating log_mpJ even on global moves?
-      //       likely yes, appears to converge "eventually" if we don't update on global moves
-      //       .9 seems pretty robust, .7-.8 ok (and much faster)
-      //
-      //       is it because we should be more intelligent about global moves?
-      //       also feels arbitrary to have to pick high enough global moves prob.
-      //       when is it high enough? there should be a principled way to pick
-      //
-      // TODO: how to deal w/ mks becoming much less useful?
-      //       mlp and elp were promising but do not seem correlated w/ tks
-      //       if you resample out-of-domain values, then elp goes up monotonically, but tks never gets good
-      //       so either we do not want it to go up, or we are calculating it incorrectly
-      //
       log_p_yJK[j][k] = log_p(xjk) // not log_p_xjk but new log_p under pivot
       log_mpJ[j] += log_p_yJK[j][k] - log_p_xjk
-      // if (!from(xjk, domain)) return undefined // run rejected
       return (yJK[j][k] = xjk)
-
-      // const posterior = options?.posterior ?? domain._posterior
-      // assert(posterior, 'missing posterior sampler')
-      // return posterior(
-      //   (y, log_mw = 0) => {
-      //     log_mwJ[j] += log_mw
-      //     log_p_yJK[j][k] = log_p(y)
-      //     return (yJK[j][k] = y)
-      //   },
-      //   xjk,
-      //   this.stdevK[k]
-      // )
     }
 
-    // if at or past k_pivot, _move_ from xjk
-    // note when past pivot, xjk can be outside domain or missing (undefined)
+    // if at k_pivot, move from xjk along posterior chain
     const posterior = options?.posterior ?? domain._posterior
     assert(posterior, 'missing posterior sampler')
     return posterior(
