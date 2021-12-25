@@ -85,6 +85,7 @@ function random_discrete_array(jK, wJ, sum_wj) {
   if (wJ.length == 0) return fill(jK, NaN)
   sum_wj ??= sum(wJ)
   assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
+  // treat zero sum as uniform
   if (sum_wj == 0) return random_discrete_uniform_array(jK, wJ.length)
   // assert(min_in(wJ) >= 0,`wj<0: ${min_in(wJ)}`)
   // generate (exp) increments for K+1 uniform numbers in [0,sum_wj) w/o sorting
