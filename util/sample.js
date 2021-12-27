@@ -105,14 +105,15 @@ function from(x, domain, b) {
 // |               | default allows `ess→essu→J` w/ effective moves for `essu→J`
 // | `move_while`  | move predicate `context => …`
 // |               | called _until false_ every update step `context.u = 0,1,…`
-// |               | `context.p` is proposed move count (current update step)
-// |               | `context.a` is accepted move count (current update step)
-// |               | `context.aK` is accepted move count per value (K values)
+// |               | `context.p` is proposed moves (current update step)
+// |               | `context.a` is accepted moves (current update step)
+// |               | `context.aK` is accepted moves per posterior "pivot" value
+// |               | `context.aaK` is accepted moves per prior "jump" value
 // |               | `context.m` is total move count (all update steps)
-// |               | _default_: `({essu,J,K,a,aK}) => essu<.9*J || a < J || min_in(aK)<J/K`
+// |               | _default_: `({essu,J,K,a,aK,aaK}) => essu<.9*J || a < J || min_in(aK)<J/K || min_in(aaK)<J/K`
 // |               | default allows `essu→J` w/ up to `J/10` slow-moving samples
-// | `move_weights`| move weight function `(context, wK) => …`
-// |               | _default_: `({aK},wK) => fill(wK,k=>max(0,J/K-aK[k]))`
+// | `move_weights`| move weight function `(context, awK) => …`
+// |               | _default_: `({aK,aaK},awK,aawK) => { fill(awK,k=>max(0,J/K-aK[k])); fill(aawK,k=>max(0,J/K-aaK[k])) }`
 // |               | default concentrates on deficiencies w.r.t. `move_while`
 // | `weight_exp`  | weight exponent function `u => …` `∈[0,1]`
 // |               | multiplied into `log_w` and `log_wu(u)` (if defined)
@@ -121,16 +122,15 @@ function from(x, domain, b) {
 // |               | _default_: `u => min(1, (u+1)/3)`
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `min_updates` | minimum number of update steps, _default_: `0`
-// | `min_stable_updates` | minimum stable update steps, _default_: `2`
-// | `min_unweighted_updates` | minimum stable update steps, _default_: `3`
+// | `min_stable_updates` | minimum stable update steps, _default_: `1`
+// | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
+// | `min_mks_updates` | minimum update steps for mks, _default_: `10`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
 // |               | _default_: `1` ≡ failure to reject same-dist at `ɑ<1/2`
-// | `mks_buffer`  | move buffer size `B` for `mks`, _default_: `1000`
-// | `mks_period`  | move buffer period for `mks`, _default_: `ceil(J*K/B)`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `time`        | target time (ms) for sampling, _default_: auto
@@ -237,8 +237,6 @@ class _Sampler {
     // merge in default options
     const J = (this.J = options?.size ?? 1000)
     assert(J > 0, `invalid sample size ${J}`)
-    const B = (this.B = options?.mks_buffer ?? 1000)
-    assert(B > 0 && B % 2 == 0, `invalid move buffer size ${B}`)
     this.options = options = assign(
       {
         stats: false,
@@ -249,20 +247,25 @@ class _Sampler {
         quantile_runs: 100,
         size: J,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-        move_while: ({ essu, J, K, a, aK }) =>
-          essu < 0.9 * J || a < J || min_in(aK) < J / K,
-        move_weights: ({ aK }, wK) => fill(wK, k => max(0, J / K - aK[k])),
+        move_while: ({ essu, J, K, a, aK, aaK }) =>
+          essu < 0.9 * J ||
+          a < J ||
+          min_in(aK) < J / K ||
+          min_in(aaK) < 1.0 * (J / K),
+        move_weights: ({ aK, aaK }, awK, aawK) => {
+          fill(aawK, k => max(0, 1.0 * (J / K) - aaK[k]))
+          fill(awK, k => max(0, J / K - aK[k]))
+        },
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
         min_updates: 0,
-        min_stable_updates: 2,
+        min_stable_updates: 1,
         min_unweighted_updates: 3,
+        min_mks_updates: 10,
         max_time: 100,
         min_time: 0,
         min_ess: J / 2,
         max_mks: 1,
-        mks_buffer: B,
-        mks_period: ceil((J * K) / B),
         max_tks: 5,
       },
       options
@@ -281,15 +284,18 @@ class _Sampler {
     this.yJK = matrix(J, K) // posterior samples per run/value
     this.log_p_xJK = matrix(J, K) // sample log-densities
     this.log_p_yJK = matrix(J, K) // posterior sample log-densities
-    this.kJ = array(J) // array of pivot values to be moved in _move
-    this.wK = array(K) // array of move weights by pivot value
+
+    this.kJ = array(J) // array of (posterior) pivot values in _move
+    this.aaJK = matrix(J, K) // matrix of (prior) "jumped" values in _move
+    this.awK = array(K) // array of move weights by pivot value
+    this.aawK = array(K) // array of move weights by jump value
+    this._aawK = array(K) // move weights renormalized at pivot value
+
     this.m = 0 // move count
-    this.mb = 0 // moves since last buffered move (i.e. unbuffered moves)
-    this.b = 0 // moves buffered, also index into move buffers xBK,yBK
-    this.xBK = array(this.B)
-    this.yBK = array(this.B)
-    this.aK = array(K) // move accepts per value
-    this.pK = array(K) // move proposals per value
+    this.xBJK = [] // buffered samples for mks
+    this.pK = array(K) // move proposals per pivot value
+    this.aK = array(K) // move accepts per pivot value
+    this.aaK = array(K) // move accepts per jump value
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
     this.log_wufJ = array(J) // posterior log-weight sequences
@@ -507,6 +513,10 @@ class _Sampler {
     const spec = this.options.stats
     if (empty(spec)) return // no update stats enabled
 
+    // buffer samples at each update
+    this.xBJK.push(clone_deep(this.xJK))
+    this.mks = null // reset cached mks
+
     const update = {}
     if (spec.ess) update.ess = round(this.ess)
     if (spec.essu) update.essu = round(this.essu)
@@ -523,7 +533,7 @@ class _Sampler {
     })
     if (spec.mlw) update.mlw = this.u == 0 ? 0 : round_to(this.mlw, 1)
     if (spec.mlp) update.mlp = this.u == 0 ? 0 : round_to(this.mlp, 1)
-    if (spec.mks) update.mks = this.u == 0 ? inf : round_to(this.mks, 1)
+    if (spec.mks) update.mks = round_to(this.mks, 1)
     if (spec.tks) update.tks = round_to(this.tks, 1)
     if (spec.gap)
       update.gap =
@@ -636,16 +646,21 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     const timer = _timer_if(this.stats)
-    const { J, K, wK, u, func, yJ, yJK, kJ, xJ, xJK, jJ, jjJ } = this
+    const { J, K, u, func, yJ, yJK, kJ, aaJK, xJ, xJK, jJ, jjJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
-    const { log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
+    const { awK, aawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
     fill(log_cwufJ, undefined) // reset posterior candidate future log-weights
     each(yJK, yjK => fill(yjK, undefined))
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
-    random_discrete_array(kJ, wK) // random "pivot" values
+    // choose random pivot based in awK until all-zero, then aawK
+    // random_discrete_uniform_array(kJ, K)
+    const awk_sum = sum(awK)
+    if (awk_sum) random_discrete_array(kJ, awK)
+    else random_discrete_array(kJ, aawK)
+    each(aaJK, aajK => fill(aajK, 0))
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wJ = log_wJ // to be restored below
     const tmp_log_wufJ = log_wufJ // to be restored below
@@ -669,16 +684,6 @@ class _Sampler {
       log_cwuj = clip(log_cwuj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwuj - log_wuJ[j]
       if (random() < exp(log_mwJ[j] + log_mpJ[j] + log_dwj)) {
-        // update move buffer
-        this.m++
-        this.mb++
-        if (this.mb == this.options.mks_period) {
-          this.mb = 0 // now 0 moves since last buffered
-          const b = this.b++ % this.B
-          this.xBK[b] = xJK[j]
-          this.yBK[b] = yJK[j]
-          this.mks = null // reset mks since new move buffered
-        }
         // update state to reflect move
         xJ[j] = yJ[j]
         xJK[j] = yJK[j] // can't copy since rows can share arrays
@@ -697,6 +702,7 @@ class _Sampler {
         this.move_log_w += log_dwj
         this.move_log_p += log_mpJ[j]
         this.aK[k_pivot]++
+        add(this.aaK, this.aaJK[j])
         this.a++
         accepts++
       }
@@ -825,12 +831,13 @@ class _Sampler {
       // must be done after reweights (w/ same u) for accurate mlw
       this.p = 0 // proposed move count
       this.a = 0 // accepted move count
-      fill(this.pK, 0) // proposed move count by value
-      fill(this.aK, 0) // accepted move count by value
+      fill(this.pK, 0) // proposed moves by pivot value
+      fill(this.aK, 0) // accepted moves by pivot value
+      fill(this.aaK, 0) // accepted moves by jump value
       this.mlw = 0 // log_w improvement
       this.mlp = 0 // log_p improvement
       while (move_while(this)) {
-        move_weights(this, this.wK)
+        move_weights(this, this.awK, this.aawK)
         this._move()
         this.mlw += this.move_log_w
         this.mlp += this.move_log_p
@@ -1282,45 +1289,24 @@ class _Sampler {
 
   __mks() {
     const timer = _timer_if(this.stats)
-    const { b, B, K, stats } = this
-    if (b < B) return inf // not enough data yet
-    // rotate buffer so b=0 and we can split in half at B/2
-    const xBK = (this.___mks_xBK ??= array(B))
-    const yBK = (this.___mks_yBK ??= array(B))
-    const bb = b % B
-    copy_at(xBK, this.xBK, 0, bb)
-    copy_at(xBK, this.xBK, B - bb, 0, bb)
-    copy_at(yBK, this.yBK, 0, bb)
-    copy_at(yBK, this.yBK, B - bb, 0, bb)
-    // initialize single-value buffers for ks2_test
-    const R = B / 2
-    assert(is_integer(R)) // B should be divisible by 2
-    const xR = (this.___mks_xR ??= array(R))
-    const yR = (this.___mks_yR ??= array(R))
+    const { J, K, xJK, xBJK, stats } = this
+    if (xBJK.length < this.options.min_mks_updates) return inf // not enough data yet
+    const b0 = floor((xBJK.length - 1) / 2)
+    const b1 = xBJK.length - 1
+    const xJ = (this.___mks_xJ ??= array(J))
+    const yJ = (this.___mks_yJ ??= array(J))
     const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
     // compute ks2_test for each numeric value
-    // for now we simply test type of first sampled value
+    // include any undefined values for now
     fill(pK, k => {
       const value = this.values[k]
       if (!value.sampler) return 1 // value not sampled
-      let rx = 0
-      let ry = 0
-      for (let b = 0; b < R; ++b) {
-        const xbk = xBK[b][k]
-        if (xbk !== undefined) {
-          if (rx == 0 && typeof xbk != 'number') return 1 // not a number
-          xR[rx++] = xbk
-        }
-        const ybk = yBK[R + b][k]
-        if (ybk !== undefined) {
-          if (ry == 0 && typeof ybk != 'number') return 1 // not a number
-          yR[ry++] = ybk
-        }
+      if (!is_number(xJK[0][k])) return 1 // value not numeric
+      for (let j = 0; j < J; ++j) {
+        xJ[j] = xBJK[b0][j][k]
+        yJ[j] = xBJK[b1][j][k]
       }
-      if (rx == 0 || ry == 0) return 1 // not enough samples
-      xR.length = rx
-      yR.length = ry
-      return ks2_test(xR, yR)
+      return ks2_test(xJ, yJ)
     })
     if (stats) stats.mks_time += timer.t
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
@@ -1396,7 +1382,7 @@ class _Sampler {
     const value = this.values[k]
     assert(domain !== undefined, 'missing domain')
     const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
-    const { log_p_xJK, log_p_yJK } = this
+    const { aaJK, aawK, _aawK, log_p_xJK, log_p_yJK } = this
 
     // reject run on empty domain
     if (domain === null) this._weight(-inf)
@@ -1491,11 +1477,13 @@ class _Sampler {
       )
     }
 
-    const log_p = domain._log_p
+    const log_p = domain._log_p ?? (() => 0)
     const prior = options?.prior ?? domain._prior
     assert(prior, 'missing prior sampler')
 
-    // if not moving, just sample from prior into xJK and log_pwJ
+    // if not moving, sample from prior into xJK
+    // prior sample weights (if any) are stored in log_pwJ
+    // prior sampling density (if available) is stored in log_p_xJK
     if (!moving) {
       return prior((x, log_pw = 0) => {
         log_pwJ[j] += log_pw
@@ -1504,34 +1492,62 @@ class _Sampler {
       })
     }
 
-    // if moving, sample into yJK using xJK as start point
+    // if moving, sample into yJK by resampling from existing runs xJK
+    // run "y" is resampled from run "x" starting at "pivot" value
+    // pivot value is either posterior "pivoted" or prior "jumped"
+    // once past pivot, values can be "stayed" or "jumped"
     const xjk = xJK[j][k]
+    const yjK = yJK[j]
+    const log_p_yjK = log_p_yJK[j]
     const log_p_xjk = log_p_xJK[j][k]
     const k_pivot = this.kJ[j]
 
-    // if prior to pivot point, stay at xjk
-    if (k != k_pivot && yJK[j][k_pivot] === undefined) {
+    // if before pivot value, stay at xjk
+    // before pivot means "not at pivot and pivot is unsampled"
+    // condition k<=k_pivot is NOT reliable since sampling order can vary
+    if (k != k_pivot && yjK[k_pivot] === undefined) {
       assert(xjk !== undefined, 'unexpected missing prior value')
-      log_p_yJK[j][k] = log_p_xjk
-      return (yJK[j][k] = xjk)
+      log_p_yjK[k] = log_p_xjk
+      return (yjK[k] = xjk)
     }
 
-    // if at or past pivot, randomly sample globally from prior
-    // past pivot xjk can be outside domain or missing (undefined)
-    // TODO: why does the global sampling need to be so high?
-    //       how do we pick the "right" value?
-    //       how do we detect convergence?
-    if (xjk === undefined || random_boolean(0.9))
+    // if at pivot, renormalize jump weights among unsampled values
+    // unsampled values are pivot + past-pivot values
+    if (k == k_pivot) {
+      copy(_aawK, aawK, (w, k) => (yjK[k] === undefined ? w : 0))
+      const s = sum(_aawK)
+      // TODO: this has the odd behavior of guaranteed jumps when concentrated on single jump value, but not when split across multiple jump values, although expected jumps is always 1; could not improve on it w/ either a single guaranteed jump or w/ poisson jumps a/ prob 1-exp(-wk)
+      //
+      // TODO: robust convergence is no longer an issue, but detecting convergence is, and a glaring issue is that we do not distinguish different types of moves that can affect metrics very differently ... although if you can argue that the metrics are complementary, i.e. mlp should be high whenever mks is low, that would be a strong argument
+      //
+      if (s) scale(_aawK, 1 / s) // renormalize if non-zero
+    }
+
+    // TODO: it seems keys are (1) enforce a minimum number of _accepted_ "prior jumps" (or just "jumps") for each value at each move step, and (3) being able to concentrate sampling on missing pivots/jumps, and (3) fixing mks buffer so it tracks significant movement (e.g. prior jumps across all values); note it is not clear if the "jumps" have to be "prior jumps", but also not clear how to determine the right kind/mix of "posterior jump" in a given app
+
+    // if at or past pivot, resample "jump" value from prior
+    // always resample if xjk is missing (can only happen past pivot)
+    if (xjk === undefined || random_boolean(_aawK[k])) {
+      aaJK[j][k] = 1 // value jumped
       return prior(y => {
-        log_p_yJK[j][k] = log_p(y)
-        return (yJK[j][k] = y)
+        log_p_yjK[k] = log_p(y)
+        // TODO: state precisely how log_mpJ or log_p_xjk factors into log(∝q(x|y)/q(y|x)), and how it cancels out when sampling from prior due to independence of current point xjk, and compare to staying at current point xjk, which is maximally dependent on current point and the asymmetry in probability is due to the probability of sampling xjk in two distinct runs conditioned on state up to that run
+        //
+        // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
+        return (yjK[k] = y)
       })
+    }
 
     // if past pivot, stay at xjk but factor in density ratio p(y)/p(x)
+    // reject and return undefined for out-of-domain xjk
     if (k != k_pivot) {
-      log_p_yJK[j][k] = log_p(xjk) // not log_p_xjk but new log_p under pivot
-      log_mpJ[j] += log_p_yJK[j][k] - log_p_xjk
-      return (yJK[j][k] = xjk)
+      if (!from(xjk, domain)) {
+        log_mpJ[j] = -inf
+        return undefined
+      }
+      log_p_yjK[k] = log_p(xjk) // not log_p_xjk but new log_p under pivot
+      log_mpJ[j] += log_p_yjK[k] - log_p_xjk
+      return (yjK[k] = xjk)
     }
 
     // if at k_pivot, move from xjk along posterior chain
@@ -1540,8 +1556,8 @@ class _Sampler {
     return posterior(
       (y, log_mw = 0) => {
         log_mwJ[j] += log_mw
-        log_p_yJK[j][k] = log_p(y)
-        return (yJK[j][k] = y)
+        log_p_yjK[k] = log_p(y)
+        return (yjK[k] = y)
       },
       xjk,
       this.stdevK[k]
@@ -1595,7 +1611,7 @@ function uniform(a, b) {
       // return f(y, log(xb - xa) - log(yb - ya))
 
       // sample around x w/ random radius proportional to stdev
-      // shift sampling region inside (a,b) to avoid asymmetric jumps x<->y
+      // shift sampling region inside (a,b) to avoid asymmetry in x<->y
       const r = min((b - a) / 2, stdev)
       let ya = x - r
       let yb = x + r
