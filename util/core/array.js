@@ -53,14 +53,22 @@ function fill(xJ, x, js = 0, je = xJ.length) {
 // copies `xJ` into new array
 // can copy `yJ` into existing `xJ`
 // can map copied elements as `f(x,j)`
-function copy(xJ, yJ, f) {
+// can filter copied elements via `g(x,j)`
+function copy(xJ, yJ, f, g) {
   if (yJ === undefined) return xJ.slice() // single-arg mode
-  // dual-arg copy(yJ,f) mode: shift args and allocate xJ
-  if (typeof yJ == 'function') {
-    f = yJ
-    yJ = xJ
-    xJ = array(yJ.length)
-    for (let j = 0; j < xJ.length; ++j) xJ[j] = f(yJ[j], j)
+  // single-array mode: shift args and allocate xJ
+  if (!yJ || typeof yJ == 'function')
+    return copy(array(xJ.length), ...arguments)
+  // filter mode; use function g to filter yJ into (resized) xJ
+  if (g) {
+    let jx = 0
+    if (f) {
+      for (let j = 0; j < xJ.length; ++j)
+        if (g(yJ[j], j)) xJ[jx++] = f(yJ[j], j)
+    } else {
+      for (let j = 0; j < xJ.length; ++j) if (g(yJ[j], j)) xJ[jx++] = yJ[j]
+    }
+    xJ.length = jx
     return xJ
   }
   if (f) for (let j = 0; j < xJ.length; ++j) xJ[j] = f(yJ[j], j)
