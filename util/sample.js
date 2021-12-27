@@ -253,8 +253,8 @@ class _Sampler {
           min_in(aK) < J / K ||
           min_in(aaK) < 1.0 * (J / K),
         move_weights: ({ aK, aaK }, awK, aawK) => {
-          fill(aawK, k => max(0, 1.0 * (J / K) - aaK[k]))
           fill(awK, k => max(0, J / K - aK[k]))
+          fill(aawK, k => max(0, 1.0 * (J / K) - aaK[k]))
         },
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
