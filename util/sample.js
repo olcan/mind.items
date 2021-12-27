@@ -122,9 +122,9 @@ function from(x, domain, b) {
 // |               | _default_: `u => min(1, (u+1)/3)`
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `min_updates` | minimum number of update steps, _default_: `0`
-// | `min_stable_updates` | minimum stable update steps, _default_: `1`
+// | `min_stable_updates` | minimum stable update steps, _default_: `2`
 // | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
-// | `min_mks_updates` | minimum update steps for mks, _default_: `10`
+// | `min_mks_updates` | minimum update steps for mks, _default_: `5`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
@@ -259,9 +259,9 @@ class _Sampler {
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
         min_updates: 0,
-        min_stable_updates: 1,
+        min_stable_updates: 2,
         min_unweighted_updates: 3,
-        min_mks_updates: 10,
+        min_mks_updates: 5,
         max_time: 100,
         min_time: 0,
         min_ess: J / 2,
@@ -293,6 +293,7 @@ class _Sampler {
 
     this.m = 0 // move count
     this.xBJK = [] // buffered samples for mks
+    this.wBJ = [] // buffered sample weights for mks
     this.pK = array(K) // move proposals per pivot value
     this.aK = array(K) // move accepts per pivot value
     this.aaK = array(K) // move accepts per jump value
@@ -515,6 +516,7 @@ class _Sampler {
 
     // buffer samples at each update
     this.xBJK.push(clone_deep(this.xJK))
+    this.wBJ.push(clone_deep(this.rwJ))
     this.mks = null // reset cached mks
 
     const update = {}
@@ -1289,24 +1291,33 @@ class _Sampler {
 
   __mks() {
     const timer = _timer_if(this.stats)
-    const { J, K, xJK, xBJK, stats } = this
+    const { J, K, xBJK, wBJ, stats } = this
     if (xBJK.length < this.options.min_mks_updates) return inf // not enough data yet
     const b0 = floor((xBJK.length - 1) / 2)
     const b1 = xBJK.length - 1
     const xJ = (this.___mks_xJ ??= array(J))
     const yJ = (this.___mks_yJ ??= array(J))
+    const wxJ = (this.___mks_wxJ ??= array(J))
+    const wyJ = (this.___mks_wyJ ??= array(J))
     const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
     // compute ks2_test for each numeric value
     // include any undefined values for now
     fill(pK, k => {
       const value = this.values[k]
       if (!value.sampler) return 1 // value not sampled
-      if (!is_number(xJK[0][k])) return 1 // value not numeric
+      if (!is_number(xBJK[0][0][k])) return 1 // value not numeric
       for (let j = 0; j < J; ++j) {
         xJ[j] = xBJK[b0][j][k]
         yJ[j] = xBJK[b1][j][k]
+        wxJ[j] = wBJ[b0][j]
+        wyJ[j] = wBJ[b1][j]
       }
-      return ks2_test(xJ, yJ)
+      return ks2_test(xJ, yJ, {
+        wJ: wxJ,
+        wj_sum: sum(wxJ),
+        wK: wyJ,
+        wk_sum: sum(wyJ),
+      })
     })
     if (stats) stats.mks_time += timer.t
     // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
