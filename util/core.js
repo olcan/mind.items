@@ -35,7 +35,7 @@ const uniq_by = _.uniqBy
 const diff = _.difference
 const compact = _.compact
 const without = _.without
-const flatten = _.flatten
+const flatten = _.flattenDepth
 const flatten_deep = _.flattenDeep
 const flat = (...args) => _.flattenDeep(args)
 
