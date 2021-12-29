@@ -5,8 +5,9 @@
     const xSJ = matrixify(values)
     const series_labels = options.series?.map(s => s.label) ?? []
     const series_colors = options.series?.map(s => s.color) ?? []
-    if (options.delta && xSJ.length == 2) {
-      xSJ.push(sub(copy(xSJ[0]), xSJ[1]))
+    if (options.delta && xSJ.length >= 2) {
+      const S = xSJ.length
+      xSJ.push(sub(copy(xSJ[S - 2]), xSJ[S - 1]))
       series_labels.push('delta')
       series_colors.push(options.delta_color)
     }
