@@ -105,8 +105,8 @@ function plot(obj, name = undefined) {
       return
     }
     // scroll item to ~middle of screen if too low
-    if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
-      document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
+    // if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
+    //   document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
   })
 }
 
