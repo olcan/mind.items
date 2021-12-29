@@ -122,15 +122,16 @@ function from(x, domain, b) {
 // |               | _default_: `u => min(1, (u+1)/3)`
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `min_updates` | minimum number of update steps, _default_: `0`
-// | `min_stable_updates` | minimum stable update steps, _default_: `2`
+// | `min_stable_updates` | minimum stable update steps, _default_: `1`
 // | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
-// | `min_mks_updates` | minimum update steps for mks, _default_: `5`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
 // |               | _default_: `1` ≡ failure to reject same-dist at `ɑ<1/2`
+// | `mks_tail`    | ratio (<1) of recent updates for `mks`, _default_: `1/2`
+// | `mks_period`  | minimum update steps for `mks`, _default_: `3`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `time`        | target time (ms) for sampling, _default_: auto
@@ -213,14 +214,14 @@ class _Timer {
     return Date.now() - this.start + 'ms'
   }
   get t() {
-    Date.now() - start
+    return Date.now() - this.start
   }
 }
 function _timer() {
   return new _Timer()
 }
 function _timer_if(c) {
-  return c ? _timer() : undefined
+  if (c) return new _Timer()
 }
 
 class _Sampler {
@@ -259,13 +260,14 @@ class _Sampler {
         weight_exp: u => min(1, (u + 1) / 3),
         max_updates: inf,
         min_updates: 0,
-        min_stable_updates: 2,
+        min_stable_updates: 1,
         min_unweighted_updates: 3,
-        min_mks_updates: 5,
-        max_time: 100,
+        max_time: 250,
         min_time: 0,
         min_ess: J / 2,
         max_mks: 1,
+        mks_tail: 1 / 2,
+        mks_period: 1,
         max_tks: 5,
       },
       options
@@ -293,7 +295,10 @@ class _Sampler {
 
     this.m = 0 // move count
     this.xBJK = [] // buffered samples for mks
-    this.wBJ = [] // buffered sample weights for mks
+    this.log_p_xBJK = [] // buffered samples for mks
+    this.rwBJ = [] // buffered sample weights for mks
+    this.rwBj_sum = [] // buffered sample weight sums for mks
+    this.uB = [] // buffer sample update steps
     this.pK = array(K) // move proposals per pivot value
     this.aK = array(K) // move accepts per pivot value
     this.aaK = array(K) // move accepts per jump value
@@ -341,7 +346,7 @@ class _Sampler {
     cache(this, 'elp', ['rwJ'])
     cache(this, 'tks', ['rwJ'])
     cache(this, 'stdevK', ['rwJ'])
-    cache(this, 'mks', [])
+    cache(this, 'mks', ['rwJ'])
 
     // initialize stats
     this._init_stats()
@@ -514,17 +519,12 @@ class _Sampler {
     const spec = this.options.stats
     if (empty(spec)) return // no update stats enabled
 
-    // buffer samples at each update
-    this.xBJK.push(clone_deep(this.xJK))
-    this.wBJ.push(clone_deep(this.rwJ))
-    this.mks = null // reset cached mks
-
     const update = {}
     if (spec.ess) update.ess = round(this.ess)
     if (spec.essu) update.essu = round(this.essu)
     if (spec.essr) update.essr = round(100 * clip(this.ess / this.essu))
     if (spec.elw) update.elw = round_to(this.elw, 2)
-    if (spec.elp && this.log_wuj_gap == 0) update.elp = round_to(this.elp, 3)
+    if (spec.elp) update.elp = round_to(this.elp, 3)
     if (spec.wsum) update.wsum = round_to(this.wsum, 1)
     if (spec.mar)
       update.mar = this.u == 0 ? 100 : round_to(100 * (this.a / this.p), 3, 3)
@@ -535,7 +535,7 @@ class _Sampler {
     })
     if (spec.mlw) update.mlw = this.u == 0 ? 0 : round_to(this.mlw, 1)
     if (spec.mlp) update.mlp = this.u == 0 ? 0 : round_to(this.mlp, 1)
-    if (spec.mks) update.mks = round_to(this.mks, 1)
+    if (spec.mks) update.mks = round_to(this.mks, 3)
     if (spec.tks) update.tks = round_to(this.tks, 1)
     if (spec.gap)
       update.gap =
@@ -762,6 +762,20 @@ class _Sampler {
       this.log_wuj_gap_before_reweight = this.log_wuj_gap
       this._reweight() // reweight for step u+1
 
+      // buffer samples at u=0 and then every mks_period updates
+      if (this.u % this.options.mks_period == 0) {
+        this.uB.push(this.u)
+        this.xBJK.push(clone_deep(this.xJK))
+        this.log_p_xBJK.push(clone_deep(this.log_p_xJK))
+        if (this.rwj_uniform) {
+          this.rwBJ.push(undefined)
+          this.rwBj_sum.push(undefined)
+        } else {
+          this.rwBJ.push(clone_deep(this.rwJ))
+          this.rwBj_sum.push(this.rwj_sum)
+        }
+      }
+
       // stats updates and termination checks must be done at this point (after reewight, before resample & move) but not on first pass (u=0)
       if (this.u > 0) {
         // update stats for u=1,...
@@ -982,17 +996,20 @@ class _Sampler {
 
       if (spec.wsum) add_rescaled_line('wsum')
       if (spec.elw) add_rescaled_line('elw')
-      if (spec.elp) add_rescaled_line('elp', null, 3)
+      if (spec.elp) {
+        const [a, b] = min_max_in(map(updates, 'elp'))
+        add_rescaled_line('elp', [a, b], 3)
+      }
       let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
       if (spec.mlw) {
-        add_rescaled_line('mlw')
         const [a, b] = min_max_in(map(updates, 'mlw'))
+        add_rescaled_line('mlw', [a, b])
         mlw_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
       }
       let mlp_0_on_y // for grid line to indicate 0 level for mlp on y axis
       if (spec.mlp) {
-        add_rescaled_line('mlp')
         const [a, b] = min_max_in(map(updates, 'mlp'))
+        add_rescaled_line('mlp', [a, b])
         mlp_0_on_y = (-a / max(b - a, 1e-6)) * last(y_ticks)
       }
       if (spec.p) add_rescaled_line('p')
@@ -1252,11 +1269,11 @@ class _Sampler {
   __tks() {
     const timer = _timer_if(this.stats)
     const { J, K, xJK, rwJ, rwj_uniform, values, stats } = this
-    const pK = (this.___tks_pK ??= array(K)) // array of ks-test p-values
     // compute ks1_test or ks2_test for each (numeric) value w/ target
+    const pK = (this.___tks_pK ??= array(K))
     fill(pK, k => {
       const value = values[k]
-      if (!value.target) return 1 // no target
+      if (!value.target) return undefined // no target
       const xR = (this.___tks_xR ??= array(J))
       const wR = (this.___tks_wR ??= array(J))
       let wr_sum = 0
@@ -1284,44 +1301,71 @@ class _Sampler {
         wk_sum: value.target_weight_sum,
       })
     })
+    const pR = pK.filter(defined)
     if (stats) stats.tks_time += timer.t
-    // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
-    return -log2(beta_cdf(min_in(pK), 1, K))
+    // minimum p-value ~ Beta(1,R) so we transform as beta_cdf(p,1,R)
+    return -log2(beta_cdf(min_in(pR), 1, pR.length))
   }
 
   __mks() {
     const timer = _timer_if(this.stats)
-    const { J, K, xBJK, wBJ, stats } = this
-    if (xBJK.length < this.options.min_mks_updates) return inf // not enough data yet
-    const b0 = floor((xBJK.length - 1) / 2)
-    const b1 = xBJK.length - 1
+    const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK } = this
+    const { log_p_xJK, rwJ, rwj_sum, rwj_uniform, stats } = this
+    const { mks_tail, mks_period } = this.options
+    if (xBJK.length < 2) return inf // not enough updates yet
+    // trim mks sample buffer to cover desired tail of updates
+    const B = min(xBJK.length, max(2, 1 + ceil((u * mks_tail) / mks_period)))
+    while (xBJK.length > B) {
+      uB.shift()
+      xBJK.shift()
+      log_p_xBJK.shift()
+      rwBJ.shift()
+      rwBj_sum.shift()
+    }
     const xJ = (this.___mks_xJ ??= array(J))
     const yJ = (this.___mks_yJ ??= array(J))
-    const wxJ = (this.___mks_wxJ ??= array(J))
-    const wyJ = (this.___mks_wyJ ??= array(J))
-    const pK = (this.___mks_pK ??= array(K)) // array of ks-test p-values
+    const log_p_xJ = (this.___mks_log_p_xJ ??= array(J))
     // compute ks2_test for each numeric value
     // include any undefined values for now
-    fill(pK, k => {
+    let pR = array(K, k => {
       const value = this.values[k]
-      if (!value.sampler) return 1 // value not sampled
-      if (!is_number(xBJK[0][0][k])) return 1 // value not numeric
-      for (let j = 0; j < J; ++j) {
-        xJ[j] = xBJK[b0][j][k]
-        yJ[j] = xBJK[b1][j][k]
-        wxJ[j] = wBJ[b0][j]
-        wyJ[j] = wBJ[b1][j]
-      }
-      return ks2_test(xJ, yJ, {
-        wJ: wxJ,
-        wj_sum: sum(wxJ),
-        wK: wyJ,
-        wk_sum: sum(wyJ),
+      if (!value.sampler) return undefined // value not sampled
+      if (!is_number(xJK[0][k])) return undefined // value not numeric
+      copy(xJ, xJK, xjK => xjK[k])
+      copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
+      assert(sum_by(xJ, defined) == J)
+      assert(sum_by(log_p_xJ, defined) == J)
+
+      // also take minimum p-value over up to B-1 oldest samples in tail
+      // always exclude most recent sample since within last mks_period
+      // also include ks for log_p to help compensate for reused values
+      return array(min(1, B - 1), b => {
+        if (k == 0) print(`mks: ${uB[b]} <-> ${u}`)
+        copy(yJ, xBJK[b], yjK => yjK[k])
+        const x_ks = ks2_test(xJ, yJ, {
+          wJ: rwj_uniform ? undefined : rwJ,
+          wj_sum: rwj_uniform ? undefined : rwj_sum,
+          wK: rwBJ[b],
+          wk_sum: rwBj_sum[b],
+        })
+        copy(yJ, log_p_xBJK[b], log_p_yjK => log_p_yjK[k])
+        const log_p_ks = ks2_test(log_p_xJ, yJ, {
+          wJ: rwj_uniform ? undefined : rwJ,
+          wj_sum: rwj_uniform ? undefined : rwj_sum,
+          wK: rwBJ[b],
+          wk_sum: rwBj_sum[b],
+        })
+        return [x_ks, log_p_ks]
       })
     })
+    print(round_to(min_in(flat(pR)), 3), str(round_to(flatten(pR), 3)))
+    pR = flat(pR).filter(defined)
     if (stats) stats.mks_time += timer.t
-    // minimum p-value ~ Beta(1,K) so we transform as beta_cdf(p,1,K)
-    return -log2(beta_cdf(min_in(pK), 1, K))
+    // TODO: how can mks look so good when tks still varies significantly?
+    //       - see example 4, u=1<->3, w/ tks varying up to 5-10
+    //       - is it that there are undefined values messing up mks?
+    // minimum p-value ~ Beta(1,R) so we transform as beta_cdf(p,1,R)
+    return -log2(beta_cdf(min_in(pR), 1, pR.length))
   }
 
   sample_index(options) {
