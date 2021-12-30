@@ -131,7 +131,7 @@ function from(x, domain, b) {
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
 // |               | _default_: `1` ≡ failure to reject same-dist at `ɑ<1/2`
 // | `mks_tail`    | ratio (<1) of recent updates for `mks`, _default_: `1/2`
-// | `mks_period`  | minimum update steps for `mks`, _default_: `3`
+// | `mks_period`  | minimum update steps for `mks`, _default_: `1`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `time`        | target time (ms) for sampling, _default_: auto
@@ -288,10 +288,11 @@ class _Sampler {
     this.log_p_yJK = matrix(J, K) // posterior sample log-densities
 
     this.kJ = array(J) // array of (posterior) pivot values in _move
-    this.aaJK = matrix(J, K) // matrix of (prior) "jumped" values in _move
+    this.upJK = matrix(J, K) // last jump proposal step
+    this.uaJK = matrix(J, K, 0) // last jump accept step
+    this.upwK = array(K) // jump proposal weights (computed at pivot value)
     this.awK = array(K) // array of move weights by pivot value
     this.aawK = array(K) // array of move weights by jump value
-    this._aawK = array(K) // move weights renormalized at pivot value
 
     this.m = 0 // move count
     this.xBJK = [] // buffered samples for mks
@@ -320,6 +321,7 @@ class _Sampler {
     this._jJ = array(J)
     this._xJ = array(J)
     this._xJK = array(J)
+    this._uaJK = array(J)
     this._log_p_xJK = array(J)
     this._log_wJ = array(J)
     this._log_wufJ = array(J)
@@ -523,7 +525,7 @@ class _Sampler {
     if (spec.ess) update.ess = round(this.ess)
     if (spec.essu) update.essu = round(this.essu)
     if (spec.essr) update.essr = round(100 * clip(this.ess / this.essu))
-    if (spec.elw) update.elw = round_to(this.elw, 2)
+    if (spec.elw) update.elw = round_to(this.elw, 3)
     if (spec.elp) update.elp = round_to(this.elp, 3)
     if (spec.wsum) update.wsum = round_to(this.wsum, 1)
     if (spec.mar)
@@ -621,19 +623,29 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ, _log_wufJ, log_wufJ } = this
-    const { _log_wuJ, log_wuJ, log_p_xJK, _log_p_xJK } = this
+    const { _uaJK, uaJK, _log_wuJ, log_wuJ, log_p_xJK, _log_p_xJK } = this
     if (rwj_uniform) random_discrete_uniform_array(jjJ, J)
     else random_discrete_array(jjJ, rwJ, rwj_sum) // note: sorted indices
     scan(jjJ, (j, jj) => {
       _jJ[j] = jJ[jj]
       _xJ[j] = xJ[jj]
       _xJK[j] = xJK[jj]
+      _uaJK[j] = uaJK[jj]
       _log_p_xJK[j] = log_p_xJK[jj]
       _log_wJ[j] = log_wJ[jj]
       _log_wufJ[j] = log_wufJ[jj]
       _log_wuJ[j] = log_wuJ[jj]
     })
-    this._swap('jJ', 'xJ', 'xJK', 'log_p_xJK', 'log_wJ', 'log_wufJ', 'log_wuJ')
+    this._swap(
+      'jJ',
+      'xJ',
+      'xJK',
+      'uaJK',
+      'log_p_xJK',
+      'log_wJ',
+      'log_wufJ',
+      'log_wuJ'
+    )
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // since jJ changed
@@ -648,7 +660,7 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     const timer = _timer_if(this.stats)
-    const { J, K, u, func, yJ, yJK, kJ, aaJK, xJ, xJK, jJ, jjJ } = this
+    const { J, K, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
     const { log_cwJ, log_cwufJ, log_wJ, log_wufJ, log_wuJ, stats } = this
     const { awK, aawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
@@ -657,12 +669,17 @@ class _Sampler {
     fill(log_cwufJ, undefined) // reset posterior candidate future log-weights
     each(yJK, yjK => fill(yjK, undefined))
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
-    // choose random pivot based in awK until all-zero, then aawK
+    each(upJK, upjK => fill(upjK, 0))
+    // choose random pivot based on uaJK (least-recently prior-jumped)
+
+    // choose random pivot based on uaJK, awK, and aawK
     // random_discrete_uniform_array(kJ, K)
-    const awk_sum = sum(awK)
-    if (awk_sum) random_discrete_array(kJ, awK)
-    else random_discrete_array(kJ, aawK)
-    each(aaJK, aajK => fill(aajK, 0))
+    const wK = (this._move_wK ??= array(K))
+    each(uaJK, (uajK, j) => {
+      fill(wK, k => this.u - uajK[k] || awK[k] || aawK[k])
+      kJ[j] = random_discrete(wK)
+    })
+
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wJ = log_wJ // to be restored below
     const tmp_log_wufJ = log_wufJ // to be restored below
@@ -677,12 +694,12 @@ class _Sampler {
     let accepts = 0
     this.move_log_w = 0
     this.move_log_p = 0
-    const w_exp = this.options.weight_exp(u)
+    const w_exp = this.options.weight_exp(this.u)
     repeat(J, j => {
       const k_pivot = kJ[j]
       this.p++
       this.pK[k_pivot]++
-      let log_cwuj = log_cwufJ[j] ? log_cwufJ[j](u) : w_exp * log_cwJ[j]
+      let log_cwuj = log_cwufJ[j] ? log_cwufJ[j](this.u) : w_exp * log_cwJ[j]
       log_cwuj = clip(log_cwuj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwuj - log_wuJ[j]
       if (random() < exp(log_mwJ[j] + log_mpJ[j] + log_dwj)) {
@@ -704,7 +721,11 @@ class _Sampler {
         this.move_log_w += log_dwj
         this.move_log_p += log_mpJ[j]
         this.aK[k_pivot]++
-        add(this.aaK, this.aaJK[j])
+        each(upJK[j], (u, k) => {
+          if (u != this.u) return
+          uaJK[j][k] = u // accepted jump
+          this.aaK[k]++
+        })
         this.a++
         accepts++
       }
@@ -975,13 +996,13 @@ class _Sampler {
       if (spec.ess)
         add_line('ess', {
           axis: 'y2',
-          mapper: x => (100 * x) / this.J,
+          mapper: x => round_to((100 * x) / this.J, 1),
           formatter: x => `${x}%`,
         })
       if (spec.essu)
         add_line('essu', {
           axis: 'y2',
-          mapper: x => (100 * x) / this.J,
+          mapper: x => round_to((100 * x) / this.J, 1),
           formatter: x => `${x}%`,
         })
       if (spec.essr) add_line('essr', { axis: 'y2', formatter: x => `${x}%` })
@@ -995,7 +1016,7 @@ class _Sampler {
       })
 
       if (spec.wsum) add_rescaled_line('wsum')
-      if (spec.elw) add_rescaled_line('elw')
+      if (spec.elw) add_rescaled_line('elw', null, 3)
       if (spec.elp) {
         const [a, b] = min_max_in(map(updates, 'elp'))
         add_rescaled_line('elp', [a, b], 3)
@@ -1309,11 +1330,12 @@ class _Sampler {
 
   __mks() {
     const timer = _timer_if(this.stats)
-    const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK } = this
+    const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK, uaJK } = this
     const { log_p_xJK, rwJ, rwj_sum, rwj_uniform, stats } = this
     const { mks_tail, mks_period } = this.options
-    if (xBJK.length < 2) return inf // not enough updates yet
+
     // trim mks sample buffer to cover desired tail of updates
+    if (xBJK.length < 2) return inf // not enough updates yet
     const B = min(xBJK.length, max(2, 1 + ceil((u * mks_tail) / mks_period)))
     while (xBJK.length > B) {
       uB.shift()
@@ -1322,50 +1344,49 @@ class _Sampler {
       rwBJ.shift()
       rwBj_sum.shift()
     }
+
     const xJ = (this.___mks_xJ ??= array(J))
+    const wJ = (this.___mks_wJ ??= array(J))
     const yJ = (this.___mks_yJ ??= array(J))
     const log_p_xJ = (this.___mks_log_p_xJ ??= array(J))
+    const log_p_yJ = (this.___mks_log_p_yJ ??= array(J))
+
+    // include only samples fully updated since buffered update
+    copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
+    const wj_sum = sum(wJ)
+    if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
+
     // compute ks2_test for each numeric value
-    // include any undefined values for now
     let pR = array(K, k => {
       const value = this.values[k]
       if (!value.sampler) return undefined // value not sampled
       if (!is_number(xJK[0][k])) return undefined // value not numeric
       copy(xJ, xJK, xjK => xjK[k])
       copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
-      assert(sum_by(xJ, defined) == J)
-      assert(sum_by(log_p_xJ, defined) == J)
 
-      // also take minimum p-value over up to B-1 oldest samples in tail
-      // always exclude most recent sample since within last mks_period
-      // also include ks for log_p to help compensate for reused values
-      return array(min(1, B - 1), b => {
-        if (k == 0) print(`mks: ${uB[b]} <-> ${u}`)
-        copy(yJ, xBJK[b], yjK => yjK[k])
-        const x_ks = ks2_test(xJ, yJ, {
-          wJ: rwj_uniform ? undefined : rwJ,
-          wj_sum: rwj_uniform ? undefined : rwj_sum,
-          wK: rwBJ[b],
-          wk_sum: rwBj_sum[b],
-        })
-        copy(yJ, log_p_xBJK[b], log_p_yjK => log_p_yjK[k])
-        const log_p_ks = ks2_test(log_p_xJ, yJ, {
-          wJ: rwj_uniform ? undefined : rwJ,
-          wj_sum: rwj_uniform ? undefined : rwj_sum,
-          wK: rwBJ[b],
-          wk_sum: rwBj_sum[b],
-        })
-        return [x_ks, log_p_ks]
+      copy(yJ, xBJK[0], yjK => yjK[k])
+      const x_ks = ks2_test(xJ, yJ, {
+        wJ,
+        wj_sum,
+        wK: rwBJ[0],
+        wk_sum: rwBj_sum[0],
       })
+      copy(log_p_yJ, log_p_xBJK[0], log_p_yjK => log_p_yjK[k])
+      const log_p_ks = ks2_test(log_p_xJ, log_p_yJ, {
+        wJ,
+        wj_sum,
+        wK: rwBJ[0],
+        wk_sum: rwBj_sum[0],
+      })
+      return [x_ks, log_p_ks]
     })
-    print(round_to(min_in(flat(pR)), 3), str(round_to(flatten(pR), 3)))
+    // print(round_to(min_in(flat(pR)), 3), str(round_to(pR, 3)))
     pR = flat(pR).filter(defined)
     if (stats) stats.mks_time += timer.t
-    // TODO: how can mks look so good when tks still varies significantly?
-    //       - see example 4, u=1<->3, w/ tks varying up to 5-10
-    //       - is it that there are undefined values messing up mks?
-    // minimum p-value ~ Beta(1,R) so we transform as beta_cdf(p,1,R)
-    return -log2(beta_cdf(min_in(pR), 1, pR.length))
+    if (pR.length == 0) return inf
+    // note there are many dependencies in the statistics, especially between x and log_p for same value (k), so we adjust R by 1/2, which also seems to work better empirically
+    // return -log2(min_in(pR))
+    return -log2(beta_cdf(min_in(pR), 1, round(pR.length * 0.5)))
   }
 
   sample_index(options) {
@@ -1437,7 +1458,7 @@ class _Sampler {
     const value = this.values[k]
     assert(domain !== undefined, 'missing domain')
     const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
-    const { aaJK, aawK, _aawK, log_p_xJK, log_p_yJK } = this
+    const { upJK, uaJK, aawK, upwK, log_p_xJK, log_p_yJK } = this
 
     // reject run on empty domain
     if (domain === null) this._weight(-inf)
@@ -1550,7 +1571,7 @@ class _Sampler {
     // if moving, sample into yJK by resampling from existing runs xJK
     // run "y" is resampled from run "x" starting at "pivot" value
     // pivot value is either posterior "pivoted" or prior "jumped"
-    // once past pivot, values can be "stayed" or "jumped"
+    // once past pivot, values can be "reused" or "jumped"
     const xjk = xJK[j][k]
     const yjK = yJK[j]
     const log_p_yjK = log_p_yJK[j]
@@ -1566,28 +1587,26 @@ class _Sampler {
       return (yjK[k] = xjk)
     }
 
-    // if at pivot, renormalize jump weights among unsampled values
+    // if at pivot, compute jump weights for unsampled values based on uaJK
     // unsampled values are pivot + past-pivot values
     if (k == k_pivot) {
-      copy(_aawK, aawK, (w, k) => (yjK[k] === undefined ? w : 0))
-      const s = sum(_aawK)
-      // TODO: this has the odd behavior of guaranteed jumps when concentrated on single jump value, but not when split across multiple jump values, although expected jumps is always 1; could not improve on it w/ either a single guaranteed jump or w/ poisson jumps a/ prob 1-exp(-wk)
-      //
-      // TODO: robust convergence is no longer an issue, but detecting convergence is, and a glaring issue is that we do not distinguish different types of moves that can affect metrics very differently ... although if you can argue that the metrics are complementary, i.e. mlp should be high whenever mks is low, that would be a strong argument
-      //
-      if (s) scale(_aawK, 1 / s) // renormalize if non-zero
+      // copy(upwK, aawK, (w, k) => (yjK[k] === undefined ? w : 0))
+      copy(upwK, uaJK[j], (u, k) =>
+        yjK[k] === undefined ? this.u - u || aawK[k] : 0
+      )
+      const s = sum(upwK)
+      if (s) scale(upwK, 1 / s)
     }
-
-    // TODO: it seems keys are (1) enforce a minimum number of _accepted_ "prior jumps" (or just "jumps") for each value at each move step, and (3) being able to concentrate sampling on missing pivots/jumps, and (3) fixing mks buffer so it tracks significant movement (e.g. prior jumps across all values); note it is not clear if the "jumps" have to be "prior jumps", but also not clear how to determine the right kind/mix of "posterior jump" in a given app
 
     // if at or past pivot, resample "jump" value from prior
     // always resample if xjk is missing (can only happen past pivot)
-    if (xjk === undefined || random_boolean(_aawK[k])) {
-      aaJK[j][k] = 1 // value jumped
+    if (xjk === undefined || random_boolean(upwK[k])) {
+      // if (xjk === undefined || k != k_pivot || random_boolean(0.5)) {
+      // if (xjk === undefined || true) {
+      upJK[j][k] = this.u // jump proposed (not yet accepted)
       return prior(y => {
         log_p_yjK[k] = log_p(y)
-        // TODO: state precisely how log_mpJ or log_p_xjk factors into log(∝q(x|y)/q(y|x)), and how it cancels out when sampling from prior due to independence of current point xjk, and compare to staying at current point xjk, which is maximally dependent on current point and the asymmetry in probability is due to the probability of sampling xjk in two distinct runs conditioned on state up to that run
-        //
+        // when sampling from prior, any dependecy on pivot is through prior parameters and is already accounted for in log_mwJ or log_mpJ
         // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
         return (yjK[k] = y)
       })
