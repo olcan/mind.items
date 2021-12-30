@@ -1356,37 +1356,35 @@ class _Sampler {
     const wj_sum = sum(wJ)
     if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
 
-    // compute ks2_test for each numeric value
-    let pR = array(K, k => {
+    const pR2 = array(K, k => {
       const value = this.values[k]
-      if (!value.sampler) return undefined // value not sampled
-      if (!is_number(xJK[0][k])) return undefined // value not numeric
+      if (!value.sampler) return // value not sampled
+      if (!is_number(xJK[0][k])) return // value not numeric
       copy(xJ, xJK, xjK => xjK[k])
-      copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
-
       copy(yJ, xBJK[0], yjK => yjK[k])
-      const x_ks = ks2_test(xJ, yJ, {
-        wJ,
-        wj_sum,
-        wK: rwBJ[0],
-        wk_sum: rwBj_sum[0],
-      })
+      copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
       copy(log_p_yJ, log_p_xBJK[0], log_p_yjK => log_p_yjK[k])
-      const log_p_ks = ks2_test(log_p_xJ, log_p_yJ, {
-        wJ,
-        wj_sum,
-        wK: rwBJ[0],
-        wk_sum: rwBj_sum[0],
-      })
-      return [x_ks, log_p_ks]
-    })
-    // print(round_to(min_in(flat(pR)), 3), str(round_to(pR, 3)))
-    pR = flat(pR).filter(defined)
+      return [
+        ks2_test(xJ, yJ, {
+          wJ,
+          wj_sum,
+          wK: rwBJ[0],
+          wk_sum: rwBj_sum[0],
+        }),
+        ks2_test(log_p_xJ, log_p_yJ, {
+          wJ,
+          wj_sum,
+          wK: rwBJ[0],
+          wk_sum: rwBj_sum[0],
+        }),
+      ]
+    }).filter(defined)
+
     if (stats) stats.mks_time += timer.t
-    if (pR.length == 0) return inf
-    // note there are many dependencies in the statistics, especially between x and log_p for same value (k), so we adjust R by 1/2, which also seems to work better empirically
-    // return -log2(min_in(pR))
-    return -log2(beta_cdf(min_in(pR), 1, round(pR.length * 0.5)))
+    const R = pR2.length
+    if (R == 0) return inf
+    // note there are many dependencies in the statistics, especially between x and log_p for same value (k), so we process take min across post-beta adjustment
+    return -log2(min_in(transpose(pR2).map(pR => beta_cdf(min_in(pR), 1, R))))
   }
 
   sample_index(options) {
