@@ -225,7 +225,7 @@ function _timer_if(c) {
 }
 
 class _Sampler {
-  constructor(func, options) {
+  constructor(func, options = {}) {
     this.options = options
     this.domain = func // save sampler function as domain
     this.start_time = Date.now()
@@ -1707,4 +1707,13 @@ function _benchmark_uniform() {
     () => uniform(1),
     () => uniform(0, 1)
   )
+}
+
+function _run() {
+  const js = _this.read('js_input').trim()
+  if (js.match(/^sample *\(/)) return null
+  const func = eval(flat('(()=>{', js, '})').join('\n'))
+  const options = {}
+  if (typeof _sample_options == 'object') merge(options, _sample_options)
+  return sample(func, options)
 }
