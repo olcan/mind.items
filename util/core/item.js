@@ -29,7 +29,7 @@ const __eval = (...args) => _this.eval(...args)
 // | `keep_comment_lines` | bool | keep comment lines (`js` only)
 // | <code style="white-space:pre-wrap;word-break:break-all">exclude_tests_and_benchmarks</code> | bool | exclude tests & benchmarks
 // | `replace_ids`        | bool | replace `$id` w/ item ids
-// | <td colspan=3 style="text-align:center"> all options default to `false`</td>
+// all options default to `false`
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,{…})

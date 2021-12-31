@@ -162,11 +162,11 @@ function _benchmark_sample() {
     () => sample(() => {}, { size: 10000, updates: 1 }),
     () => sample(() => {}, { size: 1000, updates: 10 }),
     () => sample(() => {}, { size: 100, updates: 10 }),
-    () => sample(() => sample(uniform()), { size: 100, updates: 10 }),
+    () => sample(() => sample(uniform(0, 1)), { size: 100, updates: 10 }),
     () =>
       sample(
         () => {
-          let a = sample(uniform())
+          let a = sample(uniform(0, 1))
           let b = sample(uniform(a, 1))
           condition(b > 0.9)
         },
@@ -1454,14 +1454,13 @@ class _Sampler {
 
   _sample(k, domain, options) {
     const value = this.values[k]
-    assert(domain !== undefined, 'missing domain')
     const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
     const { upJK, uaJK, aawK, upwK, log_p_xJK, log_p_yJK } = this
 
-    // reject run on empty domain
-    if (domain === null) this._weight(-inf)
+    // reject run (-∞ weight) on nullish (null=empty or undefined) domain
+    if (is_nullish(domain)) this._weight(-inf)
 
-    // return undefined on rejected run
+    // return undefined on (effectively) rejected run
     if (log_wJ[j] == -inf) return undefined
     if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
 
@@ -1650,63 +1649,70 @@ class _Sampler {
   }
 }
 
-// uniform([a],[b])
-// uniform _sampler domain_
-// range domain w/ uniform `_prior` & `_posterior` samplers
-// range is `[0,1)`,`[0,a)`, or `[a,b)` depending on arguments
-// see `random_uniform` in #//stat for details
+// uniform(a,b)
+// uniform sampler on _finite_ `[a,b)`
+// undefined for infinite or non-number `a`,`b`
+// empty (`null`) for `a>b`, discrete (`[a]`) for `a==b`
+// includes `_prior`, `_posterior` and `_log_p`
 function uniform(a, b) {
-  if (a === undefined) return uniform(0, 1)
-  if (b === undefined) return uniform(0, a)
-  if (!(a < b)) return null // empty domain
+  // undefined for non-number or infinite args
+  if (!is_number(a) || is_inf(a)) return undefined
+  if (!is_number(b) || is_inf(b)) return undefined
+  // empty (null) for a > b
+  if (a > b) return null
+  // singleton [a] for a==b
+  if (a == b)
+    return assign([a], {
+      _log_p: x => 0,
+      _prior: f => f(a),
+      _posterior: f => f(a),
+    })
   return {
     gte: a,
     lt: b,
-    _p: x => (x >= a && x < b ? 1 / (b - a) : 0),
     _log_p: x => (x >= a && x < b ? -log(b - a) : -inf),
     _prior: f => f(a + (b - a) * random()),
     _posterior: (f, x, stdev) => {
-      let u = random()
-
+      const u = random()
       // stdev can be 0 w/ single positive-weight point
       if (stdev == 0) return f(a + (b - a) * u)
-
-      // random global movements are essential for robust convergence
-      // if (random_boolean(0.7)) return f(a + (b - a) * u)
-
-      // const r = stdev // * random_discrete_uniform(1, 3)
-      // const xa = max(x - r, a)
-      // const xb = min(x + r, b)
-      // const y = xa + (xb - xa) * u
-      // const ya = max(y - r, a)
-      // const yb = min(y + r, b)
-      // return f(y, log(xb - xa) - log(yb - ya))
-
       // sample around x w/ random radius proportional to stdev
       // shift sampling region inside (a,b) to avoid asymmetry in x<->y
       const r = min((b - a) / 2, stdev)
       let ya = x - r
       let yb = x + r
-      if (ya < a) {
-        yb += a - ya
-        ya = a
-      } else if (yb > b) {
-        ya -= yb - b
-        yb = b
-      }
+      if (ya < a) (yb += a - ya), (ya = a)
+      else if (yb > b) (ya -= yb - b), (yb = b)
       return f(ya + (yb - ya) * u)
     },
   }
 }
 
-const interval = (a, b) => ({ gte: a, lt: b })
+// interval domain `[a,b)`
+// undefined for non-number `a`,`b`
+// can be infinite (`inf` or `Infinity`) on either side
+// infinite intervals require additional options:
+// TODO: list `mean`, `mode`, `stdev`
+// left-closed by convention, except for `a==-inf`
+// sampler depends on arguments
+// TODO: improve table
+// | **interval** | **sampler**
+// | finite `[a,b)`    | `uniform(a,b)`
+// | left-finite `[a,+∞)`   | `gamma(1,1) + a`
+// | right-finite `(-∞,b)`   | `-gamma(1,1) - b`
+// | infinite `(-∞,+∞)`  | `normal(0,1)`
+const interval = (a, b, options = undefined) => {
+  // undefined for non-number args
+  if (!is_number(a) || !is_number(b)) return undefined
+  // TODO: allow auxiliary information, e.g. `mean`, `mode`
+  if (is_finite(a) && is_finite(b)) return uniform(a, b)
+  if (is_finite(a)) fatal('not yet supported')
+  if (is_finite(b)) fatal('not yet supported')
+  fatal('not yet supported')
+}
 
 function _benchmark_uniform() {
-  benchmark(
-    () => uniform(),
-    () => uniform(1),
-    () => uniform(0, 1)
-  )
+  benchmark(() => uniform(0, 1))
 }
 
 function _run() {
