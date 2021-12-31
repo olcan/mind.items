@@ -1550,7 +1550,7 @@ class _Sampler {
       )
     }
 
-    const log_p = domain._log_p ?? (() => 0)
+    const log_p = domain._log_p
     const prior = options?.prior ?? domain._prior
     assert(prior, 'missing prior sampler')
 
@@ -1560,7 +1560,7 @@ class _Sampler {
     if (!moving) {
       return prior((x, log_pw = 0) => {
         log_pwJ[j] += log_pw
-        log_p_xJK[j][k] = log_p(x)
+        if (log_p) log_p_xJK[j][k] = log_p(x)
         return (xJK[j][k] = x)
       })
     }
@@ -1602,16 +1602,17 @@ class _Sampler {
       // if (xjk === undefined || true) {
       upJK[j][k] = this.u // jump proposed (not yet accepted)
       return prior(y => {
-        log_p_yjK[k] = log_p(y)
+        if (log_p) log_p_yjK[k] = log_p(y)
         // when sampling from prior, any dependecy on pivot is through prior parameters and is already accounted for in log_mwJ or log_mpJ
         // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
         return (yjK[k] = y)
       })
     }
 
-    // if past pivot, stay at xjk but factor in density ratio p(y)/p(x)
+    // if past pivot, stay at xjk but add log_p ratio to log_mpJ
     // reject and return undefined for out-of-domain xjk
-    if (k != k_pivot) {
+    // skip if log_p not available
+    if (k != k_pivot && log_p) {
       if (!from(xjk, domain)) {
         log_mpJ[j] = -inf
         return undefined
@@ -1627,7 +1628,7 @@ class _Sampler {
     return posterior(
       (y, log_mw = 0) => {
         log_mwJ[j] += log_mw
-        log_p_yjK[k] = log_p(y)
+        if (log_p) log_p_yjK[k] = log_p(y)
         return (yjK[k] = y)
       },
       xjk,
