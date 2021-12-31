@@ -1,4 +1,4 @@
-#util/sample defines _conditional_ sampling utilities. See #/domains, #/samplers, and #/examples.    
+#util/sample defines utilities for writing intelligent programs simply by _sampling_ from #/domains using #/samplers and providing feedback via _conditions_ or _weights_. See #/examples.  
 << js_table() >>
 
 ```js_removed:sample.js
