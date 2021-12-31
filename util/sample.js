@@ -1650,17 +1650,18 @@ class _Sampler {
 }
 
 // uniform(a,b)
-// uniform sampler on _finite_ `[a,b)`
-// undefined for infinite or non-number `a`,`b`
-// empty (`null`) for `a>b`, discrete (`[a]`) for `a==b`
-// includes `_prior`, `_posterior` and `_log_p`
+// uniform sampler on `[a,b)`
+// domain is _bounded interval_ `[a,b)`
+// right-open (left-closed) by convention
+// undefined if `a` or `b` infinite or non-number
+// empty (`null`) if `a>=b`
 function uniform(a, b) {
-  // undefined for non-number or infinite args
+  // undefined if non-number or infinite args
   if (!is_number(a) || is_inf(a)) return undefined
   if (!is_number(b) || is_inf(b)) return undefined
-  // empty (null) for a > b
+  // empty (null) if a > b
   if (a > b) return null
-  // singleton [a] for a==b
+  // singleton [a] if a==b
   if (a == b)
     return assign([a], {
       _log_p: x => 0,
@@ -1688,27 +1689,30 @@ function uniform(a, b) {
   }
 }
 
-// interval domain `[a,b)`
-// undefined for non-number `a`,`b`
-// can be infinite (`inf` or `Infinity`) on either side
-// infinite intervals require additional options:
-// TODO: list `mean`, `mode`, `stdev`
-// left-closed by convention, except for `a==-inf`
-// sampler depends on arguments
-// TODO: improve table
-// | **interval** | **sampler**
-// | finite `[a,b)`    | `uniform(a,b)`
-// | left-finite `[a,+∞)`   | `gamma(1,1) + a`
-// | right-finite `(-∞,b)`   | `-gamma(1,1) - b`
-// | infinite `(-∞,+∞)`  | `normal(0,1)`
+// interval domain `(a,b)`
+// can be _unbounded_ (`±inf`) on either side
+// sampler depends on (may require) additional `options`:
+// | `mean` (`μ`)  | prior mean
+// | `mode` (`c`)  | prior mode (alternative to `mean`)
+// | `stdev` (`σ`) | prior standard deviation
+// undefined if `a` or `b` non-number
+// empty (`null`) if `a>=b`
+// | **interval** | **options** | **sampler**
+// | `(a,b)`      |             | `filter(x=>x>a, {x:uniform(a,b)})`
+// | `(a,b)`      | `c|μ`       | `filter(x=>x>a&&x<b, {x:triangular(a,b,c)})`
+// | `(a,+∞)`     | `μ|c`, `σ`  | `transform(x=> a+x, {x:gamma(μ,σ)})`
+// | `(-∞,b)`     | `μ|c`, `σ`  | `transform(x=> b-x, {x:gamma(μ,σ)})`
+// | `(-∞,+∞)`    | `μ|c`, `σ`  | `normal(μ,σ)`
 const interval = (a, b, options = undefined) => {
   // undefined for non-number args
   if (!is_number(a) || !is_number(b)) return undefined
-  // TODO: allow auxiliary information, e.g. `mean`, `mode`
-  if (is_finite(a) && is_finite(b)) return uniform(a, b)
-  if (is_finite(a)) fatal('not yet supported')
-  if (is_finite(b)) fatal('not yet supported')
-  fatal('not yet supported')
+  // TODO: fix these, checking and converting options as needed
+  const finite_a = is_finite(a)
+  const finite_b = is_finite(b)
+  if (finite_a && finite_b) return uniform(a, b)
+  if (finite_a) return transform(x => a + x, { x: gamma(μ, σ) })
+  if (finite_b) return transform(x => b - x, { x: gamma(μ, σ) })
+  return normal(μ, σ)
 }
 
 function _benchmark_uniform() {

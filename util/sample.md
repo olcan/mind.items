@@ -1,4 +1,4 @@
-#util/sample defines _conditional_ sampling utilities. See #/examples.    
+#util/sample defines _conditional_ sampling utilities. See #/domains, #/samplers, and #/examples.    
 << js_table() >>
 
 ```js_removed:sample.js
