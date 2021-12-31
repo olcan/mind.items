@@ -24,7 +24,9 @@ const last = _.last
 const take = _.take
 const take_while = _.takeWhile
 const pick = _.pick
+const pick_by = _.pickBy
 const omit = _.omit
+const omit_by = _.omitBy
 
 const every = _.every
 const some = _.some
