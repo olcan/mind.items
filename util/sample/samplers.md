@@ -3,5 +3,3 @@
 ```js_removed:samplers.js
 // samplers.js
 ```
-
-#_///sample

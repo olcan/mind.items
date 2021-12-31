@@ -1,5 +1,5 @@
 // interval domain `(a,b)`
-// can be _unbounded_ (`±inf`) on either side
+// can be _unbounded_ (`±inf`) on either sider
 // sampler depends on (may require) additional `options`:
 // | `mean` (`μ`)  | prior mean
 // | `mode` (`c`)  | prior mode (alternative to `mean`)
