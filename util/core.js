@@ -972,11 +972,17 @@ function _js_table_show_function(name) {
     if (indent) fstr = fstr.replace(new RegExp(`^${indent}`, 'gm'), '')
     return fstr
   }
+  const eval_options = {
+    trigger: 'js_table',
+    keep_empty_lines: true,
+    keep_comment_lines: true,
+  }
   try {
     // try custom _function_<name>() first
     // should return either a function or a property descriptor object (w/ .get or .set or both)
     def = _this.eval(
-      `typeof _function_${name} == 'function' ? _function_${name}() : null`
+      `typeof _function_${name} == 'function' ? _function_${name}() : null`,
+      eval_options
     )
     if (def) {
       if (typeof def == 'function') def = unindent(def.toString())
@@ -992,16 +998,16 @@ function _js_table_show_function(name) {
           const instance_ref = name.replace('__', '.prototype.')
           const static_ref = name.replace('__', '.')
           ref = `${instance_ref} ?? ${static_ref}`
-          def = unindent(_this.eval(ref))
+          def = unindent(_this.eval(ref, eval_options))
         } else {
           const [class_name, prop] = name.split('__')
           ref = `Object.getOwnPropertyDescriptor(${class_name}.prototype, '${prop}') ?? Object.getOwnPropertyDescriptor(${class_name}, '${prop}')`
-          def = _this.eval(ref)
+          def = _this.eval(ref, eval_options)
           if (def) def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
         }
       } else {
         ref = name
-        def = _this.eval(ref)
+        def = _this.eval(ref, eval_options)
       }
     }
   } catch (e) {
@@ -1062,8 +1068,11 @@ function _js_table_show_test(name) {
         block(
           'js',
           _this.eval(test.test || `_test_${name}`, {
+            trigger: 'js_table',
             exclude_tests_and_benchmarks: false,
             type: 'js|js_tests?',
+            keep_empty_lines: true,
+            keep_comment_lines: true,
           })
         ),
         '\n',
@@ -1155,8 +1164,11 @@ function _js_table_show_benchmark(name) {
         block(
           'js',
           _this.eval(benchmark.benchmark || `_benchmark_${name}`, {
+            trigger: 'js_table',
             exclude_tests_and_benchmarks: false,
             type: 'js|js_benchmarks?',
+            keep_empty_lines: true,
+            keep_comment_lines: true,
           })
         ),
         '\n',
