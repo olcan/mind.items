@@ -1,22 +1,13 @@
 // uniform(a,b)
-// uniform sampler on `[a,b)`
-// domain is _bounded interval_ `[a,b)`
-// right-open (left-closed) by convention
-// undefined if `a` or `b` infinite or non-number
-// empty (`null`) if `a>=b`
+// uniform sampler on `(a,b)`
+// undefined if `a` or `b` non-number or infinite
+// null (empty) if `a>=b`
 function uniform(a, b) {
   // undefined if non-number or infinite args
   if (!is_number(a) || is_inf(a)) return undefined
   if (!is_number(b) || is_inf(b)) return undefined
-  // empty (null) if a > b
-  if (a > b) return null
-  // singleton [a] if a==b
-  if (a == b)
-    return assign([a], {
-      _log_p: x => 0,
-      _prior: f => f(a),
-      _posterior: f => f(a),
-    })
+  // empty (null) if a >= b
+  if (a >= b) return null
   return {
     gte: a,
     lt: b,
@@ -37,6 +28,10 @@ function uniform(a, b) {
     },
   }
 }
+
+// TODO: drop "transform" for now, instead make uniform and triangular open-domain and gamma w/ translation/negation support, and normal; implement and benchmark positive_random
+
+// TODO: new samplers: transform, gamma, normal, ...
 
 function _benchmark_uniform() {
   benchmark(() => uniform(0, 1))
