@@ -1,8 +1,13 @@
-function test_item(item) {
+function test_item(item, selector) {
   if (!item.text.match(/\b_test_\w+/)) {
-    if (item._global_store._tests) delete item.global_store._tests
+    if (!selector && item._global_store._tests) delete item.global_store._tests
     return 0 // no tests in item
   }
+  if (is_string(selector)) {
+    const name = selector
+    selector = n => n == name
+  }
+  if (selector && !is_function(selector)) fatal('invalid selector')
 
   // serialize via item.store._tester/_benchmarker to avoid mixing up logs
   return (item.store._tester = Promise.allSettled([
@@ -10,12 +15,13 @@ function test_item(item) {
     item.store._benchmarker,
   ]).then(async () => {
     const gs = item._global_store // changes saved manually below
-    delete gs._tests // clear any previous tests
+    if (!selector) delete gs._tests // clear any previous tests
     // evaluate any functions _test_*() defined on item
     const tests = item.text.match(/\b_test_\w+/g) ?? []
     let tests_done = 0
     for (const test of tests) {
       const name = test.replace(/^_test_/, '')
+      if (selector && !selector(name)) continue // skip test
       let done, ms, e
       const start = Date.now()
       try {

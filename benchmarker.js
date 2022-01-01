@@ -1,8 +1,14 @@
-function benchmark_item(item) {
+function benchmark_item(item, selector) {
   if (!item.text.match(/\b_benchmark_\w+/)) {
-    if (item._global_store._benchmarks) delete item.global_store._benchmarks
+    if (!selector && item._global_store._benchmarks)
+      delete item.global_store._benchmarks
     return 0 // no benchmarks in item
   }
+  if (is_string(selector)) {
+    const name = selector
+    selector = n => n == name
+  }
+  if (selector && !is_function(selector)) fatal('invalid selector')
 
   // serialize via item.store._benchmarker/_tester to avoid mixing up logs
   return (item.store._benchmarker = Promise.allSettled([
@@ -10,12 +16,13 @@ function benchmark_item(item) {
     item.store._tester,
   ]).then(async () => {
     const gs = item._global_store // changes saved manually below
-    delete gs._benchmarks // clear any previous benchmarks
+    if (!selector) delete gs._benchmarks // clear any previous benchmarks
     // evaluate any functions _benchmark|_benchmark_*() defined on item
     const benchmarks = item.text.match(/\b_benchmark_\w+/g) ?? []
     let benchmarks_done = 0
     for (const benchmark of benchmarks) {
       const name = benchmark.replace(/^_benchmark_/, '')
+      if (selector && !selector(name)) continue // skip benchmark
       let done, ms, e
       const start = Date.now()
       try {
