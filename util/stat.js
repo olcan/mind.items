@@ -1,13 +1,14 @@
-const random = Math.random
+// [Math.random](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random) on `(0,1)`, i.e. excluding `0`
+const random = () => Math.max(Math.random(), Number.MIN_VALUE)
 
 // random_boolean ([p=0.5])
 const random_boolean = (p = 0.5) => random() < p
 
 // random_uniform ([a],[b])
-// [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `[0,1)`,`[0,a)`, or `[a,b)`
-// | `[0,1)` | if `a` and `b` omitted
-// | `[0,a)` | if `b` omitted
-// | `[a,b)` | otherwise
+// [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `(0,1)`,`(0,a)`, or `(a,b)`
+// | `(0,1)` | if `a` and `b` omitted
+// | `(0,a)` | if `b` omitted
+// | `(a,b)` | otherwise
 const random_uniform = (a, b) => {
   if (a === undefined) return random()
   if (b === undefined) return is_number(a) && a > 0 ? a * random() : NaN
@@ -88,10 +89,10 @@ function random_discrete_array(jK, wJ, sum_wj) {
   // treat zero sum as uniform
   if (sum_wj == 0) return random_discrete_uniform_array(jK, wJ.length)
   // assert(min_in(wJ) >= 0,`wj<0: ${min_in(wJ)}`)
-  // generate (exp) increments for K+1 uniform numbers in [0,sum_wj) w/o sorting
+  // generate (exp) increments for K+1 uniform numbers in (0,sum_wj) w/o sorting
   let rK = apply(random_array(jK), r => -Math.log(r))
   const z = sum_wj / (sum(rK) - Math.log(random()))
-  apply(rK, r => r * z) // rescale to [0,sum_wJ)
+  apply(rK, r => r * z) // rescale to (0,sum_wJ)
   let k = 0
   let j = 0
   let w = 0
@@ -105,7 +106,7 @@ function random_discrete_array(jK, wJ, sum_wj) {
 }
 
 // random_triangular([a],[b],[c])
-// [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `[0,1]`, `[0,a]`, or `[a,b]`
+// [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `(0,1)`, `(0,a)`, or `(a,b)`
 const random_triangular = (a, b, c) => {
   if (a === undefined) return random_triangular(0, 1, 0.5)
   if (b === undefined) return random_triangular(0, a, a / 2)

@@ -1,3 +1,13 @@
+function _benchmark_random() {
+  benchmark(
+    Math.random, // direct call w/o wrapper
+    () => random(),
+    () => Math.max(Math.random(), Number.MIN_VALUE)
+  )
+}
+
+const _benchmark_random_functions = ['random', 'positive_random']
+
 function _benchmark_random_boolean() {
   benchmark(
     () => random_boolean(),
