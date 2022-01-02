@@ -142,6 +142,7 @@ const random_exponential = () => -Math.log(random())
 // [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) w/ shape `α` on `(0,∞)`
 // scale by `θ>0` for shape-scale family
 function random_gamma(α = 1) {
+  if (α <= 0) return NaN
   if (α == 1) return random_exponential()
   // gamma deviate by method of Marsaglia and Tsang
   // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/special.js#L455
@@ -168,6 +169,7 @@ function random_gamma(α = 1) {
 
 // [beta](https://en.wikipedia.org/wiki/Beta_distribution) on `(0,1)`
 function random_beta(α, β) {
+  if (α <= 0 || β <= 0) return NaN
   const g = random_gamma(α)
   return g / (g + random_gamma(β))
 }
