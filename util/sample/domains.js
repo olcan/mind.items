@@ -12,8 +12,8 @@
 // | `(a,+∞)`     | `μ|c`, `σ`  | `transform(gamma(μ,σ), x=> a+x)`
 // | `(-∞,b)`     | `μ|c`, `σ`  | `transform(gamma(μ,σ), x=> b-x)`
 // | `(-∞,+∞)`    | `μ|c`, `σ`  | `normal(μ,σ)`
-// undefined if `a` or `b` non-number
-// null (empty) if `a>=b`
+// `undefined` if `a` or `b` non-number
+// `null` (empty) if `a>=b`
 const interval = (a, b, options = undefined) => {
   // undefined if a or b non-number
   if (!is_number(a) || !is_number(b)) return undefined
