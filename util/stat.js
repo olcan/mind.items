@@ -119,6 +119,59 @@ const random_triangular = (a, b, c) => {
   return b - Math.sqrt((1 - u) * (b - a) * (b - c))
 }
 
+// [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)`
+// scale by `σ>0` & shift by `μ` for location-scale family
+function random_normal() {
+  // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/special.js#L437
+  let u, v, x, y, q
+  do {
+    u = jStat._random_fn()
+    v = 1.7156 * (jStat._random_fn() - 0.5)
+    x = u - 0.449871
+    y = Math.abs(v) + 0.386595
+    q = x * x + y * (0.196 * y - 0.25472 * x)
+  } while (q > 0.27597 && (q > 0.27846 || v * v > -4 * Math.log(u) * u * u))
+  return v / u
+}
+
+// [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) on `(0,∞)`
+// scale by `θ>0` for scale family
+// scale by `1/λ>0` for rate (inverse scale) family
+const random_exponential = () => -Math.log(random())
+
+// [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) w/ shape `α` on `(0,∞)`
+// scale by `θ>0` for shape-scale family
+function random_gamma(α = 1) {
+  if (α == 1) return random_exponential()
+  // gamma deviate by method of Marsaglia and Tsang
+  // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/special.js#L455
+  const _α = α // original α (pre-increment below for α<1)
+  let a1, a2, u, v, x
+  if (α < 1) α += 1
+  a1 = α - 1 / 3
+  a2 = 1 / Math.sqrt(9 * a1)
+  do {
+    do {
+      x = random_normal()
+      v = 1 + a2 * x
+    } while (v <= 0)
+    v = v * v * v
+    u = random()
+  } while (
+    u > 1 - 0.331 * Math.pow(x, 4) &&
+    Math.log(u) > 0.5 * x * x + a1 * (1 - v + Math.log(v))
+  )
+  if (α == _α) return a1 * v // α >= 1
+  u = random() // already truncated to (0,1)
+  return Math.pow(u, 1 / _α) * a1 * v
+}
+
+// [beta](https://en.wikipedia.org/wiki/Beta_distribution) on `(0,1)`
+function random_beta(α, β) {
+  const g = random_gamma(α)
+  return g / (g + random_gamma(β))
+}
+
 // random_array(J|xJ, [sampler=uniform], [filter])
 // sample array of `J` values from `sampler`
 // can skip values `x` s.t. `!filter(x)`, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
