@@ -1,5 +1,5 @@
-// [Math.random](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random) on `(0,1)`, i.e. excluding `0`
-const random = () => Math.max(Math.random(), Number.MIN_VALUE)
+// [Math.random](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random) on `(0,1)`, excluding `0`
+const random = () => Math.random() || Number.MIN_VALUE
 
 // random_boolean ([p=0.5])
 const random_boolean = (p = 0.5) => random() < p

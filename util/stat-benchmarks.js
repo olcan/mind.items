@@ -2,7 +2,8 @@ function _benchmark_random() {
   benchmark(
     Math.random, // direct call w/o wrapper
     () => random(),
-    () => Math.max(Math.random(), Number.MIN_VALUE)
+    () => Math.max(Math.random(), Number.MIN_VALUE),
+    () => Math.random() || Number.MIN_VALUE
   )
 }
 
