@@ -30,6 +30,10 @@ function uniform(a, b) {
   return dom
 }
 
+function _benchmark_uniform() {
+  benchmark(() => uniform(0, 1))
+}
+
 // [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `(a,b)` w/ mode `c`
 // `undefined` if `a` or `b` non-number or infinite
 // `undefined` if `c` non-number or `c∉[a,b]`
@@ -87,6 +91,21 @@ function beta(a, b, μ, σ) {
   return dom
 }
 
-function _benchmark_uniform() {
-  benchmark(() => uniform(0, 1))
+// [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)` w/ mean `μ`, stdev `σ`
+// `undefined` if `μ` non-number
+// `undefined` if `σ` non-number or non-positive
+function normal(μ, σ) {
+  if (!is_number(μ)) return undefined
+  if (!is_number(σ) || σ <= 0) return undefined
+  const inv_σ2 = 1 / (σ * σ)
+  const log_z = log(σ) // + log(sqrt(2π) is constant ⊥ (μ,σ)
+  const dom = { is: 'finite' } // all finite numbers
+  dom._prior = f => f(μ + σ * random_normal())
+  // see #random/normal if this is too slow when prior is far from posterior
+  dom._posterior = (f, x, stdev) => f(x + (stdev || σ) * random_normal())
+  dom._log_p = x => {
+    const d = x - μ
+    return -0.5 * d * d * inv_σ2 - log_z
+  }
+  return dom
 }
