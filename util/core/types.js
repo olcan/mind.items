@@ -48,13 +48,13 @@ function is(x, type) {
     case 'nullish':
       return x === null || x === undefined
     case 'finite':
-      return isFinite(x)
+      return Number.isFinite(x)
     case 'infinite':
-      return !isFinite(x)
+      return !Number.isFinite(x)
     case 'inf':
-      return !isFinite(x)
+      return !Number.isFinite(x)
     case 'nan':
-      return isNaN(x)
+      return Number.isNaN(x)
     case 'integer':
       return Number.isInteger(x)
     case 'probability':
@@ -115,11 +115,13 @@ const is_defined = defined
 const is_null = x => x === null
 const is_nullish = x => x === null || x === undefined
 
-const is_finite = isFinite
-const is_infinite = x => !isFinite(x)
+// NOTE: Number.isFinite, isNan, etc are more robust than global versions that coerce to number; see e.g. https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/isFinite
+
+const is_finite = Number.isFinite
+const is_infinite = x => !Number.isFinite(x)
 const is_inf = is_infinite
 const inf = Infinity
-const is_nan = isNaN
+const is_nan = Number.isNaN
 const is_integer = Number.isInteger
 const is_probability = x => typeof x == 'number' && x >= 0 && x <= 1
 const is_prob = is_probability
@@ -127,7 +129,8 @@ const is_number = x => typeof x == 'number'
 
 // is `x` number or [numeric string](https://stackoverflow.com/a/175787)?
 const is_numeric = x =>
-  is_number(x) || (typeof x == 'string' && !isNaN(x) && !isNaN(parseFloat(x)))
+  is_number(x) ||
+  (typeof x == 'string' && !isNaN(x) && !Number.isNaN(parseFloat(x)))
 function _test_is_numeric() {
   check(
     () => is_numeric(0),
