@@ -7,6 +7,7 @@ const log2 = Math.log2
 const log10 = Math.log10
 const sqrt = Math.sqrt
 const abs = Math.abs
+const sign = Math.sign
 const min = Math.min
 const max = Math.max
 const ceil = Math.ceil
