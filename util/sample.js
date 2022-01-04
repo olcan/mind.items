@@ -1551,8 +1551,9 @@ class _Sampler {
     }
 
     const log_p = domain._log_p
+    assert(log_p, 'missing prior density (_log_p)')
     const prior = options?.prior ?? domain._prior
-    assert(prior, 'missing prior sampler')
+    assert(prior, 'missing prior sampler (_prior)')
 
     // if not moving, sample from prior into xJK
     // prior sample weights (if any) are stored in log_pwJ
@@ -1598,12 +1599,13 @@ class _Sampler {
     // if at or past pivot, resample "jump" value from prior
     // always resample if xjk is missing (can only happen past pivot)
     if (xjk === undefined || random_boolean(upwK[k])) {
+      // if (xjk === undefined || k != k_pivot) {
       // if (xjk === undefined || k != k_pivot || random_boolean(0.5)) {
       // if (xjk === undefined || true) {
       upJK[j][k] = this.u // jump proposed (not yet accepted)
       return prior(y => {
         if (log_p) log_p_yjK[k] = log_p(y)
-        // when sampling from prior, any dependecy on pivot is through prior parameters and is already accounted for in log_mwJ or log_mpJ
+        // sampling from prior is equivalent to weighting by prior likelihood
         // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
         return (yjK[k] = y)
       })
@@ -1624,11 +1626,12 @@ class _Sampler {
 
     // if at k_pivot, move from xjk along posterior chain
     const posterior = options?.posterior ?? domain._posterior
-    assert(posterior, 'missing posterior sampler')
+    assert(posterior, 'missing posterior sampler (_posterior)')
     return posterior(
       (y, log_mw = 0) => {
         log_mwJ[j] += log_mw
-        if (log_p) log_p_yjK[k] = log_p(y)
+        log_p_yjK[k] = log_p(y)
+        log_mpJ[j] += log_p_yjK[k] - log_p_xjk
         return (yjK[k] = y)
       },
       xjk,
@@ -1653,7 +1656,7 @@ class _Sampler {
 function _run() {
   const js = _this.read('js_input').trim()
   if (js.match(/^sample *\(/)) return null
-  const func = eval(flat('(()=>{', js, '})').join('\n'))
+  const func = eval(flat('(context=>{', js, '})').join('\n'))
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)
   return sample(func, options)
