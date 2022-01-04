@@ -284,8 +284,8 @@ class _Sampler {
     this.xJK = matrix(J, K) // samples per run/value
     this.pxJK = matrix(J, K) // prior samples per run/value
     this.yJK = matrix(J, K) // posterior samples per run/value
-    this.log_p_xJK = matrix(J, K) // sample log-densities
-    this.log_p_yJK = matrix(J, K) // posterior sample log-densities
+    this.log_p_xJK = matrix(J, K) // sample (prior) log-densities
+    this.log_p_yJK = matrix(J, K) // posterior sample (prior) log-densities
 
     this.kJ = array(J) // array of (posterior) pivot values in _move
     this.upJK = matrix(J, K) // last jump proposal step
@@ -296,7 +296,7 @@ class _Sampler {
 
     this.m = 0 // move count
     this.xBJK = [] // buffered samples for mks
-    this.log_p_xBJK = [] // buffered samples for mks
+    this.log_p_xBJK = [] // buffered sample log-densities for mks
     this.rwBJ = [] // buffered sample weights for mks
     this.rwBj_sum = [] // buffered sample weight sums for mks
     this.uB = [] // buffer sample update steps
@@ -1611,7 +1611,7 @@ class _Sampler {
       })
     }
 
-    // if past pivot, stay at xjk but add log_p ratio to log_mpJ
+    // if past pivot, stay at xjk but still add prior density ratio to log_mpJ
     // reject and return undefined for out-of-domain xjk
     // skip if log_p not available
     if (k != k_pivot && log_p) {
@@ -1619,7 +1619,7 @@ class _Sampler {
         log_mpJ[j] = -inf
         return undefined
       }
-      log_p_yjK[k] = log_p(xjk) // not log_p_xjk but new log_p under pivot
+      log_p_yjK[k] = log_p(xjk) // new log_p under pivot
       log_mpJ[j] += log_p_yjK[k] - log_p_xjk
       return (yjK[k] = xjk)
     }
