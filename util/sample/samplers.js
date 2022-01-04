@@ -1,14 +1,16 @@
 // posterior sampler that samples uniformly in (x-r,x+r) w/ r=stdev
-// clips and shifts region inside (a,b) to avoid asymmetry
 // can be used for any bounded domain or prior sampler
 const _uniform_posterior = (a, b, prior) => (f, x, stdev) => {
   if (stdev == 0) return prior(f) // degenerate sample
   const r = min((b - a) / 2, stdev)
-  let ya = x - r
-  let yb = x + r
-  if (ya < a) (yb += a - ya), (ya = a)
-  else if (yb > b) (ya -= yb - b), (yb = b)
-  return f(ya + (yb - ya) * random())
+  const xa = max(x - r, a)
+  const xb = min(x + r, b)
+  const y = xa + (xb - xa) * random()
+  const ya = max(y - r, a)
+  const yb = min(y + r, b)
+  // log(q(x|y)) - log(q(y|x))
+  const log_mw = -log(yb - ya) - -log(xb - xa)
+  return f(y, log_mw)
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `(a,b)`
