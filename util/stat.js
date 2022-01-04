@@ -11,8 +11,8 @@ const random_boolean = (p = 0.5) => random() < p
 // | `(a,b)` | otherwise
 const random_uniform = (a, b) => {
   if (a === undefined) return random()
-  if (b === undefined) return is_number(a) && a > 0 ? a * random() : NaN
-  if (!is_number(a) || !is_number(b) || b <= a) return NaN
+  if (b === undefined) return is_finite(a) && a > 0 ? a * random() : NaN
+  if (!is_finite(a) || !is_finite(b) || b <= a) return NaN
   return a + random() * (b - a)
 }
 
@@ -21,10 +21,10 @@ const random_uniform = (a, b) => {
 const random_uniform_array = (xJ, a, b) => {
   if (a === undefined) return random_array(xJ, random)
   if (b === undefined)
-    return is_number(a) && a > 0
+    return is_finite(a) && a > 0
       ? random_array(xJ, () => a * random())
       : random_array(xJ, NaN)
-  if (!is_number(a) || !is_number(b) || b <= a) return random_array(xJ, NaN)
+  if (!is_finite(a) || !is_finite(b) || b <= a) return random_array(xJ, NaN)
   return random_array(xJ, () => a + random() * (b - a))
 }
 
@@ -111,7 +111,7 @@ const random_triangular = (a, b, c) => {
   if (a === undefined) return random_triangular(0, 1, 0.5)
   if (b === undefined) return random_triangular(0, a, a / 2)
   if (c === undefined) return random_triangular(a, b, (a + b) / 2)
-  if (!is_number(a) || !is_number(b) || !is_number(c)) return NaN
+  if (!is_finite(a) || !is_finite(b) || !is_finite(c)) return NaN
   if (a > b || c < a || c > b) return NaN
   // from https://github.com/jstat/jstat/blob/master/src/distribution.js
   const u = random()

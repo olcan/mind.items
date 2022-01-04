@@ -18,10 +18,8 @@ const _uniform_posterior = (a, b, prior) => (f, x, stdev) => {
 // `null` (empty) if `a>=b`
 function uniform(a, b) {
   // undefined if a or b non-number or infinite
-  if (!is_number(a) || is_inf(a)) return undefined
-  if (!is_number(b) || is_inf(b)) return undefined
-  // empty (null) if a >= b
-  if (a >= b) return null
+  if (!is_finite(a) || !is_finite(b)) return undefined
+  if (a >= b) return null // empty (null) if a >= b
   const dom = { gt: a, lt: b }
   dom._prior = f => f(a + (b - a) * random())
   const log_z = log(b - a) // z ⊥ x
@@ -40,10 +38,9 @@ function _benchmark_uniform() {
 // `null` (empty) if `a>=b`
 function triangular(a, b, c) {
   // undefined if a or b non-number or infinite
-  if (!is_number(a) || is_inf(a)) return undefined
-  if (!is_number(b) || is_inf(b)) return undefined
+  if (!is_finite(a) || !is_finite(b)) return undefined
   if (a >= b) return null // empty (null) if a >= b
-  if (!is_number(c) || c < a || c > b) return undefined
+  if (!is_finite(c) || c < a || c > b) return undefined
   const dom = { gt: a, lt: b }
   dom._prior = f => f(random_triangular(a, b, c))
   const log_z1 = log(b - a) + log(c - a) // - log(2) constant ⊥ (μ,σ) // z ⊥ x
@@ -62,10 +59,9 @@ function triangular(a, b, c) {
 // `undefined` if `μ` non-number or `μ∉(a,b)`
 // `undefined` if `σ` non-number or too large
 function beta(a, b, μ, σ) {
-  if (!is_number(a) || is_inf(a)) return undefined
-  if (!is_number(b) || is_inf(b)) return undefined
+  if (!is_finite(a) || !is_finite(b)) return undefined
   if (a >= b) return null // empty (null) if a >= b
-  if (!is_number(μ) || !is_number(σ)) return undefined
+  if (!is_finite(μ) || !is_finite(σ)) return undefined
   // transform (a,b,μ,σ) to (ɑ,β) for standard Beta(ɑ,β) on (0,1)
   // see https://en.wikipedia.org/wiki/Beta_distribution#Four_parameters
   // (μ,σ) -> (ɑ,β) is also easily Solve'd in Mathematica
@@ -91,11 +87,11 @@ function beta(a, b, μ, σ) {
 }
 
 // [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)` w/ mean `μ`, stdev `σ`
-// `undefined` if `μ` non-number
-// `undefined` if `σ` non-number or non-positive
+// `undefined` if `μ` non-number or infinite
+// `undefined` if `σ` non-number or infinite or `σ≤0`
 function normal(μ, σ) {
-  if (!is_number(μ)) return undefined
-  if (!is_number(σ) || σ <= 0) return undefined
+  if (!is_finite(μ)) return undefined
+  if (!is_finite(σ) || σ <= 0) return undefined
   const dom = { is: 'finite' } // all finite numbers
   dom._prior = f => f(μ + σ * random_normal())
   const inv_σ2 = 1 / (σ * σ)
@@ -113,8 +109,8 @@ function _gamma_log_p(x, ɑ, θ) {
 }
 
 function _gamma_mean_from_mode(c, σ) {
-  if (!is_number(c) || c <= 0) return undefined
-  if (!is_number(σ) || σ <= 0) return undefined
+  if (!is_finite(c) || c <= 0) return undefined
+  if (!is_finite(σ) || σ <= 0) return undefined
   // plug θ=(σ*σ)/μ and ɑ=(μ*μ)/(σ*σ) into c==(ɑ-1)*θ and solve for μ
   // note c>0 => μ>σ => ɑ>1 as expected from existence of mode c>0
   return 0.5 * (c + sqrt(c * c + 4 * σ * σ))
@@ -123,12 +119,12 @@ function _gamma_mean_from_mode(c, σ) {
 // [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) on `(a,∞)` or `(-∞,a)` w/ mean `μ`, stdev `σ`
 // domain is `(a,∞)` if `σ>0`, `(-∞,a)` if `σ<0`
 // `undefined` if `a` non-number or infinite
-// `undefined` if `μ` non-number or `μ==a`
-// `undefined` if `σ` non-number or non-positive
+// `undefined` if `μ` non-number or infinite or `μ==a`
+// `undefined` if `σ` non-number or infinite or `σ≤0`
 function gamma(a, μ, σ) {
-  if (!is_number(a) || is_inf(a)) return undefined
-  if (!is_number(μ) || μ == a) return undefined
-  if (!is_number(σ) || σ <= 0) return undefined
+  if (!is_finite(a)) return undefined
+  if (!is_finite(μ) || μ == a) return undefined
+  if (!is_finite(σ) || σ <= 0) return undefined
   const dom = μ > a ? { gt: a } : { lt: a }
 
   // shape-scale gamma((μ/σ)^2, σ^2/μ) has mean μ and stdev σ
