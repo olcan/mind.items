@@ -22,11 +22,9 @@ function uniform(a, b) {
   if (a >= b) return null
   const dom = { gt: a, lt: b }
   dom._prior = f => f(a + (b - a) * random())
+  const log_z = log(b - a) // z ⊥ x
+  dom._log_p = x => (x <= a || x >= b ? -inf : -log_z)
   dom._posterior = _uniform_posterior(a, b, dom._prior)
-  dom._log_p = x => {
-    if (x <= a || x >= b) return -inf
-    return -log(b - a)
-  }
   return dom
 }
 
@@ -46,13 +44,14 @@ function triangular(a, b, c) {
   if (!is_number(c) || c < a || c > b) return undefined
   const dom = { gt: a, lt: b }
   dom._prior = f => f(random_triangular(a, b, c))
-  dom._posterior = _uniform_posterior(a, b, dom._prior)
+  const log_z1 = log(b - a) + log(c - a) // - log(2) constant ⊥ (μ,σ) // z ⊥ x
+  const log_z2 = log(b - a) + log(b - c) // - log(2) constant ⊥ (μ,σ) // z ⊥ x
   dom._log_p = x => {
     if (x <= a || x >= b) return -inf
-    if (x < c) return log(2) + log(x - a) - log(b - a) - log(c - a)
-    if (x == c) return log(2) - log(b - a)
-    return log(2) + log(b - x) - log(b - a) - log(b - c)
+    if (x <= c) return log(x - a) - log_z1
+    return log(b - x) - log_z2 // x > c
   }
+  dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
 }
 
@@ -76,18 +75,16 @@ function beta(a, b, μ, σ) {
   if (β <= 0) return undefined // implies μ∉(a,b) or σ too large
   const dom = { gt: a, lt: b }
   dom._prior = f => f(a + (b - a) * random_beta(ɑ, β))
-  dom._posterior = _uniform_posterior(a, b, dom._prior)
+  const log_z =
+    (ɑ + β - 1) * log(b - a) + // jacobian factor due to scaling by (b-a)
+    _log_gamma(ɑ) +
+    _log_gamma(β) -
+    _log_gamma(ɑ + β)
   dom._log_p = x => {
     if (x <= a || x >= b) return -inf
-    return (
-      (ɑ - 1) * log(x - a) + // x -> x-a due to mapping into (a,b)
-      (β - 1) * log(b - x) + // 1-x -> b-x due to mapping into (a,b)
-      -(ɑ + β - 1) * log(b - a) + // jacobian factor due to scaling by (b-a)
-      _log_gamma(ɑ + β) +
-      -_log_gamma(ɑ) +
-      -_log_gamma(β)
-    )
+    return (ɑ - 1) * log(x - a) + (β - 1) * log(b - x) - log_z
   }
+  dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
 }
 
@@ -97,15 +94,65 @@ function beta(a, b, μ, σ) {
 function normal(μ, σ) {
   if (!is_number(μ)) return undefined
   if (!is_number(σ) || σ <= 0) return undefined
-  const inv_σ2 = 1 / (σ * σ)
-  const log_z = log(σ) // + log(sqrt(2π) is constant ⊥ (μ,σ)
   const dom = { is: 'finite' } // all finite numbers
   dom._prior = f => f(μ + σ * random_normal())
-  // see #random/normal if this is too slow when prior is far from posterior
+  const inv_σ2 = 1 / (σ * σ)
+  const log_z = log(σ) // + log(sqrt(2π) is constant ⊥ (μ,σ)
+  dom._log_p = x => -0.5 * inv_σ2 * (x - μ) ** 2 - log_z
+  // TODO: see #random/normal if this is too slow for prior far from data
   dom._posterior = (f, x, stdev) => f(x + (stdev || σ) * random_normal())
-  dom._log_p = x => {
-    const d = x - μ
-    return -0.5 * d * d * inv_σ2 - log_z
+  return dom
+}
+
+// gamma log-density
+function _gamma_log_p(x, ɑ, θ) {
+  if (x <= 0) return -inf
+  return (ɑ - 1) * log(x) - x / θ - _log_gamma(ɑ) - ɑ * log(θ)
+}
+
+function _gamma_mean_from_mode(c, σ) {
+  if (!is_number(c) || c <= 0) return undefined
+  if (!is_number(σ) || σ <= 0) return undefined
+  // plug θ=(σ*σ)/μ and ɑ=(μ*μ)/(σ*σ) into c==(ɑ-1)*θ and solve for μ
+  // note c>0 => μ>σ => ɑ>1 as expected from existence of mode c>0
+  return 0.5 * (c + sqrt(c * c + 4 * σ * σ))
+}
+
+// [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) on `(a,∞)` or `(-∞,a)` w/ mean `μ`, stdev `σ`
+// domain is `(a,∞)` if `σ>0`, `(-∞,a)` if `σ<0`
+// `undefined` if `a` non-number or infinite
+// `undefined` if `μ` non-number or `μ==a`
+// `undefined` if `σ` non-number or non-positive
+function gamma(a, μ, σ) {
+  if (!is_number(a) || is_inf(a)) return undefined
+  if (!is_number(μ) || μ == a) return undefined
+  if (!is_number(σ) || σ <= 0) return undefined
+  const dom = μ > a ? { gt: a } : { lt: a }
+
+  // shape-scale gamma((μ/σ)^2, σ^2/μ) has mean μ and stdev σ
+  // here we take mean relative to a and reflect around a if μ<a
+  const m = μ - a // signed mean relative to base a
+  const s = (σ * σ) / m // signed gamma scale for mean m, stdev σ
+  const ɑ = m / s // gamma shape for mean m, stdev σ (sign cancels)
+  dom._prior = f => f(a + s * random_gamma(ɑ))
+  dom._log_p = x => _gamma_log_p(abs(x - a), ɑ, abs(s))
+
+  // posterior sampler has forced asymmetry due to half-bounded domain
+  dom._posterior = (f, x, stdev) => {
+    const σx = stdev ?? σ // posterior stdev, falling back to prior stdev
+    const mx = x - a // signed mean x relative to base a
+    const sx = (σx * σx) / mx // signed scale for mean mx, stdev σx
+    const ɑx = mx / sx // shape for mean mx, stdev σx (sign cancels)
+    const y = a + sx * random_gamma(ɑx) // new point y
+    const σy = σx
+    const my = y - a
+    const sy = (σy * σy) / my
+    const ɑy = my / sy
+    const log_mw =
+      _gamma_log_p(abs(mx), ɑy, abs(sy)) - // log(q(x|y))
+      _gamma_log_p(abs(my), ɑx, abs(sx)) // log(q(y|x))
+    return f(y, log_mw)
   }
+
   return dom
 }

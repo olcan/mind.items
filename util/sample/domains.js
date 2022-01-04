@@ -9,8 +9,8 @@
 // | `(a,b)`      |             | `uniform(a,b)`
 // | `(a,b)`      | `c`         | `triangular(a,b,c)`
 // | `(a,b)`      | `μ`,`σ`     | `beta(a,b,μ,σ)`
-// | `(a,∞)`      | `μ|c`, `σ`  | `gamma(a,μ,σ)`
-// | `(-∞,b)`     | `μ|c`, `σ`  | `gamma(b,μ,-σ)`
+// | `(a,∞)`      | `μ|c > a`, `σ`  | `gamma(a,μ,σ)`
+// | `(-∞,b)`     | `μ|c < b`, `σ`  | `gamma(b,μ,σ)`
 // | `(-∞,∞)`     | `μ|c`, `σ`  | `normal(μ,σ)`
 // `undefined` if `a` or `b` non-number
 // `null` (empty) if `a>=b`
@@ -33,11 +33,17 @@ const interval = (a, b, options = undefined) => {
       μ = options.mean ?? options.μ ?? options.mode ?? options.c
       σ = options.stdev ?? options.σ
     }
-    assert(defined(μ), 'missing mean or mode for unbounded interval (-∞,∞)')
-    assert(defined(σ), 'missing stdev for unbounded interval (-∞,∞)')
     return normal(μ, σ)
   }
-  // half-unbounded interval is gamma w/ `μ|c` and `σ` required
-  // TODO: implement gamma(a,μ,±σ) sampler
-  fatal('not yet implemented')
+  // half-bounded interval is gamma w/ `μ|c` and `σ` required
+  let c, μ, σ
+  if (options) {
+    c = options.mode ?? options.c
+    μ = options.mean ?? options.μ
+    σ = options.stdev ?? options.σ
+  }
+  a = is_finite(a) ? a : b // gamma base
+  if (!defined(μ) && defined(c))
+    μ = a + sign(c - a) * _gamma_mean_from_mode(abs(c - a), σ)
+  return gamma(a, μ, σ)
 }

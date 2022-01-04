@@ -5,4 +5,4 @@
 // samplers.js
 ```
 
-#_///core
+<p> #_///core #_///math
