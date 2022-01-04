@@ -33,6 +33,8 @@ const interval = (a, b, options = undefined) => {
       μ = options.mean ?? options.μ ?? options.mode ?? options.c
       σ = options.stdev ?? options.σ
     }
+    assert(defined(μ), 'missing mean or mode for unbounded interval')
+    assert(defined(σ), 'missing stdev for unbounded interval')
     return normal(μ, σ)
   }
   // half-bounded interval is gamma w/ `μ|c` and `σ` required
@@ -43,7 +45,8 @@ const interval = (a, b, options = undefined) => {
     σ = options.stdev ?? options.σ
   }
   a = is_finite(a) ? a : b // gamma base
-  if (!defined(μ) && defined(c))
-    μ = a + sign(c - a) * _gamma_mean_from_mode(abs(c - a), σ)
+  assert(defined(μ ?? c), 'missing mean or mode for half-bounded interval')
+  assert(defined(σ), 'missing stdev for half-bounded interval')
+  μ ??= a + sign(c - a) * _gamma_mean_from_mode(abs(c - a), σ)
   return gamma(a, μ, σ)
 }

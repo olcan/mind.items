@@ -158,5 +158,3 @@ function gamma(a, μ, σ) {
 
   return dom
 }
-
-// TODO: plot all these samplers in an example or something like that

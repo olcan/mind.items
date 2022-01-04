@@ -125,8 +125,8 @@ function random_normal() {
   // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/special.js#L437
   let u, v, x, y, q
   do {
-    u = jStat._random_fn()
-    v = 1.7156 * (jStat._random_fn() - 0.5)
+    u = random()
+    v = 1.7156 * (random() - 0.5)
     x = u - 0.449871
     y = Math.abs(v) + 0.386595
     q = x * x + y * (0.196 * y - 0.25472 * x)
