@@ -1,17 +1,18 @@
-// interval `(a,b)`
+// `x∈(a,b)`
 // can be _unbounded_ (`±inf`) on either side
 // sampler depends on (may require) additional `options`:
 // | `mean` or `μ`  | prior mean
 // | `mode` or `c`  | prior mode (supersedes `mean`)
 // | `stdev` or `σ` | prior standard deviation
 // \
-// | **interval** | **options**     | **sampler**
-// | `(a,b)`      |                 | `uniform(a,b)`
-// | `(a,b)`      | `c`             | `triangular(a,b,c)`
-// | `(a,b)`      | `σ`, `μ|c`      | `beta(a,b,μ,σ)`
-// | `(a,∞)`      | `σ`, `μ|c > a`  | `gamma(a,μ,σ)`
-// | `(-∞,b)`     | `σ`, `μ|c < b`  | `gamma(b,μ,σ)`
-// | `(-∞,∞)`     | `σ`, `μ|c`      | `normal(μ,σ)`
+// | **interval** | **options**      | **sampler**
+// | `(a,b)`      |                  | `uniform(a,b)`
+// | `(a,b)`      | `c`              | `triangular(a,b,c)`
+// | `(a,b)`      | `σ`, `μ|c`       | `beta(a,b,μ,σ)`
+// | `(a,∞)`      | `μ|c > a`, `[σ]` | `gamma(a,μ,σ)`
+// | `(-∞,b)`     | `μ|c < b`, `[σ]` | `gamma(b,μ,σ)`
+// | `(-∞,∞)`     | `μ|c`, `σ`       | `normal(μ,σ)`
+// default `σ` for half-bounded interval is 1/2 distance to bound
 // `undefined` if `a` or `b` non-number
 // `null` (empty) if `a>=b`
 const interval = (a, b, options = undefined) => {
@@ -57,11 +58,16 @@ const interval = (a, b, options = undefined) => {
   // assert(defined(μ ?? c), 'missing mean or mode for half-bounded interval')
   // assert(defined(σ), 'missing stdev for half-bounded interval')
   // mode supercedes mean if both are specified
-  if (defined(c)) μ = a + sign(c - a) * _gamma_mean_from_mode(abs(c - a), σ)
+  if (defined(c)) {
+    σ ??= abs(c - a) / 2 // default sigma is 1/2 distance to bound
+    μ = a + sign(c - a) * _gamma_mean_from_mode(abs(c - a), σ)
+  }
+  σ ??= abs(μ - a) / 2 // default sigma is 1/2 distance to bound
   return gamma(a, μ, σ)
 }
 
-// bounded interval `(a,b)`
+// `x∈(a,b)` (`a`,`b` finite)
+// `options` same as in `interval` (see above)
 // `undefined` if `a` or `b` non-number or infinite
 // `null` (empty) if `a>=b`
 function between(a, b, options = undefined) {
@@ -70,34 +76,47 @@ function between(a, b, options = undefined) {
   return interval(a, b, options)
 }
 
-const within = (x, ε, options = undefined) => between(x - ε, x + ε, options)
+// `x∈(y-ε,y+ε)`
+// `options` same as in `interval` (see above)
+// `undefined` if `y` non-number or infinite
+// `undefined` if `ε` non-number or infinite or `ε <= 0`
+function within(y, ε, options = undefined) {
+  if (!is_finite(y)) return undefined
+  if (!is_finite(ε) || ε <= 0) return undefined
+  between(y - ε, y + ε, options)
+}
 
-// above(a, μ|c, σ, [mode = false])
-// lower-bounded interval `(a,∞)`
-// if `mode`, `μ|c` is taken as mode `c`
+// `x>a`, `x≈μ±σ`
+// `μ` is mean, or mode if passed as `{mode:μ}` or `{c:μ}`
+// `σ` is optional standard deviation w/ default `(μ-a)/2`
 // `undefined` if `a` non-number or infinite
-// `undefined` if `μ|c` non-number or infinite or `μ|c <= a`
+// `undefined` if `μ` non-number or infinite or `μ <= a`
 // `undefined` if `σ` non-number or infinite or `σ <= 0`
-function above(a, μ, σ, mode = false) {
+function above(a, μ, σ = (μ - a) / 2) {
   if (!is_finite(a)) return undefined
+  const mode = is_object(μ)
+  if (mode) μ = μ.mode ?? μ.c
   if (!is_finite(μ) || μ <= a) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
   if (mode) return interval(a, inf, { c: μ, σ })
   return interval(a, inf, { μ, σ })
 }
 
-// below(b, μ|c, σ, [mode = false])
-// upper-bounded interval `(-∞,b)`
-// if `mode`, `μ|c` is taken as mode `c`
+// `x<b`, `x≈μ±σ`
+// `μ` is mean, or mode if passed as `{mode:μ}` or `{c:μ}`
+// `σ` is optional standard deviation w/ default `(b-μ)/2`
 // `undefined` if `b` non-number or infinite
-// `undefined` if `μ|c` non-number or infinite or `μ|c >= b`
+// `undefined` if `μ` non-number or infinite or `μ >= b`
 // `undefined` if `σ` non-number or infinite or `σ <= 0`
-function below(b, μ, σ, mode = false) {
+function below(b, μ, σ = (b - μ) / 2) {
   if (!is_finite(b)) return undefined
+  const mode = is_object(μ)
+  if (mode) μ = μ.mode ?? μ.c
   if (!is_finite(μ) || μ >= b) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
   if (mode) return interval(-inf, b, { c: μ, σ })
   return interval(-inf, b, { μ, σ })
 }
 
-const around = (x, σ) => normal(x, σ)
+// `x≈μ±σ`
+const around = (μ, σ) => normal(μ, σ)
