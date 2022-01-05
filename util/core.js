@@ -632,7 +632,7 @@ function js_table(regex) {
   //
   // also note javascript engine _should_ cache the compiled regex
   const __js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<indent> *)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class|get|set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()]*?) *=>)*?\s*(?<body>[^\n]+))/gs
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class| *get| *set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()]*?) *=>)?\s*(?<body>[^\n]+))/gs
 
   const defs = _.compact(
     Array.from(
@@ -644,10 +644,8 @@ function js_table(regex) {
         // skip imbalanced args (due to occasional regex failure)
         if (_count_unescaped(def.args, '(') != _count_unescaped(def.args, ')'))
           return
-        def.type = def.type.trim() // trim trailing space
-        // skip certain types if indented
-        if (def.indent && def.type?.match(/(?:const|let|var|class|function)$/))
-          return
+        def.indent = def.type.match(/^ */)[0] // indent allowed for some types
+        def.type = def.type.trim() // trim indent and any trailing space
         // clear args if getter/setter
         if (def.type.match(/(?:get|set)$/)) def.args = ''
         // process arrow args
