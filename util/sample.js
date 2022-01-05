@@ -1656,6 +1656,7 @@ class _Sampler {
 function _run() {
   const js = _this.read('js_input').trim()
   if (js.match(/^sample *\(/)) return null
+  if (!js.match(/\bsample *\(/)) return null
   const func = eval(flat('(context=>{', js, '})').join('\n'))
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)

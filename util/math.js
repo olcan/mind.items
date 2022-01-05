@@ -1,11 +1,16 @@
 const pi = Math.PI
 const exp = Math.exp
 const log = Math.log
+const sin = Math.sin
+const cos = Math.cos
+const asin = Math.asin
+const acos = Math.acos
 const ln = Math.log
 const loge = Math.log
 const log2 = Math.log2
 const log10 = Math.log10
 const sqrt = Math.sqrt
+const cbrt = Math.cbrt
 const abs = Math.abs
 const sign = Math.sign
 const min = Math.min
@@ -420,3 +425,52 @@ const mul = (xJ, yJ) => map2(xJ, yJ, (x, y) => x * y)
 const mulf = (xJ, yJ, f) => map2(xJ, yJ, (x, y, j) => x * f(y, j))
 const div = (xJ, yJ) => map2(xJ, yJ, (x, y) => x / y)
 const divf = (xJ, yJ, f) => map2(xJ, yJ, (x, y, j) => x / f(y, j))
+
+// solves `a*x^3 + b*x^2 + c*x + d == 0`
+function solve_cubic(a, b, c, d, ε = 1e-6) {
+  // derived from https://stackoverflow.com/a/27176424
+  // handle quadratic, linear, degenerate cases
+  if (abs(a) < ε) {
+    ;[a, b, c] = [b, c, d]
+    if (abs(a) < ε) {
+      ;[a, b] = [b, c]
+      if (abs(a) < ε) return [] // degenerate
+      return [-b / a]
+    }
+    const D = b * b - 4 * a * c
+    if (abs(D) < ε) return [-b / (2 * a)]
+    else if (D > 0) return [(-b + sqrt(D)) / (2 * a), (-b - sqrt(D)) / (2 * a)]
+    return []
+  }
+  // convert to depressed cubic t^3+pt+q = 0 (subst x = t - b/3a)
+  const p = (3 * a * c - b * b) / (3 * a * a)
+  const q = (2 * b * b * b - 9 * a * b * c + 27 * a * a * d) / (27 * a * a * a)
+  let roots
+
+  if (abs(p) < ε) {
+    // p = 0 -> t^3 = -q -> t = -q^1/3
+    roots = [cbrt(-q)]
+  } else if (abs(q) < ε) {
+    // q = 0 -> t^3 + pt = 0 -> t(t^2+p)=0
+    roots = [0].concat(p < 0 ? [sqrt(-p), -sqrt(-p)] : [])
+  } else {
+    const D = (q * q) / 4 + (p * p * p) / 27
+    if (abs(D) < ε) {
+      // D = 0 -> two roots
+      roots = [(-1.5 * q) / p, (3 * q) / p]
+    } else if (D > 0) {
+      // only one real root
+      const u = cbrt(-q / 2 - sqrt(D))
+      roots = [u - p / (3 * u)]
+    } else {
+      // D < 0, three roots, but needs complex/trigonometric solution
+      const u = 2 * sqrt(-p / 3)
+      // D < 0 implies p < 0 and acos argument in [-1..1]
+      const t = acos((3 * q) / p / u) / 3
+      const k = (2 * pi) / 3
+      roots = [u * cos(t), u * cos(t - k), u * cos(t - 2 * k)]
+    }
+  }
+  // convert back from depressed cubic
+  return apply(roots, x => x - b / (3 * a))
+}
