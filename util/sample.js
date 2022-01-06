@@ -116,7 +116,8 @@ function from(x, domain, b) {
 // |               | _default_: `({aK,aaK},awK,aawK) => { fill(awK,k=>max(0,J/K-aK[k])); fill(aawK,k=>max(0,J/K-aaK[k])) }`
 // |               | default concentrates on deficiencies w.r.t. `move_while`
 // | `weight_exp`  | weight exponent function `u => …` `∈[0,1]`
-// |               | multiplied into `log_w` and `log_wu(u)` (if defined)
+// |               | multiplied into `log_w` _unless_ `log_wu(u)` is defined
+// |               | acts as _default weight sequence_, see `weight(…)` below
 // |               | triggers warning if sampling is stopped at `weight_exp<1`
 // |               | does not affect `-inf` weights, e.g. due to conditioning
 // |               | _default_: `u => min(1, (u+1)/3)`
@@ -175,7 +176,7 @@ function _benchmark_sample() {
   )
 }
 
-// condition samples on `c`
+// condition samples on `cond`
 // scoped by outer `sample(context=>{ … })`
 // conditions models `P(X) → P(X|c)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
@@ -183,7 +184,8 @@ function _benchmark_sample() {
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
 // _weight sequence_ `log_wu(u)=0↘-∞, u=0,1,…` can help, see #/weight
 // _likelihood weights_ `∝ P(c|X) = E[𝟙(c|X)]` can help, see `weight(…)`
-function condition(c, log_wu = undefined) {
+// _default weight sequence_ is `cond._log_wu` (if defined)
+function condition(cond, log_wu = cond._log_wu) {
   fatal(`unexpected (unparsed) call to condition(…)`)
 }
 
@@ -194,8 +196,10 @@ function condition(c, log_wu = undefined) {
 // _likelihood weights_ `∝ P(c|X)` _fork-condition_ models `P(X) → P(X|c')`
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
 // _weight sequence_ `log_wu(u)=0→log_w, u=0,1,…` can help
+// _default weight sequence_ is `log_w._log_wu` (if defined)
+// also see `weight_exp` option of `sample(…)` above
 // see #/weight for technical details
-function weight(log_w, log_wu = undefined) {
+function weight(log_w, log_wu = log_w._log_wu) {
   fatal(`unexpected (unparsed) call to weight(…)`)
 }
 
@@ -1639,11 +1643,11 @@ class _Sampler {
     )
   }
 
-  _condition(c, log_wu) {
-    this._weight(c ? 0 : -inf, log_wu)
+  _condition(cond, log_wu = cond._log_wu) {
+    this._weight(cond ? 0 : -inf, log_wu)
   }
 
-  _weight(log_w, log_wu) {
+  _weight(log_w, log_wu = log_w._log_wu) {
     this.log_wJ[this.j] += log_w
     if (log_wu) {
       const prev_log_wu = this.log_wufJ[this.j]
