@@ -1,4 +1,5 @@
 // is `x` from `domain`?
+// | **domain**       | **description**
 // | sampler function | `x` via function `≡{via:func}`
 // | type string      | `x` is of type `≡{is:type}`
 // | array            | `x` in array, `≡{in:array}`
@@ -16,7 +17,7 @@
 // | `gte|lte:y`      | inequality `x≥y`, `x≤y`
 // | `gt|lt:y`        | strict inequality `x>y`, `x<y`
 // | `and|or:[…]`     | composite domain
-// `false` for unknown (or missing) `domain`
+// `false` if `domain` unknown or missing or omitted
 function from(x, domain) {
   if (is_nullish(domain)) return false
   if (is_function(domain)) return from(x, { via: domain })
@@ -181,7 +182,7 @@ function _benchmark_sample() {
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
 // _weight sequence_ `log_wu(u)=0↘-∞, u=0,1,…` can help, see #/weight
 // _likelihood weights_ `∝ P(c|X) = E[𝟙(c|X)]` can help, see `weight(…)`
-// _default weight sequence_ is `cond._log_wu` (if defined)
+// `cond._log_wu` is used as default weight sequence
 function condition(cond, log_wu = cond._log_wu) {
   fatal(`unexpected (unparsed) call to condition(…)`)
 }
@@ -193,7 +194,7 @@ function condition(cond, log_wu = cond._log_wu) {
 // _likelihood weights_ `∝ P(c|X)` _fork-condition_ models `P(X) → P(X|c')`
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
 // _weight sequence_ `log_wu(u)=0→log_w, u=0,1,…` can help
-// _default weight sequence_ is `log_w._log_wu` (if defined)
+// `cond._log_wu` is used as default weight sequence
 // also see `weight_exp` option of `sample(…)` above
 // see #/weight for technical details
 function weight(log_w, log_wu = log_w._log_wu) {
@@ -1641,10 +1642,12 @@ class _Sampler {
   }
 
   _condition(cond, log_wu = cond._log_wu) {
+    if (cond.valueOf) cond = cond.valueOf() // unwrap object
     this._weight(cond ? 0 : -inf, log_wu)
   }
 
   _weight(log_w, log_wu = log_w._log_wu) {
+    if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
     this.log_wJ[this.j] += log_w
     if (log_wu) {
       const prev_log_wu = this.log_wufJ[this.j]
