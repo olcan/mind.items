@@ -182,7 +182,8 @@ function _benchmark_sample() {
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
 // _weight sequence_ `log_wu(u)=0↘-∞, u=0,1,…` can help, see #/weight
 // _likelihood weights_ `∝ P(c|X) = E[𝟙(c|X)]` can help, see `weight(…)`
-// `cond._log_wu` is used as default weight sequence
+// `cond._log_wu` is used as default weight sequence if defined
+// `cond` is unwrapped using `cond.valueOf` if defined
 function condition(cond, log_wu = cond._log_wu) {
   fatal(`unexpected (unparsed) call to condition(…)`)
 }
@@ -193,9 +194,10 @@ function condition(cond, log_wu = cond._log_wu) {
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
 // _likelihood weights_ `∝ P(c|X)` _fork-condition_ models `P(X) → P(X|c')`
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
-// _weight sequence_ `log_wu(u)=0→log_w, u=0,1,…` can help
-// `cond._log_wu` is used as default weight sequence
-// also see `weight_exp` option of `sample(…)` above
+// _weight sequence_ `log_wu(u)=0→log_w, u=0,1,…` can help, see #/weight
+// see `weight_exp` option of `sample(…)` for _default weight sequences_
+// `log_w._log_wu` is used as default weight sequence if defined
+// `log_w` is unwrapped using `log_w.valueOf` if defined
 // see #/weight for technical details
 function weight(log_w, log_wu = log_w._log_wu) {
   fatal(`unexpected (unparsed) call to weight(…)`)
