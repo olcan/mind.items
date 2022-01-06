@@ -1,9 +1,7 @@
-// from(x, domain)
 // is `x` from `domain`?
 // | sampler function | `x` via function `≡{via:func}`
 // | type string      | `x` is of type `≡{is:type}`
 // | array            | `x` in array, `≡{in:array}`
-// | numbers `a,b`      | `x` in interval `(a,b)`, `≡{gt:a, lt:b}`
 // | object           | `x` matching constraints
 // | `{}`             | everything (no constraints)
 // | `via:func`       | `func._domain || {}`
@@ -19,10 +17,9 @@
 // | `gt|lt:y`        | strict inequality `x>y`, `x<y`
 // | `and|or:[…]`     | composite domain
 // `false` for unknown (or missing) `domain`
-function from(x, domain, b) {
+function from(x, domain) {
   if (is_nullish(domain)) return false
-  if (is_number(domain) && is_number(b)) return x > domain && x < b
-  if (is_function(domain)) return from({ via: domain })
+  if (is_function(domain)) return from(x, { via: domain })
   if (is_string(domain)) return is(x, domain) // ≡{is:type}
   if (is_array(domain)) return domain.includes(x) // ≡{in:array}
   if (!is_object(domain)) false
