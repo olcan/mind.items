@@ -66,7 +66,7 @@ const interval = (a, b, options = undefined) => {
   return gamma(a, μ, σ)
 }
 
-// `x∈(a,b)` (`a`,`b` finite)
+// `x∈(a,b)`, `a`,`b` finite
 // `options` same as in `interval` (see above)
 // `undefined` if `a` or `b` non-number or infinite
 // `null` (empty) if `a>=b`
@@ -92,8 +92,10 @@ function within(y, ε, options = undefined) {
 // `undefined` if `a` non-number or infinite
 // `undefined` if `μ` non-number or infinite or `μ <= a`
 // `undefined` if `σ` non-number or infinite or `σ <= 0`
-function above(a, μ, σ = (μ - a) / 2) {
+// `≡ {gt:a}` if `μ` omitted
+function above(a, μ = undefined, σ = (μ - a) / 2) {
   if (!is_finite(a)) return undefined
+  if (!defined(μ)) return { gt: a } // plain domain for conditioning
   const mode = is_object(μ)
   if (mode) μ = μ.mode ?? μ.c
   if (!is_finite(μ) || μ <= a) return undefined
@@ -108,8 +110,10 @@ function above(a, μ, σ = (μ - a) / 2) {
 // `undefined` if `b` non-number or infinite
 // `undefined` if `μ` non-number or infinite or `μ >= b`
 // `undefined` if `σ` non-number or infinite or `σ <= 0`
-function below(b, μ, σ = (b - μ) / 2) {
+// `≡ {lt:b}` if `μ` omitted
+function below(b, μ = undefined, σ = (b - μ) / 2) {
   if (!is_finite(b)) return undefined
+  if (!defined(μ)) return { lt: b } // plain domain for conditioning
   const mode = is_object(μ)
   if (mode) μ = μ.mode ?? μ.c
   if (!is_finite(μ) || μ >= b) return undefined
