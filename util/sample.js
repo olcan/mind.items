@@ -192,7 +192,7 @@ function distance(x, domain) {
 // |               | `fill(awK, k=> max(0, J/K - aK[k] ));`
 // |               | `fill(aawK,k=> max(0, J/K - aaK[k])) }`
 // |               | default concentrates on deficiencies w.r.t. `move_while`
-// | `max_updates` | maximum number of update steps, _default_: `inf`
+// | `max_updates` | maximum number of update steps, _default_: `1000`
 // | `min_updates` | minimum number of update steps, _default_: `0`
 // | `min_stable_updates` | minimum stable update steps, _default_: `1`
 // | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
@@ -347,7 +347,7 @@ class _Sampler {
           fill(awK, k => max(0, J / K - aK[k]))
           fill(aawK, k => max(0, 0.1 * (J / K) - aaK[k]))
         },
-        max_updates: inf,
+        max_updates: 1000,
         min_updates: 0,
         min_stable_updates: 1,
         min_unweighted_updates: 3,
@@ -397,6 +397,7 @@ class _Sampler {
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
     this.rN = array(N) // relaxation parameters in [0,1]
     this.zN = array(N) // distance scaling factor for log_wr
+    this.bN = array(N) // density base offset for log_wr
     this.log_wrJ = array(J) // posterior relaxed log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
@@ -661,15 +662,27 @@ class _Sampler {
   }
 
   _fill_log_wrj(log_wrJ) {
-    const { log_wJ, log_wrfJN, J, rN, zN } = this
-    // compute distance scaling factors zN for possible scaling in log_wr
+    const { log_wJ, log_wrfJN, rN, zN, bN } = this
+
+    // compute distance scaling factor zN for possible scaling in log_wr
     // zN is passed as second argument, undefined when computing minimum
     // 1/max and 1/mean are easy to compute, 1/quantile is harder
-    // fill(zN, n => J / sum(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
+    // fill(zN, n => this.J / sum(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
     fill(zN, n => 1 / max_of(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
-    fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => (f ? f(rN[n], zN[n]) : 0)))
+
+    // compute density base offset bN for possible shifting in log_wr
+    // this is always the minimum observed density and can have any sign
+    // we take undefined densities (e.g. outside domain) as inf (before min)
+    fill(bN, n => min_of(log_wrfJN, fN => (fN[n] ? fN[n](rN[n], null) : inf)))
+    apply(bN, b => (b == inf ? 0 : b)) // if min is inf, base is zero
+
+    // fill log_wrJ
+    fill(log_wrJ, j =>
+      sum(log_wrfJN[j], (f, n) => (f ? f(rN[n], zN[n], bN[n]) : 0))
+    )
     this.wrsum = null // since log_wrJ changed
     // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wrsum)
+
     // compute gap allowing for infinities (w/o creating NaNs)
     const gap = (a, b) => (a == b ? 0 : abs(a - b))
     this.log_wrj_gap = max_of(this.log_wrJ, (lwrj, j) => gap(lwrj, log_wJ[j]))
@@ -677,8 +690,9 @@ class _Sampler {
     // if r==1, then gap==0
     // only exception is if all weights are 0
     if (this.r == 1) assert(this.log_wrj_gap == 0, `unexpected gap>0 @ r=1`)
-    // note gap==0 @ r<1 can happen r is ignored, e.g. for non-domain conditions
+    // note gap==0 @ r<1 can happen if r is ignored by log_wr
     // if (this.log_wrj_gap == 0) assert(this.r == 1, `unexpected gap=0 @ r<1`)
+
     // clip infinities to enable subtraction in _reweight & _move
     clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
   }
@@ -785,8 +799,8 @@ class _Sampler {
   _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwJ, log_cwrfJN, log_wJ, log_wrfJN, log_wrJ, stats } = this
-    const { rN, zN, awK, aawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
+    const { log_cwJ, log_cwrfJN, log_wJ, log_wrfJN, log_wrJ, stats, rN } = this
+    const { zN, bN, awK, aawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
@@ -822,7 +836,9 @@ class _Sampler {
       const k_pivot = kJ[j]
       this.p++
       this.pK[k_pivot]++
-      let log_cwrj = sum(log_cwrfJN[j], (f, n) => (f ? f(rN[n], zN[n]) : 0))
+      let log_cwrj = sum(log_cwrfJN[j], (f, n) =>
+        f ? f(rN[n], zN[n], bN[n]) : 0
+      )
       log_cwrj = clip(log_cwrj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwrj - log_wrJ[j]
       if (random() < exp(log_mwJ[j] + log_mpJ[j] + log_dwj)) {
@@ -948,13 +964,13 @@ class _Sampler {
         }
 
         // check max_time/updates for potential early termination
-        if (this.t > max_time || this.u > max_updates) {
+        if (this.t >= max_time || this.u >= max_updates) {
           const { t, u } = this
           if (this.options.warn) {
             // warn about running out of time or updates
             if (t > max_time)
-              warn(`ran out of time t=${t}>${max_time}ms (u=${u})`)
-            else warn(`ran out of updates u=${u}>${max_updates} (t=${t}ms)`)
+              warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
+            else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
           }
           break
         }
@@ -989,7 +1005,7 @@ class _Sampler {
       fill(this.aaK, 0) // accepted moves by jump value
       this.mlw = 0 // log_w improvement
       this.mlp = 0 // log_p improvement
-      while (move_while(this)) {
+      while (move_while(this) && this.t < max_time) {
         move_weights(this, this.awK, this.aawK)
         this._move()
         this.mlw += this.move_log_w
@@ -1789,18 +1805,27 @@ class _Sampler {
   }
 
   _from(x, domain) {
+    // reject outright on nullish (null=empty or undefined) domain
+    // allows undefined/empty domains as in _sample
+    if (is_nullish(domain)) return false
     const c = from(x, domain)
+    // log_wr can be specified explicitly by the domain
     let log_wr = domain?._log_wr
-    // if log_wr is not specified by domain, use distance-based log_wr
+    // if missing, use default log_wr based on distance and/or log_p
     if (!log_wr) {
-      const d = distance(x, domain)
-      if (defined(d)) {
-        log_wr = (r, z) => {
-          if (c) return 0 // always 0 inside domain
-          if (r == 1) return -inf // always -inf outside domain at r=1
-          if (z === undefined) return d // distance-only for z calculation
-          return log(1 - r) * (1 + 100 * d * z)
-        }
+      const d = distance(x, domain) ?? 0 // assume 0 if unknown
+      const log_p =
+        x !== undefined && domain._log_p ? domain._log_p(x) : c ? 0 : -inf
+      if (!c) {
+        assert(d >= 0, `negative distance (outside domain)`)
+        assert(log_p == -inf, `positive density ${log_p} outside domain x=${x}`)
+      } else assert(d == 0, `non-zero distance inside domain`)
+      log_wr = (r, z, b) => {
+        if (z === undefined) return d // distance for z
+        if (b === undefined) return c ? log_p : inf // log_p (inside c) for b
+        if (r == 1) return log_p // log_wr == log_p at r==1
+        if (d == 0) return log_p - b // means inside (c) or distance unknown
+        return b + log(1 - r) * (1 + 100 * d * z)
       }
     }
     if (log_wr) return set(new Boolean(c), '_log_wr', log_wr)
@@ -1810,8 +1835,8 @@ class _Sampler {
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
     const log_w = cond ? 0 : -inf
-    // this.log_wJ[this.j] += log_wr ? log_wr(1, -inf) : log_w
-    this.log_wJ[this.j] += log_w
+    // notw log_w is superseded by log_wr(1, 0, 0)
+    this.log_wJ[this.j] += log_wr ? log_wr(1, 0, 0) : log_w
     this.log_wrfJN[this.j][n] = log_wr ?? (r => log_w)
   }
 
