@@ -83,7 +83,7 @@ function between(a, b, options = undefined) {
 function within(y, ε, options = undefined) {
   if (!is_finite(y)) return undefined
   if (!is_finite(ε) || ε <= 0) return undefined
-  between(y - ε, y + ε, options)
+  return between(y - ε, y + ε, options)
 }
 
 // `x>a`, `x≈μ±σ`

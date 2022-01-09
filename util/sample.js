@@ -2,6 +2,7 @@
 // | **domain**       | **description**
 // | sampler function | `x` via function `≡{via:func}`
 // | type string      | `x` is of type `≡{is:type}`
+// | number           | `x` `===` number `≡{eqq:number}`
 // | array            | `x` in array, `≡{in:array}`
 // | object           | `x` matching constraints
 // | `{}`             | everything (no constraints)
@@ -23,16 +24,18 @@ function from(x, domain) {
   if (is_function(domain)) return from(x, { via: domain })
   if (is_string(domain)) return is(x, domain) // ≡{is:type}
   if (is_array(domain)) return domain.includes(x) // ≡{in:array}
-  if (!is_object(domain)) false
-  return Object.keys(domain).every(key => {
+  if (is_number(domain)) return x == domain // ≡{eq:number}
+  if (!is_object(domain)) return false
+  return keys(domain).every(key => {
     switch (key) {
       case 'via':
         if (is_function(domain.via)) {
           // function may optionally declare return domain as _domain
           // otherwise function is allowed to return anything
           if (domain.via._domain) return from(x, domain.via._domain)
-          else return true // function can return anything
-        } else return false // unknown "via" domain
+          return true // function can return anything
+        }
+        return false // unknown "via" domain
       case 'is':
         return is(x, domain.is)
       case 'in':
@@ -49,12 +52,12 @@ function from(x, domain) {
         return x === domain.eqq
       case 'equal':
         return equal(x, domain.equal)
+      case 'gt':
+        return x > domain.gt
       case 'gte':
         return x >= domain.gte
       case 'lte':
         return x <= domain.lte
-      case 'gt':
-        return x > domain.gt
       case 'lt':
         return x < domain.lt
       case 'and':
@@ -65,6 +68,71 @@ function from(x, domain) {
         return key[0] == '_' // accept private _key only (for internal use)
     }
   })
+}
+
+const _distance = (x, y) => {
+  if (!is_finite(x) || !is_finite(y)) return undefined
+  return abs(x - y)
+}
+const _distance_to_array = (x, yJ) => {
+  if (yJ.length == 0) return undefined
+  if (!is_finite(x) || !yJ.every(is_finite)) return undefined
+  return min_of(yJ, y => abs(x - y))
+}
+
+// distance of `x` from `domain`
+// `=0` if `x` is from `domain`, `>0` otherwise
+// `domain._distance` function is used if defined
+// `undefined` if distance can not be quantified
+function distance(x, domain) {
+  if (is_nullish(domain)) return undefined
+  if (is_function(domain)) return distance(x, { via: domain })
+  if (is_string(domain)) return undefined
+  if (is_number(domain)) return _distance(x, domain)
+  if (is_array(domain)) return _distance_to_array(x, domain)
+  if (!is_object(domain)) return undefined
+  if (domain._distance) return domain._distance(x)
+  const d = max_of(keys(domain), key => {
+    switch (key) {
+      case 'via':
+        if (is_function(domain.via))
+          if (domain.via._domain) return distance(x, domain.via._domain)
+        return inf
+      case 'is':
+        return inf
+      case 'in':
+        return _distance_to_array(x, domain.in) ?? inf
+      case 'in_eq':
+        return _distance_to_array(x, domain.in_eq) ?? inf
+      case 'in_eqq':
+        return _distance_to_array(x, domain.in_eqq) ?? inf
+      case 'in_equal':
+        return _distance_to_array(x, domain.in_equal) ?? inf
+      case 'eq':
+        return _distance(x, domain.eq) ?? inf
+      case 'eqq':
+        return _distance(x, domain.eqq) ?? inf
+      case 'equal':
+        return _distance(x, domain.equal) ?? inf
+      case 'gt':
+        return max(0, domain.gt - x)
+      case 'gte':
+        return max(0, domain.gte - x)
+      case 'lte':
+        return max(0, x - domain.lte)
+      case 'lt':
+        return max(0, x - domain.lt)
+      case 'and':
+        return max_of(domain.and, dom => distance(x, dom) ?? inf)
+      case 'or':
+        // min_of ignores undefined|inf so we have to check separately
+        if (!domain.or.every(dom => defined(distance(x, dom)))) return inf
+        return min_of(domain.or, dom => distance(x, dom))
+      default:
+        return key[0] == '_' ? 0 : inf // accept private _key (for internal use)
+    }
+  })
+  return is_inf(d) ? undefined : d
 }
 
 // sample value `x` from `domain`
@@ -98,10 +166,13 @@ function from(x, domain) {
 // |               | ≡ _independent_ runs of `context=>{ … }`
 // |               | ≡ posterior update chains (dependent runs)
 // | `reweight_if` | reweight predicate `context => …`
-// |               | called once per update step `context.u = 1,2,…`
-// |               | reweights correspond to _relaxation levels_ (see below)
+// |               | called once per update step `context.u = 0,1,2,…`
+// |               | reduces `ess` to `≥reweight_ess` (see below)
 // |               | _default_: `({ess,J}) => ess >= .9 * J`
 // |               | default helps avoid extreme weights due to rapid reweights
+// | `reweight_ess`| minimum `ess` after reweight, _default_: `10`
+// | `min_reweights`| minimum number of reweight steps, _default_: `5`
+// | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -121,15 +192,11 @@ function from(x, domain) {
 // |               | `fill(awK, k=> max(0, J/K - aK[k] ));`
 // |               | `fill(aawK,k=> max(0, J/K - aaK[k])) }`
 // |               | default concentrates on deficiencies w.r.t. `move_while`
-// | `relaxations` | number of _relaxation levels_ `r ∈ (0,1)`, _default_: `3`
-// |               | passed into all _relaxation functions_ `log_wr` (see below)
-// |               | applies to _all weights_ via default `log_wr` (see below)
-// |               | may apply to some conditions, e.g. `from(x, domain)`
 // | `max_updates` | maximum number of update steps, _default_: `inf`
 // | `min_updates` | minimum number of update steps, _default_: `0`
 // | `min_stable_updates` | minimum stable update steps, _default_: `1`
 // | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
-// | `max_time`    | maximum time (ms) for sampling, _default_: `100` ms
+// | `max_time`    | maximum time (ms) for sampling, _default_: `1000` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
@@ -143,6 +210,7 @@ function from(x, domain) {
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // | `targets`     | object of targets for named values sampled in this context
 // |               | see `target` option above for possible targets
+// |               | can be `true` for auto-generated targets
 // | `max_tks`     | maximum `tks` desired once updates are complete
 // |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
 // |               | ignored if no targets specified via `target(s)` option
@@ -180,6 +248,13 @@ function _benchmark_sample() {
   )
 }
 
+// observe `x` in `domain`
+// `≡ condition(from(x, domain))`
+// see `condition(…)` below for technical details
+function observe(x, domain) {
+  fatal(`unexpected (unparsed) call to observe(…)`)
+}
+
 // condition samples on `cond`
 // scoped by outer `sample(context=>{ … })`
 // conditions models `P(X) → P(X|c)` for all `X` in context
@@ -190,7 +265,7 @@ function _benchmark_sample() {
 // some conditions (e.g. `from(x,domain)`) provide default `log_wr`
 // `cond._log_wr` (if defined) supersedes default `log_wr`
 // `cond` is unwrapped via `cond.valueOf` if defined
-function condition(cond, log_wr = cond._log_wr) {
+function condition(cond, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to condition(…)`)
 }
 
@@ -200,12 +275,12 @@ function condition(cond, log_wr = cond._log_wr) {
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
 // _likelihood weights_ `∝ P(c|X)` _fork-condition_ models `P(X) → P(X|c')`
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
-// _relaxation function_ `log_wr(r), r∈(0,1]` allows extreme weights
+// extreme weights require _relaxation function_ `log_wr(r), r∈(0,1]`
 // default `log_wr = r=>r*log_w` treats `r` as _weight exponent_
 // `log_w._log_wr` (if defined) supersedes default `log_wr`
 // `log_w` is unwrapped using `log_w.valueOf` if defined
 // see #/weight for technical details
-function weight(log_w, log_wr = log_w._log_wr ?? (r => r * log_w)) {
+function weight(log_w, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to weight(…)`)
 }
 
@@ -243,12 +318,12 @@ class _Sampler {
     // parse sampled values and determine K
     assign(this, this._parse_func(func))
     const K = (this.K = this.values.length)
+    const N = (this.N = this.weights.length)
     if (options.log) print(`parsed ${K} sampled values in ${this.func}`)
 
     // merge in default options
     const J = (this.J = options.size ?? 1000)
     assert(J > 0, `invalid sample size ${J}`)
-    const R = (this.R = options.relaxations ?? 3)
     this.options = options = assign(
       {
         stats: false,
@@ -259,20 +334,24 @@ class _Sampler {
         quantile_runs: 100,
         size: J,
         reweight_if: ({ ess, J }) => ess >= 0.9 * J,
+        reweight_ess: 10,
+        min_reweights: 5,
+        max_reweight_tries: 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, K, a, aK, aaK }) =>
-          essu < 0.9 * J || a < J || min_in(aK) < J / K || min_in(aaK) < J / K,
+          essu < 0.9 * J ||
+          a < J ||
+          min_in(aK) < J / K ||
+          min_in(aaK) < 0.1 * (J / K),
         move_weights: ({ aK, aaK }, awK, aawK) => {
           fill(awK, k => max(0, J / K - aK[k]))
-          fill(aawK, k => max(0, J / K - aaK[k]))
+          fill(aawK, k => max(0, 0.1 * (J / K) - aaK[k]))
         },
-        relaxations: R,
-        // weight_exp: u => min(1, (u + 1) / (R + 1)),
         max_updates: inf,
         min_updates: 0,
         min_stable_updates: 1,
         min_unweighted_updates: 3,
-        max_time: 250,
+        max_time: 1000,
         min_time: 0,
         min_ess: J / 2,
         max_mks: 1,
@@ -315,13 +394,15 @@ class _Sampler {
     this.aaK = array(K) // move accepts per jump value
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
-    this.log_wrfJ = array(J) // posterior log-weight relaxation functions
+    this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
+    this.rN = array(N) // relaxation parameters in [0,1]
+    this.zN = array(N) // distance scaling factor for log_wr
     this.log_wrJ = array(J) // posterior relaxed log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
     this.log_mpJ = array(J) // posterior move log-densities
     this.log_cwJ = array(J) // posterior candidate log-weights
-    this.log_cwrfJ = array(J) // posterior candidate log-weight relaxations
+    this.log_cwrfJN = matrix(J, N) // posterior candidate log-weight relaxations
     this.xJ = array(J) // return values
     this.pxJ = array(J) // prior return values
     this.yJ = array(J) // proposed return values
@@ -334,8 +415,11 @@ class _Sampler {
     this._uaJK = array(J)
     this._log_p_xJK = array(J)
     this._log_wJ = array(J)
-    this._log_wrfJ = array(J)
+    this._log_wrfJN = array(J)
     this._log_wrJ = array(J)
+    // reweight buffers
+    this._log_rwJ = array(J)
+    this._rN = array(N)
 
     // define cached properties
     cache(this, 'pwJ', [])
@@ -352,7 +436,7 @@ class _Sampler {
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
     cache(this, 'wsum', [], () => sum(this.log_wJ, exp))
-    cache(this, 'wrsum', [], () => sum(this.log_wrJ, exp))
+    cache(this, 'wrsum', ['rwJ'], () => sum(this.log_wrJ, exp))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
     cache(this, 'elp', ['rwJ'])
@@ -363,10 +447,15 @@ class _Sampler {
     // initialize stats
     this._init_stats()
 
+    if (defined(this.options.targets)) {
+      if (this.options.targets == true) this._targets()
+      else assert(is_object(this.options.targets), 'invalid option targets')
+    }
+
     // sample prior (along w/ u=0 posterior)
     let timer = _timer_if(options.log)
     this._sample_prior()
-    // require wsum>0 for ess to be meaningful
+    // require wrsum>0 for initial ess to be meaningful
     assert(this.wrsum > 0, 'prior sampling failed w/ wrsum==0')
     if (options.log) {
       print(
@@ -390,16 +479,17 @@ class _Sampler {
   }
 
   _parse_func(func) {
-    // replace sample|condition|weight|... calls
+    // replace sample|condition|weight|observe calls
     const js = func.toString()
     const lines = js.split('\n')
     const values = []
+    const weights = []
     const names = new Set()
     // argument pattern allowing nested parentheses is derived from that in core.js
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
+      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight|observe) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
     this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
       if (name) {
         assert(
@@ -453,26 +543,21 @@ class _Sampler {
       if (method == 'condition')
         args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
 
-      // replace non-sample function call
-      if (method != 'sample') return `__sampler._${method}(${args})`
-
-      // parse args, allowing nested parentheses
-      // this is naive about strings, comments, escaping, etc
-      // but it should work as long as parentheses are balanced
-      // let args = ''
-      // let depth = 0
-      // for (let i = 0; i < suffix.length; i++) {
-      //   const c = suffix[i]
-      //   if (c == ')' && --depth == 0) break
-      //   if (depth) args += c
-      //   if (c == '(') depth++
-      // }
+      // replace condition|weight|observe call
+      if (method != 'sample') {
+        const index = weights.length
+        weights.push({ index, offset, method, args, line_index, line, js })
+        return `__sampler._${method}(${index},${args})`
+      }
 
       // replace sample call
-      const k = values.length
-      values.push({ js, index: k, offset, name, args, line_index, line })
-      names.add(name || k) // aligned w/ values & unique since name non-numeric
-      return m.replace(/sample *\(.+\)$/s, `__sampler._sample(${k},${args})`)
+      const index = values.length
+      values.push({ index, offset, name, args, line_index, line, js })
+      names.add(name || index) // aligned w/ values & unique since name non-numeric
+      return m.replace(
+        /sample *\(.+\)$/s,
+        `__sampler._sample(${index},${args})`
+      )
     })
 
     // evaluate new function w/ replacements
@@ -485,7 +570,7 @@ class _Sampler {
       const wrapper = `(function({${_.keys(params)}}) { return ${this.js} })`
       func = eval(wrapper)(params)
     }
-    return { func, values, names, nK: array(names) }
+    return { func, values, weights, names, nK: array(names) }
   }
 
   _init_stats() {
@@ -493,7 +578,9 @@ class _Sampler {
     if (!options.stats) return // stats disabled
     // enable ALL stats for stats == true
     const known_keys = flat(
-      'ess essu essr elw elp wsum mar mlw mlp mks tks gap p a m t'.split(/\W+/),
+      'ess essu essr elw elp wsum mar mlw mlp mks tks gap p a m t r'.split(
+        /\W+/
+      ),
       this.nK.map(n => `mar.${n}`),
       this.nK.map(n => `p.${n}`),
       this.nK.map(n => `pp.${n}`)
@@ -516,6 +603,7 @@ class _Sampler {
 
     this.stats = {
       reweights: 0,
+      reweight_tries: 0,
       resamples: 0,
       moves: 0,
       proposals: 0,
@@ -526,6 +614,7 @@ class _Sampler {
       move_time: 0,
       mks_time: 0,
       tks_time: 0,
+      targets_time: 0,
     }
   }
 
@@ -553,11 +642,7 @@ class _Sampler {
     if (spec.mlp) update.mlp = this.u == 0 ? 0 : round_to(this.mlp, 1)
     if (spec.mks) update.mks = round_to(this.mks, 3)
     if (spec.tks) update.tks = round_to(this.tks, 1)
-    if (spec.gap)
-      update.gap =
-        this.u == 0
-          ? round_to(this.log_wrj_gap, 1)
-          : round_to(this.log_wrj_gap_before_reweight, 1)
+    if (spec.gap) update.gap = round_to(this.log_wrj_gap, 1)
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
     each(this.nK, (n, k) => {
       if (spec[`p.${n}`]) update[`p.${n}`] = this.u == 0 ? 0 : this.pK[k]
@@ -569,26 +654,31 @@ class _Sampler {
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.m) update.m = this.m
     if (spec.t) update.t = this.t
+    if (spec.r) update.r = round_to(this.r, 3, inf, 'floor')
 
     if (this.u == 0) stats.updates = [update]
     else stats.updates.push(update)
   }
 
-  _scaled_r(r = this.r) {
-    // scale r=0,...,R into (0,1] w/ R relaxation levels r∈(0,1)
-    // note last step (r==1) is not considered a relaxation
-    return (min(r, this.R) + 1) / (this.R + 1)
-  }
-
-  _fill_log_wrj(log_wrJ, r = this.r) {
-    const { log_wJ, log_wrfJ, R } = this
-    const scaled_r = this._scaled_r(r) // r scaled into (0,1]
-    fill(log_wrJ, j => (log_wrfJ[j] ? log_wrfJ[j](scaled_r) : log_wJ[j]))
+  _fill_log_wrj(log_wrJ) {
+    const { log_wJ, log_wrfJN, J, rN, zN } = this
+    // compute distance scaling factors zN for possible scaling in log_wr
+    // zN is passed as second argument, undefined when computing minimum
+    // 1/max and 1/mean are easy to compute, 1/quantile is harder
+    // fill(zN, n => J / sum(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
+    fill(zN, n => 1 / max_of(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
+    fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => (f ? f(rN[n], zN[n]) : 0)))
+    this.wrsum = null // since log_wrJ changed
+    // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wrsum)
     // compute gap allowing for infinities (w/o creating NaNs)
     const gap = (a, b) => (a == b ? 0 : abs(a - b))
     this.log_wrj_gap = max_of(this.log_wrJ, (lwrj, j) => gap(lwrj, log_wJ[j]))
     if (this.log_wrj_gap < 1e-6) this.log_wrj_gap = 0 // chop to 0 below 1e-6
-    assert(scaled_r < 1 || this.log_wrj_gap == 0, `log_wrj_gap>0 despite r==1`)
+    // if r==1, then gap==0
+    // only exception is if all weights are 0
+    if (this.r == 1) assert(this.log_wrj_gap == 0, `unexpected gap>0 @ r=1`)
+    // note gap==0 @ r<1 can happen r is ignored, e.g. for non-domain conditions
+    // if (this.log_wrj_gap == 0) assert(this.r == 1, `unexpected gap=0 @ r<1`)
     // clip infinities to enable subtraction in _reweight & _move
     clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
   }
@@ -596,16 +686,14 @@ class _Sampler {
   _sample_prior() {
     const timer = _timer_if(this.stats)
     const { func, xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
-    const { log_pwJ, log_wJ, log_wrfJ, log_wrJ, log_rwJ, stats } = this
+    const { log_pwJ, log_wJ, rN, log_wrJ, log_rwJ, stats } = this
     this.u = 0 // prior is zero'th update step
-    this.r = 0 // prior is zero'th reweight _step_ (before scaling by 1/R)
     fill(log_pwJ, 0)
     fill(log_wJ, 0)
-    fill(log_wrfJ, undefined)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
     fill(xJ, j => ((this.j = j), func(this)))
+    fill(rN, 0)
     this._fill_log_wrj(log_wrJ)
-    // init log_rwJ = log_pwJ + log_wrJ
     fill(log_rwJ, j => log_pwJ[j] + log_wrJ[j])
     fill(jJ, j => j) // init sample indices
     // copy prior samples for sample_prior()
@@ -614,19 +702,36 @@ class _Sampler {
     if (stats) stats.sample_time += timer.t
   }
 
-  // reweight for next reweight step (r->r+1) until wJ@r -> wJ (= zero "gap")
-  // multiply rwJ by wJ@r+1/wJ@r (could be 1)
+  // reweight by incrementing rN until rN=1
+  // multiply rwJ by wJ@r_next/wJ@r_prev (could be 1)
   _reweight() {
-    if (this.log_wrj_gap == 0) return // no longer needed
+    if (this.r == 1) return // no longer needed
     const timer = _timer_if(this.stats)
-    // print(`reweighting r=${this.r}->${this.r + 1}, gap ${this.log_wrj_gap}`)
-    this._swap('log_wrJ') // store weights for current r in _log_wrJ
-    this._fill_log_wrj(this.log_wrJ, ++this.r) // increment r
-    const { log_wrJ, _log_wrJ, log_rwJ, stats } = this
-    apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
-    this.rwJ = null // reset cached posterior ratio weights and dependents
+    // print(`reweighting [${rN}], gap ${this.log_wrj_gap}`)
+    this._swap('log_wrJ', 'log_rwJ') // save current state in buffers
+    const { rN, _rN, log_wrJ, _log_wrJ, log_rwJ, _log_rwJ, stats } = this
+
+    // apply random increment to rN that satisfies reweight_ess w/ wrsum>0
+    const { reweight_ess, min_reweights, max_reweight_tries } = this.options
+    assert(this.ess > reweight_ess, `ess too low for reweight`)
+    let tries = 0 // number of tries to reweight (i.e. increment rN)
+    copy(_rN, rN) // save current rN as base
+    do {
+      if (tries++ == 0) fill(rN, n => min(1, _rN[n] + 1 / min_reweights))
+      else apply(rN, (r, n) => _rN[n] + (r - _rN[n]) * random())
+      this._fill_log_wrj(log_wrJ) // weights for next rN
+      copy(log_rwJ, _log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
+      this.rwJ = null // reset cached posterior ratio weights and dependents
+    } while (
+      (this.ess < reweight_ess || this.wrsum == 0) &&
+      tries < max_reweight_tries
+    )
+    if (this.ess < reweight_ess || this.wrsum == 0)
+      fatal(`failed reweight in ${tries} tries`)
+
     if (stats) {
       stats.reweights++
+      stats.reweight_tries += tries
       stats.reweight_time += timer.t
     }
   }
@@ -641,7 +746,7 @@ class _Sampler {
   _resample() {
     const timer = _timer_if(this.stats)
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
-    const { _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ, _log_wrfJ, log_wrfJ } = this
+    const { _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ, _log_wrfJN, log_wrfJN } = this
     const { _uaJK, uaJK, _log_wrJ, log_wrJ, log_p_xJK, _log_p_xJK } = this
     if (rwj_uniform) random_discrete_uniform_array(jjJ, J)
     else random_discrete_array(jjJ, rwJ, rwj_sum) // note: sorted indices
@@ -652,7 +757,7 @@ class _Sampler {
       _uaJK[j] = uaJK[jj]
       _log_p_xJK[j] = log_p_xJK[jj]
       _log_wJ[j] = log_wJ[jj]
-      _log_wrfJ[j] = log_wrfJ[jj]
+      _log_wrfJN[j] = log_wrfJN[jj]
       _log_wrJ[j] = log_wrJ[jj]
     })
     this._swap(
@@ -662,7 +767,7 @@ class _Sampler {
       'uaJK',
       'log_p_xJK',
       'log_wJ',
-      'log_wrfJ',
+      'log_wrfJN',
       'log_wrJ'
     )
     fill(log_rwJ, 0) // reset weights now "baked into" sample
@@ -679,13 +784,13 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     const timer = _timer_if(this.stats)
-    const { J, K, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwJ, log_cwrfJ, log_wJ, log_wrfJ, log_wrJ, stats } = this
-    const { awK, aawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
+    const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
+    const { log_cwJ, log_cwrfJN, log_wJ, log_wrfJN, log_wrJ, stats } = this
+    const { rN, zN, awK, aawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
-    fill(log_cwrfJ, undefined) // reset posterior candidate future log-weights
+    each(log_cwrfJN, log_cwrfjN => fill(log_cwrfjN, undefined))
     each(yJK, yjK => fill(yjK, undefined))
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
@@ -701,24 +806,23 @@ class _Sampler {
 
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wJ = log_wJ // to be restored below
-    const tmp_log_wrfJ = log_wrfJ // to be restored below
+    const tmp_log_wrfJN = log_wrfJN // to be restored below
     this.log_wJ = log_cwJ // redirect log_wJ -> log_cwJ temporarily
-    this.log_wrfJ = log_cwrfJ // redirect log_wrfJ -> log_cwrfJ temporarily
+    this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
     fill(yJ, j => ((this.j = j), func(this)))
     this.log_wJ = tmp_log_wJ // restore log_wJ
-    this.log_wrfJ = tmp_log_wrfJ // restore log_wrfJ
+    this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN
     this.moving = false // back to using xJK
 
     // accept/reject proposed moves
     let accepts = 0
     this.move_log_w = 0
     this.move_log_p = 0
-    const scaled_r = this._scaled_r() // r scaled into (0,1]
     repeat(J, j => {
       const k_pivot = kJ[j]
       this.p++
       this.pK[k_pivot]++
-      let log_cwrj = log_cwrfJ[j] ? log_cwrfJ[j](scaled_r) : log_cwJ[j]
+      let log_cwrj = sum(log_cwrfJN[j], (f, n) => (f ? f(rN[n], zN[n]) : 0))
       log_cwrj = clip(log_cwrj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwrj - log_wrJ[j]
       if (random() < exp(log_mwJ[j] + log_mpJ[j] + log_dwj)) {
@@ -729,7 +833,8 @@ class _Sampler {
         log_p_xJK[j] = log_p_yJK[j]
         log_p_yJK[j] = array(K)
         log_wJ[j] = log_cwJ[j]
-        log_wrfJ[j] = log_cwrfJ[j]
+        log_wrfJN[j] = log_cwrfJN[j]
+        log_cwrfJN[j] = array(N)
         log_wrJ[j] = log_cwrj
         // log_dwj and any other factors in p(accept) are already reflected in
         // post-accept sample so log_rwJ is invariant; this was confirmed
@@ -789,16 +894,72 @@ class _Sampler {
 
     assert(this.u == 0, '_update requires u=0')
 
-    // update stats for u=0
-    this._update_stats()
-
-    // skip updates if target updates=0 or time=0
-    if (updates == 0 || time == 0) return
-
     let stable_updates = 0
     let unweighted_updates = 0
 
     do {
+      // reweight
+      // pre-stats for more meaningful ess, etc
+      // also reweight on u=0 to avoid prior moves at u=1
+      // should be skipped (even at u=0) if ess is too low
+      if (reweight_if(this)) this._reweight()
+
+      // update stats
+      this._update_stats()
+
+      // check for termination
+      // continue based on min_time/updates
+      // minimums supercede maximum and target settings
+      if (this.t >= min_time && this.u >= min_updates) {
+        // check target updates
+        if (this.u >= updates) {
+          const { t, u } = this
+          if (this.options.log)
+            print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
+          break
+        }
+
+        // check target time
+        if (this.t >= time) {
+          const { t, u } = this
+          if (this.options.log)
+            print(`reached target time t=${t}≥${time}ms (u=${u})`)
+          break
+        }
+
+        // check gap=0 and target ess, mks
+        if (this.log_wrj_gap == 0 && this.ess >= min_ess && this.mks <= max_mks)
+          stable_updates++
+        else stable_updates = 0
+        if (this.log_wrj_gap == 0) unweighted_updates++
+        if (
+          stable_updates >= min_stable_updates &&
+          unweighted_updates >= min_unweighted_updates
+        ) {
+          const { t, u, ess, mks } = this
+          if (this.options.log)
+            print(
+              `reached target ess=${round(ess)}≥${min_ess}, ` +
+                `gap=0, mks=${round_to(mks, 3)}≤${max_mks} ` +
+                `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
+                `unweighted_updates=${unweighted_updates}`
+            )
+          break
+        }
+
+        // check max_time/updates for potential early termination
+        if (this.t > max_time || this.u > max_updates) {
+          const { t, u } = this
+          if (this.options.warn) {
+            // warn about running out of time or updates
+            if (t > max_time)
+              warn(`ran out of time t=${t}>${max_time}ms (u=${u})`)
+            else warn(`ran out of updates u=${u}>${max_updates} (t=${t}ms)`)
+          }
+          break
+        }
+      }
+
       // buffer samples at u=0 and then every mks_period updates
       if (this.u % this.options.mks_period == 0) {
         this.uB.push(this.u)
@@ -813,73 +974,8 @@ class _Sampler {
         }
       }
 
-      // reweight, update stats, check for termination (except first pass)
-      if (this.u > 0) {
-        // reweight for u=1,...
-        this.log_wrj_gap_before_reweight = this.log_wrj_gap
-        if (reweight_if(this)) this._reweight() // reweight r->r+1
-
-        // update stats for u=1,...
-        this._update_stats()
-
-        // continue based on min_time/updates
-        // minimums supercede maximum and target settings
-        if (this.t >= min_time && this.u >= min_updates) {
-          // check target updates
-          if (this.u >= updates) {
-            const { t, u } = this
-            if (this.options.log)
-              print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
-            break
-          }
-
-          // check target time
-          if (this.t >= time) {
-            const { t, u } = this
-            if (this.options.log)
-              print(`reached target time t=${t}≥${time}ms (u=${u})`)
-            break
-          }
-
-          // check gap=0 and target ess, mks, and
-          if (
-            this.log_wrj_gap == 0 &&
-            this.ess >= min_ess &&
-            this.mks <= max_mks
-          )
-            stable_updates++
-          else stable_updates = 0
-          if (this.log_wrj_gap == 0) unweighted_updates++
-          if (
-            stable_updates >= min_stable_updates &&
-            unweighted_updates >= min_unweighted_updates
-          ) {
-            const { t, u, ess, mks } = this
-            if (this.options.log)
-              print(
-                `reached target ess=${round(ess)}≥${min_ess}, ` +
-                  `gap=0, mks=${round_to(mks, 3)}≤${max_mks} ` +
-                  `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
-                  `unweighted_updates=${unweighted_updates}`
-              )
-            break
-          }
-
-          // check max_time/updates for potential early termination
-          if (this.t > max_time || this.u > max_updates) {
-            const { t, u } = this
-            if (this.options.warn) {
-              // warn about running out of time or updates
-              if (t > max_time)
-                warn(`ran out of time t=${t}>${max_time}ms (u=${u})`)
-              else warn(`ran out of updates u=${u}>${max_updates} (t=${t}ms)`)
-            }
-            break
-          }
-        }
-      }
-
-      this.u++ // advance to next step
+      // advance to next step
+      this.u++
 
       // resample
       if (resample_if(this)) this._resample()
@@ -908,9 +1004,36 @@ class _Sampler {
         warn(`pre-posterior sample w/ log_wrj_gap=${this.log_wrj_gap}>0`)
       if (this.tks > max_tks) {
         warn(`failed to achieve target tks=${this.tks}≤${max_tks}`)
-        print(str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
+        print('tks_pK:', str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
       }
     }
+  }
+
+  _targets() {
+    const timer = _timer_if(this.stats)
+    const f = this.domain // sampler domain function
+    let o = clone_deep(this.options)
+    o = omit(o, ['log', 'plot', 'quantiles', 'targets'])
+    o.warn = false
+    o.updates = o.min_updates = o.max_updates = 0 // no updates
+    o.reweight_if = () => false // no reweight for u=0
+    // o.size = 10 * this.J // 10x samples per run
+
+    let targets = []
+    while (targets.length < 1000 && timer.t < 1000) {
+      const { xJK, log_wJ } = new _Sampler(f, o)
+      each(xJK, (xjK, j) => {
+        const w = exp(log_wJ[j])
+        assert(w == 0 || w == 1, `unexpected non-binary weight for target run`)
+        if (w) targets.push(zip_object(this.nK, xjK))
+      })
+    }
+    if (targets.length < 1000)
+      fatal(`generated only ${targets.length}/1000 targets in ${timer.t}ms`)
+    this.options.targets = transpose_objects(targets)
+    if (this.options.log)
+      print(`generated ${targets.length} targets in ${timer.t}ms`)
+    if (this.stats) this.stats.targets_time = timer.t
   }
 
   _quantiles() {
@@ -923,9 +1046,10 @@ class _Sampler {
     const R = options.quantile_runs
     assert(is_integer(R) && R > 0, 'invalid option quantile_runs')
     const f = this.domain // sampler domain function
-    const o = clone_deep(options)
+    let o = clone_deep(options)
+    o = omit(o, ['log', 'plot', 'quantiles', 'targets'])
+    o.warn = false
     o.updates = o.min_updates = o.max_updates = this.u // fix update steps
-    o.log = o.plot = o.warn = o.quantiles = false // disable quantiles, output
     const sR = [this.stats, ...array(R - 1, r => new _Sampler(f, o).stats)]
     if (options.log) print(`completed ${R} quantile runs in ${this.t}ms`)
 
@@ -1057,6 +1181,7 @@ class _Sampler {
       if (spec.a) add_rescaled_line('a')
       if (spec.m) add_rescaled_line('m')
       if (spec.t) add_rescaled_line('t')
+      if (spec.r) add_rescaled_line('r', null, 3)
 
       each(this.nK, n => {
         if (spec[`p.${n}`]) add_rescaled_line(`p.${n}`, null, 0)
@@ -1207,6 +1332,10 @@ class _Sampler {
     return Date.now() - this.start_time
   }
 
+  get r() {
+    return this.N == 0 ? 1 : min_in(this.rN)
+  }
+
   __pwJ() {
     const { J, log_pwJ } = this
     const max_log_pwj = max_in(log_pwJ)
@@ -1276,11 +1405,10 @@ class _Sampler {
       }
       if (w == 0) return inf // not enough samples/weight
       const m = s / w
-      const stdev = sqrt(ss / w - m * m)
-      assert(!is_nan(stdev), 'nan stdev')
-      assert(!is_inf(stdev), 'inf stdev')
-      if (stdev < 1e-6) return 0 // stdev too small, return 0 to be dealt with
-      return stdev
+      const v = ss / w - m * m
+      assert(is_finite(v) && v >= -1e-6, 'bad variance', v)
+      if (v < 1e-12) return 0 // stdev too small, return 0 to be dealt with
+      return sqrt(v)
     })
   }
 
@@ -1478,7 +1606,7 @@ class _Sampler {
     const { upJK, uaJK, aawK, upwK, log_p_xJK, log_p_yJK } = this
 
     // reject run (-∞ weight) on nullish (null=empty or undefined) domain
-    if (is_nullish(domain)) this._weight(-inf)
+    if (is_nullish(domain)) log_wJ[j] = -inf
 
     // return undefined on (effectively) rejected run
     if (log_wJ[j] == -inf) return undefined
@@ -1647,6 +1775,7 @@ class _Sampler {
     // if at k_pivot, move from xjk along posterior chain
     const posterior = options?.posterior ?? domain._posterior
     assert(posterior, 'missing posterior sampler (_posterior)')
+    // upJK[j][k] = this.u // jump proposed
     return posterior(
       (y, log_mw = 0) => {
         log_mwJ[j] += log_mw
@@ -1660,31 +1789,40 @@ class _Sampler {
   }
 
   _from(x, domain) {
-    const bool = from(x, domain)
-    if (is_object(domain)) {
-      let log_wr = domain._log_wr
-      // TODO: default log_wr
-      // TODO: define _log_wr to relax gt/lt sequentially, converging to -inf
-      // NOTE: an "equality domain" should never be used since it is misleading and difficult to manage; instead within(x,eps) should be used and will guarantee condition upon convergence; an alternative would be around(), which can include _mean, _mode, _sigma, etc, which can also be used to configure the relaxation sequence, which can be done here or in the domain definition if desired (by definining _log_wr on the domain) (w/ access to context.options.relaxed_updates if necessary)
-      // TODO: is there a way for relaxation sequence to change based on ess or other considerations? why not? the key is to do it within the function itself, since it will get reused across multiple update steps; it may also make sense to pass context rather than update step u, so that's worth considering
-      if (log_wr) return set(new Boolean(bool), '_log_wr', log_wr)
+    const c = from(x, domain)
+    let log_wr = domain?._log_wr
+    // if log_wr is not specified by domain, use distance-based log_wr
+    if (!log_wr) {
+      const d = distance(x, domain)
+      if (defined(d)) {
+        log_wr = (r, z) => {
+          if (c) return 0 // always 0 inside domain
+          if (r == 1) return -inf // always -inf outside domain at r=1
+          if (z === undefined) return d // distance-only for z calculation
+          return log(1 - r) * (1 + 100 * d * z)
+        }
+      }
     }
-    return bool
+    if (log_wr) return set(new Boolean(c), '_log_wr', log_wr)
+    return c
   }
 
-  _condition(cond, log_wr = cond._log_wr) {
+  _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
-    this._weight(cond ? 0 : -inf, log_wr)
+    const log_w = cond ? 0 : -inf
+    // this.log_wJ[this.j] += log_wr ? log_wr(1, -inf) : log_w
+    this.log_wJ[this.j] += log_w
+    this.log_wrfJN[this.j][n] = log_wr ?? (r => log_w)
   }
 
-  _weight(log_w, log_wr = log_w._log_wr ?? (r => r * log_w)) {
+  _weight(n, log_w, log_wr = log_w._log_wr) {
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
     this.log_wJ[this.j] += log_w
-    if (log_wr) {
-      const prev_log_wr = this.log_wrfJ[this.j]
-      if (prev_log_wr) this.log_wrfJ[this.j] = r => log_wr(r) + prev_log_wr(r)
-      else this.log_wrfJ[this.j] = log_wr
-    }
+    this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w)
+  }
+
+  _observe(n, x, domain) {
+    this._condition(n, this._from(x, domain))
   }
 }
 

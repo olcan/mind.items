@@ -9,6 +9,7 @@ const ln = Math.log
 const loge = Math.log
 const log2 = Math.log2
 const log10 = Math.log10
+const pow = Math.pow
 const sqrt = Math.sqrt
 const cbrt = Math.cbrt
 const abs = Math.abs

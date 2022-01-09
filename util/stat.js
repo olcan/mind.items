@@ -573,6 +573,19 @@ function min_max_in(xJ) {
   return [a, b]
 }
 
+// `≡ [min_of(xJ, f), max_of(xJ, f)]`
+function min_max_of(xJ, f = x => x) {
+  assert(is_array(xJ), 'non-array argument')
+  let a = inf
+  let b = -inf
+  for (let j = 0; j < xJ.length; ++j) {
+    const fxj = f(xJ[j], j)
+    if (fxj < a) a = fxj
+    if (fxj > b) b = fxj
+  }
+  return [a, b]
+}
+
 // sum of `xJ`, or `f(x,j)` over `xJ`
 function sum(xJ, f) {
   assert(is_array(xJ), 'non-array argument')

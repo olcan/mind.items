@@ -482,6 +482,16 @@ function _test_min_max_in() {
   )
 }
 
+function _test_min_max_of() {
+  check(
+    () => throws(() => min_max_of()),
+    () => throws(() => min_max_of(0)),
+    () => [min_max_of([]), [inf, -inf]],
+    () => [min_max_of([0, 1, 2], x => 2 * x), [0, 4]],
+    () => [min_max_of([0, 1, 2, NaN, 'a'], x => 2 * x), [0, 4]] // elements that fail <> are ignored
+  )
+}
+
 function _test_sum() {
   check(
     () => throws(() => sum()),
