@@ -183,7 +183,7 @@ function density(x, domain) {
 // |               | _default_: `({ess,J}) => ess >= .9 * J`
 // |               | default helps avoid extreme weights due to rapid reweights
 // | `reweight_ess`| minimum `ess` after reweight, _default_: `10`
-// | `min_reweights`| minimum number of reweight steps, _default_: `1`
+// | `min_reweights`| minimum number of reweight steps, _default_: `3`
 // | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
@@ -350,7 +350,7 @@ class _Sampler {
         size: J,
         reweight_if: ({ ess, J }) => ess >= 0.9 * J,
         reweight_ess: 10,
-        min_reweights: 1,
+        min_reweights: 3,
         max_reweight_tries: 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, K, a, aK, aaK }) =>
