@@ -183,7 +183,7 @@ function density(x, domain) {
 // |               | _default_: `({ess,J}) => ess >= .9 * J`
 // |               | default helps avoid extreme weights due to rapid reweights
 // | `reweight_ess`| minimum `ess` after reweight, _default_: `10`
-// | `min_reweights`| minimum number of reweight steps, _default_: `5`
+// | `min_reweights`| minimum number of reweight steps, _default_: `1`
 // | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
@@ -261,8 +261,11 @@ function _benchmark_sample() {
 }
 
 // confine `x` to `domain`
-// `≡ condition(from(x, domain))`
-// see `condition(…)` below for technical details
+// uses `distance(x, domain)` (if defined) for guidance outside `domain`
+// uses `density(x, domain)` (if defined) as weights inside `domain`
+// can handle extremely small/rare or large/unbounded domains
+// matches `sample(x, domain)` in distribution (frequencies)
+// `≡ condition(from(x, domain))`, see below
 function confine(x, domain) {
   fatal(`unexpected (unparsed) call to confine(…)`)
 }
@@ -271,7 +274,7 @@ function confine(x, domain) {
 // scoped by outer `sample(context=>{ … })`
 // conditions models `P(X) → P(X|c)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
-// `≡ weight(c ? 0 : -inf) ≡ weight(log(c))`, see `weight(…)`
+// `≡ weight(c ? 0 : -inf) ≡ weight(log(c))`, see below
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
 // rare conditions require _relaxation function_ `log_wr(r), r∈(0,1]`
 // some conditions (e.g. `from(x,domain)`) provide default `log_wr`
@@ -347,7 +350,7 @@ class _Sampler {
         size: J,
         reweight_if: ({ ess, J }) => ess >= 0.9 * J,
         reweight_ess: 10,
-        min_reweights: 5,
+        min_reweights: 1,
         max_reweight_tries: 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, K, a, aK, aaK }) =>
@@ -448,6 +451,7 @@ class _Sampler {
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
+    cache(this, 'ess', ['rwj_ess'])
     cache(this, 'wsum', [], () => sum(this.log_wJ, exp))
     cache(this, 'wrsum', ['rwJ'], () => sum(this.log_wrJ, exp))
     cache(this, 'rwX', ['rwJ_agg'])
@@ -468,8 +472,6 @@ class _Sampler {
     // sample prior (along w/ u=0 posterior)
     let timer = _timer_if(options.log)
     this._sample_prior()
-    // require wrsum>0 for initial ess to be meaningful
-    assert(this.wrsum > 0, 'prior sampling failed w/ wrsum==0')
     if (options.log) {
       print(
         `sampled ${J} prior runs (ess ${this.pwj_ess}, ` +
@@ -703,11 +705,10 @@ class _Sampler {
     const gap = (a, b) => (a == b ? 0 : abs(a - b))
     this.log_wrj_gap = max_of(this.log_wrJ, (lwrj, j) => gap(lwrj, log_wJ[j]))
     if (this.log_wrj_gap < 1e-6) this.log_wrj_gap = 0 // chop to 0 below 1e-6
-    // if r==1, then gap==0
+    // we expect gap==0 iff r==1
     // only exception is if all weights are 0
     if (this.r == 1) assert(this.log_wrj_gap == 0, `unexpected gap>0 @ r=1`)
-    // note gap==0 @ r<1 can happen if r is ignored by log_wr
-    // if (this.log_wrj_gap == 0) assert(this.r == 1, `unexpected gap=0 @ r<1`)
+    if (this.log_wrj_gap == 0) assert(this.r == 1, `unexpected gap=0 @ r<1`)
 
     // clip infinities to enable subtraction in _reweight & _move
     clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
@@ -722,9 +723,9 @@ class _Sampler {
     fill(log_wJ, 0)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
     fill(xJ, j => ((this.j = j), func(this)))
-    fill(rN, 0)
-    this._fill_log_wrj(log_wrJ)
-    fill(log_rwJ, j => log_pwJ[j] + log_wrJ[j])
+    fill(rN, 0) // r=0 for u=0
+    this._fill_log_wrj(log_wrJ) // should set log_wrJ=0 and compute gap
+    copy(log_rwJ, log_pwJ) // since log_wrJ == 0
     fill(jJ, j => j) // init sample indices
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
@@ -733,7 +734,7 @@ class _Sampler {
   }
 
   // reweight by incrementing rN until rN=1
-  // multiply rwJ by wJ@r_next/wJ@r_prev (could be 1)
+  // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
     if (this.r == 1) return // no longer needed
     const timer = _timer_if(this.stats)
@@ -741,7 +742,7 @@ class _Sampler {
     this._swap('log_wrJ', 'log_rwJ') // save current state in buffers
     const { rN, _rN, log_wrJ, _log_wrJ, log_rwJ, _log_rwJ, stats } = this
 
-    // apply random increment to rN that satisfies reweight_ess w/ wrsum>0
+    // apply random increment to rN that satisfies reweight_ess
     const { reweight_ess, min_reweights, max_reweight_tries } = this.options
     assert(this.ess > reweight_ess, `ess too low for reweight`)
     let tries = 0 // number of tries to reweight (i.e. increment rN)
@@ -752,12 +753,12 @@ class _Sampler {
       this._fill_log_wrj(log_wrJ) // weights for next rN
       copy(log_rwJ, _log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
       this.rwJ = null // reset cached posterior ratio weights and dependents
-    } while (
-      (this.ess < reweight_ess || this.wrsum == 0) &&
-      tries < max_reweight_tries
-    )
-    if (this.ess < reweight_ess || this.wrsum == 0)
-      fatal(`failed reweight in ${tries} tries`)
+    } while (this.ess < reweight_ess && tries < max_reweight_tries)
+    if (this.ess < reweight_ess)
+      fatal(
+        `failed reweight in ${tries} tries ` +
+          `(ess=${this.ess} < reweight_ess=${reweight_ess})`
+      )
 
     if (stats) {
       stats.reweights++
@@ -1447,8 +1448,12 @@ class _Sampler {
     })
   }
 
-  get ess() {
-    return this.rwj_ess
+  __ess() {
+    const ε = 1e-6
+    // for official ess, we require unscaled_rwj_sum to be >=ε
+    // in particular this means ess=0 if all weights go to 0 (or -inf)
+    const unscaled_rwj_sum = sum(this.log_rwJ, exp)
+    return unscaled_rwj_sum < ε ? 0 : this.rwj_ess
   }
 
   __elw() {
@@ -1852,10 +1857,9 @@ class _Sampler {
 
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
-    const log_w = cond ? 0 : -inf
     // note cond-based log_w is superseded by log_wr(1, 0, 0)
-    this.log_wJ[this.j] += log_wr ? log_wr(1, 0, 0) : log_w
-    this.log_wrfJN[this.j][n] = log_wr ?? (r => log_w)
+    this.log_wJ[this.j] += log_wr ? log_wr(1, 0, 0) : cond ? 0 : -inf
+    this.log_wrfJN[this.j][n] = log_wr ?? (r => log(cond || 1 - r))
   }
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
