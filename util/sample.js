@@ -248,11 +248,11 @@ function _benchmark_sample() {
   )
 }
 
-// observe `x` in `domain`
+// confine `x` to `domain`
 // `≡ condition(from(x, domain))`
 // see `condition(…)` below for technical details
-function observe(x, domain) {
-  fatal(`unexpected (unparsed) call to observe(…)`)
+function confine(x, domain) {
+  fatal(`unexpected (unparsed) call to confine(…)`)
 }
 
 // condition samples on `cond`
@@ -480,7 +480,7 @@ class _Sampler {
   }
 
   _parse_func(func) {
-    // replace sample|condition|weight|observe calls
+    // replace sample|condition|weight|confine calls
     const js = func.toString()
     const lines = js.split('\n')
     const values = []
@@ -490,7 +490,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight|observe) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
+      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight|confine) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
     this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
       if (name) {
         assert(
@@ -544,7 +544,7 @@ class _Sampler {
       if (method == 'condition')
         args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
 
-      // replace condition|weight|observe call
+      // replace condition|weight|confine call
       if (method != 'sample') {
         const index = weights.length
         weights.push({ index, offset, method, args, line_index, line, js })
@@ -1038,9 +1038,12 @@ class _Sampler {
     let targets = []
     while (targets.length < 1000 && timer.t < 1000) {
       const { xJK, log_wJ } = new _Sampler(f, o)
+      let w_accept
       each(xJK, (xjK, j) => {
         const w = exp(log_wJ[j])
-        assert(w == 0 || w == 1, `unexpected non-binary weight for target run`)
+        if (w == 0) return // skip rejected run
+        w_accept ??= w
+        assert(w == w_accept, `uneven weights ${w}!=${w_accept} for target run`)
         if (w) targets.push(zip_object(this.nK, xjK))
       })
     }
@@ -1846,7 +1849,7 @@ class _Sampler {
     this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w)
   }
 
-  _observe(n, x, domain) {
+  _confine(n, x, domain) {
     this._condition(n, this._from(x, domain))
   }
 }
