@@ -20,6 +20,7 @@
 // | `and|or:[…]`     | composite domain
 // `false` if `domain` unknown or missing or omitted
 function from(x, domain) {
+  if (x === undefined) return false
   if (is_nullish(domain)) return false
   if (is_function(domain)) return from(x, { via: domain })
   if (is_string(domain)) return is(x, domain) // ≡{is:type}
@@ -83,8 +84,9 @@ const _distance_to_array = (x, yJ) => {
 // distance of `x` from `domain`
 // `=0` if `x` is from `domain`, `>0` otherwise
 // `domain._distance` function is used if defined
-// `undefined` if distance can not be quantified
+// can be `undefined` for given `domain` or `x`
 function distance(x, domain) {
+  if (x === undefined) return undefined
   if (is_nullish(domain)) return undefined
   if (is_function(domain)) return distance(x, { via: domain })
   if (is_string(domain)) return undefined
@@ -135,7 +137,17 @@ function distance(x, domain) {
   return is_inf(d) ? undefined : d
 }
 
-// sample value `x` from `domain`
+// density of `x` in `domain`
+// _log-probability density_ `log_p` of sampling `x` from `domain`
+// always sums to `1` with `p > 0` inside, `p==0` outside `domain`
+// `domain._log_p` function is used if defined
+// can be `undefined` for given `domain` or `x`
+function density(x, domain) {
+  if (!from(x, domain)) return -inf
+  if (domain._log_p) return domain._log_p(x)
+}
+
+// sample `x` from `domain`
 // random variable is denoted `X ∈ dom(X)`
 // _prior model_ `P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|c)` using `condition(c)`
@@ -664,6 +676,7 @@ class _Sampler {
   _fill_log_wrj(log_wrJ) {
     const { log_wJ, log_wrfJN, rN, zN, bN } = this
     if (max_in(rN) == 0) {
+      // for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
       fill(log_wrJ, 0)
     } else {
       // compute distance scaling factor zN for possible scaling in log_wr
@@ -1819,18 +1832,19 @@ class _Sampler {
     let log_wr = domain?._log_wr
     // if missing, use default log_wr based on distance and/or log_p
     if (!log_wr) {
-      const d = distance(x, domain) ?? 0 // assume 0 if unknown
-      const log_p =
-        x !== undefined && domain._log_p ? domain._log_p(x) : c ? 0 : -inf
+      const d = distance(x, domain) ?? 0 // take 0 if undefined
+      const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
       if (!c) {
         assert(d >= 0, `negative distance (outside domain)`)
         assert(log_p == -inf, `positive density ${log_p} outside domain x=${x}`)
       } else assert(d == 0, `non-zero distance inside domain`)
       log_wr = (r, z, b) => {
+        // note we assume r>0 but also ensure log_wr->0 as r->0
+        // if (r == 0) return 0
         if (z === undefined) return d // distance for z
-        if (b === undefined) return c ? log_p : inf // log_p (inside c) for b
-        if (r == 1) return log_p // log_wr == log_p at r==1
-        if (d == 0) return log_p - b // means inside (c) or distance unknown
+        if (b === undefined) return c ? r * log_p : inf // r * log_p for b
+        if (r == 1) return r * log_p // log_wr == log_p at r==1
+        if (d == 0) return r * log_p - b // inside domain (or distance unknown)
         return b + log(1 - r) * (1 + 100 * d * z)
       }
     }
@@ -1849,6 +1863,7 @@ class _Sampler {
   _weight(n, log_w, log_wr = log_w._log_wr) {
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
     this.log_wJ[this.j] += log_w // must match log_wr(1, 0, 0)
+    // note we assume r>0 in log_wr since 0*-inf would be NaN
     this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w)
   }
 
