@@ -663,23 +663,26 @@ class _Sampler {
 
   _fill_log_wrj(log_wrJ) {
     const { log_wJ, log_wrfJN, rN, zN, bN } = this
+    if (max_in(rN) == 0) {
+      fill(log_wrJ, 0)
+    } else {
+      // compute distance scaling factor zN for possible scaling in log_wr
+      // zN is passed as second argument, undefined when computing minimum
+      // 1/max and 1/mean are easy to compute, 1/quantile is harder
+      // fill(zN, n => this.J / sum(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
+      fill(zN, n => 1 / max_of(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
 
-    // compute distance scaling factor zN for possible scaling in log_wr
-    // zN is passed as second argument, undefined when computing minimum
-    // 1/max and 1/mean are easy to compute, 1/quantile is harder
-    // fill(zN, n => this.J / sum(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
-    fill(zN, n => 1 / max_of(log_wrfJN, fN => (fN[n] ? fN[n](rN[n]) : 0)))
+      // compute density base offset bN for possible shifting in log_wr
+      // this is always the minimum observed density and can have any sign
+      // we take undefined densities (e.g. outside domain) as inf (before min)
+      fill(bN, n => min_of(log_wrfJN, fN => (fN[n] ? fN[n](rN[n], null) : inf)))
+      apply(bN, b => (b == inf ? 0 : b)) // if min is inf, base is zero
 
-    // compute density base offset bN for possible shifting in log_wr
-    // this is always the minimum observed density and can have any sign
-    // we take undefined densities (e.g. outside domain) as inf (before min)
-    fill(bN, n => min_of(log_wrfJN, fN => (fN[n] ? fN[n](rN[n], null) : inf)))
-    apply(bN, b => (b == inf ? 0 : b)) // if min is inf, base is zero
-
-    // fill log_wrJ
-    fill(log_wrJ, j =>
-      sum(log_wrfJN[j], (f, n) => (f ? f(rN[n], zN[n], bN[n]) : 0))
-    )
+      // fill log_wrJ
+      fill(log_wrJ, j =>
+        sum(log_wrfJN[j], (f, n) => (f ? f(rN[n], zN[n], bN[n]) : 0))
+      )
+    }
     this.wrsum = null // since log_wrJ changed
     // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wrsum)
 
@@ -1838,14 +1841,14 @@ class _Sampler {
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
     const log_w = cond ? 0 : -inf
-    // notw log_w is superseded by log_wr(1, 0, 0)
+    // note cond-based log_w is superseded by log_wr(1, 0, 0)
     this.log_wJ[this.j] += log_wr ? log_wr(1, 0, 0) : log_w
     this.log_wrfJN[this.j][n] = log_wr ?? (r => log_w)
   }
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
-    this.log_wJ[this.j] += log_w
+    this.log_wJ[this.j] += log_w // must match log_wr(1, 0, 0)
     this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w)
   }
 
