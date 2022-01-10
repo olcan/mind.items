@@ -688,10 +688,11 @@ function quantiles(xJ, qK, options = {}) {
 // see [Rethinking the Effective Sample Size](https://arxiv.org/abs/1809.04129) for derivation
 // esp. section 3.2 "Summary of assumptions and approximations"
 // can be used as sample size for `ks1_cdf` or `ks2_cdf`
-function ess(wJ, sum_wj) {
+function ess(wJ, sum_wj, ε = 1e-6) {
   let s = sum_wj ?? 0 // sum
   let ss = 0 // sum of squares
   if (defined(sum_wj)) {
+    if (sum_wj < ε) return 0 // total weight too small
     for (let j = 0; j < wJ.length; ++j) {
       const w = wJ[j]
       ss += w * w
@@ -703,6 +704,7 @@ function ess(wJ, sum_wj) {
       s += w
     }
   }
+  if (s < ε) return 0 // total weight too small
   return (s * s) / ss
 }
 
