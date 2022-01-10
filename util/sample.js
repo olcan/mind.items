@@ -1839,13 +1839,11 @@ class _Sampler {
         assert(log_p == -inf, `positive density ${log_p} outside domain x=${x}`)
       } else assert(d == 0, `non-zero distance inside domain`)
       log_wr = (r, z, b) => {
-        // note we assume r>0 but also ensure log_wr->0 as r->0
-        // if (r == 0) return 0
         if (z === undefined) return d // distance for z
-        if (b === undefined) return c ? r * log_p : inf // r * log_p for b
-        if (r == 1) return r * log_p // log_wr == log_p at r==1
-        if (d == 0) return r * log_p - b // inside domain (or distance unknown)
-        return b + log(1 - r) * (1 + 100 * d * z)
+        if (b === undefined) return c ? log_p : inf // log_p for b
+        // note we assume r>0 but also ensure log_wr->0 as r->0 for log_p>-∞
+        if (d == 0) return r * log_p // inside (or unknown distance)
+        return r * b + log(1 - r) * (1 + 100 * d * z)
       }
     }
     if (log_wr) return set(new Boolean(c), '_log_wr', log_wr)
@@ -1863,7 +1861,7 @@ class _Sampler {
   _weight(n, log_w, log_wr = log_w._log_wr) {
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
     this.log_wJ[this.j] += log_w // must match log_wr(1, 0, 0)
-    // note we assume r>0 in log_wr since 0*-inf would be NaN
+    // note we assume r>0 but also ensure log_wr->0 as r->0 for log_w>-∞
     this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w)
   }
 
