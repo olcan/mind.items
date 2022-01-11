@@ -261,23 +261,24 @@ function _benchmark_sample() {
 }
 
 // confine `x` to `domain`
-// uses `distance(x, domain)` (if defined) for guidance outside `domain`
-// uses `density(x, domain)` (if defined) as weights inside `domain`
-// can handle extremely small/rare or large/unbounded domains
-// matches `sample(x, domain)` in distribution (frequencies)
 // `≡ condition(from(x, domain))`, see below
+// uses `distance(x, domain)` for guidance outside `domain`
+// uses `density(x, domain) ?? 0` as weights inside `domain`
+// can handle small/rare or unbounded/unconstrained domains
+// ensures consistency w/ sampling distribution of `sample(x, domain)`
 function confine(x, domain) {
   fatal(`unexpected (unparsed) call to confine(…)`)
 }
 
-// condition samples on `cond`
+// condition samples on `cond` (`c`)
+// `≡ weight(c ? 0 : -inf)`, see below
 // scoped by outer `sample(context=>{ … })`
 // conditions models `P(X) → P(X|c)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
-// `≡ weight(c ? 0 : -inf) ≡ weight(log(c))`, see below
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
 // rare conditions require _relaxation function_ `log_wr(r), r∈(0,1]`
-// some conditions (e.g. `from(x,domain)`) provide default `log_wr`
+// default `log_wr = r=>log(c||1-r)` uses `1-r` as penalty for `!c`
+// domain conditions, e.g. `from(x,domain)`, define own default
 // `cond._log_wr` (if defined) supersedes default `log_wr`
 // `cond` is unwrapped via `cond.valueOf` if defined
 function condition(cond, log_wr = undefined) {
@@ -1846,8 +1847,7 @@ class _Sampler {
       log_wr = (r, z, b) => {
         if (z === undefined) return d // distance for z
         if (b === undefined) return c ? log_p : inf // log_p for b
-        // note we assume r>0 but also ensure log_wr->0 as r->0 for log_p>-∞
-        if (d == 0) return r * log_p // inside (or unknown distance)
+        if (d == 0) return r * log_p // inside OR unknown distance, note r>0
         return r * b + log(1 - r) * (1 + 100 * d * z)
       }
     }
@@ -1865,8 +1865,7 @@ class _Sampler {
   _weight(n, log_w, log_wr = log_w._log_wr) {
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
     this.log_wJ[this.j] += log_w // must match log_wr(1, 0, 0)
-    // note we assume r>0 but also ensure log_wr->0 as r->0 for log_w>-∞
-    this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w)
+    this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w) // note r>0
   }
 
   _confine(n, x, domain) {
