@@ -305,7 +305,7 @@ function sample(domain, options = undefined) {
 // uses `distance(x, domain)` for guidance outside `domain`
 // uses `density(x, domain) ?? 0` as weights inside `domain`
 // can handle small/rare or unbounded/unconstrained domains
-// ensures consistency w/ sampling distribution of `sample(x, domain)`
+// ensures consistency w/ sampling distribution of `sample(domain)`
 function confine(x, domain) {
   fatal(`unexpected (unparsed) call to confine(…)`)
 }
