@@ -86,7 +86,7 @@ function invert(domain) {
   if (is_number(domain)) return invert({ eqq: domain })
   assert(is_object(domain), `unknown domain ${domain}`)
   if (empty(domain)) return null // everything -> empty
-  const domains = keys(domain).map(key => {
+  let domains = keys(domain).map(key => {
     switch (key) {
       case 'via':
         assert(is_function(domain.via), `invalid 'via' domain ${domain.via}`)
@@ -122,9 +122,10 @@ function invert(domain) {
         return domain.not // not:domain -> domain
       default:
         assert(key[0] == '_', `invalid domain property '${key}'`)
-        return { [key]: domain[key] } // maintain underscore-prefixed property
+        return undefined // drop underscore-prefixed property
     }
   })
+  domains = domains.filter(defined)
   if (domains.length == 1) return domains[0]
   return { or: domains }
 }

@@ -108,7 +108,10 @@ function _test_invert() {
     () => [invert({ lt: 0 }), { gte: 0 }],
     () => double_inverse_equal({ gt: 0, lt: 1 }),
     () => double_inverse_equal({ or: [{ eq: 0 }, { eq: 1 }] }),
-    () => double_inverse_equal({ or: [{ gt: 1 }, { eq: 1, _test: 'ok' }] }),
+    () => [
+      invert({ or: [{ gt: 1 }, { eq: 1, _test: 'ok' }] }),
+      { lte: 1, not: { eq: 1 } }, // _test dropped
+    ],
     () => throws(() => invert({ or: [{ gt: 1 }, { eq: 1, test: 'not ok' }] })),
     () => double_inverse_equal({ or: [{ gt: 1 }, { eq: 0 }] }),
     () => [invert({ or: [{ gt: 1 }, { eq: 0 }] }), { lte: 1, not: { eq: 0 } }],
