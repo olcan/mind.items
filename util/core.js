@@ -774,7 +774,7 @@ function js_table(regex) {
       def.comment =
         comment_lines[0] +
         _span('less', _span('more-indicator', '')) +
-        _div('more', '\n' + comment_lines.slice(1).join('\n'))
+        _div('more', '\n' + comment_lines.slice(1).join('\n') + '\n')
     } else {
       def.comment = comment_lines[0] || ''
     }
