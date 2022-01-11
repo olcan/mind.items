@@ -18,25 +18,24 @@
 // | `gte|lte:y`      | inequality `x≥y`, `x≤y`
 // | `gt|lt:y`        | strict inequality `x>y`, `x<y`
 // | `and|or:[…]`     | composite domain
-// `false` if `domain` unknown or missing or omitted
+// | `not:domain`     | inverted domain
+// `false` if `domain` is `undefined` (or omitted)
 function from(x, domain) {
   if (x === undefined) return false
-  if (is_nullish(domain)) return false
+  if (is_nullish(domain)) return false // empty or undefined
   if (is_function(domain)) return from(x, { via: domain })
   if (is_string(domain)) return is(x, domain) // ≡{is:type}
+  if (is_number(domain)) return x === domain // ≡{eqq:number}
   if (is_array(domain)) return domain.includes(x) // ≡{in:array}
-  if (is_number(domain)) return x == domain // ≡{eq:number}
-  if (!is_object(domain)) return false
+  assert(is_object(domain), `unknown domain ${domain}`)
   return keys(domain).every(key => {
     switch (key) {
       case 'via':
-        if (is_function(domain.via)) {
-          // function may optionally declare return domain as _domain
-          // otherwise function is allowed to return anything
-          if (domain.via._domain) return from(x, domain.via._domain)
-          return true // function can return anything
-        }
-        return false // unknown "via" domain
+        assert(is_function(domain.via), `invalid 'via' domain ${domain.via}`)
+        // function may optionally declare return domain as _domain
+        // otherwise function is allowed to return anything
+        if (domain.via._domain) return from(x, domain.via._domain)
+        return true // function can return anything
       case 'is':
         return is(x, domain.is)
       case 'in':
@@ -65,10 +64,69 @@ function from(x, domain) {
         return domain.and.every(dom => from(x, dom))
       case 'or':
         return domain.or.some(dom => from(x, dom))
+      case 'not':
+        return !from(x, domain.not)
       default:
-        return key[0] == '_' // accept private _key only (for internal use)
+        assert(key[0] == '_', `invalid domain property '${key}'`)
+        return true // ignore underscore-prefixed property
+    }
+  }) // = true if empty(domain)
+}
+
+// inverts `domain`
+// transforms domain if possible, e.g. `{lt: x}` → `{gte: x}`
+// `≡ {not:domain}` if no such transformation is available
+// maintains `undefined` (or omitted) domain
+function invert(domain) {
+  if (domain === undefined) return domain // maintain undefined
+  if (domain === null) return {} // empty -> everything
+  if (is_function(domain)) return invert({ via: domain })
+  if (is_string(domain)) return invert({ is: domain })
+  if (is_array(domain)) return invert({ in: domain })
+  if (is_number(domain)) return invert({ eqq: domain })
+  assert(is_object(domain), `unknown domain ${domain}`)
+  if (empty(domain)) return null // everything -> empty
+  const domains = keys(domain).map(key => {
+    switch (key) {
+      case 'via':
+        assert(is_function(domain.via), `invalid 'via' domain ${domain.via}`)
+        if (domain.via._domain) return invert(domain.via._domain)
+        return null // function can return anything -> nothing
+      case 'is':
+      case 'in':
+      case 'in_eq':
+      case 'in_eqq':
+      case 'in_equal':
+      case 'eq':
+      case 'eqq':
+      case 'equal':
+        return { not: { [key]: domain[key] } }
+      case 'gt':
+        return { lte: domain.gt }
+      case 'gte':
+        return { lt: domain.gte }
+      case 'lte':
+        return { gt: domain.lte }
+      case 'lt':
+        return { gte: domain.lt }
+      case 'and':
+        return { or: domain.and.map(invert) }
+      case 'or':
+        // simplify and:... if all domains have distinct keys
+        // note we do not do partial merges so it is all or nothing
+        const domains = domain.or.map(invert)
+        const all_keys = flatten(domains.map(keys))
+        if (all_keys.length == uniq(all_keys).length) return merge(...domains)
+        return { and: domains }
+      case 'not':
+        return domain.not // not:domain -> domain
+      default:
+        assert(key[0] == '_', `invalid domain property '${key}'`)
+        return { [key]: domain[key] } // maintain underscore-prefixed property
     }
   })
+  if (domains.length == 1) return domains[0]
+  return { or: domains }
 }
 
 const _distance = (x, y) => {
@@ -87,35 +145,30 @@ const _distance_to_array = (x, yJ) => {
 // can be `undefined` for given `domain` or `x`
 function distance(x, domain) {
   if (x === undefined) return undefined
-  if (is_nullish(domain)) return undefined
+  if (is_nullish(domain)) return undefined // empty or undefined
   if (is_function(domain)) return distance(x, { via: domain })
   if (is_string(domain)) return undefined
   if (is_number(domain)) return _distance(x, domain)
   if (is_array(domain)) return _distance_to_array(x, domain)
-  if (!is_object(domain)) return undefined
+  assert(is_object(domain), `unknown domain ${domain}`)
   if (domain._distance) return domain._distance(x)
   const d = max_of(keys(domain), key => {
     switch (key) {
       case 'via':
-        if (is_function(domain.via))
-          if (domain.via._domain) return distance(x, domain.via._domain)
+        assert(is_function(domain.via), `invalid 'via' domain ${domain.via}`)
+        if (domain.via._domain) return distance(x, domain.via._domain)
         return inf
       case 'is':
         return inf
       case 'in':
-        return _distance_to_array(x, domain.in) ?? inf
       case 'in_eq':
-        return _distance_to_array(x, domain.in_eq) ?? inf
       case 'in_eqq':
-        return _distance_to_array(x, domain.in_eqq) ?? inf
       case 'in_equal':
-        return _distance_to_array(x, domain.in_equal) ?? inf
+        return _distance_to_array(x, domain[key]) ?? inf
       case 'eq':
-        return _distance(x, domain.eq) ?? inf
       case 'eqq':
-        return _distance(x, domain.eqq) ?? inf
       case 'equal':
-        return _distance(x, domain.equal) ?? inf
+        return _distance(x, domain[key]) ?? inf
       case 'gt':
         return max(0, domain.gt - x)
       case 'gte':
@@ -130,8 +183,12 @@ function distance(x, domain) {
         // min_of ignores undefined|inf so we have to check separately
         if (!domain.or.every(dom => defined(distance(x, dom)))) return inf
         return min_of(domain.or, dom => distance(x, dom))
+      case 'not':
+        const inverted = invert(domain.not) // attempt transform
+        if (inverted.not) return inf // unable to transform (w/o not)
+        return distance(x, inverted) ?? inf // distance to transformed domain
       default:
-        return key[0] == '_' ? 0 : inf // accept private _key (for internal use)
+        assert(key[0] == '_', `invalid domain property '${key}'`)
     }
   })
   return is_inf(d) ? undefined : d
@@ -142,6 +199,7 @@ function distance(x, domain) {
 // always sums to `1` with `p > 0` inside, `p==0` outside `domain`
 // `domain._log_p` function is used if defined
 // can be `undefined` for given `domain` or `x`
+// TODO: define for various types of domains, e.g. composite domains
 function density(x, domain) {
   if (!from(x, domain)) return -inf
   if (domain._log_p) return domain._log_p(x)
@@ -238,26 +296,6 @@ function sample(domain, options = undefined) {
   // decline target for root sampler since that is no parent to track tks
   assert(!options?.target, `invalid target outside of sample(context=>{ … })`)
   return new _Sampler(domain, options).sample()
-}
-
-function _benchmark_sample() {
-  _benchmark_options.N = 10
-  benchmark(
-    () => sample(() => {}, { size: 10000, updates: 0 }),
-    () => sample(() => {}, { size: 10000, updates: 1 }),
-    () => sample(() => {}, { size: 1000, updates: 10 }),
-    () => sample(() => {}, { size: 100, updates: 10 }),
-    () => sample(() => sample(uniform(0, 1)), { size: 100, updates: 10 }),
-    () =>
-      sample(
-        () => {
-          let a = sample(uniform(0, 1))
-          let b = sample(uniform(a, 1))
-          condition(b > 0.9)
-        },
-        { size: 100, updates: 20 }
-      )
-  )
 }
 
 // confine `x` to `domain`
