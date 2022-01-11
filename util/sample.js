@@ -121,6 +121,8 @@ function invert(domain) {
       case 'not':
         return domain.not // not:domain -> domain
       default:
+        // inversion REMOVES underscore-prefixed properties
+        // e.g. _prior, _posterior, _log_p, _log_wr, ...
         assert(key[0] == '_', `invalid domain property '${key}'`)
         return undefined // drop underscore-prefixed property
     }
@@ -197,10 +199,9 @@ function distance(x, domain) {
 
 // density of `x` in `domain`
 // _log-probability density_ `log_p` of sampling `x` from `domain`
-// always sums to `1` with `p > 0` inside, `p==0` outside `domain`
-// `domain._log_p` function is used if defined
-// can be `undefined` for given `domain` or `x`
-// TODO: define for various types of domains, e.g. composite domains
+// uses `domain._log_p` defined alongside `_prior` for _sampler domains_
+// sums to `1` w/ `p>0` inside, `p==0` outside `domain`
+// `undefined` if `domain._log_p` is undefined
 function density(x, domain) {
   if (!from(x, domain)) return -inf
   if (domain._log_p) return domain._log_p(x)
