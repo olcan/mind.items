@@ -633,7 +633,7 @@ function js_table(regex) {
   //
   // also note javascript engine _should_ cache the compiled regex
   const __js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class| *get| *set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()]*?) *=>)?\s*(?<body>[^\n]+))/gs
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class| *get| *set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gs
 
   const defs = _.compact(
     Array.from(

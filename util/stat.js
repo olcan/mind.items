@@ -573,6 +573,8 @@ function min_max_in(xJ) {
   return [a, b]
 }
 
+const min_max = min_max_in
+
 // `≡ [min_of(xJ, f), max_of(xJ, f)]`
 function min_max_of(xJ, f = x => x) {
   assert(is_array(xJ), 'non-array argument')
@@ -587,7 +589,7 @@ function min_max_of(xJ, f = x => x) {
 }
 
 // sum of `xJ`, or `f(x,j)` over `xJ`
-function sum(xJ, f) {
+function sum(xJ, f = undefined) {
   assert(is_array(xJ), 'non-array argument')
   let z = 0
   if (!f) for (let j = 0; j < xJ.length; ++j) z += xJ[j]
@@ -595,7 +597,9 @@ function sum(xJ, f) {
   return z
 }
 
-const mean = xJ => sum(xJ) / xJ.length
+const sum_of = sum
+const mean = (xJ, f = undefined) => sum(xJ, f) / xJ.length
+const mean_of = mean
 
 // variance of sample `xJ`
 function variance(xJ) {

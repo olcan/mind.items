@@ -200,7 +200,8 @@ function distance(x, domain) {
 // density of `x` in `domain`
 // _log-probability density_ `log_p` of sampling `x` from `domain`
 // uses `domain._log_p` defined alongside `_prior` for _sampler domains_
-// sums to `1` w/ `p>0` inside, `p==0` outside `domain`
+// sampler domains are those that can be sampled as `sample(domain)`
+// density always satisfies `p>0` inside, `p==0` outside `domain`
 // `undefined` if `domain._log_p` is undefined
 function density(x, domain) {
   if (!from(x, domain)) return -inf
@@ -214,7 +215,7 @@ function density(x, domain) {
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
 // sampler function `domain` is passed new _sampler `context`_
 // non-function `domain` requires outer `sample(context=>{ … })`
-// special _sampler domain_ can specify `domain._prior`, `._posterior`
+// _sampler domains_ specify default `domain._prior`, `._posterior`
 // conditions/weights are scoped by outer `sample(context=>{ … })`
 // samples are tied to _lexical context_, e.g. are constant in loops
 // `options` for all domains:
@@ -304,8 +305,8 @@ function sample(domain, options = undefined) {
 // `≡ condition(from(x, domain))`, see below
 // uses `distance(x, domain)` for guidance outside `domain`
 // uses `density(x, domain) ?? 0` as weights inside `domain`
-// can handle small/rare or unbounded/unconstrained domains
-// ensures consistency w/ sampling distribution of `sample(domain)`
+// distances help w/ rare domains, densities w/ unbounded domains
+// densities ensure consistency w/ sampling distribution of `sample(domain)`
 function confine(x, domain) {
   fatal(`unexpected (unparsed) call to confine(…)`)
 }

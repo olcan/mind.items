@@ -28,6 +28,20 @@ function uniform(a, b) {
   return dom
 }
 
+function _check_log_p_normalized(sampler, a, b) {
+  const J = 100000
+  const xJ = array(J)
+  random_uniform_array(xJ, a, b)
+  const pJ = apply(xJ, x => (b - a) * exp(sampler._log_p(x)))
+  const σ = sqrt(variance(pJ) / J)
+  // we tolerate 6.10941σ error (~one-in-a-billion test failure)
+  check(() => [mean(pJ), 1, (a, b) => approx_equal(a, b, 6.10941 * σ)])
+}
+
+function _test_uniform() {
+  _check_log_p_normalized(uniform(2, 5), 2, 5)
+}
+
 function _benchmark_uniform() {
   benchmark(() => uniform(0, 1))
 }
@@ -43,8 +57,8 @@ function triangular(a, b, c) {
   if (!is_finite(c) || c < a || c > b) return undefined
   const dom = { gt: a, lt: b }
   dom._prior = f => f(random_triangular(a, b, c))
-  const log_z1 = log(b - a) + log(c - a) // - log(2) constant ⊥ (μ,σ) // z ⊥ x
-  const log_z2 = log(b - a) + log(b - c) // - log(2) constant ⊥ (μ,σ) // z ⊥ x
+  const log_z1 = log(b - a) + log(c - a) - log(2) // z ⊥ x
+  const log_z2 = log(b - a) + log(b - c) - log(2) // z ⊥ x
   dom._log_p = x => {
     if (x <= a || x >= b) return -inf
     if (x <= c) return log(x - a) - log_z1
@@ -52,6 +66,10 @@ function triangular(a, b, c) {
   }
   dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
+}
+
+function _test_triangular() {
+  _check_log_p_normalized(triangular(2, 5, 3), 2, 5)
 }
 
 function _beta_mean_from_mode(a, b, c, σ) {
@@ -118,6 +136,10 @@ function beta(a, b, μ, σ) {
   return dom
 }
 
+function _test_beta() {
+  _check_log_p_normalized(beta(2, 5, 3, 1), 2, 5)
+}
+
 // [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)` w/ mean `μ`, stdev `σ`
 // `undefined` if `μ` non-number or infinite
 // `undefined` if `σ` non-number or infinite or `σ≤0`
@@ -127,11 +149,15 @@ function normal(μ, σ) {
   const dom = { is: 'finite' } // all finite numbers
   dom._prior = f => f(μ + σ * random_normal())
   const inv_σ2 = 1 / (σ * σ)
-  const log_z = log(σ) // + log(sqrt(2π) is constant ⊥ (μ,σ)
+  const log_z = log(σ) + log(sqrt(2 * pi)) // z ⊥ x
   dom._log_p = x => -0.5 * inv_σ2 * (x - μ) ** 2 - log_z
   // TODO: see #random/normal if this is too slow for prior far from data
   dom._posterior = (f, x, stdev) => f(x + (stdev || σ) * random_normal())
   return dom
+}
+
+function _test_normal() {
+  _check_log_p_normalized(normal(0, 1), -100, 100)
 }
 
 // gamma log-density
@@ -185,4 +211,8 @@ function gamma(a, μ, σ) {
   }
 
   return dom
+}
+
+function _test_gamma() {
+  _check_log_p_normalized(gamma(2, 5, 1), 2, 100)
 }
