@@ -41,6 +41,8 @@ const random_discrete_uniform = (a, b) => {
   return ~~(a + u * (b + 1 - a)) // {a,…,b}
 }
 
+const random_element = xJ => xJ[random_discrete_uniform(xJ.length)]
+
 // random_discrete_uniform_array(xJ, [a], [b])
 // fills `xJ` with `random_discrete_uniform(a,b)`
 const random_discrete_uniform_array = (xJ, a, b) => {

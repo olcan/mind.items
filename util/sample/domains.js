@@ -124,3 +124,7 @@ function below(b, μ = undefined, σ = (b - μ) / 2) {
 
 // `x≈μ±σ`
 const around = (μ, σ) => normal(μ, σ)
+
+// or(...domains)
+// `x∈∪(dK)`
+const or = mixture

@@ -29,7 +29,7 @@ function uniform(a, b) {
 }
 
 function _check_log_p_normalized(sampler, a, b) {
-  const J = 100000
+  const J = 1000000 // bit slow (20-150ms) but more strict
   const xJ = array(J)
   random_uniform_array(xJ, a, b)
   const pJ = apply(xJ, x => (b - a) * exp(sampler._log_p(x)))
@@ -215,4 +215,33 @@ function gamma(a, μ, σ) {
 
 function _test_gamma() {
   _check_log_p_normalized(gamma(2, 5, 1), 2, 100)
+}
+
+// mixture(...samplers)
+// [mixture](https://en.wikipedia.org/wiki/Mixture_distribution) on union domain `{or:samplers}`
+function mixture(...sK) {
+  assert(sK.length && sK.every(s => s._prior), 'invalid mixture')
+  const dom = { or: sK }
+  const log_pK = array(sK.length)
+  dom._prior = f => random_element(sK)._prior(f)
+  dom._log_p = x => {
+    fill(log_pK, k => sK[k]._log_p(x))
+    const max_log_p = max_in(log_pK)
+    return max_log_p + log(mean(log_pK, log_p => exp(log_p - max_log_p)))
+  }
+  dom._posterior = (f, x, σ) => random_element(sK)._posterior(f, x, σ)
+  return dom
+}
+
+function _test_mixture() {
+  _check_log_p_normalized(
+    mixture(
+      uniform(2, 5),
+      triangular(2, 5, 3),
+      beta(2, 5, 3, 1),
+      gamma(2, 5, 1)
+    ),
+    2,
+    100
+  )
 }

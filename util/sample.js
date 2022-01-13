@@ -1102,7 +1102,10 @@ class _Sampler {
         const w = exp(log_wJ[j])
         if (w == 0) return // skip rejected run
         w_accept ??= w
-        assert(w == w_accept, `uneven weights ${w}!=${w_accept} for target run`)
+        assert(
+          approx_equal(w, w_accept),
+          `uneven weights ${w}!=${w_accept} for target run`
+        )
         if (w) targets.push(zip_object(this.nK, xjK))
       })
     }
