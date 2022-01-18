@@ -72,6 +72,8 @@ function is(x, type) {
       return typeof x == 'function'
     case 'object':
       return typeof x == 'object' && x !== null
+    case 'primitive':
+      return !(x instanceof Object)
     case 'set':
       return x instanceof Set
     case 'map':
@@ -104,6 +106,13 @@ function _test_is() {
     () => is('true', 'string'),
     () => is(() => 0, 'function'),
     () => is({}, 'object'),
+    () => !is(null, 'object'),
+    () => is(0, 'primitive'),
+    () => is(null, 'primitive'),
+    () => is('0', 'primitive'),
+    () => !is({}, 'primitive'),
+    () => !is([], 'primitive'),
+    () => !is(() => 0, 'primitive'),
     () => is(new Set(), 'set'),
     () => is(new Map(), 'map'),
     () => is([], 'array'),
@@ -159,7 +168,27 @@ function _benchmark_is_numeric() {
 const is_boolean = x => typeof x == 'boolean'
 const is_string = x => typeof x == 'string'
 const is_function = x => typeof x == 'function'
+
 const is_object = x => typeof x == 'object' && x !== null
+// NOTE: is_object is _plain_ object, NOT instanceof Object
+// see https://stackoverflow.com/a/52453477
+
+const is_primitive = x => !(x instanceof Object)
+// NOTE: instanceof could be customized using Symbol.hasInstance
+//   https://www.30secondsofcode.org/articles/s/javascript-primitive-instanceof
+
+function _benchmark_is_object() {
+  const obj = {}
+  const prim = 0
+  benchmark(
+    () => is_object(obj),
+    () => is_object(prim),
+    () => is_primitive(obj),
+    () => is_primitive(prim)
+  )
+}
+const _benchmark_is_object_functions = ['is_object', 'is_primitive']
+
 const is_set = x => x instanceof Set
 const is_map = x => x instanceof Map
 const is_array = Array.isArray
