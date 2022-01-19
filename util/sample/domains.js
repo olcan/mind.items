@@ -81,6 +81,7 @@ function between(a, b, options = undefined) {
 // `undefined` if `y` non-number or infinite
 // `undefined` if `ε` non-number or infinite or `ε <= 0`
 function within(y, ε, options = undefined) {
+  if (is_array(y)) return tuple(...y.map(yk => within(yk, ε, options)))
   if (!is_finite(y)) return undefined
   if (!is_finite(ε) || ε <= 0) return undefined
   return between(y - ε, y + ε, options)
@@ -123,7 +124,10 @@ function below(b, μ = undefined, σ = (b - μ) / 2) {
 }
 
 // `x≈μ±σ`
-const around = (μ, σ) => normal(μ, σ)
+function around(μ, σ) {
+  if (is_array(μ)) return tuple(...μ.map(μk => normal(μk, σ)))
+  return normal(μ, σ)
+}
 
 // or(...domains)
 // `x∈∪(dK)`

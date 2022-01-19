@@ -3,7 +3,8 @@
 // | sampler function | `x` via function `≡{via:func}`
 // | type string      | `x` is of type `≡{is:type}`
 // | number           | `x` `===` number `≡{eqq:number}`
-// | array            | `x` in array, `≡{in:array}`
+// | primitive array  | `x` in array of possible values, `≡{in:array}`
+// | object array     | `x` is array matching per-element constraints
 // | object           | `x` matching constraints
 // | `{}`             | everything (no constraints)
 // | `via:func`       | `func._domain || {}`
@@ -26,7 +27,13 @@ function from(x, domain) {
   if (is_function(domain)) return from(x, { via: domain })
   if (is_string(domain)) return is(x, domain) // ≡{is:type}
   if (is_number(domain)) return x === domain // ≡{eqq:number}
-  if (is_array(domain)) return domain.includes(x) // ≡{in:array}
+  if (is_array(domain)) {
+    if (is_primitive(domain[0])) return domain.includes(x) // ≡{in:array}
+    if (is_object(domain[0])) {
+      if (x.length != domain.length) return false
+      return x.every((xj, j) => from(xj, domain[j]))
+    }
+  }
   assert(is_object(domain), `unknown domain ${domain}`)
   return keys(domain).every(key => {
     switch (key) {
@@ -82,7 +89,10 @@ function invert(domain) {
   if (domain === null) return {} // empty -> everything
   if (is_function(domain)) return invert({ via: domain })
   if (is_string(domain)) return invert({ is: domain })
-  if (is_array(domain)) return invert({ in: domain })
+  if (is_array(domain)) {
+    if (is_primitive(domain[0])) return invert({ in: domain })
+    if (is_object(domain[0])) return domain.map(invert)
+  }
   if (is_number(domain)) return invert({ eqq: domain })
   assert(is_object(domain), `unknown domain ${domain}`)
   if (empty(domain)) return null // everything -> empty
@@ -152,7 +162,14 @@ function distance(x, domain) {
   if (is_function(domain)) return distance(x, { via: domain })
   if (is_string(domain)) return undefined
   if (is_number(domain)) return _distance(x, domain)
-  if (is_array(domain)) return _distance_to_array(x, domain)
+  if (is_array(domain)) {
+    if (is_primitive(domain[0])) return _distance_to_array(x, domain)
+    if (is_object(domain[0])) {
+      assert(x.length == domain.length, 'array length mismatch for distance')
+      const d = max_of(x, (xj, j) => distance(xj, domain[j]) ?? inf)
+      return is_inf(d) ? undefined : d
+    }
+  }
   assert(is_object(domain), `unknown domain ${domain}`)
   if (domain._distance) return domain._distance(x)
   const d = max_of(keys(domain), key => {
@@ -546,7 +563,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var) *(\w+) *= *|\b)(sample|condition|weight|confine) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|\b)(sample|condition|weight|confine) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
     this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
       if (name) {
         assert(
@@ -1361,7 +1378,10 @@ class _Sampler {
     // plot posteriors (vs priors and targets if specified)
     const { J, rwJ, rwj_sum, xJK, pxJK, pwj_sum } = this
     each(this.values, (value, k) => {
-      const name = value.name
+      // use value name or index, but replace non-alphanum w/ underscore
+      let name = value.name || String(value.index)
+      name = name.replace(/\W/g, '_').replace(/^_+|_+$/g, '')
+      if (!is_number(value.first)) return // value not number
 
       // get prior w/ weights that sum to J
       const pxJ = array(J, j => pxJK[j][k])
@@ -1470,7 +1490,34 @@ class _Sampler {
     const stdevK = (this.___stdevK ??= array(K))
     return fill(stdevK, k => {
       const value = this.values[k]
-      if (!value.sampler) return 1 // value not sampled
+      if (!value.sampler) return // value not sampled
+      // return per-element stdev for array values
+      if (is_array(value.first)) {
+        const R = value.first.length
+        const stdevR = (stdevK[k] ??= array(R))
+        assert(stdevR.length == R, 'variable-length arrays not supported yet')
+        let w = 0
+        let sR = value._sR ?? array(R)
+        let ssR = value._ssR ?? array(R)
+        fill(sR, 0)
+        fill(ssR, 0)
+        for (let j = 0; j < J; ++j) {
+          const wj = rwJ[j]
+          if (wj == 0) continue // skip run
+          const xjkR = xJK[j][k]
+          if (xjkR === undefined) continue // skip run
+          w += wj
+          addf(sR, xjkR, x => wj * x)
+          addf(ssR, xjkR, x => wj * x * x)
+        }
+        if (w == 0) return // not enough samples/weight
+        const mR = scale(sR, 1 / w)
+        const vR = sub(scale(ssR, 1 / w), mul(mR, mR))
+        assert(vR.every(is_finite) && min_of(vR) >= -1e-6, 'bad variance', vR)
+        apply(vR, v => (v < 1e-12 ? 0 : v)) // chop small stdev to 0
+        return apply(vR, sqrt)
+      }
+      if (!is_number(value.first)) return // value not number
       let w = 0
       let s = 0
       let ss = 0
@@ -1479,12 +1526,11 @@ class _Sampler {
         if (wj == 0) continue // skip run
         const xjk = xJK[j][k]
         if (xjk === undefined) continue // skip run
-        if (w == 0 && typeof xjk != 'number') return inf // skip value
         w += wj
         s += wj * xjk
         ss += wj * xjk * xjk
       }
-      if (w == 0) return inf // not enough samples/weight
+      if (w == 0) return // not enough samples/weight
       const m = s / w
       const v = ss / w - m * m
       assert(is_finite(v) && v >= -1e-6, 'bad variance', v)
@@ -1523,7 +1569,7 @@ class _Sampler {
   __tks() {
     const timer = _timer_if(this.stats)
     const { J, K, xJK, rwJ, rwj_uniform, values, stats } = this
-    // compute ks1_test or ks2_test for each (numeric) value w/ target
+    // compute ks1_test or ks2_test for each value w/ target
     const pK = (this.___tks_pK ??= array(K))
     fill(pK, k => {
       const value = values[k]
@@ -1592,7 +1638,7 @@ class _Sampler {
     const pR2 = array(K, k => {
       const value = this.values[k]
       if (!value.sampler) return // value not sampled
-      if (!is_number(xJK[0][k])) return // value not numeric
+      if (!is_number(value.first)) return // value not number
       copy(xJ, xJK, xjK => xjK[k])
       copy(yJ, xBJK[0], yjK => yjK[k])
       copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
@@ -1790,11 +1836,13 @@ class _Sampler {
 
     // if not moving, sample from prior into xJK
     // prior sample weights (if any) are stored in log_pwJ
-    // prior sampling density (if available) is stored in log_p_xJK
+    // prior sampling density is stored in log_p_xJK
+    // first defined value is stored in value.first
     if (!moving) {
       return prior((x, log_pw = 0) => {
         log_pwJ[j] += log_pw
-        if (log_p) log_p_xJK[j][k] = log_p(x)
+        log_p_xJK[j][k] = log_p(x)
+        value.first ??= x // save first defined value
         return (xJK[j][k] = x)
       })
     }
@@ -1837,17 +1885,17 @@ class _Sampler {
       // if (xjk === undefined || true) {
       upJK[j][k] = this.u // jump proposed (not yet accepted)
       return prior(y => {
-        if (log_p) log_p_yjK[k] = log_p(y)
+        log_p_yjK[k] = log_p(y)
         // sampling from prior is equivalent to weighting by prior likelihood
         // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
+        value.first ??= x // save first defined value (in case xjk was undefined)
         return (yjK[k] = y)
       })
     }
 
     // if past pivot, stay at xjk but still add prior density ratio to log_mpJ
     // reject and return undefined for out-of-domain xjk
-    // skip if log_p not available
-    if (k != k_pivot && log_p) {
+    if (k != k_pivot) {
       if (!from(xjk, domain)) {
         log_mpJ[j] = -inf
         return undefined
@@ -1887,7 +1935,7 @@ class _Sampler {
       if (!c) {
         assert(d >= 0, `negative distance (outside domain)`)
         assert(log_p == -inf, `positive density ${log_p} outside domain x=${x}`)
-      } else assert(d == 0, `non-zero distance inside domain`)
+      } else assert(d == 0, `non-zero distance ${d} inside domain`)
       log_wr = (r, z, b) => {
         if (z === undefined) return d // distance for z
         if (b === undefined) return c ? log_p : inf // log_p for b

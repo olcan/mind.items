@@ -1,7 +1,7 @@
 // posterior sampler that samples uniformly in (x-r,x+r) w/ r=stdev
 // can be used for any bounded domain or prior sampler
 const _uniform_posterior = (a, b, prior) => (f, x, stdev) => {
-  if (stdev == 0) return prior(f) // degenerate sample
+  if (!stdev) return prior(f) // degenerate sample
   const r = min((b - a) / 2, stdev)
   const xa = max(x - r, a)
   const xb = min(x + r, b)
@@ -220,7 +220,7 @@ function _test_gamma() {
 // mixture(...samplers)
 // [mixture](https://en.wikipedia.org/wiki/Mixture_distribution) on union domain `{or:samplers}`
 function mixture(...sK) {
-  assert(sK.length && sK.every(s => s._prior), 'invalid mixture')
+  if (!sK.length || !sK.every(s => s?._prior)) return undefined
   const dom = { or: sK }
   const log_pK = array(sK.length)
   dom._prior = f => random_element(sK)._prior(f)
@@ -244,4 +244,18 @@ function _test_mixture() {
     2,
     100
   )
+}
+
+// tuple(...samplers)
+// independent samplers on product domain
+function tuple(...args) {
+  // handle special case of tuple(K, sk) as tuple(...array(K, sk))
+  if (args.length == 2 && is_integer(args[0])) return tuple(...array(...args))
+  const sK = args
+  if (!sK.every(s => s?._prior)) return array(sK.length)
+  sK._prior = f => f(copy(sK, s => s._prior(x => x)))
+  sK._log_p = xK => sum(sK, (s, k) => s._log_p(xK[k]))
+  sK._posterior = (f, xK, σK) =>
+    f(copy(sK, (s, k) => s._posterior(y => y, xK[k], σK[k])))
+  return sK
 }

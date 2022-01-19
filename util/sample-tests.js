@@ -13,6 +13,11 @@ function _test_from() {
     () => !from(2, [0, 1]),
     () => !from(false, [0, 1]), // sameValueZero
     () => from(NaN, [NaN, 1]), // sameValueZero
+    () => !from({}, [0, {}]), // sameValueZero
+    () => !from([0], [{}, {}]), // 2d array domain
+    () => from([0, 0], [{}, {}]), // 2d array domain
+    () => !from([0, 0], [{ gte: 1 }, {}]),
+    () => from([1, 0], [{ gte: 1 }, {}]),
     () => throws(() => from(0, true)), // non-object
     () => !from(0, null), // empty domain = nothing
     () => from(0, {}), // no constraints = everything
@@ -78,6 +83,7 @@ function _test_invert() {
     () => [invert(invert('string')), { is: 'string' }],
     () => [invert(invert(1)), { eqq: 1 }],
     () => [invert(invert([0, 1])), { in: [0, 1] }],
+    () => double_inverse_equal([{ gt: 0 }, { lt: 0 }]),
     () => throws(() => invert(true)), // non-object
     () => double_inverse_equal(null),
     () => [invert(null), {}],
@@ -138,6 +144,8 @@ function _test_distance() {
     () => [distance(0, 0), 0],
     () => [distance(0, [-1, 0, 1]), 0],
     () => [distance(0, [-1, -2]), 1],
+    () => throws(() => distance(0, [{ gt: 1 }, { gt: 3 }])), // 2d array domain
+    () => [distance([0, 0], [{ gt: 1 }, { gt: 3 }]), 3],
     () => [distance(0, [-1, -2, null]), undefined],
     () => [distance(0, [-1, -2, '3']), undefined],
     () => [distance(0, [-1, -2, undefined]), undefined],
