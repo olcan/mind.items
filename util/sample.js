@@ -358,6 +358,18 @@ function weight(log_w, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to weight(…)`)
 }
 
+// sample array `xJ` from `domain`
+// `domain` can be a function of index, e.g. `j=>domJ[j]`
+function sample_array(J, domain, options = undefined) {
+  fatal(`unexpected (unparsed) call to sample_array(…)`)
+}
+
+// confine array `xJ` to `domain`
+// `domain` can be a function of index, e.g. `j=>domJ[j]`
+function confine_array(J, xJ, domain) {
+  fatal(`unexpected (unparsed) call to confine_array(…)`)
+}
+
 // is `wJ` uniform?
 function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   const w_mean = wj_sum / wJ.length
@@ -621,41 +633,28 @@ class _Sampler {
         // parse size as first argument
         const [, size] = args.match(/^ *(\d+) *,/) ?? []
         assert(size > 0, 'invalid/missing size for confine_array')
-        const args_wo_size = args.replace(/^ *(\d+) *,/, '')
-        assert(
-          args_wo_size.match(/^ *(\S+)\[__i\] *,/),
-          'invalid/missing second argument …[__i] for confine_array'
-        )
-        return (
-          ';(' +
-          array(size, i => {
-            const index = weights.length
-            weights.push({ index, offset, method, args, line_index, line, js })
-            const args_indexed = args_wo_size.replaceAll('__i', i)
-            return `__sampler._confine(${index},${args_indexed})`
-          }) +
-          ')'
-        )
+        const index = weights.length
+        repeat(size, () => {
+          const index = weights.length // element index
+          weights.push({ index, offset, method, args, line_index, line, js })
+        })
+        return `__sampler._${method}(${index},${args})`
       }
 
       if (method == 'sample_array') {
         // parse size as first argument
         const [, size] = args.match(/^ *(\d+) *,/) ?? []
         assert(size > 0, 'invalid/missing size for sample_array')
-        const args_wo_size = args.replace(/^ *(\d+) *,/, '')
+        const index = values.length
         const array_name = name || index
+        repeat(size, i => {
+          const index = values.length // element index
+          names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
+          values.push({ index, offset, name, args, line_index, line, js })
+        })
         return m.replace(
           /sample_array *\(.+\)$/s,
-          '[' +
-            array(size, i => {
-              const index = values.length
-              name = array_name + `[${i}]` // aligned w/ values & unique
-              names.add(name)
-              values.push({ index, offset, name, args, line_index, line, js })
-              const args_indexed = args_wo_size.replaceAll('__i', i)
-              return `__sampler._sample(${index},${args_indexed})`
-            }) +
-            ']'
+          `__sampler._${method}(${index},${args})`
         )
       }
 
@@ -668,8 +667,7 @@ class _Sampler {
 
       // replace sample call
       const index = values.length
-      name ||= index // name aligned w/ values & unique
-      names.add(name)
+      names.add((name = name || index)) // name aligned w/ values & unique
       values.push({ index, offset, name, args, line_index, line, js })
       return m.replace(
         /sample *\(.+\)$/s,
@@ -2021,6 +2019,19 @@ class _Sampler {
   _confine(n, x, domain) {
     this._condition(n, this._from(x, domain))
   }
+
+  _sample_array(k, J, domain, options) {
+    const domain_fj = is_function(domain) ? domain : j => domain
+    return array(J, j => this._sample(k + j, domain_fj(j), options))
+  }
+
+  _confine_array(n, J, xJ, domain) {
+    assert(is_array(xJ), 'invalid non-array second argument for confine_array')
+    const domain_fj = is_function(domain) ? domain : j => domain
+    repeat(J, j => this._confine(n + j, xJ[j], domain_fj(j)))
+  }
+
+  _confine_arra
 }
 
 function _run() {
