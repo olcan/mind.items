@@ -90,9 +90,6 @@ function plot(obj, name = undefined) {
     dependencies
   )
 
-  // write any logs to plotting item
-  write_log()
-
   // focus on plot item if focused on plotting item
   // (prevents re-focusing for multiple plots in same js run)
   dispatch(async () => {
@@ -100,13 +97,23 @@ function plot(obj, name = undefined) {
       MindBox.set(item.name)
       await _update_dom() // wait for page update
     }
-    if (!item.elem) {
-      console.warn(`missing element for ${item.name}`)
-      return
-    }
-    // scroll item to ~middle of screen if too low
-    // if (item.elem.offsetTop > document.body.scrollTop + innerHeight * 0.9)
-    //   document.body.scrollTo(0, item.elem.offsetTop - innerHeight / 2)
+  })
+
+  // write logs (since last run) to plotting item
+  // also delete plots (subitems) that are no longer tagged
+  // dispatch as task to execute once after last plot in run
+  dispatch_task('write_logs', () => {
+    const untagged_subitems = diff(
+      _sublabels(_this.label).map(s => _this.label + '/' + s),
+      _this.tags_visible
+    )
+    // if (untagged_subitems.length)
+    //   warn(
+    //     `delete ${untagged_subitems.length} ` +
+    //       `untagged plot(s): ${untagged_subitems} ?`
+    //   )
+    each(untagged_subitems, label => _item(label).delete())
+    write_log()
   })
 }
 
