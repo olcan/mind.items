@@ -2025,8 +2025,11 @@ class _Sampler {
 
 function _run() {
   const js = _this.read('js_input').trim()
+  // if js begins w/ sample(...) call, assume no wrapper is needed
   if (js.match(/^sample *\(/)) return null
-  if (!js.match(/\bsample *\(/)) return null
+  // if js contains any sample|sample_array call, then wrap inside sample(...)
+  // note this could match inside comments or strings
+  if (!js.match(/\b(?:sample|sample_array) *\(/)) return null
   const func = eval(flat('(context=>{', js, '})').join('\n'))
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)
