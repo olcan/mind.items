@@ -145,7 +145,7 @@ function _test_distance() {
     () => [distance(0, [-1, 0, 1]), 0],
     () => [distance(0, [-1, -2]), 1],
     () => throws(() => distance(0, [{ gt: 1 }, { gt: 3 }])), // 2d array domain
-    () => [distance([0, 0], [{ gt: 1 }, { gt: 3 }]), 3],
+    () => [distance([0, 1], [{ gt: 1 }, { gt: 3 }]), 3],
     () => [distance(0, [-1, -2, null]), undefined],
     () => [distance(0, [-1, -2, '3']), undefined],
     () => [distance(0, [-1, -2, undefined]), undefined],

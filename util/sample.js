@@ -166,7 +166,10 @@ function distance(x, domain) {
     if (is_primitive(domain[0])) return _distance_to_array(x, domain)
     if (is_object(domain[0])) {
       assert(x.length == domain.length, 'array length mismatch for distance')
-      const d = max_of(x, (xj, j) => distance(xj, domain[j]) ?? inf)
+      // for array domain, take sum of per-element distances
+      // sum (unlike min/max) is sensitive to per-element distances
+      // sum (unlike mean) is also sensitive to array length (dimensions)
+      const d = sum_of(x, (xj, j) => distance(xj, domain[j]) ?? inf)
       return is_inf(d) ? undefined : d
     }
   }
@@ -200,9 +203,8 @@ function distance(x, domain) {
       case 'and':
         return max_of(domain.and, dom => distance(x, dom) ?? inf)
       case 'or':
-        // min_of ignores undefined|inf so we have to check separately
-        if (!domain.or.every(dom => defined(distance(x, dom)))) return inf
-        return min_of(domain.or, dom => distance(x, dom))
+        // convert undefined -> -inf for min_of then return inf for max_of
+        return abs(min_of(domain.or, dom => distance(x, dom) ?? -inf))
       case 'not':
         const inverted = invert(domain.not) // attempt transform
         if (inverted.not) return inf // unable to transform (w/o not)
