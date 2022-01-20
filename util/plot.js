@@ -107,11 +107,11 @@ function plot(obj, name = undefined) {
       _sublabels(_this.label).map(s => _this.label + '/' + s),
       _this.tags_visible
     ).filter(label => _item(label).tags_hidden.includes('#util/plot'))
-
+    const s = untagged_plots.length > 1 ? 's' : ''
     if (
       untagged_plots.length &&
       confirm(
-        `delete ${untagged_plots.length} untagged plot(s) listed below?\n` +
+        `delete ${untagged_plots.length} untagged plot${s} listed below?\n` +
           untagged_plots.join('\n')
       )
     ) {
