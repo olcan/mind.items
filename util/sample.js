@@ -563,7 +563,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|\b)(sample|condition|weight|confine) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|\b)(sample|sample_array|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
     this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
       if (name) {
         assert(
@@ -617,6 +617,48 @@ class _Sampler {
       if (method == 'condition')
         args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
 
+      if (method == 'confine_array') {
+        // parse size as first argument
+        const [, size] = args.match(/^ *(\d+) *,/) ?? []
+        assert(size > 0, 'invalid/missing size for confine_array')
+        const args_wo_size = args.replace(/^ *(\d+) *,/, '')
+        assert(
+          args_wo_size.match(/^ *(\S+)\[__i\] *,/),
+          'invalid/missing second argument …[__i] for confine_array'
+        )
+        return (
+          ';(' +
+          array(size, i => {
+            const index = weights.length
+            weights.push({ index, offset, method, args, line_index, line, js })
+            const args_indexed = args_wo_size.replaceAll('__i', i)
+            return `__sampler._confine(${index},${args_indexed})`
+          }) +
+          ')'
+        )
+      }
+
+      if (method == 'sample_array') {
+        // parse size as first argument
+        const [, size] = args.match(/^ *(\d+) *,/) ?? []
+        assert(size > 0, 'invalid/missing size for sample_array')
+        const args_wo_size = args.replace(/^ *(\d+) *,/, '')
+        const array_name = name || index
+        return m.replace(
+          /sample_array *\(.+\)$/s,
+          '[' +
+            array(size, i => {
+              const index = values.length
+              name = array_name + `[${i}]` // aligned w/ values & unique
+              names.add(name)
+              values.push({ index, offset, name, args, line_index, line, js })
+              const args_indexed = args_wo_size.replaceAll('__i', i)
+              return `__sampler._sample(${index},${args_indexed})`
+            }) +
+            ']'
+        )
+      }
+
       // replace condition|weight|confine call
       if (method != 'sample') {
         const index = weights.length
@@ -626,8 +668,9 @@ class _Sampler {
 
       // replace sample call
       const index = values.length
+      name ||= index // name aligned w/ values & unique
+      names.add(name)
       values.push({ index, offset, name, args, line_index, line, js })
-      names.add(name || index) // aligned w/ values & unique since name non-numeric
       return m.replace(
         /sample *\(.+\)$/s,
         `__sampler._sample(${index},${args})`
@@ -635,16 +678,24 @@ class _Sampler {
     })
 
     // evaluate new function w/ replacements
-    // use wrapper to pass along variables from calling scope/context
+    // use wrapper to pass along params (if any) from calling scope/context
     const __sampler = this // since 'this' is overloaded in function(){...}
-    // this.func = eval('(' + this.js + ')')
-    const params = this.options.params
-    if (!params) func = eval('(' + this.js + ')')
-    else {
+    if (this.options.params) {
+      const params = this.options.params
       const wrapper = `(function({${_.keys(params)}}) { return ${this.js} })`
       func = eval(wrapper)(params)
+    } else func = eval('(' + this.js + ')')
+    // use another wrapper to invoke _init_func() before each run
+    const func_w_init = function () {
+      __sampler._init_func()
+      func(...arguments)
     }
-    return { func, values, weights, names, nK: array(names) }
+    return { func: func_w_init, values, weights, names, nK: array(names) }
+  }
+
+  _init_func() {
+    each(this.values, v => (v.called = false))
+    each(this.weights, w => (w.called = false))
   }
 
   _init_stats() {
@@ -1378,9 +1429,8 @@ class _Sampler {
     // plot posteriors (vs priors and targets if specified)
     const { J, rwJ, rwj_sum, xJK, pxJK, pwj_sum } = this
     each(this.values, (value, k) => {
-      // use value name or index, but replace non-alphanum w/ underscore
-      let name = value.name || String(value.index)
-      name = name.replace(/\W/g, '_').replace(/^_+|_+$/g, '')
+      // use name but replace non-alphanum w/ underscore
+      const name = value.name.replace(/\W/g, '_').replace(/^_+|_+$/g, '')
       if (!is_number(value.first)) return // value not number
 
       // get prior w/ weights that sum to J
@@ -1733,6 +1783,8 @@ class _Sampler {
 
   _sample(k, domain, options) {
     const value = this.values[k]
+    assert(!value.called, 'sample(…) invoked dynamically (e.g. inside loop)')
+    value.called = true
     const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
     const { upJK, uaJK, aawK, upwK, log_p_xJK, log_p_yJK } = this
 
@@ -1950,11 +2002,17 @@ class _Sampler {
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
     // note cond-based log_w is superseded by log_wr(1, 0, 0)
-    this.log_wJ[this.j] += log_wr ? log_wr(1, 0, 0) : cond ? 0 : -inf
-    this.log_wrfJN[this.j][n] = log_wr ?? (r => log(cond || 1 - r))
+    const log_w = log_wr ? log_wr(1, 0, 0) : cond ? 0 : -inf
+    this._weight(n, log_w, log_wr ?? (r => log(cond || 1 - r)))
   }
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
+    const weight = this.weights[n]
+    assert(
+      !weight.called,
+      'confine|condition|weight(…) invoked dynamically (e.g. inside loop)'
+    )
+    weight.called = true
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
     this.log_wJ[this.j] += log_w // must match log_wr(1, 0, 0)
     this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w) // note r>0
