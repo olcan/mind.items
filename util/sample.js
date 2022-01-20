@@ -225,7 +225,7 @@ function density(x, domain) {
   if (domain._log_p) return domain._log_p(x)
 }
 
-// sample `x` from `domain`
+// sample _unknown_ from `domain`
 // random variable is denoted `X ∈ dom(X)`
 // _prior model_ `P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|c)` using `condition(c)`
@@ -318,6 +318,12 @@ function sample(domain, options = undefined) {
   return new _Sampler(domain, options).sample()
 }
 
+// sample `J` _unknowns_ from `domain`
+// `domain` can be a function of index, e.g. `j=>domJ[j]`
+function sample_array(J, domain, options = undefined) {
+  fatal(`unexpected (unparsed) call to sample_array(…)`)
+}
+
 // confine `x` to `domain`
 // `≡ condition(from(x, domain))`, see below
 // uses `distance(x, domain)` for guidance outside `domain`
@@ -328,7 +334,13 @@ function confine(x, domain) {
   fatal(`unexpected (unparsed) call to confine(…)`)
 }
 
-// condition samples on `cond` (`c`)
+// confine array `xJ` to `domain`
+// `domain` can be a function of index, e.g. `j=>domJ[j]`
+function confine_array(J, xJ, domain) {
+  fatal(`unexpected (unparsed) call to confine_array(…)`)
+}
+
+// condition samples on `cond`
 // `≡ weight(c ? 0 : -inf)`, see below
 // scoped by outer `sample(context=>{ … })`
 // conditions models `P(X) → P(X|c)` for all `X` in context
@@ -356,18 +368,6 @@ function condition(cond, log_wr = undefined) {
 // see #/weight for technical details
 function weight(log_w, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to weight(…)`)
-}
-
-// sample array `xJ` from `domain`
-// `domain` can be a function of index, e.g. `j=>domJ[j]`
-function sample_array(J, domain, options = undefined) {
-  fatal(`unexpected (unparsed) call to sample_array(…)`)
-}
-
-// confine array `xJ` to `domain`
-// `domain` can be a function of index, e.g. `j=>domJ[j]`
-function confine_array(J, xJ, domain) {
-  fatal(`unexpected (unparsed) call to confine_array(…)`)
 }
 
 // is `wJ` uniform?
