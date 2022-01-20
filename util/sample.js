@@ -1425,10 +1425,24 @@ class _Sampler {
     }
 
     // plot posteriors (vs priors and targets if specified)
+    // if plot is specified as string or array, use it to filter values by name
+    let plot_names
+    if (is_string(this.options.plot))
+      plot_names = new Set(this.options.plot.split(/\W+/))
+    else if (is_array(this.options.plot)) {
+      assert(every(this.options.plot, is_string), 'invalid option plot')
+      plot_names = new Set(this.options.plot)
+    }
     const { J, rwJ, rwj_sum, xJK, pxJK, pwj_sum } = this
     each(this.values, (value, k) => {
-      // use name but replace non-alphanum w/ underscore
+      // use value name as plot name but replace non-alphanum w/ underscore
       const name = value.name.replace(/\W/g, '_').replace(/^_+|_+$/g, '')
+
+      // filter by plot name if names are specified
+      if (plot_names && !plot_names.has(name)) return
+
+      // note we currently do not plot array values
+      // sample_array can be used to treat elements as values
       if (!is_number(value.first)) return // value not number
 
       // get prior w/ weights that sum to J
