@@ -100,19 +100,23 @@ function plot(obj, name = undefined) {
   })
 
   // write logs (since last run) to plotting item
-  // also delete plots (subitems) that are no longer tagged
+  // also prompt to delete untagged plots (subitems that import #_util/plot)
   // dispatch as task to execute once after last plot in run
   dispatch_task('write_logs', () => {
-    const untagged_subitems = diff(
+    const untagged_plots = diff(
       _sublabels(_this.label).map(s => _this.label + '/' + s),
       _this.tags_visible
-    )
-    // if (untagged_subitems.length)
-    //   warn(
-    //     `delete ${untagged_subitems.length} ` +
-    //       `untagged plot(s): ${untagged_subitems} ?`
-    //   )
-    each(untagged_subitems, label => _item(label).delete())
+    ).filter(label => _item(label).tags_hidden.includes('#util/plot'))
+
+    if (
+      untagged_plots.length &&
+      confirm(
+        `delete ${untagged_plots.length} untagged plot(s) listed below?\n` +
+          untagged_plots.join('\n')
+      )
+    ) {
+      each(untagged_plots, label => _item(label).delete())
+    }
     write_log()
   })
 }
