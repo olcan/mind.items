@@ -129,6 +129,10 @@ function around(μ, σ) {
   return normal(μ, σ)
 }
 
-// or(...domains)
+// among(...xK)
+// `x∈xK`
+const among = uniform_discrete
+
+// or(...dK)
 // `x∈∪(dK)`
 const or = mixture

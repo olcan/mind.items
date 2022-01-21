@@ -259,3 +259,17 @@ function tuple(...args) {
     f(copy(sK, (s, k) => s._posterior(y => y, xK[k], σK[k])))
   return sK
 }
+
+// [discrete uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on arguments `xK`
+// `undefined` if `xK` is empty
+function uniform_discrete(...xK) {
+  if (!xK.length) return undefined
+  const K = xJ.length
+  const dom = { in: xK }
+  dom._prior = f => f(random_element(xK))
+  const log_z = log(K) // z ⊥ x
+  const xK_set = new Set(xK)
+  dom._log_p = x => (!xK_set.has(x) ? -inf : -log_z)
+  dom._posterior = f => f(random_element(xK))
+  return dom
+}
