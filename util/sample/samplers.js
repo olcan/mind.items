@@ -264,7 +264,7 @@ function tuple(...args) {
 // `undefined` if `xK` is empty
 function uniform_discrete(...xK) {
   if (!xK.length) return undefined
-  const K = xJ.length
+  const K = xK.length
   const dom = { in: xK }
   dom._prior = f => f(random_element(xK))
   const log_z = log(K) // z ⊥ x

@@ -49,7 +49,7 @@ function fill(xJ, x, js = 0, je = xJ.length) {
   return xJ
 }
 
-// copy(xJ, [yJ], [f])
+// copy(xJ, [yJ], [f], [g])
 // copies `xJ` into new array
 // can copy `yJ` into existing `xJ`
 // can map copied elements as `f(x,j)`

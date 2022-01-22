@@ -1443,9 +1443,10 @@ class _Sampler {
       // filter by plot name if names are specified
       if (plot_names && !plot_names.has(name)) return
 
-      // note we currently do not plot array values
+      // skip non-primitive values
+      // we currently do not plot array values
       // sample_array can be used to treat elements as values
-      if (!is_number(value.first)) return // value not number
+      if (!is_primitive(value.first)) return // value not primitive
 
       // get prior w/ weights that sum to J
       const pxJ = array(J, j => pxJK[j][k])
@@ -1663,6 +1664,7 @@ class _Sampler {
         wj_sum: rwj_uniform ? undefined : wr_sum,
         wK: value.target_weights,
         wk_sum: value.target_weight_sum,
+        primitive: true, // handle non-number primitives, drop undefined
       })
     })
     const pR = pK.filter(defined)
@@ -1697,12 +1699,13 @@ class _Sampler {
     // include only samples fully updated since buffered update
     copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
     const wj_sum = sum(wJ)
+    // cancel if updated samples do not have at least 1/2 weight
     if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
 
     const pR2 = array(K, k => {
       const value = this.values[k]
       if (!value.sampler) return // value not sampled
-      if (!is_number(value.first)) return // value not number
+      if (!is_primitive(value.first)) return // value not primitive
       copy(xJ, xJK, xjK => xjK[k])
       copy(yJ, xBJK[0], yjK => yjK[k])
       copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
@@ -1713,12 +1716,14 @@ class _Sampler {
           wj_sum,
           wK: rwBJ[0],
           wk_sum: rwBj_sum[0],
+          primitive: true, // handle non-number primitives, drop undefined
         }),
         ks2_test(log_p_xJ, log_p_yJ, {
           wJ,
           wj_sum,
           wK: rwBJ[0],
           wk_sum: rwBj_sum[0],
+          primitive: true, // handle non-number primitives, drop undefined
         }),
       ]
     }).filter(defined)

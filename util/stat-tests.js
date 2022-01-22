@@ -257,8 +257,16 @@ function _test_ks2() {
   const xJ_sorted = sort(copy(xJ))
   const yK_sorted = sort(copy(yK))
   check(
+    () => throws(() => ks2([], [0])),
+    () => throws(() => ks2([0], [])),
     () => [ks2([1], [0.9]), 1],
     () => [ks2([1], [1], _discrete_), 0],
+    () => [ks2([1], [1]), 1],
+    () => throws(() => ks2(['a'], ['a'])),
+    () => [ks2(['a'], ['a'], { primitive: true, discrete: true }), 0],
+    () => [ks2(['a'], ['b'], { primitive: true, discrete: true }), 1],
+    () => [ks2(['a'], ['a'], { primitive: true }), 1],
+    () => [ks2(['a'], ['b'], { primitive: true }), 1],
     () => [ks2([1], [1.1]), 1],
     () => [ks2([1, 2], [0.9]), 1],
     () => [ks2([1, 2], [1], _discrete_), 1 / 2],

@@ -358,6 +358,8 @@ function beta_cdf(x, a, b) {
   return _ibeta(x, a, b)
 }
 
+let _ks2_buffer // global buffer reused below in ks2
+
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
 // sorts arrays `xJ` and `yK` _in place_
@@ -368,21 +370,65 @@ function beta_cdf(x, a, b) {
 // | `xj_sorted` | `false` | assume `xJ` already sorted
 // | `yk_sorted` | `false` | assume `yK` already sorted
 // | `discrete`  | `false` | allow identical (discrete) values?
+// | `primitive` | `false` | handle arbitrary primitive values?
 function ks2(xJ, yK, options = {}) {
   assert(is_array(xJ), `non-array first argument`)
   if (yK) assert(is_array(yK), `non-array second argument`)
   assert(is_object(options), `non-object options`)
-  const { xj_sorted, yk_sorted, wJ, wj_sum, wK, wk_sum, discrete } = options
   let J = xJ.length
-  let K = yK?.length ?? 0 // if yK missing, K=0 for now, K=J later
+  let K = yK ? yK.length : 0 // if yK missing, K=0 for now, K=J later
+  assert(J > 0, `empty first array for ks2`)
+  if (yK) assert(K > 0, 'empty second array for ks2')
+  const R = J + K
+  _ks2_buffer ??= array(R)
+  _ks2_buffer.length = R
+  const { xj_sorted, yk_sorted, discrete, primitive } = options
+  let { wJ, wj_sum, wK, wk_sum } = options
+  if (primitive) {
+    // index primitives, filter undefined
+    assert(!xj_sorted && !yk_sorted, 'pre-sorted primitives not allowed')
+    assert(is_primitive(xJ[0]), 'non-primitive value for ks2')
+    if (yK) assert(is_primitive(yK[0]), 'non-primitive value for ks2')
+    const xR = _ks2_buffer
+    copy_at(xR, xJ, 0)
+    copy_at(xR, yK, J)
+    random_shuffle(xR) // for random distribution of indices
+    const rX = new Map()
+    let r = 0
+    each(xR, x => x === undefined || rX.has(x) || rX.set(x, r++))
+    let jj = 0
+    for (let j = 0; j < J; ++j) {
+      const x = xJ[j]
+      if (x === undefined) continue
+      if (wJ) wJ[jj] = wJ[j]
+      xJ[jj++] = rX.get(x)
+    }
+    xJ.length = J = jj
+    assert(J > 0, `empty first array for ks2 after removing undefined`)
+    if (wJ) wj_sum = sum(wJ)
+    if (yK) {
+      let kk = 0
+      for (let k = 0; k < K; ++k) {
+        const y = yK[k]
+        if (y === undefined) continue
+        if (wK) wK[kk] = wK[k]
+        yK[kk++] = rX.get(y)
+      }
+      yK.length = K = kk
+      assert(K > 0, `empty second array for ks2 after removing undefined`)
+      if (wK) wk_sum = sum(wK)
+    }
+  }
+  assert(is_finite(xJ[0]), 'non-finite value for ks2')
+  if (yK) assert(is_finite(yK[0]), 'non-finite value for ks2')
+
   // sort xJ and yK as needed
   if (!xj_sorted) sort(xJ)
   if (yK && !yk_sorted) sort(yK)
-  const R = J + K
   const xR = yK ? r => (r < J ? xJ[r] : yK[r - J]) : r => xJ[r]
   // generate globally sorted indices rR
   // these are replaced below by cdf differences
-  const rR = array(J + K)
+  const rR = _ks2_buffer
   if (yK) {
     let j = 0
     let k = 0
@@ -462,9 +508,10 @@ function ks2(xJ, yK, options = {}) {
 // | `discrete`  | `false` | allow identical (discrete) values?
 function ks1(xJ, cdf, options = {}) {
   assert(is_array(xJ), 'non-array argument')
-  let { xj_sorted, wK, wk_sum } = options
+  let { xj_sorted, wK, wk_sum, primitive } = options
   assert(!wK, 'invalid option wK superceded by cdf for ks1')
   assert(!wk_sum, `invalid option wk_sum superceded by cdf for ks1`)
+  assert(!primitive, `invalid option primitive for ks1`)
   if (!xj_sorted) sort(xJ)
   wK = array(xJ.length)
   wK[0] = cdf(xJ[0])
