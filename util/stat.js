@@ -359,6 +359,23 @@ function beta_cdf(x, a, b) {
 }
 
 let _ks2_buffer // global buffer reused below in ks2
+function _filter_undefined(J, xJ, wJ, wj_sum) {
+  let jj = -1
+  for (let j = 0; j < J; ++j) {
+    if (xJ[j] === undefined) continue
+    if (++jj == j) continue // no undefined yet
+    xJ[jj] = xJ[j]
+    if (wJ) wJ[jj] = wJ[j]
+  }
+  if (++jj < J) {
+    xJ.length = J = jj
+    if (wJ) {
+      wJ.length = J
+      wj_sum = sum(wJ)
+    }
+  }
+  return [J, xJ, wJ, wj_sum]
+}
 
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
@@ -370,7 +387,8 @@ let _ks2_buffer // global buffer reused below in ks2
 // | `xj_sorted` | `false` | assume `xJ` already sorted
 // | `yk_sorted` | `false` | assume `yK` already sorted
 // | `discrete`  | `false` | allow identical (discrete) values?
-// | `primitive` | `false` | handle arbitrary primitive values?
+// | `filter`    | `false` | filter undefined values?
+// | `numberize` | `false` | map values to random numbers?
 function ks2(xJ, yK, options = {}) {
   assert(is_array(xJ), `non-array first argument`)
   if (yK) assert(is_array(yK), `non-array second argument`)
@@ -380,45 +398,26 @@ function ks2(xJ, yK, options = {}) {
   assert(J > 0, `empty first array for ks2`)
   if (yK) assert(K > 0, 'empty second array for ks2')
   const R = J + K
-  _ks2_buffer ??= array(R)
-  _ks2_buffer.length = R
-  const { xj_sorted, yk_sorted, discrete, primitive } = options
+  const { xj_sorted, yk_sorted, discrete, numberize, filter } = options
   let { wJ, wj_sum, wK, wk_sum } = options
-  if (primitive) {
-    // index primitives, filter undefined
-    assert(!xj_sorted && !yk_sorted, 'pre-sorted primitives not allowed')
-    assert(is_primitive(xJ[0]), 'non-primitive value for ks2')
-    if (yK) assert(is_primitive(yK[0]), 'non-primitive value for ks2')
-    const xR = _ks2_buffer
-    copy_at(xR, xJ, 0)
-    copy_at(xR, yK, J)
-    random_shuffle(xR) // for random distribution of indices
-    const rX = new Map()
-    let r = 0
-    each(xR, x => x === undefined || rX.has(x) || rX.set(x, r++))
-    let jj = 0
-    for (let j = 0; j < J; ++j) {
-      const x = xJ[j]
-      if (x === undefined) continue
-      if (wJ) wJ[jj] = wJ[j]
-      xJ[jj++] = rX.get(x)
-    }
-    xJ.length = J = jj
+  if (filter) {
+    // filter undefined values
+    ;[J, xJ, wJ, wj_sum] = _filter_undefined(J, xJ, wJ, wj_sum)
     assert(J > 0, `empty first array for ks2 after removing undefined`)
-    if (wJ) wj_sum = sum(wJ)
     if (yK) {
-      let kk = 0
-      for (let k = 0; k < K; ++k) {
-        const y = yK[k]
-        if (y === undefined) continue
-        if (wK) wK[kk] = wK[k]
-        yK[kk++] = rX.get(y)
-      }
-      yK.length = K = kk
+      ;[K, yK, wK, wk_sum] = _filter_undefined(K, yK, wK, wk_sum)
       assert(K > 0, `empty second array for ks2 after removing undefined`)
-      if (wK) wk_sum = sum(wK)
     }
   }
+  if (numberize) {
+    // numberize, i.e. map values to random numbers
+    assert(!xj_sorted && !yk_sorted, 'unnecessary pre-sorting')
+    const uX = new Map() // value -> uniform random number map
+    let u // tmp var reused inside apply
+    apply(xJ, x => uX.get(x) ?? (uX.set(x, (u = random())), u))
+    if (yK) apply(yK, x => uX.get(x) ?? (uX.set(x, (u = random())), u))
+  }
+  // check values are finite numbers (first values only)
   assert(is_finite(xJ[0]), 'non-finite value for ks2')
   if (yK) assert(is_finite(yK[0]), 'non-finite value for ks2')
 
@@ -428,6 +427,8 @@ function ks2(xJ, yK, options = {}) {
   const xR = yK ? r => (r < J ? xJ[r] : yK[r - J]) : r => xJ[r]
   // generate globally sorted indices rR
   // these are replaced below by cdf differences
+  _ks2_buffer ??= array(R) // reuse global buffer
+  _ks2_buffer.length = R
   const rR = _ks2_buffer
   if (yK) {
     let j = 0
@@ -506,12 +507,14 @@ function ks2(xJ, yK, options = {}) {
 // | `wj_sum`    | `J`     | sum of weights `wJ`
 // | `xj_sorted` | `false` | assume `xJ` already sorted
 // | `discrete`  | `false` | allow identical (discrete) values?
+// | `filter`    | `false` | filter undefined values?
 function ks1(xJ, cdf, options = {}) {
   assert(is_array(xJ), 'non-array argument')
-  let { xj_sorted, wK, wk_sum, primitive } = options
+  let { xj_sorted, wK, wk_sum, numberize, filter } = options
   assert(!wK, 'invalid option wK superceded by cdf for ks1')
   assert(!wk_sum, `invalid option wk_sum superceded by cdf for ks1`)
-  assert(!primitive, `invalid option primitive for ks1`)
+  assert(!numberize, `invalid option numberize for ks1`)
+  if (filter) pull(xJ, undefined)
   if (!xj_sorted) sort(xJ)
   wK = array(xJ.length)
   wK[0] = cdf(xJ[0])

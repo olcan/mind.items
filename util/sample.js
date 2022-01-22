@@ -1656,7 +1656,11 @@ class _Sampler {
       xR.length = wR.length = r
       if (is_function(value.target)) {
         // use ks1_test for cdf target
-        return ks1_test(xR, value.target, { wJ: wR, wj_sum: wr_sum })
+        return ks1_test(xR, value.target, {
+          wJ: wR,
+          wj_sum: wr_sum,
+          filter: true, // filter undefined
+        })
       }
       // use ks2_test for sample target
       return ks2_test(xR, value.target, {
@@ -1664,7 +1668,8 @@ class _Sampler {
         wj_sum: rwj_uniform ? undefined : wr_sum,
         wK: value.target_weights,
         wk_sum: value.target_weight_sum,
-        primitive: true, // handle non-number primitives, drop undefined
+        filter: true, // filter undefined
+        numberize: !is_number(value.first), // map to random numbers
       })
     })
     const pR = pK.filter(defined)
@@ -1716,14 +1721,16 @@ class _Sampler {
           wj_sum,
           wK: rwBJ[0],
           wk_sum: rwBj_sum[0],
-          primitive: true, // handle non-number primitives, drop undefined
+          filter: true, // filter undefined
+          numberize: !is_number(value.first), // map to random numbers
         }),
         ks2_test(log_p_xJ, log_p_yJ, {
           wJ,
           wj_sum,
           wK: rwBJ[0],
           wk_sum: rwBj_sum[0],
-          primitive: true, // handle non-number primitives, drop undefined
+          filter: true, // filter undefined
+          numberize: !is_number(value.first), // map to random numbers
         }),
       ]
     }).filter(defined)
