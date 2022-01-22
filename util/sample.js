@@ -220,8 +220,8 @@ function distance(x, domain) {
 // _log-probability density_ `log_p` of sampling `x` from `domain`
 // uses `domain._log_p` defined alongside `_prior` for _sampler domains_
 // sampler domains are those that can be sampled as `sample(domain)`
-// density always satisfies `p>0` inside, `p==0` outside `domain`
-// `undefined` if `domain._log_p` is undefined
+// always `-inf` outside `domain`, regardless of `domain._log_p`
+// can be `undefined` inside domain if `domain._log_p` missing
 function density(x, domain) {
   if (!from(x, domain)) return -inf
   if (domain._log_p) return domain._log_p(x)

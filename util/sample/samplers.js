@@ -22,8 +22,11 @@ function uniform(a, b) {
   if (a >= b) return null // empty (null) if a >= b
   const dom = { gt: a, lt: b }
   dom._prior = f => f(a + (b - a) * random())
-  const log_z = log(b - a) // z ⊥ x
-  dom._log_p = x => (x <= a || x >= b ? -inf : -log_z)
+  const log_z = -log(b - a) // z ⊥ x
+  // note _log_p can assume x inside domain, sampled via _prior or _posterior
+  // density(x, domain) can be used to ensure -inf outside domain
+  // dom._log_p = x => (x <= a || x >= b ? -inf : log_z)
+  dom._log_p = x => log_z
   dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
 }
@@ -57,12 +60,12 @@ function triangular(a, b, c) {
   if (!is_finite(c) || c < a || c > b) return undefined
   const dom = { gt: a, lt: b }
   dom._prior = f => f(random_triangular(a, b, c))
-  const log_z1 = log(b - a) + log(c - a) - log(2) // z ⊥ x
-  const log_z2 = log(b - a) + log(b - c) - log(2) // z ⊥ x
+  const log_z1 = log(2) - log(b - a) - log(c - a) // z ⊥ x
+  const log_z2 = log(2) - log(b - a) - log(b - c) // z ⊥ x
   dom._log_p = x => {
-    if (x <= a || x >= b) return -inf
-    if (x <= c) return log(x - a) - log_z1
-    return log(b - x) - log_z2 // x > c
+    // if (x <= a || x >= b) return -inf
+    if (x <= c) return log(x - a) + log_z1
+    return log(b - x) + log_z2 // x > c
   }
   dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
@@ -124,13 +127,13 @@ function beta(a, b, μ, σ) {
   const dom = { gt: a, lt: b }
   dom._prior = f => f(a + (b - a) * random_beta(ɑ, β))
   const log_z =
-    (ɑ + β - 1) * log(b - a) + // jacobian factor due to scaling by (b-a)
-    _log_gamma(ɑ) +
-    _log_gamma(β) -
-    _log_gamma(ɑ + β)
+    _log_gamma(ɑ + β) -
+    (ɑ + β - 1) * log(b - a) - // jacobian factor due to scaling by (b-a)
+    _log_gamma(ɑ) -
+    _log_gamma(β)
   dom._log_p = x => {
-    if (x <= a || x >= b) return -inf
-    return (ɑ - 1) * log(x - a) + (β - 1) * log(b - x) - log_z
+    // if (x <= a || x >= b) return -inf
+    return (ɑ - 1) * log(x - a) + (β - 1) * log(b - x) + log_z
   }
   dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
@@ -149,8 +152,8 @@ function normal(μ, σ) {
   const dom = { is: 'finite' } // all finite numbers
   dom._prior = f => f(μ + σ * random_normal())
   const inv_σ2 = 1 / (σ * σ)
-  const log_z = log(σ) + log(sqrt(2 * pi)) // z ⊥ x
-  dom._log_p = x => -0.5 * inv_σ2 * (x - μ) ** 2 - log_z
+  const log_z = -log(σ) - log(sqrt(2 * pi)) // z ⊥ x
+  dom._log_p = x => -0.5 * inv_σ2 * (x - μ) ** 2 + log_z
   // TODO: see #random/normal if this is too slow for prior far from data
   dom._posterior = (f, x, stdev) => f(x + (stdev || σ) * random_normal())
   return dom
@@ -217,6 +220,48 @@ function _test_gamma() {
   _check_log_p_normalized(gamma(2, 5, 1), 2, 100)
 }
 
+// [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on arguments `xK`
+// `undefined` if `xK` is empty
+function uniform_discrete(...xK) {
+  if (!xK.length) return undefined
+  const K = xK.length
+  const dom = { in: xK }
+  dom._prior = f => f(random_element(xK))
+  const log_z = -log(K) // z ⊥ x
+  dom._log_p = x => log_z
+  dom._posterior = f => f(random_element(xK))
+  return dom
+}
+
+function _check_discrete_log_p_normalized(sampler, xK) {
+  const pJ = xK.map(x => exp(sampler._log_p(x)))
+  check(() => [sum(pJ), 1, approx_equal])
+}
+
+function _test_uniform_discrete() {
+  const xK = range(5, 10)
+  _check_discrete_log_p_normalized(uniform_discrete(...xK), xK)
+}
+
+// [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on integers `{a,…,b}`
+// `undefined` if `a` or `b` non-integer
+// `null` (empty) if `a>b`
+function uniform_integer(a, b) {
+  if (!is_integer(a) || !is_integer(b)) return undefined
+  if (a > b) return null // empty (null) if a > b
+  const dom = { gte: a, lte: b, is: 'integer' }
+  const K = b - a + 1
+  dom._prior = f => f(a + ~~(random() * K))
+  const log_z = -log(K) // z ⊥ x
+  dom._log_p = x => log_z
+  dom._posterior = f => f(a + ~~(random() * K))
+  return dom
+}
+
+function _test_uniform_integer() {
+  _check_discrete_log_p_normalized(uniform_integer(5, 10), range(5, 11))
+}
+
 // mixture(...samplers)
 // [mixture](https://en.wikipedia.org/wiki/Mixture_distribution) on union domain `{or:samplers}`
 function mixture(...sK) {
@@ -225,7 +270,7 @@ function mixture(...sK) {
   const log_pK = array(sK.length)
   dom._prior = f => random_element(sK)._prior(f)
   dom._log_p = x => {
-    fill(log_pK, k => sK[k]._log_p(x))
+    fill(log_pK, k => density(x, sK[k]))
     const max_log_p = max_in(log_pK)
     return max_log_p + log(mean(log_pK, log_p => exp(log_p - max_log_p)))
   }
@@ -258,18 +303,4 @@ function tuple(...args) {
   sK._posterior = (f, xK, σK) =>
     f(copy(sK, (s, k) => s._posterior(y => y, xK[k], σK[k])))
   return sK
-}
-
-// [discrete uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on arguments `xK`
-// `undefined` if `xK` is empty
-function uniform_discrete(...xK) {
-  if (!xK.length) return undefined
-  const K = xK.length
-  const dom = { in: xK }
-  dom._prior = f => f(random_element(xK))
-  const log_z = log(K) // z ⊥ x
-  const xK_set = new Set(xK)
-  dom._log_p = x => (!xK_set.has(x) ? -inf : -log_z)
-  dom._posterior = f => f(random_element(xK))
-  return dom
 }

@@ -133,6 +133,15 @@ function around(μ, σ) {
 // `x∈xK`
 const among = uniform_discrete
 
+// `x∈{true,false}`
+const boolean = among(false, true)
+
+// `x∈{a,…,b}`,`a`,`b` integer
+const integer = (a, b) => uniform_integer(a, b)
+
+// `x∈{0,…,K-1}`,`K≥1` integer
+const index = K => uniform_integer(0, K - 1)
+
 // or(...dK)
 // `x∈∪(dK)`
 const or = mixture
