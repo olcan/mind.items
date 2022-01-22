@@ -59,6 +59,7 @@ function copy(xJ, yJ, f, g) {
   // single-array mode: shift args and allocate xJ
   if (!yJ || typeof yJ == 'function')
     return copy(array(xJ.length), ...arguments)
+  xJ.length = yJ.length // resize xJ if needed
   // filter mode; use function g to filter yJ into (resized) xJ
   if (g) {
     let jx = 0

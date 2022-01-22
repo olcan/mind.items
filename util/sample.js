@@ -1473,16 +1473,16 @@ class _Sampler {
       }
 
       // get target sample w/ weights that sum to J
-      const yR = value.target
-      const wR = array(value.target.length)
+      const yT = value.target
+      const wT = array(value.target.length)
       if (value.target_weights) {
-        copy(wR, value.target_weights)
-        scale(wR, J / value.target_weight_sum) // rescale to sum to J
+        copy(wT, value.target_weights)
+        scale(wT, J / value.target_weight_sum) // rescale to sum to J
       } else {
-        fill(wR, J / value.target.length) // rescale to sum to J
+        fill(wT, J / value.target.length) // rescale to sum to J
       }
 
-      hist([pxJ, xJ, yR], { weights: [pwJ, wJ, wR] }).hbars({
+      hist([pxJ, xJ, yT], { weights: [pwJ, wJ, wT] }).hbars({
         name,
         series: [
           { label: 'prior', color: '#555' },
@@ -1633,39 +1633,29 @@ class _Sampler {
 
   __tks() {
     const timer = _timer_if(this.stats)
-    const { J, K, xJK, rwJ, rwj_uniform, values, stats } = this
+    const { J, K, xJK, rwJ, rwj_uniform, rwj_sum, values, stats } = this
     // compute ks1_test or ks2_test for each value w/ target
+    const xJ = (this.___tks_xJ ??= array(J))
     const pK = (this.___tks_pK ??= array(K))
     fill(pK, k => {
       const value = values[k]
       if (!value.target) return undefined // no target
-      const xR = (this.___tks_xR ??= array(J))
-      const wR = (this.___tks_wR ??= array(J))
-      let wr_sum = 0
-      let r = 0
-      repeat(J, j => {
-        const x = xJK[j][k]
-        const w = rwJ[j]
-        if (x !== undefined) {
-          xR[r] = x
-          wR[r++] = w
-          wr_sum += w
-        }
-      })
-      if (r == 0 || wr_sum == 0) return 0 // not enough samples/weight
-      xR.length = wR.length = r
+      copy(xJ, xJK, xjK => xjK[k])
       if (is_function(value.target)) {
         // use ks1_test for cdf target
-        return ks1_test(xR, value.target, {
-          wJ: wR,
-          wj_sum: wr_sum,
+        return ks1_test(xJ, value.target, {
+          wJ: rwj_uniform ? undefined : rwJ,
+          wj_sum: rwj_uniform ? undefined : rwj_sum,
           filter: true, // filter undefined
         })
       }
+      // copy target sample array also since ks2 can modify
+      const yT = (this.___tks_yT ??= array(value.target.length))
+      copy(yT, value.target)
       // use ks2_test for sample target
-      return ks2_test(xR, value.target, {
-        wJ: rwj_uniform ? undefined : wR,
-        wj_sum: rwj_uniform ? undefined : wr_sum,
+      return ks2_test(xJ, yT, {
+        wJ: rwj_uniform ? undefined : rwJ,
+        wj_sum: rwj_uniform ? undefined : rwj_sum,
         wK: value.target_weights,
         wk_sum: value.target_weight_sum,
         filter: true, // filter undefined

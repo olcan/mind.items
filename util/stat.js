@@ -379,7 +379,7 @@ function _filter_undefined(J, xJ, wJ, wj_sum) {
 
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
-// sorts arrays `xJ` and `yK` _in place_
+// can modify arrays `xJ` and `yK` to sort, filter, map, etc
 // | `wJ`        | `1,…,1` | weights for `xJ`
 // | `wK`        | `1,…,1` | weights for `yK`
 // | `wj_sum`    | `J` | sum of weights `wJ`
