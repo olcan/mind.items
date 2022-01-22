@@ -134,7 +134,7 @@ function around(μ, σ) {
 const among = uniform_discrete
 
 // `x∈{true,false}`
-const boolean = among(false, true)
+const boolean = uniform_boolean()
 
 // `x∈{a,…,b}`,`a`,`b` integer
 const integer = (a, b) => uniform_integer(a, b)

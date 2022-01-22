@@ -262,6 +262,22 @@ function _test_uniform_integer() {
   _check_discrete_log_p_normalized(uniform_integer(5, 10), range(5, 11))
 }
 
+// [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on booleans `{false,true}`
+// `undefined` if `a` or `b` non-integer
+// `null` (empty) if `a>b`
+function uniform_boolean() {
+  const dom = { is: 'boolean' }
+  dom._prior = f => f(random() < 0.5)
+  const log_z = -log(2) // z ⊥ x
+  dom._log_p = x => log_z
+  dom._posterior = f => f(random() < 0.5)
+  return dom
+}
+
+function _test_uniform_boolean() {
+  _check_discrete_log_p_normalized(uniform_boolean(), [false, true])
+}
+
 // mixture(...samplers)
 // [mixture](https://en.wikipedia.org/wiki/Mixture_distribution) on union domain `{or:samplers}`
 function mixture(...sK) {
