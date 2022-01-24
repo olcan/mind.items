@@ -225,7 +225,7 @@ function _test_gamma() {
 function uniform_discrete(...xK) {
   if (!xK.length) return undefined
   const K = xK.length
-  const dom = { in: xK }
+  const dom = { in_equal: xK }
   dom._prior = f => f(random_element(xK))
   const log_z = -log(K) // z ⊥ x
   dom._log_p = x => log_z

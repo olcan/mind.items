@@ -1444,16 +1444,18 @@ class _Sampler {
       if (plot_names && !plot_names.has(name)) return
 
       // skip non-primitive values
-      // we currently do not plot array values
+      // note we now convert to string below instead
       // sample_array can be used to treat elements as values
-      if (!is_primitive(value.first)) return // value not primitive
+      // if (!is_primitive(value.first)) return // value not primitive
 
       // get prior w/ weights that sum to J
       const pxJ = array(J, j => pxJK[j][k])
+      apply(pxJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const pwJ = scale(copy(this.pwJ), J / pwj_sum)
 
       // include any undefined values for now
       const xJ = array(J, j => xJK[j][k])
+      apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const wJ = scale(copy(rwJ), J / rwj_sum) // rescale to sum to J
 
       if (!value.target) {
@@ -1556,8 +1558,8 @@ class _Sampler {
     return fill(stdevK, k => {
       const value = this.values[k]
       if (!value.sampler) return // value not sampled
-      // return per-element stdev for array values
-      if (is_array(value.first)) {
+      // return per-element stdev for arrays of numbers
+      if (is_array(value.first) && is_finite(value.first[0])) {
         const R = value.first.length
         const stdevR = (stdevK[k] ??= array(R))
         assert(stdevR.length == R, 'variable-length arrays not supported yet')

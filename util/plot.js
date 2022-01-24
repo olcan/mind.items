@@ -67,7 +67,7 @@ function plot(obj, name = undefined) {
   item ??= _create(name)
 
   // tag item if not tagged already
-  if (!_this.tags_visible.includes(item.name)) {
+  if (!_this.tags_visible.includes(item.name.toLowerCase())) {
     const tag = item.name.replace(_this.name, '#') // make relative
     let text = read()
     // if item does not end with a line of tags, create a new line
