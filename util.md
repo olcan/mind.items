@@ -6,4 +6,4 @@
 - Naming convention is short, lowercase, `underscore_separated`.
   - Array indices and sizes are uppercase: `xJ, xJK, J, K, ...`
   - Class names are uppercase: `Map, Set, Array, ...`
-<p> #_/core #_/math #_/stat #_/plot #_event #_/sample
+<p> #_/core #_/math #_/stat #_/plot #_/event #_/sample
