@@ -816,9 +816,14 @@ class _Sampler {
     this.log_wrj_gap = max_of(this.log_wrJ, (lwrj, j) => gap(lwrj, log_wJ[j]))
     if (this.log_wrj_gap < 1e-6) this.log_wrj_gap = 0 // chop to 0 below 1e-6
     // we expect gap==0 iff r==1
-    // only exception is if all weights are 0
     if (this.r == 1) assert(this.log_wrj_gap == 0, `unexpected gap>0 @ r=1`)
-    if (this.log_wrj_gap == 0) assert(this.r == 1, `unexpected gap=0 @ r<1`)
+    if (this.log_wrj_gap == 0) {
+      // we allow gap=0 for all r if max-weight is 0 or min-weight is 1
+      assert(
+        this.r == 1 || min_in(log_wJ) == 0 || max_in(log_wJ) == -inf,
+        `unexpected gap=0 @ r=${this.r}<1, wj_range=${min_max_in(log_wJ)}`
+      )
+    }
 
     // clip infinities to enable subtraction in _reweight & _move
     clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
@@ -2002,6 +2007,7 @@ class _Sampler {
     if (!log_wr) {
       const d = distance(x, domain) ?? 0 // take 0 if undefined
       const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
+      // debug(x, str(domain), d, log_p)
       if (!c) {
         assert(d >= 0, `negative distance (outside domain)`)
         assert(log_p == -inf, `positive density ${log_p} outside domain x=${x}`)
@@ -2012,6 +2018,7 @@ class _Sampler {
         if (d == 0) return r * log_p // inside OR unknown distance, note r>0
         return r * b + log(1 - r) * (1 + 100 * d * z)
       }
+      // debug(log_wr(0.5, 0, 0), log_wr(1, 0, 0))
     }
     if (log_wr) return set(new Boolean(c), '_log_wr', log_wr)
     return c
