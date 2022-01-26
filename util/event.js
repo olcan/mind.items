@@ -45,7 +45,7 @@ const do_ = event
 // schedule-first shorthand
 const at_ = (ft, fx, fc = undefined, fθ = undefined) => event(fx, ft, fc, fθ)
 
-// condition-first shorthand
+// condition-schedule-first shorthand
 const if_ = (fc, ft, fx, fθ = undefined) => event(fx, ft, fc, fθ)
 
 // advance state `x` to time `x.t + δt`
@@ -131,3 +131,85 @@ const _1m = 1 / (24 * 60)
 const _1h = 1 / 24
 
 const clean_state = x => omit_by(x, (v, k) => k && k[0] == '_')
+
+// basic "increment" transition function
+// probability args trigger coin flips to cancel event (return null)
+// θ-based increment applied _last_ after other args (incl. flips)
+// θ can be given as final function fθ(x) invoked only as needed
+// non-last function returns are passed to subsequent functions fx(x,θ)
+// returns last return value from last function arg (if any)
+const inc = (...yJ) => (apply(yJ, _pathify), (x, θ) => _inc(x, ...yJ, θ))
+const _inc = (x, ...yJ) => {
+  let ret // set below if there are function args
+  let J = yJ.length
+  while (!defined(yJ[J - 1])) J-- // drop undefined suffix
+  for (let j = 0; j < J; ++j) {
+    let y = yJ[j]
+    if (is_function(y)) {
+      if (j < J - 1) {
+        ret = y(x, ret)
+        if (ret === false || ret === null) return null // cancel on false|null
+        continue
+      } else ret = y = _pathify(y(x, ret)) // process as increment below
+    }
+    if (!defined(y)) continue // skip increment
+    if (is_number(y) && y >= 0 && y <= 1) {
+      // continue increments with prob. y
+      if (flip(y)) continue
+      return null
+    }
+    if (is_path(y)) _inc_path(x, y)
+    else if (is_array(y)) _inc(x, ...y)
+    else if (is_object(y)) _inc_obj(x, y)
+    else if (is_string(y)) throw `invalid string argument '${y}' for _inc`
+    else throw `invalid argument '${y}' for _inc`
+  }
+  return ret
+}
+// ~10x faster string path increment function
+// supports only array.# (via _Path), not array[#]
+const find_dot = str => {
+  for (let i = 0; i < str.length; ++i) if (str[i] == '.') return i
+  return -1
+}
+class _Path {
+  constructor(str, dot = find_dot(str)) {
+    this.head = dot < 0 ? str : str.slice(0, dot)
+    this.tail = dot < 0 ? null : _pathify(str.slice(dot + 1))
+  }
+}
+const is_path = x => x.constructor.name == '_Path'
+const Path = (str, dot = find_dot(str)) => new _Path(str, dot)
+window._path_cache ??= new Map()
+
+const _pathify = x => {
+  if (!is_string(x)) return x
+  const dot = find_dot(x)
+  if (dot < 0) return Path(x) // do not cache non-dot keys
+  let path = _path_cache.get(x)
+  if (!path) _path_cache.set(x, (path = Path(x, dot)))
+  return path
+}
+const _inc_path = (x, y) => {
+  if (!y.tail) x[y.head] = (x[y.head] || 0) + 1
+  else _inc_path(x[y.head] || (x[y.head] = {}), y.tail)
+}
+const _inc_obj = (x, y) => {
+  // each(entries(y), ([k,v])=>{
+  // if (is_number(v)) x[k] = (x[k]||0) + v
+  // else _inc_obj(x[k] || (x[k]={}), v)
+  // })
+  // enumerating keys(y) is faster ...
+  each(keys(y), k => {
+    const v = y[k]
+    if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
+    else x[k] = (x[k] || 0) + v // can be number, boolean, etc
+  })
+}
+
+const toggle = (name, bool = true, ft = midnight) =>
+  at_(
+    ft,
+    x => (x[name] = bool),
+    x => x[name] == !bool
+  )

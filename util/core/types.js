@@ -133,6 +133,7 @@ const is_integer = Number.isInteger
 const is_probability = x => typeof x == 'number' && x >= 0 && x <= 1
 const is_prob = is_probability
 const is_number = x => typeof x == 'number'
+// NOTE: is_number includes infinities; use is_finite to exclude
 
 // is `x` number or [numeric string](https://stackoverflow.com/a/175787)?
 const is_numeric = x =>
@@ -169,6 +170,7 @@ const is_function = x => typeof x == 'function'
 
 const is_object = x => typeof x == 'object' && x !== null
 // NOTE: is_object is _plain_ object, NOT instanceof Object
+// NOTE: is_array implies is_object; should always be tested first
 // see https://stackoverflow.com/a/52453477
 
 // const is_primitive = x => !(x instanceof Object)
