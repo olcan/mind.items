@@ -87,6 +87,8 @@ function cond(ft, fc) {
 const param = (fx, fθ) =>
   set((x, θ = fθ(x)) => (fx(x, θ), θ), '_name', fx._name || fx.name || str(fx))
 
+// TODO: clean up everything below and also port tests/benchmarks!
+
 // basic state-independent (⊥x) scheduling functions
 
 // next midnight
@@ -98,10 +100,10 @@ const hour = h => (x, t) =>
 
 // next occurrence of random hour h ∈ [ha,hb]
 // if already inside/past range same day, samples from next day
-// default random sampler is uniform(a,b) but can be customized
+// default random sampler is random_uniform(a,b) but can be customized
 // optional modifier(a,b,x,t) can modify range pre-sampling
 // condition wrapper can control sampling time for modifier
-function hours(ha, hb, sampler = uniform, modifier) {
+function hours(ha, hb, sampler = random_uniform, modifier) {
   return (x, t) => {
     if (ok(x, t)) return t // either ⊥x or modifier disallowed
     const [a, b] = modifier ? modifier(ha, hb, x, t) : [ha, hb]
@@ -123,14 +125,6 @@ const dhx = x => {
   const d = dx(x)
   return [d, (x.t - d) * 24]
 }
-
-// time intervals (<1d) in days
-const _1ms = 1 / (24 * 60 * 60 * 1000)
-const _1s = 1 / (24 * 60 * 60)
-const _1m = 1 / (24 * 60)
-const _1h = 1 / 24
-
-const clean_state = x => omit_by(x, (v, k) => k && k[0] == '_')
 
 // basic "increment" transition function
 // probability args trigger coin flips to cancel event (return null)
@@ -213,3 +207,102 @@ const toggle = (name, bool = true, ft = midnight) =>
     x => (x[name] = bool),
     x => x[name] == !bool
   )
+
+// time intervals (<1d) in days
+const _1ms = 1 / (24 * 60 * 60 * 1000)
+const _1s = 1 / (24 * 60 * 60)
+const _1m = 1 / (24 * 60)
+const _1h = 1 / 24
+
+// event times are in "days" since reference date t0_monday_midnight
+// we define "days" as (DST adjusted) _midnights_ + hours in local time
+// NOTE: UTC times are not subject to DST but local times generally are
+let t0_monday_midnight = new Date(2021, 0, 4)
+// converts "date" object to event time, e.g. to initialize x.t
+const event_time = (date = new Date()) => {
+  const midnight = (d => (d.setHours(0, 0, 0, 0), d))(new Date(date))
+  const days = Math.round(_1ms * (midnight - t0_monday_midnight))
+  return days + _1ms * (date.getTime() - midnight)
+}
+
+// current time (in event time)
+const now = () => event_time()
+
+// last occurrence of specified hour before another time (or now)
+const last_hour = (h, t = now()) => {
+  const s = ~~t + h * _1h
+  return s < t ? s : s - 1 // today or yesterday
+}
+
+// converts event time to date, e.g. to print events e or states x
+const event_date = (t = now()) => {
+  const date = new Date(t0_monday_midnight),
+    midnights = ~~t
+  date.setDate(t0_monday_midnight.getDate() + midnights)
+  date.setTime(date.getTime() + (t - midnights) * 24 * 60 * 60 * 1000)
+  return date
+}
+
+// date/time printing/parsing functions
+const _02d = d3.format('02d')
+const date_string = (d = new Date()) =>
+  d.getFullYear() + '/' + _02d(d.getMonth() + 1) + '/' + _02d(d.getDate())
+const time_string = (d = new Date()) =>
+  _02d(d.getHours()) + ':' + _02d(d.getMinutes())
+const date_time_string = (d = new Date()) =>
+  date_string(d) + ' ' + time_string(d)
+const parse_date_time = (date, time) => {
+  if (date.includes(' ')) [date, time] = date.split(' ')
+  const [year, month, day] = date.split('/').map(parseFloat)
+  const [hour, minute] = time.split(':').map(parseFloat)
+  return new Date(year, month - 1, day, hour, minute)
+}
+const parse_date = date => {
+  const [year, month, day] = date.split('/').map(parseFloat)
+  return new Date(year, month - 1, day, 0, 0)
+}
+// parses time prefix in text into numeric value
+// returns in event time units (days since midnight) or undefined if invalid
+const parse_time = text => {
+  const [h, m] = text.match(/^(\d\d?):(\d\d)(?:\s|$)/)?.slice(1) || []
+  if (h) return h * _1h + m * _1m // else undefined
+}
+
+// state clone/clean functions (to handle auxiliary state)
+const clone_state = x =>
+  clone_deep_with(x, (v, k) => (k && k[0] == '_' ? v : undefined))
+const clean_state = x => omit_by(x, (v, k) => k && k[0] == '_')
+
+// printing functions
+const print_event = e => {
+  const tstr = date_time_string(event_date(e.t))
+  const is_now = tstr == date_time_string()
+  const name =
+    e._name || e._source._name || str(e._source._fx).replace(/\S+\s*=>\s*/g, '')
+  const sfx = e._sfx || e._source?._sfx || e._source?._fx._sfx
+  const is_observe = name.startsWith('observe_')
+  // NOTE: search for 'box drawings' in character viewer
+  const pfx = is_now ? '╋━▶︎' : is_observe ? '╋━▶︎' : '│──'
+  const omit_props = ['t', '_source', '_elog', '_name', '_sfx']
+  const attachments = entries(omit(e, omit_props)).map(
+    ([k, v]) => k + ':' + (v?._name || str(v))
+  )
+  print(pfx, tstr, name, sfx, ...attachments)
+}
+const print_events = (x, tb = 0) => {
+  assert(x._events, 'no _events to print')
+  each(x._events.reverse(), e => e.t < tb || print_event(e))
+}
+
+const print_state = x => print(str(clean_state(x)))
+const print_states = (x, tb = 0) => {
+  assert(x._states, 'no _states to print')
+  each(x._states.reverse(), x => x.t < tb || print_state(x))
+}
+
+const print_history = (x, tb = 0) => {
+  const { _events, _states } = x
+  assert(_events || _states, 'no history (_events|_states) to print')
+  if (_events) print_events(x, tb)
+  if (_states) print_states(x, tb)
+}

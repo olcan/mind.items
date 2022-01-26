@@ -13,6 +13,7 @@ const update = _.update
 const merge = _.merge
 const clone = _.clone
 const clone_deep = _.cloneDeep
+const clone_deep_with = _.cloneDeepWith
 const zip = _.zip
 const zip_with = _.zipWith
 const zip_object = _.zipObject

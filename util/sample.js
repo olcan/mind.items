@@ -553,6 +553,9 @@ class _Sampler {
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
+    // skip updates, plots, etc if J==1, intended for debugging only
+    if (J == 1) return
+
     // update sample to posterior
     timer = _timer_if(options.log)
     this._update()
