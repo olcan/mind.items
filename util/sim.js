@@ -1,11 +1,11 @@
-// simulate `events` for time `δt` from state `x`
+// simulate `events` to time `t` from state `x`
 // `events` must be object of form `{name:event, …}`
-// excludes events at `t > x.t+δt` if `strict` (default)
-// includes any events at `t == x.t+δt`
-function sim(x, events, δt = 1, strict = true) {
+// includes any events scheduled at exact time `t`
+// may include events _just after_ `t` unless `strict`
+function sim(x, t = 1, events, strict = false) {
   assert(is_object(events), 'events must be object of named events')
+  assert(t > x.t, `invalid sim time t=${t}<=x.t=${x.t}`)
   const eJ = apply(entries(events), ([n, e]) => set(e, '_name', n))
-  const t = x.t + δt
   while (x.t < t) {
     each(eJ, e => (e.t = e.ft(x, e.t)))
     let min_ft = min_of(eJ, e => e.t)
@@ -21,7 +21,7 @@ function sim(x, events, δt = 1, strict = true) {
   return x
 }
 
-// transition event `x → fx(x,…)`
+// define transition event `x → fx(x,…)`
 // state `x` transitions to `fx(x,…)` at scheduled time `ft(x,…)`
 // schedule can depend on state `x`, can be _never_ (`inf`)
 // transition may depend on _parameters_ `θ`
@@ -61,10 +61,10 @@ const do_ = (fx, ft = midnight, fc = undefined, fθ = undefined) => ({
   _ft: ft, // original ft passed to event(…)
 })
 
-// transition event, schedule (`ft`) first
+// define event, schedule (`ft`) first
 const at_ = (ft, fx, fc = undefined, fθ = undefined) => do_(fx, ft, fc, fθ)
 
-// transition event, condition (`fc`) first
+// define event, condition (`fc`) first
 const if_ = (fc, ft, fx, fθ = undefined) => do_(fx, ft, fc, fθ)
 
 // wrap `ft(x,t)` for condition `fc(x)`
@@ -84,7 +84,7 @@ function cond(ft, fc) {
 const param = (fx, fθ) =>
   set((x, θ = fθ(x)) => (fx(x, θ), θ), '_name', fx._name || fx.name || str(fx))
 
-// TODO: clean up everything below and also port tests/benchmarks!
+// TODO: clean up everything below and also port tests/benchmarks where possible!
 
 // basic state-independent (⊥x) scheduling functions
 
