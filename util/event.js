@@ -234,11 +234,12 @@ const _inc_obj = (x, y) => {
   })
 }
 
-const toggle = (name, bool = true, ft = midnight) =>
-  at_(
-    ft,
-    x => (x[name] = bool),
-    x => x[name] == !bool
+const toggle = (name, bool = true) =>
+  inc(
+    x => x[name] == !bool,
+    x => {
+      x[name] = bool
+    }
   )
 
 // time intervals (<1d) in days
