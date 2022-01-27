@@ -1,5 +1,5 @@
 // simulate `events` to time `t` from state `x`
-// `events` must be object of form `{name:event, …}`
+// `events` is object of form `{name:event, …}`
 // includes any events scheduled at exact time `t`
 // may include events _just after_ `t` unless `strict`
 function sim(x, t = 1, events, strict = false) {
@@ -21,9 +21,10 @@ function sim(x, t = 1, events, strict = false) {
   return x
 }
 
-// define transition event `x → fx(x,…)`
+// Event(fx, [ft=midnight], [fc], [fθ])
+// create transition event `x → fx(x,…)`
 // state `x` transitions to `fx(x,…)` at scheduled time `ft(x,…)`
-// schedule can depend on state `x`, can be _never_ (`inf`)
+// scheduler can depend on state `x`, can be _never_ (`inf`)
 // transition may depend on _parameters_ `θ`
 // | `fx`      | _transition function_ `fx(x,θ)`
 // |           | must modify state `x` to apply transition
@@ -31,65 +32,160 @@ function sim(x, t = 1, events, strict = false) {
 // |           | can return any parameters `θ` that affected transition
 // |           | can use given parameters `θ` or generate own
 // |           | must be robust to undefined `θ` or `θ.*`
-// | `ft`      | _scheduling function_ `ft(x,t)`
+// | `ft`      | _scheduler function_ `ft(x,t)`
 // |           | must return _next scheduled time_ `t' > x.t`
 // |           | can depend on state `x` and/or _last scheduled time_ `t`
 // |           | must return `t' = t` if `t` still valid for `x`
-// |           | default schedule is (every) `midnight`
+// |           | default scheduler is `midnight` (see below)
 // | `fc`      | optional _condition (predicate) function_ `fc(x)`
 // |           | wraps `ft = cond(ft, fc)` (see below)
 // | `fθ`      | optional _parameter function_ `fθ(x)`
 // |           | wraps `fx = param(fx, fθ)` (see below)
 // |           | affects _default `θ` only_, as in `fx(x, θ = fθ(x))`
-const do_ = (fx, ft = midnight, fc = undefined, fθ = undefined) => ({
-  fx: function (x, θ) {
-    const t = x.t
-    if (!θ && fθ) θ = fθ(x) // analogous to wrapper fx=param(fx,fθ)
-    const ret = this._fx(x, θ) // use e.fx in case fx modified
-    assert(x.t == t, 'e.fx should not change x.t')
-    if (defined(x._jumps)) x._jumps++ // includes skipped events
-    if (ret === null) {
-      if (defined(x._skips)) x._skips++
-    } else {
-      if (defined(ret)) θ = ret
-      x._states?.push(clean_state(x))
-      x._events?.push({ t, ...θ, _source: this })
+const Event = (...args) => new _Event(...args)
+class _Event {
+  constructor(fx, ft = midnight, fc = undefined, fθ = undefined) {
+    this.fx = (x, θ) => {
+      const t = x.t
+      if (!θ && fθ) θ = fθ(x) // analogous to wrapper fx=param(fx,fθ)
+      const ret = this._fx(x, θ) // use e.fx in case fx modified
+      assert(x.t == t, 'e.fx should not change x.t')
+      if (defined(x._jumps)) x._jumps++ // includes skipped events
+      if (ret === null) {
+        if (defined(x._skips)) x._skips++
+      } else {
+        if (defined(ret)) θ = ret
+        x._states?.push(clean_state(x))
+        x._events?.push({ t, ...θ, _source: this })
+      }
     }
-  },
-  ft: !fc ? ft : cond(ft, fc),
-  _fx: fx, // original fx passed to event(…)
-  _ft: ft, // original ft passed to event(…)
-})
+    this.ft = !fc ? ft : cond(ft, fc)
+    this._fx = fx // original fx
+    this._ft = ft // original ft
+  }
+}
 
-// define event, schedule (`ft`) first
-const at_ = (ft, fx, fc = undefined, fθ = undefined) => do_(fx, ft, fc, fθ)
+// do_(fx, [ft=midnight], [fc], [fθ])
+// create event, transition (`fx`) first
+const do_ = Event
 
-// define event, condition (`fc`) first
-const if_ = (fc, ft, fx, fθ = undefined) => do_(fx, ft, fc, fθ)
+// create event, scheduler (`ft`) first
+const at_ = (ft, fx, fc = undefined, fθ = undefined) => Event(fx, ft, fc, fθ)
 
-// wrap `ft(x,t)` for condition `fc(x)`
+// create event, condition (`fc`) first
+const if_ = (fc, ft = midnight, fx, fθ = undefined) => Event(fx, ft, fc, fθ)
+
+// wrap scheduler (`ft`) for condition `fc(x)`
 // ensures `ft(x,t)==inf` if `!fc(x)`
 // assumes `ft(x,t)` can return new `t'>x.t` given `t=inf`
 // otherwise `ft` must define `_disallow_condition_wrapper`
 function cond(ft, fc) {
   assert(
     !ft._disallow_condition_wrapper,
-    `scheduling function '${ft._name || str(ft)}' ` +
+    `scheduler function '${ft._name || str(ft)}' ` +
       `does not allow condition wrapper`
   )
   return (x, t) => (fc(x) ? ft(x, t) : inf)
 }
 
-// wrap `fx(x,θ)` for default params `θ=fθ(x)`
+// wrap transition (`fx`) for default params `θ=fθ(x)`
 const param = (fx, fθ) =>
   set((x, θ = fθ(x)) => (fx(x, θ), θ), '_name', fx._name || fx.name || str(fx))
 
+// increment transition function
+// function `(x,θ) => …` applies `θ` as _increment_ to `x`
+// handles combined args `[...yJ, θ]` in order, by type:
+// | function `f`  | invoke as `r = f(x,r)`, `r` last returned value
+// |               | if last arg, handle `r` as arg (by type), return `r`
+// |               | else if `r` falsy (excl. `undefined`), cancel, return `null`
+// | `undefined`   | skipped
+// | `p∈[0,1]`     | continue increments w/ probability `p`
+// |               | otherwise (w/ prob. `1-p`) cancel, return `null`
+// |  string       | increment property or path (e.g. `x.a.b.c`) in `x`
+// |  array        | increment recursively, passing array as args
+// |  object       | increment all properties or paths in object
+// |               | can be nested, e.g. `{a:{b:{c:1}}}`
+// returns last returned value from last function arg, if any
+const inc = (...yJ) => (apply(yJ, _pathify), (x, θ) => _inc(x, ...yJ, θ))
+const _inc = (x, ...yJ) => {
+  let ret // set below if there are function args
+  let J = yJ.length
+  while (!defined(yJ[J - 1])) J-- // drop undefined suffix
+  for (let j = 0; j < J; ++j) {
+    let y = yJ[j]
+    if (is_function(y)) {
+      if (j < J - 1) {
+        ret = y(x, ret)
+        if (defined(ret) && !ret) return null // cancel on defined falsy
+        continue
+      } else ret = y = _pathify(y(x, ret)) // process as increment below
+    }
+    if (!defined(y)) continue // skip increment
+    if (is_number(y) && y >= 0 && y <= 1) {
+      // continue increments with prob. y
+      if (random_boolean(y)) continue
+      return null
+    }
+    if (_is_path(y)) _inc_path(x, y)
+    else if (is_array(y)) _inc(x, ...y)
+    else if (is_object(y)) _inc_obj(x, y)
+    else if (is_string(y)) throw `invalid string argument '${y}' for _inc`
+    else throw `invalid argument '${y}' for _inc`
+  }
+  return ret
+}
+// ~10x faster string path increment function
+// supports only array.# (via _Path), not array[#]
+const _find_dot = str => {
+  for (let i = 0; i < str.length; ++i) if (str[i] == '.') return i
+  return -1
+}
+class _Path {
+  constructor(str, dot = _find_dot(str)) {
+    this.head = dot < 0 ? str : str.slice(0, dot)
+    this.tail = dot < 0 ? null : _pathify(str.slice(dot + 1))
+  }
+}
+const _is_path = x => x.constructor.name == '_Path'
+window._path_cache ??= new Map()
+const _pathify = x => {
+  if (!is_string(x)) return x
+  const dot = _find_dot(x)
+  if (dot < 0) return new _Path(x, dot) // do not cache non-dot keys
+  let path = _path_cache.get(x)
+  if (!path) _path_cache.set(x, (path = new _Path(x, dot)))
+  return path
+}
+const _inc_path = (x, y) => {
+  if (!y.tail) x[y.head] = (x[y.head] || 0) + 1
+  else _inc_path((x[y.head] ??= {}), y.tail)
+}
+const _inc_obj = (x, y) => {
+  each(keys(y), k => {
+    const v = y[k]
+    if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
+    else x[k] = (x[k] || 0) + v // can be number, boolean, etc
+  })
+}
+const _get_path = (x, y) => {
+  if (!y.tail) return x[y.head]
+  return _get_path((x[y.head] ??= {}), y.tail)
+}
+const _set_path = (x, y, z) => {
+  if (!y.tail) x[y.head] = z
+  else _set_path((x[y.head] ??= {}), y.tail, z)
+}
+
 // TODO: clean up everything below and also port tests/benchmarks where possible!
 
-// basic state-independent (⊥x) scheduling functions
+// basic state-independent (⊥x) schedulers
+// TODO: explain what schedulers do
 
-// next midnight
-const midnight = (x, t) => (t > x.t && t < inf ? t : ~~x.t /*d*/ + 1) // >x.t
+// midnight
+// midnight scheduler function
+// default scheduler
+// (`t=0,1,2,…`)
+const midnight = (x, t) => (ok(x, t) ? t : ~~x.t /*d*/ + 1) // >x.t
 
 // next occurrence of hour h ∈ [0,24] (skips days for h>24)
 const hour = h => (x, t) =>
@@ -155,89 +251,6 @@ const dhx = x => {
   const d = dx(x)
   return [d, (x.t - d) * 24]
 }
-
-// basic "increment" transition function
-// probability args trigger coin flips to cancel event (return null)
-// θ-based increment applied _last_ after other args (incl. flips)
-// θ can be given as final function fθ(x) invoked only as needed
-// non-last function returns are passed to subsequent functions fx(x,θ)
-// returns last return value from last function arg (if any)
-const inc = (...yJ) => (apply(yJ, _pathify), (x, θ) => _inc(x, ...yJ, θ))
-const _inc = (x, ...yJ) => {
-  let ret // set below if there are function args
-  let J = yJ.length
-  while (!defined(yJ[J - 1])) J-- // drop undefined suffix
-  for (let j = 0; j < J; ++j) {
-    let y = yJ[j]
-    if (is_function(y)) {
-      if (j < J - 1) {
-        ret = y(x, ret)
-        if (ret === false || ret === null) return null // cancel on false|null
-        continue
-      } else ret = y = _pathify(y(x, ret)) // process as increment below
-    }
-    if (!defined(y)) continue // skip increment
-    if (is_number(y) && y >= 0 && y <= 1) {
-      // continue increments with prob. y
-      if (flip(y)) continue
-      return null
-    }
-    if (is_path(y)) _inc_path(x, y)
-    else if (is_array(y)) _inc(x, ...y)
-    else if (is_object(y)) _inc_obj(x, y)
-    else if (is_string(y)) throw `invalid string argument '${y}' for _inc`
-    else throw `invalid argument '${y}' for _inc`
-  }
-  return ret
-}
-// ~10x faster string path increment function
-// supports only array.# (via _Path), not array[#]
-const find_dot = str => {
-  for (let i = 0; i < str.length; ++i) if (str[i] == '.') return i
-  return -1
-}
-class _Path {
-  constructor(str, dot = find_dot(str)) {
-    this.head = dot < 0 ? str : str.slice(0, dot)
-    this.tail = dot < 0 ? null : _pathify(str.slice(dot + 1))
-  }
-}
-const is_path = x => x.constructor.name == '_Path'
-const Path = (str, dot = find_dot(str)) => new _Path(str, dot)
-window._path_cache ??= new Map()
-
-const _pathify = x => {
-  if (!is_string(x)) return x
-  const dot = find_dot(x)
-  if (dot < 0) return Path(x) // do not cache non-dot keys
-  let path = _path_cache.get(x)
-  if (!path) _path_cache.set(x, (path = Path(x, dot)))
-  return path
-}
-const _inc_path = (x, y) => {
-  if (!y.tail) x[y.head] = (x[y.head] || 0) + 1
-  else _inc_path(x[y.head] || (x[y.head] = {}), y.tail)
-}
-const _inc_obj = (x, y) => {
-  // each(entries(y), ([k,v])=>{
-  // if (is_number(v)) x[k] = (x[k]||0) + v
-  // else _inc_obj(x[k] || (x[k]={}), v)
-  // })
-  // enumerating keys(y) is faster ...
-  each(keys(y), k => {
-    const v = y[k]
-    if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
-    else x[k] = (x[k] || 0) + v // can be number, boolean, etc
-  })
-}
-
-const toggle = (name, bool = true) =>
-  inc(
-    x => x[name] == !bool,
-    x => {
-      x[name] = bool
-    }
-  )
 
 // time intervals (<1d) in days
 const _1ms = 1 / (24 * 60 * 60 * 1000)

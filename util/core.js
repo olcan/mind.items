@@ -636,7 +636,7 @@ function js_table(regex) {
   //
   // also note javascript engine _should_ cache the compiled regex
   const __js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class| *get| *set) +)?)(?<name>\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gs
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class| *get| *set) +)?)(?<name> *\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))?/gs
 
   const defs = _.compact(
     Array.from(
@@ -648,8 +648,15 @@ function js_table(regex) {
         // skip imbalanced args (due to occasional regex failure)
         if (_count_unescaped(def.args, '(') != _count_unescaped(def.args, ')'))
           return
-        def.indent = def.type.match(/^ */)[0] // indent allowed for some types
-        def.type = def.type.trim() // trim indent and any trailing space
+        // extract any indentation from type (allowed for some types only)
+        def.indent = def.type.match(/^ */)[0]
+        def.type = def.type.trim()
+
+        // extract any indentation from name if type is missing
+        if (!def.type) {
+          def.indent = def.name.match(/^ */)[0]
+          def.name = def.name.trim()
+        }
         // clear args if getter/setter
         if (def.type.match(/(?:get|set)$/)) def.args = ''
         // process arrow args
@@ -657,7 +664,10 @@ function js_table(regex) {
           def.args = def.arrow_args.replace(/\s*=>$/, '')
           if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
         }
-        if (!def.args && !def.body) return // skip if no args and no body
+
+        // args or body are required unless class
+        if (def.type != 'class' && !def.args && !def.body) return
+
         // remove whitespace in args
         def.args = def.args.replace(/\s+/g, '')
 
@@ -712,6 +722,14 @@ function js_table(regex) {
             def.modified = true
           }
         }
+
+        // skip underscore-prefixed definitions unless modified
+        if (def._name.match(/^_/) && !def.modified) return
+
+        // skip indented definitions unless modified by comments
+        // NOTE: this means class methods/properties must be modified, w/ attention paid to arguments (used to distinguish method from properties) for proper rendering/linking
+        if (def.indent && !def.modified) return
+
         if (!def.comment && def.body && !def.body.startsWith('{')) {
           // take body as comment, escaping `
           def.comment = '`` ' + def.body + ' ``'
@@ -738,8 +756,6 @@ function js_table(regex) {
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
     if (regex && !regex.test(def._name)) return
-    // hide underscore-prefixed or indented definitions unless modified
-    if ((def._name.match(/^_/) || def.indent) && !def.modified) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
