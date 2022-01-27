@@ -1,4 +1,27 @@
-// create transition event `x → fx(x,…)`
+// simulate `events` for time `δt` from state `x`
+// `events` must be object of form `{name:event, …}`
+// excludes events at `t > x.t+δt` if `strict` (default)
+// includes any events at `t == x.t+δt`
+function sim(x, events, δt = 1, strict = true) {
+  assert(is_object(events), 'events must be object of named events')
+  const eJ = apply(entries(events), ([n, e]) => set(e, '_name', n))
+  const t = x.t + δt
+  while (x.t < t) {
+    each(eJ, e => (e.t = e.ft(x, e.t)))
+    let min_ft = min_of(eJ, e => e.t)
+    assert(min_ft > x.t, 'invalid e.ft(x,e.t) < x.t')
+    if (min_ft > t && strict) {
+      x.t = t
+      break
+    }
+    x.t = min_ft
+    each(eJ, e => x.t != e.t || e.fx(x))
+  }
+  each(eJ, e => delete e.t) // reset times stored in eJ
+  return x
+}
+
+// transition event `x → fx(x,…)`
 // state `x` transitions to `fx(x,…)` at scheduled time `ft(x,…)`
 // schedule can depend on state `x`, can be _never_ (`inf`)
 // transition may depend on _parameters_ `θ`
@@ -18,7 +41,7 @@
 // | `fθ`      | optional _parameter function_ `fθ(x)`
 // |           | wraps `fx = param(fx, fθ)` (see below)
 // |           | affects _default `θ` only_, as in `fx(x, θ = fθ(x))`
-const event = (fx, ft = midnight, fc = undefined, fθ = undefined) => ({
+const do_ = (fx, ft = midnight, fc = undefined, fθ = undefined) => ({
   fx: function (x, θ) {
     const t = x.t
     if (!θ && fθ) θ = fθ(x) // analogous to wrapper fx=param(fx,fθ)
@@ -38,37 +61,11 @@ const event = (fx, ft = midnight, fc = undefined, fθ = undefined) => ({
   _ft: ft, // original ft passed to event(…)
 })
 
-// do_(fx, [ft=midnight], [fc], [fθ])
-// transition-first shorthand (alias)
-const do_ = event
+// transition event, schedule (`ft`) first
+const at_ = (ft, fx, fc = undefined, fθ = undefined) => do_(fx, ft, fc, fθ)
 
-// schedule-first shorthand
-const at_ = (ft, fx, fc = undefined, fθ = undefined) => event(fx, ft, fc, fθ)
-
-// condition-schedule-first shorthand
-const if_ = (fc, ft, fx, fθ = undefined) => event(fx, ft, fc, fθ)
-
-// advance state `x` to time `x.t + δt`
-// `eJ` can be array of events or object of named events
-// if `strict` (default), excludes any events at `t > x.t+δt`
-// includes any boundary events at `t == x.t+δt`
-function advance(x, eJ, δt = 1, strict = true) {
-  if (!is_array(eJ)) eJ = entries(eJ).map(([n, e]) => ((e._name = n), e))
-  const t = x.t + δt
-  while (x.t < t) {
-    each(eJ, e => (e.t = e.ft(x, e.t)))
-    let min_ft = min_of(eJ, e => e.t)
-    assert(min_ft > x.t, 'invalid e.ft(x,e.t) < x.t')
-    if (min_ft > t && strict) {
-      x.t = t
-      break
-    }
-    x.t = min_ft
-    each(eJ, e => x.t != e.t || e.fx(x))
-  }
-  each(eJ, e => delete e.t) // reset times stored in eJ
-  return x
-}
+// transition event, condition (`fc`) first
+const if_ = (fc, ft, fx, fθ = undefined) => do_(fx, ft, fc, fθ)
 
 // wrap `ft(x,t)` for condition `fc(x)`
 // ensures `ft(x,t)==inf` if `!fc(x)`
