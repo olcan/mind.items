@@ -113,6 +113,39 @@ function hours(ha, hb, sampler = random_uniform, modifier) {
   }
 }
 
+// within h hours of current time (x.t)
+const within_hours = h => (x, t) => ok(x, t) ? t : x.t + h * uniform() * _1h
+
+// at absolute time s, or in r days if already past time s
+const after =
+  s =>
+  (x, t, r = 1) =>
+    ok(x, t) ? t : s > x.t ? s : x.t + r
+
+// at absolute times tJ
+// may never fire if wrapped with condition false at trigger times
+const times = (...tJ) => {
+  tJ = flat(tJ).sort((a, b) => a - b)
+  const J = tJ.length
+  tJ.push(inf) // tJ[J]=inf simplifies logic below
+  let j = -1 // outside storage to remember last index
+  return (x, t) => {
+    if (ok(x, t)) return t // otherwise either t==inf or t<=x.t
+    if (j >= 0 && tJ[j] != t) j = -1 // reset if (t,j) inconsistent
+    if (j == J) return inf // done
+    j++
+    while (tJ[j] <= x.t) j++
+    return tJ[j]
+  }
+}
+
+// at absolute times tJ offset by fixed hours h
+const offset_times = (h, tJ) => times(tJ.map(t => t + h * _1h))
+
+// generic macro for event that triggers "now" unconditionally
+const do_now = (fx = x => {}, t = now()) =>
+  do_(name(fx, fx._name ?? 'now'), times(t))
+
 // auxiliary constants and functions (used above)
 const ok = (x, t) => t > x.t && t < inf // is time ok?
 const dx = x => ~~x.t

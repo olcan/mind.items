@@ -144,7 +144,7 @@ function hist(xSJ, options = {}) {
     stringifier, // stringifier for numbers
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
-    sort_values_by, // default is rank_by count/weight; non-binned mode only
+    sort_values_by, // non-binned mode only; see default below
     min_distinct_ratio = 0.5, // disable binning if <max(K+1,r*J) distinct
   } = options
   let wSJ = weights
@@ -179,11 +179,14 @@ function hist(xSJ, options = {}) {
     if (is_integer(values)) {
       assert(values > 0, 'invalid values <= 0')
       // we rank by count/weight by default
+      // we sort by keys if untruncated and numeric
       // arbitrary ordering is possible w/ values array
       // alternatively can pass sort_values_by option
       values = take(
         sort_values_by
           ? sort_by(keys(cX), sort_values_by)
+          : size(cX) <= values && keys(cX).every(is_numeric)
+          ? sort_by(keys(cX), x => x)
           : rank_by(keys(cX), x => cX[x]),
         values
       )
