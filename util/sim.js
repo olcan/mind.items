@@ -18,7 +18,7 @@ function sim(x, t, events) {
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
     // store next scheduled event time as x._t for persistence across calls
     // precompute day x.td and hour-of-day x.th to help schedulers
-    x.td = floor(x.t)
+    x.td = ~~x.t
     x.th = (x.t - x.td) * 24
     each(eJ, e => (e.t = e.ft(x))) // caching is handled in _Event
     x._t = min_of(eJ, e => e.t)
@@ -32,28 +32,7 @@ function sim(x, t, events) {
   return x
 }
 
-// reset `events` for new sim
-// new sim must also start from new state
-const reset = events => each(values(events), e => delete e.t)
-
-// create state with `props` at time `t`
-// `props` can be any [cloneable](https://lodash.com/docs/4.17.15#clone) object
-// `history` can be `0` (none), `1` (events), or `2` (events & states)
-const state = (props, t = 0, history = 0) => {
-  assert(is_finite(t), `invalid state time ${t}`)
-  switch (history) {
-    case 0:
-      return { t, ...props }
-    case 1:
-      return { t, ...props, _events: [] }
-    case 2:
-      return { t, ...props, _events: [], _states: [] }
-    default:
-      fatal(`invalid state history mode ${history}`)
-  }
-}
-
-// event(fx, [ft], [fc], [fθ])
+// _event(fx, [ft], [fc], [fθ])
 // create transition event `x → fx(x,…)`
 // state `x` transitions to `fx(x,…)` at time `ft(x)`
 // scheduler `ft` can depend on state `x`, can be _never_ (`inf`)
@@ -72,7 +51,7 @@ const state = (props, t = 0, history = 0) => {
 // |           | cancels any future time scheduled before `!fc(x)`
 // | `fθ`      | optional _default parameter function_ `fθ(x)`
 // |           | invoked for each call to `fx` where `θ` is omitted
-const event = (...args) => new _Event(...args)
+const _event = (...args) => new _Event(...args)
 class _Event {
   constructor(fx, ft = daily(0), fc = undefined, fθ = undefined) {
     // note wrapping ft (see below) is more efficient skipping calls to fx
@@ -102,15 +81,38 @@ class _Event {
   }
 }
 
-// do_(fx, [ft=daily(0)], [fc], [fθ])
-// alias for `event(…)`, transition (`fx`) first
-const do_ = event
+// _do(fx, [ft=daily(0)], [fc], [fθ])
+// alias for `_event(…)`, transition (`fx`) first
+const _do = _event
 
-// alias for `event(…)`, scheduler (`ft`) first
-const at_ = (ft, fx, fc = undefined, fθ = undefined) => event(fx, ft, fc, fθ)
+// _at(ft, fx, [fc], [fθ])
+// alias for `_event(…)`, scheduler (`ft`) first
+const _at = (ft, fx, fc, fθ) => _event(fx, ft, fc, fθ)
 
-// alias for `event(…)`, condition (`fc`) first
-const if_ = (fc, ft, fx, fθ = undefined) => event(fx, ft, fc, fθ)
+// _if(fc, ft, fx, [fθ])
+// alias for `_event(…)`, condition (`fc`) first
+const _if = (fc, ft, fx, fθ) => _event(fx, ft, fc, fθ)
+
+// reset `events` for new sim
+// new sim must also start from new state
+const reset = events => each(values(events), e => delete e.t)
+
+// create state with `props` at time `t`
+// `props` can be any [cloneable](https://lodash.com/docs/4.17.15#clone) object
+// `history` can be `0` (none), `1` (events), or `2` (events & states)
+const state = (props, t = 0, history = 0) => {
+  assert(is_finite(t), `invalid state time ${t}`)
+  switch (history) {
+    case 0:
+      return { t, ...props }
+    case 1:
+      return { t, ...props, _events: [] }
+    case 2:
+      return { t, ...props, _events: [], _states: [] }
+    default:
+      fatal(`invalid state history mode ${history}`)
+  }
+}
 
 // increment transition
 // function `(x,θ) => …` applies `θ` as _increment_ to `x`
@@ -168,12 +170,13 @@ class _Path {
 }
 const _is_path = x => x.constructor.name == '_Path'
 window._path_cache ??= new Map()
+const _path = (...args) => new _Path(...args)
 const _pathify = x => {
   if (!is_string(x)) return x
   const dot = _find_dot(x)
-  if (dot < 0) return new _Path(x, dot) // do not cache non-dot keys
+  if (dot < 0) return _path(x, dot) // do not cache non-dot keys
   let path = _path_cache.get(x)
-  if (!path) _path_cache.set(x, (path = new _Path(x, dot)))
+  if (!path) _path_cache.set(x, (path = _path(x, dot)))
   return path
 }
 const _inc_path = (x, y) => {
@@ -194,6 +197,35 @@ const _get_path = (x, y) => {
 const _set_path = (x, y, z) => {
   if (!y.tail) x[y.head] = z
   else _set_path((x[y.head] ??= {}), y.tail, z)
+}
+
+function _benchmark_inc() {
+  const x = { count: 0, nested: { count: 0 } }
+  const inc_count = inc('count')
+  const inc_nested_count = inc('nested.count')
+  benchmark(
+    () => x.count++,
+    () => (x.count = (x.count || 0) + 1),
+    () => x.nested.count++,
+    () => x['count']++,
+    () => x['nested']['count']++,
+    () => set(x, 'count', get(x, 'count') + 1),
+    () => update(x, 'count', a => (a || 0) + 1),
+    () => _inc_path(x, _path('count')),
+    () => _inc_path(x, _pathify('count')),
+    () => inc_count(x),
+    () => update(x, 'nested.count', a => (a || 0) + 1),
+    () => _inc_path(x, _path('nested.count')),
+    () => _inc_path(x, _pathify('nested.count')),
+    () => inc_nested_count(x),
+    () => merge_with(x, { count: 1 }, (a, b) => (a || 0) + b),
+    () => _inc_obj(x, { count: 1 }),
+    () =>
+      merge_with(x, { nested: { count: 1 } }, (a, b) => {
+        if (is_number(b)) return (a || 0) + b
+      }),
+    () => _inc_obj(x, { nested: { count: 1 } })
+  )
 }
 
 // daily scheduler
@@ -235,36 +267,37 @@ const times = (...tJ) => {
   }
 }
 
-// TODO: clean up everything below and also port tests/benchmarks where possible!
-
 // time intervals (<1d) in days
 const _1ms = 1 / (24 * 60 * 60 * 1000)
 const _1s = 1 / (24 * 60 * 60)
 const _1m = 1 / (24 * 60)
 const _1h = 1 / 24
 
-// event times are in "days" since reference date _t0_monday_midnight
-// we define "days" as (DST adjusted) _midnights_ + hours in local time
-// NOTE: UTC times are not subject to DST but local times generally are
-let _t0_monday_midnight = new Date(2021, 0, 4)
-// converts "date" object to event time, e.g. to initialize x.t
+// convert `Date` to _event time_
+// event times are in _days_ since `_t0_monday_midnight` (see below)
+// _days_ are defined as DST-adjusted _midnights + hours in local time_
+// local times are generally subject to DST (unlike UTC times)
 const event_time = (date = new Date()) => {
   const midnight = (d => (d.setHours(0, 0, 0, 0), d))(new Date(date))
   const days = Math.round(_1ms * (midnight - _t0_monday_midnight))
   return days + _1ms * (date.getTime() - midnight)
 }
 
-// current time (in event time)
-const now = () => event_time()
+// _t0_monday_midnight
+// `new Date(2021, 0, 4)`
+// `Mon Jan 04 2021 00:00:00 GMT-0800 (PST)`
+let _t0_monday_midnight = new Date(2021, 0, 4)
 
-// last occurrence of specified hour before another time (or now)
-const last_hour = (h, t = now()) => {
+// time of most recent hour-of-day `h`
+// event time for last occurrence of `h` before `t`
+// `t` is current time by default, but can be any event time
+const last_hour = (h, t = event_time()) => {
   const s = ~~t + h * _1h
   return s < t ? s : s - 1 // today or yesterday
 }
 
-// converts event time to date, e.g. to print events e or states x
-const event_date = (t = now()) => {
+// convert event time to `Date`
+const event_date = (t = event_time()) => {
   const date = new Date(_t0_monday_midnight),
     midnights = ~~t
   date.setDate(_t0_monday_midnight.getDate() + midnights)
@@ -272,38 +305,80 @@ const event_date = (t = now()) => {
   return date
 }
 
-// date/time printing/parsing functions
 const _02d = d3.format('02d')
+
+// event date string `YYYY/MM/DD`
 const date_string = (d = new Date()) =>
   d.getFullYear() + '/' + _02d(d.getMonth() + 1) + '/' + _02d(d.getDate())
+
+// event time string `HH:MM`
 const time_string = (d = new Date()) =>
   _02d(d.getHours()) + ':' + _02d(d.getMinutes())
+
+// event date-time string `YYYY/MM/DD HH:MM`
 const date_time_string = (d = new Date()) =>
   date_string(d) + ' ' + time_string(d)
+
+// parse event date-time `YYYY/MM/DD HH:MM`
+// returns `Date`
 const parse_date_time = (date, time) => {
   if (date.includes(' ')) [date, time] = date.split(' ')
   const [year, month, day] = date.split('/').map(parseFloat)
   const [hour, minute] = time.split(':').map(parseFloat)
   return new Date(year, month - 1, day, hour, minute)
 }
+
+// parse event date `YYYY/MM/DD`
+// returns `Date`
 const parse_date = date => {
   const [year, month, day] = date.split('/').map(parseFloat)
   return new Date(year, month - 1, day, 0, 0)
 }
-// parses time prefix in text into numeric value
-// returns in event time units (days) or undefined if invalid
+
+// parse event time `HH:MM ...`
+// returns as event time or `undefined` if invalid
 const parse_time = text => {
   const [h, m] = text.match(/^(\d\d?):(\d\d)(?:\s|$)/)?.slice(1) || []
   if (h) return h * _1h + m * _1m // else undefined
 }
 
-// state clone/clean functions (to handle auxiliary state)
+function _test_event_time() {
+  const now = new Date()
+  const now_minutes = new Date(now) // current time in resolution of minutes
+  now_minutes.setSeconds(0)
+  now_minutes.setMilliseconds(0)
+  function add_days(date, days) {
+    const result = new Date(date)
+    result.setDate(result.getDate() + days)
+    return result
+  }
+  check(
+    () => [event_time(_t0_monday_midnight), 0],
+    () => [event_time(add_days(_t0_monday_midnight, 1)), 1],
+    () => [event_time(add_days(_t0_monday_midnight, 7)), 7],
+    () => [event_time(add_days(_t0_monday_midnight, 30)), 30],
+    () => [event_time(add_days(_t0_monday_midnight, 365)), 365],
+    () => [~~(event_time() % 7) + 1, new Date().getDay()],
+    () => [now.getTime(), event_date(event_time(now)).getTime()],
+    () => [
+      now_minutes.getTime(), // date_time_string truncates at minutes
+      event_date(event_time(now_minutes)).getTime(),
+      parse_date_time(date_time_string(now)).getTime(),
+    ]
+  )
+}
+
+// clone state
+// shallow-copies underscore-prefixed keys, e.g. `_states`, `_events`, etc
 const clone_state = x =>
   clone_deep_with(x, (v, k) => (k && k[0] == '_' ? v : undefined))
+
+// clean state
+// omits underscore-prefixed keys plus `td` and `th`
 const clean_state = x =>
   omit_by(x, (v, k) => k && (k[0] == '_' || k == 'td' || k == 'th'))
 
-// printing functions
+// print event
 const print_event = e => {
   const tstr = date_time_string(event_date(e.t))
   const is_now = tstr == date_time_string()
@@ -328,17 +403,25 @@ const print_event = e => {
   )
   print(pfx, tstr, name, sfx, ...attachments)
 }
+
+// print events
+// most recent first, since time `tb`
 const print_events = (x, tb = 0) => {
   assert(x._events, 'no _events to print')
   each(x._events.reverse(), e => e.t < tb || print_event(e))
 }
 
+// print state
 const print_state = x => print(str(clean_state(x)))
+
+// print states
+// most recent first, since time `tb`
 const print_states = (x, tb = 0) => {
   assert(x._states, 'no _states to print')
   each(x._states.reverse(), x => x.t < tb || print_state(x))
 }
 
+// print history (events & states)
 const print_history = (x, tb = 0) => {
   const { _events, _states } = x
   assert(_events || _states, 'no history (_events|_states) to print')

@@ -1,4 +1,4 @@
-#util/sim  
+#util/sim
 << js_table() >>
 
 ```js_removed:sim.js
