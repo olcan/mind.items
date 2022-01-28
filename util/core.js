@@ -11,6 +11,7 @@ const set = _.set
 const unset = _.unset
 const update = _.update
 const merge = _.merge
+const merge_with = _.mergeWith
 const clone = _.clone
 const clone_deep = _.cloneDeep
 const clone_deep_with = _.cloneDeepWith
