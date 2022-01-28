@@ -4,7 +4,7 @@
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
 // events must be `reset` (see below) for new (not resumed) sim
-function sim(x, t, events) {
+function simulate(x, t, events) {
   assert(x.t >= 0, `invalid x.t=${x.t}, must be >=0`)
   assert(t > x.t, `invalid t=${t}, must be >x.t=${x.t}`)
   assert(is_object(events), 'events must be object of named events')
