@@ -90,6 +90,8 @@ class _Event {
       if (defined(_θ)) θ = _θ
       x._states?.push(clean_state(x))
       x._events?.push({ t: x.t, ...θ, _source: this })
+      if (window._sim_print_states) print_state(x)
+      if (window._sim_print_events) print_event({ t: x.t, ...θ, _source: this })
     }
     this._ft = ft // original ft passed to constructor, can be modified
     let _t = 0 // cached scheduled time, stored here for condition wrapper

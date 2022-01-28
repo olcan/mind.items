@@ -542,6 +542,11 @@ class _Sampler {
       else assert(is_object(this.options.targets), 'invalid option targets')
     }
 
+    // treat J==1 as "debug mode"
+    // enable printing of states/events for sims
+    // also skip updates, plots, etc below
+    window._sim_print_states = window._sim_print_events = J == 1
+
     // sample prior (along w/ u=0 posterior)
     let timer = _timer_if(options.log)
     this._sample_prior()
@@ -553,7 +558,6 @@ class _Sampler {
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
-    // skip updates, plots, etc if J==1, intended for debugging only
     if (J == 1) return
 
     // update sample to posterior
