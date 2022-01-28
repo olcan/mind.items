@@ -89,6 +89,7 @@ function plot(obj, name = undefined) {
     `<!--/removed-->`,
     dependencies
   )
+
   // focus on plot item if focused on plotting item
   // (dispatch prevents re-focusing for multiple plots in same js run)
   setTimeout(async () => {
