@@ -67,14 +67,14 @@ const lookup = (obj, keys, missing = undefined) =>
   keys.map(k => obj[k] ?? missing)
 
 // look up values by type
-// returns last value of each type
+// returns array for multiple values of same type
 function lookup_types(values, ...types) {
-  return lookup(
-    zip_object(
-      values.map(x => typeof x),
-      values
+  return apply(
+    lookup(
+      group(values, x => typeof x),
+      flat(types)
     ),
-    flat(types)
+    x => (x?.length == 1 ? x[0] : x)
   )
 }
 
