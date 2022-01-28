@@ -89,10 +89,9 @@ function plot(obj, name = undefined) {
     `<!--/removed-->`,
     dependencies
   )
-
   // focus on plot item if focused on plotting item
-  // (prevents re-focusing for multiple plots in same js run)
-  dispatch(async () => {
+  // (dispatch prevents re-focusing for multiple plots in same js run)
+  setTimeout(async () => {
     if (lower(MindBox.get().trim()) == lower(_this.name)) {
       MindBox.set(item.name)
       await _update_dom() // wait for page update
