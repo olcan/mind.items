@@ -32,7 +32,7 @@ function simulate(x, t, events) {
   return x
 }
 
-// _event(fx, [ft], [fc], [fθ])
+// _event(fx, [ft=daily(0)], [fc], [fθ])
 // create transition event `x → fx(x,…)`
 // state `x` transitions to `fx(x,…)` at time `ft(x)`
 // scheduler `ft` can depend on state `x`, can be _never_ (`inf`)
