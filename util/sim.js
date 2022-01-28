@@ -68,8 +68,8 @@ const state = (props, t = 0, history = 0) => {
 // |           | must return future time `t > x.t`, can be `inf` (never)
 // |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
 // | `fc`      | optional _condition function_ `fc(x)`
-// |           | wraps `ft` to _temporarily_ return `inf` while `!fc(x)`
-// |           | scheduled times are valid only _while `fc(x)` remains true_
+// |           | wraps `ft(x)` to return `inf` while `!fc(x)`
+// |           | cancels any future time scheduled before `!fc(x)`
 // | `fθ`      | optional _default parameter function_ `fθ(x)`
 // |           | invoked for each call to `fx` where `θ` is omitted
 const event = (...args) => new _Event(...args)
@@ -94,9 +94,8 @@ class _Event {
     this._ft = ft // original ft passed to constructor, can be modified
     let _t = 0 // cached scheduled time, stored here for condition wrapper
     this.ft = ft = x => (_t > x.t ? _t : (_t = this._ft(x)))
-    // condition wrapper that _temporarily_ returns inf while !fc(x)
-    // scheduled times are valid only while fc(x) remains true
-    // i.e. toggling of condition invalidates cached future time _t
+    // condition wrapper that returns inf while !fc(x)
+    // also cancels any future time scheduled (and cached) before `!fc(x)`
     if (fc) this.ft = x => (!fc(x) ? ((_t = 0), inf) : ft(x))
   }
 }
@@ -195,25 +194,28 @@ const _set_path = (x, y, z) => {
   else _set_path((x[y.head] ??= {}), y.tail, z)
 }
 
-// TODO: clean up everything below and also port tests/benchmarks where possible!
-
 // daily scheduler
 // triggers daily at hour-of-day `h∈[0,24)`
-// `h` can be sampler (w/ `_prior`), e.g. `between(9,10)`
-// unbounded sampler `h` is mapped into `[0,24)` as `mod(h,24)`
+// `h` can be any sampler, e.g. `within(9,1)`
+// sampled `h` is mapped into `[0,24)` as `mod(h,24)`
 function daily(h) {
   if (h === undefined) return x => inf // never
   if (h == 0) return x => x.td + 1
   if (h > 0 && h < 24) return x => x.td + (x.th >= h) + h * _1h
-  if (!h._prior) fatal(`invalid daily hour '${str(h)}'`)
+  if (!h._prior) fatal(`invalid hour '${str(h)}'`)
   return x => h._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
 }
 
-// within `h` hours of `x.t`
-//
-// TODO: rename this (after?, within_hours?, just hours?) and make it similar to daily in that it takes any positive number (hours) or sampler, nothing that it would typically be used together w/ a condition that prevents repeated transitions
-//
-const before = h => x => x.t + random() * h * _1h // >x.t
+// delay-based scheduler
+// triggers `h>0` hours after current time `x.t`
+// `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
+// typically used w/ condition function to prevent repeated triggering
+function after(h) {
+  if (h === undefined) return x => inf // never
+  if (h > 0) return x => x.t + h * _1h
+  if (!h._prior) fatal(`invalid hours '${str(h)}'`)
+  return x => h._prior(h => (assert(h > 0, 'negative hours'), x.t + h * _1h))
+}
 
 // absolute time scheduler
 // triggers at specific times `tJ`
@@ -230,6 +232,8 @@ const times = (...tJ) => {
     return tJ[j]
   }
 }
+
+// TODO: clean up everything below and also port tests/benchmarks where possible!
 
 // time intervals (<1d) in days
 const _1ms = 1 / (24 * 60 * 60 * 1000)
