@@ -5,4 +5,4 @@
 // sim.js
 ```
 
-#_//core
+<p> #_//core #_//stat

@@ -13,11 +13,15 @@ function sim(x, t, events) {
   // fast-forward to time t if no events <=t (from previous call)
   if (x._t > t) return set(x, 't', t)
   do {
-    // get time of next scheduled event > x.t, reusing valid times e.t > x.t
+    // get time of next scheduled event > x.t, ensuring caching of valid times
+    // caching of valid times is handled in _Event to allow condition wrapper
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
     // store next scheduled event time as x._t for persistence across calls
-    each(eJ, e => e.t > x.t || (e.t = e.ft(x)))
-    x._t = min_of(eJ, e => e.t ?? inf)
+    // precompute day x.td and hour-of-day x.th to help schedulers
+    x.td = floor(x.t)
+    x.th = (x.t - x.td) * 24
+    each(eJ, e => (e.t = e.ft(x))) // caching is handled in _Event
+    x._t = min_of(eJ, e => e.t)
     assert(x._t > x.t, 'invalid e.ft(x) <= x.t')
     // stop at time t if next event is past t
     if (x._t > t) return set(x, 't', t)
@@ -27,6 +31,10 @@ function sim(x, t, events) {
   } while (x._t < t) // continue until next scheduled time is past t
   return x
 }
+
+// reset `events` for new sim
+// new sim must also start from new state
+const reset = events => each(values(events), e => delete e.t)
 
 // create state with `props` at time `t`
 // `props` can be any [cloneable](https://lodash.com/docs/4.17.15#clone) object
@@ -45,7 +53,7 @@ const state = (props, t = 0, history = 0) => {
   }
 }
 
-// event(fx, [ft=midnight], [fc], [fθ])
+// event(fx, [ft], [fc], [fθ])
 // create transition event `x → fx(x,…)`
 // state `x` transitions to `fx(x,…)` at time `ft(x)`
 // scheduler `ft` can depend on state `x`, can be _never_ (`inf`)
@@ -57,38 +65,43 @@ const state = (props, t = 0, history = 0) => {
 // |           | can use given parameters `θ` or generate own
 // |           | must be robust to undefined `θ` or `θ.*`
 // | `ft`      | _scheduler function_ `ft(x)`
-// |           | must return future time `t > x.t`, can be `inf` (_never_)
-// |           | never invoked again once `inf` (_never_) is returned
-// |           | can return `undefined` to skip single sim cycle
-// |           | default scheduler is `midnight` (see below)
+// |           | must return future time `t > x.t`, can be `inf` (never)
+// |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
 // | `fc`      | optional _condition function_ `fc(x)`
-// |           | wraps `ft` to return `undefined` if `!fc(x)`
-// | `fθ`      | optional _parameter function_ `fθ(x)`
-// |           | wraps `fx` to take `fθ(x)` as default `θ` if undefined
+// |           | wraps `ft` to _temporarily_ return `inf` while `!fc(x)`
+// |           | scheduled times are valid only _while `fc(x)` remains true_
+// | `fθ`      | optional _default parameter function_ `fθ(x)`
+// |           | invoked for each call to `fx` where `θ` is omitted
 const event = (...args) => new _Event(...args)
 class _Event {
-  constructor(fx, ft = midnight, fc = undefined, fθ = undefined) {
+  constructor(fx, ft = daily(0), fc = undefined, fθ = undefined) {
+    // note wrapping ft (see below) is more efficient skipping calls to fx
+    // if (fc && !fc(x)) return null // skip silently if condition is false
+    this._fx = fx // original fx passed to constructor, can be modified
     this.fx = (x, θ) => {
-      const t = x.t
-      if (!defined(θ) && fθ) θ = fθ(x) // use fθ(x) as default θ
-      const ret = this._fx(x, θ) // use e.fx in case fx modified
-      assert(x.t == t, 'e.fx should not change x.t')
-      if (defined(x._jumps)) x._jumps++ // includes skipped events
-      if (ret === null) {
+      if (fθ && !defined(θ)) θ = fθ(x) // use fθ(x) as default θ
+      const _θ = this._fx(x, θ) // use this._fx to allow modification
+      // count transitions and skips (if defined) for benchmarking
+      if (defined(x._transitions)) x._transitions++ // includes skipped
+      if (_θ === null) {
         if (defined(x._skips)) x._skips++
-      } else {
-        if (defined(ret)) θ = ret
-        x._states?.push(clean_state(x))
-        x._events?.push({ t, ...θ, _source: this })
+        return null
       }
+      if (defined(_θ)) θ = _θ
+      x._states?.push(clean_state(x))
+      x._events?.push({ t: x.t, ...θ, _source: this })
     }
-    this.ft = !fc ? ft : x => (!fc(x) ? undefined : ft(x))
-    this._ft = ft // original ft
-    this._fx = fx // original fx
+    this._ft = ft // original ft passed to constructor, can be modified
+    let _t = 0 // cached scheduled time, stored here for condition wrapper
+    this.ft = ft = x => (_t > x.t ? _t : (_t = this._ft(x)))
+    // condition wrapper that _temporarily_ returns inf while !fc(x)
+    // scheduled times are valid only while fc(x) remains true
+    // i.e. toggling of condition invalidates cached future time _t
+    if (fc) this.ft = x => (!fc(x) ? ((_t = 0), inf) : ft(x))
   }
 }
 
-// do_(fx, [ft=midnight], [fc], [fθ])
+// do_(fx, [ft=daily(0)], [fc], [fθ])
 // alias for `event(…)`, transition (`fx`) first
 const do_ = event
 
@@ -97,10 +110,6 @@ const at_ = (ft, fx, fc = undefined, fθ = undefined) => event(fx, ft, fc, fθ)
 
 // alias for `event(…)`, condition (`fc`) first
 const if_ = (fc, ft, fx, fθ = undefined) => event(fx, ft, fc, fθ)
-
-// reset `events` for new sim
-// new sim must also start from new state
-const reset = events => each(values(events), e => delete e.t)
 
 // increment transition
 // function `(x,θ) => …` applies `θ` as _increment_ to `x`
@@ -188,78 +197,38 @@ const _set_path = (x, y, z) => {
 
 // TODO: clean up everything below and also port tests/benchmarks where possible!
 
-// basic state-independent (⊥x) schedulers
-// TODO: explain what schedulers do
-
-// midnight
-// midnight scheduler
-// function `x => floor(x.t) + 1` returns next midnight
-// default scheduler for `event(…)` and aliases
-const midnight = x => floor(x.t) + 1 // >x.t
-
-// fixed hour-of-day scheduler
-// returns hour `h∈[0,24]` of day, or next day if past `h`
-const hour = h => x => {
-  const t = floor(x.t) + h * _1h
-  return t > x.t ? t : t + 1 // >x.t
+// daily scheduler
+// triggers daily at hour-of-day `h∈[0,24)`
+// `h` can be sampler (w/ `_prior`), e.g. `between(9,10)`
+// unbounded sampler `h` is mapped into `[0,24)` as `mod(h,24)`
+function daily(h) {
+  if (h === undefined) return x => inf // never
+  if (h == 0) return x => x.td + 1
+  if (h > 0 && h < 24) return x => x.td + (x.th >= h) + h * _1h
+  if (!h._prior) fatal(`invalid daily hour '${str(h)}'`)
+  return x => h._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
 }
 
-// random hour-of-day scheduler
-// returns random hour `h∈[ha,hb]` of day, or next day if past `ha`
-function hours(ha, hb) {
-  return x => {
-    const [d, h] = dhx(x)
-    const u = random_uniform(ha, hb)
-    if (h >= ha) return d + 1 + u * _1h // >x.t
-    return max(d + u * _1h, x.t + _1m) // >x.t
-  }
-}
+// within `h` hours of `x.t`
+//
+// TODO: rename this (after?, within_hours?, just hours?) and make it similar to daily in that it takes any positive number (hours) or sampler, nothing that it would typically be used together w/ a condition that prevents repeated transitions
+//
+const before = h => x => x.t + random() * h * _1h // >x.t
 
-// within `h` hours of current time `(x.t)`
-// can be used with condition to trigger within `h` hours of condition
-const timer = h => x => x.t + h * random() * _1h // >x.t
-
-// fixed time `t` scheduler
-// returns `d` days past current time if past `t`
-function at(t, d = inf) {
-  return x => (t > x.t ? t : x.t + d)
-}
-
-// at absolute times tJ
-// may never fire if wrapped with condition false at trigger times
+// absolute time scheduler
+// triggers at specific times `tJ`
+// times are in event time units: days since `_t0_monday_midnight`
 const times = (...tJ) => {
   tJ = flat(tJ).sort((a, b) => a - b)
   const J = tJ.length
   tJ.push(inf) // tJ[J]=inf simplifies logic below
   let j = -1 // outside storage to remember last index
   return (x, t) => {
-    if (ok(x, t)) return t // otherwise either t==inf or t<=x.t
     if (j >= 0 && tJ[j] != t) j = -1 // reset if (t,j) inconsistent
-    if (j == J) return inf // done
-    j++
+    if (j++ == J) return inf // done
     while (tJ[j] <= x.t) j++
     return tJ[j]
   }
-}
-
-// at absolute times tJ offset by fixed hours h
-const offset_times = (h, tJ) => times(tJ.map(t => t + h * _1h))
-
-// generic macro for event that triggers "now" unconditionally
-const do_now = (fx = x => {}, t = now()) =>
-  do_(name(fx, fx._name ?? 'now'), times(t))
-
-// auxiliary constants and functions (used above)
-const ok = (x, t) => t > x.t && t < inf // is time ok?
-const dx = x => ~~x.t
-const hx = x => (x.t - dx(x)) * 24
-const mx = x => {
-  const h = hx(x)
-  return (h - ~~h) * 60
-}
-const dhx = x => {
-  const d = dx(x)
-  return [d, (x.t - d) * 24]
 }
 
 // time intervals (<1d) in days
@@ -268,14 +237,14 @@ const _1s = 1 / (24 * 60 * 60)
 const _1m = 1 / (24 * 60)
 const _1h = 1 / 24
 
-// event times are in "days" since reference date t0_monday_midnight
+// event times are in "days" since reference date _t0_monday_midnight
 // we define "days" as (DST adjusted) _midnights_ + hours in local time
 // NOTE: UTC times are not subject to DST but local times generally are
-let t0_monday_midnight = new Date(2021, 0, 4)
+let _t0_monday_midnight = new Date(2021, 0, 4)
 // converts "date" object to event time, e.g. to initialize x.t
 const event_time = (date = new Date()) => {
   const midnight = (d => (d.setHours(0, 0, 0, 0), d))(new Date(date))
-  const days = Math.round(_1ms * (midnight - t0_monday_midnight))
+  const days = Math.round(_1ms * (midnight - _t0_monday_midnight))
   return days + _1ms * (date.getTime() - midnight)
 }
 
@@ -290,9 +259,9 @@ const last_hour = (h, t = now()) => {
 
 // converts event time to date, e.g. to print events e or states x
 const event_date = (t = now()) => {
-  const date = new Date(t0_monday_midnight),
+  const date = new Date(_t0_monday_midnight),
     midnights = ~~t
-  date.setDate(t0_monday_midnight.getDate() + midnights)
+  date.setDate(_t0_monday_midnight.getDate() + midnights)
   date.setTime(date.getTime() + (t - midnights) * 24 * 60 * 60 * 1000)
   return date
 }
@@ -316,7 +285,7 @@ const parse_date = date => {
   return new Date(year, month - 1, day, 0, 0)
 }
 // parses time prefix in text into numeric value
-// returns in event time units (days since midnight) or undefined if invalid
+// returns in event time units (days) or undefined if invalid
 const parse_time = text => {
   const [h, m] = text.match(/^(\d\d?):(\d\d)(?:\s|$)/)?.slice(1) || []
   if (h) return h * _1h + m * _1m // else undefined
@@ -325,7 +294,8 @@ const parse_time = text => {
 // state clone/clean functions (to handle auxiliary state)
 const clone_state = x =>
   clone_deep_with(x, (v, k) => (k && k[0] == '_' ? v : undefined))
-const clean_state = x => omit_by(x, (v, k) => k && k[0] == '_')
+const clean_state = x =>
+  omit_by(x, (v, k) => k && (k[0] == '_' || k == 'td' || k == 'th'))
 
 // printing functions
 const print_event = e => {
@@ -337,7 +307,16 @@ const print_event = e => {
   const is_observe = name.startsWith('observe_')
   // NOTE: search for 'box drawings' in character viewer
   const pfx = is_now ? '╋━▶︎' : is_observe ? '╋━▶︎' : '│──'
-  const omit_props = ['t', '_t', '_source', '_elog', '_name', '_sfx']
+  const omit_props = [
+    't',
+    'td',
+    'th',
+    '_t',
+    '_source',
+    '_elog',
+    '_name',
+    '_sfx',
+  ]
   const attachments = entries(omit(e, omit_props)).map(
     ([k, v]) => k + ':' + (v?._name || str(v))
   )

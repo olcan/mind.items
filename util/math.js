@@ -49,6 +49,8 @@ function _benchmark_floor() {
   )
 }
 
+const mod = (n, m) => ((n % m) + m) % m
+
 // is `x` flat?
 // flat means _uniform depth_ 1 or 0
 // non-array (depth 0) considered flat
