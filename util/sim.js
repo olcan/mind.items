@@ -1,15 +1,16 @@
-// simulate state `x` to time `t`
-// `events` must be object `{name:event, …}`
+// simulate `events` from state `x` to time `t`
 // includes events scheduled at exact time `t`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
 // events must be `reset` (see below) for new (not resumed) sim
-function simulate(x, t, events) {
+function simulate(x, t, ...events) {
   assert(x.t >= 0, `invalid x.t=${x.t}, must be >=0`)
   assert(t > x.t, `invalid t=${t}, must be >x.t=${x.t}`)
-  assert(is_object(events), 'events must be object of named events')
-  // convert events object into array w/ _names attached
-  const eJ = apply(entries(events), ([n, e]) => set(e, '_name', n))
+  const eJ = apply(events, e => {
+    if (is_function(e)) e = set(e(), '_name', str(e))
+    if (!is_object(e) || !e.fx || !e.ft) fatal(`invalid event '${str(e)}'`)
+    return e
+  })
   // fast-forward to time t if no events <=t (from previous call)
   if (x._t > t) return set(x, 't', t)
   do {
@@ -67,10 +68,16 @@ class _Event {
         return null
       }
       if (defined(_θ)) θ = _θ
-      x._states?.push(clean_state(x))
       x._events?.push({ t: x.t, ...θ, _source: this })
-      if (window._sim_print_states) print_state(x)
+      x._states?.push(clean_state(x))
       if (window._sim_print_events) print_event({ t: x.t, ...θ, _source: this })
+      if (window._sim_print_states)
+        print(
+          '│   ↳ ' +
+            str(clean_state(x))
+              .replace(/^\{|\}$/g, '')
+              .trim()
+        )
     }
     this._ft = ft // original ft passed to constructor, can be modified
     let _t = 0 // cached scheduled time, stored here for condition wrapper
@@ -93,9 +100,9 @@ const _at = (ft, fx, fc, fθ) => _event(fx, ft, fc, fθ)
 // alias for `_event(…)`, condition (`fc`) first
 const _if = (fc, ft, fx, fθ) => _event(fx, ft, fc, fθ)
 
-// reset `events` for new sim
-// new sim must also start from new state
-const reset = events => each(values(events), e => delete e.t)
+// reset `events` for new simulation
+// new simulation must also start from new state
+const reset = (...events) => each(flat(events), e => delete e.t)
 
 // create state with `props` at time `t`
 // `props` can be any [cloneable](https://lodash.com/docs/4.17.15#clone) object
@@ -186,8 +193,10 @@ const _inc_path = (x, y) => {
 const _inc_obj = (x, y) => {
   each(keys(y), k => {
     const v = y[k]
-    if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
-    else x[k] = (x[k] || 0) + v // can be number, boolean, etc
+    // we do not recursively increment inside underscore-prefixed objects
+    if (is_object(v) && k[0] != '_') _inc_obj(x[k] || (x[k] = {}), v)
+    // we only increment numbers, allowing non-numbers to be excluded
+    else if (is_number(v)) x[k] = (x[k] || 0) + v
   })
 }
 const _get_path = (x, y) => {
