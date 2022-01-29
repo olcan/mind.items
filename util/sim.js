@@ -47,7 +47,6 @@ function simulate(x, time, ...events) {
 // |           | must be robust to undefined `θ` or `θ.*`
 // | `ft`      | _scheduler function_ `ft(x)`
 // |           | must return future time `t > x.t`, can be `inf` (never)
-// |           | can have optional condition function attached as `ft._fc`
 // |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
 // | `fc`      | optional _condition function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
@@ -77,13 +76,6 @@ class _Event {
               .replace(/^\{|\}$/g, '')
               .trim()
         )
-    }
-    // wrap condition function for optional scheduler-attached condition ft._fc
-    if (ft._fc) {
-      const _fc = fc // _fc is original, fc is wrapper for _fc && ft._fc
-      const _ftc = ft._fc // since ft can be wrapped below
-      if (_fc) fc = x => _fc(x) && _ftc(x)
-      else fc = _ftc
     }
     // wrap scheduler w/ cache wrapper and optional condition wrapper
     // note condition wrapper needs ability to bypass/reset any caching
@@ -258,11 +250,11 @@ function daily(h) {
 }
 
 // relative time scheduler
-// triggers `h>0` hours after `fc(x)` state, or any state if `fc` omitted
-// `h` can be any non-negative sampler on `[0,∞)`, e.g. `between(0,10)`
+// triggers after `h>0` hours (from `x.t`)
+// `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
+// often used w/ condition `fc` to trigger `h` hours after `fc(x)` state
 // `h` should be short enough to avoid cancellation by `!fc(x)` state
-function after(h, fc = undefined) {
-  if (fc) return set(after(h), '_fc', fc)
+function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
   if (!h._prior) fatal(`invalid hours '${str(h)}'`)
