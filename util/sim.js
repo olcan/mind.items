@@ -1,11 +1,12 @@
-// simulate `events` from state `x` to time `t`
-// includes events scheduled at exact time `t`
+// simulate `events` on state `x` for `time`
+// includes all events at times `(x.t, x.t + time]`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
 // events must be `reset` (see below) for new (not resumed) sim
-function simulate(x, t, ...events) {
+function simulate(x, time, ...events) {
   assert(x.t >= 0, `invalid x.t=${x.t}, must be >=0`)
-  assert(t > x.t, `invalid t=${t}, must be >x.t=${x.t}`)
+  assert(time > 0, `invalid simulation time=${time}, must be >0`)
+  const t = x.t + time
   const eJ = apply(events, e => {
     if (is_function(e)) e = set(e(), '_name', str(e))
     if (!is_object(e) || !e.fx || !e.ft) fatal(`invalid event '${str(e)}'`)
@@ -299,13 +300,17 @@ const event_time = (date = new Date()) => {
 // `Mon Jan 04 2021 00:00:00 GMT-0800 (PST)`
 let _t0_monday_midnight = new Date(2021, 0, 4)
 
-// time of most recent hour-of-day `h`
+// time of last hour-of-day `h`
 // event time for last occurrence of `h` before `t`
 // `t` is current time by default, but can be any event time
 const last_hour = (h, t = event_time()) => {
   const s = ~~t + h * _1h
   return s < t ? s : s - 1 // today or yesterday
 }
+
+// _6am
+// time of last 6 AM (local time)
+const _6am = last_hour(6)
 
 // convert event time to `Date`
 const event_date = (t = event_time()) => {
