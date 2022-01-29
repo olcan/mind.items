@@ -47,21 +47,19 @@ function simulate(x, time, ...events) {
 // |           | must be robust to undefined `θ` or `θ.*`
 // | `ft`      | _scheduler function_ `ft(x)`
 // |           | must return future time `t > x.t`, can be `inf` (never)
+// |           | can have optional condition function attached as `ft._fc`
 // |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
 // | `fc`      | optional _condition function_ `fc(x)`
-// |           | wraps `ft(x)` to return `inf` while `!fc(x)`
-// |           | cancels any future time scheduled before `!fc(x)`
+// |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
+// |           | `!fc(x)` state also cancels any future time scheduled
 // | `fθ`      | optional _default parameter function_ `fθ(x)`
 // |           | invoked for each call to `fx` where `θ` is omitted
 const _event = (...args) => new _Event(...args)
 class _Event {
   constructor(fx, ft = daily(0), fc = undefined, fθ = undefined) {
-    // note wrapping ft (see below) is more efficient skipping calls to fx
-    // if (fc && !fc(x)) return null // skip silently if condition is false
-    this._fx = fx // original fx passed to constructor, can be modified
     this.fx = (x, θ) => {
       if (fθ && !defined(θ)) θ = fθ(x) // use fθ(x) as default θ
-      const _θ = this._fx(x, θ) // use this._fx to allow modification
+      const _θ = fx(x, θ)
       // count transitions and skips (if defined) for benchmarking
       if (defined(x._transitions)) x._transitions++ // includes skipped
       if (_θ === null) {
@@ -80,12 +78,19 @@ class _Event {
               .trim()
         )
     }
-    this._ft = ft // original ft passed to constructor, can be modified
-    let _t = 0 // cached scheduled time, stored here for condition wrapper
-    this.ft = ft = x => (_t > x.t ? _t : (_t = this._ft(x)))
-    // condition wrapper that returns inf while !fc(x)
-    // also cancels any future time scheduled (and cached) before `!fc(x)`
-    if (fc) this.ft = x => (!fc(x) ? ((_t = 0), inf) : ft(x))
+    // wrap condition function for optional scheduler-attached condition ft._fc
+    if (ft._fc) {
+      const _fc = fc // _fc is original, fc is wrapper for _fc && ft._fc
+      const _ftc = ft._fc // since ft can be wrapped below
+      if (_fc) fc = x => _fc(x) && _ftc(x)
+      else fc = _ftc
+    }
+    // wrap scheduler w/ cache wrapper and optional condition wrapper
+    // note condition wrapper needs ability to bypass/reset any caching
+    const _ft = ft // _ft is original, ft is cached, this.ft is conditioned
+    let _t = 0 // cached scheduled time
+    this.ft = ft = x => (_t > x.t ? _t : (_t = _ft(x))) // cache wrapper
+    if (fc) this.ft = x => (!fc(x) ? ((_t = 0), inf) : ft(x)) // condition wrapper
   }
 }
 
@@ -252,11 +257,12 @@ function daily(h) {
   return x => h._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
 }
 
-// delay-based scheduler
-// triggers `h>0` hours after current time `x.t`
-// `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
-// typically used w/ condition function to prevent repeated triggering
-function after(h) {
+// relative time scheduler
+// triggers `h>0` hours after `fc(x)` state, or any state if `fc` omitted
+// `h` can be any non-negative sampler on `[0,∞)`, e.g. `between(0,10)`
+// `h` should be short enough to avoid cancellation by `!fc(x)` state
+function after(h, fc = undefined) {
+  if (fc) return set(after(h), '_fc', fc)
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
   if (!h._prior) fatal(`invalid hours '${str(h)}'`)
@@ -399,8 +405,8 @@ const print_event = e => {
   const tstr = date_time_string(event_date(e.t))
   const is_now = tstr == date_time_string()
   const name =
-    e._name || e._source._name || str(e._source._fx).replace(/\S+\s*=>\s*/g, '')
-  const sfx = e._sfx || e._source?._sfx || e._source?._fx._sfx
+    e._name || e._source._name || str(e._source.fx).replace(/\S+\s*=>\s*/g, '')
+  const sfx = e._sfx || e._source?._sfx || e._source?.fx._sfx
   const is_observe = name.startsWith('observe_')
   // NOTE: search for 'box drawings' in character viewer
   const pfx = is_now ? '╋━▶︎' : is_observe ? '╋━▶︎' : '│──'
