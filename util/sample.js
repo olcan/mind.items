@@ -542,11 +542,6 @@ class _Sampler {
       else assert(is_object(this.options.targets), 'invalid option targets')
     }
 
-    // treat J==1 as "debug mode"
-    // enable printing of states/events for sims
-    // also skip updates, plots, etc below
-    window._sim_print_states = window._sim_print_events = J == 1
-
     // sample prior (along w/ u=0 posterior)
     let timer = _timer_if(options.log)
     this._sample_prior()
@@ -558,7 +553,16 @@ class _Sampler {
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
-    if (J == 1) return
+    // treat J==1 as "debug mode"
+    // print sampled values or simulations and skip updates, plots, etc
+    if (J == 1) {
+      print(str(this.sample_values()))
+      each(this.sims, s => {
+        each(s.xt._events, print_event)
+        each(s.xt._states, print_state)
+      })
+      return
+    }
 
     // update sample to posterior
     timer = _timer_if(options.log)
@@ -579,12 +583,13 @@ class _Sampler {
     const lines = js.split('\n')
     const values = []
     const weights = []
+    const sims = []
     const names = new Set()
     // argument pattern allowing nested parentheses is derived from that in core.js
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|\b)(sample|sample_array|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
     this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
       if (name) {
         assert(
@@ -634,54 +639,66 @@ class _Sampler {
       // uncomment to debug replacement issues ...
       // console.log(offset, line_prefix + line_suffix)
 
-      // if method is 'condition', replace from(..) in args
-      if (method == 'condition')
-        args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
-
-      if (method == 'confine_array') {
-        // parse size as first argument
-        const [, size] = args.match(/^ *(\d+) *,/) ?? []
-        assert(size > 0, 'invalid/missing size for confine_array')
-        const index = weights.length
-        repeat(size, () => {
-          const index = weights.length // element index
+      switch (method) {
+        case 'confine_array': {
+          // parse size as first argument
+          const [, size] = args.match(/^ *(\d+) *,/) ?? []
+          assert(size > 0, 'invalid/missing size for confine_array')
+          const index = weights.length
+          repeat(size, () => {
+            const index = weights.length // element index
+            weights.push({ index, offset, method, args, line_index, line, js })
+          })
+          return `__sampler._${method}(${index},${args})`
+        }
+        case 'sample_array': {
+          // parse size as first argument
+          const [, size] = args.match(/^ *(\d+) *,/) ?? []
+          assert(size > 0, 'invalid/missing size for sample_array')
+          const index = values.length
+          const array_name = name || index
+          repeat(size, i => {
+            const index = values.length // element index
+            names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
+            values.push({ index, offset, name, args, line_index, line, js })
+          })
+          return m.replace(
+            /sample_array *\(.+\)$/s,
+            `__sampler._${method}(${index},${args})`
+          )
+        }
+        case 'condition':
+        case 'weight':
+        case 'confine': {
+          // replace from(...) inside condition(...)
+          if (method == 'condition')
+            args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
+          const index = weights.length
           weights.push({ index, offset, method, args, line_index, line, js })
-        })
-        return `__sampler._${method}(${index},${args})`
-      }
-
-      if (method == 'sample_array') {
-        // parse size as first argument
-        const [, size] = args.match(/^ *(\d+) *,/) ?? []
-        assert(size > 0, 'invalid/missing size for sample_array')
-        const index = values.length
-        const array_name = name || index
-        repeat(size, i => {
-          const index = values.length // element index
-          names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
+          return `__sampler._${method}(${index},${args})`
+        }
+        case 'simulate': {
+          const index = sims.length
+          // note simulation name is separate from sampled value names
+          sims.push({ index, offset, name, args, line_index, line, js })
+          return m.replace(
+            /simulate *\(.+\)$/s,
+            `__sampler._simulate(${index},${args})`
+          )
+        }
+        case 'sample': {
+          // replace sample call
+          const index = values.length
+          names.add((name = name || index)) // name aligned w/ values & unique
           values.push({ index, offset, name, args, line_index, line, js })
-        })
-        return m.replace(
-          /sample_array *\(.+\)$/s,
-          `__sampler._${method}(${index},${args})`
-        )
+          return m.replace(
+            /sample *\(.+\)$/s,
+            `__sampler._sample(${index},${args})`
+          )
+        }
+        default:
+          fatal(`unknown method ${method}`)
       }
-
-      // replace condition|weight|confine call
-      if (method != 'sample') {
-        const index = weights.length
-        weights.push({ index, offset, method, args, line_index, line, js })
-        return `__sampler._${method}(${index},${args})`
-      }
-
-      // replace sample call
-      const index = values.length
-      names.add((name = name || index)) // name aligned w/ values & unique
-      values.push({ index, offset, name, args, line_index, line, js })
-      return m.replace(
-        /sample *\(.+\)$/s,
-        `__sampler._sample(${index},${args})`
-      )
     })
 
     // evaluate new function w/ replacements
@@ -697,7 +714,7 @@ class _Sampler {
       __sampler._init_func()
       func(...arguments)
     }
-    return { func: func_w_init, values, weights, names, nK: array(names) }
+    return { func: func_w_init, values, weights, sims, names, nK: array(names) }
   }
 
   _init_func() {
@@ -2065,7 +2082,14 @@ class _Sampler {
     repeat(J, j => this._confine(n + j, xJ[j], domain_fj(j)))
   }
 
-  _confine_arra
+  _simulate(s, x, time, ...events) {
+    if (this.J > 1) return simulate(x, time, ...events)
+    // for J==1 (debug mode), enable _events/_states & store sim.xt
+    const sim = this.sims[s]
+    x._events = []
+    x._states = [clone_state(x)]
+    return (sim.xt = simulate(x, time, ...events))
+  }
 }
 
 function _run() {

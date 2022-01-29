@@ -68,14 +68,6 @@ class _Event {
       if (defined(_θ)) θ = _θ
       x._events?.push({ t: x.t, ...θ, _source: this })
       x._states?.push(clean_state(x))
-      if (window._sim_print_events) print_event({ t: x.t, ...θ, _source: this })
-      if (window._sim_print_states)
-        print(
-          '│   ↳ ' +
-            str(clean_state(x))
-              .replace(/^\{|\}$/g, '')
-              .trim()
-        )
     }
     // wrap scheduler w/ cache wrapper and optional condition wrapper
     // note condition wrapper needs ability to bypass/reset any caching
@@ -191,13 +183,14 @@ const _inc_path = (x, y) => {
   else _inc_path((x[y.head] ??= {}), y.tail)
 }
 const _inc_obj = (x, y) => {
-  each(keys(y), k => {
+  for (const k of keys(y)) {
+    if (k[0] == '_' && k[1] == '_') continue // skip double-underscore key
     const v = y[k]
-    // we do not recursively increment inside underscore-prefixed objects
-    if (is_object(v) && k[0] != '_') _inc_obj(x[k] || (x[k] = {}), v)
-    // we only increment numbers, allowing non-numbers to be excluded
+    if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
+    // non-numbers are _set_ instead of incremented (w/ coercion)
     else if (is_number(v)) x[k] = (x[k] || 0) + v
-  })
+    else x[k] = v
+  }
 }
 const _get_path = (x, y) => {
   if (!y.tail) return x[y.head]
@@ -418,27 +411,5 @@ const print_event = e => {
   print(pfx, tstr, name, sfx, ...attachments)
 }
 
-// print events
-// most recent first, since time `tb`
-const print_events = (x, tb = 0) => {
-  assert(x._events, 'no _events to print')
-  each(x._events.reverse(), e => e.t < tb || print_event(e))
-}
-
 // print state
 const print_state = x => print(str(clean_state(x)))
-
-// print states
-// most recent first, since time `tb`
-const print_states = (x, tb = 0) => {
-  assert(x._states, 'no _states to print')
-  each(x._states.reverse(), x => x.t < tb || print_state(x))
-}
-
-// print history (events & states)
-const print_history = (x, tb = 0) => {
-  const { _events, _states } = x
-  assert(_events || _states, 'no history (_events|_states) to print')
-  if (_events) print_events(x, tb)
-  if (_states) print_states(x, tb)
-}
