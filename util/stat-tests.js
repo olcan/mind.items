@@ -7,6 +7,15 @@ function _test_random_boolean() {
   )
 }
 
+function _test_random_binary() {
+  check(
+    () => [0, 1].includes(random_binary()),
+    () => random_binary(0) === 0,
+    () => random_binary(1) === 1,
+    () => random_binary('a') === 0 // …<p false for non-number p
+  )
+}
+
 function _test_random_uniform() {
   check(
     () => random_uniform() >= 0,
@@ -511,10 +520,15 @@ function _test_min_max_of() {
 function _test_sum() {
   check(
     () => throws(() => sum()),
-    () => throws(() => sum(0)),
+    () => throws(() => sum(-1)),
+    () => throws(() => sum(0.5)),
+    () => throws(() => sum('a')),
+    () => [sum(0), 0],
     () => [sum([0, 1, 2]), 3],
+    () => [sum(3), 3],
     () => [sum([0, 1, 2, 'a']), '3a'], // invalid for non-numbers
     () => [sum([0, 1, 2], x => 2 * x), 6],
+    () => [sum(3, x => 2 * x), 6],
     () => [sum([0, 1, 2, 'a'], x => 2 * x), NaN] // invalid for non-numbers
   )
 }

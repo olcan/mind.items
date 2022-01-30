@@ -12,9 +12,12 @@ const _benchmark_random_functions = ['random', 'positive_random']
 function _benchmark_random_boolean() {
   benchmark(
     () => random_boolean(),
+    () => random_binary(),
     () => random()
   )
 }
+
+const _benchmark_random_boolean_functions = ['random_boolean', 'random_binary']
 
 function _benchmark_random_uniform() {
   benchmark(

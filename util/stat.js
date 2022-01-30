@@ -1,8 +1,7 @@
 // [Math.random](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random) on `(0,1)`, excluding `0`
 const random = () => Math.random() || Number.MIN_VALUE
-
-// random_boolean ([p=0.5])
 const random_boolean = (p = 0.5) => random() < p
+const random_binary = (p = 0.5) => (random() < p ? 1 : 0)
 
 // random_uniform ([a],[b])
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `(0,1)`,`(0,a)`, or `(a,b)`
@@ -640,9 +639,18 @@ function min_max_of(xJ, f = x => x) {
   return [a, b]
 }
 
+// sum(xJ|J, [f])
 // sum of `xJ`, or `f(x,j)` over `xJ`
+// integer argument `J≥0` is treated as array `xJ=[0,1,2,...,J-1]`
 function sum(xJ, f = undefined) {
-  assert(is_array(xJ), 'non-array argument')
+  if (is_integer(xJ) && xJ >= 0) {
+    const J = xJ
+    let z = 0
+    if (!f) for (let j = 0; j < J; ++j) z += j
+    else for (let j = 0; j < J; ++j) z += f(j, j)
+    return z
+  }
+  assert(is_array(xJ), 'invalid argument')
   let z = 0
   if (!f) for (let j = 0; j < xJ.length; ++j) z += xJ[j]
   else for (let j = 0; j < xJ.length; ++j) z += f(xJ[j], j)
