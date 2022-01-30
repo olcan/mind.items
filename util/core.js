@@ -657,6 +657,10 @@ function js_table(regex) {
       // skip imbalanced args (due to occasional regex failure)
       if (_count_unescaped(def.args, '(') != _count_unescaped(def.args, ')'))
         return
+
+      // store index for sorting
+      def.index = m.index
+
       // extract any indentation from type
       def.indent = def.type.match(/^ */)[0]
       def.type = def.type.trim()
@@ -735,8 +739,8 @@ function js_table(regex) {
       if (def.indent && !def.modified) return
 
       if (!def.comment && def.body && !def.body.startsWith('{')) {
-        // take body as comment, escaping `
-        def.comment = '`` ' + def.body + ' ``'
+        // take body as comment, escaping ` and trimming parens
+        def.comment = '`` ' + def.body.replace(/^\(|\)$/g, '') + ' ``'
         // if body is a lodash function, link to docs
         // note docs are only available for certain versions
         if (def.body.match(/^_\.\w+$/)) {
@@ -755,6 +759,8 @@ function js_table(regex) {
       return def
     })
   )
+  sort_by(defs, d => d.index)
+
   let lines = []
   defs.forEach(def => {
     // filter by regex (applied to original _name) if specified
