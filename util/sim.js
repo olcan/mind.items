@@ -27,7 +27,7 @@ function simulate(x, time, ...events) {
     assert(x._t > x.t, 'invalid e.ft(x) <= x.t')
     // stop at time t if next event is past t
     if (x._t > t) return set(x, 't', t)
-    // advance to x.t=_t & trigger transitions
+    // advance to x.t=_t & trigger mutations
     x.t = x._t
     each(eJ, e => x.t != e.t || e.fx(x))
   } while (x._t < t) // continue until next scheduled time is past t
@@ -35,14 +35,13 @@ function simulate(x, time, ...events) {
 }
 
 // _event(fx, [ft=daily(0)], [fc], [fθ])
-// create transition event `x → fx(x,…)`
-// state `x` transitions to `fx(x,…)` at time `ft(x)`
-// scheduler `ft` can depend on state `x`, can be _never_ (`inf`)
-// transition may depend on _parameters_ `θ`
-// | `fx`      | _transition function_ `fx(x,θ)`
-// |           | must modify state `x` to apply transition
-// |           | can return `null` to indicate _skipped_ transition
-// |           | can return any parameters `θ` that affected transition
+// create mutation event `x → fx(x,…)`
+// state `x` _mutates_ to `fx(x,θ)` at time `ft(x)`
+// mutation can depend on _parameters_ `θ`
+// | `fx`      | _mutation function_ `fx(x,θ)`
+// |           | must modify (i.e. _mutate_) state `x`
+// |           | can return `null` to indicate _skipped_ mutation
+// |           | can return any parameters `θ` that affected mutation
 // |           | can use given parameters `θ` or generate own
 // |           | must be robust to undefined `θ` or `θ.*`
 // | `ft`      | _scheduler function_ `ft(x)`
@@ -59,8 +58,8 @@ class _Event {
     this.fx = (x, θ) => {
       if (fθ && !defined(θ)) θ = fθ(x) // use fθ(x) as default θ
       const _θ = fx(x, θ)
-      // count transitions and skips (if defined) for benchmarking
-      if (defined(x._transitions)) x._transitions++ // includes skipped
+      // count mutations and skips (if defined) for benchmarking
+      if (defined(x._mutations)) x._mutations++ // includes skipped
       if (_θ === null) {
         if (defined(x._skips)) x._skips++
         return null
@@ -79,7 +78,7 @@ class _Event {
 }
 
 // _do(fx, [ft=daily(0)], [fc], [fθ])
-// alias for `_event(…)`, transition (`fx`) first
+// alias for `_event(…)`, mutation (`fx`) first
 const _do = _event
 
 // _at(ft, fx, [fc], [fθ])
@@ -94,7 +93,7 @@ const _if = (fc, ft, fx, fθ) => _event(fx, ft, fc, fθ)
 // new simulation must also start from new state
 const reset = (...events) => each(flat(events), e => delete e.t)
 
-// increment transition
+// increment mutation
 // function `(x,θ) => …` applies `θ` as _increment_ to `x`
 // handles combined args `[...yJ, θ]` in order, by type:
 // | function `f`  | invoke as `r = f(x,r)`, `r` last returned value

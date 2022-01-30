@@ -1,4 +1,4 @@
-#util/sim TODO: describe this and #util/sample/examples  
+#util/sim defines utilities for simulating the evolution of a state object `x` subject to random mutation events. See [example](#util/sample/examples/12).  
 << js_table() >>
 
 ```js_removed:sim.js
