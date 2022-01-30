@@ -345,7 +345,7 @@ function _test_event_time() {
     () => [event_time(add_days(_t0_monday_midnight, 7)), 7],
     () => [event_time(add_days(_t0_monday_midnight, 30)), 30],
     () => [event_time(add_days(_t0_monday_midnight, 365)), 365],
-    () => [~~(event_time() % 7) + 1, new Date().getDay()],
+    () => [~~((event_time() + 1) % 7), new Date().getDay()],
     () => [now.getTime(), event_date(event_time(now)).getTime()],
     () => [
       now_minutes.getTime(), // date_time_string truncates at minutes
