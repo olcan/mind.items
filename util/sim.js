@@ -94,25 +94,6 @@ const _if = (fc, ft, fx, fθ) => _event(fx, ft, fc, fθ)
 // new simulation must also start from new state
 const reset = (...events) => each(flat(events), e => delete e.t)
 
-// create state with `props`
-// `props` can be any [cloneable](https://lodash.com/docs/4.17.15#clone) object
-// `props` can include time `t`; default starting time is `t=0`
-// `history` can be `0` (none), `1` (events), or `2` (events & states)
-const state = (props, history = 0) => {
-  const { t = 0 } = props
-  assert(is_finite(t), `invalid state time ${t}`)
-  switch (history) {
-    case 0:
-      return { t, ...props }
-    case 1:
-      return { t, ...props, _events: [] }
-    case 2:
-      return { t, ...props, _events: [], _states: [] }
-    default:
-      fatal(`invalid state history mode ${history}`)
-  }
-}
-
 // increment transition
 // function `(x,θ) => …` applies `θ` as _increment_ to `x`
 // handles combined args `[...yJ, θ]` in order, by type:

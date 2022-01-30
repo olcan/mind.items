@@ -594,7 +594,8 @@ class _Sampler {
       __sampler_regex,
       (m, name, key, method, args, offset) => {
         // if name is missing, try object key (minus quotes) instead
-        name ??= key?.replace(/^[`'"]|[`'"]$/g, '')
+        if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
+        name ??= key
         if (name) {
           assert(
             !names.has(name),

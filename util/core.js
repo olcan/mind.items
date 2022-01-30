@@ -740,7 +740,8 @@ function js_table(regex) {
 
       if (!def.comment && def.body && !def.body.startsWith('{')) {
         // take body as comment, escaping ` and trimming parens
-        def.comment = '`` ' + def.body.replace(/^\(|\)$/g, '') + ' ``'
+        if (def.body.match(/^\(.*\)$/s)) def.body = def.body.slice(1, -1)
+        def.comment = '`` ' + def.body + ' ``'
         // if body is a lodash function, link to docs
         // note docs are only available for certain versions
         if (def.body.match(/^_\.\w+$/)) {
