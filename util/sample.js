@@ -589,117 +589,130 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
-    this.js = js.replace(__sampler_regex, (m, name, method, args, offset) => {
-      if (name) {
-        assert(
-          !names.has(name),
-          `invalid duplicate name '${name}' for sampled value`
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|\w+) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
+    this.js = js.replace(
+      __sampler_regex,
+      (m, name, key, method, args, offset) => {
+        // if name is missing, try object key (minus quotes) instead
+        name ??= key?.replace(/^[`'"]|[`'"]$/g, '')
+        if (name) {
+          assert(
+            !names.has(name),
+            `invalid duplicate name '${name}' for sampled value`
+          )
+          assert(
+            !name.match(/^\d/),
+            `invalid numeric name '${name}' for sampled value`
+          )
+        }
+        // extract lexical context
+        let mt = m
+        if (js[offset] == '\n') {
+          offset++ // skip leading \n if matched
+          mt = m.slice(1)
+        }
+        const prefix = js.slice(0, offset)
+        const suffix = js.slice(offset + mt.length)
+        const line_prefix = prefix.match(/.*$/)[0]
+        const line_suffix = suffix.match(/^.*/)[0]
+        const line_index = _count_unescaped(prefix, '\n')
+        const line = lines[line_index]
+        check(() => [
+          line_prefix + mt + line_suffix,
+          line,
+          (a, b) => a.startsWith(b),
+        ]) // sanity check
+
+        // skip matches inside comments or strings
+        if (
+          line_prefix.match(/\/\/.*$/) ||
+          _count_unescaped(prefix, '/*') > _count_unescaped(prefix, '*/') ||
+          _count_unescaped(prefix, '`') % 2 ||
+          _count_unescaped(line_prefix, "'") % 2 ||
+          _count_unescaped(line_prefix, '"') % 2
         )
-        assert(
-          !name.match(/^\d/),
-          `invalid numeric name '${name}' for sampled value`
-        )
-      }
-      // extract lexical context
-      let mt = m
-      if (js[offset] == '\n') {
-        offset++ // skip leading \n if matched
-        mt = m.slice(1)
-      }
-      const prefix = js.slice(0, offset)
-      const suffix = js.slice(offset + mt.length)
-      const line_prefix = prefix.match(/.*$/)[0]
-      const line_suffix = suffix.match(/^.*/)[0]
-      const line_index = _count_unescaped(prefix, '\n')
-      const line = lines[line_index]
-      check(() => [
-        line_prefix + mt + line_suffix,
-        line,
-        (a, b) => a.startsWith(b),
-      ]) // sanity check
+          return m
 
-      // skip matches inside comments or strings
-      if (
-        line_prefix.match(/\/\/.*$/) ||
-        _count_unescaped(prefix, '/*') > _count_unescaped(prefix, '*/') ||
-        _count_unescaped(prefix, '`') % 2 ||
-        _count_unescaped(line_prefix, "'") % 2 ||
-        _count_unescaped(line_prefix, '"') % 2
-      )
-        return m
+        // skip method calls
+        if (line_prefix.match(/\.$/)) return m
 
-      // skip method calls
-      if (line_prefix.match(/\.$/)) return m
+        // skip function definitions (e.g. from imported #util/sample)
+        if (line_prefix.match(/function *$/)) return m
+        if (line_suffix.match(/{ *$/)) return m
 
-      // skip function definitions (e.g. from imported #util/sample)
-      if (line_prefix.match(/function *$/)) return m
-      if (line_suffix.match(/{ *$/)) return m
+        // uncomment to debug replacement issues ...
+        // console.log(offset, line_prefix + line_suffix)
 
-      // uncomment to debug replacement issues ...
-      // console.log(offset, line_prefix + line_suffix)
-
-      switch (method) {
-        case 'confine_array': {
-          // parse size as first argument
-          const [, size] = args.match(/^ *(\d+) *,/) ?? []
-          assert(size > 0, 'invalid/missing size for confine_array')
-          const index = weights.length
-          repeat(size, () => {
-            const index = weights.length // element index
+        switch (method) {
+          case 'confine_array': {
+            // parse size as first argument
+            const [, size] = args.match(/^ *(\d+) *,/) ?? []
+            assert(size > 0, 'invalid/missing size for confine_array')
+            const index = weights.length
+            repeat(size, () => {
+              const index = weights.length // element index
+              weights.push({
+                index,
+                offset,
+                method,
+                args,
+                line_index,
+                line,
+                js,
+              })
+            })
+            return `__sampler._${method}(${index},${args})`
+          }
+          case 'sample_array': {
+            // parse size as first argument
+            const [, size] = args.match(/^ *(\d+) *,/) ?? []
+            assert(size > 0, 'invalid/missing size for sample_array')
+            const index = values.length
+            const array_name = name || str(index)
+            repeat(size, i => {
+              const index = values.length // element index
+              names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
+              values.push({ index, offset, name, args, line_index, line, js })
+            })
+            return m.replace(
+              /sample_array *\(.+\)$/s,
+              `__sampler._${method}(${index},${args})`
+            )
+          }
+          case 'condition':
+          case 'weight':
+          case 'confine': {
+            // replace from(...) inside condition(...)
+            if (method == 'condition')
+              args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
+            const index = weights.length
             weights.push({ index, offset, method, args, line_index, line, js })
-          })
-          return `__sampler._${method}(${index},${args})`
-        }
-        case 'sample_array': {
-          // parse size as first argument
-          const [, size] = args.match(/^ *(\d+) *,/) ?? []
-          assert(size > 0, 'invalid/missing size for sample_array')
-          const index = values.length
-          const array_name = name || index
-          repeat(size, i => {
-            const index = values.length // element index
-            names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
+            return `__sampler._${method}(${index},${args})`
+          }
+          case 'simulate': {
+            const index = sims.length
+            // note simulation name is separate from sampled value names
+            sims.push({ index, offset, name, args, line_index, line, js })
+            return m.replace(
+              /simulate *\(.+\)$/s,
+              `__sampler._simulate(${index},${args})`
+            )
+          }
+          case 'sample': {
+            // replace sample call
+            const index = values.length
+            names.add((name = name || str(index))) // name aligned w/ values & unique
             values.push({ index, offset, name, args, line_index, line, js })
-          })
-          return m.replace(
-            /sample_array *\(.+\)$/s,
-            `__sampler._${method}(${index},${args})`
-          )
+            return m.replace(
+              /sample *\(.+\)$/s,
+              `__sampler._sample(${index},${args})`
+            )
+          }
+          default:
+            fatal(`unknown method ${method}`)
         }
-        case 'condition':
-        case 'weight':
-        case 'confine': {
-          // replace from(...) inside condition(...)
-          if (method == 'condition')
-            args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
-          const index = weights.length
-          weights.push({ index, offset, method, args, line_index, line, js })
-          return `__sampler._${method}(${index},${args})`
-        }
-        case 'simulate': {
-          const index = sims.length
-          // note simulation name is separate from sampled value names
-          sims.push({ index, offset, name, args, line_index, line, js })
-          return m.replace(
-            /simulate *\(.+\)$/s,
-            `__sampler._simulate(${index},${args})`
-          )
-        }
-        case 'sample': {
-          // replace sample call
-          const index = values.length
-          names.add((name = name || index)) // name aligned w/ values & unique
-          values.push({ index, offset, name, args, line_index, line, js })
-          return m.replace(
-            /sample *\(.+\)$/s,
-            `__sampler._sample(${index},${args})`
-          )
-        }
-        default:
-          fatal(`unknown method ${method}`)
       }
-    })
+    )
 
     // evaluate new function w/ replacements
     // use wrapper to pass along params (if any) from calling scope/context
@@ -1853,7 +1866,7 @@ class _Sampler {
           `invalid duplicate name '${options.name}' for sampled value`
         )
         assert(
-          !options.match(/^\d/),
+          !options.name.match(/^\d/),
           `invalid numeric name '${options.name}' for sampled value`
         )
         value.name = options.name
