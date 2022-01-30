@@ -636,122 +636,124 @@ function js_table(regex) {
   // the |=[^(){}]*?\(... prefix restricts pattern to optional arguments and seems to be necessary (including the {} exclusion) for robust parsing
   //
   // also note javascript engine _should_ cache the compiled regex
-  const __js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)*(?:(?:function|const|let|var|class| *get| *set) +)?)(?<name> *\w+) *(?:(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))|= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))?/gs
+  const js_table_regex =
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>\w+) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))?/gs
+
+  const js_table_regex_arrow =
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>\w+) *(?:\= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gs
+
+  const js = _this.read('js', {
+    keep_empty_lines: true,
+    keep_comment_lines: true,
+  })
+  const matches = [
+    ...js.matchAll(js_table_regex),
+    ...js.matchAll(js_table_regex_arrow),
+  ]
 
   const defs = _.compact(
-    Array.from(
-      _this
-        .read('js', { keep_empty_lines: true, keep_comment_lines: true })
-        .matchAll(__js_table_regex),
-      m => {
-        const def = _.merge({ args: '', comment: '' }, m.groups)
-        // skip imbalanced args (due to occasional regex failure)
-        if (_count_unescaped(def.args, '(') != _count_unescaped(def.args, ')'))
-          return
-        // extract any indentation from type (allowed for some types only)
-        def.indent = def.type.match(/^ */)[0]
-        def.type = def.type.trim()
+    apply(matches, m => {
+      const def = _.merge({ args: '', comment: '' }, m.groups)
+      // skip imbalanced args (due to occasional regex failure)
+      if (_count_unescaped(def.args, '(') != _count_unescaped(def.args, ')'))
+        return
+      // extract any indentation from type
+      def.indent = def.type.match(/^ */)[0]
+      def.type = def.type.trim()
 
-        // extract any indentation from name if type is missing
-        if (!def.type) {
-          def.indent = def.name.match(/^ */)[0]
-          def.name = def.name.trim()
-        }
-        // clear args if getter/setter
-        if (def.type.match(/(?:get|set)$/)) def.args = ''
-        // process arrow args
-        if (def.arrow_args) {
-          def.args = def.arrow_args.replace(/\s*=>$/, '')
-          if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
-        }
-
-        // args or body are required unless class
-        if (def.type != 'class' && !def.args && !def.body) return
-
-        // remove whitespace in args
-        def.args = def.args.replace(/\s+/g, '')
-
-        // start new scope if class type, end last scope if unindented
-        if (def.type == 'class') scope = def.name
-        else if (!def.indent) scope = null
-
-        // assign indented definition to last scope
-        // also record indent level or ensure match to existing level
-        if (
-          (def.indent && scope && !scope_indent[scope]) ||
-          scope_indent[scope] == def.indent
-        ) {
-          def.scope = scope
-          scope_indent[scope] = def.indent
-        }
-
-        // skip constructor unless commented
-        if (!def.type && def.name == 'constructor' && !def.comment) return
-
-        // skip duplicate names unless commented
-        if (names.has(def.name) && !def.comment) return
-        names.add(def.name)
-
-        // save original name (before possible modification via comments)
-        // prefix scoped definitions as <scope>__<name>
-        // otherwise Class.func can conflict with global func
-        // tests/benchmarks must also use name <scope>__<name>
-        def._name = (def.scope ? def.scope + '__' : '') + def.name
-
-        if (def.comment) {
-          // clean up: drop //
-          def.comment = def.comment
-            .replace(/ *\n *(?:\/\/)? ?/g, '\n')
-            .replace(/^ *\/\/ */, '')
-          // disallow cross-line backticks (causes ugly rendering issues)
-          def.comment = def.comment
-            .split('\n')
-            .map(s => (_count_unescaped(s, '`') % 2 == 0 ? s : s + '`'))
-            .join('\n')
-
-          // displayed name/args can be modified via first line of comment:
-          // <name>(...) modifies args, <name> removes args
-          // => <display_name> or => <display_name>(...) modifies name/args
-          if (
-            def.comment.match(/^=> *\S+/) ||
-            def.comment.match(new RegExp(`^${def.name} *(?:\\(.*\\))?(?:$|\n)`))
-          ) {
-            def.name = def.comment.match(/^[^(<\n]+/)[0].replace(/^=> */, '')
-            def.args = def.comment.match(/^.+?(\(.*)(?:$|\n)/)?.pop() ?? ''
-            def.comment = def.comment.replace(/^.+?(?:\(.*)?(?:$|\n)/, '')
-            def.modified = true
-          }
-        }
-
-        // skip underscore-prefixed definitions unless modified
-        if (def._name.match(/^_/) && !def.modified) return
-
-        // skip indented definitions unless modified by comments
-        // NOTE: this means class methods/properties must be modified, w/ attention paid to arguments (used to distinguish method from properties) for proper rendering/linking
-        if (def.indent && !def.modified) return
-
-        if (!def.comment && def.body && !def.body.startsWith('{')) {
-          // take body as comment, escaping `
-          def.comment = '`` ' + def.body + ' ``'
-          // if body is a lodash function, link to docs
-          // note docs are only available for certain versions
-          if (def.body.match(/^_\.\w+$/)) {
-            def.comment =
-              `[${def.comment}](https://lodash.com/docs/` +
-              `4.17.15#${def.body.substring(2)})`
-          }
-          // if body is a static function on a global object, link to docs
-          if (def.body.match(/^[A-Z]\w+\.\w+$/))
-            def.comment =
-              `[${def.comment}](https://developer.mozilla.org/en-US/docs/Web/` +
-              `JavaScript/Reference/Global_Objects/` +
-              def.body.replace('.', '/') +
-              ')'
-        }
-        return def
+      // clear args if getter/setter
+      if (def.type.match(/(?:get|set)$/)) def.args = ''
+      // process arrow args
+      if (def.arrow_args) {
+        def.args = def.arrow_args.replace(/\s*=>$/, '')
+        if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
-    )
+
+      // args or body are required unless class
+      if (def.type != 'class' && !def.args && !def.body) return
+
+      // remove whitespace in args
+      def.args = def.args.replace(/\s+/g, '')
+
+      // start new scope if class type, end last scope if unindented
+      if (def.type == 'class') scope = def.name
+      else if (!def.indent) scope = null
+
+      // assign indented definition to last scope
+      // also record indent level or ensure match to existing level
+      if (
+        (def.indent && scope && !scope_indent[scope]) ||
+        scope_indent[scope] == def.indent
+      ) {
+        def.scope = scope
+        scope_indent[scope] = def.indent
+      }
+
+      // skip constructor unless commented
+      if (!def.type && def.name == 'constructor' && !def.comment) return
+
+      // skip duplicate names unless commented
+      if (names.has(def.name) && !def.comment) return
+      names.add(def.name)
+
+      // save original name (before possible modification via comments)
+      // prefix scoped definitions as <scope>__<name>
+      // otherwise Class.func can conflict with global func
+      // tests/benchmarks must also use name <scope>__<name>
+      def._name = (def.scope ? def.scope + '__' : '') + def.name
+
+      if (def.comment) {
+        // clean up: drop //
+        def.comment = def.comment
+          .replace(/ *\n *(?:\/\/)? ?/g, '\n')
+          .replace(/^ *\/\/ */, '')
+        // disallow cross-line backticks (causes ugly rendering issues)
+        def.comment = def.comment
+          .split('\n')
+          .map(s => (_count_unescaped(s, '`') % 2 == 0 ? s : s + '`'))
+          .join('\n')
+
+        // displayed name/args can be modified via first line of comment:
+        // <name>(...) modifies args, <name> removes args
+        // => <display_name> or => <display_name>(...) modifies name/args
+        if (
+          def.comment.match(/^=> *\S+/) ||
+          def.comment.match(new RegExp(`^${def.name} *(?:\\(.*\\))?(?:$|\n)`))
+        ) {
+          def.name = def.comment.match(/^[^(<\n]+/)[0].replace(/^=> */, '')
+          def.args = def.comment.match(/^.+?(\(.*)(?:$|\n)/)?.pop() ?? ''
+          def.comment = def.comment.replace(/^.+?(?:\(.*)?(?:$|\n)/, '')
+          def.modified = true
+        }
+      }
+
+      // skip underscore-prefixed definitions unless modified
+      if (def._name.match(/^_/) && !def.modified) return
+
+      // skip indented definitions unless modified by comments
+      // NOTE: this means class methods/properties must be modified, w/ attention paid to arguments (used to distinguish method from properties) for proper rendering/linking
+      if (def.indent && !def.modified) return
+
+      if (!def.comment && def.body && !def.body.startsWith('{')) {
+        // take body as comment, escaping `
+        def.comment = '`` ' + def.body + ' ``'
+        // if body is a lodash function, link to docs
+        // note docs are only available for certain versions
+        if (def.body.match(/^_\.\w+$/)) {
+          def.comment =
+            `[${def.comment}](https://lodash.com/docs/` +
+            `4.17.15#${def.body.substring(2)})`
+        }
+        // if body is a static function on a global object, link to docs
+        if (def.body.match(/^[A-Z]\w+\.\w+$/))
+          def.comment =
+            `[${def.comment}](https://developer.mozilla.org/en-US/docs/Web/` +
+            `JavaScript/Reference/Global_Objects/` +
+            def.body.replace('.', '/') +
+            ')'
+      }
+      return def
+    })
   )
   let lines = []
   defs.forEach(def => {
