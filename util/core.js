@@ -1120,7 +1120,9 @@ async function _js_table_run_benchmark(name, e) {
   const modal = link.closest('.core_js_table_modal')
   modal.classList.add('running')
   // dynamically eval/invoke benchmark_item function from #benchmarker
-  await _item('#benchmarker', false)?.eval('benchmark_item')(_this, name)
+  const benchmark = _this._global_store._benchmarks[name]
+  const fname = benchmark.benchmark.replace(/^_benchmark_/, '')
+  await _item('#benchmarker', false)?.eval('benchmark_item')(_this, fname)
   modal.classList.remove('running')
   _js_table_show_benchmark(name)
 }
@@ -1134,7 +1136,9 @@ async function _js_table_run_test(name, e) {
   const modal = link.closest('.core_js_table_modal')
   modal.classList.add('running')
   // dynamically eval/invoke benchmark_item function from #benchmarker
-  await _item('#tester', false)?.eval('test_item')(_this, name)
+  const test = _this._global_store._tests[name]
+  const fname = test.test.replace(/^_test_/, '')
+  await _item('#tester', false)?.eval('test_item')(_this, fname)
   modal.classList.remove('running')
   _js_table_show_test(name)
 }
