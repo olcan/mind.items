@@ -148,3 +148,10 @@ const or = mixture
 
 // TODO: special split (or part or partition) domain constructor that uses beta_αβ and binomial samplers and admits args (j,sum) so it can be easily plugged into sample_array
 // TODO: make it easy to do sample_array(J, split(b))
+//
+// continuous partition of S>0
+// sample_array(J, (j,J,s)=> j==J-1 ? S-s : between(0,S-s,{α:1,β:J-j-1}))
+// or equivalently {μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)}
+//
+// discrete partition of integer S>0
+// sample_array(J, (j,J,s)=> j==J-1 ? S-s : binomial(0,S-s,(S-s)/(J-j)))
