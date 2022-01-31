@@ -321,7 +321,7 @@ function sample(domain, options = undefined) {
 }
 
 // sample `J` _unknowns_ from `domain`
-// `domain` can be a function `(j,sum_xj)=>…` of index `j` or partial sum `sum_xj`
+// `domain` can be a function `(j,J,s)=>…`, `s` partial sum up to `j-1`
 function sample_array(J, domain, options = undefined) {
   fatal(`unexpected (unparsed) call to sample_array(…)`)
 }
@@ -337,7 +337,7 @@ function confine(x, domain) {
 }
 
 // confine array `xJ` to `domain`
-// `domain` can be a function of index, e.g. `j=>domJ[j]`
+// `domain` can be a function `(j,J)=>…`
 function confine_array(J, xJ, domain) {
   fatal(`unexpected (unparsed) call to confine_array(…)`)
 }
@@ -2089,7 +2089,7 @@ class _Sampler {
     const domain_fj = is_function(domain) ? domain : j => domain
     let sum_xj = 0 // partial sum
     return array(J, j => {
-      const xj = this._sample(k + j, domain_fj(j, sum_xj), options)
+      const xj = this._sample(k + j, domain_fj(j, J, sum_xj), options)
       sum_xj += xj
       return xj
     })
@@ -2098,7 +2098,7 @@ class _Sampler {
   _confine_array(n, J, xJ, domain) {
     assert(is_array(xJ), 'invalid non-array second argument for confine_array')
     const domain_fj = is_function(domain) ? domain : j => domain
-    repeat(J, j => this._confine(n + j, xJ[j], domain_fj(j)))
+    repeat(J, j => this._confine(n + j, xJ[j], domain_fj(j, J)))
   }
 
   _simulate(s, x, time, ...events) {
