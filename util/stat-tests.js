@@ -113,6 +113,34 @@ function _test_random_discrete_array() {
   )
 }
 
+function _test_random_geometric() {
+  check(
+    () => is_nan(random_geometric(-0.1)),
+    () => is_nan(random_geometric(1.1)),
+    () => [random_geometric(0), inf],
+    () => random_geometric(1e-12) > 1000, // <=1000 is one-in-a-billion event
+    () => [random_geometric(1 - 1e-12), 0],
+    () => _binomial_test_sample(() => random_geometric(0.5), 0, 1 / 2),
+    () => _binomial_test_sample(() => random_geometric(0.5), 1, 1 / 4)
+  )
+}
+
+function _test_random_binomial() {
+  check(
+    () => is_nan(random_binomial(1, -0.1)),
+    () => is_nan(random_binomial(1, 1.1)),
+    () => is_nan(random_binomial(0, 0.5)),
+    // reference values from Mathematica
+    //   PDF[BinomialDistribution[n, p], x]
+    () => _binomial_test_sample(() => random_binomial(1, 0.5), 1, 1 / 2),
+    () => _binomial_test_sample(() => random_binomial(5, 0.25), 2, 0.263672),
+    () => _binomial_test_sample(() => random_binomial(10, 0.75), 8, 0.281568),
+    // these should trigger btrs algorithm since n*p or n*(1-p) >= 10
+    () => _binomial_test_sample(() => random_binomial(50, 0.75), 37, 0.12605),
+    () => _binomial_test_sample(() => random_binomial(60, 0.25), 15, 0.118228)
+  )
+}
+
 function _test_random_triangular() {
   // triangular cdf from https://en.wikipedia.org/wiki/Triangular_distribution
   function triangular_cdf(x) {
@@ -398,7 +426,7 @@ function _test_ks1_cdf() {
 
 function _test_ks2_cdf() {
   // rough test against commonly used critical values specified on Wikipedia at https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Two-sample_Kolmogorov–Smirnov_test
-  const scaling = (J, K = J) => Math.sqrt((J + K) / (J * K))
+  const scaling = (J, K = J) => sqrt((J + K) / (J * K))
   const within = (x, a, b) => x >= a && x <= b
   check(
     () => within(ks2_cdf(1.073 * scaling(100), 100), 0.8, 0.85),

@@ -64,6 +64,7 @@ function benchmark_item(item, selector) {
               ms,
               ok: !e,
               log,
+              // TODO: why was this missing on an error'ed benchmark?
               benchmark, // actual benchmark name
             })
           })

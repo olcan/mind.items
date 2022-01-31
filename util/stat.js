@@ -106,6 +106,89 @@ function random_discrete_array(jK, wJ, sum_wj) {
   return rK
 }
 
+// binomial sampler using "first waiting time method"
+// ideal for n*p<10, see http://www.nrbook.com/devroye/ (page 525)
+function _binomial_fwtm(n, p) {
+  let x = 0
+  let s = 0
+  const z = 1 / log1p(-p) // multiplier reused inside loop
+  while (true) {
+    s += ceil(log(random()) * z)
+    if (s > n) break
+    x++
+  }
+  return x
+}
+
+window._stirling_approx_tailK ??= [
+  0.0810614667953272, 0.0413406959554092, 0.0276779256849983,
+  0.02079067210376509, 0.0166446911898211, 0.0138761288230707,
+  0.0118967099458917, 0.010411265261972, 0.00925546218271273,
+  0.00833056343336287,
+]
+function _stirling_approx_tail(k) {
+  if (k <= 9) _stirling_approx_tailK[k]
+  const kp1sq = (k + 1) * (k + 1)
+  return (1.0 / 12 - (1.0 / 360 - 1.0 / 1260 / kp1sq) / kp1sq) / (k + 1)
+}
+
+// binomial sampler using "transformed rejection w/ squeeze" method
+// ideal for n*p>=10, see https://epub.wu.ac.at/1242/1/document.pdf
+function _binomial_btrs(n, p) {
+  const spq = sqrt(n * p * (1 - p))
+  const b = 1.15 + 2.53 * spq
+  const a = -0.0873 + 0.0248 * b + 0.01 * p
+  const c = n * p + 0.5
+  const v_r = 0.92 - 4.2 / b
+  const r = p / (1 - p)
+  while (true) {
+    const u = random() - 0.5
+    let v = random()
+    const us = 0.5 - abs(u)
+    const k = floor(((2 * a) / us + b) * u + c)
+    // for (u,v) pairs inside box
+    // acceptance rate is 24% -> ~79% for large np
+    if (us >= 0.07 && v <= v_r) return k
+    if (k < 0 || k > n) continue
+    const ɑ = (2.83 + 5.1 / b) * spq
+    const m = floor((n + 1) * p)
+    // for (u,v) pairs outside box
+    // log() missing from original paper; compare to BTRD step 2
+    v = log((v * ɑ) / (a / (us * us) + b)) // transformed-reject ratio
+    const v_bound =
+      (m + 0.5) * log((m + 1) / (r * (n - m + 1))) +
+      (n + 1) * log((n - m + 1) / (n - k + 1)) +
+      (k + 0.5) * log((r * (n - k + 1)) / (k + 1)) +
+      _stirling_approx_tail(m) +
+      _stirling_approx_tail(n - m) -
+      _stirling_approx_tail(k) -
+      _stirling_approx_tail(n - k)
+    if (v <= v_bound) return k
+  }
+}
+
+// [geometric](https://en.wikipedia.org/wiki/Geometric_distribution) on `{0,1,2,…}`
+function random_geometric(p) {
+  if (p == 0) return inf
+  if (!is_finite(p) || p < 0 || p > 1) return NaN
+  return floor(log(random()) / log1p(-p))
+}
+
+// [binomial](https://en.wikipedia.org/wiki/Binomial_distribution) on `{0,1,2,…,n}`
+function random_binomial(n, p) {
+  // derived from https://github.com/copperwiring/tensorflow/blob/734f0589f381ef5fe046258848cbb51a13a6b25a/tensorflow/core/kernels/random_binomial_op.cc#L105
+  // also comparable to http://jsoc.stanford.edu/doxygen_html/ident_2libs_2util_2rng_8c-source.html
+  if (!is_integer(n) || n <= 0) return NaN
+  if (!is_finite(p) || p < 0 || p > 1) return NaN
+  if (n == 1) return random_binary(p)
+  // based on benchmarks, bernoulli sum is _slightly_ faster for n<=5, p>=.3
+  // if (n <= 5 && p >= .3) return sum(n, j => random_binary(p))
+  if (p > 0.5) return n - random_binomial(n, 1 - p)
+  if (p == 0) return 0
+  if (n * p < 10) return _binomial_fwtm(n, p)
+  return _binomial_btrs(n, p)
+}
+
 // random_triangular([a],[b],[c])
 // [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `(0,1)`, `(0,a)`, or `(a,b)`
 const random_triangular = (a, b, c) => {
@@ -116,8 +199,8 @@ const random_triangular = (a, b, c) => {
   if (a > b || c < a || c > b) return NaN
   // from https://github.com/jstat/jstat/blob/master/src/distribution.js
   const u = random()
-  if (u < (c - a) / (b - a)) return a + Math.sqrt(u * (b - a) * (c - a))
-  return b - Math.sqrt((1 - u) * (b - a) * (b - c))
+  if (u < (c - a) / (b - a)) return a + sqrt(u * (b - a) * (c - a))
+  return b - sqrt((1 - u) * (b - a) * (b - c))
 }
 
 // [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)`
@@ -129,16 +212,16 @@ function random_normal() {
     u = random()
     v = 1.7156 * (random() - 0.5)
     x = u - 0.449871
-    y = Math.abs(v) + 0.386595
+    y = abs(v) + 0.386595
     q = x * x + y * (0.196 * y - 0.25472 * x)
-  } while (q > 0.27597 && (q > 0.27846 || v * v > -4 * Math.log(u) * u * u))
+  } while (q > 0.27597 && (q > 0.27846 || v * v > -4 * log(u) * u * u))
   return v / u
 }
 
 // [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) on `(0,∞)`
 // scale by `θ>0` for scale family
 // scale by `1/λ>0` for rate (inverse scale) family
-const random_exponential = () => -Math.log(random())
+const random_exponential = () => -log(random())
 
 // [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) w/ shape `α` on `(0,∞)`
 // scale by `θ>0` for shape-scale family
@@ -151,7 +234,7 @@ function random_gamma(α = 1) {
   let a1, a2, u, v, x
   if (α < 1) α += 1
   a1 = α - 1 / 3
-  a2 = 1 / Math.sqrt(9 * a1)
+  a2 = 1 / sqrt(9 * a1)
   do {
     do {
       x = random_normal()
@@ -160,12 +243,12 @@ function random_gamma(α = 1) {
     v = v * v * v
     u = random()
   } while (
-    u > 1 - 0.331 * Math.pow(x, 4) &&
-    Math.log(u) > 0.5 * x * x + a1 * (1 - v + Math.log(v))
+    u > 1 - 0.331 * pow(x, 4) &&
+    log(u) > 0.5 * x * x + a1 * (1 - v + log(v))
   )
   if (α == _α) return a1 * v // α >= 1
   u = random() // already truncated to (0,1)
-  return Math.pow(u, 1 / _α) * a1 * v
+  return pow(u, 1 / _α) * a1 * v
 }
 
 // [beta](https://en.wikipedia.org/wiki/Beta_distribution) on `(0,1)`
@@ -180,9 +263,7 @@ function random_beta(α, β) {
 // can skip values `x` s.t. `!filter(x)`, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
 function random_array(a, sampler = random, filter) {
   assert(is_function(sampler), `non-function sampler`)
-  const [J, xJ] = is_array(a)
-    ? [a.length, a]
-    : [~~a, new Array(Math.max(0, ~~a))]
+  const [J, xJ] = is_array(a) ? [a.length, a] : [~~a, new Array(max(0, ~~a))]
   if (!filter) for (let j = 0; j < J; ++j) xJ[j] = sampler()
   else
     for (let j = 0; j < J; ++j) {
@@ -198,8 +279,8 @@ function random_array(a, sampler = random, filter) {
 // can be restricted to indices `js,…,je-1`
 // uses [Fisher-Yates-Durstenfeld algorithm](https://en.wikipedia.org/wiki/Fisher–Yates_shuffle#The_modern_algorithm)
 function random_shuffle(xJ, js = 0, je = xJ.length) {
-  js = Math.max(0, js)
-  je = Math.min(je, xJ.length)
+  js = max(0, js)
+  je = min(je, xJ.length)
   for (let j = je - 1; j > js; j--) {
     const jr = js + ~~(random() * (j - js + 1))
     const tmp = xJ[j]
@@ -219,7 +300,7 @@ function _betinc(x, a, b, eps) {
   let m9 = 0
   let a2 = 0
   let c9
-  while (Math.abs((a1 - a2) / a1) > eps) {
+  while (abs((a1 - a2) / a1) > eps) {
     a2 = a1
     c9 = (-(a + m9) * (a + b + m9) * x) / (a + 2 * m9) / (a + 2 * m9 + 1)
     a0 = a1 + c9 * a0
@@ -246,16 +327,15 @@ function _log_gamma(x) {
   var ser = 1.000000000190015
   var xx, y, tmp
   tmp = (y = xx = x) + 5.5
-  tmp -= (xx + 0.5) * Math.log(tmp)
+  tmp -= (xx + 0.5) * log(tmp)
   for (; j < 6; j++) ser += cof[j] / ++y
-  return Math.log((2.5066282746310005 * ser) / xx) - tmp
+  return log((2.5066282746310005 * ser) / xx) - tmp
 }
 
 // `x≈y ≡ |x-y|/max(|x|,|y|))≤ε OR |x-y|≤εa`
 // default `εa=0` means `x==y` is required for small `x,y`
 const approx_equal = (x, y, ε = 1e-6, εa = 0) =>
-  Math.abs(x - y) / Math.max(Math.abs(x), Math.abs(y)) <= ε ||
-  Math.abs(x - y) <= εa
+  abs(x - y) / max(abs(x), abs(y)) <= ε || abs(x - y) <= εa
 
 // `P(X<=x)` for [binomial distribution](https://en.wikipedia.org/wiki/Binomial_distribution)
 function binomial_cdf(x, n, p) {
@@ -265,21 +345,16 @@ function binomial_cdf(x, n, p) {
   if (p < 0 || p > 1 || n <= 0) return NaN
   if (x < 0) return 0
   if (x >= n) return 1
-  x = Math.floor(x)
-  let z = p
+  x = floor(x)
   let a = x + 1
   let b = n - x
   let s = a + b
-  let bt = Math.exp(
-    _log_gamma(s) -
-      _log_gamma(b) -
-      _log_gamma(a) +
-      a * Math.log(z) +
-      b * Math.log(1 - z)
+  let bt = exp(
+    _log_gamma(s) - _log_gamma(b) - _log_gamma(a) + a * log(p) + b * log1p(-p)
   )
-  if (z < (a + 1) / (s + 2)) betacdf = bt * _betinc(z, a, b, eps)
-  else betacdf = 1 - bt * _betinc(1 - z, b, a, eps)
-  return Math.round((1 - betacdf) * (1 / eps)) / (1 / eps)
+  if (p < (a + 1) / (s + 2)) betacdf = bt * _betinc(p, a, b, eps)
+  else betacdf = 1 - bt * _betinc(1 - p, b, a, eps)
+  return round((1 - betacdf) * (1 / eps)) / (1 / eps)
 }
 
 // p-value for two-tailed [binomial test](https://en.wikipedia.org/wiki/Binomial_test)
@@ -306,27 +381,27 @@ function _betacf(x, a, b) {
   let c = 1
   let d = 1 - (qab * x) / qap
   let m2, aa, del, h
-  if (Math.abs(d) < fpmin) d = fpmin
+  if (abs(d) < fpmin) d = fpmin
   d = 1 / d
   h = d
   for (; m <= 100; m++) {
     m2 = 2 * m
     aa = (m * (b - m) * x) / ((qam + m2) * (a + m2))
     d = 1 + aa * d
-    if (Math.abs(d) < fpmin) d = fpmin
+    if (abs(d) < fpmin) d = fpmin
     c = 1 + aa / c
-    if (Math.abs(c) < fpmin) c = fpmin
+    if (abs(c) < fpmin) c = fpmin
     d = 1 / d
     h *= d * c
     aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2))
     d = 1 + aa * d
-    if (Math.abs(d) < fpmin) d = fpmin
+    if (abs(d) < fpmin) d = fpmin
     c = 1 + aa / c
-    if (Math.abs(c) < fpmin) c = fpmin
+    if (abs(c) < fpmin) c = fpmin
     d = 1 / d
     del = d * c
     h *= del
-    if (Math.abs(del - 1.0) < 3e-7) break
+    if (abs(del - 1.0) < 3e-7) break
   }
   return h
 }
@@ -337,12 +412,12 @@ function _ibeta(x, a, b) {
   const bt =
     x === 0 || x === 1
       ? 0
-      : Math.exp(
+      : exp(
           _log_gamma(a + b) -
             _log_gamma(a) -
             _log_gamma(b) +
-            a * Math.log(x) +
-            b * Math.log(1 - x)
+            a * log(x) +
+            b * log1p(-x)
         )
   if (x < 0 || x > 1) return false
   if (x < (a + 1) / (a + b + 2)) return (bt * _betacf(x, a, b)) / a
@@ -480,7 +555,7 @@ function ks2(xJ, yK, options = {}) {
   }
   apply(rR, (rr, r) => rr + rR[r - 1], 1) // accumulate cdf differences
   if (mR) map2(rR, mR, (r, m) => r * m) // mask collisions
-  const ks = max_in(apply(rR, Math.abs)) / (J * K)
+  const ks = max_in(apply(rR, abs)) / (J * K)
   if (is_nan(ks) || is_inf(ks)) {
     console.debug('ks nan/inf', {
       J,
@@ -522,14 +597,14 @@ function ks1(xJ, cdf, options = {}) {
 }
 
 // `P(X<=x)` for [Kolmogorov distribution](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov_distribution)
-// `= jacobiTheta(4, 0, Math.exp(-2*x*x))` using algorithm at [math.js](https://github.com/paulmasson/math/blob/29146e1a18b52d709770d1cbe17d8f0ad6bbdfd0/src/functions/elliptic-functions.js#L2)
+// `= jacobiTheta(4, 0, exp(-2*x*x))` using algorithm at [math.js](https://github.com/paulmasson/math/blob/29146e1a18b52d709770d1cbe17d8f0ad6bbdfd0/src/functions/elliptic-functions.js#L2)
 // `≡ EllipticTheta[4,0,Exp[-2*x*x]]` in Mathematica (used for testing)
 function kolmogorov_cdf(x, ε = 1e-10) {
-  const q = Math.exp(-2 * x * x)
+  const q = exp(-2 * x * x)
   let s = 0
   let p = 1
   let i = 1
-  while (Math.abs(p) > ε) {
+  while (abs(p) > ε) {
     p = (-q) ** (i * i)
     s += p
     i++
@@ -553,9 +628,9 @@ function ks2_cdf(x, J, K = J) {
 // approximate (within `0.27%` for `J≥10`) for small `J`
 // _invalid for discrete or mixed samples_
 function ks1_cdf(x, J) {
-  x *= Math.sqrt(J)
+  x *= sqrt(J)
   // small-sample correction from "Small-Sample Corrections to Kolmogorov–Smirnov Test Statistic" by Jan Vrbik, also mentioned in Wikipedia
-  x += 1 / (6 * Math.sqrt(J)) + (x - 1) / (4 * J)
+  x += 1 / (6 * sqrt(J)) + (x - 1) / (4 * J)
   return kolmogorov_cdf(x)
 }
 
@@ -641,7 +716,7 @@ function min_max_of(xJ, f = x => x) {
 
 // sum(xJ|J, [f])
 // sum of `xJ`, or `f(x,j)` over `xJ`
-// integer argument `J≥0` is treated as array `xJ=[0,1,2,...,J-1]`
+// integer argument `J≥0` is treated as array `xJ=[0,1,2,…,J-1]`
 function sum(xJ, f = undefined) {
   if (is_integer(xJ) && xJ >= 0) {
     const J = xJ
@@ -672,14 +747,14 @@ function variance(xJ) {
   }
   return z / (xJ.length - 1)
 }
-const stdev = xJ => Math.sqrt(variance(xJ))
+const stdev = xJ => sqrt(variance(xJ))
 
 // [circular mean](https://en.wikipedia.org/wiki/Circular_mean) of `xJ` on `[-r,r]`
 function circular_mean(xJ, r = pi) {
   if (xJ.length == 0) return NaN
   const z = r == pi ? 1 : pi / r
   const θJ = z == 1 ? xJ : xJ.map(x => x * z)
-  return Math.atan2(sum(θJ, Math.sin), sum(θJ, Math.cos)) / z
+  return atan2(sum(θJ, sin), sum(θJ, cos)) / z
 }
 
 // [circular stdev](https://en.wikipedia.org/wiki/Directional_statistics#Dispersion) of `xJ` on `[-r,r]`
@@ -687,8 +762,8 @@ function circular_stdev(xJ, r = pi) {
   if (xJ.length == 0) return NaN
   const z = r == pi ? 1 : pi / r
   const θJ = z == 1 ? xJ : xJ.map(x => x * z)
-  const R = Math.sqrt(meanf(θJ, Math.sin) ** 2 + meanf(θJ, Math.cos) ** 2)
-  return Math.sqrt(-2 * Math.log(R)) / z
+  const R = sqrt(meanf(θJ, sin) ** 2 + meanf(θJ, cos) ** 2)
+  return sqrt(-2 * log(R)) / z
 }
 
 // median of sample `xJ`

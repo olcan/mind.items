@@ -9,6 +9,20 @@ const ln = Math.log
 const loge = Math.log
 const log2 = Math.log2
 const log10 = Math.log10
+const log1p = Math.log1p
+const expm1 = Math.expm1
+
+function _benchmark_log1p() {
+  benchmark(
+    () => log1p(0.1),
+    () => log(1 + 0.1),
+    () => expm1(0.1),
+    () => exp(0.1) - 1
+  )
+}
+
+const _benchmark_log1p_functions = ['log1p', 'expm1', 'log', 'exp']
+
 const pow = Math.pow
 const sqrt = Math.sqrt
 const cbrt = Math.cbrt

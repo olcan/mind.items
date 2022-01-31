@@ -1121,7 +1121,7 @@ async function _js_table_run_benchmark(name, e) {
   modal.classList.add('running')
   // dynamically eval/invoke benchmark_item function from #benchmarker
   const benchmark = _this._global_store._benchmarks[name]
-  const fname = benchmark.benchmark.replace(/^_benchmark_/, '')
+  const fname = benchmark.benchmark?.replace(/^_benchmark_/, '') ?? name
   await _item('#benchmarker', false)?.eval('benchmark_item')(_this, fname)
   modal.classList.remove('running')
   _js_table_show_benchmark(name)
@@ -1137,7 +1137,7 @@ async function _js_table_run_test(name, e) {
   modal.classList.add('running')
   // dynamically eval/invoke benchmark_item function from #benchmarker
   const test = _this._global_store._tests[name]
-  const fname = test.test.replace(/^_test_/, '')
+  const fname = test.test?.replace(/^_test_/, '') ?? name
   await _item('#tester', false)?.eval('test_item')(_this, fname)
   modal.classList.remove('running')
   _js_table_show_test(name)

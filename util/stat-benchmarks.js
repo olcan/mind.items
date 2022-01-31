@@ -1,9 +1,9 @@
 function _benchmark_random() {
   benchmark(
-    Math.random, // direct call w/o wrapper
+    random, // direct call w/o wrapper
     () => random(),
-    () => Math.max(Math.random(), Number.MIN_VALUE),
-    () => Math.random() || Number.MIN_VALUE
+    () => max(random(), Number.MIN_VALUE),
+    () => random() || Number.MIN_VALUE
   )
 }
 
@@ -42,7 +42,7 @@ function _benchmark_random_discrete_uniform() {
     () => random_discrete_uniform(2),
     () => random_discrete_uniform(0, 1),
     () => ~~(2 * random()),
-    () => Math.floor(2 * random()),
+    () => floor(2 * random()),
     () => random()
   )
 }
@@ -76,6 +76,37 @@ function _benchmark_random_discrete_array() {
   benchmark(
     () => random_discrete_array(xJ, wJ, sum_wj),
     () => random_array(xJ, () => random_discrete(wJ, sum_wj))
+  )
+}
+
+function _benchmark_random_geometric() {
+  benchmark(
+    () => random_geometric(0.5),
+    () => random_exponential(),
+    () => random_binary(),
+    () => random()
+  )
+}
+
+const _benchmark_random_geometric_functions = [
+  'random_geometric',
+  'random_exponential',
+]
+
+function _benchmark_random_binomial() {
+  benchmark(
+    () => random_binomial(1, 0.5),
+    () => random_binomial(2, 0.5),
+    () => random_binomial(2, 0.3),
+    () => random_binomial(2, 0.1),
+    () => random_binomial(10, 0.5),
+    () => random_binomial(10, 1e-12),
+    () => random_binomial(30, 0.5),
+    () => random_binomial(30, 1e-12),
+    () => random_binary(0.5),
+    () => sum(2, j => random_binary(0.5)),
+    () => sum(10, j => random_binary(0.5)),
+    () => sum(30, j => random_binary(0.5))
   )
 }
 
@@ -173,14 +204,14 @@ function _benchmark_min_in() {
   }
   benchmark(
     () => min_in([0]),
-    () => Math.min(0, -1, -2),
+    () => min(0, -1, -2),
     () => min_in([0, -1, -2]),
     () => _min_each([0, -1, -2]),
-    () => Math.min(...x10),
-    () => Math.min.apply(null, x10),
+    () => min(...x10),
+    () => min.apply(null, x10),
     () => min_in(x10),
-    () => Math.min(...x100),
-    () => Math.min.apply(null, x100),
+    () => min(...x100),
+    () => min.apply(null, x100),
     () => min_in(x100),
     () => _min_each(x100)
   )
@@ -191,13 +222,13 @@ function _benchmark_max_in() {
   const x100 = random_array(100)
   benchmark(
     () => max_in([0]),
-    () => Math.max(0, 1, 2),
+    () => max(0, 1, 2),
     () => max_in([0, 1, 2]),
-    () => Math.max(...x10),
-    () => Math.max.apply(null, x10),
+    () => max(...x10),
+    () => max.apply(null, x10),
     () => max_in(x10),
-    () => Math.max(...x100),
-    () => Math.max.apply(null, x100),
+    () => max(...x100),
+    () => max.apply(null, x100),
     () => max_in(x100)
   )
 }

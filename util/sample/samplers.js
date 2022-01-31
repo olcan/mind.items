@@ -139,6 +139,10 @@ function beta(a, b, μ, σ) {
   return dom
 }
 
+// TODO: need beta(_μσ) and beta_ɑβ, with former using latter internally
+// TODO: need to implement ɑβ options for between(a,b)
+// TODO: need analogous binomial sampler and integer(0,5)
+
 function _test_beta() {
   _check_log_p_normalized(beta(2, 5, 3, 1), 2, 5)
 }
