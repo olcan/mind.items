@@ -155,7 +155,8 @@ const or = mixture
 function summand(S) {
   if (!is_finite(S) || S <= 0) return undefined
   // note ≡ between(0,S-s,{μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)})
-  return (j, J, s) => (j == J - 1 ? S - s : beta_αβ(0, S - s, 1, J - j - 1))
+  return (j, J, s) =>
+    j == J - 1 ? constant(S - s) : beta_αβ(0, S - s, 1, J - j - 1)
 }
 
 // `x∈{0,…,S}` in sum to integer `S>0`
@@ -164,5 +165,70 @@ function summand(S) {
 function integer_summand(S) {
   if (!is_integer(S) || S <= 0) return undefined
   return (j, J, s) =>
-    j == J - 1 ? S - s : binomial(0, S - s, (S - s) / (J - j))
+    j == J - 1 ? constant(S - s) : binomial(0, S - s, (S - s) / (J - j))
 }
+
+function _sum(J, S, fs = summand) {
+  let s = 0
+  const domain_fj = fs(S)
+  const xJ = array(J, j => {
+    const xj = domain_fj(j, J, s)._prior(x => x)
+    s += xj
+    return xj
+  })
+  return [s, S, approx_equal]
+}
+
+const _integer_sum = (J, S) => _sum(J, S, integer_summand)
+
+function _test_summand() {
+  check(
+    () => _sum(1, 1),
+    () => _sum(2, 1),
+    () => _sum(3, 1),
+    () => _sum(10, 1),
+    () => _sum(100, 1),
+    () => _sum(1, 0.5),
+    () => _sum(2, 0.5),
+    () => _sum(3, 0.5),
+    () => _sum(10, 0.5),
+    () => _sum(100, 0.5),
+    () => _sum(1, 100),
+    () => _sum(2, 100),
+    () => _sum(3, 100),
+    () => _sum(10, 100),
+    () => _sum(100, 100)
+  )
+}
+
+function _test_integer_summand() {
+  check(
+    () => _integer_sum(1, 1),
+    () => _integer_sum(3, 1),
+    () => _integer_sum(10, 1),
+    () => _integer_sum(100, 1),
+    () => _integer_sum(1, 10),
+    () => _integer_sum(3, 10),
+    () => _integer_sum(10, 10),
+    () => _integer_sum(100, 10),
+    () => _integer_sum(1, 100),
+    () => _integer_sum(3, 100),
+    () => _integer_sum(10, 100),
+    () => _integer_sum(100, 100)
+  )
+}
+
+function _benchmark_summand() {
+  benchmark(
+    () => _sum(1, 100),
+    () => _sum(3, 100),
+    () => _sum(10, 100),
+    () => _sum(100, 100),
+    () => _integer_sum(1, 100),
+    () => _integer_sum(3, 100),
+    () => _integer_sum(10, 100),
+    () => _integer_sum(100, 100)
+  )
+}
+
+const _benchmark_summand_functions = ['summand', 'integer_summand']

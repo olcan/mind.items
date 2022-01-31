@@ -240,6 +240,17 @@ function _test_gamma() {
   check(() => _log_p_normalized(gamma(2, 5, 1), 2, 100))
 }
 
+// [constant](https://en.wikipedia.org/wiki/Degenerate_distribution#Constant_random_variable) at `x`
+// `undefined` if `x` is undefined
+function constant(x) {
+  if (x === undefined) return undefined
+  const dom = { equal: x }
+  dom._prior = f => f(x)
+  dom._log_p = x => 0
+  dom._posterior = f => f(x)
+  return dom
+}
+
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on arguments `xK`
 // `undefined` if `xK` is empty
 function uniform_discrete(...xK) {
