@@ -68,7 +68,7 @@ const interval = (a, b, options = undefined) => {
 
 // `x∈(a,b)`, `a`,`b` finite
 // `options` same as in `interval` (see above)
-// `undefined` if `a` or `b` non-number or infinite
+// `undefined` if `a` or `b` non-finite
 // `null` (empty) if `a>=b`
 function between(a, b, options = undefined) {
   if (!is_finite(a) || !is_finite(b)) return undefined
@@ -78,8 +78,8 @@ function between(a, b, options = undefined) {
 
 // `x∈(y-ε,y+ε)`
 // `options` same as in `interval` (see above)
-// `undefined` if `y` non-number or infinite
-// `undefined` if `ε` non-number or infinite or `ε <= 0`
+// `undefined` if `y` non-finite
+// `undefined` if `ε` non-finite or `ε <= 0`
 function within(y, ε, options = undefined) {
   // if (is_array(y)) return tuple(...y.map(yk => within(yk, ε, options)))
   if (!is_finite(y)) return undefined
@@ -90,9 +90,9 @@ function within(y, ε, options = undefined) {
 // `x>a`, `x≈μ±σ`
 // `μ` is mean, or mode if passed as `{mode:μ}` or `{c:μ}`
 // `σ` is optional standard deviation w/ default `(μ-a)/2`
-// `undefined` if `a` non-number or infinite
-// `undefined` if `μ` non-number or infinite or `μ <= a`
-// `undefined` if `σ` non-number or infinite or `σ <= 0`
+// `undefined` if `a` non-finite
+// `undefined` if `μ` non-finite or `μ <= a`
+// `undefined` if `σ` non-finite or `σ <= 0`
 // `≡ {gt:a}` if `μ` omitted
 function above(a, μ = undefined, σ = (μ - a) / 2) {
   if (!is_finite(a)) return undefined
@@ -108,9 +108,9 @@ function above(a, μ = undefined, σ = (μ - a) / 2) {
 // `x<b`, `x≈μ±σ`
 // `μ` is mean, or mode if passed as `{mode:μ}` or `{c:μ}`
 // `σ` is optional standard deviation w/ default `(b-μ)/2`
-// `undefined` if `b` non-number or infinite
-// `undefined` if `μ` non-number or infinite or `μ >= b`
-// `undefined` if `σ` non-number or infinite or `σ <= 0`
+// `undefined` if `b` non-finite
+// `undefined` if `μ` non-finite or `μ >= b`
+// `undefined` if `σ` non-finite or `σ <= 0`
 // `≡ {lt:b}` if `μ` omitted
 function below(b, μ = undefined, σ = (b - μ) / 2) {
   if (!is_finite(b)) return undefined
@@ -139,23 +139,30 @@ const boolean = uniform_boolean()
 // `x∈{0,1}`
 const binary = uniform_binary()
 
-// `x∈{a,…,b}`,`a`,`b` integer
+// `x∈{a,a+1,…,b}`,`a`,`b` integer
 const integer = (a, b) => uniform_integer(a, b)
 
-// `x∈{0,…,K-1}`,`K≥1` integer
+// `x∈{0,1,…,K-1}`,`K≥1` integer
 const index = K => uniform_integer(0, K - 1)
 
-// or(...dK)
-// `x∈∪(dK)`
+// or(...domains)
+// `x` in union of `domains`
 const or = mixture
 
-// TODO: special "portion" or "segment" or just "part" domain constructor that uses beta_αβ and binomial samplers (as shown below) and admits args (j,J,sum) so it can be easily plugged into sample_array
-// TODO: make it easy to do sample_array(J, part(S))
-// TODO: is it intuitive enough or do we need separate sample_partition(J,S) type of thing?
-//
-// continuous partition of S>0
-// sample_array(J, (j,J,s)=> j==J-1 ? S-s : beta_αβ(0,S-s,1,J-j-1))
-//   beta_αβ(...) ≡ between(0,S-s,{μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)})
-//
-// discrete partition of integer S>0
-// sample_array(J, (j,J,s)=> j==J-1 ? S-s : binomial(0,S-s,(S-s)/(J-j)))
+// `x∈(0,S)` in sum to `S>0`
+// `undefined` if `S` non-finite or non-positive
+// returns function `(j,J,s)=>…` to be passed to `sample_array(J, …)`
+function summand(S) {
+  if (!is_finite(S) || S <= 0) return undefined
+  // note ≡ between(0,S-s,{μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)})
+  return (j, J, s) => (j == J - 1 ? S - s : beta_αβ(0, S - s, 1, J - j - 1))
+}
+
+// `x∈{0,…,S}` in sum to integer `S>0`
+// `undefined` if `S` non-integer or non-positive
+// returns function `(j,J,s)=>…` to be passed to `sample_array(J, …)`
+function integer_summand(S) {
+  if (!is_integer(S) || S <= 0) return undefined
+  return (j, J, s) =>
+    j == J - 1 ? S - s : binomial(0, S - s, (S - s) / (J - j))
+}

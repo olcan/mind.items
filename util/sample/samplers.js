@@ -14,10 +14,10 @@ const _uniform_posterior = (a, b, prior) => (f, x, stdev) => {
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `(a,b)`
-// `undefined` if `a` or `b` non-number or infinite
+// `undefined` if `a` or `b` non-finite
 // `null` (empty) if `a>=b`
 function uniform(a, b) {
-  // undefined if a or b non-number or infinite
+  // undefined if a or b non-finite
   if (!is_finite(a) || !is_finite(b)) return undefined
   if (a >= b) return null // empty (null) if a >= b
   const dom = { gt: a, lt: b }
@@ -50,11 +50,11 @@ function _benchmark_uniform() {
 }
 
 // [triangular](https://en.wikipedia.org/wiki/Triangular_distribution) on `(a,b)` w/ mode `c`
-// `undefined` if `a` or `b` non-number or infinite
+// `undefined` if `a` or `b` non-finite
 // `undefined` if `c` non-number or `c∉[a,b]`
 // `null` (empty) if `a>=b`
 function triangular(a, b, c) {
-  // undefined if a or b non-number or infinite
+  // undefined if a or b non-finite
   if (!is_finite(a) || !is_finite(b)) return undefined
   if (!is_finite(c) || c < a || c > b) return undefined
   if (a >= b) return null // empty (null) if a >= b
@@ -107,7 +107,7 @@ function _beta_mean_from_mode(a, b, c, σ) {
 }
 
 // [beta](https://en.wikipedia.org/wiki/Beta_distribution) on `(a,b)` w/ mean `μ`, stdev `σ`
-// `undefined` if `a` or `b` non-number or infinite
+// `undefined` if `a` or `b` non-finite
 // `undefined` if `μ` non-number or `μ∉(a,b)`
 // `undefined` if `σ` non-number or non-positive or too large
 // `null` (empty) if `a>=b`
@@ -128,7 +128,7 @@ function beta(a, b, μ, σ) {
 }
 
 // [beta](https://en.wikipedia.org/wiki/Beta_distribution) on `(a,b)`
-// `undefined` if `a` or `b` non-number or infinite
+// `undefined` if `a` or `b` non-finite
 // `undefined` if `α` or `β` non-number or non-positive
 // `null` (empty) if `a>=b`
 function beta_αβ(a, b, α, β) {
@@ -160,8 +160,8 @@ function _test_beta() {
 }
 
 // [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)` w/ mean `μ`, stdev `σ`
-// `undefined` if `μ` non-number or infinite
-// `undefined` if `σ` non-number or infinite or `σ≤0`
+// `undefined` if `μ` non-finite
+// `undefined` if `σ` non-finite or `σ≤0`
 function normal(μ, σ) {
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
@@ -195,9 +195,9 @@ function _gamma_mean_from_mode(c, σ) {
 
 // [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) on `(a,∞)` or `(-∞,a)` w/ mean `μ`, stdev `σ`
 // domain is `(a,∞)` if `σ>0`, `(-∞,a)` if `σ<0`
-// `undefined` if `a` non-number or infinite
-// `undefined` if `μ` non-number or infinite or `μ==a`
-// `undefined` if `σ` non-number or infinite or `σ≤0`
+// `undefined` if `a` non-finite
+// `undefined` if `μ` non-finite or `μ==a`
+// `undefined` if `σ` non-finite or `σ≤0`
 function gamma(a, μ, σ) {
   if (!is_finite(a)) return undefined
   if (!is_finite(μ) || μ == a) return undefined
