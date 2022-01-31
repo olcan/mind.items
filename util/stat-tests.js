@@ -44,14 +44,14 @@ function _test_random_uniform() {
 // e.g. one-in-a-billion failure/rejection for n=1000, p=1/6 is k<=~100
 // e.g. one-in-a-billion failure/rejection for n=300, p=1/2 is k<=~100
 // e.g. one-in-a-billion failure/rejection for n=100, p=1/2 is k<=~20
-const _binomial_test_sample = (sampler, x, p, n = 1000, ɑ = 1e-9) => [
+const _binomial_test_sample = (sampler, x, p, n = 1000, α = 1e-9) => [
   binomial_test(
     n,
     sum_by(random_array(n, sampler), s => equal(s, x)),
     p
   ),
-  ɑ,
-  _.gt, // i.e. can not reject null (correctness) at level ɑ
+  α,
+  _.gt, // i.e. can not reject null (correctness) at level α
 ]
 
 function _test_random_discrete_uniform() {

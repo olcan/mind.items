@@ -293,7 +293,7 @@ function density(x, domain) {
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
-// |               | _default_: `1` ≡ failure to reject same-dist at `ɑ<1/2`
+// |               | _default_: `1` ≡ failure to reject same-dist at `α<1/2`
 // | `mks_tail`    | ratio (<1) of recent updates for `mks`, _default_: `1/2`
 // | `mks_period`  | minimum update steps for `mks`, _default_: `1`
 // | `updates`     | target number of update steps, _default_: auto
@@ -307,7 +307,7 @@ function density(x, domain) {
 // |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
 // |               | ignored if no targets specified via `target(s)` option
 // |               | used only as diagnostic test, not as stopping condition
-// |               | _default_: `5` ≡ failure to reject same-dist at `ɑ<1/32`
+// |               | _default_: `5` ≡ failure to reject same-dist at `α<1/32`
 // | `params`      | object of parameters to be captured from parent context
 function sample(domain, options = undefined) {
   // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
@@ -589,7 +589,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|\w+) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gs
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[\p{L}\d]+) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {

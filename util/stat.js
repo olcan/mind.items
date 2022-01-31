@@ -150,11 +150,11 @@ function _binomial_btrs(n, p) {
     // acceptance rate is 24% -> ~79% for large np
     if (us >= 0.07 && v <= v_r) return k
     if (k < 0 || k > n) continue
-    const ɑ = (2.83 + 5.1 / b) * spq
+    const α = (2.83 + 5.1 / b) * spq
     const m = floor((n + 1) * p)
     // for (u,v) pairs outside box
     // log() missing from original paper; compare to BTRD step 2
-    v = log((v * ɑ) / (a / (us * us) + b)) // transformed-reject ratio
+    v = log((v * α) / (a / (us * us) + b)) // transformed-reject ratio
     const v_bound =
       (m + 0.5) * log((m + 1) / (r * (n - m + 1))) +
       (n + 1) * log((n - m + 1) / (n - k + 1)) +
@@ -793,15 +793,15 @@ function _benchmark_median() {
 // sample quantiles `qK` for `xJ`
 // | `sorted` | `false` | assume `xJ` already sorted
 // | `copy`   | `false` | copy `xJ` before sorting
-// | `ɑ`      | `.375`  | estimation/interpolation parameter `ɑ`
+// | `α`      | `.375`  | estimation/interpolation parameter `α`
 // | `β`      | `.375`  | estimation/interpolation parameter `β`
-// default parameters `ɑ=β=.375` are ~unbiased for normal `X`
+// default parameters `α=β=.375` are ~unbiased for normal `X`
 // see [scipy.stats docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.mstats.mquantiles.html#scipy-stats-mstats-mquantiles) for details and alternatives
 function quantiles(xJ, qK, options = {}) {
   assert(is_array(xJ), 'non-array argument')
   // based on https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/vector.js#L303
   // originally from https://github.com/scipy/scipy/blob/47bb6febaa10658c72962b9615d5d5aa2513fa3a/scipy/stats/mstats_basic.py#L2659-L2784
-  const { sorted, copy, ɑ = 0.375, β = 0.375 } = options
+  const { sorted, copy, α = 0.375, β = 0.375 } = options
   const J = xJ.length
   if (J == 0) return array(qK.length, NaN)
   if (J <= 1) return array(qK.length, xJ[0])
@@ -811,7 +811,7 @@ function quantiles(xJ, qK, options = {}) {
   }
   let zK = array(qK.length)
   each(qK, (q, k) => {
-    const m = ɑ + q * (1 - ɑ - β)
+    const m = α + q * (1 - α - β)
     const a = J * q + m
     const r = ~~clip(a, 1, J - 1)
     const g = clip(a - r, 0, 1)

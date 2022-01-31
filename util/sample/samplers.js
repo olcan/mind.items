@@ -83,25 +83,25 @@ function _beta_mean_from_mode(a, b, c, σ) {
 
   // beta mean from mode requires solving a cubic
   // see e.g. https://stats.stackexchange.com/q/259149
-  // we derive the cubic from Wikipedia expressions for (c, μ, v=σ^2) in Mathematica as Solve[{Eliminate[{c==(ɑ-1)/(ɑ+β-2),μ==ɑ/(ɑ+β),v==ɑ*β/((ɑ+β)^2*(1+ɑ+β))},{ɑ,β}]},μ,Reals], which gives cubic coefficients {1, -c-1, c+v, v-3*c*v} ...
+  // we derive the cubic from Wikipedia expressions for (c, μ, v=σ^2) in Mathematica as Solve[{Eliminate[{c==(α-1)/(α+β-2),μ==α/(α+β),v==α*β/((α+β)^2*(1+α+β))},{α,β}]},μ,Reals], which gives cubic coefficients {1, -c-1, c+v, v-3*c*v} ...
 
   // map {c,σ} into (0,1)
   c = (c - a) / (b - a)
   σ = σ / (b - a)
-  // solve cubic for μ, filter for (ɑ>1,β>1), validate c, map back into (a,b)
+  // solve cubic for μ, filter for (α>1,β>1), validate c, map back into (a,b)
   const v = σ * σ
   const μR = solve_cubic(1, -c - 1, c + v, v - 3 * c * v)
   for (const μ of μR) {
     const z = (μ * (1 - μ)) / v - 1
-    const ɑ = μ * z
+    const α = μ * z
     const β = (1 - μ) * z
-    // c is mode in (0,1) iff ɑ>1 and β>1
-    // if ɑ==1 and β==1, then ALL points (0,1) are modes
-    // if ɑ<1 and β<1, then c is anti-mode against modes 0,1
-    // if ɑ<1 and β>=1, mode is 0
-    // if ɑ>=1 and β<1, mode is 1
+    // c is mode in (0,1) iff α>1 and β>1
+    // if α==1 and β==1, then ALL points (0,1) are modes
+    // if α<1 and β<1, then c is anti-mode against modes 0,1
+    // if α<1 and β>=1, mode is 0
+    // if α>=1 and β<1, mode is 1
     const cc = (μ * z - 1) / (z - 2) // test for c just in case
-    if (ɑ > 1 && β > 1 && abs(cc - c) < 1e-6) return a + (b - a) * μ
+    if (α > 1 && β > 1 && abs(cc - c) < 1e-6) return a + (b - a) * μ
   }
   return null
 }
@@ -115,32 +115,46 @@ function beta(a, b, μ, σ) {
   if (a >= b) return null // empty (null) if a >= b
   if (!is_finite(μ) || μ <= a || μ >= b) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
-  // transform (a,b,μ,σ) to (ɑ,β) for standard Beta(ɑ,β) on (0,1)
+  // transform (a,b,μ,σ) to (α,β) for standard Beta(α,β) on (0,1)
   // see https://en.wikipedia.org/wiki/Beta_distribution#Four_parameters
-  // (μ,σ) -> (ɑ,β) is also easily Solve'd in Mathematica
+  // (μ,σ) -> (α,β) is also easily Solve'd in Mathematica
   const v = σ * σ
   const z = (a * b - a * μ - b * μ + μ * μ + v) / (v * (b - a))
-  const ɑ = (a - μ) * z
+  const α = (a - μ) * z
   const β = -(b - μ) * z
-  if (ɑ <= 0) return undefined // implies μ∉(a,b) or σ too large
-  if (β <= 0) return undefined // implies μ∉(a,b) or σ too large
+  if (α <= 0 || β <= 0) return undefined // implies μ∉(a,b) or σ too large
+  return _beta_αβ(a, b, α, β)
+}
+
+// [beta](https://en.wikipedia.org/wiki/Beta_distribution) on `(a,b)`
+// `undefined` if `a` or `b` non-number or infinite
+// `undefined` if `α` or `β` non-number or non-positive
+function beta_αβ(a, b, α, β) {
+  α
+  if (!is_finite(a) || !is_finite(b)) return undefined
+  if (a >= b) return null // empty (null) if a >= b
+  if (!is_finite(a) || α <= 0) return undefined
+  if (!is_finite(β) || β <= 0) return undefined
+  return _beta_αβ(a, b, α, β)
+}
+
+function _beta_αβ(a, b, α, β) {
   const dom = { gt: a, lt: b }
-  dom._prior = f => f(a + (b - a) * random_beta(ɑ, β))
+  dom._prior = f => f(a + (b - a) * random_beta(α, β))
   const log_z =
-    _log_gamma(ɑ + β) -
-    (ɑ + β - 1) * log(b - a) - // jacobian factor due to scaling by (b-a)
-    _log_gamma(ɑ) -
+    _log_gamma(α + β) -
+    (α + β - 1) * log(b - a) - // jacobian factor due to scaling by (b-a)
+    _log_gamma(α) -
     _log_gamma(β)
   dom._log_p = x => {
     // if (x <= a || x >= b) return -inf
-    return (ɑ - 1) * log(x - a) + (β - 1) * log(b - x) + log_z
+    return (α - 1) * log(x - a) + (β - 1) * log(b - x) + log_z
   }
   dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
 }
 
-// TODO: need beta(_μσ) and beta_ɑβ, with former using latter internally
-// TODO: need to implement ɑβ options for between(a,b)
+// TODO: need to implement αβ options for between(a,b)
 // TODO: need analogous binomial sampler and integer(0,5)
 
 function _test_beta() {
@@ -168,16 +182,16 @@ function _test_normal() {
 }
 
 // gamma log-density
-function _gamma_log_p(x, ɑ, θ) {
+function _gamma_log_p(x, α, θ) {
   if (x <= 0) return -inf
-  return (ɑ - 1) * log(x) - x / θ - _log_gamma(ɑ) - ɑ * log(θ)
+  return (α - 1) * log(x) - x / θ - _log_gamma(α) - α * log(θ)
 }
 
 function _gamma_mean_from_mode(c, σ) {
   if (!is_finite(c) || c <= 0) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
-  // plug θ=(σ*σ)/μ and ɑ=(μ*μ)/(σ*σ) into c==(ɑ-1)*θ and solve for μ
-  // note c>0 => μ>σ => ɑ>1 as expected from existence of mode c>0
+  // plug θ=(σ*σ)/μ and α=(μ*μ)/(σ*σ) into c==(α-1)*θ and solve for μ
+  // note c>0 => μ>σ => α>1 as expected from existence of mode c>0
   return 0.5 * (c + sqrt(c * c + 4 * σ * σ))
 }
 
@@ -196,24 +210,24 @@ function gamma(a, μ, σ) {
   // here we take mean relative to a and reflect around a if μ<a
   const m = μ - a // signed mean relative to base a
   const s = (σ * σ) / m // signed gamma scale for mean m, stdev σ
-  const ɑ = m / s // gamma shape for mean m, stdev σ (sign cancels)
-  dom._prior = f => f(a + s * random_gamma(ɑ))
-  dom._log_p = x => _gamma_log_p(abs(x - a), ɑ, abs(s))
+  const α = m / s // gamma shape for mean m, stdev σ (sign cancels)
+  dom._prior = f => f(a + s * random_gamma(α))
+  dom._log_p = x => _gamma_log_p(abs(x - a), α, abs(s))
 
   // posterior sampler has forced asymmetry due to half-bounded domain
   dom._posterior = (f, x, stdev) => {
     const σx = stdev ?? σ // posterior stdev, falling back to prior stdev
     const mx = x - a // signed mean x relative to base a
     const sx = (σx * σx) / mx // signed scale for mean mx, stdev σx
-    const ɑx = mx / sx // shape for mean mx, stdev σx (sign cancels)
-    const y = a + sx * random_gamma(ɑx) // new point y
+    const αx = mx / sx // shape for mean mx, stdev σx (sign cancels)
+    const y = a + sx * random_gamma(αx) // new point y
     const σy = σx
     const my = y - a
     const sy = (σy * σy) / my
-    const ɑy = my / sy
+    const αy = my / sy
     const log_mw =
-      _gamma_log_p(abs(mx), ɑy, abs(sy)) - // log(q(x|y))
-      _gamma_log_p(abs(my), ɑx, abs(sx)) // log(q(y|x))
+      _gamma_log_p(abs(mx), αy, abs(sy)) - // log(q(x|y))
+      _gamma_log_p(abs(my), αx, abs(sx)) // log(q(y|x))
     return f(y, log_mw)
   }
 
