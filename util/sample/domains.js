@@ -145,3 +145,6 @@ const index = K => uniform_integer(0, K - 1)
 // or(...dK)
 // `x∈∪(dK)`
 const or = mixture
+
+// TODO: special split (or part or partition) domain constructor that uses beta_αβ and binomial samplers and admits args (j,sum) so it can be easily plugged into sample_array
+// TODO: make it easy to do sample_array(J, split(b))

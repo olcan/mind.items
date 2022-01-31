@@ -156,10 +156,6 @@ function _beta_αβ(a, b, α, β) {
   return dom
 }
 
-// TODO: need to implement α/β options for between(a,b)
-// TODO: need analogous binomial sampler and integer(0,5)
-// TODO: also consider a special split() or part() domain
-
 function _test_beta() {
   _check_log_p_normalized(beta(2, 5, 3, 1), 2, 5)
 }
@@ -292,7 +288,7 @@ const _log_binomial = (n, k) =>
 // `undefined` if `a` or `b` non-integer
 // `undefined` if `μ` non-number or `μ∉[a,b]`
 // `null` (empty) if `a>b`
-function binomial_integer(a, b, μ) {
+function binomial(a, b, μ) {
   if (!is_integer(a) || !is_integer(b)) return undefined
   if (!is_finite(μ) || μ < a || μ > b) return undefined
   if (a > b) return null // empty (null) if a > b
@@ -308,8 +304,8 @@ function binomial_integer(a, b, μ) {
   return dom
 }
 
-function _test_binomial_integer() {
-  _check_discrete_log_p_normalized(binomial_integer(5, 10, 7), range(5, 11))
+function _test_binomial() {
+  _check_discrete_log_p_normalized(binomial(5, 10, 7), range(5, 11))
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on booleans `{false,true}`
