@@ -120,14 +120,14 @@ function _binomial_fwtm(n, p) {
   return x
 }
 
-window._stirling_approx_tailK ??= [
-  0.0810614667953272, 0.0413406959554092, 0.0276779256849983,
-  0.02079067210376509, 0.0166446911898211, 0.0138761288230707,
-  0.0118967099458917, 0.010411265261972, 0.00925546218271273,
-  0.00833056343336287,
-]
 function _stirling_approx_tail(k) {
-  if (k <= 9) _stirling_approx_tailK[k]
+  const stirling_approx_tailK = [
+    0.0810614667953272, 0.0413406959554092, 0.0276779256849983,
+    0.02079067210376509, 0.0166446911898211, 0.0138761288230707,
+    0.0118967099458917, 0.010411265261972, 0.00925546218271273,
+    0.00833056343336287,
+  ]
+  if (k <= 9) stirling_approx_tailK[k]
   const kp1sq = (k + 1) * (k + 1)
   return (1.0 / 12 - (1.0 / 360 - 1.0 / 1260 / kp1sq) / kp1sq) / (k + 1)
 }
@@ -319,13 +319,13 @@ function _betinc(x, a, b, eps) {
 
 // from https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/special.js#L5
 function _log_gamma(x) {
-  var j = 0
-  var cof = [
+  let j = 0
+  const cof = [
     76.18009172947146, -86.50532032941677, 24.01409824083091,
     -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5,
   ]
-  var ser = 1.000000000190015
-  var xx, y, tmp
+  let ser = 1.000000000190015
+  let xx, y, tmp
   tmp = (y = xx = x) + 5.5
   tmp -= (xx + 0.5) * log(tmp)
   for (; j < 6; j++) ser += cof[j] / ++y

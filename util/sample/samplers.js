@@ -35,7 +35,7 @@ function _check_log_p_normalized(sampler, a, b) {
   const J = 1000000 // bit slow (20-150ms) but more strict
   const xJ = array(J)
   random_uniform_array(xJ, a, b)
-  const pJ = apply(xJ, x => (b - a) * exp(sampler._log_p(x)))
+  const pJ = apply(xJ, x => (b - a) * exp(density(x, sampler)))
   const σ = sqrt(variance(pJ) / J)
   // we tolerate 6.10941σ error (~one-in-a-billion test failure)
   check(() => [mean(pJ), 1, (a, b) => approx_equal(a, b, 6.10941 * σ)])
@@ -56,8 +56,8 @@ function _benchmark_uniform() {
 function triangular(a, b, c) {
   // undefined if a or b non-number or infinite
   if (!is_finite(a) || !is_finite(b)) return undefined
-  if (a >= b) return null // empty (null) if a >= b
   if (!is_finite(c) || c < a || c > b) return undefined
+  if (a >= b) return null // empty (null) if a >= b
   const dom = { gt: a, lt: b }
   dom._prior = f => f(random_triangular(a, b, c))
   const log_z1 = log(2) - log(b - a) - log(c - a) // z ⊥ x
@@ -77,9 +77,9 @@ function _test_triangular() {
 
 function _beta_mean_from_mode(a, b, c, σ) {
   if (!is_finite(a) || !is_finite(b)) return undefined
-  if (a >= b) return null // empty (null) if a >= b
   if (!is_finite(c) || c <= a || c >= b) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
+  if (a >= b) return null // empty (null) if a >= b
 
   // beta mean from mode requires solving a cubic
   // see e.g. https://stats.stackexchange.com/q/259149
@@ -110,11 +110,12 @@ function _beta_mean_from_mode(a, b, c, σ) {
 // `undefined` if `a` or `b` non-number or infinite
 // `undefined` if `μ` non-number or `μ∉(a,b)`
 // `undefined` if `σ` non-number or non-positive or too large
+// `null` (empty) if `a>=b`
 function beta(a, b, μ, σ) {
   if (!is_finite(a) || !is_finite(b)) return undefined
-  if (a >= b) return null // empty (null) if a >= b
   if (!is_finite(μ) || μ <= a || μ >= b) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
+  if (a >= b) return null // empty (null) if a >= b
   // transform (a,b,μ,σ) to (α,β) for standard Beta(α,β) on (0,1)
   // see https://en.wikipedia.org/wiki/Beta_distribution#Four_parameters
   // (μ,σ) -> (α,β) is also easily Solve'd in Mathematica
@@ -129,6 +130,7 @@ function beta(a, b, μ, σ) {
 // [beta](https://en.wikipedia.org/wiki/Beta_distribution) on `(a,b)`
 // `undefined` if `a` or `b` non-number or infinite
 // `undefined` if `α` or `β` non-number or non-positive
+// `null` (empty) if `a>=b`
 function beta_αβ(a, b, α, β) {
   α
   if (!is_finite(a) || !is_finite(b)) return undefined
@@ -154,8 +156,9 @@ function _beta_αβ(a, b, α, β) {
   return dom
 }
 
-// TODO: need to implement αβ options for between(a,b)
+// TODO: need to implement α/β options for between(a,b)
 // TODO: need analogous binomial sampler and integer(0,5)
+// TODO: also consider a special split() or part() domain
 
 function _test_beta() {
   _check_log_p_normalized(beta(2, 5, 3, 1), 2, 5)
@@ -252,7 +255,7 @@ function uniform_discrete(...xK) {
 }
 
 function _check_discrete_log_p_normalized(sampler, xK) {
-  const pJ = xK.map(x => exp(sampler._log_p(x)))
+  const pJ = xK.map(x => exp(density(x, sampler)))
   check(() => [sum(pJ), 1, approx_equal])
 }
 
@@ -278,6 +281,35 @@ function uniform_integer(a, b) {
 
 function _test_uniform_integer() {
   _check_discrete_log_p_normalized(uniform_integer(5, 10), range(5, 11))
+}
+
+// log-binomial-coefficient in terms of gamma functions
+// see https://en.wikipedia.org/wiki/Binomial_coefficient#Two_real_or_complex_valued_arguments
+const _log_binomial = (n, k) =>
+  _log_gamma(n + 1) - _log_gamma(k + 1) - _log_gamma(n - k + 1)
+
+// [binomial](https://en.wikipedia.org/wiki/Binomial_distribution) on integers `{a,…,b}`
+// `undefined` if `a` or `b` non-integer
+// `undefined` if `μ` non-number or `μ∉[a,b]`
+// `null` (empty) if `a>b`
+function binomial_integer(a, b, μ) {
+  if (!is_integer(a) || !is_integer(b)) return undefined
+  if (!is_finite(μ) || μ < a || μ > b) return undefined
+  if (a > b) return null // empty (null) if a > b
+  if (a == b) return uniform_integer(a, b)
+  const dom = { gte: a, lte: b, is: 'integer' }
+  const n = b - a
+  const p = clip((μ - a) / (b - a))
+  dom._prior = f => f(a + random_binomial(n, p))
+  const lp = log(p)
+  const l1p = log1p(-p)
+  dom._log_p = x => ((x -= a), (n - x) * l1p + x * lp + _log_binomial(n, x))
+  dom._posterior = f => f(a + random_binomial(n, p))
+  return dom
+}
+
+function _test_binomial_integer() {
+  _check_discrete_log_p_normalized(binomial_integer(5, 10, 7), range(5, 11))
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on booleans `{false,true}`
