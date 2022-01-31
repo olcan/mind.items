@@ -66,6 +66,8 @@ function is(x, type) {
       return is_numeric(x)
     case 'boolean':
       return typeof x == 'boolean'
+    case 'binary':
+      return x === 0 || x === 1
     case 'string':
       return typeof x == 'string'
     case 'function':
@@ -103,6 +105,7 @@ function _test_is() {
     () => is(0, 'number'),
     () => is('0', 'numeric'),
     () => is(true, 'boolean'),
+    () => is(1, 'binary'),
     () => is('true', 'string'),
     () => is(() => 0, 'function'),
     () => is({}, 'object'),
@@ -165,6 +168,7 @@ function _benchmark_is_numeric() {
 }
 
 const is_boolean = x => typeof x == 'boolean'
+const is_binary = x => x === 0 || x === 1
 const is_string = x => typeof x == 'string'
 const is_function = x => typeof x == 'function'
 

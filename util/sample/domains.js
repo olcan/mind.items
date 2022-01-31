@@ -136,6 +136,9 @@ const among = uniform_discrete
 // `x∈{true,false}`
 const boolean = uniform_boolean()
 
+// `x∈{0,1}`
+const binary = uniform_binary()
+
 // `x∈{a,…,b}`,`a`,`b` integer
 const integer = (a, b) => uniform_integer(a, b)
 
@@ -146,12 +149,13 @@ const index = K => uniform_integer(0, K - 1)
 // `x∈∪(dK)`
 const or = mixture
 
-// TODO: special split (or part or partition) domain constructor that uses beta_αβ and binomial samplers and admits args (j,sum) so it can be easily plugged into sample_array
-// TODO: make it easy to do sample_array(J, split(b))
+// TODO: special "portion" or "segment" or just "part" domain constructor that uses beta_αβ and binomial samplers (as shown below) and admits args (j,J,sum) so it can be easily plugged into sample_array
+// TODO: make it easy to do sample_array(J, part(S))
+// TODO: is it intuitive enough or do we need separate sample_partition(J,S) type of thing?
 //
 // continuous partition of S>0
-// sample_array(J, (j,J,s)=> j==J-1 ? S-s : between(0,S-s,{α:1,β:J-j-1}))
-// or equivalently {μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)}
+// sample_array(J, (j,J,s)=> j==J-1 ? S-s : beta_αβ(0,S-s,1,J-j-1))
+//   beta_αβ(...) ≡ between(0,S-s,{μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)})
 //
 // discrete partition of integer S>0
 // sample_array(J, (j,J,s)=> j==J-1 ? S-s : binomial(0,S-s,(S-s)/(J-j)))

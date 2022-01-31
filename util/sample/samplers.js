@@ -308,8 +308,6 @@ function _test_binomial() {
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on booleans `{false,true}`
-// `undefined` if `a` or `b` non-integer
-// `null` (empty) if `a>b`
 function uniform_boolean() {
   const dom = { is: 'boolean' }
   dom._prior = f => f(random() < 0.5)
@@ -321,6 +319,20 @@ function uniform_boolean() {
 
 function _test_uniform_boolean() {
   _check_discrete_log_p_normalized(uniform_boolean(), [false, true])
+}
+
+// [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on `{0,1}`
+function uniform_binary() {
+  const dom = { is: 'binary' }
+  dom._prior = f => f(random() < 0.5 ? 1 : 0)
+  const log_z = -log(2) // z ⊥ x
+  dom._log_p = x => log_z
+  dom._posterior = f => f(random() < 0.5 ? 1 : 0)
+  return dom
+}
+
+function _test_uniform_binary() {
+  _check_discrete_log_p_normalized(uniform_binary(), [0, 1])
 }
 
 // mixture(...samplers)
