@@ -243,11 +243,12 @@ function _test_gamma() {
 // [constant](https://en.wikipedia.org/wiki/Degenerate_distribution#Constant_random_variable) at `x`
 // `undefined` if `x` is undefined
 function constant(x) {
-  if (x === undefined) return undefined
+  if (!defined(x) || is_nan(x)) return undefined
   const dom = { equal: x }
   dom._prior = f => f(x)
   dom._log_p = x => 0
-  dom._posterior = f => f(x)
+  // posterior can be omitted for constant w/ log_p(x)==0
+  // dom._posterior = f => f(x)
   return dom
 }
 

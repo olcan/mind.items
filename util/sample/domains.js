@@ -154,9 +154,12 @@ const or = mixture
 // returns function `(j,J,s)=>…` to be passed to `sample_array(J, …)`
 function summand(S) {
   if (!is_finite(S) || S <= 0) return undefined
-  // note ≡ between(0,S-s,{μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)})
-  return (j, J, s) =>
-    j == J - 1 ? constant(S - s) : beta_αβ(0, S - s, 1, J - j - 1)
+  return (j, J, s) => {
+    if (!defined(s)) return undefined
+    if (j == J - 1) return constant(S - s)
+    // return between(0,S-s,{μ:(S-s)/(J-j), σ:sqrt(1-2/(J-j+1))/(J-j)})
+    return beta_αβ(0, S - s, 1, J - j - 1)
+  }
 }
 
 // `x∈{0,…,S}` in sum to integer `S>0`
@@ -164,8 +167,11 @@ function summand(S) {
 // returns function `(j,J,s)=>…` to be passed to `sample_array(J, …)`
 function integer_summand(S) {
   if (!is_integer(S) || S <= 0) return undefined
-  return (j, J, s) =>
-    j == J - 1 ? constant(S - s) : binomial(0, S - s, (S - s) / (J - j))
+  return (j, J, s) => {
+    if (!defined(s)) return undefined
+    if (j == J - 1) return constant(S - s)
+    return binomial(0, S - s, (S - s) / (J - j))
+  }
 }
 
 function _sum(J, S, fs = summand) {
@@ -173,6 +179,8 @@ function _sum(J, S, fs = summand) {
   const domain_fj = fs(S)
   const xJ = array(J, j => {
     const xj = domain_fj(j, J, s)._prior(x => x)
+    if (!defined(xj)) return (s = undefined) // also affects remaining terms
+    assert(xj >= 0, 'invalid prior sample for summand')
     s += xj
     return xj
   })

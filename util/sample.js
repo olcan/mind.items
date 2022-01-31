@@ -1992,7 +1992,9 @@ class _Sampler {
 
     // if at or past pivot, resample "jump" value from prior
     // always resample if xjk is missing (can only happen past pivot)
-    if (xjk === undefined || random_boolean(upwK[k])) {
+    // always always "jump" if log_p(xjk)==0, i.e. jump == stay
+    // otherwise "stay" fails if xjk varies across runs since then log_p=-inf
+    if (xjk === undefined || log_p_xjk == 0 || random_boolean(upwK[k])) {
       // if (xjk === undefined || k != k_pivot) {
       // if (xjk === undefined || k != k_pivot || random_boolean(0.5)) {
       // if (xjk === undefined || true) {
