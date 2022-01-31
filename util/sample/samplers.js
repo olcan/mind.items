@@ -31,18 +31,22 @@ function uniform(a, b) {
   return dom
 }
 
-function _check_log_p_normalized(sampler, a, b) {
+function _log_p_normalized(sampler, a, b) {
   const J = 1000000 // bit slow (20-150ms) but more strict
   const xJ = array(J)
   random_uniform_array(xJ, a, b)
   const pJ = apply(xJ, x => (b - a) * exp(density(x, sampler)))
   const σ = sqrt(variance(pJ) / J)
-  // we tolerate 6.10941σ error (~one-in-a-billion test failure)
-  check(() => [mean(pJ), 1, (a, b) => approx_equal(a, b, 6.10941 * σ)])
+  return [
+    mean(pJ),
+    1,
+    // we tolerate 6.10941σ error (~one-in-a-billion test failure)
+    (a, b) => approx_equal(a, b, 6.10941 * σ),
+  ]
 }
 
 function _test_uniform() {
-  _check_log_p_normalized(uniform(2, 5), 2, 5)
+  check(() => _log_p_normalized(uniform(2, 5), 2, 5))
 }
 
 function _benchmark_uniform() {
@@ -72,7 +76,7 @@ function triangular(a, b, c) {
 }
 
 function _test_triangular() {
-  _check_log_p_normalized(triangular(2, 5, 3), 2, 5)
+  check(() => _log_p_normalized(triangular(2, 5, 3), 2, 5))
 }
 
 function _beta_mean_from_mode(a, b, c, σ) {
@@ -156,7 +160,7 @@ function _beta_αβ(a, b, α, β) {
 }
 
 function _test_beta() {
-  _check_log_p_normalized(beta(2, 5, 3, 1), 2, 5)
+  check(() => _log_p_normalized(beta(2, 5, 3, 1), 2, 5))
 }
 
 // [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)` w/ mean `μ`, stdev `σ`
@@ -176,7 +180,7 @@ function normal(μ, σ) {
 }
 
 function _test_normal() {
-  _check_log_p_normalized(normal(0, 1), -100, 100)
+  check(() => _log_p_normalized(normal(0, 1), -100, 100))
 }
 
 // gamma log-density
@@ -233,7 +237,7 @@ function gamma(a, μ, σ) {
 }
 
 function _test_gamma() {
-  _check_log_p_normalized(gamma(2, 5, 1), 2, 100)
+  check(() => _log_p_normalized(gamma(2, 5, 1), 2, 100))
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on arguments `xK`
@@ -249,14 +253,14 @@ function uniform_discrete(...xK) {
   return dom
 }
 
-function _check_discrete_log_p_normalized(sampler, xK) {
+function _discrete_log_p_normalized(sampler, xK) {
   const pJ = xK.map(x => exp(density(x, sampler)))
-  check(() => [sum(pJ), 1, approx_equal])
+  return [sum(pJ), 1, approx_equal]
 }
 
 function _test_uniform_discrete() {
   const xK = range(5, 10)
-  _check_discrete_log_p_normalized(uniform_discrete(...xK), xK)
+  check(() => _discrete_log_p_normalized(uniform_discrete(...xK), xK))
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on integers `{a,…,b}`
@@ -275,7 +279,7 @@ function uniform_integer(a, b) {
 }
 
 function _test_uniform_integer() {
-  _check_discrete_log_p_normalized(uniform_integer(5, 10), range(5, 11))
+  check(() => _discrete_log_p_normalized(uniform_integer(5, 10), range(5, 11)))
 }
 
 // log-binomial-coefficient in terms of gamma functions
@@ -304,7 +308,7 @@ function binomial(a, b, μ) {
 }
 
 function _test_binomial() {
-  _check_discrete_log_p_normalized(binomial(5, 10, 7), range(5, 11))
+  check(() => _discrete_log_p_normalized(binomial(5, 10, 7), range(5, 11)))
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on booleans `{false,true}`
@@ -318,7 +322,7 @@ function uniform_boolean() {
 }
 
 function _test_uniform_boolean() {
-  _check_discrete_log_p_normalized(uniform_boolean(), [false, true])
+  check(() => _discrete_log_p_normalized(uniform_boolean(), [false, true]))
 }
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on `{0,1}`
@@ -332,7 +336,7 @@ function uniform_binary() {
 }
 
 function _test_uniform_binary() {
-  _check_discrete_log_p_normalized(uniform_binary(), [0, 1])
+  check(() => _discrete_log_p_normalized(uniform_binary(), [0, 1]))
 }
 
 // mixture(...samplers)
@@ -352,15 +356,17 @@ function mixture(...sK) {
 }
 
 function _test_mixture() {
-  _check_log_p_normalized(
-    mixture(
-      uniform(2, 5),
-      triangular(2, 5, 3),
-      beta(2, 5, 3, 1),
-      gamma(2, 5, 1)
-    ),
-    2,
-    100
+  check(() =>
+    _log_p_normalized(
+      mixture(
+        uniform(2, 5),
+        triangular(2, 5, 3),
+        beta(2, 5, 3, 1),
+        gamma(2, 5, 1)
+      ),
+      2,
+      100
+    )
   )
 }
 
