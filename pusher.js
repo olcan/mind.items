@@ -91,6 +91,7 @@ async function init_pusher() {
   // initialize store.items
   start = Date.now()
   _this.store.items = {}
+  let pushed_items_found = false
   for (let item of _items()) {
     if (!item.saved_id) {
       _this.warn('skipped unsaved item')
@@ -100,20 +101,20 @@ async function init_pusher() {
     const remote_sha = path_sha.get(path)
     const sha = github_sha(item.text)
     _this.store.items[item.saved_id] = { sha, remote_sha }
+    if (remote_sha) pushed_items_found = true
   }
-  _this.log(
-    `verified sha for ${_items().length} items in ${Date.now() - start} ms`
-  )
 
-  // report inconsistent/missing items, mark inconsistent items pushable
+  // report inconsistent/missing items
+  // mark inconsistent items pushable
+  // also mark missing items pushable, unless ALL are missing
   // NOTE: side-push inconsistencies for installed items are checked by #updater
   let count = 0,
     names = []
   for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
-    // mark pushable if inconsistent (but not missing)
-    if (remote_sha) item.pushable = true
+    // mark pushable if inconsistent or missing (and not all missing)
+    if (remote_sha || pushed_items_found) item.pushable = true
     if (names.length < 10) names.push(item.name)
     count++
   }
@@ -123,6 +124,10 @@ async function init_pusher() {
         ` /push or /pull; most recent ${names.length} are: ` +
         `${names.join(' ')}${count > names.length ? ' ...' : ''}`
     )
+
+  _this.log(
+    `verified sha for ${_items().length} items in ${Date.now() - start} ms`
+  )
 
   // create branch last_init for comparisons
   update_branch('last_init')
