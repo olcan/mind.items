@@ -132,7 +132,6 @@ function beta(a, b, μ, σ) {
 // `undefined` if `α` or `β` non-number or non-positive
 // `null` (empty) if `a>=b`
 function beta_αβ(a, b, α, β) {
-  α
   if (!is_finite(a) || !is_finite(b)) return undefined
   if (a >= b) return null // empty (null) if a >= b
   if (!is_finite(a) || α <= 0) return undefined
