@@ -254,7 +254,6 @@ function _test_matrixify() {
 
 // transposes matrix `xJK → xKJ`
 // matrixifies scalar/vector argument as needed
-// scalarifies transposed matrix
 function transpose(xJK) {
   xJK = matrixify(xJK)
   const J = xJK.length
@@ -266,19 +265,19 @@ function transpose(xJK) {
     const xk = (xKJ[k] = new Array(J))
     for (let j = 0; j < J; ++j) xk[j] = xJK[j][k]
   }
-  return scalarify(xKJ)
+  return xKJ
 }
 
 function _test_transpose() {
   check(
-    () => [transpose(), undefined],
+    () => [transpose(), [[undefined]]],
     () => [transpose([]), []],
     () => [transpose([[]]), []],
-    () => [transpose(0), 0],
-    () => [transpose([0]), 0],
-    () => [transpose([[0]]), 0],
+    () => [transpose(0), [[0]]],
+    () => [transpose([0]), [[0]]],
+    () => [transpose([[0]]), [[0]]],
     () => [transpose([1, 2]), [[1], [2]]],
-    () => [transpose([[1], [2]]), [1, 2]],
+    () => [transpose([[1], [2]]), [[1, 2]]],
     () => [
       transpose([
         [1, 2],
