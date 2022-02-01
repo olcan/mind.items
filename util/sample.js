@@ -381,6 +381,17 @@ function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   return wJ.every(w => w >= w_min && w <= w_max)
 }
 
+function _remove_undefined(xJ, wJ) {
+  let jj = -1
+  for (let j = 0; j < xJ.length; ++j) {
+    if (xJ[j] === undefined) continue
+    if (++jj == j) continue // no undefined yet
+    xJ[jj] = xJ[j]
+    wJ[jj] = wJ[j]
+  }
+  xJ.length = wJ.length = ++jj
+}
+
 class _Timer {
   constructor() {
     this.start = Date.now()
@@ -576,6 +587,7 @@ class _Sampler {
     }
 
     if (options.quantiles) this._quantiles()
+    if (options.table) this._table()
     if (options.plot) this._plot()
   }
 
@@ -1309,6 +1321,53 @@ class _Sampler {
     )
   }
 
+  _table() {
+    const { J, rwJ, xJK, pxJK } = this
+    let value_table = []
+    each(this.values, (value, k) => {
+      let row = [value.name]
+      if (!is_number(value.first)) return // value not number
+
+      // get prior w/ weights
+      const pxJ = array(J, j => pxJK[j][k])
+      apply(pxJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
+      const pwJ = copy(this.pwJ)
+      _remove_undefined(pxJ, pwJ)
+      const nstr = x => round_to(x, 3).toFixed(3)
+      // TODO: weighted mean/stdev
+      row.push(`${nstr(mean(pxJ))}±${nstr(stdev(pxJ))}`)
+
+      // get posterior w/ weights
+      const xJ = array(J, j => xJK[j][k])
+      apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
+      const wJ = copy(rwJ)
+      _remove_undefined(xJ, wJ)
+      row.push(`${nstr(mean(xJ))}±${nstr(stdev(xJ))}`)
+
+      if (value.target && !is_function(value.target)) {
+        // get target sample w/ weights
+        const yT = value.target
+        const wT = array(value.target.length, 1)
+        if (value.target_weights) copy(wT, value.target_weights)
+        _remove_undefined(yT, wT)
+        row.push(`${nstr(mean(yT))}±${nstr(stdev(yT))}`)
+      }
+
+      value_table.push(row)
+    })
+    _this.write(table(value_table), '_md_values')
+    _this.write(table(entries(omit(this.stats, 'updates'))), '_md_stats')
+    _this.write(
+      flat(
+        '<style>',
+        `#item table { font-size:80%; line-height:140%; white-space:nowrap; color:gray; font-family:'jetbrains mono', monospace }`,
+        `#item table + br { display: none }`,
+        '</style>'
+      ).join('\n'),
+      '_html'
+    )
+  }
+
   _plot() {
     const updates = this.stats?.updates
     if (updates) {
@@ -1532,30 +1591,19 @@ class _Sampler {
       // sample_array can be used to treat elements as values
       // if (!is_primitive(value.first)) return // value not primitive
 
-      // we filter undefined and rescale weihts to J for all samples
-      function _filter_undefined(xJ, wJ) {
-        let jj = -1
-        for (let j = 0; j < xJ.length; ++j) {
-          if (xJ[j] === undefined) continue
-          if (++jj == j) continue // no undefined yet
-          xJ[jj] = xJ[j]
-          wJ[jj] = wJ[j]
-        }
-        xJ.length = wJ.length = ++jj
-      }
-
       // get prior w/ weights
       const pxJ = array(J, j => pxJK[j][k])
       apply(pxJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const pwJ = copy(this.pwJ)
-      _filter_undefined(pxJ, pwJ)
+      // we remove undefined and rescale weights to J for all samples
+      _remove_undefined(pxJ, pwJ)
       scale(pwJ, J / sum(pwJ)) // rescale to sum to J
 
       // get posterior w/ weights
       const xJ = array(J, j => xJK[j][k])
       apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const wJ = copy(rwJ)
-      _filter_undefined(xJ, wJ)
+      _remove_undefined(xJ, wJ)
       scale(wJ, J / sum(wJ)) // rescale to sum to J
 
       if (!value.target) {
@@ -1579,7 +1627,7 @@ class _Sampler {
       const yT = value.target
       const wT = array(value.target.length, 1)
       if (value.target_weights) copy(wT, value.target_weights)
-      _filter_undefined(yT, wT)
+      _remove_undefined(yT, wT)
       scale(wT, J / sum(wT)) // rescale to sum to J
 
       hist([pxJ, xJ, yT], { weights: [pwJ, wJ, wT] }).hbars({
