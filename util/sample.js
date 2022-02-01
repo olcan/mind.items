@@ -1565,6 +1565,7 @@ class _Sampler {
             { label: 'prior', color: '#555' },
             { label: 'posterior', color: '#d61' },
           ],
+          delta: true, // append delta series
         })
         return
       }
