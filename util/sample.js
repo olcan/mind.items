@@ -591,22 +591,47 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[\p{L}\d]+) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|\p{L}[\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {
         // if name is missing, try object key (minus quotes) instead
         if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
         name ??= key
+        let array_names
         if (name) {
+          // decline destructuring assignment to object {...}
           assert(
-            !names.has(name),
-            `invalid duplicate name '${name}' for sampled value`
+            name[0] != '{',
+            `destructuring assignment to object ${name} not supported`
           )
-          assert(
-            !name.match(/^\d/),
-            `invalid numeric name '${name}' for sampled value`
-          )
+          // allow destructuring assignment to full flat array from sample_array
+          if (name[0] == '[') {
+            assert(
+              !name.slice(1, -1).match(/\[|{/),
+              `destructuring assignment to nested array ${name} not supported`
+            )
+            assert(
+              method == 'sample_array',
+              `destructuring assignment to array requires sample_array`
+            )
+            const [, size] = args.match(/^ *(\d+) *,/) ?? []
+            assert(size > 0, 'invalid/missing size for sample_array')
+            array_names = name.match(/\p{L}[\p{L}\d]*/gu) ?? []
+            assert(
+              size == array_names.length,
+              'destructuring array assignment size mismatch'
+            )
+          } else {
+            assert(
+              !names.has(name),
+              `invalid duplicate name '${name}' for sampled value`
+            )
+            assert(
+              !name.match(/^\d/),
+              `invalid numeric name '${name}' for sampled value`
+            )
+          }
         }
         // extract lexical context
         let mt = m
@@ -671,12 +696,26 @@ class _Sampler {
             const [, size] = args.match(/^ *(\d+) *,/) ?? []
             assert(size > 0, 'invalid/missing size for sample_array')
             const index = values.length
-            const array_name = name || str(index)
-            repeat(size, i => {
-              const index = values.length // element index
-              names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
-              values.push({ index, offset, name, args, line_index, line, js })
-            })
+            if (!array_names) {
+              // process using array name
+              const array_name = name || str(index)
+              repeat(size, i => {
+                const index = values.length // element index
+                names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
+                values.push({ index, offset, name, args, line_index, line, js })
+              })
+            } else {
+              // process names from destructuring assignment
+              for (const name of array_names) {
+                const index = values.length // element index
+                assert(
+                  !names.has(name),
+                  `invalid duplicate name '${name}' for sampled value`
+                )
+                names.add(name) // aligned w/ values & unique
+                values.push({ index, offset, name, args, line_index, line, js })
+              }
+            }
             return m.replace(
               /sample_array *\(.+\)$/s,
               `__sampler._${method}(${index},${args})`
