@@ -234,7 +234,7 @@ function density(x, domain) {
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
 // sampler function `domain` is passed new _sampler `context`_
 // non-function `domain` requires outer `sample(context=>{ … })`
-// _sampler domains_ specify default `domain._prior`, `._posterior`
+// _sampler domains_ specify default `domain._prior|_log_p|_posterior`
 // conditions/weights are scoped by outer `sample(context=>{ … })`
 // samples are tied to _lexical context_, e.g. are constant in loops
 // `options` for all domains:
@@ -244,6 +244,8 @@ function density(x, domain) {
 // | `prior`       | prior sampler `f => f(x,[log_pw=0])`
 // |               | `x~S(X), log_pw=log(∝p(x)/s(x))`
 // |               | _default_: `domain._prior`
+// | `log_p`       | prior density function `x => …`
+// |               | _default_: `domain._log_p`
 // | `posterior`   | posterior (chain) sampler `(f,x,…) => f(y,[log_mw=0])`
 // |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
 // |               | _default_: `domain._posterior`
@@ -1681,6 +1683,8 @@ class _Sampler {
     const { J, K, xJK, rwJ, rwj_uniform, rwj_sum, values, stats } = this
     // compute ks1_test or ks2_test for each value w/ target
     const xJ = (this.___tks_xJ ??= array(J))
+    const wJ = (this.___tks_wJ ??= array(J))
+    const wJy = (this.___tks_wJy ??= array(J))
     const pK = (this.___tks_pK ??= array(K))
     fill(pK, k => {
       const value = values[k]
@@ -1694,14 +1698,18 @@ class _Sampler {
           filter: true, // filter undefined
         })
       }
-      // copy target sample array also since ks2 can modify
+      if (!rwj_uniform) copy(wJ, rwJ) // since ks2 can modify wJ
+
+      // copy target sample arrays also since ks2 can modify
       const yT = (this.___tks_yT ??= array(value.target.length))
       copy(yT, value.target)
+      if (value.target_weights) copy(wJy, value.target_weights)
+
       // use ks2_test for sample target
       return ks2_test(xJ, yT, {
-        wJ: rwj_uniform ? undefined : rwJ,
+        wJ: rwj_uniform ? undefined : wJ,
         wj_sum: rwj_uniform ? undefined : rwj_sum,
-        wK: value.target_weights,
+        wK: value.target_weights ? wJy : undefined,
         wk_sum: value.target_weight_sum,
         filter: true, // filter undefined
         numberize: !is_number(value.first), // map to random numbers
@@ -1731,10 +1739,13 @@ class _Sampler {
     }
 
     const xJ = (this.___mks_xJ ??= array(J))
-    const wJ = (this.___mks_wJ ??= array(J))
     const yJ = (this.___mks_yJ ??= array(J))
     const log_p_xJ = (this.___mks_log_p_xJ ??= array(J))
     const log_p_yJ = (this.___mks_log_p_yJ ??= array(J))
+    const wJ = (this.___mks_wJ ??= array(J))
+    // buffers to copy wJ and rwBJ[0] inside loop since ks2 can modify
+    const wJk = (this.___mks_wJk ??= array(J))
+    const rwbJk = (this.___mks_rwbJk ??= array(J))
 
     // include only samples fully updated since buffered update
     copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
@@ -1752,17 +1763,17 @@ class _Sampler {
       copy(log_p_yJ, log_p_xBJK[0], log_p_yjK => log_p_yjK[k])
       return [
         ks2_test(xJ, yJ, {
-          wJ,
+          wJ: copy(wJk, wJ),
           wj_sum,
-          wK: rwBJ[0],
+          wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
           wk_sum: rwBj_sum[0],
           filter: true, // filter undefined
           numberize: !is_number(value.first), // map to random numbers
         }),
         ks2_test(log_p_xJ, log_p_yJ, {
-          wJ,
+          wJ: copy(wJk, wJ),
           wj_sum,
-          wK: rwBJ[0],
+          wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
           wk_sum: rwBj_sum[0],
           filter: true, // filter undefined
           numberize: !is_number(value.first), // map to random numbers
@@ -1877,8 +1888,7 @@ class _Sampler {
 
       // pre-process function domain if parameter-free
       // otherwise have to do it on every call before sampling (see below)
-      value.sampler_domain = is_function(domain)
-      if (value.sampler_domain && size(options?.params) == 0)
+      if (is_function(domain) && size(options?.params) == 0)
         value.domain = new _Sampler(domain, options)
 
       const { index, name, args } = value
@@ -1932,9 +1942,17 @@ class _Sampler {
       }
     }
 
-    // process sampler domain (unless pre-processed)
-    // also ensure ~full ess since that is assumed by posterior sampler
-    if (value.sampler_domain) {
+    // init sampler for function domain if not done above (e.g. due to params)
+    // ensure ~full ess since that is assumed by posterior sampler
+    if (is_function(domain)) {
+      // reusing sampler assumes domain (function) is unchanged across runs
+      // for now we perform a basic check on the stringified function
+      // in the future we may require object reuse for efficiency
+      if (value.domain)
+        assert(
+          str(value.domain.domain) == str(domain),
+          'function (sampler) domain modified across runs'
+        )
       domain = value.domain ?? new _Sampler(domain, options)
       assert(
         approx_equal(domain.ess, domain.J, 1e-3),
@@ -1942,10 +1960,12 @@ class _Sampler {
       )
     }
 
-    const log_p = domain._log_p
-    assert(log_p, 'missing prior density (_log_p)')
+    // require prior and log_p to be defiend via domain or options
+    // note we do not auto-wrap as constant(domain) for now
     const prior = options?.prior ?? domain._prior
     assert(prior, 'missing prior sampler (_prior)')
+    const log_p = options?.log_p ?? domain._log_p
+    assert(log_p, 'missing prior density (_log_p)')
 
     // if not moving, sample from prior into xJK
     // prior sample weights (if any) are stored in log_pwJ

@@ -453,7 +453,7 @@ function _filter_undefined(J, xJ, wJ, wj_sum) {
 
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
-// can modify arrays `xJ` and `yK` to sort, filter, map, etc
+// can modify arrays `xJ`,`yK`,`wJ`,`wK`, to sort, filter, or map
 // | `wJ`        | `1,…,1` | weights for `xJ`
 // | `wK`        | `1,…,1` | weights for `yK`
 // | `wj_sum`    | `J` | sum of weights `wJ`
@@ -461,7 +461,7 @@ function _filter_undefined(J, xJ, wJ, wj_sum) {
 // | `xj_sorted` | `false` | assume `xJ` already sorted
 // | `yk_sorted` | `false` | assume `yK` already sorted
 // | `discrete`  | `false` | allow identical (discrete) values?
-// | `filter`    | `false` | filter undefined values?
+// | `filter`    | `false` | filter `undefined` values?
 // | `numberize` | `false` | map values to random numbers?
 function ks2(xJ, yK, options = {}) {
   assert(is_array(xJ), `non-array first argument`)
@@ -471,7 +471,6 @@ function ks2(xJ, yK, options = {}) {
   let K = yK ? yK.length : 0 // if yK missing, K=0 for now, K=J later
   assert(J > 0, `empty first array for ks2`)
   if (yK) assert(K > 0, 'empty second array for ks2')
-  const R = J + K
   const { xj_sorted, yk_sorted, discrete, numberize, filter } = options
   let { wJ, wj_sum, wK, wk_sum } = options
   if (filter) {
@@ -483,6 +482,10 @@ function ks2(xJ, yK, options = {}) {
       assert(K > 0, `empty second array for ks2 after removing undefined`)
     }
   }
+  const R = J + K
+  if (wJ) assert(wJ.length == J, 'wJ size mismatch', J, wJ.length)
+  if (wK) assert(wK.length == K || J, 'wK size mismatch', K, J, wK.length)
+
   if (numberize) {
     // numberize, i.e. map values to random numbers
     assert(!xj_sorted && !yk_sorted, 'unnecessary pre-sorting')
@@ -558,16 +561,21 @@ function ks2(xJ, yK, options = {}) {
   const ks = max_in(apply(rR, abs)) / (J * K)
   if (is_nan(ks) || is_inf(ks)) {
     console.debug('ks nan/inf', {
+      discrete,
+      filter,
+      numberize,
+      xj_sorted,
+      yk_sorted,
       J,
       K,
+      R,
       wj_sum,
       wk_sum,
       wJ,
       wK,
       rR,
-      xj_sorted,
-      yk_sorted,
-      discrete,
+      mR,
+      ks,
     })
     fatal('ks nan/inf (see debug console for details)')
   }
@@ -576,12 +584,12 @@ function ks2(xJ, yK, options = {}) {
 
 // ks1(xJ, cdf, [options])
 // one-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
-// sorts array `xJ` _in place_
+// can modify arrays `xJ`,`wJ`, to sort or filter
 // | `wJ`        | `1,…,1` | weights for `xJ`
 // | `wj_sum`    | `J`     | sum of weights `wJ`
 // | `xj_sorted` | `false` | assume `xJ` already sorted
 // | `discrete`  | `false` | allow identical (discrete) values?
-// | `filter`    | `false` | filter undefined values?
+// | `filter`    | `false` | filter `undefined` values?
 function ks1(xJ, cdf, options = {}) {
   assert(is_array(xJ), 'non-array argument')
   let { xj_sorted, wK, wk_sum, numberize, filter } = options
