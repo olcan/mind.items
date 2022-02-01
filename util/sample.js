@@ -591,7 +591,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|\p{L}[\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {
@@ -617,7 +617,7 @@ class _Sampler {
             )
             const [, size] = args.match(/^ *(\d+) *,/) ?? []
             assert(size > 0, 'invalid/missing size for sample_array')
-            array_names = name.match(/\p{L}[\p{L}\d]*/gu) ?? []
+            array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
             assert(
               size == array_names.length,
               'destructuring array assignment size mismatch'
