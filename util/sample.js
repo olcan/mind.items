@@ -1480,7 +1480,7 @@ class _Sampler {
       assert(every(this.options.plot, is_string), 'invalid option plot')
       plot_names = new Set(this.options.plot)
     }
-    const { J, rwJ, rwj_sum, xJK, pxJK, pwj_sum } = this
+    const { J, rwJ, xJK, pxJK } = this
     each(this.values, (value, k) => {
       // use value name as plot name but replace non-alphanum w/ underscore
       const name = value.name.replace(/\W/g, '_').replace(/^_+|_+$/g, '')
@@ -1493,18 +1493,34 @@ class _Sampler {
       // sample_array can be used to treat elements as values
       // if (!is_primitive(value.first)) return // value not primitive
 
-      // get prior w/ weights that sum to J
+      // we filter undefined and rescale weihts to J for all samples
+      function _filter_undefined(xJ, wJ) {
+        let jj = -1
+        for (let j = 0; j < xJ.length; ++j) {
+          if (xJ[j] === undefined) continue
+          if (++jj == j) continue // no undefined yet
+          xJ[jj] = xJ[j]
+          wJ[jj] = wJ[j]
+        }
+        xJ.length = wJ.length = ++jj
+      }
+
+      // get prior w/ weights
       const pxJ = array(J, j => pxJK[j][k])
       apply(pxJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
-      const pwJ = scale(copy(this.pwJ), J / pwj_sum)
+      const pwJ = copy(this.pwJ)
+      _filter_undefined(pxJ, pwJ)
+      scale(pwJ, J / sum(pwJ)) // rescale to sum to J
 
-      // include any undefined values for now
+      // get posterior w/ weights
       const xJ = array(J, j => xJK[j][k])
       apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
-      const wJ = scale(copy(rwJ), J / rwj_sum) // rescale to sum to J
+      const wJ = copy(rwJ)
+      _filter_undefined(xJ, wJ)
+      scale(wJ, J / sum(wJ)) // rescale to sum to J
 
       if (!value.target) {
-        hist([pxJ, xJ], { weights: [pwJ, rwJ] }).hbars({
+        hist([pxJ, xJ], { weights: [pwJ, wJ] }).hbars({
           name,
           series: [
             { label: 'prior', color: '#555' },
@@ -1519,15 +1535,12 @@ class _Sampler {
         return // cdf target not supported yet
       }
 
-      // get target sample w/ weights that sum to J
+      // get target sample w/ weights
       const yT = value.target
-      const wT = array(value.target.length)
-      if (value.target_weights) {
-        copy(wT, value.target_weights)
-        scale(wT, J / value.target_weight_sum) // rescale to sum to J
-      } else {
-        fill(wT, J / value.target.length) // rescale to sum to J
-      }
+      const wT = array(value.target.length, 1)
+      if (value.target_weights) copy(wT, value.target_weights)
+      _filter_undefined(yT, wT)
+      scale(wT, J / sum(wT)) // rescale to sum to J
 
       hist([pxJ, xJ, yT], { weights: [pwJ, wJ, wT] }).hbars({
         name,
@@ -1863,9 +1876,9 @@ class _Sampler {
     // reject run (-∞ weight) on nullish (null=empty or undefined) domain
     if (is_nullish(domain)) log_wJ[j] = -inf
 
-    // return undefined on (effectively) rejected run
-    if (log_wJ[j] == -inf) return undefined
-    if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
+    // return undefined on (effectively) rejected run if sampling posterior
+    if (moving && min(log_wJ[j], log_mwJ[j], log_mpJ[j]) == -inf)
+      return undefined
 
     // initialize on first call
     if (!value.sampler) {
