@@ -70,8 +70,8 @@ function plot(obj, name = undefined) {
   if (!_this.tags_visible.includes(item.name.toLowerCase())) {
     const tag = item.name.replace(_this.name, '#') // make relative
     let text = read()
-    // if item does not end with a line of tags, create a new line
-    if (!text.match(/\n *#[^\n]+(?:$|\n)/)) text += '\n' + tag
+    // if item does not end with a separate line of tags, create a new line
+    if (!text.match(/\n\s*#[^\n]+$/)) text += '\n' + tag
     else text += ' ' + tag
     write(text, '')
   }
