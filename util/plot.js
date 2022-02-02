@@ -115,7 +115,7 @@ function plot(obj, name = undefined) {
           untagged_plots.join('\n')
       )
     ) {
-      each(untagged_plots, label => _item(label).delete())
+      each(untagged_plots, label => _item(label).delete(false /*confirm*/))
     }
     write_log()
   })
