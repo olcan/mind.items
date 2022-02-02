@@ -549,15 +549,19 @@ class _Sampler {
 
     // initialize stats
     this._init_stats()
+    const stats = this.stats
 
     if (defined(this.options.targets)) {
       if (this.options.targets == true) this._targets()
       else assert(is_object(this.options.targets), 'invalid option targets')
     }
 
+    if (stats) stats.time.init = this.t // init time, including target sampling
+
     // sample prior (along w/ u=0 posterior)
-    let timer = _timer_if(options.log)
+    let timer = _timer_if(options.log || stats)
     this._sample_prior()
+    if (stats) stats.time.prior = timer.t
     if (options.log) {
       print(
         `sampled ${J} prior runs (ess ${this.pwj_ess}, ` +
@@ -577,13 +581,17 @@ class _Sampler {
       return
     }
 
-    // update sample to posterior
-    timer = _timer_if(options.log)
-    this._update()
+    // update sample to posterior if there are weights
+    if (this.weights.length) {
+      timer = _timer_if(options.log || stats)
+      this._update()
+      if (stats) stats.time.update = timer.t
+    }
+
     if (options.log) {
       print(`applied ${this.u} updates in ${timer}`)
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
-      if (this.stats) print(str(omit(this.stats, 'updates')))
+      if (stats) print(str(omit(stats, 'updates')))
     }
 
     if (options.quantiles) this._quantiles()
@@ -603,7 +611,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\S+) *= *|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\S+) *= *(?:\S+ *= *)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {
@@ -622,6 +630,10 @@ class _Sampler {
             assert(
               !name.slice(1, -1).match(/\[|{/),
               `destructuring assignment to nested array ${name} not supported`
+            )
+            assert(
+              !name.slice(1, -1).match(/=/),
+              `default values in assignment to array ${name} not supported`
             )
             assert(
               method == 'sample_array',
@@ -824,13 +836,19 @@ class _Sampler {
       moves: 0,
       proposals: 0,
       accepts: 0,
-      sample_time: 0,
-      reweight_time: 0,
-      resample_time: 0,
-      move_time: 0,
-      mks_time: 0,
-      tks_time: 0,
-      targets_time: 0,
+      time: {
+        init: 0,
+        prior: 0,
+        update: 0,
+        updates: {
+          sample: 0,
+          reweight: 0,
+          resample: 0,
+          move: 0,
+          mks: 0,
+          tks: 0,
+        },
+      },
     }
   }
 
@@ -936,7 +954,7 @@ class _Sampler {
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
     copy(pxJ, xJ)
-    if (stats) stats.sample_time += timer.t
+    if (stats) stats.time.updates.sample += timer.t
   }
 
   // reweight by incrementing rN until rN=1
@@ -969,7 +987,7 @@ class _Sampler {
     if (stats) {
       stats.reweights++
       stats.reweight_tries += tries
-      stats.reweight_time += timer.t
+      stats.time.updates.reweight += timer.t
     }
   }
 
@@ -1013,7 +1031,7 @@ class _Sampler {
     this.wsum = null // since log_wJ changed
     if (stats) {
       stats.resamples++
-      stats.resample_time += timer.t
+      stats.time.updates.resample += timer.t
     }
   }
 
@@ -1108,7 +1126,7 @@ class _Sampler {
       stats.moves++
       stats.proposals += J
       stats.accepts += accepts
-      stats.move_time += timer.t
+      stats.time.updates.move += timer.t
     }
   }
 
@@ -1278,7 +1296,7 @@ class _Sampler {
     this.options.targets = transpose_objects(targets)
     if (this.options.log)
       print(`generated ${targets.length} targets in ${timer.t}ms`)
-    if (this.stats) this.stats.targets_time = timer.t
+    // if (this.stats) this.stats.targets = timer.t
   }
 
   _quantiles() {
@@ -1329,39 +1347,54 @@ class _Sampler {
       if (!is_number(value.first)) return // value not number
 
       // get prior w/ weights
-      const pxJ = array(J, j => pxJK[j][k])
+      let pxJ = array(J, j => pxJK[j][k])
       apply(pxJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const pwJ = copy(this.pwJ)
       _remove_undefined(pxJ, pwJ)
-      const nstr = x => round_to(x, 3).toFixed(3)
-      // TODO: weighted mean/stdev
-      row.push(`${nstr(mean(pxJ))}±${nstr(stdev(pxJ))}`)
+      const nstr = x => round_to(x, 2).toFixed(2)
+      // const wtd_mean = (xJ, wJ) => dot(xJ, wJ) / sum(wJ)
+      pxJ = lookup(pxJ, random_discrete_array(array(J), pwJ))
+      row.push(quantiles(pxJ, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
 
       // get posterior w/ weights
-      const xJ = array(J, j => xJK[j][k])
+      let xJ = array(J, j => xJK[j][k])
       apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const wJ = copy(rwJ)
       _remove_undefined(xJ, wJ)
-      row.push(`${nstr(mean(xJ))}±${nstr(stdev(xJ))}`)
+      xJ = lookup(xJ, random_discrete_array(array(J), wJ))
+      row.push(quantiles(xJ, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
 
       if (value.target && !is_function(value.target)) {
         // get target sample w/ weights
-        const yT = value.target
+        let yT = value.target
         const wT = array(value.target.length, 1)
         if (value.target_weights) copy(wT, value.target_weights)
         _remove_undefined(yT, wT)
-        row.push(`${nstr(mean(yT))}±${nstr(stdev(yT))}`)
+        yT = lookup(yT, random_discrete_array(array(J), wT))
+        row.push(quantiles(yT, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
       }
 
       value_table.push(row)
     })
+    const stats = this.stats
     _this.write(table(value_table), '_md_values')
-    _this.write(table(entries(omit(this.stats, 'updates'))), '_md_stats')
+    _this.write(table(entries(pick_by(stats.time, is_number))), '_md_time')
+    _this.write(table(entries(stats.time.updates)), '_md_time_updates')
+    _this.write(
+      table(
+        entries({
+          updates: stats.updates?.length ?? 0,
+          ...pick_by(stats, is_number),
+        })
+      ),
+      '_md_stats'
+    )
     _this.write(
       flat(
         '<style>',
-        `#item table { font-size:80%; line-height:140%; white-space:nowrap; color:gray; font-family:'jetbrains mono', monospace }`,
+        `#item table { font-size:80%; line-height:140%; white-space:nowrap; color:#aaa; font-family:'jetbrains mono', monospace }`,
         `#item table + br { display: none }`,
+        `#item table { display: inline-block; vertical-align:top; margin-right:10px }`,
         '</style>'
       ).join('\n'),
       '_html'
@@ -1817,7 +1850,7 @@ class _Sampler {
       })
     })
     const pR = pK.filter(defined)
-    if (stats) stats.tks_time += timer.t
+    if (stats) stats.time.updates.tks += timer.t
     // minimum p-value ~ Beta(1,R) so we transform as beta_cdf(p,1,R)
     return -log2(beta_cdf(min_in(pR), 1, pR.length))
   }
@@ -1882,7 +1915,7 @@ class _Sampler {
       ]
     }).filter(defined)
 
-    if (stats) stats.mks_time += timer.t
+    if (stats) stats.time.updates.mks += timer.t
     const R = pR2.length
     if (R == 0) return inf
     // note there are many dependencies in the statistics, especially between x and log_p for same value (k), so we process take min across post-beta adjustment
@@ -2212,6 +2245,8 @@ class _Sampler {
     const domain_fj = is_function(domain) ? domain : j => domain
     let sum_xj = 0 // partial sum
     return array(J, j => {
+      const name = options?.names?.[j]
+      if (name) options = set(options ?? {}, 'name', name)
       const xj = this._sample(k + j, domain_fj(j, J, sum_xj), options)
       sum_xj += xj
       return xj
