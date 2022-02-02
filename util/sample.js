@@ -611,7 +611,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\S+) *= *(?:\S+ *= *)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\S+) *= *(?:\S+ *= *)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {
@@ -647,10 +647,7 @@ class _Sampler {
               'destructuring array assignment size mismatch'
             )
           } else {
-            assert(
-              !names.has(name),
-              `invalid duplicate name '${name}' for sampled value`
-            )
+            if (names.has(name)) name += '_' + index // de-duplicate name
             assert(
               !name.match(/^\d/),
               `invalid numeric name '${name}' for sampled value`
@@ -732,10 +729,7 @@ class _Sampler {
               // process names from destructuring assignment
               for (const name of array_names) {
                 const index = values.length // element index
-                assert(
-                  !names.has(name),
-                  `invalid duplicate name '${name}' for sampled value`
-                )
+                if (names.has(name)) name += '_' + index // de-duplicate name
                 names.add(name) // aligned w/ values & unique
                 values.push({ index, offset, name, args, line_index, line, js })
               }
@@ -764,10 +758,21 @@ class _Sampler {
               `__sampler._simulate(${index},${args})`
             )
           }
+          case 'plot': {
+            // treat as sample(constant(args)) w/ name args(.index)
+            const index = values.length
+            assert(args, 'missing args for plot')
+            assert(args != 'undefined', 'undefined args for plot')
+            assert(!name, 'invalid use of return value for plot')
+            name = args + (names.has(args) ? '_' + index : '') // de-duplicate
+            names.add(name) // name aligned w/ values & unique
+            values.push({ index, offset, name, args, line_index, line, js })
+            return `__sampler._sample(${index},constant(${args}))`
+          }
           case 'sample': {
             // replace sample call
             const index = values.length
-            names.add((name = name || str(index))) // name aligned w/ values & unique
+            names.add((name ||= str(index))) // name aligned w/ values & unique
             values.push({ index, offset, name, args, line_index, line, js })
             return m.replace(
               /sample *\(.+\)$/s,
@@ -2009,15 +2014,13 @@ class _Sampler {
 
       // process name if specified
       if (options?.name) {
-        assert(
-          !this.names.has(options.name),
-          `invalid duplicate name '${options.name}' for sampled value`
-        )
+        assert(is_string(options.name), 'non-string name for sampled value')
         assert(
           !options.name.match(/^\d/),
           `invalid numeric name '${options.name}' for sampled value`
         )
         value.name = options.name
+        if (this.names.has(value.name)) value.name += '_' + value.index
         this.names.add(value.name)
         this.nK[k] = value.name
       }
@@ -2278,7 +2281,7 @@ function _run() {
   // if js contains any sample|sample_array call, then wrap inside sample(...)
   // note this could match inside comments or strings
   if (!js.match(/\b(?:sample|sample_array) *\(/)) return null
-  print('running inside sample(…) due to sampled values ...')
+  print('running inside sample(…) due to sampled values')
   const func = eval(flat('(context=>{', js, '})').join('\n'))
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)
