@@ -788,12 +788,14 @@ class _Sampler {
       const wrapper = `(function({${_.keys(params)}}) { return ${this.js} })`
       func = eval(wrapper)(params)
     } else func = eval('(' + this.js + ')')
-    // use another wrapper to invoke _init_func() before each run
-    const func_w_init = function () {
+    // use another wrapper to invoke _init_func and set window.__sampler
+    const _func = function () {
+      window.__sampler = __sampler
       __sampler._init_func()
       func(...arguments)
+      window.__sampler = null
     }
-    return { func: func_w_init, values, weights, sims, names, nK: array(names) }
+    return { func: _func, values, weights, sims, names, nK: array(names) }
   }
 
   _init_func() {
@@ -2276,6 +2278,7 @@ function _run() {
   // if js contains any sample|sample_array call, then wrap inside sample(...)
   // note this could match inside comments or strings
   if (!js.match(/\b(?:sample|sample_array) *\(/)) return null
+  print('running inside sample(…) due to sampled values ...')
   const func = eval(flat('(context=>{', js, '})').join('\n'))
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)

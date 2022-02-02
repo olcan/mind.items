@@ -1,5 +1,7 @@
 // plot `obj` in item `name`
 function plot(obj, name = undefined) {
+  if (typeof __sampler != 'undefined')
+    fatal('plot(…) not allowed inside sample(…)')
   assert(is_object(obj), 'non-object argument')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
   assert(_this.name.startsWith('#'), 'plot called from unnamed item')
