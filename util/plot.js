@@ -1,7 +1,6 @@
 // plot `obj` in item `name`
 function plot(obj, name = undefined) {
-  if (typeof __sampler != 'undefined')
-    fatal('plot(…) not allowed inside sample(…)')
+  if (window.__sampler) fatal('plot(…) not allowed inside sample(…)')
   assert(is_object(obj), 'non-object argument')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
   assert(_this.name.startsWith('#'), 'plot called from unnamed item')
@@ -101,10 +100,9 @@ function plot(obj, name = undefined) {
     }
   })
 
-  // write logs (since last run) to plotting item
-  // also prompt to delete untagged plots (subitems that import #_util/plot)
+  // prompt to delete untagged plots (subitems that import #_util/plot)
   // dispatch as task to execute once after last plot in run
-  dispatch_task('write_logs', () => {
+  dispatch_task('delete_untagged_plots', () => {
     const untagged_plots = diff(
       _sublabels(_this.label).map(s => _this.label + '/' + s),
       _this.tags_visible
@@ -119,7 +117,7 @@ function plot(obj, name = undefined) {
     ) {
       each(untagged_plots, label => _item(label).delete(false /*confirm*/))
     }
-    write_log()
+    // write_log()
   })
 }
 
