@@ -4,6 +4,8 @@
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
 function simulate(x, t, events) {
+  x.t ??= 0 // default x.t is 0
+  x._t ??= 0 // non-resuming sim starts at x._t=0 to be advanced x.t>t>0
   assert(x.t >= 0, `invalid x.t=${x.t}, must be >=0`)
   assert(t > x.t, `invalid t=${t}, must be >x.t=${x.t}`)
   assert(is_array(events), `invalid events, must be array`)
@@ -13,7 +15,6 @@ function simulate(x, t, events) {
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
-  x._t ??= 0
   while (x._t <= t) {
     // get time of next scheduled event > x.t, ensuring caching of valid times
     // caching of valid times is handled in _Event to allow condition wrapper
