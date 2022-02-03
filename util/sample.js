@@ -607,6 +607,25 @@ class _Sampler {
     const weights = []
     const sims = []
     const names = new Set()
+
+    // parse positive integer variables for possible use w/ sample|confine_array
+    const sizes = from_entries(
+      Array.from(
+        js.matchAll(
+          /(?:^|\n|;) *(?:const|let|var) *(?<name>[_\p{L}][_\p{L}\d]*) *= *(?<size>[1-9]\d*)(?=\s)/gsu
+        ),
+        m => {
+          const { name, size } = m.groups
+          return [name, size]
+        }
+      )
+    )
+    const parse_size = args => {
+      let [, size] = args.match(/^ *([1-9]\d*|[_\p{L}][_\p{L}\d]*) *,/u) ?? []
+      return size > 0 /*=>digit*/ ? size : sizes[size]
+    }
+
+    // parse and replace key function calls
     // argument pattern allowing nested parentheses is derived from that in core.js
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
@@ -639,7 +658,7 @@ class _Sampler {
               method == 'sample_array',
               `destructuring assignment to array requires sample_array`
             )
-            const [, size] = args.match(/^ *(\d+) *,/) ?? []
+            const size = parse_size(args)
             assert(size > 0, 'invalid/missing size for sample_array')
             array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
             assert(
@@ -695,7 +714,7 @@ class _Sampler {
         switch (method) {
           case 'confine_array': {
             // parse size as first argument
-            const [, size] = args.match(/^ *(\d+) *,/) ?? []
+            const size = parse_size(args)
             assert(size > 0, 'invalid/missing size for confine_array')
             const index = weights.length
             repeat(size, () => {
@@ -714,7 +733,7 @@ class _Sampler {
           }
           case 'sample_array': {
             // parse size as first argument
-            const [, size] = args.match(/^ *(\d+) *,/) ?? []
+            const size = parse_size(args)
             assert(size > 0, 'invalid/missing size for sample_array')
             const index = values.length
             if (!array_names) {
@@ -1390,6 +1409,8 @@ class _Sampler {
         entries({
           time: this.t,
           ...pick_by(stats.time, is_number),
+          pps: round((1000 * stats.proposals) / stats.time.updates.move),
+          aps: round((1000 * stats.accepts) / stats.time.updates.move),
         })
       ),
       '_md_time'
