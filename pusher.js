@@ -615,15 +615,35 @@ async function pull_item(item) {
 
 // => /push [items]
 // pushes items to your repo
-// `items` can be specific `#label` or id
+// `items` can be `pushables`, `all`, or specific `#label` or id
+// default is `pushables` if any exist, or `all` otherwise
 async function _on_command_push(label) {
   try {
-    const items = _items(label)
-    const s = items.length > 1 ? 's' : ''
-    if (items.length == 0) {
-      alert(`/push: ${label} not found`)
-      return '/push ' + label
+    let items
+    if (label == 'all') {
+      items = _items()
+      label = ''
+    } else if (label == 'pushables') {
+      const pushables = items.filter(item => item.pushable)
+      if (!pushables.length) {
+        alert(`/push: no pushable items found`)
+        return '/push ' + label
+      }
+      items = pushables
+      label = ''
+    } else {
+      items = _items(label)
+      if (items.length == 0) {
+        if (label) alert(`/push: ${label} not found`)
+        else alert(`/push: no items found`)
+        return '/push ' + label
+      }
+      if (!label) {
+        const pushables = items.filter(item => item.pushable)
+        if (pushables.length) items = pushables
+      }
     }
+    const s = items.length > 1 ? 's' : ''
     for (const [i, item] of items.entries()) {
       // show new modal in case side-push force-closes modal for commit prompt
       await _modal_close() // force-close all modals
