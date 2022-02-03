@@ -322,13 +322,13 @@ function sample(domain, options = undefined) {
   return new _Sampler(domain, options).sample()
 }
 
-// sample `J` _unknowns_ from `domain`
+// sample `J` _unknowns_ into `xJ` from `domain`
 // `domain` can be a function `(j,J,s)=>…`, `s` partial sum up to `j-1`
-function sample_array(J, domain, options = undefined) {
+function sample_array(J, xJ, domain, options = undefined) {
   fatal(`unexpected (unparsed) call to sample_array(…)`)
 }
 
-// confine `x` to `domain`
+// confine value `x` to `domain`
 // `≡ condition(from(x, domain))`, see below
 // uses `distance(x, domain)` for guidance outside `domain`
 // uses `density(x, domain) ?? 0` as weights inside `domain`
@@ -338,7 +338,7 @@ function confine(x, domain) {
   fatal(`unexpected (unparsed) call to confine(…)`)
 }
 
-// confine array `xJ` to `domain`
+// confine `J` values in `xJ` to `domain`
 // `domain` can be a function `(j,J)=>…`
 function confine_array(J, xJ, domain) {
   fatal(`unexpected (unparsed) call to confine_array(…)`)
@@ -594,8 +594,8 @@ class _Sampler {
       if (stats) print(str(omit(stats, 'updates')))
     }
 
-    if (options.quantiles) this._quantiles()
     if (options.table) this._table()
+    if (options.quantiles) this._quantiles()
     if (options.plot) this._plot()
   }
 
@@ -609,6 +609,7 @@ class _Sampler {
     const names = new Set()
 
     // parse positive integer variables for possible use w/ sample|confine_array
+    // also include any positive integer params
     const sizes = from_entries(
       Array.from(
         js.matchAll(
@@ -620,6 +621,12 @@ class _Sampler {
         }
       )
     )
+    if (this.options.params) {
+      each(entries(this.options.params), ([k, v]) => {
+        if (is_integer(v) && v > 0) sizes[k] = v
+      })
+    }
+
     const parse_size = args => {
       let [, size] = args.match(/^ *([1-9]\d*|[_\p{L}][_\p{L}\d]*) *,/u) ?? []
       return size > 0 /*=>digit*/ ? size : sizes[size]
@@ -630,7 +637,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\S+) *= *(?:\S+ *= *)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+) *= *(?:\S+ *= *)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {
@@ -1378,8 +1385,10 @@ class _Sampler {
       const pwJ = copy(this.pwJ)
       _remove_undefined(pxJ, pwJ)
       const nstr = x => round_to(x, 2).toFixed(2)
-      // const wtd_mean = (xJ, wJ) => dot(xJ, wJ) / sum(wJ)
-      pxJ = lookup(pxJ, random_discrete_array(array(J), pwJ))
+      const wtd_mean = (xJ, wJ) => dot(xJ, wJ) / sum(wJ)
+      const prior_mean = wtd_mean(pxJ, pwJ)
+      row.push(nstr(prior_mean))
+      pxJ = lookup(pxJ, random_discrete_array(array(10 * J), pwJ))
       row.push(quantiles(pxJ, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
 
       // get posterior w/ weights
@@ -1387,8 +1396,12 @@ class _Sampler {
       apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const wJ = copy(rwJ)
       _remove_undefined(xJ, wJ)
-      xJ = lookup(xJ, random_discrete_array(array(J), wJ))
+      const post_mean = wtd_mean(xJ, wJ)
+      row.push(nstr(post_mean))
+      xJ = lookup(xJ, random_discrete_array(array(10 * J), wJ))
       row.push(quantiles(xJ, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
+      const delta = post_mean - prior_mean
+      row.push((delta > 0 ? '+' : '') + nstr(delta))
 
       if (value.target && !is_function(value.target)) {
         // get target sample w/ weights
@@ -1396,7 +1409,8 @@ class _Sampler {
         const wT = array(value.target.length, 1)
         if (value.target_weights) copy(wT, value.target_weights)
         _remove_undefined(yT, wT)
-        yT = lookup(yT, random_discrete_array(array(J), wT))
+        row.push(nstr(wtd_mean(yT, wT)))
+        yT = lookup(yT, random_discrete_array(array(10 * J), wT))
         row.push(quantiles(yT, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
       }
 
@@ -1430,7 +1444,9 @@ class _Sampler {
         '<style>',
         `#item table { font-size:80%; line-height:140%; white-space:nowrap; color:#aaa; font-family:'jetbrains mono', monospace }`,
         `#item table + br { display: none }`,
-        `#item table { display: inline-block; vertical-align:top; margin-right:10px }`,
+        `#item table { display: inline-block; vertical-align:top; margin-right:10px; margin-bottom:10px }`,
+        `#item table:first-of-type { display: table }`,
+        `#item table:first-of-type td:not(:first-child) { padding-left:15px }`,
         '</style>'
       ).join('\n'),
       '_html'
@@ -2044,14 +2060,15 @@ class _Sampler {
     if (!value.sampler) {
       value.sampler = this
 
-      // process name if specified
-      if (options?.name) {
-        assert(is_string(options.name), 'non-string name for sampled value')
+      // process name if specified (only on first call)
+      if (options?.name || is_string(options)) {
+        const name = options?.name || options
+        assert(is_string(name), 'non-string name for sampled value')
         assert(
-          !options.name.match(/^\d/),
-          `invalid numeric name '${options.name}' for sampled value`
+          !name.match(/^\d/),
+          `invalid numeric name '${name}' for sampled value`
         )
-        value.name = options.name
+        value.name = name
         if (this.names.has(value.name)) value.name += '_' + value.index
         this.names.add(value.name)
         this.nK[k] = value.name
@@ -2278,12 +2295,12 @@ class _Sampler {
     this._condition(n, this._from(x, domain))
   }
 
-  _sample_array(k, J, domain, options) {
+  _sample_array(k, J, xJ, domain, options) {
+    assert(is_array(xJ), 'invalid non-array second argument for sample_array')
+    assert(xJ.length == J, 'array size mismatch for sample_array')
     const domain_fj = is_function(domain) ? domain : j => domain
     let sum_xj = 0 // partial sum
-    return array(J, j => {
-      const name = options?.names?.[j]
-      if (name) options = set(options ?? {}, 'name', name)
+    return fill(xJ, j => {
       const xj = this._sample(k + j, domain_fj(j, J, sum_xj), options)
       sum_xj += xj
       return xj
@@ -2292,6 +2309,7 @@ class _Sampler {
 
   _confine_array(n, J, xJ, domain) {
     assert(is_array(xJ), 'invalid non-array second argument for confine_array')
+    assert(xJ.length == J, 'array size mismatch for confine_array')
     const domain_fj = is_function(domain) ? domain : j => domain
     repeat(J, j => this._confine(n + j, xJ[j], domain_fj(j, J)))
   }
@@ -2307,7 +2325,7 @@ class _Sampler {
 }
 
 function _run() {
-  const js = _this.read('js_input').trim()
+  const js = read('js_input').trim()
   // if js begins w/ sample(...) call, assume no wrapper is needed
   if (js.match(/^sample *\(/)) return null
   // if js contains any sample|sample_array call, then wrap inside sample(...)

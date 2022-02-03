@@ -236,7 +236,7 @@ function _test_str() {
     () => [str(() => {}), '{}'],
     () => [str(set(() => {}, 'test', 1)), '{} [function Function] { test:1 }'],
     () => [
-      str(_.assign(() => {}, { a: 10000, b: '1', c: 1, d: 1.1 })),
+      str(assign(() => {}, { a: 10000, b: '1', c: 1, d: 1.1 })),
       `{} [function Function] { a:10,000 b:'1' c:1 d:1.1 }`,
     ],
     () => [
@@ -651,9 +651,9 @@ function js_table(regex) {
     ...js.matchAll(js_table_regex_arrow),
   ]
 
-  const defs = _.compact(
+  const defs = compact(
     apply(matches, m => {
-      const def = _.merge({ args: '', comment: '' }, m.groups)
+      const def = merge({ args: '', comment: '' }, m.groups)
       // skip imbalanced args (due to occasional regex failure)
       if (_count_unescaped(def.args, '(') != _count_unescaped(def.args, ')'))
         return

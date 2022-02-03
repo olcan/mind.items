@@ -2,7 +2,6 @@
 // includes all events at times `(x.t, x.t + time]`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
-// events must be `reset` (see below) for new (not resumed) sim
 function simulate(x, time, ...events) {
   assert(x.t >= 0, `invalid x.t=${x.t}, must be >=0`)
   assert(time > 0, `invalid simulation time=${time}, must be >0`)
@@ -12,6 +11,8 @@ function simulate(x, time, ...events) {
     if (!is_object(e) || !e.fx || !e.ft) fatal(`invalid event '${str(e)}'`)
     return e
   })
+  // reset events if we are not resuming
+  if (!x._t) each(events, e => (e.t = e._t = 0))
   // fast-forward to time t if no events <=t (from previous call)
   if (x._t > t) return set(x, 't', t)
   do {
@@ -66,14 +67,16 @@ class _Event {
       }
       if (defined(_θ)) θ = _θ
       x._events?.push({ t: x.t, ...θ, _source: this })
-      x._states?.push(clean_state(x))
+      x._states?.push(clone_deep(clean_state(x)))
     }
     // wrap scheduler w/ cache wrapper and optional condition wrapper
     // note condition wrapper needs ability to bypass/reset any caching
     const _ft = ft // _ft is original, ft is cached, this.ft is conditioned
-    let _t = 0 // cached scheduled time
-    this.ft = ft = x => (_t > x.t ? _t : (_t = _ft(x))) // cache wrapper
-    if (fc) this.ft = x => (!fc(x) ? ((_t = 0), inf) : ft(x)) // condition wrapper
+    this._t = 0 // cached scheduled time
+    // apply cache wrapper
+    this.ft = ft = x => (this._t > x.t ? this._t : (this._t = _ft(x)))
+    // apply condition wrapper
+    if (fc) this.ft = x => (!fc(x) ? ((this._t = 0), inf) : ft(x))
   }
 }
 
@@ -88,10 +91,6 @@ const _at = (ft, fx, fc, fθ) => _event(fx, ft, fc, fθ)
 // _if(fc, ft, fx, [fθ])
 // alias for `_event(…)`, condition (`fc`) first
 const _if = (fc, ft, fx, fθ) => _event(fx, ft, fc, fθ)
-
-// reset `events` for new simulation
-// new simulation must also start from new state
-const reset = (...events) => each(flat(events), e => delete e.t)
 
 // increment mutation
 // function `(x,θ) => …` applies `θ` as _increment_ to `x`
