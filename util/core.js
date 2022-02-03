@@ -8,7 +8,6 @@ const to_pairs = _.toPairs
 
 const get = _.get
 const set = _.set
-const name = (x, n) => set(x, '_name', n)
 const unset = _.unset
 const update = _.update
 const merge = _.merge

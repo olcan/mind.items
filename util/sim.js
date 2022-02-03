@@ -1,21 +1,20 @@
-// simulate `events` on state `x` for `time`
-// includes all events at times `(x.t, x.t + time]`
+// simulate `events` from state `x` to time `t`
+// `events` must be a flat array of event objects
+// includes all events at times `(x.t,t], t>x.t`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
-function simulate(x, time, ...events) {
+function simulate(x, t, events) {
   assert(x.t >= 0, `invalid x.t=${x.t}, must be >=0`)
-  assert(time > 0, `invalid simulation time=${time}, must be >0`)
-  const t = x.t + time
-  const eJ = apply(events, e => {
-    if (is_function(e)) e = set(e(), '_name', str(e))
-    if (!is_object(e) || !e.fx || !e.ft) fatal(`invalid event '${str(e)}'`)
+  assert(t > x.t, `invalid t=${t}, must be >x.t=${x.t}`)
+  assert(is_array(events), `invalid events, must be array`)
+  apply(events, e => {
+    assert(is_event(e), 'invalid event')
     if (!e.t || !e._t) assert(!x._t, `invalid events/state for resume`)
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
-  // fast-forward to time t if no events <=t (from previous call)
-  if (x._t > t) return set(x, 't', t)
-  do {
+  x._t ??= 0
+  while (x._t <= t) {
     // get time of next scheduled event > x.t, ensuring caching of valid times
     // caching of valid times is handled in _Event to allow condition wrapper
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
@@ -23,17 +22,29 @@ function simulate(x, time, ...events) {
     // precompute day x.td and hour-of-day x.th to help schedulers
     x.td = ~~x.t
     x.th = (x.t - x.td) * 24
-    each(eJ, e => (e.t = e.ft(x))) // caching is handled in _Event
-    x._t = min_of(eJ, e => e.t)
+    each(events, e => (e.t = e.ft(x))) // caching is handled in _Event
+    x._t = min_of(events, e => e.t) // can be inf
     assert(x._t > x.t, 'invalid e.ft(x) <= x.t')
-    // stop at time t if next event is past t
-    if (x._t > t) return set(x, 't', t)
+    // stop at t if next event is >t
+    if (x._t > t) break
     // advance to x.t=_t & trigger mutations
     x.t = x._t
-    each(eJ, e => x.t != e.t || e.fx(x))
-  } while (x._t < t) // continue until next scheduled time is past t
+    each(events, e => x.t != e.t || e.fx(x))
+  }
+  x.t = t
   return x
 }
+
+// create _named_ events from functions `fE`
+// creates events as `set(e(), '_name', str(e))`
+// also flattens & filters arguments as `compact(flat(…))`
+const name_events = (...fE) =>
+  apply(compact(flat(fE)), e => {
+    assert(is_function(e), 'invalid non-function argument')
+    e = set(e(), '_name', str(e))
+    assert(is_event(e), 'function returned non-event')
+    return e
+  })
 
 // _event(fx, [ft=daily(0)], [fc], [fθ])
 // create mutation event `x → fx(x,…)`
@@ -91,6 +102,8 @@ const _at = (ft, fx, fc, fθ) => _event(fx, ft, fc, fθ)
 // _if(fc, ft, fx, [fθ])
 // alias for `_event(…)`, condition (`fc`) first
 const _if = (fc, ft, fx, fθ) => _event(fx, ft, fc, fθ)
+
+const is_event = e => e instanceof _Event
 
 // increment mutation
 // function `(x,θ) => …` applies `θ` as _increment_ to `x`
