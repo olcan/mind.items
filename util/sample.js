@@ -1385,7 +1385,15 @@ class _Sampler {
     })
     const stats = this.stats
     _this.write(table(value_table), '_md_values')
-    _this.write(table(entries(pick_by(stats.time, is_number))), '_md_time')
+    _this.write(
+      table(
+        entries({
+          time: this.t,
+          ...pick_by(stats.time, is_number),
+        })
+      ),
+      '_md_time'
+    )
     _this.write(table(entries(stats.time.updates)), '_md_time_updates')
     _this.write(
       table(
@@ -1637,6 +1645,7 @@ class _Sampler {
       const pwJ = copy(this.pwJ)
       // we remove undefined and rescale weights to J for all samples
       _remove_undefined(pxJ, pwJ)
+      if (pwJ.length == 0) warn('missing prior samples to plot ' + name)
       scale(pwJ, J / sum(pwJ)) // rescale to sum to J
 
       // get posterior w/ weights
@@ -1644,6 +1653,7 @@ class _Sampler {
       apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
       const wJ = copy(rwJ)
       _remove_undefined(xJ, wJ)
+      if (wJ.length == 0) warn('missing posterior samples to plot ' + name)
       scale(wJ, J / sum(wJ)) // rescale to sum to J
 
       if (!value.target) {
@@ -1668,6 +1678,7 @@ class _Sampler {
       const wT = array(value.target.length, 1)
       if (value.target_weights) copy(wT, value.target_weights)
       _remove_undefined(yT, wT)
+      if (wJ.length == 0) warn('missing target samples to plot ' + name)
       scale(wT, J / sum(wT)) // rescale to sum to J
 
       hist([pxJ, xJ, yT], { weights: [pwJ, wJ, wT] }).hbars({

@@ -354,8 +354,13 @@ function _test_uniform_binary() {
 // mixture(...samplers)
 // [mixture](https://en.wikipedia.org/wiki/Mixture_distribution) on union domain `{or:samplers}`
 function mixture(...sK) {
-  if (!sK.length || !sK.every(s => s?._prior)) return undefined
+  if (!sK.length) return undefined
   const dom = { or: sK }
+  // return plain {or} domain if all domains are non-samplers
+  const num_samplers = sum_of(sK, s => !!s?._prior)
+  if (num_samplers == 0) return dom
+  // disallow mixing non-samplers w/ samplers
+  assert(num_samplers == sK.length, 'invalid mixture contains non-samplers')
   const log_pK = array(sK.length)
   dom._prior = f => random_element(sK)._prior(f)
   dom._log_p = x => {
@@ -363,7 +368,8 @@ function mixture(...sK) {
     const max_log_p = max_in(log_pK)
     return max_log_p + log(mean(log_pK, log_p => exp(log_p - max_log_p)))
   }
-  dom._posterior = (f, x, σ) => random_element(sK)._posterior(f, x, σ)
+  // TODO: handle (or disallow) overlapping domains & σ being too large
+  // dom._posterior = (f, x, σ) => sK.find(s => from(x, s))._posterior(f, x, σ)
   return dom
 }
 
