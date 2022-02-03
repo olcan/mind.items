@@ -788,6 +788,8 @@ class _Sampler {
           case 'plot': {
             // treat as sample(constant(args)) w/ name args(.index)
             const index = values.length
+            args = args.trim() // trim whitespace around args
+            assert(!args.match(/\s/), 'invalid args (whitespace) for plot')
             assert(args, 'missing args for plot')
             assert(args != 'undefined', 'undefined args for plot')
             assert(!name, 'invalid use of return value for plot')
