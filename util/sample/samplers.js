@@ -355,6 +355,7 @@ function _test_uniform_binary() {
 // [mixture](https://en.wikipedia.org/wiki/Mixture_distribution) on union domain `{or:samplers}`
 function mixture(...sK) {
   if (!sK.length) return undefined
+  if (sK.length == 1) return sK[0]
   const dom = { or: sK }
   // return plain {or} domain if all domains are non-samplers
   const num_samplers = sum_of(sK, s => !!s?._prior)
