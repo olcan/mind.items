@@ -613,7 +613,7 @@ class _Sampler {
     const sizes = from_entries(
       Array.from(
         js.matchAll(
-          /(?:^|\n|;) *(?:const|let|var) *(?<name>[_\p{L}][_\p{L}\d]*) *= *(?<size>[1-9]\d*)(?=\s)/gsu
+          /(?:^|\n|;) *(?:const|let|var) *(?<name>[_\p{L}][_\p{L}\d]*)\s*=\s*(?<size>[1-9]\d*)(?=\s)/gsu
         ),
         m => {
           const { name, size } = m.groups
@@ -627,9 +627,10 @@ class _Sampler {
       })
     }
 
-    const parse_size = args => {
-      let [, size] = args.match(/^ *([1-9]\d*|[_\p{L}][_\p{L}\d]*) *,/u) ?? []
-      return size > 0 /*=>digit*/ ? size : sizes[size]
+    const parse_array_args = args => {
+      let [, size, name] =
+        args.match(/^ *([1-9]\d*|[_\p{L}][_\p{L}\d]*)\s*,\s*(\S+?)/su) ?? []
+      return [size > 0 /*=>digit*/ ? size : sizes[size], name]
     }
 
     // parse and replace key function calls
@@ -637,13 +638,21 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+) *= *(?:\S+ *= *)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {
-        // if name is missing, try object key (minus quotes) instead
+        // remove quotes from object object key
         if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
-        name ??= key
+        // parse size (and alt name) from array method args
+        let size, args_name
+        if (method.endsWith('_array')) {
+          ;[size, args_name] = parse_array_args(args)
+          assert(size > 0, `invalid/missing size for ${method}`)
+        }
+        // if name (via assignment) is mising, try object key or args
+        name ??= key ?? args_name
+        // check name, parse into array names if possible
         let array_names
         if (name) {
           // decline destructuring assignment to object {...}
@@ -665,8 +674,6 @@ class _Sampler {
               method == 'sample_array',
               `destructuring assignment to array requires sample_array`
             )
-            const size = parse_size(args)
-            assert(size > 0, 'invalid/missing size for sample_array')
             array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
             assert(
               size == array_names.length,
@@ -720,9 +727,6 @@ class _Sampler {
 
         switch (method) {
           case 'confine_array': {
-            // parse size as first argument
-            const size = parse_size(args)
-            assert(size > 0, 'invalid/missing size for confine_array')
             const index = weights.length
             repeat(size, () => {
               const index = weights.length // element index
@@ -739,9 +743,6 @@ class _Sampler {
             return `__sampler._${method}(${index},${args})`
           }
           case 'sample_array': {
-            // parse size as first argument
-            const size = parse_size(args)
-            assert(size > 0, 'invalid/missing size for sample_array')
             const index = values.length
             if (!array_names) {
               // process using array name
@@ -2042,7 +2043,7 @@ class _Sampler {
     return xJ[j]
   }
 
-  _sample(k, domain, options) {
+  _sample(k, domain, options, /* (base,length) for arrays: */ k0, J) {
     const value = this.values[k]
     assert(!value.called, 'sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
@@ -2061,9 +2062,23 @@ class _Sampler {
       value.sampler = this
 
       // process name if specified (only on first call)
-      if (options?.name || is_string(options)) {
-        const name = options?.name || options
-        assert(is_string(name), 'non-string name for sampled value')
+      // handle sample_array case (w/ k0,J), and string/array shorthands
+      if (
+        options &&
+        (options.name ||
+          is_string(options) ||
+          (defined(k0) && (options.names || options.every?.(is_string))))
+      ) {
+        let name
+        if (defined(k0)) {
+          if (options.names) name = options.names[k - k0]
+          if (is_string(options)) options = options.split(/\W+/)
+          assert(is_array(options), `invalid options ${str(options)}`)
+          assert(options.length == J, `name (options) array size mismatch`)
+          name = options[k - k0]
+        } else name = options.name ?? options
+        assert(is_string(name), `invalid name '${name}' for sampled value`)
+        assert(name, `blank name for sampled value at index ${k}`)
         assert(
           !name.match(/^\d/),
           `invalid numeric name '${name}' for sampled value`
@@ -2301,7 +2316,7 @@ class _Sampler {
     const domain_fj = is_function(domain) ? domain : j => domain
     let sum_xj = 0 // partial sum
     return fill(xJ, j => {
-      const xj = this._sample(k + j, domain_fj(j, J, sum_xj), options)
+      const xj = this._sample(k + j, domain_fj(j, J, sum_xj), options, k, J)
       sum_xj += xj
       return xj
     })

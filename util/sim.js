@@ -9,10 +9,10 @@ function simulate(x, time, ...events) {
   const eJ = apply(events, e => {
     if (is_function(e)) e = set(e(), '_name', str(e))
     if (!is_object(e) || !e.fx || !e.ft) fatal(`invalid event '${str(e)}'`)
+    if (!e.t || !e._t) assert(!x._t, `invalid events/state for resume`)
+    if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
-  // reset events if we are not resuming
-  if (!x._t) each(events, e => (e.t = e._t = 0))
   // fast-forward to time t if no events <=t (from previous call)
   if (x._t > t) return set(x, 't', t)
   do {
