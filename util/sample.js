@@ -333,7 +333,7 @@ function sample_array(J, xJ, domain, options = undefined) {
 // uses `distance(x, domain)` for guidance outside `domain`
 // uses `density(x, domain) ?? 0` as weights inside `domain`
 // distances help w/ rare domains, densities w/ unbounded domains
-// densities ensure consistency w/ sampling distribution of `sample(domain)`
+// densities refine condition `x∈domain|x～prior` as `x～sample(domain)|x～prior`
 function confine(x, domain) {
   fatal(`unexpected (unparsed) call to confine(…)`)
 }
