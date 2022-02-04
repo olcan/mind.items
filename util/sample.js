@@ -582,8 +582,8 @@ class _Sampler {
       return
     }
 
-    // update sample to posterior if there are weights
-    if (this.weights.length) {
+    // update sample to posterior if there are weights OR targets
+    if (this.weights.length || this.values.some(v => v.target)) {
       timer = _timer_if(options.log || stats)
       this._update()
       if (stats) stats.time.update = timer.t
@@ -1433,28 +1433,36 @@ class _Sampler {
       const delta = post_mean - prior_mean
       row.push((delta > 0 ? '+' : '') + nstr(delta))
 
-      if (value.target && !is_function(value.target)) {
-        // get target sample w/ weights
-        let yT = value.target
-        const wT = array(value.target.length, 1)
-        if (value.target_weights) copy(wT, value.target_weights)
-        _remove_undefined(yT, wT)
-        row.push(nstr(wtd_mean(yT, wT)))
-        yT = lookup(yT, random_discrete_array(array(10 * J), wT))
-        row.push(quantiles(yT, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
-      }
+      // if (value.target && !is_function(value.target)) {
+      //   // get target sample w/ weights
+      //   let yT = value.target
+      //   const wT = array(value.target.length, 1)
+      //   if (value.target_weights) copy(wT, value.target_weights)
+      //   _remove_undefined(yT, wT)
+      //   row.push(nstr(wtd_mean(yT, wT)))
+      //   yT = lookup(yT, random_discrete_array(array(10 * J), wT))
+      //   row.push(quantiles(yT, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
+      // }
 
       value_table.push(row)
     })
     const stats = this.stats
     _this.write(table(value_table), '_md_values')
+
+    const r = round_to(this.r, 3, inf, 'floor')
+    const ess = round(this.ess)
+    const wsum = round_to(this.wsum, 1)
+    const mks = round_to(this.mks, 3)
     _this.write(
       table(
         entries({
-          // move t,r to top since usually most relevant
-          t: last(stats.updates).t,
-          r: last(stats.updates).r,
-          ...last(stats.updates),
+          // always display r, ess, wsum, and mks at the top
+          r,
+          ess,
+          wsum,
+          mks,
+          // also omit t since redundant and confusable w/ x.t
+          ...omit(last(stats.updates), ['t', 'r', 'ess', 'wsum', 'mks']),
         })
       ),
       '_md_last_update'
@@ -1472,6 +1480,7 @@ class _Sampler {
     _this.write(
       table(
         entries({
+          time: this.t,
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),

@@ -369,8 +369,8 @@ function mixture(...sK) {
     const max_log_p = max_in(log_pK)
     return max_log_p + log(mean(log_pK, log_p => exp(log_p - max_log_p)))
   }
-  // TODO: handle (or disallow) overlapping domains & σ being too large
-  // dom._posterior = (f, x, σ) => sK.find(s => from(x, s))._posterior(f, x, σ)
+  // TODO: properly handle (or disallow) overlapping domains & per-domain σ
+  dom._posterior = (f, x, σ) => sK.find(s => from(x, s))._posterior(f, x, σ)
   return dom
 }
 
