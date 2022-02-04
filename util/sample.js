@@ -276,15 +276,15 @@ function density(x, domain) {
 // |               | `context.p` is proposed moves (current update step)
 // |               | `context.a` is accepted moves (current update step)
 // |               | `context.aK` is accepted moves per posterior "pivot" value
-// |               | `context.aaK` is accepted moves per prior "jump" value
+// |               | `context.uaK` is accepted moves per prior "jump" value
 // |               | `context.m` is total move count (all update steps)
-// |               | _default_: `({essu,J,K,a,aK,aaK}) => essu<.9*J ||`
-// |               | `a < J || min_in(aK)<J/K || min_in(aaK)<J/K`
+// |               | _default_: `({essu,J,K,a,aK,uaK}) => essu<.9*J ||`
+// |               | `a < J || min_in(aK)<J/K || min_in(uaK)<J/K`
 // |               | default allows `essu→J` w/ up to `J/10` slow-movers
 // | `move_weights`| move weight function `(context, awK) => …`
-// |               | _default_: `({aK,aaK},awK,aawK) => {`
+// |               | _default_: `({aK,uaK},awK,uawK) => {`
 // |               | `fill(awK, k=> max(0, J/K - aK[k] ));`
-// |               | `fill(aawK,k=> max(0, J/K - aaK[k])) }`
+// |               | `fill(uawK,k=> max(0, J/K - uaK[k])) }`
 // |               | default concentrates on deficiencies w.r.t. `move_while`
 // | `max_updates` | maximum number of update steps, _default_: `1000`
 // | `min_updates` | minimum number of update steps, _default_: `0`
@@ -439,14 +439,14 @@ class _Sampler {
         min_reweights: 3,
         max_reweight_tries: 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-        move_while: ({ essu, J, K, a, aK, aaK }) =>
+        move_while: ({ essu, J, K, a, aK, uaK }) =>
           essu < 0.9 * J ||
           a < J ||
           min_in(aK) < J / K ||
-          min_in(aaK) < 0.1 * (J / K),
-        move_weights: ({ aK, aaK }, awK, aawK) => {
+          min_in(uaK) < 0.1 * (J / K),
+        move_weights: ({ aK, uaK }, awK, uawK) => {
           fill(awK, k => max(0, J / K - aK[k]))
-          fill(aawK, k => max(0, 0.1 * (J / K) - aaK[k]))
+          fill(uawK, k => max(0, 0.1 * (J / K) - uaK[k]))
         },
         max_updates: 1000,
         min_updates: 0,
@@ -482,7 +482,7 @@ class _Sampler {
     this.uaJK = matrix(J, K, 0) // last jump accept step
     this.upwK = array(K) // jump proposal weights (computed at pivot value)
     this.awK = array(K) // array of move weights by pivot value
-    this.aawK = array(K) // array of move weights by jump value
+    this.uawK = array(K) // array of move weights by jump value
 
     this.m = 0 // move count
     this.xBJK = [] // buffered samples for mks
@@ -492,7 +492,8 @@ class _Sampler {
     this.uB = [] // buffer sample update steps
     this.pK = array(K) // move proposals per pivot value
     this.aK = array(K) // move accepts per pivot value
-    this.aaK = array(K) // move accepts per jump value
+    this.upK = array(K) // move proposals per jump value
+    this.uaK = array(K) // move accepts per jump value
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
@@ -846,7 +847,11 @@ class _Sampler {
         /\W+/
       ),
       this.nK.map(n => `mar.${n}`),
+      this.nK.map(n => `uar.${n}`),
+      this.nK.map(n => `up.${n}`),
+      this.nK.map(n => `ua.${n}`),
       this.nK.map(n => `p.${n}`),
+      this.nK.map(n => `a.${n}`),
       this.nK.map(n => `pp.${n}`)
     )
     if (options.stats == true) options.stats = known_keys
@@ -862,7 +867,9 @@ class _Sampler {
       is_object(options.stats) && every(values(options.stats), is_boolean),
       'invalid option stats'
     )
-    const unknown_keys = diff(keys(options.stats), known_keys)
+    const unknown_keys = diff(keys(options.stats), known_keys).filter(
+      k => !k.includes('.') // since names can change at runtime
+    )
     assert(empty(unknown_keys), `unknown stats: ${unknown_keys}`)
 
     this.stats = {
@@ -908,6 +915,13 @@ class _Sampler {
         update[`mar.${n}`] =
           this.u == 0 ? 100 : round_to(100 * (this.aK[k] / this.pK[k]), 3, 3)
     })
+    if (spec.uar)
+      update.uar = this.u == 0 ? 100 : round_to(100 * (this.ua / this.up), 3, 3)
+    each(this.nK, (n, k) => {
+      if (spec[`uar.${n}`])
+        update[`uar.${n}`] =
+          this.u == 0 ? 100 : round_to(100 * (this.uaK[k] / this.upK[k]), 3, 3)
+    })
     if (spec.mlw) update.mlw = this.u == 0 ? 0 : round_to(this.mlw, 1)
     if (spec.mlp) update.mlp = this.u == 0 ? 0 : round_to(this.mlp, 1)
     if (spec.mks) update.mks = round_to(this.mks, 3)
@@ -915,7 +929,10 @@ class _Sampler {
     if (spec.gap) update.gap = round_to(this.log_wrj_gap, 1)
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
     each(this.nK, (n, k) => {
+      if (spec[`up.${n}`]) update[`up.${n}`] = this.u == 0 ? 0 : this.upK[k]
+      if (spec[`ua.${n}`]) update[`ua.${n}`] = this.u == 0 ? 0 : this.uaK[k]
       if (spec[`p.${n}`]) update[`p.${n}`] = this.u == 0 ? 0 : this.pK[k]
+      if (spec[`a.${n}`]) update[`a.${n}`] = this.u == 0 ? 0 : this.aK[k]
       if (spec[`pp.${n}`])
         update[`pp.${n}`] = round(
           this.u == 0 ? 100 / this.K : 100 * (this.pK[k] / this.p)
@@ -1077,7 +1094,7 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
     const { log_cwJ, log_cwrfJN, log_wJ, log_wrfJN, log_wrJ, stats, rN } = this
-    const { zN, bN, awK, aawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
+    const { zN, bN, awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
@@ -1087,11 +1104,11 @@ class _Sampler {
     each(upJK, upjK => fill(upjK, 0))
     // choose random pivot based on uaJK (least-recently prior-jumped)
 
-    // choose random pivot based on uaJK, awK, and aawK
+    // choose random pivot based on uaJK, awK, and uawK
     // random_discrete_uniform_array(kJ, K)
     const wK = (this._move_wK ??= array(K))
     each(uaJK, (uajK, j) => {
-      fill(wK, k => this.u - uajK[k] || awK[k] || aawK[k])
+      fill(wK, k => this.u - uajK[k] || awK[k] || uawK[k])
       kJ[j] = random_discrete(wK)
     })
 
@@ -1113,6 +1130,11 @@ class _Sampler {
       const k_pivot = kJ[j]
       this.p++
       this.pK[k_pivot]++
+      each(upJK[j], (u, k) => {
+        if (u != this.u) return
+        this.up++
+        this.upK[k]++
+      })
       let log_cwrj = sum(log_cwrfJN[j], (f, n) =>
         f ? f(rN[n], zN[n], bN[n]) : 0
       )
@@ -1137,12 +1159,13 @@ class _Sampler {
         jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
         this.move_log_p += log_mpJ[j]
-        this.aK[k_pivot]++
         each(upJK[j], (u, k) => {
           if (u != this.u) return
           uaJK[j][k] = u // accepted jump
-          this.aaK[k]++
+          this.uaK[k]++
+          this.ua++
         })
+        this.aK[k_pivot]++
         this.a++
         accepts++
       }
@@ -1277,13 +1300,17 @@ class _Sampler {
       // must be done after reweights (w/ same u) for accurate mlw
       this.p = 0 // proposed move count
       this.a = 0 // accepted move count
+      this.up = 0 // proposed jump count
+      this.ua = 0 // accepted jump count
       fill(this.pK, 0) // proposed moves by pivot value
       fill(this.aK, 0) // accepted moves by pivot value
-      fill(this.aaK, 0) // accepted moves by jump value
+      fill(this.upK, 0) // proposed moves by jump value
+      fill(this.uaK, 0) // accepted moves by jump value
       this.mlw = 0 // log_w improvement
       this.mlp = 0 // log_p improvement
       while (move_while(this) && this.t < max_time) {
-        move_weights(this, this.awK, this.aawK)
+        // console.debug(this.uaK, this.upK, 0.1 * (this.J / this.K))
+        move_weights(this, this.awK, this.uawK)
         this._move()
         this.mlw += this.move_log_w
         this.mlp += this.move_log_p
@@ -1436,12 +1463,13 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          updates: stats.updates?.length ?? 0,
+          updates: stats.updates ? stats.updates.length - 1 : 0,
           ...pick_by(stats, is_number),
         })
       ),
       '_md_stats'
     )
+    _this.write(table(entries(last(stats.updates))), '_md_last_update')
     _this.write(
       flat(
         '<style>',
@@ -1535,6 +1563,8 @@ class _Sampler {
       each(this.nK, n => {
         if (spec[`mar.${n}`])
           add_line(`mar.${n}`, { axis: 'y2', formatter: x => `${x}%` })
+        if (spec[`uar.${n}`])
+          add_line(`uar.${n}`, { axis: 'y2', formatter: x => `${x}%` })
         if (spec[`pp.${n}`])
           add_line(`pp.${n}`, { axis: 'y2', formatter: x => `${x}%` })
       })
@@ -1564,7 +1594,10 @@ class _Sampler {
       if (spec.r) add_rescaled_line('r', null, 3)
 
       each(this.nK, n => {
+        if (spec[`up.${n}`]) add_rescaled_line(`up.${n}`, null, 0)
+        if (spec[`ua.${n}`]) add_rescaled_line(`ua.${n}`, null, 0)
         if (spec[`p.${n}`]) add_rescaled_line(`p.${n}`, null, 0)
+        if (spec[`a.${n}`]) add_rescaled_line(`a.${n}`, null, 0)
       })
 
       plot({
@@ -2050,14 +2083,18 @@ class _Sampler {
     assert(!value.called, 'sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
     const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
-    const { upJK, uaJK, aawK, upwK, log_p_xJK, log_p_yJK } = this
+    const { upJK, uaJK, uawK, upwK, log_p_xJK, log_p_yJK } = this
 
-    // reject run (-∞ weight) on nullish (null=empty or undefined) domain
-    if (is_nullish(domain)) log_wJ[j] = -inf
+    // reject (-∞ weight) and return undefined on nullish (null=empty) domain
+    if (is_nullish(domain)) {
+      log_wJ[j] = -inf
+      return undefined
+    }
 
     // return undefined on (effectively) rejected run if sampling posterior
-    if (moving && min(log_wJ[j], log_mwJ[j], log_mpJ[j]) == -inf)
-      return undefined
+    // note log_wj==-inf is considered a rejection iff r==1
+    if (this.r == 1 && log_wJ[j] == -inf) return undefined
+    if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
 
     // initialize on first call
     if (!value.sampler) {
@@ -2207,9 +2244,9 @@ class _Sampler {
     // if at pivot, compute jump weights for unsampled values based on uaJK
     // unsampled values are pivot + past-pivot values
     if (k == k_pivot) {
-      // copy(upwK, aawK, (w, k) => (yjK[k] === undefined ? w : 0))
+      // copy(upwK, uawK, (w, k) => (yjK[k] === undefined ? w : 0))
       copy(upwK, uaJK[j], (u, k) =>
-        yjK[k] === undefined ? this.u - u || aawK[k] : 0
+        yjK[k] === undefined ? this.u - u || uawK[k] : 0
       )
       const s = sum(upwK)
       if (s) scale(upwK, 1 / s)
@@ -2217,7 +2254,7 @@ class _Sampler {
 
     // if at or past pivot, resample "jump" value from prior
     // always resample if xjk is missing (can only happen past pivot)
-    // always always "jump" if log_p(xjk)==0, i.e. jump == stay
+    // always "jump" if log_p(xjk)==0, i.e. jump == stay
     // otherwise "stay" fails if xjk varies across runs since then log_p=-inf
     if (xjk === undefined || log_p_xjk == 0 || random_boolean(upwK[k])) {
       // if (xjk === undefined || k != k_pivot) {
