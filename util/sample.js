@@ -1451,15 +1451,14 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          time: this.t,
-          ...pick_by(stats.time, is_number),
-          pps: round((1000 * stats.proposals) / stats.time.updates.move),
-          aps: round((1000 * stats.accepts) / stats.time.updates.move),
+          // move t,r to top since usually most relevant
+          t: last(stats.updates).t,
+          r: last(stats.updates).r,
+          ...last(stats.updates),
         })
       ),
-      '_md_time'
+      '_md_last_update'
     )
-    _this.write(table(entries(stats.time.updates)), '_md_time_updates')
     _this.write(
       table(
         entries({
@@ -1469,7 +1468,17 @@ class _Sampler {
       ),
       '_md_stats'
     )
-    _this.write(table(entries(last(stats.updates))), '_md_last_update')
+    _this.write(table(entries(stats.time.updates)), '_md_time_updates')
+    _this.write(
+      table(
+        entries({
+          ...pick_by(stats.time, is_number),
+          pps: round((1000 * stats.proposals) / stats.time.updates.move),
+          aps: round((1000 * stats.accepts) / stats.time.updates.move),
+        })
+      ),
+      '_md_time'
+    )
     _this.write(
       flat(
         '<style>',
