@@ -62,12 +62,12 @@ const random_discrete_uniform_array = (xJ, a, b) => {
 // `≡ random_discrete_uniform(J)` if `sum_wj==0`
 // assumes `wj>=0` and `sum_wj>=0`
 const random_discrete = (wJ, sum_wj) => {
-  assert(is_array(wJ), `non-array argument`)
+  if (!is_array(wJ)) fatal(`non-array argument`)
   if (wJ.length == 0) return NaN
   sum_wj ??= sum(wJ)
-  assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
+  if (!(sum_wj >= 0)) fatal(`sum_wj<0: ${sum_wj}`)
   if (sum_wj == 0) return random_discrete_uniform(wJ.length)
-  // assert(min_in(wJ) >= 0,`wj<0: ${min_in(wJ)}`)
+  // if (!(min_in(wJ) >= 0)) fatal(`wj<0: ${min_in(wJ)}`)
   let j = 0
   let w = 0
   let wt = random() * sum_wj
@@ -82,14 +82,14 @@ const random_discrete = (wJ, sum_wj) => {
 // indices `jK` are ordered due to sampling method
 // use `random_shuffle(jK)` for random ordering
 function random_discrete_array(jK, wJ, sum_wj) {
-  assert(is_array(jK) && is_array(wJ), `non-array argument`)
+  if (!(is_array(jK) && is_array(wJ))) fatal(`non-array argument`)
   if (jK.length == 0) return jK
   if (wJ.length == 0) return fill(jK, NaN)
   sum_wj ??= sum(wJ)
-  assert(sum_wj >= 0, `sum_wj<0: ${sum_wj}`)
+  if (!(sum_wj >= 0)) fatal(`sum_wj<0: ${sum_wj}`)
   // treat zero sum as uniform
   if (sum_wj == 0) return random_discrete_uniform_array(jK, wJ.length)
-  // assert(min_in(wJ) >= 0,`wj<0: ${min_in(wJ)}`)
+  // if (!(min_in(wJ) >= 0)) fatal(`wj<0: ${min_in(wJ)}`)
   // generate (exp) increments for K+1 uniform numbers in (0,sum_wj) w/o sorting
   let rK = apply(random_array(jK), r => -Math.log(r))
   const z = sum_wj / (sum(rK) - Math.log(random()))
@@ -262,7 +262,7 @@ function random_beta(α, β) {
 // sample array of `J` values from `sampler`
 // can skip values `x` s.t. `!filter(x)`, a.k.a. [rejection sampling](https://en.wikipedia.org/wiki/Rejection_sampling)
 function random_array(a, sampler = random, filter) {
-  assert(is_function(sampler), `non-function sampler`)
+  if (!is_function(sampler)) fatal(`non-function sampler`)
   const [J, xJ] = is_array(a) ? [a.length, a] : [~~a, new Array(max(0, ~~a))]
   if (!filter) for (let j = 0; j < J; ++j) xJ[j] = sampler()
   else
@@ -464,39 +464,39 @@ function _filter_undefined(J, xJ, wJ, wj_sum) {
 // | `filter`    | `false` | filter `undefined` values?
 // | `numberize` | `false` | map values to random numbers?
 function ks2(xJ, yK, options = {}) {
-  assert(is_array(xJ), `non-array first argument`)
-  if (yK) assert(is_array(yK), `non-array second argument`)
-  assert(is_object(options), `non-object options`)
+  if (!is_array(xJ)) fatal(`non-array first argument`)
+  if (yK) if (!is_array(yK)) fatal(`non-array second argument`)
+  if (!is_object(options)) fatal(`non-object options`)
   let J = xJ.length
   let K = yK ? yK.length : 0 // if yK missing, K=0 for now, K=J later
-  assert(J > 0, `empty first array for ks2`)
-  if (yK) assert(K > 0, 'empty second array for ks2')
+  if (!(J > 0)) fatal(`empty first array for ks2`)
+  if (yK) if (!(K > 0)) fatal('empty second array for ks2')
   const { xj_sorted, yk_sorted, discrete, numberize, filter } = options
   let { wJ, wj_sum, wK, wk_sum } = options
   if (filter) {
     // filter undefined values
     ;[J, xJ, wJ, wj_sum] = _filter_undefined(J, xJ, wJ, wj_sum)
-    assert(J > 0, `empty first array for ks2 after removing undefined`)
+    if (!(J > 0)) fatal(`empty first array for ks2 after removing undefined`)
     if (yK) {
       ;[K, yK, wK, wk_sum] = _filter_undefined(K, yK, wK, wk_sum)
-      assert(K > 0, `empty second array for ks2 after removing undefined`)
+      if (!(K > 0)) fatal(`empty second array for ks2 after removing undefined`)
     }
   }
   const R = J + K
-  if (wJ) assert(wJ.length == J, 'wJ size mismatch', J, wJ.length)
-  if (wK) assert(wK.length == K || J, 'wK size mismatch', K, J, wK.length)
+  if (wJ) if (wJ.length != J) fatal('wJ size mismatch', J, wJ.length)
+  if (wK) if (wK.length != (K || J)) fatal('wK size mismatch', K, J, wK.length)
 
   if (numberize) {
     // numberize, i.e. map values to random numbers
-    assert(!xj_sorted && !yk_sorted, 'unnecessary pre-sorting')
+    if (!(!xj_sorted && !yk_sorted)) fatal('unnecessary pre-sorting')
     const uX = new Map() // value -> uniform random number map
     let u // tmp var reused inside apply
     apply(xJ, x => uX.get(x) ?? (uX.set(x, (u = random())), u))
     if (yK) apply(yK, x => uX.get(x) ?? (uX.set(x, (u = random())), u))
   }
   // check values are finite numbers (first values only)
-  assert(is_finite(xJ[0]), 'non-finite value for ks2')
-  if (yK) assert(is_finite(yK[0]), 'non-finite value for ks2')
+  if (!is_finite(xJ[0])) fatal('non-finite value for ks2')
+  if (yK) if (!is_finite(yK[0])) fatal('non-finite value for ks2')
 
   // sort xJ and yK as needed
   if (!xj_sorted) sort(xJ)
@@ -591,11 +591,11 @@ function ks2(xJ, yK, options = {}) {
 // | `discrete`  | `false` | allow identical (discrete) values?
 // | `filter`    | `false` | filter `undefined` values?
 function ks1(xJ, cdf, options = {}) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   let { xj_sorted, wK, wk_sum, numberize, filter } = options
-  assert(!wK, 'invalid option wK superceded by cdf for ks1')
-  assert(!wk_sum, `invalid option wk_sum superceded by cdf for ks1`)
-  assert(!numberize, `invalid option numberize for ks1`)
+  if (!!wK) fatal('invalid option wK superceded by cdf for ks1')
+  if (!!wk_sum) fatal(`invalid option wk_sum superceded by cdf for ks1`)
+  if (!!numberize) fatal(`invalid option numberize for ks1`)
   if (filter) pull(xJ, undefined)
   if (!xj_sorted) sort(xJ)
   wK = array(xJ.length)
@@ -654,7 +654,7 @@ function ks1_test(xJ, cdf, options = {}) {
 
 // minimum element in `xJ`
 function min_in(xJ) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   let z = inf
   for (let j = 0; j < xJ.length; ++j) if (xJ[j] < z) z = xJ[j]
   return z
@@ -662,7 +662,7 @@ function min_in(xJ) {
 
 // minimum of `f(x,j)` over `xJ`
 function min_of(xJ, f = x => x) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   let z = inf
   for (let j = 0; j < xJ.length; ++j) {
     const fxj = f(xJ[j], j)
@@ -675,7 +675,7 @@ const min_by = _.minBy
 
 // maximum element in `xJ`
 function max_in(xJ) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   let z = -inf
   for (let j = 0; j < xJ.length; ++j) if (xJ[j] > z) z = xJ[j]
   return z
@@ -683,7 +683,7 @@ function max_in(xJ) {
 
 // maximum of `f(x,j)` over `xJ`
 function max_of(xJ, f = x => x) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   let z = -inf
   for (let j = 0; j < xJ.length; ++j) {
     const fxj = f(xJ[j], j)
@@ -696,7 +696,7 @@ const max_by = _.maxBy
 
 // `≡ [min_in(xJ), max_in(xJ)]`
 function min_max_in(xJ) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   let a = inf
   let b = -inf
   for (let j = 0; j < xJ.length; ++j) {
@@ -711,7 +711,7 @@ const min_max = min_max_in
 
 // `≡ [min_of(xJ, f), max_of(xJ, f)]`
 function min_max_of(xJ, f = x => x) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   let a = inf
   let b = -inf
   for (let j = 0; j < xJ.length; ++j) {
@@ -733,7 +733,7 @@ function sum(xJ, f = undefined) {
     else for (let j = 0; j < J; ++j) z += f(j, j)
     return z
   }
-  assert(is_array(xJ), 'invalid argument')
+  if (!is_array(xJ)) fatal('invalid argument')
   let z = 0
   if (!f) for (let j = 0; j < xJ.length; ++j) z += xJ[j]
   else for (let j = 0; j < xJ.length; ++j) z += f(xJ[j], j)
@@ -806,7 +806,7 @@ function _benchmark_median() {
 // default parameters `α=β=.375` are ~unbiased for normal `X`
 // see [scipy.stats docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.mstats.mquantiles.html#scipy-stats-mstats-mquantiles) for details and alternatives
 function quantiles(xJ, qK, options = {}) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   // based on https://github.com/jstat/jstat/blob/e56dd7386e62f6787260cdc382b78b6848d21b62/src/vector.js#L303
   // originally from https://github.com/scipy/scipy/blob/47bb6febaa10658c72962b9615d5d5aa2513fa3a/scipy/stats/mstats_basic.py#L2659-L2784
   const { sorted, copy, α = 0.375, β = 0.375 } = options
@@ -864,7 +864,7 @@ function clip(x, a = 0, b = 1) {
 
 // clips `xJ` to `[a,b]`
 function clip_in(xJ, a = 0, b = 1) {
-  assert(is_array(xJ), 'non-array argument')
+  if (!is_array(xJ)) fatal('non-array argument')
   if (is_finite(a) && is_finite(b)) {
     for (let j = 0; j < xJ.length; ++j) {
       if (xJ[j] < a) xJ[j] = a

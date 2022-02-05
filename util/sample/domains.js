@@ -43,8 +43,8 @@ const interval = (a, b, options = undefined) => {
       σ = options.stdev ?? options.σ
     }
     // note we disable assertions in favor of returning undefined domains
-    // assert(defined(μ), 'missing mean or mode for unbounded interval')
-    // assert(defined(σ), 'missing stdev for unbounded interval')
+    // if (!(defined(μ))) fatal( 'missing mean or mode for unbounded interval')
+    // if (!(defined(σ))) fatal( 'missing stdev for unbounded interval')
     return normal(μ, σ)
   }
   // half-bounded interval is gamma w/ `μ|c` and `σ` required
@@ -55,8 +55,8 @@ const interval = (a, b, options = undefined) => {
     σ = options.stdev ?? options.σ
   }
   a = is_finite(a) ? a : b // gamma base
-  // assert(defined(μ ?? c), 'missing mean or mode for half-bounded interval')
-  // assert(defined(σ), 'missing stdev for half-bounded interval')
+  // if (!(defined(μ ?? c))) fatal( 'missing mean or mode for half-bounded interval')
+  // if (!(defined(σ))) fatal( 'missing stdev for half-bounded interval')
   // mode supercedes mean if both are specified
   if (defined(c)) {
     σ ??= abs(c - a) / 2 // default sigma is 1/2 distance to bound
@@ -180,7 +180,7 @@ function _sum(J, S, fs = summand) {
   const xJ = array(J, j => {
     const xj = domain_fj(j, J, s)._prior(x => x)
     if (!defined(xj)) return (s = undefined) // also affects remaining terms
-    assert(xj >= 0, 'invalid prior sample for summand')
+    if (!(xj >= 0)) fatal('invalid prior sample for summand')
     s += xj
     return xj
   })

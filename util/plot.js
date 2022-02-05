@@ -1,10 +1,10 @@
 // plot `obj` in item `name`
 function plot(obj, name = undefined) {
   if (window.__sampler) fatal('plot(…) not allowed inside sample(…)')
-  assert(is_object(obj), 'non-object argument')
+  if (!is_object(obj)) fatal('non-object argument')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
-  assert(_this.name.startsWith('#'), 'plot called from unnamed item')
-  assert(name.match(/^#?\/?\w+$/), `invalid name '${name}' for plot item`)
+  if (!_this.name.startsWith('#')) fatal('plot called from unnamed item')
+  if (!name.match(/^#?\/?\w+$/)) fatal(`invalid name '${name}' for plot item`)
   // prefix name with #/ if missing and convert to absolute name
   if (name.match(/^\w/)) name = '#/' + name
   else if (name.match(/^\/\w/)) name = '#' + name
@@ -23,11 +23,11 @@ function plot(obj, name = undefined) {
     title, // optional title markdown placed immediately after label
   } = obj
 
-  assert(data, 'missing data')
-  assert(renderer, 'missing renderer')
-  assert(is_function(renderer) || is_string(renderer), 'invalid renderer')
-  assert(is_function(decoder) || is_string(decoder), 'invalid decoder')
-  assert(is_function(encoder), 'invalid encoder')
+  if (!data) fatal('missing data')
+  if (!renderer) fatal('missing renderer')
+  if (!(is_function(renderer) || is_string(renderer))) fatal('invalid renderer')
+  if (!(is_function(decoder) || is_string(decoder))) fatal('invalid decoder')
+  if (!is_function(encoder)) fatal('invalid encoder')
   // convert renderer and parser to strings embeddable in macro
   if (is_function(renderer)) renderer = renderer.toString()
   if (!renderer.match(/^\w+$/)) renderer = `(${renderer})`
@@ -53,13 +53,12 @@ function plot(obj, name = undefined) {
   let caption_text
   let caption_sync_js
   if (caption) {
-    assert(
-      is_string(caption) && caption.match(/^\w+$/),
-      'invalid caption (must be block name)'
-    )
+    if (!(is_string(caption) && caption.match(/^\w+$/)))
+      fatal('invalid caption (must be block name)')
     caption = caption.replace(/_removed$/, '') // drop required suffix
     caption_text = read(caption + '_removed')
-    assert(caption_text, `could not read caption block '${caption}_removed'`)
+    if (!caption_text)
+      fatal(`could not read caption block '${caption}_removed'`)
     caption_sync_js = `function _on_item_change() { _sync_caption('${caption}') }`
   }
 
@@ -150,7 +149,7 @@ function hist(xSJ, options = {}) {
   let wSJ = weights
   if (wSJ) {
     wSJ = matrixify(wSJ)
-    assert(equal(dimensions(wSJ), dimensions(xSJ)), 'invalid weights')
+    if (!equal(dimensions(wSJ), dimensions(xSJ))) fatal('invalid weights')
   }
 
   let K // rows (bins or values)
@@ -177,7 +176,7 @@ function hist(xSJ, options = {}) {
     if (wZ) each(xZ, (x, z) => (cX[x] = (cX[x] ?? 0) + wZ[z]))
     else each(xZ, x => (cX[x] = (cX[x] ?? 0) + 1))
     if (is_integer(values)) {
-      assert(values > 0, 'invalid values <= 0')
+      if (!(values > 0)) fatal('invalid values <= 0')
       // we rank by count/weight by default
       // we sort by keys if untruncated and numeric
       // arbitrary ordering is possible w/ values array
@@ -191,7 +190,7 @@ function hist(xSJ, options = {}) {
         values
       )
     }
-    assert(is_array(values), 'invalid values')
+    if (!is_array(values)) fatal('invalid values')
     K = values.length
     const cSX = array(S, s => {
       const xsJ = xSJ[s]
@@ -208,7 +207,7 @@ function hist(xSJ, options = {}) {
     // bin numeric values
     const [d, s] = flat(precision)
     const xB = is_array(bins) ? bins : bin(xZ, max_bins, d, s)
-    assert(is_array(xB), 'non-array bins')
+    if (!is_array(xB)) fatal('non-array bins')
     label_precision ??= max_of(xB, _decimal_places)
     stringifier ??= x => x.toFixed(label_precision) // default numeric stringifier
     K = xB.length - 1
@@ -224,7 +223,7 @@ function hist(xSJ, options = {}) {
           labeler = (a, b) => stringifier(round_to((a + b) / 2, d, s))
         else fatal(`unknown labeler '${labeler}'`)
       }
-      assert(is_function(labeler), 'invalid labeler')
+      if (!is_function(labeler)) fatal('invalid labeler')
       return array(K, k => labeler(xB[k], xB[k + 1], k))
     }
   }
@@ -273,10 +272,11 @@ function hist(xSJ, options = {}) {
         })
       }
       case 'lines': {
-        assert(!values, 'hist(…).lines(…) requires binned mode')
+        if (!!values) fatal('hist(…).lines(…) requires binned mode')
         labeler = options?.labeler ?? _options.labeler ?? 'mid'
         const labels = lK(labeler)
-        assert(is_numeric(labels[0]), 'hist(…).lines(…) needs numeric labels')
+        if (!is_numeric(labels[0]))
+          fatal('hist(…).lines(…) needs numeric labels')
         return plot({
           ...obj,
           data: { x_values: labels, values: cSK },
@@ -303,11 +303,11 @@ function hist(xSJ, options = {}) {
 // can also round to at most `s` significant digits
 // drops empty or small bins to return `≤K` bins
 function bin(xJ, K = 10, d = 2, s = inf) {
-  assert(is_array(xJ), 'non-array argument')
-  assert(xJ.length, 'empty array argument')
-  assert(is_integer(K) && K > 0, `invalid bin count ${K}`)
+  if (!is_array(xJ)) fatal('non-array argument')
+  if (!xJ.length) fatal('empty array argument')
+  if (!(is_integer(K) && K > 0)) fatal(`invalid bin count ${K}`)
   let [xs, xe] = min_max_in(xJ)
-  assert(is_finite(xs) && is_finite(xe), `array contains infinities`)
+  if (!(is_finite(xs) && is_finite(xe))) fatal(`array contains infinities`)
   const p = parseFloat(`1e${-d}`) // absolute precision
   // align first/last bins to precision, shifting for strict containment
   let xsr = round_to(xs, d, inf, 'floor')
@@ -323,20 +323,20 @@ function bin(xJ, K = 10, d = 2, s = inf) {
   // shift (and re-round) bins to equalize gap from first/last value
   const r = round_to(xs - xsr - (last(xK) - xe), d)
   if (abs(r) > p) apply(xK, (x, k) => round_to(x + r / 2, d))
-  assert(xK[0] < xs, `binning error: first bin ${xK[0]} ≥ ${xs}`)
-  assert(xe < xK[K - 1], `binning error: last bin ${xK[K - 1]} ≤ ${xe}`)
+  if (!(xK[0] < xs)) fatal(`binning error: first bin ${xK[0]} ≥ ${xs}`)
+  if (!(xe < xK[K - 1])) fatal(`binning error: last bin ${xK[K - 1]} ≤ ${xe}`)
   // apply additional rounding for significant digits
   if (s < inf) {
-    assert(s > 0, `invalid significant digits ${s}`)
+    if (!(s > 0)) fatal(`invalid significant digits ${s}`)
     apply(xK, (x, k) =>
       round_to(x, d, s, k == 0 ? 'floor' : k == K - 1 ? 'ceil' : 'round')
     )
     xK = uniq(xK)
     K = xK.length
-    assert(
-      xK.length > 1 && xK[0] < xs && xe < xK[K - 1],
-      `failed to adjust bins for s=${s}, range=[${xs},${xe}], bins=[${xK}]`
-    )
+    if (!(xK.length > 1 && xK[0] < xs && xe < xK[K - 1]))
+      fatal(
+        `failed to adjust bins for s=${s}, range=[${xs},${xe}], bins=[${xK}]`
+      )
   }
   return xK
 }
@@ -381,14 +381,15 @@ function _test_bin() {
 // count `xJ` into bins `xB`
 // can aggregate optional weights `wJ`
 function count_bins(xJ, xB = bin(xJ), wJ = undefined) {
-  assert(is_array(xJ), 'non-array argument')
-  assert(xJ.length, 'empty array')
-  assert(is_array(xB), 'non-array bins')
+  if (!is_array(xJ)) fatal('non-array argument')
+  if (!xJ.length) fatal('empty array')
+  if (!is_array(xB)) fatal('non-array bins')
   const K = xB.length - 1 // number of bins
-  assert(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1]), 'invalid bins')
+  if (!(K > 0 && xB.every((x, b) => b == 0 || x > xB[b - 1])))
+    fatal('invalid bins')
   const cK = array(xB.length - 1, 0)
   if (wJ) {
-    assert(is_array(wJ) && wJ.length == xJ.length, 'invalid weights')
+    if (!(is_array(wJ) && wJ.length == xJ.length)) fatal('invalid weights')
     each(xJ, (x, j) => {
       const k = sorted_last_index(xB, x) - 1
       if (k < 0 || k >= K) return // outside first/last bin

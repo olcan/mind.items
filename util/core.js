@@ -84,12 +84,10 @@ function transpose_objects(z) {
   if (is_array(z)) {
     const xJN = z
     if (xJN.length == 0) return {}
-    assert(is_object(xJN[0]), 'invalid first element')
+    if (!is_object(xJN[0])) fatal('invalid first element')
     const nK = keys(xJN[0])
-    assert(
-      xJN.every(xjN => equal(keys(xjN), nK)),
-      'non-rectangular transpose'
-    )
+    if (!xJN.every(xjN => equal(keys(xjN), nK)))
+      fatal('non-rectangular transpose')
     return zip_object(
       nK,
       nK.map(n => map(xJN, n))
@@ -99,12 +97,9 @@ function transpose_objects(z) {
     if (empty(xNJ)) return []
     const nK = keys(xNJ)
     const xKJ = values(xNJ)
-    assert(is_array(xKJ[0]), 'invalid first value')
+    if (!is_array(xKJ[0])) fatal('invalid first value')
     const J = xKJ[0].length
-    assert(
-      xKJ.every(xkJ => xkJ.length == J),
-      'non-rectangular transpose'
-    )
+    if (!xKJ.every(xkJ => xkJ.length == J)) fatal('non-rectangular transpose')
     return array(J, j =>
       zip_object(
         nK,
@@ -202,7 +197,7 @@ function str(x) {
   // array elements stringified recursively
   if (is_array(x)) return '[ ' + x.map(str).join(' ') + ' ]'
   // at this point
-  assert(is_object(x), 'str: unexpected type ' + typeof x)
+  if (!is_object(x)) fatal('str: unexpected type ' + typeof x)
   // object values stringified recursively
   // toString used if overloaded (e.g. Date)
   if (x.toString !== Object.prototype.toString) return x.toString()
@@ -266,7 +261,7 @@ const round_to = (x, d = 0, s = inf, mode = 'round') => {
   if (d == 0 && s == inf) return Math[mode](x) // just use Math.*
   // determine d automatically if s<inf
   if (s < inf) {
-    assert(s > 0, `invalid significant digits ${s}`)
+    if (!(s > 0)) fatal(`invalid significant digits ${s}`)
     const sd = _significant_digits(x)
     if (s < sd) d = Math.min(d, _decimal_places(x) - (sd - s))
   }
@@ -374,27 +369,23 @@ function _significant_digits(x) {
   return t2.replace(/0+$/, '').length
 }
 
-const assert = (cond, ...args) => cond || fatal(...args)
-
 // throws error if any of `funcs` returns falsy
 // if array is returned, all elements must be `equal`
 // typically used in test functions `_test_*()`
 function check(...funcs) {
   flat(funcs).forEach(f => {
-    assert(is_function(f), 'non-function argument')
+    if (!is_function(f)) fatal('non-function argument')
     const ret = f()
     if (is_array(ret)) {
       const xJ = ret // interpret returned array as values to be compared
       // if last element of returned array is a function, it will be used as the comparison function fcomp(x0,x) in place of equal(x0,x)
       let fcomp = equal
       if (is_function(last(xJ))) fcomp = xJ.pop()
-      assert(xJ.length >= 2, `FAILED CHECK: ${str(f)} → ${str(xJ)}`)
-      assert(
-        xJ.every((x, j) => j == 0 || fcomp(xJ[0], x)),
-        `FAILED CHECK: ${str(f)} → ${str(xJ)}`
-      )
+      if (!(xJ.length >= 2)) fatal(`FAILED CHECK: ${str(f)} → ${str(xJ)}`)
+      if (!xJ.every((x, j) => j == 0 || fcomp(xJ[0], x)))
+        fatal(`FAILED CHECK: ${str(f)} → ${str(xJ)}`)
     }
-    assert(ret, `FAILED CHECK: ${str(f)}`)
+    if (!ret) fatal(`FAILED CHECK: ${str(f)}`)
   })
 }
 
@@ -412,7 +403,7 @@ function benchmark(...funcs) {
     })
   )
   funcs.forEach(f => {
-    assert(is_function(f), 'non-function argument')
+    if (!is_function(f)) fatal('non-function argument')
     _run_benchmark(f)
   })
 }
@@ -439,13 +430,11 @@ function _run_benchmark(
     unit_funcs
   const ret = f() // return value for custom units
   if (unit) {
-    assert(is_number(ret), 'must return number for unit ' + unit)
+    if (!is_number(ret)) fatal('must return number for unit ' + unit)
   } else if (units) {
-    assert(
-      is_object(units) && !is_array(units),
-      'benchmark units must be object of unit:function pairs'
-    )
-    assert(is_object(ret), 'must return object for units ' + str(units))
+    if (!(is_object(units) && !is_array(units)))
+      fatal('benchmark units must be object of unit:function pairs')
+    if (!is_object(ret)) fatal('must return object for units ' + str(units))
     unit_funcs = values(units)
     units = keys(units)
     counts = zeroes(units.length)
@@ -489,7 +478,7 @@ function _benchmark_benchmark() {
 // does function `f` throw an error?
 // `error` can be specific error, type, or predicate
 function throws(f, error) {
-  assert(is_function(f), 'non-function argument')
+  if (!is_function(f)) fatal('non-function argument')
   try {
     f()
   } catch (e) {
@@ -510,7 +499,7 @@ function _test_throws() {
 
 // `[output, elapsed_ms]`
 function timing(f) {
-  assert(is_function(f), 'non-function argument')
+  if (!is_function(f)) fatal('non-function argument')
   const start = Date.now()
   const output = f()
   const elapsed = Date.now() - start
@@ -524,33 +513,32 @@ function timing(f) {
 // `obj.__prop` method can be specified as argument `f`
 // `options` are passed to `Object.defineProperty` in descriptor argument
 function cache(obj, prop, deps, f, options = {}) {
-  assert(is_string(prop) && prop.match(/^\w+$/), `invalid prop '${prop}'`)
-  assert(is_array(deps), `invalid/missing deps for cached '${prop}'`)
-  assert(!f || is_function(f), `invalid function for cached '${prop}'`)
-  assert(
-    f || is_function(obj['__' + prop]),
-    `missing/invalid  method '__${prop}' for cached prop`
-  )
+  if (!(is_string(prop) && prop.match(/^\w+$/))) fatal(`invalid prop '${prop}'`)
+  if (!is_array(deps)) fatal(`invalid/missing deps for cached '${prop}'`)
+  if (!(!f || is_function(f))) fatal(`invalid function for cached '${prop}'`)
+  if (!(f || is_function(obj['__' + prop])))
+    fatal(`missing/invalid  method '__${prop}' for cached prop`)
   if (f) {
-    assert(
-      !obj['__' + prop],
-      `specified function conflicts w/ method '__${prop}' for cached prop`
-    )
+    if (!!obj['__' + prop])
+      fatal(
+        `specified function conflicts w/ method '__${prop}' for cached prop`
+      )
     obj['__' + prop] = function () {
       return f(this)
     }.bind(obj)
   }
-  assert(!obj.__deps?.[prop], `cached prop '${prop} already defined`)
+  if (!!obj.__deps?.[prop]) fatal(`cached prop '${prop} already defined`)
   obj.__deps ??= {}
   obj.__deps[prop] = []
   each(deps, dep => {
-    assert(is_array(obj.__deps[dep]), `unknown dep '${dep}' for '${prop}'`)
+    if (!is_array(obj.__deps[dep])) fatal(`unknown dep '${dep}' for '${prop}'`)
     obj.__deps[dep].push(prop)
   })
   Object.defineProperty(obj, prop, {
     get: () => (obj['_' + prop] ??= obj['__' + prop].call(obj)),
     set: v => {
-      assert(v === null, `cached property '${prop}' can only be set to null`)
+      if (!(v === null))
+        fatal(`cached property '${prop}' can only be set to null`)
       // NOTE: we can not do this since dependents can be non-null even if all intermediate dependents are null (e.g. if its function does not always access its dependencies)
       // if (obj['_' + prop] === null) return // already null
       // set dependents to null using setter (to set their dependents also)
@@ -886,7 +874,7 @@ function js_table(regex) {
 
 function _install_core_css() {
   // require local invocation with _this being lexical this
-  assert(_this.name == '#util/core', '_install_core_css from non-core')
+  if (!(_this.name == '#util/core')) fatal('_install_core_css from non-core')
   // use core deephash as a quick check before reading/hashing css
   if (_this.store.css_core_hash == _this.deephash) return // no change to core
   _this.store.css_core_hash = _this.deephash

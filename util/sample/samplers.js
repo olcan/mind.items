@@ -361,7 +361,8 @@ function mixture(...sK) {
   const num_samplers = sum_of(sK, s => !!s?._prior)
   if (num_samplers == 0) return dom
   // disallow mixing non-samplers w/ samplers
-  assert(num_samplers == sK.length, 'invalid mixture contains non-samplers')
+  if (!(num_samplers == sK.length))
+    fatal('invalid mixture contains non-samplers')
   const log_pK = array(sK.length)
   dom._prior = f => random_element(sK)._prior(f)
   dom._log_p = x => {

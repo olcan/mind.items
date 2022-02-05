@@ -6,12 +6,12 @@
 function simulate(x, t, events) {
   x.t ??= 0 // default x.t is 0
   x._t ??= 0 // non-resuming sim starts at x._t=0 to be advanced x.t>t>0
-  assert(x.t >= 0, `invalid x.t=${x.t}, must be >=0`)
-  assert(t > x.t, `invalid t=${t}, must be >x.t=${x.t}`)
-  assert(is_array(events), `invalid events, must be array`)
+  if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
+  if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
+  if (!is_array(events)) fatal(`invalid events, must be array`)
   apply(events, e => {
-    assert(is_event(e), 'invalid event')
-    if (!e.t || !e._t) assert(!x._t, `invalid events/state for resume`)
+    if (!is_event(e)) fatal('invalid event')
+    if (!e.t || !e._t) if (!!x._t) fatal(`invalid events/state for resume`)
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
@@ -25,7 +25,7 @@ function simulate(x, t, events) {
     x.th = (x.t - x.td) * 24
     each(events, e => (e.t = e.ft(x))) // caching is handled in _Event
     x._t = min_of(events, e => e.t) // can be inf
-    assert(x._t > x.t, 'invalid e.ft(x) <= x.t')
+    if (!(x._t > x.t)) fatal('invalid e.ft(x) <= x.t')
     // stop at t if next event is >t
     if (x._t > t) break
     // advance to x.t=_t & trigger mutations
@@ -41,9 +41,9 @@ function simulate(x, t, events) {
 // also flattens & filters arguments as `compact(flat(…))`
 const name_events = (...fE) =>
   apply(compact(flat(fE)), e => {
-    assert(is_function(e), 'invalid non-function argument')
+    if (!is_function(e)) fatal('invalid non-function argument')
     e = set(e(), '_name', str(e))
-    assert(is_event(e), 'function returned non-event')
+    if (!is_event(e)) fatal('function returned non-event')
     return e
   })
 
@@ -244,7 +244,7 @@ function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
   if (!h._prior) fatal(`invalid hours '${str(h)}'`)
-  return x => h._prior(h => (assert(h > 0, 'negative hours'), x.t + h * _1h))
+  return x => h._prior(h => (h > 0 || fatal('negative hours'), x.t + h * _1h))
 }
 
 // absolute time scheduler

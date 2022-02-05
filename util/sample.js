@@ -34,11 +34,12 @@ function from(x, domain) {
       return x.every((xj, j) => from(xj, domain[j]))
     }
   }
-  assert(is_object(domain), `unknown domain ${domain}`)
+  if (!is_object(domain)) fatal(`unknown domain ${domain}`)
   return keys(domain).every(key => {
     switch (key) {
       case 'via':
-        assert(is_function(domain.via), `invalid 'via' domain ${domain.via}`)
+        if (!is_function(domain.via))
+          fatal(`invalid 'via' domain ${domain.via}`)
         // function may optionally declare return domain as _domain
         // otherwise function is allowed to return anything
         if (domain.via._domain) return from(x, domain.via._domain)
@@ -74,7 +75,7 @@ function from(x, domain) {
       case 'not':
         return !from(x, domain.not)
       default:
-        assert(key[0] == '_', `invalid domain property '${key}'`)
+        if (!(key[0] == '_')) fatal(`invalid domain property '${key}'`)
         return true // ignore underscore-prefixed property
     }
   }) // = true if empty(domain)
@@ -94,12 +95,13 @@ function invert(domain) {
     if (is_object(domain[0])) return domain.map(invert)
   }
   if (is_number(domain)) return invert({ eqq: domain })
-  assert(is_object(domain), `unknown domain ${domain}`)
+  if (!is_object(domain)) fatal(`unknown domain ${domain}`)
   if (empty(domain)) return null // everything -> empty
   let domains = keys(domain).map(key => {
     switch (key) {
       case 'via':
-        assert(is_function(domain.via), `invalid 'via' domain ${domain.via}`)
+        if (!is_function(domain.via))
+          fatal(`invalid 'via' domain ${domain.via}`)
         if (domain.via._domain) return invert(domain.via._domain)
         return null // function can return anything -> nothing
       case 'is':
@@ -133,7 +135,7 @@ function invert(domain) {
       default:
         // inversion REMOVES underscore-prefixed properties
         // e.g. _prior, _posterior, _log_p, _log_wr, ...
-        assert(key[0] == '_', `invalid domain property '${key}'`)
+        if (!(key[0] == '_')) fatal(`invalid domain property '${key}'`)
         return undefined // drop underscore-prefixed property
     }
   })
@@ -165,7 +167,8 @@ function distance(x, domain) {
   if (is_array(domain)) {
     if (is_primitive(domain[0])) return _distance_to_array(x, domain)
     if (is_object(domain[0])) {
-      assert(x.length == domain.length, 'array length mismatch for distance')
+      if (!(x.length == domain.length))
+        fatal('array length mismatch for distance')
       // for array domain, take sum of per-element distances
       // sum (unlike min/max) is sensitive to per-element distances
       // sum (unlike mean) is also sensitive to array length (dimensions)
@@ -173,12 +176,13 @@ function distance(x, domain) {
       return is_inf(d) ? undefined : d
     }
   }
-  assert(is_object(domain), `unknown domain ${domain}`)
+  if (!is_object(domain)) fatal(`unknown domain ${domain}`)
   if (domain._distance) return domain._distance(x)
   const d = max_of(keys(domain), key => {
     switch (key) {
       case 'via':
-        assert(is_function(domain.via), `invalid 'via' domain ${domain.via}`)
+        if (!is_function(domain.via))
+          fatal(`invalid 'via' domain ${domain.via}`)
         if (domain.via._domain) return distance(x, domain.via._domain)
         return inf
       case 'is':
@@ -210,7 +214,7 @@ function distance(x, domain) {
         if (inverted.not) return inf // unable to transform (w/o not)
         return distance(x, inverted) ?? inf // distance to transformed domain
       default:
-        assert(key[0] == '_', `invalid domain property '${key}'`)
+        if (!(key[0] == '_')) fatal(`invalid domain property '${key}'`)
     }
   })
   return is_inf(d) ? undefined : d
@@ -313,12 +317,11 @@ function density(x, domain) {
 // | `params`      | object of parameters to be captured from parent context
 function sample(domain, options = undefined) {
   // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
-  assert(
-    is_function(domain),
-    `invalid sample(…) call outside of sample(context=>{ … })`
-  )
+  if (!is_function(domain))
+    fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
   // decline target for root sampler since that is no parent to track tks
-  assert(!options?.target, `invalid target outside of sample(context=>{ … })`)
+  if (!!options?.target)
+    fatal(`invalid target outside of sample(context=>{ … })`)
   return new _Sampler(domain, options).sample()
 }
 
@@ -424,7 +427,7 @@ class _Sampler {
 
     // merge in default options
     const J = (this.J = options.size ?? 1000)
-    assert(J > 0, `invalid sample size ${J}`)
+    if (!(J > 0)) fatal(`invalid sample size ${J}`)
     this.options = options = assign(
       {
         stats: false,
@@ -556,7 +559,7 @@ class _Sampler {
 
     if (defined(this.options.targets)) {
       if (this.options.targets == true) this._targets()
-      else assert(is_object(this.options.targets), 'invalid option targets')
+      else if (!is_object(this.options.targets)) fatal('invalid option targets')
     }
 
     if (stats) stats.time.init = this.t // init time, including target sampling
@@ -651,7 +654,7 @@ class _Sampler {
         let size, args_name
         if (method.endsWith('_array')) {
           ;[size, args_name] = parse_array_args(args)
-          assert(size > 0, `invalid/missing size for ${method}`)
+          if (!(size > 0)) fatal(`invalid/missing size for ${method}`)
         }
         // if name (via assignment) is mising, try object key or args
         name ??= key ?? args_name
@@ -659,35 +662,27 @@ class _Sampler {
         let array_names
         if (name) {
           // decline destructuring assignment to object {...}
-          assert(
-            name[0] != '{',
-            `destructuring assignment to object ${name} not supported`
-          )
+          if (!(name[0] != '{'))
+            fatal(`destructuring assignment to object ${name} not supported`)
           // allow destructuring assignment to full flat array from sample_array
           if (name[0] == '[') {
-            assert(
-              !name.slice(1, -1).match(/\[|{/),
-              `destructuring assignment to nested array ${name} not supported`
-            )
-            assert(
-              !name.slice(1, -1).match(/=/),
-              `default values in assignment to array ${name} not supported`
-            )
-            assert(
-              method == 'sample_array',
-              `destructuring assignment to array requires sample_array`
-            )
+            if (!!name.slice(1, -1).match(/\[|{/))
+              fatal(
+                `destructuring assignment to nested array ${name} not supported`
+              )
+            if (!!name.slice(1, -1).match(/=/))
+              fatal(
+                `default values in assignment to array ${name} not supported`
+              )
+            if (!(method == 'sample_array'))
+              fatal(`destructuring assignment to array requires sample_array`)
             array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
-            assert(
-              size == array_names.length,
-              'destructuring array assignment size mismatch'
-            )
+            if (!(size == array_names.length))
+              fatal('destructuring array assignment size mismatch')
           } else {
             if (names.has(name)) name += '_' + index // de-duplicate name
-            assert(
-              !name.match(/^\d/),
-              `invalid numeric name '${name}' for sampled value`
-            )
+            if (!!name.match(/^\d/))
+              fatal(`invalid numeric name '${name}' for sampled value`)
           }
         }
         // extract lexical context
@@ -792,10 +787,10 @@ class _Sampler {
             // treat as sample(constant(args)) w/ name args(.index)
             const index = values.length
             args = args.trim() // trim whitespace around args
-            assert(!args.match(/\s/), 'invalid args (whitespace) for plot')
-            assert(args, 'missing args for plot')
-            assert(args != 'undefined', 'undefined args for plot')
-            assert(!name, 'invalid use of return value for plot')
+            if (!!args.match(/\s/)) fatal('invalid args (whitespace) for plot')
+            if (!args) fatal('missing args for plot')
+            if (!(args != 'undefined')) fatal('undefined args for plot')
+            if (!!name) fatal('invalid use of return value for plot')
             name = args + (names.has(args) ? '_' + index : '') // de-duplicate
             names.add(name) // name aligned w/ values & unique
             values.push({ index, offset, name, args, line_index, line, js })
@@ -862,17 +857,15 @@ class _Sampler {
       options.stats = options.stats.split(/[^\.\w]+/)
     // convert array of string keys to object of booleans (true)
     if (is_array(options.stats)) {
-      assert(every(options.stats, is_string), 'invalid option stats')
+      if (!every(options.stats, is_string)) fatal('invalid option stats')
       options.stats = from_entries(options.stats.map(k => [k, true]))
     }
-    assert(
-      is_object(options.stats) && every(values(options.stats), is_boolean),
-      'invalid option stats'
-    )
+    if (!(is_object(options.stats) && every(values(options.stats), is_boolean)))
+      fatal('invalid option stats')
     const unknown_keys = diff(keys(options.stats), known_keys).filter(
       k => !k.includes('.') // since names can change at runtime
     )
-    assert(empty(unknown_keys), `unknown stats: ${unknown_keys}`)
+    if (!empty(unknown_keys)) fatal(`unknown stats: ${unknown_keys}`)
 
     this.stats = {
       reweights: 0,
@@ -984,13 +977,14 @@ class _Sampler {
     this.log_wrj_gap = max_of(this.log_wrJ, (lwrj, j) => gap(lwrj, log_wJ[j]))
     if (this.log_wrj_gap < 1e-6) this.log_wrj_gap = 0 // chop to 0 below 1e-6
     // we expect gap==0 iff r==1
-    if (this.r == 1) assert(this.log_wrj_gap == 0, `unexpected gap>0 @ r=1`)
+    if (this.r == 1)
+      if (!(this.log_wrj_gap == 0)) fatal(`unexpected gap>0 @ r=1`)
     if (this.log_wrj_gap == 0) {
       // we allow gap=0 for all r if max-weight is 0 or min-weight is 1
-      assert(
-        this.r == 1 || min_in(log_wJ) == 0 || max_in(log_wJ) == -inf,
-        `unexpected gap=0 @ r=${this.r}<1, wj_range=${min_max_in(log_wJ)}`
-      )
+      if (!(this.r == 1 || min_in(log_wJ) == 0 || max_in(log_wJ) == -inf))
+        fatal(
+          `unexpected gap=0 @ r=${this.r}<1, wj_range=${min_max_in(log_wJ)}`
+        )
     }
 
     // clip infinities to enable subtraction in _reweight & _move
@@ -1027,7 +1021,7 @@ class _Sampler {
 
     // apply random increment to rN that satisfies reweight_ess
     const { reweight_ess, min_reweights, max_reweight_tries } = this.options
-    assert(this.ess > reweight_ess, `ess too low for reweight`)
+    if (!(this.ess > reweight_ess)) fatal(`ess too low for reweight`)
     let tries = 0 // number of tries to reweight (i.e. increment rN)
     copy(_rN, rN) // save current rN as base
     do {
@@ -1215,7 +1209,7 @@ class _Sampler {
       move_weights,
     } = this.options
 
-    assert(this.u == 0, '_update requires u=0')
+    if (!(this.u == 0)) fatal('_update requires u=0')
 
     let stable_updates = 0
     let unweighted_updates = 0
@@ -1354,10 +1348,8 @@ class _Sampler {
         const w = exp(log_wJ[j])
         if (w == 0) return // skip rejected run
         w_accept ??= w
-        assert(
-          approx_equal(w, w_accept),
-          `uneven weights ${w}!=${w_accept} for target run`
-        )
+        if (!approx_equal(w, w_accept))
+          fatal(`uneven weights ${w}!=${w_accept} for target run`)
         if (w) targets.push(zip_object(this.nK, xjK))
       })
     }
@@ -1371,13 +1363,14 @@ class _Sampler {
 
   _quantiles() {
     const options = this.options
-    assert(size(options.stats) == 1, 'quantiles require single stats:<name>')
+    if (!(size(options.stats) == 1))
+      fatal('quantiles require single stats:<name>')
     // enable default quantiles for quantiles == true
     if (options.quantiles == true) options.quantiles = [0, 0.1, 0.5, 0.9, 1]
 
     // execute necessary runs
     const R = options.quantile_runs
-    assert(is_integer(R) && R > 0, 'invalid option quantile_runs')
+    if (!(is_integer(R) && R > 0)) fatal('invalid option quantile_runs')
     const f = this.domain // sampler domain function
     let o = clone_deep(options)
     o = omit(o, ['log', 'plot', 'quantiles', 'targets'])
@@ -1388,7 +1381,7 @@ class _Sampler {
 
     // compute quantiles of global stats
     const qQ = options.quantiles
-    assert(is_array(qQ) && qQ.every(is_prob), 'invalid option quantiles')
+    if (!(is_array(qQ) && qQ.every(is_prob))) fatal('invalid option quantiles')
     const qR = n => quantiles(map(sR, n), qQ)
 
     const s = omit(this.stats, 'updates')
@@ -1721,7 +1714,7 @@ class _Sampler {
     if (is_string(this.options.plot))
       plot_names = new Set(this.options.plot.split(/\W+/))
     else if (is_array(this.options.plot)) {
-      assert(every(this.options.plot, is_string), 'invalid option plot')
+      if (!every(this.options.plot, is_string)) fatal('invalid option plot')
       plot_names = new Set(this.options.plot)
     }
     const { J, rwJ, xJK, pxJK } = this
@@ -1857,7 +1850,8 @@ class _Sampler {
       if (is_array(value.first) && is_finite(value.first[0])) {
         const R = value.first.length
         const stdevR = (stdevK[k] ??= array(R))
-        assert(stdevR.length == R, 'variable-length arrays not supported yet')
+        if (!(stdevR.length == R))
+          fatal('variable-length arrays not supported yet')
         let w = 0
         let sR = value._sR ?? array(R)
         let ssR = value._ssR ?? array(R)
@@ -1875,7 +1869,8 @@ class _Sampler {
         if (w == 0) return // not enough samples/weight
         const mR = scale(sR, 1 / w)
         const vR = sub(scale(ssR, 1 / w), mul(mR, mR))
-        assert(vR.every(is_finite) && min_of(vR) >= -1e-6, 'bad variance', vR)
+        if (!(vR.every(is_finite) && min_of(vR) >= -1e-6))
+          fatal('bad variance', vR)
         apply(vR, v => (v < 1e-12 ? 0 : v)) // chop small stdev to 0
         return apply(vR, sqrt)
       }
@@ -1895,7 +1890,7 @@ class _Sampler {
       if (w == 0) return // not enough samples/weight
       const m = s / w
       const v = ss / w - m * m
-      assert(is_finite(v) && v >= -1e-6, 'bad variance', v)
+      if (!(is_finite(v) && v >= -1e-6)) fatal('bad variance', v)
       if (v < 1e-12) return 0 // stdev too small, return 0 to be dealt with
       return sqrt(v)
     })
@@ -2105,7 +2100,8 @@ class _Sampler {
 
   _sample(k, domain, options, /* (base,length) for arrays: */ k0, J) {
     const value = this.values[k]
-    assert(!value.called, 'sample(…) invoked dynamically (e.g. inside loop)')
+    if (!!value.called)
+      fatal('sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
     const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
     const { upJK, uaJK, uawK, upwK, log_p_xJK, log_p_yJK } = this
@@ -2137,16 +2133,15 @@ class _Sampler {
         if (defined(k0)) {
           if (options.names) name = options.names[k - k0]
           if (is_string(options)) options = options.split(/\W+/)
-          assert(is_array(options), `invalid options ${str(options)}`)
-          assert(options.length == J, `name (options) array size mismatch`)
+          if (!is_array(options)) fatal(`invalid options ${str(options)}`)
+          if (!(options.length == J))
+            fatal(`name (options) array size mismatch`)
           name = options[k - k0]
         } else name = options.name ?? options
-        assert(is_string(name), `invalid name '${name}' for sampled value`)
-        assert(name, `blank name for sampled value at index ${k}`)
-        assert(
-          !name.match(/^\d/),
-          `invalid numeric name '${name}' for sampled value`
-        )
+        if (!is_string(name)) fatal(`invalid name '${name}' for sampled value`)
+        if (!name) fatal(`blank name for sampled value at index ${k}`)
+        if (!!name.match(/^\d/))
+          fatal(`invalid numeric name '${name}' for sampled value`)
         value.name = name
         if (this.names.has(value.name)) value.name += '_' + value.index
         this.names.add(value.name)
@@ -2190,10 +2185,11 @@ class _Sampler {
         } else {
           if (!is_function(value.target) && !is_array(value.target))
             fatal(`invalid target @ ${line}`)
-          assert(!defined(options?.size), `unexpected size option @ ${line}`)
+          if (!!defined(options?.size))
+            fatal(`unexpected size option @ ${line}`)
         }
       } else {
-        assert(!defined(options?.size), `unexpected size option @ ${line}`)
+        if (!!defined(options?.size)) fatal(`unexpected size option @ ${line}`)
       }
 
       // log sampled value
@@ -2216,23 +2212,19 @@ class _Sampler {
       // for now we perform a basic check on the stringified function
       // in the future we may require object reuse for efficiency
       if (value.domain)
-        assert(
-          str(value.domain.domain) == str(domain),
-          'function (sampler) domain modified across runs'
-        )
+        if (!(str(value.domain.domain) == str(domain)))
+          fatal('function (sampler) domain modified across runs')
       domain = value.domain ?? new _Sampler(domain, options)
-      assert(
-        approx_equal(domain.ess, domain.J, 1e-3),
-        'sampler domain failed to achieve full ess'
-      )
+      if (!approx_equal(domain.ess, domain.J, 1e-3))
+        fatal('sampler domain failed to achieve full ess')
     }
 
     // require prior and log_p to be defiend via domain or options
     // note we do not auto-wrap as constant(domain) for now
     const prior = options?.prior ?? domain._prior
-    assert(prior, 'missing prior sampler (_prior)')
+    if (!prior) fatal('missing prior sampler (_prior)')
     const log_p = options?.log_p ?? domain._log_p
-    assert(log_p, 'missing prior density (_log_p)')
+    if (!log_p) fatal('missing prior density (_log_p)')
 
     // if not moving, sample from prior into xJK
     // prior sample weights (if any) are stored in log_pwJ
@@ -2261,7 +2253,7 @@ class _Sampler {
     // before pivot means "not at pivot and pivot is unsampled"
     // condition k<=k_pivot is NOT reliable since sampling order can vary
     if (k != k_pivot && yjK[k_pivot] === undefined) {
-      assert(xjk !== undefined, 'unexpected missing prior value')
+      if (!(xjk !== undefined)) fatal('unexpected missing prior value')
       log_p_yjK[k] = log_p_xjk
       return (yjK[k] = xjk)
     }
@@ -2309,7 +2301,7 @@ class _Sampler {
 
     // if at k_pivot, move from xjk along posterior chain
     const posterior = options?.posterior ?? domain._posterior
-    assert(posterior, 'missing posterior sampler (_posterior)')
+    if (!posterior) fatal('missing posterior sampler (_posterior)')
     // upJK[j][k] = this.u // jump proposed
     return posterior(
       (y, log_mw = 0) => {
@@ -2368,10 +2360,10 @@ class _Sampler {
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
     const weight = this.weights[n]
-    assert(
-      !weight.called,
-      'confine|condition|weight(…) invoked dynamically (e.g. inside loop)'
-    )
+    if (!!weight.called)
+      fatal(
+        'confine|condition|weight(…) invoked dynamically (e.g. inside loop)'
+      )
     weight.called = true
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
     this.log_wJ[this.j] += log_w // must match log_wr(1)
@@ -2383,8 +2375,9 @@ class _Sampler {
   }
 
   _sample_array(k, J, xJ, domain, options) {
-    assert(is_array(xJ), 'invalid non-array second argument for sample_array')
-    assert(xJ.length == J, 'array size mismatch for sample_array')
+    if (!is_array(xJ))
+      fatal('invalid non-array second argument for sample_array')
+    if (!(xJ.length == J)) fatal('array size mismatch for sample_array')
     const domain_fj = is_function(domain) ? domain : j => domain
     let sum_xj = 0 // partial sum
     return fill(xJ, j => {
@@ -2395,8 +2388,9 @@ class _Sampler {
   }
 
   _confine_array(n, J, xJ, domain) {
-    assert(is_array(xJ), 'invalid non-array second argument for confine_array')
-    assert(xJ.length == J, 'array size mismatch for confine_array')
+    if (!is_array(xJ))
+      fatal('invalid non-array second argument for confine_array')
+    if (!(xJ.length == J)) fatal('array size mismatch for confine_array')
     const domain_fj = is_function(domain) ? domain : j => domain
     repeat(J, j => this._confine(n + j, xJ[j], domain_fj(j, J)))
   }
