@@ -498,7 +498,6 @@ class _Sampler {
     this.upK = array(K) // move proposals per jump value
     this.uaK = array(K) // move accepts per jump value
     this.log_pwJ = array(J) // prior log-weights per run
-    this.log_wJ = array(J) // posterior log-weights
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
     this.rN = array(N) // relaxation parameters
     this.dNJ = matrix(N, J) // observation distances
@@ -522,7 +521,6 @@ class _Sampler {
     this._xJK = array(J)
     this._uaJK = array(J)
     this._log_p_xJK = array(J)
-    this._log_wJ = array(J)
     this._log_wrfJN = array(J)
     this._log_wrJ = array(J)
     // reweight buffers
@@ -544,8 +542,7 @@ class _Sampler {
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
     cache(this, 'ess', ['rwj_ess'])
-    cache(this, 'wsum', [], () => sum(this.log_wJ, exp))
-    cache(this, 'wrsum', [], () => sum(this.log_wrJ, exp))
+    cache(this, 'wsum', [], () => sum(this.log_wrJ, exp))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
     cache(this, 'elp', ['rwJ'])
@@ -840,9 +837,7 @@ class _Sampler {
     if (!options.stats) return // stats disabled
     // enable ALL stats for stats == true
     const known_keys = flat(
-      'ess essu essr elw elp wsum mar mlw mlp mks tks gap p a m t r'.split(
-        /\W+/
-      ),
+      'ess essu essr elw elp wsum mar mlw mlp mks tks p a m t r'.split(/\W+/),
       this.nK.map(n => `mar.${n}`),
       this.nK.map(n => `uar.${n}`),
       this.nK.map(n => `up.${n}`),
@@ -921,7 +916,6 @@ class _Sampler {
     if (spec.mlp) update.mlp = this.u == 0 ? 0 : round_to(this.mlp, 1)
     if (spec.mks) update.mks = round_to(this.mks, 3)
     if (spec.tks) update.tks = round_to(this.tks, 1)
-    if (spec.gap) update.gap = round_to(this.log_wrj_gap, 1)
     if (spec.p) update.p = this.u == 0 ? 0 : this.p
     each(this.nK, (n, k) => {
       if (spec[`up.${n}`]) update[`up.${n}`] = this.u == 0 ? 0 : this.upK[k]
@@ -943,13 +937,10 @@ class _Sampler {
   }
 
   _fill_log_wrj(log_wrJ) {
-    const { log_wJ, log_wrfJN, dNJ, log_pNJ, xNJ, rN, sN, N, J } = this
+    const { log_wrfJN, dNJ, log_pNJ, xNJ, rN, sN, N, J } = this
     if (max_in(rN) == 0) {
       // for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
       fill(log_wrJ, 0)
-    } else if (min_in(rN) == 1) {
-      // for r=1 we can invoke log_wr simply as log_wr(1) since it can not depend on additional args
-      fill(log_wrJ, j => sum(log_wrfJN[j], f => f(1)))
     } else {
       // fetch observation distances, densities, values from log_wr object
       for (let n = 0; n < N; ++n) {
@@ -967,23 +958,8 @@ class _Sampler {
       )
       // print(str(sN))
     }
-    this.wrsum = null // since log_wrJ changed
-    // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wrsum)
-
-    // compute gap allowing for infinities (w/o creating NaNs)
-    const gap = (a, b) => (a == b ? 0 : abs(a - b))
-    this.log_wrj_gap = max_of(this.log_wrJ, (lwrj, j) => gap(lwrj, log_wJ[j]))
-    if (this.log_wrj_gap < 1e-6) this.log_wrj_gap = 0 // chop to 0 below 1e-6
-    // we expect gap==0 iff r==1
-    if (this.r == 1)
-      if (!(this.log_wrj_gap == 0)) fatal(`unexpected gap>0 @ r=1`)
-    if (this.log_wrj_gap == 0) {
-      // we allow gap=0 for all r if max-weight is 0 or min-weight is 1
-      if (!(this.r == 1 || min_in(log_wJ) == 0 || max_in(log_wJ) == -inf))
-        fatal(
-          `unexpected gap=0 @ r=${this.r}<1, wj_range=${min_max_in(log_wJ)}`
-        )
-    }
+    this.wsum = null // since log_wrJ changed
+    // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wsum)
 
     // clip infinities to enable subtraction in _reweight & _move
     clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
@@ -992,10 +968,9 @@ class _Sampler {
   _sample_prior() {
     const timer = _timer_if(this.stats)
     const { func, xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
-    const { log_pwJ, log_wJ, rN, log_wrJ, log_rwJ, stats } = this
+    const { log_pwJ, rN, log_wrJ, log_rwJ, stats } = this
     this.u = 0 // prior is zero'th update step
     fill(log_pwJ, 0)
-    fill(log_wJ, 0)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
     fill(xJ, j => ((this.j = j), func(this)))
     fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
@@ -1014,7 +989,7 @@ class _Sampler {
   _reweight() {
     if (this.r == 1) return // no longer needed
     const timer = _timer_if(this.stats)
-    // print(`reweighting [${rN}], gap ${this.log_wrj_gap}`)
+    // print(`reweighting [${rN}]`)
     this._swap('log_wrJ', 'log_rwJ') // save current state in buffers
     const { rN, _rN, log_wrJ, _log_wrJ, log_rwJ, _log_rwJ, stats } = this
 
@@ -1053,7 +1028,7 @@ class _Sampler {
   _resample() {
     const timer = _timer_if(this.stats)
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
-    const { _xJ, xJ, _xJK, xJK, _log_wJ, log_wJ, _log_wrfJN, log_wrfJN } = this
+    const { _xJ, xJ, _xJK, xJK, _log_wrfJN, log_wrfJN } = this
     const { _uaJK, uaJK, _log_wrJ, log_wrJ, log_p_xJK, _log_p_xJK } = this
     if (rwj_uniform) random_discrete_uniform_array(jjJ, J)
     else random_discrete_array(jjJ, rwJ, rwj_sum) // note: sorted indices
@@ -1063,25 +1038,14 @@ class _Sampler {
       _xJK[j] = xJK[jj]
       _uaJK[j] = uaJK[jj]
       _log_p_xJK[j] = log_p_xJK[jj]
-      _log_wJ[j] = log_wJ[jj]
       _log_wrfJN[j] = log_wrfJN[jj]
       _log_wrJ[j] = log_wrJ[jj]
     })
-    this._swap(
-      'jJ',
-      'xJ',
-      'xJK',
-      'uaJK',
-      'log_p_xJK',
-      'log_wJ',
-      'log_wrfJN',
-      'log_wrJ'
-    )
+    this._swap('jJ', 'xJ', 'xJK', 'uaJK', 'log_p_xJK', 'log_wrfJN', 'log_wrJ')
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // since jJ changed
-    this.wsum = null // since log_wJ changed
-    this.wrsum = null // since log_wrJ changed
+    this.wsum = null // since log_wrJ changed
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
@@ -1093,7 +1057,7 @@ class _Sampler {
   _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwJ, log_cwrfJN, log_wJ, log_wrfJN, log_wrJ, stats } = this
+    const { log_cwJ, log_cwrfJN, log_wrfJN, log_wrJ, stats } = this
     const { awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     const { rN, dNJ, log_pNJ, xNJ, sN } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
@@ -1114,12 +1078,9 @@ class _Sampler {
     })
 
     this.moving = true // enable posterior chain sampling into yJK in _sample
-    const tmp_log_wJ = log_wJ // to be restored below
     const tmp_log_wrfJN = log_wrfJN // to be restored below
-    this.log_wJ = log_cwJ // redirect log_wJ -> log_cwJ temporarily
     this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
     fill(yJ, j => ((this.j = j), func(this)))
-    this.log_wJ = tmp_log_wJ // restore log_wJ
     this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN
     this.moving = false // back to using xJK
 
@@ -1148,7 +1109,6 @@ class _Sampler {
         yJK[j] = array(K) // replace array since moved into xJK
         log_p_xJK[j] = log_p_yJK[j]
         log_p_yJK[j] = array(K)
-        log_wJ[j] = log_cwJ[j]
         log_wrfJN[j] = log_cwrfJN[j]
         log_cwrfJN[j] = array(N)
         log_wrJ[j] = log_cwrj
@@ -1179,8 +1139,7 @@ class _Sampler {
       apply(jJ, j => (j >= J ? jj++ : jjJ[j] >= 0 ? jjJ[j] : (jjJ[j] = jj++)))
       this.rwJ = null // reset cached posterior ratio weights and dependents
       this.counts = null // since jJ changed
-      this.wsum = null // since log_wJ changed
-      this.wrsum = null // since log_wrJ changed
+      this.wsum = null // since log_wrJ changed
     }
 
     if (stats) {
@@ -1245,11 +1204,11 @@ class _Sampler {
           break
         }
 
-        // check gap=0 and target ess, mks
-        if (this.log_wrj_gap == 0 && this.ess >= min_ess && this.mks <= max_mks)
+        // check r==1 and target ess, mks
+        if (this.r == 1 && this.ess >= min_ess && this.mks <= max_mks)
           stable_updates++
         else stable_updates = 0
-        if (this.log_wrj_gap == 0) unweighted_updates++
+        if (this.r == 1) unweighted_updates++
         if (
           stable_updates >= min_stable_updates &&
           unweighted_updates >= min_unweighted_updates
@@ -1258,7 +1217,7 @@ class _Sampler {
           if (this.options.log)
             print(
               `reached target ess=${round(ess)}≥${min_ess}, ` +
-                `gap=0, mks=${round_to(mks, 3)}≤${max_mks} ` +
+                `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
                 `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
                 `unweighted_updates=${unweighted_updates}`
             )
@@ -1319,11 +1278,9 @@ class _Sampler {
       }
     } while (true)
 
-    // check wrj gap and target tks if warnings enabled
+    // check r=1 and target tks if warnings enabled
     if (this.options.warn) {
-      // warn about pre-posterior sample w/ log_wrj_gap>0
-      if (this.log_wrj_gap > 0)
-        warn(`pre-posterior sample w/ log_wrj_gap=${this.log_wrj_gap}>0`)
+      if (this.r < 1) warn(`pre-posterior sample w/ r=${this.r}<1`)
       if (this.tks > max_tks) {
         warn(`failed to achieve target tks=${this.tks}≤${max_tks}`)
         print('tks_pK:', str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
@@ -1340,13 +1297,14 @@ class _Sampler {
     o.updates = o.min_updates = o.max_updates = 0 // no updates
     o.reweight_if = () => false // no reweight for u=0
     // o.size = 10 * this.J // 10x samples per run
+    o.r0 = 1 // so r=1 at u=0 and log_wrJ is final weight
 
     let targets = []
     while (targets.length < 1000 && timer.t < 1000) {
-      const { xJK, log_wJ } = new _Sampler(f, o)
+      const { xJK, log_wrJ } = new _Sampler(f, o)
       let w_accept
       each(xJK, (xjK, j) => {
-        const w = exp(log_wJ[j])
+        const w = exp(log_wrJ[j])
         if (w == 0) return // skip rejected run
         w_accept ??= w
         if (!approx_equal(w, w_accept))
@@ -1563,7 +1521,6 @@ class _Sampler {
             ` (${x})`,
         })
       if (spec.tks) add_line('tks')
-      if (spec.gap) add_line('gap')
       if (spec.ess)
         add_line('ess', {
           axis: 'y2',
@@ -1906,9 +1863,10 @@ class _Sampler {
   }
 
   __elw() {
-    const { rwJ, rwj_sum, log_wJ } = this
+    // note we no longer track log_wJ=log_wr(1), so elw is now sensitive to r
+    const { rwJ, rwj_sum, log_wrJ } = this
     const z = 1 / rwj_sum
-    return sum(log_wJ, (log_wj, j) => {
+    return sum(log_wrJ, (log_wj, j) => {
       // NOTE: elw==0 when conditioning (log_wj 0 or -inf for all j)
       if (rwJ[j] == 0) return 0 // take 0 * -inf == 0 instead of NaN
       return log_wj * rwJ[j] * z
@@ -2329,8 +2287,8 @@ class _Sampler {
           fatal(`positive density ${log_p} outside domain x=${x}`)
       } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
       log_wr = (r, dJ, log_pJ, xJ, stats) => {
-        if (r <= 0 || r > 1) fatal(`unexpected r=${r}, should be in (0,1]`)
-        // note log_wr(1,...) can NOT depend on additional args ...
+        if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
+        // note log_wr(1) can get invoked without additional args (see below)
         if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
         if (d == 0) return r * log_p // inside OR unknown distance, note r>0
         // compute scaling factor z and base b as needed
@@ -2348,12 +2306,17 @@ class _Sampler {
 
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
-    // note log_wr(1) supersedes (cond?0:-inf) as default log_W
+    // note log_wr(1) supersedes (cond?0:-inf) as default log_w
     const log_w = log_wr ? log_wr(1) : cond ? 0 : -inf
     this._weight(n, log_w, log_wr ?? (r => log(cond || 1 - r)))
   }
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
+    // ignore NaN weights, usually due to undefined samples
+    if (is_nan(log_w)) {
+      log_w = 0
+      log_wr = r => 0
+    }
     const weight = this.weights[n]
     if (!!weight.called)
       fatal(
@@ -2361,7 +2324,10 @@ class _Sampler {
       )
     weight.called = true
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
-    this.log_wJ[this.j] += log_w // must match log_wr(1)
+    log_wr ??= r => r * log_w // note r>0
+    // note we require log_wr(1) == log_w
+    if (log_wr(1) != log_w)
+      fatal(`log_wr(1)=${log_wr(1)} does not match log_w=${log_w}`)
     this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w) // note r>0
   }
 
