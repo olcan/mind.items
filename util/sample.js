@@ -497,10 +497,11 @@ class _Sampler {
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wJ = array(J) // posterior log-weights
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
-    this.rN = array(N) // relaxation parameters in [0,1]
-    this.zN = array(N) // distance scaling factor for log_wr
-    this.bN = array(N) // density base offset for log_wr
-    this.sN = array(N) // value stats for log_wr
+    this.rN = array(N) // relaxation parameters
+    this.dNJ = matrix(N, J) // observation distances
+    this.log_pNJ = matrix(N, J) // observation densities
+    this.xNJ = matrix(N, J) // observation values
+    this.sN = array(N) // stats objects for log_wr
     this.log_wrJ = array(J) // posterior relaxed log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
@@ -949,32 +950,31 @@ class _Sampler {
   }
 
   _fill_log_wrj(log_wrJ) {
-    const { log_wJ, log_wrfJN, rN, zN, bN, sN } = this
+    const { log_wJ, log_wrfJN, dNJ, log_pNJ, xNJ, rN, sN, N, J } = this
     if (max_in(rN) == 0) {
       // for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
       fill(log_wrJ, 0)
     } else if (min_in(rN) == 1) {
       // for r=1 we can invoke log_wr simply as log_wr(1) since it can not depend on additional args
-      fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => (f ? f(1) : 0)))
+      fill(log_wrJ, j => sum(log_wrfJN[j], f => (f ? f(1) : 0)))
     } else {
-      // compute distance scaling factor zN for possible scaling in log_wr
-      // 1/max and 1/mean are easy to compute, 1/quantile is harder
-      // fill(zN, n => this.J / sum(log_wrfJN, fN => (fN[n] ? fN[n](rN[n],'z') : 0)))
-      fill(zN, n => 1 / max_of(log_wrfJN, fN => (fN[n] ? fN[n](-1) : 0)))
-
-      // compute density base offset bN for possible shifting in log_wr
-      // this is always the minimum observed density and can have any sign
-      // we take undefined densities (e.g. outside domain) as inf (before min)
-      fill(bN, n => min_of(log_wrfJN, fN => (fN[n] ? fN[n](-2) : inf)))
-      apply(bN, b => (b == inf ? 0 : b)) // if min is inf, base is zero
-
-      // compute value stats for possible value dependency in log_wr
-      fill(sN, null) // disabled for now
-
+      // fetch observation distances, densities, values from log_wr object
+      for (let n = 0; n < N; ++n) {
+        for (let j = 0; j < J; ++j) {
+          const f = log_wrfJN[j][n]
+          dNJ[n][j] = f?._d
+          log_pNJ[n][j] = f?._log_p
+          xNJ[n][j] = f?._x
+        }
+      }
       // fill log_wrJ
+      fill(sN, {}) // clear stats for this pass
       fill(log_wrJ, j =>
-        sum(log_wrfJN[j], (f, n) => (f ? f(rN[n], zN[n], bN[n], sN[n]) : 0))
+        sum(log_wrfJN[j], (f, n) =>
+          f ? f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n]) : 0
+        )
       )
+      // print(str(sN))
     }
     this.wrsum = null // since log_wrJ changed
     // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wrsum)
@@ -1099,9 +1099,9 @@ class _Sampler {
   _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwJ, log_cwrfJN, log_wJ, log_wrfJN, log_wrJ, stats, rN } = this
+    const { log_cwJ, log_cwrfJN, log_wJ, log_wrfJN, log_wrJ, stats } = this
     const { awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
-    const { zN, bN, sN } = this
+    const { rN, dNJ, log_pNJ, xNJ, sN } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     fill(log_cwJ, 0) // reset posterior candidate log-weights
@@ -1143,7 +1143,7 @@ class _Sampler {
         this.upK[k]++
       })
       let log_cwrj = sum(log_cwrfJN[j], (f, n) =>
-        f ? f(rN[n], zN[n], bN[n], sN[n]) : 0
+        f ? f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n]) : 0
       )
       log_cwrj = clip(log_cwrj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwrj - log_wrJ[j]
@@ -2336,23 +2336,24 @@ class _Sampler {
       const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
       // debug(x, str(domain), d, log_p)
       if (!c) {
-        assert(d >= 0, `negative distance (outside domain)`)
-        assert(log_p == -inf, `positive density ${log_p} outside domain x=${x}`)
-      } else assert(d == 0, `non-zero distance ${d} inside domain`)
-      log_wr = (r, z, b, s) => {
-        // note log_wr(1,...) can NOT depend on ... (z,b,s) at r=1
+        if (d < 0) fatal(`negative distance (outside domain)`)
+        if (log_p > -inf)
+          fatal(`positive density ${log_p} outside domain x=${x}`)
+      } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
+      log_wr = (r, dJ, log_pJ, xJ, stats) => {
+        if (r <= 0 || r > 1) fatal(`unexpected r=${r}, should be in (0,1]`)
+        // note log_wr(1,...) can NOT depend on additional args ...
         if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
-        // negative values of r are used to compute (z,b,s) in _fill_log_wrj
-        // note (z,b,s) can NOT depend on r
-        if (r < 0) {
-          if (r == -1) return d // distance for scaling factor z
-          if (r == -2) return c ? log_p : inf // log_p for base offset b
-          if (r == -3) return x // x for value stats (min, max, etc) s
-        }
-        assert(r > 0 && r <= 1, `unexpected r=${r}, should be in (0,1]`)
         if (d == 0) return r * log_p // inside OR unknown distance, note r>0
-        return r * b + log(1 - r) * (1 + 100 * d * z)
+        // compute scaling factor z and base b as needed
+        // TODO: why is example 3 slow now? handling undefined ok? recover old perf, ~2s on average
+        stats.z ??= 1 / max_in(dJ) // ignores undefined, 0 if all undefined
+        stats.b ??= min_in(log_pJ) // ignores undefined, inf if all undefined
+        if (stats.b == inf) stats.b = 0
+        return r * stats.b + log(1 - r) * (1 + 100 * d * stats.z)
       }
+      log_wr._d = d // distance for scaling factor z
+      log_wr._log_p = c ? log_p : inf // log_p for base offset b
     }
     if (log_wr) return set(new Boolean(c), '_log_wr', log_wr)
     return c
@@ -2373,7 +2374,7 @@ class _Sampler {
     )
     weight.called = true
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
-    this.log_wJ[this.j] += log_w // must match log_wr(1, 0, 0)
+    this.log_wJ[this.j] += log_w // must match log_wr(1)
     this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w) // note r>0
   }
 
