@@ -517,7 +517,7 @@ function cache(obj, prop, deps, f, options = {}) {
   if (!(f || is_function(obj['__' + prop])))
     fatal(`missing/invalid  method '__${prop}' for cached prop`)
   if (f) {
-    if (!!obj['__' + prop])
+    if (obj['__' + prop])
       fatal(
         `specified function conflicts w/ method '__${prop}' for cached prop`
       )
@@ -525,7 +525,7 @@ function cache(obj, prop, deps, f, options = {}) {
       return f(this)
     }.bind(obj)
   }
-  if (!!obj.__deps?.[prop]) fatal(`cached prop '${prop} already defined`)
+  if (obj.__deps?.[prop]) fatal(`cached prop '${prop} already defined`)
   obj.__deps ??= {}
   obj.__deps[prop] = []
   each(deps, dep => {

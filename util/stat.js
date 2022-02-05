@@ -593,9 +593,9 @@ function ks2(xJ, yK, options = {}) {
 function ks1(xJ, cdf, options = {}) {
   if (!is_array(xJ)) fatal('non-array argument')
   let { xj_sorted, wK, wk_sum, numberize, filter } = options
-  if (!!wK) fatal('invalid option wK superceded by cdf for ks1')
-  if (!!wk_sum) fatal(`invalid option wk_sum superceded by cdf for ks1`)
-  if (!!numberize) fatal(`invalid option numberize for ks1`)
+  if (wK) fatal('invalid option wK superceded by cdf for ks1')
+  if (wk_sum) fatal(`invalid option wk_sum superceded by cdf for ks1`)
+  if (numberize) fatal(`invalid option numberize for ks1`)
   if (filter) pull(xJ, undefined)
   if (!xj_sorted) sort(xJ)
   wK = array(xJ.length)

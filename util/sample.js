@@ -320,8 +320,7 @@ function sample(domain, options = undefined) {
   if (!is_function(domain))
     fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
   // decline target for root sampler since that is no parent to track tks
-  if (!!options?.target)
-    fatal(`invalid target outside of sample(context=>{ … })`)
+  if (options?.target) fatal(`invalid target outside of sample(context=>{ … })`)
   return new _Sampler(domain, options).sample()
 }
 
@@ -663,11 +662,11 @@ class _Sampler {
             fatal(`destructuring assignment to object ${name} not supported`)
           // allow destructuring assignment to full flat array from sample_array
           if (name[0] == '[') {
-            if (!!name.slice(1, -1).match(/\[|{/))
+            if (name.slice(1, -1).match(/\[|{/))
               fatal(
                 `destructuring assignment to nested array ${name} not supported`
               )
-            if (!!name.slice(1, -1).match(/=/))
+            if (name.slice(1, -1).match(/=/))
               fatal(
                 `default values in assignment to array ${name} not supported`
               )
@@ -678,7 +677,7 @@ class _Sampler {
               fatal('destructuring array assignment size mismatch')
           } else {
             if (names.has(name)) name += '_' + index // de-duplicate name
-            if (!!name.match(/^\d/))
+            if (name.match(/^\d/))
               fatal(`invalid numeric name '${name}' for sampled value`)
           }
         }
@@ -784,10 +783,10 @@ class _Sampler {
             // treat as sample(constant(args)) w/ name args(.index)
             const index = values.length
             args = args.trim() // trim whitespace around args
-            if (!!args.match(/\s/)) fatal('invalid args (whitespace) for plot')
+            if (args.match(/\s/)) fatal('invalid args (whitespace) for plot')
             if (!args) fatal('missing args for plot')
             if (!(args != 'undefined')) fatal('undefined args for plot')
-            if (!!name) fatal('invalid use of return value for plot')
+            if (name) fatal('invalid use of return value for plot')
             name = args + (names.has(args) ? '_' + index : '') // de-duplicate
             names.add(name) // name aligned w/ values & unique
             values.push({ index, offset, name, args, line_index, line, js })
@@ -2059,8 +2058,7 @@ class _Sampler {
 
   _sample(k, domain, options, /* (base,length) for arrays: */ k0, J) {
     const value = this.values[k]
-    if (!!value.called)
-      fatal('sample(…) invoked dynamically (e.g. inside loop)')
+    if (value.called) fatal('sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
     const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, moving } = this
     const { upJK, uaJK, uawK, upwK, log_p_xJK, log_p_yJK } = this
@@ -2094,7 +2092,7 @@ class _Sampler {
         } else name = options.name ?? options
         if (!is_string(name)) fatal(`invalid name '${name}' for sampled value`)
         if (!name) fatal(`blank name for sampled value at index ${k}`)
-        if (!!name.match(/^\d/))
+        if (name.match(/^\d/))
           fatal(`invalid numeric name '${name}' for sampled value`)
         value.name = name
         if (this.names.has(value.name)) value.name += '_' + value.index
@@ -2139,11 +2137,10 @@ class _Sampler {
         } else {
           if (!is_function(value.target) && !is_array(value.target))
             fatal(`invalid target @ ${line}`)
-          if (!!defined(options?.size))
-            fatal(`unexpected size option @ ${line}`)
+          if (defined(options?.size)) fatal(`unexpected size option @ ${line}`)
         }
       } else {
-        if (!!defined(options?.size)) fatal(`unexpected size option @ ${line}`)
+        if (defined(options?.size)) fatal(`unexpected size option @ ${line}`)
       }
 
       // log sampled value
@@ -2318,7 +2315,7 @@ class _Sampler {
       log_wr = r => 0
     }
     const weight = this.weights[n]
-    if (!!weight.called)
+    if (weight.called)
       fatal(
         'confine|condition|weight(…) invoked dynamically (e.g. inside loop)'
       )

@@ -272,7 +272,7 @@ function hist(xSJ, options = {}) {
         })
       }
       case 'lines': {
-        if (!!values) fatal('hist(…).lines(…) requires binned mode')
+        if (values) fatal('hist(…).lines(…) requires binned mode')
         labeler = options?.labeler ?? _options.labeler ?? 'mid'
         const labels = lK(labeler)
         if (!is_numeric(labels[0]))

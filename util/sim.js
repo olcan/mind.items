@@ -11,7 +11,7 @@ function simulate(x, t, events) {
   if (!is_array(events)) fatal(`invalid events, must be array`)
   apply(events, e => {
     if (!is_event(e)) fatal('invalid event')
-    if (!e.t || !e._t) if (!!x._t) fatal(`invalid events/state for resume`)
+    if ((!e.t || !e._t) && x._t) fatal(`invalid events/state for resume`)
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
