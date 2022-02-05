@@ -545,7 +545,7 @@ class _Sampler {
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
     cache(this, 'ess', ['rwj_ess'])
     cache(this, 'wsum', [], () => sum(this.log_wJ, exp))
-    cache(this, 'wrsum', ['rwJ'], () => sum(this.log_wrJ, exp))
+    cache(this, 'wrsum', [], () => sum(this.log_wrJ, exp))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
     cache(this, 'elp', ['rwJ'])
@@ -1082,6 +1082,7 @@ class _Sampler {
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // since jJ changed
     this.wsum = null // since log_wJ changed
+    this.wrsum = null // since log_wrJ changed
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
@@ -1180,6 +1181,7 @@ class _Sampler {
       this.rwJ = null // reset cached posterior ratio weights and dependents
       this.counts = null // since jJ changed
       this.wsum = null // since log_wJ changed
+      this.wrsum = null // since log_wrJ changed
     }
 
     if (stats) {
@@ -2103,18 +2105,13 @@ class _Sampler {
     if (!!value.called)
       fatal('sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
-    const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, log_wJ, moving } = this
+    const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, moving } = this
     const { upJK, uaJK, uawK, upwK, log_p_xJK, log_p_yJK } = this
 
-    // reject (-∞ weight) and return undefined on nullish (null=empty) domain
-    if (is_nullish(domain)) {
-      log_wJ[j] = -inf
-      return undefined
-    }
+    // return undefined on nullish (undefined or null=empty) domain
+    if (is_nullish(domain)) return undefined
 
     // return undefined on (effectively) rejected run if sampling posterior
-    // note log_wj==-inf is considered a rejection iff r==1
-    if (this.r == 1 && log_wJ[j] == -inf) return undefined
     if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
 
     // initialize on first call
