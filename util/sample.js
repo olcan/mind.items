@@ -1000,9 +1000,10 @@ class _Sampler {
     fill(log_wJ, 0)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
     fill(xJ, j => ((this.j = j), func(this)))
-    fill(rN, 0) // r=0 for u=0
-    this._fill_log_wrj(log_wrJ) // should set log_wrJ=0 and compute gap
-    copy(log_rwJ, log_pwJ) // since log_wrJ == 0
+    fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
+    this._fill_log_wrj(log_wrJ)
+    if (max_in(rN) == 0) copy(log_rwJ, log_pwJ)
+    else fill(log_rwJ, j => log_pwJ[j] + log_wrJ[j])
     fill(jJ, j => j) // init sample indices
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
