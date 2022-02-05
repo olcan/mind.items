@@ -776,14 +776,14 @@ function circular_stdev(xJ, r = pi) {
 
 // median of sample `xJ`
 // | `sorted` | `false` | assume `xJ` already sorted
-// | `copy`   | `false` | copy `xJ` before sorting
+// | `filter` | `false` | filter undefined values
+// | `copy`   | `false` | copy `xJ` before sorting/filtering
 function median(xJ, options = {}) {
-  const { sorted, copy } = options
-  const J = xJ.length
-  if (!sorted) {
-    if (copy) xJ = xJ.slice()
-    sort(xJ)
-  }
+  const { sorted, copy, filter } = options
+  let J = xJ.length
+  if (copy && (filter || !sorted)) xJ = xJ.slice()
+  if (filter) J = remove(xJ).length
+  if (!sorted) sort(xJ)
   // NOTE: (x&1)=x%2 and (x|0)=~~x
   return !(J & 1) ? (xJ[J / 2 - 1] + xJ[J / 2]) / 2 : xJ[(J / 2) | 0]
 }

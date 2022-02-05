@@ -20,8 +20,6 @@ const zip_with = _.zipWith
 const zip_object = _.zipObject
 const unzip = _.unzip
 
-const remove = _.remove
-const pull = _.pull
 const first = _.first
 const last = _.last
 const take = _.take

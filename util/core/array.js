@@ -6,8 +6,8 @@
 const array = (J = 0, x) => {
   const xJ = is_number(J) ? new Array(J) : Array.from(J)
   // NOTE: Array.from({length:J}, ...) was much slower
-  if (typeof x == 'function') for (let j = 0; j < J; ++j) xJ[j] = x(j)
-  else if (typeof x != 'undefined') xJ.fill(x)
+  if (is_function(x)) for (let j = 0; j < J; ++j) xJ[j] = x(j)
+  else if (defined(x)) xJ.fill(x)
   return xJ
 }
 
@@ -44,9 +44,57 @@ const ones = J => array(J, 1)
 function fill(xJ, x, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
-  if (typeof x == 'function') for (let j = js; j < je; ++j) xJ[j] = x(j)
+  if (is_function(x)) for (let j = js; j < je; ++j) xJ[j] = x(j)
   else for (let j = js; j < je; ++j) xJ[j] = x // can be undefined
   return xJ
+}
+
+// remove(xJ, [x], [js=0], [je=J])
+// removes all `x` from `xJ`
+// `x` can be a predicate (boolean) function `(xj,j)=>…`
+// `x` can be `undefined` (or omitted)
+// uses `===` for comparisons
+function remove(xJ, x, js = 0, je = xJ.length) {
+  js = Math.max(0, js)
+  je = Math.min(je, xJ.length)
+  let jj = js - 1
+  if (is_function(x)) {
+    for (let j = js; j < je; ++j) {
+      if (x(xJ[j], j)) continue // skip match
+      if (++jj == j) continue // no match yet
+      xJ[jj] = xJ[j]
+    }
+  } else {
+    for (let j = js; j < je; ++j) {
+      if (xJ[j] === x) continue // skip match
+      if (++jj == j) continue // no match yet
+      xJ[jj] = xJ[j]
+    }
+  }
+  copy_at(xJ, xJ, ++jj, je) // copy any tail
+  xJ.length = jj + (xJ.length - je)
+  return xJ
+}
+
+function _test_remove() {
+  check(
+    () => [remove([]), []],
+    () => [remove([0]), [0]],
+    () => [remove([undefined, 0, undefined]), [0]],
+    () => [remove([undefined, 0, undefined, 1, 2], undefined, 0, 3), [0, 1, 2]],
+    () => [remove([undefined, 0, undefined, 1, 2], x => !x, 0, 3), [1, 2]]
+  )
+}
+
+function _benchmark_remove() {
+  const xJ = zeroes(100)
+  apply(xJ, (x, j) => (j % 2 == 0 ? 1 : x))
+  benchmark(
+    () => remove(xJ.slice(), 1),
+    () => remove(xJ.slice(), x => x === 1),
+    () => _.remove(xJ.slice(), x => x === 1),
+    () => _.pull(xJ.slice(), 1)
+  )
 }
 
 // copy(xJ, [yJ], [f], [g])
@@ -57,8 +105,7 @@ function fill(xJ, x, js = 0, je = xJ.length) {
 function copy(xJ, yJ, f, g) {
   if (yJ === undefined) return xJ.slice() // single-arg mode
   // single-array mode: shift args and allocate xJ
-  if (!yJ || typeof yJ == 'function')
-    return copy(array(xJ.length), ...arguments)
+  if (!yJ || is_function(yJ)) return copy(array(xJ.length), ...arguments)
   xJ.length = yJ.length // resize xJ if needed
   // filter mode; use function g to filter yJ into (resized) xJ
   if (g) {

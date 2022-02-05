@@ -2338,7 +2338,6 @@ class _Sampler {
         if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
         if (d == 0) return r * log_p // inside OR unknown distance, note r>0
         // compute scaling factor z and base b as needed
-        // TODO: why is example 3 slow now? handling undefined ok? recover old perf, ~2s on average
         stats.z ??= 1 / max_in(dJ) // ignores undefined, 0 if all undefined
         stats.b ??= min_in(log_pJ) // ignores undefined, inf if all undefined
         if (stats.b == inf) stats.b = 0
