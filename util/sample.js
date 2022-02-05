@@ -949,23 +949,21 @@ class _Sampler {
       fill(log_wrJ, 0)
     } else if (min_in(rN) == 1) {
       // for r=1 we can invoke log_wr simply as log_wr(1) since it can not depend on additional args
-      fill(log_wrJ, j => sum(log_wrfJN[j], f => (f ? f(1) : 0)))
+      fill(log_wrJ, j => sum(log_wrfJN[j], f => f(1)))
     } else {
       // fetch observation distances, densities, values from log_wr object
       for (let n = 0; n < N; ++n) {
         for (let j = 0; j < J; ++j) {
           const f = log_wrfJN[j][n]
-          dNJ[n][j] = f?._d
-          log_pNJ[n][j] = f?._log_p
-          xNJ[n][j] = f?._x
+          dNJ[n][j] = f._d
+          log_pNJ[n][j] = f._log_p
+          xNJ[n][j] = f._x
         }
       }
       // fill log_wrJ
       fill(sN, {}) // clear stats for this pass
       fill(log_wrJ, j =>
-        sum(log_wrfJN[j], (f, n) =>
-          f ? f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n]) : 0
-        )
+        sum(log_wrfJN[j], (f, n) => f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n]))
       )
       // print(str(sN))
     }
@@ -1139,7 +1137,7 @@ class _Sampler {
         this.upK[k]++
       })
       let log_cwrj = sum(log_cwrfJN[j], (f, n) =>
-        f ? f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n]) : 0
+        f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n])
       )
       log_cwrj = clip(log_cwrj, -Number.MAX_VALUE, Number.MAX_VALUE)
       const log_dwj = log_cwrj - log_wrJ[j]
