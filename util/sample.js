@@ -517,7 +517,6 @@ class _Sampler {
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
     this.log_mpJ = array(J) // posterior move log-densities
-    this.log_cwJ = array(J) // posterior candidate log-weights
     this.log_cwrfJN = matrix(J, N) // posterior candidate log-weight relaxations
     this.xJ = array(J) // return values
     this.pxJ = array(J) // prior return values
@@ -1066,17 +1065,15 @@ class _Sampler {
   _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwJ, log_cwrfJN, log_wrfJN, log_wrJ, stats } = this
+    const { log_cwrfJN, log_wrfJN, log_wrJ, stats } = this
     const { awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     const { rN, dNJ, log_pNJ, xNJ, sN } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
-    fill(log_cwJ, 0) // reset posterior candidate log-weights
     each(log_cwrfJN, log_cwrfjN => fill(log_cwrfjN, undefined))
     each(yJK, yjK => fill(yjK, undefined))
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
-    // choose random pivot based on uaJK (least-recently prior-jumped)
 
     // choose random pivot based on uaJK, awK, and uawK
     // random_discrete_uniform_array(kJ, K)
@@ -2307,7 +2304,7 @@ class _Sampler {
   _confine(n, x, domain) {
     // reject outright on nullish (null=empty or undefined) domain
     // allows undefined/empty domains as in _sample
-    if (is_nullish(domain)) return _this._weight(n, -inf)
+    if (is_nullish(domain)) return this._weight(n, -inf)
     // use domain._log_wr if defined
     // otherwise use default log_wr based on distance and/or log_p
     let log_wr = domain?._log_wr
