@@ -982,7 +982,8 @@ class _Sampler {
   // reweight by incrementing rN until rN=1
   // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
-    if (this.r == 1) return // no longer needed
+    // reweights can stop at r=1 unless optimizing
+    if (this.r == 1 && this.weights.every(w => !w.optimizing)) return
     const timer = _timer_if(this.stats)
     // print(`reweighting [${rN}]`)
     this._swap('log_wrJ', 'log_rwJ') // save current state in buffers
@@ -2323,7 +2324,7 @@ class _Sampler {
       log_wr = r => domain._log_wr(r, c, d, log_p, dJ, log_pJ, weight.stats)
     } else {
       log_wr = r => {
-        if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
+        // if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
         if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
         if (d == 0) return r * log_p // inside OR unknown distance, note r>0
         const [z, b] = weight.stats // from _stats below
@@ -2345,10 +2346,19 @@ class _Sampler {
 
   _maximize(n, x) {
     const weight = this.weights[n]
+    weight.optimizing = true // force reweights at r=1
     const xJ = (weight.xJ ??= array(this.J))
     // set up weight.init_log_wr
     weight.init_log_wr ??= () => {
-      weight.stats = undefined // reset _stats (if any)
+      if (weight.stats) {
+        const recent_size = 3
+        weight.stats_history = (weight.stats_history ?? [])
+          .concat(weight.stats)
+          .slice(-recent_size)
+        if (weight.stats_history.length == recent_size)
+          weight.min_recent_q = min_of(weight.stats_history, w => w.q)
+        weight.stats = undefined
+      }
       repeat(this.J, j => {
         const log_wr = this.log_wrfJN[j][n]
         if (log_wr._stats) weight.stats ??= log_wr._stats()
@@ -2356,27 +2366,22 @@ class _Sampler {
       })
     }
     const log_wr = r => {
-      if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
+      // if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
       if (!weight.stats) return 0 // always 0 before stats init
-      const [q] = weight.stats // from _stats below
-      //
-      // TODO: quantile cutoff basically determines ess=(1-q)*100 and allows r=1 to be reached (assuming ess>=reweight_ess) in minimal number of steps (default 2), but then the quantile is no longer updated in _move or even between moves, so ess becomes a crapshoot of what % of samples can be moved above the last calculated quantile at r<1 ... it is easy to force recalculation, but not so easy to fill xJ, which really means invoking _fill_log_wrj (probably from _reweight), which should only matter if r==1 and log_wr is x-sensitive
-      //
-      // TODO: this seems easy to fix by tracking x-dependence and forcing reweight at r=1 in that case, but the fact that freezing the quantile can work may hint at a decent way of doing this via quantile relaxation, which can also be softened via shifted/scaled logistic
-
-      return x > q ? 0 : -inf
-
-      // if (!defined(store.z)) {
-      //   ;[store.x_min, store.x_max] = min_max_in(xJ)
-      //   store.z = 1 / (store.x_max - store.x_min)
-      // }
-      // const { x_max, z } = store
-      // const d = max(0, x_max - x)
-      // if (d < min(3, this.u / 2)) return 0
-      // return log(1 - r) * (1 + 100 * d * z)
+      const { q, σ } = weight.stats // from _stats below
+      // stop optimizing if increment is minimal ...
+      // TODO: why does this work for .75*σ but fail for 0.5*σ ?!?!?
+      // TOSO: also this is _median_ and should NOT move this much?
+      if (this.r == 1 && q - weight.min_recent_q < 0.5 * σ)
+        weight.optimizing = false
+      return x > q ? 0 : -inf // TODO: soften using shifted/scaled logistic
     }
+
     log_wr._x = x // value x for stats
-    log_wr._stats = () => [quantile(remove(xJ), 0.8)]
+    log_wr._stats = () => {
+      remove(xJ, undefined)
+      return { q: quantile(xJ, 0.5), σ: stdev(xJ) }
+    }
     this._weight(n, log_wr(1), log_wr)
   }
 
