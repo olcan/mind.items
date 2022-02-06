@@ -376,12 +376,12 @@ function weight(log_w, log_wr = undefined) {
 }
 
 // maximize value `x`
-function maximize(x) {
+function maximize(x, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to maximize(…)`)
 }
 
 // minimize value `x`
-function minimize(x) {
+function minimize(x, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
@@ -446,6 +446,8 @@ class _Sampler {
         quantile_runs: 100,
         size: J,
         reweight_if: ({ ess, J }) => ess >= 0.9 * J,
+        // reweight_if: ({ ess, J }) => ess >= 0.5 * J,
+        // reweight_if: ({ ess, J }) => ess >= 10,
         reweight_ess: 10,
         min_reweights: 3,
         max_reweight_tries: 100,
@@ -847,7 +849,9 @@ class _Sampler {
       this.nK.map(n => `ua.${n}`),
       this.nK.map(n => `p.${n}`),
       this.nK.map(n => `a.${n}`),
-      this.nK.map(n => `pp.${n}`)
+      this.nK.map(n => `pp.${n}`),
+      this.nK.map(n => `mean.${n}`),
+      this.nK.map(n => `median.${n}`)
     )
     if (options.stats == true) options.stats = known_keys
     // convert string to array of keys
@@ -929,6 +933,18 @@ class _Sampler {
         update[`pp.${n}`] = round(
           this.u == 0 ? 100 / this.K : 100 * (this.pK[k] / this.p)
         )
+      if (spec[`mean.${n}`] || spec[`median.${n}`]) {
+        const { J, xJK, rwJ } = this
+        const xJ = array(J, j => xJK[j][k])
+        const wJ = copy(rwJ)
+        _remove_undefined(xJ, wJ)
+        const wtd_mean = dot(xJ, wJ) / sum(wJ)
+        if (spec[`mean.${n}`]) update[`mean.${n}`] = round_to(wtd_mean, 3)
+        if (spec[`median.${n}`]) {
+          const xR = lookup(xJ, random_discrete_array(array(10 * J), wJ))
+          update[`median.${n}`] = round_to(median(xR), 3)
+        }
+      }
     })
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.m) update.m = this.m
@@ -983,9 +999,8 @@ class _Sampler {
   // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
     // reweights can stop at r=1 unless optimizing
-    if (this.r == 1 && this.weights.every(w => !w.optimizing)) return
+    if (this.r == 1 && !some(this.weights, 'optimizing')) return
     const timer = _timer_if(this.stats)
-    // print(`reweighting [${rN}]`)
     this._swap('log_wrJ', 'log_rwJ') // save current state in buffers
     const { rN, _rN, log_wrJ, _log_wrJ, log_rwJ, _log_rwJ, stats } = this
 
@@ -1166,27 +1181,21 @@ class _Sampler {
 
     let stable_updates = 0
     let unweighted_updates = 0
+    let move_cancelled = false
 
     do {
-      // reweight
-      // pre-stats for more meaningful ess, etc
-      // also reweight on u=0 to avoid prior moves at u=1
-      // should be skipped (even at u=0) if ess is too low
-      if (reweight_if(this)) this._reweight()
-
-      // update stats
-      this._update_stats()
-
       // check for termination
       // continue based on min_time/updates
       // minimums supercede maximum and target settings
+      // actual stopping is below, after reweight and update_stats
+      let done = false
       if (this.t >= min_time && this.u >= min_updates) {
         // check target updates
         if (this.u >= updates) {
           const { t, u } = this
           if (this.options.log)
             print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
-          break
+          done = true
         }
 
         // check target time
@@ -1194,7 +1203,7 @@ class _Sampler {
           const { t, u } = this
           if (this.options.log)
             print(`reached target time t=${t}≥${time}ms (u=${u})`)
-          break
+          done = true
         }
 
         // check r==1 and target ess, mks
@@ -1214,7 +1223,7 @@ class _Sampler {
                 `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
                 `unweighted_updates=${unweighted_updates}`
             )
-          break
+          done = true
         }
 
         // check max_time/updates for potential early termination
@@ -1226,9 +1235,22 @@ class _Sampler {
               warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
             else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
           }
-          break
+          done = true
         }
       }
+
+      // reweight
+      // pre-stats for more meaningful ess, etc
+      // also reweight on u=0 to avoid prior moves at u=1
+      // should be skipped (even at u=0) if ess is too low
+      // should be forced before stopping for consistency across runs
+      if (done || reweight_if(this)) this._reweight()
+
+      // update stats
+      this._update_stats()
+
+      // terminate if indicated above
+      if (done) break
 
       // buffer samples at u=0 and then every mks_period updates
       if (this.u % this.options.mks_period == 0) {
@@ -1262,7 +1284,11 @@ class _Sampler {
       fill(this.uaK, 0) // accepted moves by jump value
       this.mlw = 0 // log_w improvement
       this.mlp = 0 // log_p improvement
-      while (move_while(this) && this.t < max_time) {
+      while (move_while(this)) {
+        if (this.t > max_time) {
+          move_cancelled = true
+          break
+        }
         // console.debug(this.uaK, this.upK, 0.1 * (this.J / this.K))
         move_weights(this, this.awK, this.uawK)
         this._move()
@@ -1567,6 +1593,8 @@ class _Sampler {
         if (spec[`ua.${n}`]) add_rescaled_line(`ua.${n}`, null, 0)
         if (spec[`p.${n}`]) add_rescaled_line(`p.${n}`, null, 0)
         if (spec[`a.${n}`]) add_rescaled_line(`a.${n}`, null, 0)
+        if (spec[`mean.${n}`]) add_rescaled_line(`mean.${n}`, null, 3)
+        if (spec[`median.${n}`]) add_rescaled_line(`median.${n}`, null, 3)
       })
 
       plot({
@@ -2297,8 +2325,8 @@ class _Sampler {
     const c = from(x, domain)
     const d = distance(x, domain) ?? 0 // take 0 if undefined
     const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
-    const log_pJ = (weight.log_pJ ??= array(this.J))
     const dJ = (weight.dJ ??= array(this.J))
+    const log_pJ = (weight.log_pJ ??= array(this.J))
 
     // debug(x, str(domain), d, log_p)
     if (!c) {
@@ -2308,16 +2336,19 @@ class _Sampler {
 
     // set up weight.init_log_wr
     weight.init_log_wr ??= () => {
+      repeat(this.J, j => {
+        const log_wr = this.log_wrfJN[j][n]
+        dJ[j] = log_wr._d
+        log_pJ[j] = log_wr._log_p
+      })
       weight.stats = undefined // reset _stats (if any)
       repeat(this.J, j => {
         const log_wr = this.log_wrfJN[j][n]
         if (log_wr._stats) weight.stats ??= log_wr._stats()
-        log_pJ[j] = log_wr._log_p
-        dJ[j] = log_wr._d
       })
     }
 
-    // if domain._log_wr is defined, wrap it to pass (c,d,log_p,dJ,log_pJ,store)
+    // if domain._log_wr is defined, wrap it to pass [c,d,log_p,dJ,log_pJ,stats]
     // otherwise define default log_wr w/ basic distance/density support
     let log_wr
     if (domain._log_wr) {
@@ -2342,46 +2373,62 @@ class _Sampler {
     this._weight(n, log_wr(1), log_wr)
   }
 
-  _minimize(n, x) {}
+  _minimize(n, x, _log_wr) {}
 
-  _maximize(n, x) {
+  _maximize(n, x, _log_wr) {
     const weight = this.weights[n]
     weight.optimizing = true // force reweights at r=1
-    const xJ = (weight.xJ ??= array(this.J))
+    weight.xJ ??= array(this.J)
     // set up weight.init_log_wr
     weight.init_log_wr ??= () => {
-      if (weight.stats) {
-        const recent_size = 3
-        weight.stats_history = (weight.stats_history ?? [])
-          .concat(weight.stats)
-          .slice(-recent_size)
-        if (weight.stats_history.length == recent_size)
-          weight.min_recent_q = min_of(weight.stats_history, w => w.q)
-        weight.stats = undefined
-      }
+      repeat(this.J, j => {
+        const log_wr = this.log_wrfJN[j][n]
+        weight.xJ[j] = log_wr._x
+      })
+      weight.stats = undefined
       repeat(this.J, j => {
         const log_wr = this.log_wrfJN[j][n]
         if (log_wr._stats) weight.stats ??= log_wr._stats()
-        xJ[j] = log_wr._x
       })
     }
-    const log_wr = r => {
-      // if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
-      if (!weight.stats) return 0 // always 0 before stats init
-      const { q, σ } = weight.stats // from _stats below
-      // stop optimizing if increment is minimal ...
-      // TODO: why does this work for .75*σ but fail for 0.5*σ ?!?!?
-      // TOSO: also this is _median_ and should NOT move this much?
-      if (this.r == 1 && q - weight.min_recent_q < 0.5 * σ)
-        weight.optimizing = false
-      return x > q ? 0 : -inf // TODO: soften using shifted/scaled logistic
+
+    // if log_wr is given, wrap it to pass [xJ,stats]
+    // otherwise define default log_wr w/ basic optimization support
+    let log_wr
+    if (_log_wr) {
+      log_wr = r => _log_wr(r, xJ, weight.stats)
+    } else {
+      log_wr = r => {
+        // if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
+        if (!weight.stats) return 0 // always 0 before stats init
+
+        // note we use median for ess to be predictable & robust to outliers
+        const [min, median, max] = weight.stats // from _stats below
+        if (x >= median) return 3 * ((x - median) / (max - median) - 1)
+        return -3 - 10 * ((median - x) / (median - min))
+
+        // TODO: need to track some kind of improvement probability/rate metric
+        // TODO: warn if improvement probability/rate does not fall below target
+        // TODO: also track some kind of efficiency (per unit time) metric
+        // TODO: actually probability and efficiency seem related!
+        // TODO: if cutoff works best, you could soften using shifted/scaled logistic
+        // if (this.r == 1) weight.optimizing = false
+
+        // const [q] = weight.stats // from _stats below
+        // return x > q ? 0 : -inf
+      }
+      log_wr._x = x // value x for stats
+      log_wr._stats = () => {
+        const { J, rwJ } = this
+        const xJ = copy(weight.xJ) // TODO: avoid copies?
+        const wJ = copy(rwJ)
+        _remove_undefined(xJ, wJ)
+        const xR = lookup(xJ, random_discrete_array(array(10 * J), wJ))
+        return quantiles(xR, [0, 0.5, 1])
+        // return quantiles(xR, [0.5]) // take top 50%
+      }
     }
 
-    log_wr._x = x // value x for stats
-    log_wr._stats = () => {
-      remove(xJ, undefined)
-      return { q: quantile(xJ, 0.5), σ: stdev(xJ) }
-    }
     this._weight(n, log_wr(1), log_wr)
   }
 
