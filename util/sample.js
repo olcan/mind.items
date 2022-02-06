@@ -507,16 +507,16 @@ class _Sampler {
     this.uaK = array(K) // move accepts per jump value
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
-    this.log_wrNJ = matrix(N, J) // posterior log-weight relaxations
     this.rN = array(N) // relaxation parameters
     this.dNJ = matrix(N, J) // observation distances
     this.log_pNJ = matrix(N, J) // observation densities
     this.xNJ = matrix(N, J) // observation values
-    this.sN = array(N) // stats objects for log_wr
+    this.sN = array(N) // storage for log_wr
     this.log_wrJ = array(J) // posterior relaxed log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
     this.log_mpJ = array(J) // posterior move log-densities
+    this.log_cwrJ = array(J) // posterior candidate relaxed log-weights
     this.log_cwrfJN = matrix(J, N) // posterior candidate log-weight relaxations
     this.xJ = array(J) // return values
     this.pxJ = array(J) // prior return values
@@ -944,31 +944,20 @@ class _Sampler {
   }
 
   _fill_log_wrj(log_wrJ) {
-    const { log_wrfJN, log_wrNJ, dNJ, log_pNJ, xNJ, rN, sN, N, J } = this
-    if (max_in(rN) == 0) {
-      // for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
-      fill(log_wrJ, 0)
-    } else {
-      // fetch observation distances, densities, values from log_wr object
-      for (let n = 0; n < N; ++n) {
-        for (let j = 0; j < J; ++j) {
-          const f = log_wrfJN[j][n]
-          dNJ[n][j] = f._d
-          log_pNJ[n][j] = f._log_p
-          xNJ[n][j] = f._x
-        }
-      }
-      // fill log_wrJ
-      fill(sN, {}) // clear stats for this pass
-      fill(log_wrJ, j =>
-        sum(log_wrfJN[j], (f, n) => f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n]))
-      )
-      // print(str(sN))
+    const { rN } = this
+    fill(log_wrJ, 0)
+    // NOTE: for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
+    if (max_in(rN) > 0) {
+      each(rN, (r, n) => {
+        const weight = this.weights[n]
+        // TODO: does this conflict w/ _confine?
+        weight.inc_log_wrj ??= (log_wrJ, log_wrfJN) =>
+          apply(log_wrJ, (log_wrj, j) => log_wrj + log_wrfJN[j][n](r))
+        weight.inc_log_wrj(log_wrJ, this.log_wrfJN, true /* update_stats */)
+      })
     }
-
     this.wsum = null // since log_wrJ changed
     // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wsum)
-
     // clip infinities to enable subtraction in _reweight & _move
     clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
   }
@@ -1065,9 +1054,8 @@ class _Sampler {
   _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwrfJN, log_wrfJN, log_wrJ, stats } = this
+    const { log_cwrfJN, log_wrfJN, log_cwrJ, log_wrJ, stats } = this
     const { awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
-    const { rN, dNJ, log_pNJ, xNJ, sN } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     each(log_cwrfJN, log_cwrfjN => fill(log_cwrfjN, undefined))
@@ -1094,6 +1082,10 @@ class _Sampler {
     let accepts = 0
     this.move_log_w = 0
     this.move_log_p = 0
+    fill(log_cwrJ, 0)
+    repeat(N, n => this.weights[n].inc_log_wrj(log_cwrJ, log_cwrfJN))
+    clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
+
     repeat(J, j => {
       const k_pivot = kJ[j]
       this.p++
@@ -1103,11 +1095,7 @@ class _Sampler {
         this.up++
         this.upK[k]++
       })
-      let log_cwrj = sum(log_cwrfJN[j], (f, n) =>
-        f(rN[n], dNJ[n], log_pNJ[n], xNJ[n], sN[n])
-      )
-      log_cwrj = clip(log_cwrj, -Number.MAX_VALUE, Number.MAX_VALUE)
-      const log_dwj = log_cwrj - log_wrJ[j]
+      const log_dwj = log_cwrJ[j] - log_wrJ[j]
       if (random() < exp(log_mwJ[j] + log_mpJ[j] + log_dwj)) {
         // update state to reflect move
         xJ[j] = yJ[j]
@@ -1117,7 +1105,7 @@ class _Sampler {
         log_p_yJK[j] = array(K)
         log_wrfJN[j] = log_cwrfJN[j]
         log_cwrfJN[j] = array(N)
-        log_wrJ[j] = log_cwrj
+        log_wrJ[j] = log_cwrJ[j]
         // log_dwj and any other factors in p(accept) are already reflected in
         // post-accept sample so log_rwJ is invariant; this was confirmed
         // (but not quite understood) in earlier implementations
@@ -2276,8 +2264,8 @@ class _Sampler {
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
     // note log_wr(1) supersedes (cond?0:-inf) as default log_w
-    const log_w = log_wr ? log_wr(1) : cond ? 0 : -inf
-    this._weight(n, log_w, log_wr ?? (r => log(cond || 1 - r)))
+    if (!log_wr) this._weight(n, cond ? 0 : -inf, r => log(cond || 1 - r))
+    else this._weight(n, log_wr(1), log_wr)
   }
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
@@ -2298,27 +2286,56 @@ class _Sampler {
     // note we require log_wr(1) == log_w
     if (log_wr(1) != log_w)
       fatal(`log_wr(1)=${log_wr(1)} does not match log_w=${log_w}`)
-    this.log_wrfJN[this.j][n] = log_wr ?? (r => r * log_w) // note r>0
+    this.log_wrfJN[this.j][n] = log_wr
   }
 
   _confine(n, x, domain) {
     // reject outright on nullish (null=empty or undefined) domain
     // allows undefined/empty domains as in _sample
     if (is_nullish(domain)) return this._weight(n, -inf)
-    // use domain._log_wr if defined
-    // otherwise use default log_wr based on distance and/or log_p
-    let log_wr = domain?._log_wr
-    if (!log_wr) {
-      const c = from(x, domain)
-      const d = distance(x, domain) ?? 0 // take 0 if undefined
-      const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
-      // debug(x, str(domain), d, log_p)
-      if (!c) {
-        if (d < 0) fatal(`negative distance (outside domain)`)
-        if (log_p > -inf)
-          fatal(`positive density ${log_p} outside domain x=${x}`)
-      } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
-      log_wr = (r, dJ, log_pJ, xJ, store) => {
+
+    const c = from(x, domain)
+    const d = distance(x, domain) ?? 0 // take 0 if undefined
+    const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
+    const dJ = this.dNJ[n]
+    const log_pJ = this.log_pNJ[n]
+
+    // debug(x, str(domain), d, log_p)
+    if (!c) {
+      if (d < 0) fatal(`negative distance (outside domain)`)
+      if (log_p > -inf) fatal(`positive density ${log_p} outside domain x=${x}`)
+    } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
+
+    // initialize weight.inc_log_wrj if needed
+    const weight = this.weights[n]
+    if (!weight.inc_log_wrj) {
+      weight.inc_log_wrj = (log_wrJ, log_wrfJN, update_stats) => {
+        // TODO: what is with uneven "weights Infinity" on example 2?
+        //
+        // TODO: why is example 3 failing tks? something is off/different
+        // with the new setup ... could it be the store reset?
+
+        if (update_stats) {
+          repeat(this.J, j => {
+            const log_wr = log_wrfJN[j][n]
+            dJ[j] = log_wr._d
+            log_pJ[j] = log_wr._log_p
+          })
+          this.sN[n] = {} // init/reset store for stats
+        }
+        const r = this.rN[n]
+        const store = this.sN[n]
+        apply(log_wrJ, (log_wrj, j) => log_wrj + log_wrfJN[j][n](r, store))
+      }
+    }
+
+    // if domain._log_wr is defined, wrap it to pass (c,d,log_p,dJ,log_pJ,store)
+    // otherwise define default log_wr w/ basic distance/density support
+    let log_wr
+    if (domain._log_wr) {
+      log_wr = (r, store) => domain._log_wr(r, c, d, log_p, dJ, log_pJ, store)
+    } else {
+      log_wr = (r, store) => {
         if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
         // note log_wr(1) can get invoked without additional args (see below)
         if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
@@ -2334,6 +2351,7 @@ class _Sampler {
       log_wr._d = d // distance for scaling factor z
       log_wr._log_p = c ? log_p : inf // log_p for base offset b
     }
+
     // note log_wr(1) supersedes (cond?0:-inf) as default log_w
     this._weight(n, log_wr(1), log_wr)
   }
