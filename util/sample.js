@@ -511,7 +511,7 @@ class _Sampler {
     this.dNJ = matrix(N, J) // observation distances
     this.log_pNJ = matrix(N, J) // observation densities
     this.xNJ = matrix(N, J) // observation values
-    this.sN = array(N) // storage for log_wr
+    this.sN = array(N) // stats for log_wr (if _stats defined)
     this.log_wrJ = array(J) // posterior relaxed log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
@@ -943,18 +943,20 @@ class _Sampler {
     else stats.updates.push(update)
   }
 
+  _inc_log_wrj(log_wrJ, log_wrfJN) {
+    repeat(this.N, n => {
+      const r = this.rN[n]
+      apply(log_wrJ, (log_wrj, j) => log_wrj + log_wrfJN[j][n](r))
+    })
+  }
+
   _fill_log_wrj(log_wrJ) {
-    const { rN } = this
+    const { log_wrfJN, rN } = this
     fill(log_wrJ, 0)
     // NOTE: for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
     if (max_in(rN) > 0) {
-      each(rN, (r, n) => {
-        const weight = this.weights[n]
-        // TODO: does this conflict w/ _confine?
-        weight.inc_log_wrj ??= (log_wrJ, log_wrfJN) =>
-          apply(log_wrJ, (log_wrj, j) => log_wrj + log_wrfJN[j][n](r))
-        weight.inc_log_wrj(log_wrJ, this.log_wrfJN, true /* update_stats */)
-      })
+      repeat(this.N, n => this.weights[n].init_log_wr?.())
+      this._inc_log_wrj(log_wrJ, log_wrfJN)
     }
     this.wsum = null // since log_wrJ changed
     // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wsum)
@@ -1083,7 +1085,7 @@ class _Sampler {
     this.move_log_w = 0
     this.move_log_p = 0
     fill(log_cwrJ, 0)
-    repeat(N, n => this.weights[n].inc_log_wrj(log_cwrJ, log_cwrfJN))
+    this._inc_log_wrj(log_cwrJ, log_cwrfJN)
     clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
 
     repeat(J, j => {
@@ -2306,50 +2308,37 @@ class _Sampler {
       if (log_p > -inf) fatal(`positive density ${log_p} outside domain x=${x}`)
     } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
 
-    // initialize weight.inc_log_wrj if needed
-    const weight = this.weights[n]
-    if (!weight.inc_log_wrj) {
-      weight.inc_log_wrj = (log_wrJ, log_wrfJN, update_stats) => {
-        // TODO: what is with uneven "weights Infinity" on example 2?
-        //
-        // TODO: why is example 3 failing tks? something is off/different
-        // with the new setup ... could it be the store reset?
-
-        if (update_stats) {
-          repeat(this.J, j => {
-            const log_wr = log_wrfJN[j][n]
-            dJ[j] = log_wr._d
-            log_pJ[j] = log_wr._log_p
-          })
-          this.sN[n] = {} // init/reset store for stats
-        }
-        const r = this.rN[n]
-        const store = this.sN[n]
-        apply(log_wrJ, (log_wrj, j) => log_wrj + log_wrfJN[j][n](r, store))
-      }
+    // initialize weight.init_log_wr
+    this.weights[n].init_log_wr ??= () => {
+      this.sN[n] = undefined // reset _stats (if any)
+      repeat(this.J, j => {
+        const log_wr = this.log_wrfJN[j][n]
+        dJ[j] = log_wr._d
+        log_pJ[j] = log_wr._log_p
+        if (log_wr._stats) this.sN[n] ??= log_wr._stats()
+      })
     }
 
     // if domain._log_wr is defined, wrap it to pass (c,d,log_p,dJ,log_pJ,store)
     // otherwise define default log_wr w/ basic distance/density support
     let log_wr
     if (domain._log_wr) {
-      log_wr = (r, store) => domain._log_wr(r, c, d, log_p, dJ, log_pJ, store)
+      log_wr = r => domain._log_wr(r, c, d, log_p, dJ, log_pJ, this.sN[n])
     } else {
-      log_wr = (r, store) => {
+      log_wr = r => {
         if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
         // note log_wr(1) can get invoked without additional args (see below)
         if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
         if (d == 0) return r * log_p // inside OR unknown distance, note r>0
-        if (!defined(store.z)) {
-          store.z = 1 / max_in(dJ) // ignores undefined, 0 if all undefined
-          store.b = min_in(log_pJ) // ignores undefined, inf if all undefined
-          if (store.b == inf) store.b = 0
-        }
-        const { z, b } = store
+        const { z, b } = this.sN[n]
         return r * b + log(1 - r) * (1 + 100 * d * z)
       }
       log_wr._d = d // distance for scaling factor z
       log_wr._log_p = c ? log_p : inf // log_p for base offset b
+      log_wr._stats = () => ({
+        z: 1 / max_in(dJ), // 0 if all undefined
+        b: (b => (b == inf ? 0 : b))(min_in(log_pJ)), // 0 if all undefined
+      })
     }
 
     // note log_wr(1) supersedes (cond?0:-inf) as default log_w
