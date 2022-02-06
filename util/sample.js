@@ -331,7 +331,6 @@ function sample_array(J, xJ, domain, options = undefined) {
 }
 
 // confine value `x` to `domain`
-// `≡ condition(from(x, domain))`, see below
 // uses `distance(x, domain)` for guidance outside `domain`
 // uses `density(x, domain) ?? 0` as weights inside `domain`
 // distances help w/ rare domains, densities w/ unbounded domains
@@ -374,6 +373,16 @@ function condition(cond, log_wr = undefined) {
 // see #/weight for technical details
 function weight(log_w, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to weight(…)`)
+}
+
+// maximize value `x`
+function maximize(x) {
+  fatal(`unexpected (unparsed) call to maximize(…)`)
+}
+
+// minimize value `x`
+function minimize(x) {
+  fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
 // is `wJ` uniform?
@@ -498,6 +507,7 @@ class _Sampler {
     this.uaK = array(K) // move accepts per jump value
     this.log_pwJ = array(J) // prior log-weights per run
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
+    this.log_wrNJ = matrix(N, J) // posterior log-weight relaxations
     this.rN = array(N) // relaxation parameters
     this.dNJ = matrix(N, J) // observation distances
     this.log_pNJ = matrix(N, J) // observation densities
@@ -640,7 +650,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|minimize|maximize|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
     this.js = js.replace(
       __sampler_regex,
       (m, name, key, method, args, offset) => {
@@ -762,10 +772,9 @@ class _Sampler {
           }
           case 'condition':
           case 'weight':
+          case 'maximize':
+          case 'minimize':
           case 'confine': {
-            // replace from(...) inside condition(...)
-            if (method == 'condition')
-              args = args.replace(/\bfrom *\(/g, `__sampler._from(`)
             const index = weights.length
             weights.push({ index, offset, method, args, line_index, line, js })
             return `__sampler._${method}(${index},${args})`
@@ -936,7 +945,7 @@ class _Sampler {
   }
 
   _fill_log_wrj(log_wrJ) {
-    const { log_wrfJN, dNJ, log_pNJ, xNJ, rN, sN, N, J } = this
+    const { log_wrfJN, log_wrNJ, dNJ, log_pNJ, xNJ, rN, sN, N, J } = this
     if (max_in(rN) == 0) {
       // for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
       fill(log_wrJ, 0)
@@ -957,6 +966,7 @@ class _Sampler {
       )
       // print(str(sN))
     }
+
     this.wsum = null // since log_wrJ changed
     // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wsum)
 
@@ -2266,41 +2276,6 @@ class _Sampler {
     )
   }
 
-  _from(x, domain) {
-    // reject outright on nullish (null=empty or undefined) domain
-    // allows undefined/empty domains as in _sample
-    if (is_nullish(domain)) return false
-    const c = from(x, domain)
-    // log_wr can be specified explicitly by the domain
-    let log_wr = domain?._log_wr
-    // if missing, use default log_wr based on distance and/or log_p
-    if (!log_wr) {
-      const d = distance(x, domain) ?? 0 // take 0 if undefined
-      const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
-      // debug(x, str(domain), d, log_p)
-      if (!c) {
-        if (d < 0) fatal(`negative distance (outside domain)`)
-        if (log_p > -inf)
-          fatal(`positive density ${log_p} outside domain x=${x}`)
-      } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
-      log_wr = (r, dJ, log_pJ, xJ, stats) => {
-        if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
-        // note log_wr(1) can get invoked without additional args (see below)
-        if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
-        if (d == 0) return r * log_p // inside OR unknown distance, note r>0
-        // compute scaling factor z and base b as needed
-        stats.z ??= 1 / max_in(dJ) // ignores undefined, 0 if all undefined
-        stats.b ??= min_in(log_pJ) // ignores undefined, inf if all undefined
-        if (stats.b == inf) stats.b = 0
-        return r * stats.b + log(1 - r) * (1 + 100 * d * stats.z)
-      }
-      log_wr._d = d // distance for scaling factor z
-      log_wr._log_p = c ? log_p : inf // log_p for base offset b
-    }
-    if (log_wr) return set(new Boolean(c), '_log_wr', log_wr)
-    return c
-  }
-
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
     // note log_wr(1) supersedes (cond?0:-inf) as default log_w
@@ -2317,7 +2292,8 @@ class _Sampler {
     const weight = this.weights[n]
     if (weight.called)
       fatal(
-        'confine|condition|weight(…) invoked dynamically (e.g. inside loop)'
+        'confine|maximize|minimize|condition|weight(…) ' +
+          'invoked dynamically (e.g. inside loop)'
       )
     weight.called = true
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
@@ -2329,7 +2305,67 @@ class _Sampler {
   }
 
   _confine(n, x, domain) {
-    this._condition(n, this._from(x, domain))
+    // reject outright on nullish (null=empty or undefined) domain
+    // allows undefined/empty domains as in _sample
+    if (is_nullish(domain)) return _this._weight(n, -inf)
+    // use domain._log_wr if defined
+    // otherwise use default log_wr based on distance and/or log_p
+    let log_wr = domain?._log_wr
+    if (!log_wr) {
+      const c = from(x, domain)
+      const d = distance(x, domain) ?? 0 // take 0 if undefined
+      const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
+      // debug(x, str(domain), d, log_p)
+      if (!c) {
+        if (d < 0) fatal(`negative distance (outside domain)`)
+        if (log_p > -inf)
+          fatal(`positive density ${log_p} outside domain x=${x}`)
+      } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
+      log_wr = (r, dJ, log_pJ, xJ, store) => {
+        if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
+        // note log_wr(1) can get invoked without additional args (see below)
+        if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
+        if (d == 0) return r * log_p // inside OR unknown distance, note r>0
+        if (!defined(store.z)) {
+          store.z = 1 / max_in(dJ) // ignores undefined, 0 if all undefined
+          store.b = min_in(log_pJ) // ignores undefined, inf if all undefined
+          if (store.b == inf) store.b = 0
+        }
+        const { z, b } = store
+        return r * b + log(1 - r) * (1 + 100 * d * z)
+      }
+      log_wr._d = d // distance for scaling factor z
+      log_wr._log_p = c ? log_p : inf // log_p for base offset b
+    }
+    // note log_wr(1) supersedes (cond?0:-inf) as default log_w
+    this._weight(n, log_wr(1), log_wr)
+  }
+
+  _minimize(n, x) {}
+
+  _maximize(n, x) {
+    const log_wr = (r, dJ, log_pJ, xJ, store) => {
+      if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
+      if (!xJ) return 0 // always 0 when xJ is missing
+      //
+      // TODO: we need to recognize different types of log_wr at the value level and handle them separately in _fill_log_wrj
+      //
+      // TODO: quantile cutoff basically determines ess=(1-q)*100 and allows r=1 to be reached (assuming ess>=reweight_ess) in minimal number of steps (default 2), but then the quantile is no longer updated in _move or even between moves, so ess becomes a crapshoot of what % of samples can be moved above the last calculated quantile at r<1 ... it is easy to force recalculation, but not so easy to fill xJ, which really means invoking _fill_log_wrj (probably from _reweight), which should only matter if r==1 and log_wr is x-sensitive
+      //
+      // TODO: this seems easy to fix by tracking x-dependence and forcing reweight at r=1 in that case, but the fact that freezing the quantile can work may hint at a decent way of doing this via quantile relaxation, which can also be softened via shifted/scaled logistic
+      store.median ??= quantile(remove(xJ), 0.8)
+      return x > store.median ? 0 : -inf
+      // if (!defined(store.z)) {
+      //   ;[store.x_min, store.x_max] = min_max_in(xJ)
+      //   store.z = 1 / (store.x_max - store.x_min)
+      // }
+      // const { x_max, z } = store
+      // const d = max(0, x_max - x)
+      // if (d < min(3, this.u / 2)) return 0
+      // return log(1 - r) * (1 + 100 * d * z)
+    }
+    log_wr._x = x // value x for stats
+    this._weight(n, 0, log_wr)
   }
 
   _sample_array(k, J, xJ, domain, options) {
