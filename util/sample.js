@@ -304,8 +304,10 @@ function density(x, domain) {
 // | `mks_period`  | minimum update steps for `mks`, _default_: `1`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
+// |               | changes default `max_updates` to `inf`
 // | `time`        | target time (ms) for sampling, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
+// |               | changes default `max_time` to `inf`
 // | `targets`     | object of targets for named values sampled in this context
 // |               | see `target` option above for possible targets
 // |               | can be `true` for auto-generated targets
@@ -462,11 +464,11 @@ class _Sampler {
           fill(awK, k => max(0, J / K - aK[k]))
           fill(uawK, k => max(0, 0.1 * (J / K) - uaK[k]))
         },
-        max_updates: 1000,
+        max_updates: options.updates ? inf : 1000,
         min_updates: 0,
         min_stable_updates: 1,
         min_unweighted_updates: 3,
-        max_time: 1000,
+        max_time: options.time ? inf : 1000,
         min_time: 0,
         min_ess: J / 2,
         max_mks: 1,
@@ -998,7 +1000,7 @@ class _Sampler {
   // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
     // reweights can stop at r=1 unless optimizing
-    if (this.r == 1 && !some(this.weights, 'optimizing')) return
+    if (this.r == 1 && !this.optimizing) return
     const timer = _timer_if(this.stats)
     this._swap('log_wrJ', 'log_rwJ') // save current state in buffers
     const { rN, _rN, log_wrJ, _log_wrJ, log_rwJ, _log_rwJ, stats } = this
@@ -1011,6 +1013,8 @@ class _Sampler {
     do {
       if (tries++ == 0) fill(rN, n => min(1, _rN[n] + 1 / min_reweights))
       else apply(rN, (r, n) => _rN[n] + (r - _rN[n]) * random())
+      // TODO: better explain why we do this!
+      if (this.optimizing) fill(this.xJ, j => ((this.j = j), this.func(this)))
       this._fill_log_wrj(log_wrJ) // weights for next rN
       copy(log_rwJ, _log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
       this.rwJ = null // reset cached posterior ratio weights and dependents
@@ -1184,7 +1188,8 @@ class _Sampler {
     do {
       // check for termination
       // continue based on min_time/updates
-      // minimums supercede maximum and target settings
+      // minimums supersede maximum and target settings
+      // targets override default maximums (see constructor)
       // actual stopping is below, after reweight and update_stats
       let done = (() => {
         if (this.t >= min_time && this.u >= min_updates) {
@@ -1286,13 +1291,18 @@ class _Sampler {
       this.mlw = 0 // log_w improvement
       this.mlp = 0 // log_p improvement
       const move_timer = _timer()
-      while (move_while(this) && this.t < max_time) {
+      while (move_while(this)) {
         // console.debug(this.uaK, this.upK, 0.1 * (this.J / this.K))
         move_weights(this, this.awK, this.uawK)
         this._move()
         this.mlw += this.move_log_w
         this.mlp += this.move_log_p
         this.tm = move_timer.t
+        if (this.t >= max_time) {
+          if (this.options.warn)
+            warn(`last move step (u=${this.u}) cut short to due to max_time`)
+          break
+        }
       }
     } while (true)
 
@@ -1769,6 +1779,10 @@ class _Sampler {
     return this.N == 0 ? 1 : min_in(this.rN)
   }
 
+  get optimizing() {
+    return some(this.weights, w => w.optimizing)
+  }
+
   __pwJ() {
     const { J, log_pwJ } = this
     const max_log_pwj = max_in(log_pwJ)
@@ -2194,6 +2208,8 @@ class _Sampler {
     // prior sampling density is stored in log_p_xJK
     // first defined value is stored in value.first
     if (!moving) {
+      // if value is already sampled, keep it (can happen when optimizing)
+      if (xJK[j][k] !== undefined) return xJK[j][k]
       return prior((x, log_pw = 0) => {
         log_pwJ[j] += log_pw
         log_p_xJK[j][k] = log_p(x)

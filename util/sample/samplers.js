@@ -2,7 +2,7 @@
 // can be used for any bounded domain or prior sampler
 const _uniform_posterior = (a, b, prior) => (f, x, stdev) => {
   if (!stdev) return prior(f) // degenerate sample
-  const r = min((b - a) / 2, stdev * 2)
+  const r = min((b - a) / 2, stdev * 3) // chosen based on 'aps' in examples
   const xa = max(x - r, a)
   const xb = min(x + r, b)
   const y = xa + (xb - xa) * random()
