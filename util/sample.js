@@ -266,11 +266,15 @@ function density(x, domain) {
 // | `reweight_if` | reweight predicate `context => …`
 // |               | called once per update step `context.u = 0,1,2,…`
 // |               | reduces `ess` to `≥reweight_ess` (see below)
-// |               | _default_: `({ess,J}) => ess >= .9 * J`
-// |               | default helps avoid extreme weights due to rapid reweights
+// |               | reduces `ess` to `~10%` when optimizing
+// |               | _default_: `({ess,J,optimizing}) =>`
+// |               | `ess >= (optimizing ? .2 * J : .9 * J)`
+// |               | default helps reduce reweight failures/retries
 // | `reweight_ess`| minimum `ess` after reweight, _default_: `10`
+// |               | smaller minimum allows more extreme weights
 // | `min_reweights`| minimum number of reweight steps, _default_: `3`
 // | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
+// |               | forced to `1` when optimizing
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -447,15 +451,14 @@ class _Sampler {
         params: {},
         quantile_runs: 100,
         size: J,
-        reweight_if: ({ ess, J }) => ess >= 0.9 * J,
-        // reweight_if: ({ ess, J }) => ess >= 0.5 * J,
-        // reweight_if: ({ ess, J }) => ess >= 10,
+        reweight_if: ({ ess, J, optimizing }) =>
+          ess >= (optimizing ? 0.2 * J : 0.9 * J),
         reweight_ess: 10,
         min_reweights: 3,
         max_reweight_tries: 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, K, tm, a, aK, uaK }) =>
-          tm < 100 &&
+          tm < 100 && // allows ~constant-cost per step w/ regular reweights
           (essu < 0.9 * J ||
             a < J ||
             min_in(aK) < J / K ||
@@ -492,6 +495,7 @@ class _Sampler {
     this.yJK = matrix(J, K) // posterior samples per run/value
     this.log_p_xJK = matrix(J, K) // sample (prior) log-densities
     this.log_p_yJK = matrix(J, K) // posterior sample (prior) log-densities
+    // this.domJK = matrix(J, K) // sampler domains per run/value
 
     this.kJ = array(J) // array of (posterior) pivot values in _move
     this.upJK = matrix(J, K) // last jump proposal step
@@ -607,7 +611,7 @@ class _Sampler {
 
     if (options.table) this._table()
     if (options.quantiles) this._quantiles()
-    if (options.plot) this._plot()
+    if (options.plot) this._render_plots()
   }
 
   _parse_func(func) {
@@ -798,7 +802,7 @@ class _Sampler {
             name = args + (names.has(args) ? '_' + index : '') // de-duplicate
             names.add(name) // name aligned w/ values & unique
             values.push({ index, offset, name, args, line_index, line, js })
-            return `__sampler._sample(${index},constant(${args}))`
+            return `__sampler._plot(${index},${args})`
           }
           case 'sample': {
             // replace sample call
@@ -1004,17 +1008,26 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     this._swap('log_wrJ', 'log_rwJ') // save current state in buffers
     const { rN, _rN, log_wrJ, _log_wrJ, log_rwJ, _log_rwJ, stats } = this
+    let { reweight_ess, min_reweights, max_reweight_tries } = this.options
+
+    // when optimizing, weights depend on sampled values, and our goal is to optimize (and plot etc) the posterior predictive ("forked") distribution, so we perform all reweights on a forked sample; we also adjust certain options to reflect behavior of _maximize, which ignores r and targets ~10% fixed ess after each reweight (also reflected in default reweight_if)
+    if (this.optimizing) {
+      fill(this.xJ, j => ((this.j = j), this.func(this)))
+      // reweight_ess = 0.05 * this.J // since _maximize targets 10% ess
+      max_reweight_tries = 1 // since _maximize ignores r
+    }
 
     // apply random increment to rN that satisfies reweight_ess
-    const { reweight_ess, min_reweights, max_reweight_tries } = this.options
-    if (!(this.ess > reweight_ess)) fatal(`ess too low for reweight`)
+    if (!(this.ess > reweight_ess))
+      fatal(
+        `ess too low to attempt reweight ` +
+          `(ess=${this.ess} <= reweight_ess=${reweight_ess})`
+      )
     let tries = 0 // number of tries to reweight (i.e. increment rN)
     copy(_rN, rN) // save current rN as base
     do {
       if (tries++ == 0) fill(rN, n => min(1, _rN[n] + 1 / min_reweights))
       else apply(rN, (r, n) => _rN[n] + (r - _rN[n]) * random())
-      // TODO: better explain why we do this!
-      if (this.optimizing) fill(this.xJ, j => ((this.j = j), this.func(this)))
       this._fill_log_wrj(log_wrJ) // weights for next rN
       copy(log_rwJ, _log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
       this.rwJ = null // reset cached posterior ratio weights and dependents
@@ -1024,6 +1037,9 @@ class _Sampler {
         `failed reweight in ${tries} tries ` +
           `(ess=${this.ess} < reweight_ess=${reweight_ess})`
       )
+
+    // when optimizing, we need to fork (again) after reweight so that stats/plots are not the same samples used for reweight above
+    if (this.optimizing) fill(this.xJ, j => ((this.j = j), this.func(this)))
 
     if (stats) {
       stats.reweights++
@@ -1489,7 +1505,7 @@ class _Sampler {
     )
   }
 
-  _plot() {
+  _render_plots() {
     const updates = this.stats?.updates
     if (updates) {
       const spec = this.options.stats
@@ -2196,7 +2212,7 @@ class _Sampler {
         fatal('sampler domain failed to achieve full ess')
     }
 
-    // require prior and log_p to be defiend via domain or options
+    // require prior and log_p to be defined via domain or options
     // note we do not auto-wrap as constant(domain) for now
     const prior = options?.prior ?? domain._prior
     if (!prior) fatal('missing prior sampler (_prior)')
@@ -2209,7 +2225,11 @@ class _Sampler {
     // first defined value is stored in value.first
     if (!moving) {
       // if value is already sampled, keep it (can happen when optimizing)
+      // this is used for "forking" samples in _reweight when optimizing
+      // note this assumes the domain is unchanged across forked runs
+      // TODO: disallow or handle non-sample randomized domains
       if (xJK[j][k] !== undefined) return xJK[j][k]
+
       return prior((x, log_pw = 0) => {
         log_pwJ[j] += log_pw
         log_p_xJK[j][k] = log_p(x)
@@ -2294,6 +2314,12 @@ class _Sampler {
     )
   }
 
+  _plot(k, x) {
+    const value = this.values[k]
+    value.first ??= x // used to determine type
+    this.xJK[this.j][k] = x
+  }
+
   _condition(n, cond, log_wr = cond._log_wr) {
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
     // note log_wr(1) supersedes (cond?0:-inf) as default log_w
@@ -2352,6 +2378,7 @@ class _Sampler {
         const log_wr = this.log_wrfJN[j][n]
         if (log_wr._stats) weight.stats ??= log_wr._stats()
       })
+      // print(str(weight.stats))
     }
 
     // if domain._log_wr is defined, wrap it to pass [c,d,log_p,dJ,log_pJ,stats]
@@ -2380,25 +2407,33 @@ class _Sampler {
   }
 
   _minimize(n, x, _log_wr) {
-    // TODO: does this work well?
     this._maximize(n, -x, _log_wr)
   }
 
   _maximize(n, x, _log_wr) {
     const weight = this.weights[n]
-    weight.optimizing = true // force reweights at r=1
-    weight.xJ ??= array(this.J)
-    // set up weight.init_log_wr
-    weight.init_log_wr ??= () => {
-      repeat(this.J, j => {
-        const log_wr = this.log_wrfJN[j][n]
-        weight.xJ[j] = log_wr._x
-      })
-      weight.stats = undefined
-      repeat(this.J, j => {
-        const log_wr = this.log_wrfJN[j][n]
-        if (log_wr._stats) weight.stats ??= log_wr._stats()
-      })
+
+    // initialize on first call w/o init_log_wr set up
+    if (!weight.init_log_wr) {
+      if (this.weights.length > 1)
+        fatal(
+          'maximize|minimize(…) mixed w/ other calls to confine|maximize|minimize|condition|weight(…)'
+        )
+      weight.optimizing = true // force reweights at r=1
+      weight.xJ ??= array(this.J)
+
+      weight.init_log_wr = () => {
+        repeat(this.J, j => {
+          const log_wr = this.log_wrfJN[j][n]
+          weight.xJ[j] = log_wr._x
+        })
+        weight.stats = undefined
+        repeat(this.J, j => {
+          const log_wr = this.log_wrfJN[j][n]
+          if (log_wr._stats) weight.stats ??= log_wr._stats()
+        })
+        // print(str(weight.stats))
+      }
     }
 
     // if log_wr is given, wrap it to pass [xJ,stats]
@@ -2410,24 +2445,44 @@ class _Sampler {
       log_wr = r => {
         // if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
         if (!weight.stats) return 0 // always 0 before stats init
-        // note we use median for ess to be predictable & robust to outliers
-        // const [min, median, max] = weight.stats // from _stats below
-        // if (x >= median) return 3 * ((x - median) / (max - median) - 1)
-        // return -3 - 10 * ((median - x) / (median - min))
-        // TODO: note ess matters, not just objective (median, mean, etc)
-        // if (this.r == 1) weight.optimizing = false
+
+        // weight based on scaled distance from max
+        // sensitive to r and will trigger warning about r<1
+        // multiple reweight attempts must be allowed in _reweight
+        // may require larger reweight_ess option, e.g. 10%
+        // pro: not sensitive to quantile choice (chosen dynamically by r)
+        // con: difficult to control ess and timing/frequency of reweights
+        // con: did not perform as well as simple quantile cutoff
+        //
+        // const [a, q, b] = weight.stats // from _stats below
+        // if (a >= b) return 0
+        // const d = max(0, b - x)
+        // if (d == 0) return 0
+        // const z = 1 / (b - a)
+        // return log(1 - r) * (10 * d * z)
+
+        // weight based on scaled distance using a key quantile point
+        // pro: less sensitive to quantile choice
+        // con: harder to control ess and timing/frequency of reweights
+        // con: did not perform as well as simple quantile cutoff
+        //
+        // const [a, q, b] = weight.stats // from _stats below
+        // if (x >= median) return 3 * ((x - q) / (b - q) - 1)
+        // return -3 - 10 * ((q - x) / (q - a))
+
         const [q] = weight.stats // from _stats below
         return x > q ? 0 : -inf
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
+        // NOTE: unless reweights are only done ~100% ess, stats are sensitive to weights, so we estimate weighted quantiles below
         const { J, rwJ } = this
-        const xJ = copy(weight.xJ) // TODO: avoid copies?
-        const wJ = copy(rwJ)
+        const xJ = copy((weight._xJ ??= array(this.J)), weight.xJ)
+        const wJ = copy((weight._wJ ??= array(this.J)), rwJ)
         _remove_undefined(xJ, wJ)
         const xR = lookup(xJ, random_discrete_array(array(10 * J), wJ))
-        // return quantiles(xR, [0, 0.5, 1])
-        return quantiles(xR, [0.7]) // take top 30%
+        // return quantiles(xR, [0, .9, 1])
+        return quantiles(xR, [0.9]) // => 10% ess on after reweight
       }
     }
 
