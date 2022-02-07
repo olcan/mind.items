@@ -1786,18 +1786,10 @@ class _Sampler {
   __rwJ_agg() {
     const { J, jJ, rwJ } = this
     // aggregate over duplicate indices jJ using _rwJ_agg as buffer
-    // instead of adding weights, we check consistency and multiply by counts
     const rwJ_agg = (this.___rwJ_agg ??= array(J))
     fill(rwJ_agg, 0)
-    each(jJ, (jj, j) => {
-      if (rwJ_agg[jj] && rwJ_agg[jj] != rwJ[j])
-        throw new Error(
-          'inconsistent (random?) condition/weight for identical samples; ' +
-            'please ensure sample(…) is used for all random values'
-        )
-      else rwJ_agg[jj] = rwJ[j]
-    })
-    return mul(rwJ_agg, this.counts)
+    each(jJ, (jj, j) => (rwJ_agg[jj] += rwJ[j]))
+    return rwJ_agg
   }
 
   __counts() {
