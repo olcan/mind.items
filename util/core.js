@@ -623,7 +623,7 @@ function js_table(regex) {
   //
   // also note javascript engine _should_ cache the compiled regex
   const js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))?/gsu
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))/gsu
 
   const js_table_regex_arrow =
     /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
@@ -668,6 +668,9 @@ function js_table(regex) {
       // start new scope if class type, end last scope if unindented
       if (def.type == 'class') scope = def.name
       else if (!def.indent) scope = null
+
+      // skip indented definitions w/o scope
+      if (def.indent && !scope) return
 
       // assign indented definition to last scope
       // also record indent level or ensure match to existing level
