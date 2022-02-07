@@ -2400,10 +2400,11 @@ class _Sampler {
         if (!weight.stats) return 0 // always 0 before stats init
 
         // note we use median for ess to be predictable & robust to outliers
-        const [min, median, max] = weight.stats // from _stats below
-        if (x >= median) return 3 * ((x - median) / (max - median) - 1)
-        return -3 - 10 * ((median - x) / (median - min))
+        // const [min, median, max] = weight.stats // from _stats below
+        // if (x >= median) return 3 * ((x - median) / (max - median) - 1)
+        // return -3 - 10 * ((median - x) / (median - min))
 
+        // TODO: ess matters, not just median
         // TODO: need to track some kind of improvement probability/rate metric
         // TODO: warn if improvement probability/rate does not fall below target
         // TODO: also track some kind of efficiency (per unit time) metric
@@ -2411,8 +2412,8 @@ class _Sampler {
         // TODO: if cutoff works best, you could soften using shifted/scaled logistic
         // if (this.r == 1) weight.optimizing = false
 
-        // const [q] = weight.stats // from _stats below
-        // return x > q ? 0 : -inf
+        const [q] = weight.stats // from _stats below
+        return x > q ? 0 : -inf
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
@@ -2421,8 +2422,8 @@ class _Sampler {
         const wJ = copy(rwJ)
         _remove_undefined(xJ, wJ)
         const xR = lookup(xJ, random_discrete_array(array(10 * J), wJ))
-        return quantiles(xR, [0, 0.5, 1])
-        // return quantiles(xR, [0.5]) // take top 50%
+        // return quantiles(xR, [0, 0.5, 1])
+        return quantiles(xR, [0.7]) // take top 30%
       }
     }
 
