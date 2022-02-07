@@ -1186,56 +1186,57 @@ class _Sampler {
       // continue based on min_time/updates
       // minimums supercede maximum and target settings
       // actual stopping is below, after reweight and update_stats
-      let done = false
-      if (this.t >= min_time && this.u >= min_updates) {
-        // check target updates
-        if (this.u >= updates) {
-          const { t, u } = this
-          if (this.options.log)
-            print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
-          done = true
-        }
-
-        // check target time
-        if (this.t >= time) {
-          const { t, u } = this
-          if (this.options.log)
-            print(`reached target time t=${t}≥${time}ms (u=${u})`)
-          done = true
-        }
-
-        // check r==1 and target ess, mks
-        if (this.r == 1 && this.ess >= min_ess && this.mks <= max_mks)
-          stable_updates++
-        else stable_updates = 0
-        if (this.r == 1) unweighted_updates++
-        if (
-          stable_updates >= min_stable_updates &&
-          unweighted_updates >= min_unweighted_updates
-        ) {
-          const { t, u, ess, mks } = this
-          if (this.options.log)
-            print(
-              `reached target ess=${round(ess)}≥${min_ess}, ` +
-                `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
-                `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
-                `unweighted_updates=${unweighted_updates}`
-            )
-          done = true
-        }
-
-        // check max_time/updates for potential early termination
-        if (this.t >= max_time || this.u >= max_updates) {
-          const { t, u } = this
-          if (this.options.warn) {
-            // warn about running out of time or updates
-            if (t > max_time)
-              warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
-            else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
+      let done = (() => {
+        if (this.t >= min_time && this.u >= min_updates) {
+          // check target updates
+          if (this.u >= updates) {
+            const { t, u } = this
+            if (this.options.log)
+              print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
+            return true
           }
-          done = true
+
+          // check target time
+          if (this.t >= time) {
+            const { t, u } = this
+            if (this.options.log)
+              print(`reached target time t=${t}≥${time}ms (u=${u})`)
+            return true
+          }
+
+          // check r==1 and target ess, mks
+          if (this.r == 1 && this.ess >= min_ess && this.mks <= max_mks)
+            stable_updates++
+          else stable_updates = 0
+          if (this.r == 1) unweighted_updates++
+          if (
+            stable_updates >= min_stable_updates &&
+            unweighted_updates >= min_unweighted_updates
+          ) {
+            const { t, u, ess, mks } = this
+            if (this.options.log)
+              print(
+                `reached target ess=${round(ess)}≥${min_ess}, ` +
+                  `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
+                  `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
+                  `unweighted_updates=${unweighted_updates}`
+              )
+            return true
+          }
+
+          // check max_time/updates for potential early termination
+          if (this.t >= max_time || this.u >= max_updates) {
+            const { t, u } = this
+            if (this.options.warn) {
+              // warn about running out of time or updates
+              if (t > max_time)
+                warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
+              else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
+            }
+            return true
+          }
         }
-      }
+      })()
 
       // reweight
       // pre-stats for more meaningful ess, etc
@@ -2370,7 +2371,10 @@ class _Sampler {
     this._weight(n, log_wr(1), log_wr)
   }
 
-  _minimize(n, x, _log_wr) {}
+  _minimize(n, x, _log_wr) {
+    // TODO: does this work well?
+    this._maximize(n, -x, _log_wr)
+  }
 
   _maximize(n, x, _log_wr) {
     const weight = this.weights[n]
@@ -2398,20 +2402,12 @@ class _Sampler {
       log_wr = r => {
         // if (!(r > 0 && r <= 1)) fatal(`unexpected r=${r}, should be in (0,1]`)
         if (!weight.stats) return 0 // always 0 before stats init
-
         // note we use median for ess to be predictable & robust to outliers
         // const [min, median, max] = weight.stats // from _stats below
         // if (x >= median) return 3 * ((x - median) / (max - median) - 1)
         // return -3 - 10 * ((median - x) / (median - min))
-
-        // TODO: ess matters, not just median
-        // TODO: need to track some kind of improvement probability/rate metric
-        // TODO: warn if improvement probability/rate does not fall below target
-        // TODO: also track some kind of efficiency (per unit time) metric
-        // TODO: actually probability and efficiency seem related!
-        // TODO: if cutoff works best, you could soften using shifted/scaled logistic
+        // TODO: note ess matters, not just objective (median, mean, etc)
         // if (this.r == 1) weight.optimizing = false
-
         const [q] = weight.stats // from _stats below
         return x > q ? 0 : -inf
       }
