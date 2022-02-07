@@ -279,11 +279,11 @@ function density(x, domain) {
 // |               | called _until false_ every update step `context.u = 0,1,…`
 // |               | `context.p` is proposed moves (current update step)
 // |               | `context.a` is accepted moves (current update step)
-// |               | `context.aK` is accepted moves per posterior "pivot" value
-// |               | `context.uaK` is accepted moves per prior "jump" value
-// |               | `context.m` is total move count (all update steps)
-// |               | _default_: `({essu,J,K,a,aK,uaK}) => essu<.9*J ||`
-// |               | `a < J || min_in(aK)<J/K || min_in(uaK)<J/K`
+// |               | `context.tm` is time spent moving (current update step)
+// |               | `context.aK` is accepts per posterior "pivot"
+// |               | `context.uaK` is accepts per prior "jump" value
+// |               | _default_: `({essu,J,K,tm,a,aK,uaK}) => tm < 100 &&`
+// |               | `(essu<.9*J || a<J || min_in(aK)<J/K || min_in(uaK)<.1*J/K)`
 // |               | default allows `essu→J` w/ up to `J/10` slow-movers
 // | `move_weights`| move weight function `(context, awK) => …`
 // |               | _default_: `({aK,uaK},awK,uawK) => {`
@@ -452,11 +452,12 @@ class _Sampler {
         min_reweights: 3,
         max_reweight_tries: 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-        move_while: ({ essu, J, K, a, aK, uaK }) =>
-          essu < 0.9 * J ||
-          a < J ||
-          min_in(aK) < J / K ||
-          min_in(uaK) < 0.1 * (J / K),
+        move_while: ({ essu, J, K, tm, a, aK, uaK }) =>
+          tm < 100 &&
+          (essu < 0.9 * J ||
+            a < J ||
+            min_in(aK) < J / K ||
+            min_in(uaK) < 0.1 * (J / K)),
         move_weights: ({ aK, uaK }, awK, uawK) => {
           fill(awK, k => max(0, J / K - aK[k]))
           fill(uawK, k => max(0, 0.1 * (J / K) - uaK[k]))
@@ -497,7 +498,6 @@ class _Sampler {
     this.awK = array(K) // array of move weights by pivot value
     this.uawK = array(K) // array of move weights by jump value
 
-    this.m = 0 // move count
     this.xBJK = [] // buffered samples for mks
     this.log_p_xBJK = [] // buffered sample log-densities for mks
     this.rwBJ = [] // buffered sample weights for mks
@@ -947,7 +947,6 @@ class _Sampler {
       }
     })
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
-    if (spec.m) update.m = this.m
     if (spec.t) update.t = this.t
     if (spec.r) update.r = round_to(this.r, 3, inf, 'floor')
 
@@ -1181,7 +1180,6 @@ class _Sampler {
 
     let stable_updates = 0
     let unweighted_updates = 0
-    let move_cancelled = false
 
     do {
       // check for termination
@@ -1243,7 +1241,8 @@ class _Sampler {
       // pre-stats for more meaningful ess, etc
       // also reweight on u=0 to avoid prior moves at u=1
       // should be skipped (even at u=0) if ess is too low
-      // should be forced before stopping for consistency across runs
+      // should be forced before stopping for more "realistic" final ess
+      // note we this means we stop at maximum r achievable w/ minimal ess
       if (done || reweight_if(this)) this._reweight()
 
       // update stats
@@ -1278,22 +1277,21 @@ class _Sampler {
       this.a = 0 // accepted move count
       this.up = 0 // proposed jump count
       this.ua = 0 // accepted jump count
+      this.tm = 0 // move time
       fill(this.pK, 0) // proposed moves by pivot value
       fill(this.aK, 0) // accepted moves by pivot value
       fill(this.upK, 0) // proposed moves by jump value
       fill(this.uaK, 0) // accepted moves by jump value
       this.mlw = 0 // log_w improvement
       this.mlp = 0 // log_p improvement
-      while (move_while(this)) {
-        if (this.t > max_time) {
-          move_cancelled = true
-          break
-        }
+      const move_timer = _timer()
+      while (move_while(this) && this.t < max_time) {
         // console.debug(this.uaK, this.upK, 0.1 * (this.J / this.K))
         move_weights(this, this.awK, this.uawK)
         this._move()
         this.mlw += this.move_log_w
         this.mlp += this.move_log_p
+        this.tm = move_timer.t
       }
     } while (true)
 
@@ -1584,7 +1582,6 @@ class _Sampler {
       }
       if (spec.p) add_rescaled_line('p')
       if (spec.a) add_rescaled_line('a')
-      if (spec.m) add_rescaled_line('m')
       if (spec.t) add_rescaled_line('t')
       if (spec.r) add_rescaled_line('r', null, 3)
 
