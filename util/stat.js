@@ -65,7 +65,7 @@ const random_discrete = (wJ, sum_wj) => {
   if (!is_array(wJ)) fatal(`non-array argument`)
   if (wJ.length == 0) return NaN
   sum_wj ??= sum(wJ)
-  if (!(sum_wj >= 0)) fatal(`sum_wj<0: ${sum_wj}`)
+  if (sum_wj < 0) fatal(`sum_wj<0: ${sum_wj}`)
   if (sum_wj == 0) return random_discrete_uniform(wJ.length)
   // if (!(min_in(wJ) >= 0)) fatal(`wj<0: ${min_in(wJ)}`)
   let j = 0

@@ -301,7 +301,7 @@ function density(x, domain) {
 // | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `1000` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
-// | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `J/2`
+// | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `.9*J`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
 // |               | does not apply when optimizing via `minimize|maximize`
@@ -478,7 +478,7 @@ class _Sampler {
         min_unweighted_updates: 3,
         max_time: options.time ? inf : 1000,
         min_time: 0,
-        min_ess: J / 2,
+        min_ess: 0.9 * J,
         max_mks: 1,
         mks_tail: 1 / 2,
         mks_period: 1,
@@ -1714,21 +1714,24 @@ class _Sampler {
           },
           grid: {
             y: {
-              lines: compact([
-                { value: 1, class: 'accept strong' },
-                { value: round_to(log2(10), 2), class: 'accept' },
-                { value: round_to(log2(100), 2), class: 'accept weak' },
-                mlw_0_on_y
-                  ? { value: round_to(mlw_0_on_y, 2), class: 'mlw' }
-                  : null,
-                mlp_0_on_y
-                  ? { value: round_to(mlp_0_on_y, 2), class: 'mlp' }
-                  : null,
-              ]),
+              lines:
+                spec.mks || spec.tks
+                  ? compact([
+                      { value: 1, class: 'accept strong' },
+                      { value: round_to(log2(10), 2), class: 'accept' },
+                      { value: round_to(log2(100), 2), class: 'accept weak' },
+                      mlw_0_on_y
+                        ? { value: round_to(mlw_0_on_y, 2), class: 'mlw' }
+                        : null,
+                      mlp_0_on_y
+                        ? { value: round_to(mlp_0_on_y, 2), class: 'mlp' }
+                        : null,
+                    ])
+                  : [],
             },
           },
           // point: { show: false },
-          padding: { right: 50, left: 35 },
+          padding: { right: 50, left: spec.mks || spec.tks ? 35 : 10 },
           styles: [
             `#plot .c3-ygrid-line line { opacity: 1 !important }`,
             `#plot .c3-ygrid-line.accept line { opacity: .1 !important; stroke:#0f0; stroke-width:5px }`,
@@ -2528,13 +2531,23 @@ class _Sampler {
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
-        // NOTE: unless reweights are only done ~100% ess, stats are sensitive to weights, so we estimate weighted quantiles below
         const { J, rwJ } = this
+        // compute weighted quantile, adjusted for duplication (J/essu)
         const xJ = copy((weight._xJ ??= array(this.J)), weight.xJ)
         const wJ = copy((weight._wJ ??= array(this.J)), rwJ)
         _remove_undefined(xJ, wJ)
-        const xR = lookup(xJ, random_discrete_array(array(10 * J), wJ))
-        return quantiles(xR, [0.8 + this.r * 0.15]) // => ess~100*(1-q) after reweight
+        const sum_wj = sum(wJ)
+        if (sum_wj < 0) fatal(`sum_wj<0: ${sum_wj}`)
+        if (sum_wj == 0) return [-inf]
+        scale(wJ, 1 / sum_wj)
+        const jJ = rank_by(range(J), j => xJ[j])
+        // const q = 0.8 + 0.15 * this.r
+        const q = 0.9
+        const wt = min(1, (1 - q) * (J / this.essu)) // = ess
+        let w = 0
+        let j = 0
+        while (w < wt && j < J) w += wJ[jJ[j++]]
+        return [xJ[jJ[j - 1]]]
       }
     }
 
