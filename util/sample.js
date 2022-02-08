@@ -393,6 +393,10 @@ function minimize(x, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
+// =>plot(x)
+// plot value `x`
+function __plot(x) {}
+
 // is `wJ` uniform?
 function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
   const w_mean = wj_sum / wJ.length
