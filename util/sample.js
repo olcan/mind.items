@@ -2353,6 +2353,7 @@ class _Sampler {
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
     this.xJK[this.j][k] = x
+    return x
   }
 
   _condition(n, cond, log_wr = cond._log_wr) {
@@ -2360,10 +2361,11 @@ class _Sampler {
     // note log_wr(1) supersedes (cond?0:-inf) as default log_w
     if (!log_wr) this._weight(n, cond ? 0 : -inf, r => log(cond || 1 - r))
     else this._weight(n, log_wr(1), log_wr)
+    return cond
   }
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
-    // ignore NaN weights, usually due to undefined samples
+    // treat NaN (usually due to undefined samples) as 0
     if (is_nan(log_w)) {
       log_w = 0
       log_wr = r => 0
@@ -2381,6 +2383,7 @@ class _Sampler {
     if (log_wr(1) != log_w)
       fatal(`log_wr(1)=${log_wr(1)} does not match log_w=${log_w}`)
     this.log_wrfJN[this.j][n] = log_wr
+    return log_w
   }
 
   _confine(n, x, domain) {
@@ -2438,6 +2441,7 @@ class _Sampler {
 
     // note log_wr(1) supersedes (cond?0:-inf) as default log_w
     this._weight(n, log_wr(1), log_wr)
+    return x
   }
 
   _minimize(n, x, _log_wr) {
@@ -2560,7 +2564,7 @@ class _Sampler {
       fatal('invalid non-array second argument for confine_array')
     if (!(xJ.length == J)) fatal('array size mismatch for confine_array')
     const domain_fj = is_function(domain) ? domain : j => domain
-    repeat(J, j => this._confine(n + j, xJ[j], domain_fj(j, J)))
+    return each(xJ, (x, j) => this._confine(n + j, x, domain_fj(j, J)))
   }
 
   _simulate(s, x, time, ...events) {
