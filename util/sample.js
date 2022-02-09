@@ -1160,7 +1160,7 @@ class _Sampler {
     each(upJK, upjK => fill(upjK, 0))
 
     // choose random pivot based on uaJK, awK, and uawK
-    // TODO: does this make sense for optimization also?
+    // note exploration matters for optimization also
     // random_discrete_uniform_array(kJ, K)
     const wK = (this._move_wK ??= array(K))
     each(uaJK, (uajK, j) => {
@@ -2519,8 +2519,12 @@ class _Sampler {
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
-        const qa = 1 - (1 - q) * (this.J / this.essu)
-        return quantiles(weight.xJ, [qa])
+        const { r, J, essu } = this
+        // const rr = pow(r, 1)
+        // const qa = 0.5 * (1 - rr) + q * rr
+        // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / essu))
+        const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / essu))
+        return quantiles(weight.xJ, [qq])
       }
     }
 
