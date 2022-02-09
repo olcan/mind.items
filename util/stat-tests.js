@@ -493,7 +493,8 @@ function _test_min_in() {
 function _test_min_of() {
   check(
     () => throws(() => min_of()),
-    () => throws(() => min_of(0)),
+    () => [min_of(0), inf],
+    () => [min_of(1), 0],
     () => [min_of([]), inf],
     () => [min_of([0, -1, -2], x => 2 * x), -4],
     () => [min_of([0, -1, -2, NaN, 'a'], x => 2 * x), -4] // elements that fail < are ignored
@@ -515,9 +516,12 @@ function _test_max_in() {
 function _test_max_of() {
   check(
     () => throws(() => max_of()),
-    () => throws(() => max_of(0)),
+    () => [max_of(0), -inf],
+    () => [max_of(1), 0],
+    () => [max_of(2), 1],
     () => [max_of([]), -inf],
     () => [max_of([0, 1, 2], x => 2 * x), 4],
+    () => [max_of(3, x => 2 * x), 4],
     () => [max_of([0, 1, 2, NaN, 'a'], x => 2 * x), 4] // elements that fail > are ignored
   )
 }
@@ -538,9 +542,12 @@ function _test_min_max_in() {
 function _test_min_max_of() {
   check(
     () => throws(() => min_max_of()),
-    () => throws(() => min_max_of(0)),
+    () => [min_max_of(0), [inf, -inf]],
+    () => [min_max_of(1), [0, 0]],
+    () => [min_max_of(2), [0, 1]],
     () => [min_max_of([]), [inf, -inf]],
     () => [min_max_of([0, 1, 2], x => 2 * x), [0, 4]],
+    () => [min_max_of(3, x => 2 * x), [0, 4]],
     () => [min_max_of([0, 1, 2, NaN, 'a'], x => 2 * x), [0, 4]] // elements that fail <> are ignored
   )
 }

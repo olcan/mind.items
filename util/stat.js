@@ -660,9 +660,20 @@ function min_in(xJ) {
   return z
 }
 
+// min_of(xJ|J, [f = x => x])
 // minimum of `f(x,j)` over `xJ`
+// integer argument `J≥0` is treated as array `xJ=[0,1,2,…,J-1]`
 function min_of(xJ, f = x => x) {
-  if (!is_array(xJ)) fatal('non-array argument')
+  if (is_integer(xJ) && xJ >= 0) {
+    const J = xJ
+    let z = inf
+    for (let j = 0; j < J; ++j) {
+      const fxj = f(j, j)
+      if (fxj < z) z = fxj
+    }
+    return z
+  }
+  if (!is_array(xJ)) fatal('invalid argument')
   let z = inf
   for (let j = 0; j < xJ.length; ++j) {
     const fxj = f(xJ[j], j)
@@ -681,9 +692,20 @@ function max_in(xJ) {
   return z
 }
 
+// max_of(xJ|J, [f = x => x])
 // maximum of `f(x,j)` over `xJ`
+// integer argument `J≥0` is treated as array `xJ=[0,1,2,…,J-1]`
 function max_of(xJ, f = x => x) {
-  if (!is_array(xJ)) fatal('non-array argument')
+  if (is_integer(xJ) && xJ >= 0) {
+    const J = xJ
+    let z = -inf
+    for (let j = 0; j < J; ++j) {
+      const fxj = f(j, j)
+      if (fxj > z) z = fxj
+    }
+    return z
+  }
+  if (!is_array(xJ)) fatal('invalid argument')
   let z = -inf
   for (let j = 0; j < xJ.length; ++j) {
     const fxj = f(xJ[j], j)
@@ -709,9 +731,21 @@ function min_max_in(xJ) {
 
 const min_max = min_max_in
 
-// `≡ [min_of(xJ, f), max_of(xJ, f)]`
+// min_max_of(xJ|J, [f = x => x])
+// `≡ [min_of(xJ|J, f), max_of(xJ|J, f)]`
 function min_max_of(xJ, f = x => x) {
-  if (!is_array(xJ)) fatal('non-array argument')
+  if (is_integer(xJ) && xJ >= 0) {
+    const J = xJ
+    let a = inf
+    let b = -inf
+    for (let j = 0; j < J; ++j) {
+      const fxj = f(j, j)
+      if (fxj < a) a = fxj
+      if (fxj > b) b = fxj
+    }
+    return [a, b]
+  }
+  if (!is_array(xJ)) fatal('invalid argument')
   let a = inf
   let b = -inf
   for (let j = 0; j < xJ.length; ++j) {
