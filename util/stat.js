@@ -644,12 +644,21 @@ function ks1_cdf(x, J) {
 
 // p-value for two-sample [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test)
 function ks2_test(xJ, yK, options = {}) {
-  return 1 - ks2_cdf(ks2(xJ, yK, options), xJ.length, yK.length)
+  const { wJ, wj_sum, wK, wk_sum } = options
+  return (
+    1 -
+    ks2_cdf(
+      ks2(xJ, yK, options),
+      wJ ? ess(wJ, wj_sum) : xJ.length,
+      wK ? ess(wK, wk_sum) : yK.length
+    )
+  )
 }
 
 // p-value for one-sample [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test)
 function ks1_test(xJ, cdf, options = {}) {
-  return 1 - ks1_cdf(ks1(xJ, cdf, options), xJ.length)
+  const { wJ, wj_sum } = options
+  return 1 - ks1_cdf(ks1(xJ, cdf, options), wJ ? ess(wJ, wj_sum) : xJ.length)
 }
 
 // minimum element in `xJ`
