@@ -1064,9 +1064,11 @@ class _Sampler {
       }
 
       fill(this.xJ, j => ((this.j = j), this.func(this)))
-      copy(_log_wrJ, log_wrJ) // save current state in swap buffer
+      // copy(_log_wrJ, log_wrJ) // save current state in swap buffer
       this._fill_log_wrj(log_wrJ) // weights for next rN
-      apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
+      // NOTE: accumulating log_wr allows more robust results w/ less extreme weights
+      // apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
+      apply(log_rwJ, (lw, j) => lw + log_wrJ[j])
       this.rwJ = null // reset cached posterior ratio weights and dependents
       // comment this out to see "predictive delta" in stats/plots
       fill(this.xJ, j => ((this.j = j), this.func(this)))
@@ -2497,13 +2499,6 @@ class _Sampler {
           const log_wr = this.log_wrfJN[j][n]
           weight.xJ[j] = log_wr._x
         })
-        // repeat(2, () => {
-        //   fill(this.xJ, j => ((this.j = j), this.func(this)))
-        //   repeat(this.J, j => {
-        //     const log_wr = this.log_wrfJN[j][n]
-        //     weight.xJ[j] = max(weight.xJ[j], log_wr._x)
-        //   })
-        // })
         weight.stats = undefined
         repeat(this.J, j => {
           const log_wr = this.log_wrfJN[j][n]
@@ -2521,8 +2516,10 @@ class _Sampler {
     } else {
       log_wr = r => {
         if (!weight.stats) return 0 // always 0 before stats init
-        const [xq] = weight.stats // from _stats below
-        return x >= xq ? 0 : -inf
+        const [a, xq, b] = weight.stats // from _stats below
+        return max(0, (x - xq) / (b - xq)) - 10 * max(0, (xq - x) / (xq - a))
+        // const [xq] = weight.stats // from _stats below
+        // return x >= xq ? 0 : -inf
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
@@ -2536,11 +2533,12 @@ class _Sampler {
         if (sum_wj == 0) return [-inf]
         scale(wJ, 1 / sum_wj)
         const jJ = rank_by(range(J), j => xJ[j])
-        const wt = min(1, (1 - q) * (J / this.essu)) // ~ ess/J
+        const qq = 0.5 * (1 - sqrt(r)) + q * sqrt(r)
+        const wt = min(1, (1 - qq) * (J / this.essu)) // ~ ess/J
         let w = 0
         let j = 0
         while (w < wt && j < J) w += wJ[jJ[j++]]
-        return [xJ[jJ[j - 1]]]
+        return [xJ[jJ[J - 1]], xJ[jJ[j - 1]], xJ[jJ[0]]]
       }
     }
 
