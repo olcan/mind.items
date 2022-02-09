@@ -298,10 +298,13 @@ function density(x, domain) {
 // | `max_updates` | maximum number of update steps, _default_: `1000`
 // | `min_updates` | minimum number of update steps, _default_: `0`
 // | `min_stable_updates` | minimum stable update steps, _default_: `1`
+// |               | does not apply when optimizing via `minimize|maximize`
 // | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
+// |               | default is `1` when optimizing via `minimize|maximize`
 // | `max_time`    | maximum time (ms) for sampling, _default_: `1000` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `.9*J`
+// |               | default is `1` when optimizing via `minimize|maximize`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
 // |               | does not apply when optimizing via `minimize|maximize`
@@ -383,13 +386,13 @@ function weight(log_w, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to weight(…)`)
 }
 
-// maximize value `x`
-function maximize(x, log_wr = undefined) {
+// maximize value `x` at quantile `q`
+function maximize(x, q = 0.9, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to maximize(…)`)
 }
 
-// minimize value `x`
-function minimize(x, log_wr = undefined) {
+// minimize value `x` at quantile `q`
+function minimize(x, q = 0.9, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
@@ -475,10 +478,10 @@ class _Sampler {
         max_updates: options.updates ? inf : 1000,
         min_updates: 0,
         min_stable_updates: 1,
-        min_unweighted_updates: 3,
+        min_unweighted_updates: this.optimizing ? 1 : 3,
         max_time: options.time ? inf : 1000,
         min_time: 0,
-        min_ess: 0.9 * J,
+        min_ess: this.optimizing ? 1 : 0.9 * J,
         max_mks: 1,
         mks_tail: 1 / 2,
         mks_period: 1,
@@ -627,6 +630,7 @@ class _Sampler {
     const weights = []
     const sims = []
     const names = new Set()
+    let optimizing = false
 
     // parse positive integer variables for possible use w/ sample|confine_array
     // also include any positive integer params
@@ -778,6 +782,7 @@ class _Sampler {
           case 'maximize':
           case 'minimize':
             // also plot optimized value under inferred name
+            optimizing = true // enable optimization mode
             index = values.length
             if (!name) {
               ;[, name] = args.match(/^\s*(\S+?)\s*(?:,|$)/su) ?? []
@@ -811,7 +816,6 @@ class _Sampler {
             sims.push({ index, offset, name, args, line_index, line, js })
             break
           case 'plot':
-            // treat as sample(constant(args)) w/ name args(.index)
             index = values.length
             args = args.trim() // trim whitespace around args
             if (args.match(/\s/)) fatal('invalid args (whitespace) for plot')
@@ -837,6 +841,14 @@ class _Sampler {
       }
     )
 
+    // if optimizing, require single-weight for now
+    if (optimizing && weights.length > 1)
+      fatal(
+        'maximize|minimize(…) mixed w/ other calls to' +
+          ' confine|maximize|minimize|condition|weight(…)' +
+          '; multi-objective optimization is not supported'
+      )
+
     // evaluate new function w/ replacements
     // use wrapper to pass along params (if any) from calling scope/context
     const __sampler = this // since 'this' is overloaded in function(){...}
@@ -852,7 +864,15 @@ class _Sampler {
       func(...arguments)
       window.__sampler = null
     }
-    return { func: _func, values, weights, sims, names, nK: array(names) }
+    return {
+      func: _func,
+      values,
+      weights,
+      sims,
+      names,
+      nK: array(names),
+      optimizing,
+    }
   }
 
   _init_func() {
@@ -1023,24 +1043,32 @@ class _Sampler {
     const timer = _timer_if(this.stats)
 
     // when optimizing, r (and ~ess) is controlled directly by _maximize
-    // we fork before/after to optimize posterior _predictive_ quantiles
+    // we fork before/after to optimize posterior _predictive_ quantile q
     // forking after is only for stats/plots, does not affect optimization
     if (this.optimizing) {
-      if (this.rN.length > 1)
-        fatal(`multi-objective optimization not supported`)
       const { rN, log_wrJ, _log_wrJ, log_rwJ, stats } = this
+      if (rN.length > 1) fatal(`multi-objective optimization not supported`)
       const last_r = rN[0]
       rN[0] = this.weights[0].inc_r(rN[0])
-      if (this.r == last_r) {
-        // TODO: comment on why this is needed, presumably because it helps break a bias (dependency) in the next update (move) step?
+      // we skip reweights when r is unchanged by inc_r
+      // at r=1 this allows ess to increase q*J -> min_ess
+      // note optimization _will degrade_ due to noise, faster for smaller q
+      // (due to suboptimal samples randomly hitting quantile cutoff)
+      // recommend using larger J and min_ess=q*J to avoid quality loss
+      if (
+        this.r == last_r &&
+        this.options.min_ess > this.weights[0].q * this.J
+      ) {
         fill(this.xJ, j => ((this.j = j), this.func(this)))
-        return // r unchanged, reweight cancelled
+        return
       }
-      copy(_log_wrJ, log_wrJ) // save current state in swap buffer
+
       fill(this.xJ, j => ((this.j = j), this.func(this)))
+      copy(_log_wrJ, log_wrJ) // save current state in swap buffer
       this._fill_log_wrj(log_wrJ) // weights for next rN
       apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
       this.rwJ = null // reset cached posterior ratio weights and dependents
+      // comment this out to see "predictive delta" in stats/plots
       fill(this.xJ, j => ((this.j = j), this.func(this)))
 
       if (stats) {
@@ -1132,10 +1160,12 @@ class _Sampler {
     each(upJK, upjK => fill(upjK, 0))
 
     // choose random pivot based on uaJK, awK, and uawK
+    // TODO: does this make sense for optimization also?
     // random_discrete_uniform_array(kJ, K)
     const wK = (this._move_wK ??= array(K))
     each(uaJK, (uajK, j) => {
       fill(wK, k => this.u - uajK[k] || awK[k] || uawK[k])
+      fill(wK, k => awK[k] || uawK[k])
       kJ[j] = random_discrete(wK)
     })
 
@@ -1230,7 +1260,7 @@ class _Sampler {
       move_while,
       move_weights,
     } = this.options
-    if (this.optimizing) max_mks = inf // ignore mks when optimizing
+    if (this.optimizing) max_mks = inf // mks misabled when optimizing
 
     if (!(this.u == 0)) fatal('_update requires u=0')
 
@@ -1238,77 +1268,71 @@ class _Sampler {
     let unweighted_updates = 0
 
     do {
+      // reweight
+      // pre-stats for more meaningful ess, etc
+      // also reweight on u=0 to avoid prior moves at u=1
+      // should be skipped (even at u=0) if ess is too low
+      // forced if optimizing (see comments in _reweight and _maximize)
+      // NOTE: not forced on final step, so ess can be unrealistic (and r low) if updates are terminated early, e.g. due to max_time
+      if (this.optimizing || reweight_if(this)) this._reweight()
+
+      // update stats
+      this._update_stats()
+
       // check for termination
       // continue based on min_time/updates
       // minimums supersede maximum and target settings
       // targets override default maximums (see constructor)
       // actual stopping is below, after reweight and update_stats
-      let done = (() => {
-        if (this.t >= min_time && this.u >= min_updates) {
-          // check target updates
-          if (this.u >= updates) {
-            const { t, u } = this
-            if (this.options.log)
-              print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
-            return true
-          }
-
-          // check target time
-          if (this.t >= time) {
-            const { t, u } = this
-            if (this.options.log)
-              print(`reached target time t=${t}≥${time}ms (u=${u})`)
-            return true
-          }
-
-          // check r==1 and target ess, and mks (or optimizing)
-          if (this.r == 1 && this.ess >= min_ess && this.mks <= max_mks)
-            stable_updates++
-          else stable_updates = 0
-          if (this.r == 1) unweighted_updates++
-          if (
-            stable_updates >= min_stable_updates &&
-            unweighted_updates >= min_unweighted_updates
-          ) {
-            const { t, u, ess, mks } = this
-            if (this.options.log)
-              print(
-                `reached target ess=${round(ess)}≥${min_ess}, ` +
-                  `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
-                  `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
-                  `unweighted_updates=${unweighted_updates}`
-              )
-            return true
-          }
-
-          // check max_time/updates for potential early termination
-          if (this.t >= max_time || this.u >= max_updates) {
-            const { t, u } = this
-            if (this.options.warn) {
-              // warn about running out of time or updates
-              if (t > max_time)
-                warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
-              else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
-            }
-            return true
-          }
+      if (this.t >= min_time && this.u >= min_updates) {
+        // check target updates
+        if (this.u >= updates) {
+          const { t, u } = this
+          if (this.options.log)
+            print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
+          break
         }
-      })()
 
-      // reweight
-      // pre-stats for more meaningful ess, etc
-      // also reweight on u=0 to avoid prior moves at u=1
-      // should be skipped (even at u=0) if ess is too low
-      // should be forced before stopping for more "realistic" final ess
-      //   means we stop at maximum r achievable w/ minimal ess
-      // also forced if optimizing (see comments in _reweight and _maximize)
-      if (done || this.optimizing || reweight_if(this)) this._reweight()
+        // check target time
+        if (this.t >= time) {
+          const { t, u } = this
+          if (this.options.log)
+            print(`reached target time t=${t}≥${time}ms (u=${u})`)
+          break
+        }
 
-      // update stats
-      this._update_stats()
+        // check r==1 and target ess, and mks (or optimizing)
+        if (this.r == 1 && this.ess >= min_ess && this.mks <= max_mks)
+          stable_updates++
+        else stable_updates = 0
+        if (this.r == 1) unweighted_updates++
+        if (
+          stable_updates >= min_stable_updates &&
+          unweighted_updates >= min_unweighted_updates
+        ) {
+          const { t, u, ess, mks } = this
+          if (this.options.log)
+            print(
+              `reached target ess=${round(ess)}≥${min_ess}, ` +
+                `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
+                `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
+                `unweighted_updates=${unweighted_updates}`
+            )
+          break
+        }
 
-      // terminate if indicated above
-      if (done) break
+        // check max_time/updates for potential early termination
+        if (this.t >= max_time || this.u >= max_updates) {
+          const { t, u } = this
+          if (this.options.warn) {
+            // warn about running out of time or updates
+            if (t > max_time)
+              warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
+            else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
+          }
+          break
+        }
+      }
 
       // buffer samples at u=0 and then every mks_period updates
       if (this.u % this.options.mks_period == 0) {
@@ -1499,7 +1523,7 @@ class _Sampler {
           r,
           ess,
           wsum,
-          mks,
+          ...(this.optimizing ? [] : [mks]),
           // also omit t since redundant and confusable w/ x.t
           ...omit(last(stats.updates), ['t', 'r', 'ess', 'wsum', 'mks']),
         })
@@ -1832,10 +1856,6 @@ class _Sampler {
 
   get r() {
     return this.N == 0 ? 1 : min_in(this.rN)
-  }
-
-  get optimizing() {
-    return some(this.weights, w => w.optimizing)
   }
 
   __pwJ() {
@@ -2360,6 +2380,8 @@ class _Sampler {
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
     this.xJK[this.j][k] = x
+    // treat the "stay" as a "jump" to unblock move step w/ default move_while which does not distinguish plotted values from sampled values
+    this.upJK[this.j][k] = this.u
     return x
   }
 
@@ -2451,35 +2473,37 @@ class _Sampler {
     return x
   }
 
-  _minimize(n, x, _log_wr) {
-    return this._maximize(n, -x, _log_wr)
+  _minimize(n, x, q = 0.9, _log_wr) {
+    return this._maximize(n, -x, q, _log_wr)
   }
 
-  _maximize(n, x, _log_wr) {
+  _maximize(n, x, q = 0.9, _log_wr) {
     const weight = this.weights[n]
+    if (q != (weight.q ??= q)) fatal(`quantile ${q} modified from ${weight.q}`)
 
     // initialize on first call w/o init_log_wr set up
     if (!weight.init_log_wr) {
-      if (this.weights.length > 1)
-        fatal(
-          'maximize|minimize(…) mixed w/ other calls to' +
-            ' confine|maximize|minimize|condition|weight(…)' +
-            '; multi-objective optimization is not supported'
-        )
       weight.xJ ??= array(this.J)
-      weight.optimizing = true // enables inc_r and forking in _reweight
       weight.minimizing = weight.method == 'minimize'
       // increase r based on time, reaching r=1 at 80% time
       // remaining time is needed to achieve full ess via move steps
-      const max_time = this.options.time || this.options.max_time
-      const opt_time =
-        this.options.opt_time ?? max(max_time / 2, max_time - 1000)
-      weight.inc_r = r => min(1, this.t / opt_time)
+      weight.max_time = this.options.time || this.options.max_time
+      weight.opt_time =
+        this.options.opt_time ??
+        max(weight.max_time / 2, weight.max_time - 1000)
+      weight.inc_r = r => min(1, this.t / weight.opt_time)
       weight.init_log_wr = () => {
         repeat(this.J, j => {
           const log_wr = this.log_wrfJN[j][n]
           weight.xJ[j] = log_wr._x
         })
+        // repeat(2, () => {
+        //   fill(this.xJ, j => ((this.j = j), this.func(this)))
+        //   repeat(this.J, j => {
+        //     const log_wr = this.log_wrfJN[j][n]
+        //     weight.xJ[j] = max(weight.xJ[j], log_wr._x)
+        //   })
+        // })
         weight.stats = undefined
         repeat(this.J, j => {
           const log_wr = this.log_wrfJN[j][n]
@@ -2497,41 +2521,12 @@ class _Sampler {
     } else {
       log_wr = r => {
         if (!weight.stats) return 0 // always 0 before stats init
-
-        // weight based on scaled distance from max
-        // sensitive to r and will trigger warning about r<1
-        // multiple reweight attempts must be allowed in _reweight
-        // may require larger reweight_ess option, e.g. 10%
-        // pro: not sensitive to quantile choice (chosen dynamically by r)
-        // con: difficult to control ess and timing/frequency of reweights
-        // con: did not perform as well as quantile cutoff
-        //
-        // const [a, q, b] = weight.stats // from _stats below
-        // if (a >= b) return 0
-        // const d = max(0, b - x)
-        // if (d == 0) return 0
-        // const z = 1 / (b - a)
-        // return log(1 - r) * (10 * d * z)
-
-        // weight based on scaled distance using a key quantile point
-        // pro: less sensitive to quantile choice
-        // con: harder to control ess and timing/frequency of reweights
-        // con: did not perform as well as quantile cutoff
-        //
-        // const [a, q, b] = weight.stats // from _stats below
-        // if (x >= median) return 3 * ((x - q) / (b - q) - 1)
-        // return -3 - 10 * ((q - x) / (q - a))
-
-        // quantile cutoff
-        // pro: simple
-        // con: sensitive to choice of quantile, esp around r=1
-        //      quantiles below 0.8 tend to degrade after r=1
-        const [q] = weight.stats // from _stats below
-        return x >= q ? 0 : -inf
+        const [xq] = weight.stats // from _stats below
+        return x >= xq ? 0 : -inf
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
-        const { J, rwJ } = this
+        const { J, rwJ, r } = this
         // compute weighted quantile, adjusted for duplication (J/essu)
         const xJ = copy((weight._xJ ??= array(this.J)), weight.xJ)
         const wJ = copy((weight._wJ ??= array(this.J)), rwJ)
@@ -2541,9 +2536,7 @@ class _Sampler {
         if (sum_wj == 0) return [-inf]
         scale(wJ, 1 / sum_wj)
         const jJ = rank_by(range(J), j => xJ[j])
-        // const q = 0.8 + 0.15 * this.r
-        const q = 0.9
-        const wt = min(1, (1 - q) * (J / this.essu)) // = ess
+        const wt = min(1, (1 - q) * (J / this.essu)) // ~ ess/J
         let w = 0
         let j = 0
         while (w < wt && j < J) w += wJ[jJ[j++]]
