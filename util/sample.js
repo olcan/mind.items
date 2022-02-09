@@ -1064,11 +1064,11 @@ class _Sampler {
       }
 
       fill(this.xJ, j => ((this.j = j), this.func(this)))
-      // copy(_log_wrJ, log_wrJ) // save current state in swap buffer
+      copy(_log_wrJ, log_wrJ) // save current state in swap buffer
       this._fill_log_wrj(log_wrJ) // weights for next rN
       // NOTE: accumulating log_wr allows more robust results w/ less extreme weights
-      // apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
-      apply(log_rwJ, (lw, j) => lw + log_wrJ[j]) // TODO: decay useful?
+      apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
+      // apply(log_rwJ, (lw, j) => lw + log_wrJ[j]) // TODO: decay useful?
       this.rwJ = null // reset cached posterior ratio weights and dependents
       // comment this out to see "predictive delta" in stats/plots
       fill(this.xJ, j => ((this.j = j), this.func(this)))
@@ -2487,12 +2487,14 @@ class _Sampler {
     if (!weight.init_log_wr) {
       weight.xJ ??= array(this.J)
       weight.minimizing = weight.method == 'minimize'
-      // increase r based on time, reaching r=1 at 80% time
-      // remaining time is needed to achieve full ess via move steps
+      // increase r based on time
+      // opt_time is for optimization, remaining time is to achieve min_ess
       weight.max_time = this.options.time || this.options.max_time
       weight.opt_time =
         this.options.opt_time ??
         max(weight.max_time / 2, weight.max_time - 1000)
+      weight.qQ = [q] // quantiles computed in _stats
+      weight.log_wQ = [-inf, 0] // log_w by quantile for log_wr
       weight.inc_r = r => min(1, this.t / weight.opt_time)
       weight.init_log_wr = () => {
         repeat(this.J, j => {
@@ -2517,15 +2519,16 @@ class _Sampler {
       log_wr = r => {
         if (!weight.stats) return 0 // always 0 before stats init
         const xQ = weight.stats // from _stats below
-        const qx = sorted_index(xQ, x) / xQ.length
-        const qa = 0.5 * (1 - sqrt(r)) + q * sqrt(r)
-        return 2 * (max(0, qx - qa) / (1 - qa) - 1) - 5 * (max(0, qa - qx) / qa)
+        const qx = find_last_index(xQ, xq => x >= xq) + 1
+        // const qx = sorted_index(xQ, x)
+        return weight.log_wQ[qx]
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
         // compute weighted quantiles
         const { J, rwJ } = this
-        const Q = 30
+        const Q = weight.qQ.length
+        const wQ = (weight._wQ ??= array(Q))
         const xQ = (weight._xQ ??= array(Q))
         const xJ = copy((weight._xJ ??= array(J)), weight.xJ)
         const wJ = copy((weight._wJ ??= array(J)), rwJ)
@@ -2535,13 +2538,15 @@ class _Sampler {
         if (sum_wj == 0) return [-inf]
         scale(wJ, 1 / sum_wj)
         const jJ = sort_by(range(J), j => xJ[j])
+        // map quantiles to weights, adjusting for duplication
+        copy(wQ, weight.qQ, q => max(0, 1 - (1 - q) * (J / this.essu)))
         let qq = 0
         let w = 0
         for (const jj of jJ) {
           w += wJ[jj]
-          if (w > qq / Q) {
-            xQ[qq] = xJ[jj]
-            if (++qq == Q) break
+          if (w >= wQ[qq]) {
+            xQ[qq++] = xJ[jj]
+            if (qq == Q) break
           }
         }
         return xQ
