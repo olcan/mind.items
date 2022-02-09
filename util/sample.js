@@ -1068,7 +1068,7 @@ class _Sampler {
       this._fill_log_wrj(log_wrJ) // weights for next rN
       // NOTE: accumulating log_wr allows more robust results w/ less extreme weights
       // apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
-      apply(log_rwJ, (lw, j) => lw + log_wrJ[j])
+      apply(log_rwJ, (lw, j) => lw + log_wrJ[j]) // TODO: decay useful?
       this.rwJ = null // reset cached posterior ratio weights and dependents
       // comment this out to see "predictive delta" in stats/plots
       fill(this.xJ, j => ((this.j = j), this.func(this)))
@@ -2516,29 +2516,35 @@ class _Sampler {
     } else {
       log_wr = r => {
         if (!weight.stats) return 0 // always 0 before stats init
-        const [a, xq, b] = weight.stats // from _stats below
-        return max(0, (x - xq) / (b - xq)) - 10 * max(0, (xq - x) / (xq - a))
-        // const [xq] = weight.stats // from _stats below
-        // return x >= xq ? 0 : -inf
+        const xQ = weight.stats // from _stats below
+        const qx = sorted_index(xQ, x) / xQ.length
+        const qa = 0.5 * (1 - sqrt(r)) + q * sqrt(r)
+        return 2 * (max(0, qx - qa) / (1 - qa) - 1) - 5 * (max(0, qa - qx) / qa)
       }
       log_wr._x = x // value x for stats
       log_wr._stats = () => {
-        const { J, rwJ, r } = this
-        // compute weighted quantile, adjusted for duplication (J/essu)
-        const xJ = copy((weight._xJ ??= array(this.J)), weight.xJ)
-        const wJ = copy((weight._wJ ??= array(this.J)), rwJ)
+        // compute weighted quantiles
+        const { J, rwJ } = this
+        const Q = 30
+        const xQ = (weight._xQ ??= array(Q))
+        const xJ = copy((weight._xJ ??= array(J)), weight.xJ)
+        const wJ = copy((weight._wJ ??= array(J)), rwJ)
         _remove_undefined(xJ, wJ)
         const sum_wj = sum(wJ)
         if (sum_wj < 0) fatal(`sum_wj<0: ${sum_wj}`)
         if (sum_wj == 0) return [-inf]
         scale(wJ, 1 / sum_wj)
-        const jJ = rank_by(range(J), j => xJ[j])
-        const qq = 0.5 * (1 - sqrt(r)) + q * sqrt(r)
-        const wt = min(1, (1 - qq) * (J / this.essu)) // ~ ess/J
+        const jJ = sort_by(range(J), j => xJ[j])
+        let qq = 0
         let w = 0
-        let j = 0
-        while (w < wt && j < J) w += wJ[jJ[j++]]
-        return [xJ[jJ[J - 1]], xJ[jJ[j - 1]], xJ[jJ[0]]]
+        for (const jj of jJ) {
+          w += wJ[jj]
+          if (w > qq / Q) {
+            xQ[qq] = xJ[jj]
+            if (++qq == Q) break
+          }
+        }
+        return xQ
       }
     }
 
