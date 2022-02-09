@@ -57,6 +57,7 @@ const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
 
 const sorted_index = _.sortedIndex
 const sorted_last_index = _.sortedLastIndex
+const find_index = _.findIndex
 const find_last_index = _.findLastIndex
 
 const lower = x => x.toLowerCase()
