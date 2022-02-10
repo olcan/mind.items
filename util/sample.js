@@ -287,14 +287,14 @@ function density(x, domain) {
 // |               | `context.tm` is time spent moving (current update step)
 // |               | `context.aK` is accepts per posterior "pivot"
 // |               | `context.uaK` is accepts per prior "jump" value
-// |               | _default_: `({essu,J,K,tm,a,aK,uaK}) => tm < 100 &&`
-// |               | `(essu<.9*J || a<J || min_in(aK)<J/K || min_in(uaK)<.1*J/K)`
+// |               | _default_: `({essu,J,a,awK,uawK}) =>`
+// |               | `(essu<.9*J || a<J || max_in(awK)>0 || max_in(uawK)>0)`
+// |               | see `move_weights` below for `awK` and `uawK`
 // |               | default allows `essu→J` w/ up to `J/10` slow-movers
-// | `move_weights`| move weight function `(context, awK) => …`
-// |               | _default_: `({aK,uaK},awK,uawK) => {`
-// |               | `fill(awK, k=> max(0, J/K - aK[k] ));`
-// |               | `fill(uawK,k=> max(0, J/K - uaK[k])) }`
-// |               | default concentrates on deficiencies w.r.t. `move_while`
+// | `move_weights`| move weight function `(context, awK, uawK) => …`
+// |               | _default_ uses deficiencies in `move_targets` below
+// | `move_targets`| move target function `(context, atK, uatK) => …`
+// |               | _default_ splits accepts uniformly over sampled values
 // | `max_updates` | maximum number of update steps, _default_: `1000`
 // | `min_updates` | minimum number of update steps, _default_: `0`
 // | `min_stable_updates` | minimum stable update steps, _default_: `1`
@@ -307,7 +307,7 @@ function density(x, domain) {
 // |               | default is `1` when optimizing via `minimize|maximize`
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
-// |               | does not apply when optimizing via `minimize|maximize`
+// |               | default is `inf` when optimizing via `minimize|maximize`
 // |               | _default_: `1` ≡ failure to reject same-dist at `α<1/2`
 // | `mks_tail`    | ratio (<1) of recent updates for `mks`, _default_: `1/2`
 // | `mks_period`  | minimum update steps for `mks`, _default_: `1`
@@ -387,12 +387,18 @@ function weight(log_w, log_wr = undefined) {
 }
 
 // maximize value `x` at quantile `q`
+// iteratively concentrates weight on samples above quantile `q`
+// conditions samples on `Q'(X≤x)>q`, `Q'` _asymptotic_ posterior
+//
+// TODO: comment on interpretations, non-convergent (and less meaningful due to smaller ess and non-fully-updates samples) mks, ess, degradation, etc
+//       also consider incremental log_wr, decay, etc
 function maximize(x, q = 0.9, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to maximize(…)`)
 }
 
 // minimize value `x` at quantile `q`
-function minimize(x, q = 0.9, log_wr = undefined) {
+// conditions samples on `Q'(X≤x)<q`, `Q'` _asymptotic_ posterior
+function minimize(x, q = 0.1, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
@@ -465,15 +471,19 @@ class _Sampler {
         min_reweights: 3,
         max_reweight_tries: 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
-        move_while: ({ essu, J, K, tm, a, aK, uaK }) =>
-          tm < 100 && // allows ~constant-cost per step w/ regular reweights
-          (essu < 0.9 * J ||
-            a < J ||
-            min_in(aK) < J / K ||
-            min_in(uaK) < 0.1 * (J / K)),
-        move_weights: ({ aK, uaK }, awK, uawK) => {
-          fill(awK, k => max(0, J / K - aK[k]))
-          fill(uawK, k => max(0, 0.1 * (J / K) - uaK[k]))
+        move_while: ({ essu, J, a, awK, uawK }) =>
+          // TODO: instead of time-limiting, adapt uatK dynamically!
+          essu < 0.9 * J || a < J || max_in(awK) > 0 || max_in(uawK) > 0,
+        move_weights: ({ aK, uaK, atK, uatK }, awK, uawK) => {
+          fill(awK, k => max(0, atK[k] - aK[k]))
+          fill(uawK, k => max(0, uatK[k] - uaK[k]))
+        },
+        move_targets: ({ J }, atK, uatK) => {
+          // split J or .1*J, excluding non-sampled ("plotted") values
+          fill(atK, k => (this.values[k].method == 'plot' ? 0 : 1))
+          if (sum(atK) > 0) scale(atK, J / sum(atK))
+          fill(uatK, k => (this.values[k].method == 'plot' ? 0 : 1))
+          if (sum(uatK) > 0) scale(uatK, (0.1 * J) / sum(uatK))
         },
         max_updates: options.updates ? inf : 1000,
         min_updates: 0,
@@ -482,7 +492,7 @@ class _Sampler {
         max_time: options.time ? inf : 1000,
         min_time: 0,
         min_ess: this.optimizing ? 1 : 0.9 * J,
-        max_mks: 1,
+        max_mks: this.optimizing ? inf : 1,
         mks_tail: 1 / 2,
         mks_period: 1,
         max_tks: 5,
@@ -511,6 +521,8 @@ class _Sampler {
     this.upwK = array(K) // jump proposal weights (computed at pivot value)
     this.awK = array(K) // array of move weights by pivot value
     this.uawK = array(K) // array of move weights by jump value
+    this.atK = array(K) // array of move targets by pivot value
+    this.uatK = array(K) // array of move targets by jump value
 
     this.xBJK = [] // buffered samples for mks
     this.log_p_xBJK = [] // buffered sample log-densities for mks
@@ -742,21 +754,24 @@ class _Sampler {
         // console.log(offset, line_prefix + line_suffix)
 
         let index
+        const lexical_context = context => ({
+          index,
+          offset,
+          method,
+          name,
+          args,
+          line_index,
+          line,
+          js,
+          ...context,
+        })
 
         switch (method) {
           case 'confine_array':
             index = weights.length
             repeat(size, () => {
               const index = weights.length // element index
-              weights.push({
-                index,
-                offset,
-                method,
-                args,
-                line_index,
-                line,
-                js,
-              })
+              weights.push(lexical_context({ index }))
             })
             break
           case 'sample_array':
@@ -767,7 +782,7 @@ class _Sampler {
               repeat(size, i => {
                 const index = values.length // element index
                 names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
-                values.push({ index, offset, name, args, line_index, line, js })
+                values.push(lexical_context({ index }))
               })
             } else {
               // process names from destructuring assignment
@@ -775,7 +790,7 @@ class _Sampler {
                 const index = values.length // element index
                 if (names.has(name)) name += '_' + index // de-duplicate name
                 names.add(name) // aligned w/ values & unique
-                values.push({ index, offset, name, args, line_index, line, js })
+                values.push(lexical_context({ index }))
               }
             }
             break
@@ -792,28 +807,19 @@ class _Sampler {
             if (name.match(/^\d/))
               fatal(`invalid numeric name '${name}' for optimized value`)
             names.add(name) // name aligned w/ values & unique
-            values.push({ index, offset, name, args, line_index, line, js })
+            values.push(lexical_context())
           // continue to process as weight ...
           case 'condition':
           case 'weight':
           case 'confine':
             let value_index = index // from maximize|minimize above
             index = weights.length
-            weights.push({
-              index,
-              value_index,
-              offset,
-              method,
-              args,
-              line_index,
-              line,
-              js,
-            })
+            weights.push(lexical_context({ value_index }))
             break
           case 'simulate':
             index = sims.length
             // note simulation name is separate from sampled value names
-            sims.push({ index, offset, name, args, line_index, line, js })
+            sims.push(lexical_context())
             break
           case 'plot':
             index = values.length
@@ -823,13 +829,13 @@ class _Sampler {
             if (!(args != 'undefined')) fatal('undefined args for plot')
             name = args + (names.has(args) ? '_' + index : '') // de-duplicate
             names.add(name) // name aligned w/ values & unique
-            values.push({ index, offset, name, args, line_index, line, js })
+            values.push(lexical_context())
             break
           case 'sample':
             // replace sample call
             index = values.length
             names.add((name ||= str(index))) // name aligned w/ values & unique
-            values.push({ index, offset, name, args, line_index, line, js })
+            values.push(lexical_context())
             break
           default:
             fatal(`unknown method ${method}`)
@@ -1009,13 +1015,17 @@ class _Sampler {
     fill(log_wrJ, 0)
     // NOTE: for r=0 we avoid invoking log_wr but also implicitly assume log_wr->0 as r->0 since otherwise first reweight can fail due to extreme weights
     if (max_in(rN) > 0) {
-      repeat(this.N, n => this.weights[n].init_log_wr?.())
+      each(rN, (r, n) => this.weights[n].init_log_wr?.(r))
       this._inc_log_wrj(log_wrJ, log_wrfJN)
+      // if (this.optimizing) {
+      //   this._fork()
+      //   this._inc_log_wrj(log_wrJ, log_wrfJN)
+      // }
+      // clip infinities to enable subtraction in _reweight & _move
+      clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     }
-    this.wsum = null // since log_wrJ changed
     // print('fill_log_wrj', rN, mean(log_wrJ), min_max_in(log_wrJ), this.wsum)
-    // clip infinities to enable subtraction in _reweight & _move
-    clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
+    this.wsum = null // since log_wrJ changed
   }
 
   _sample_prior() {
@@ -1037,39 +1047,62 @@ class _Sampler {
     if (stats) stats.time.updates.sample += timer.t
   }
 
+  _fork() {
+    this.forking = true
+    if (this.moving) fill(this.yJ, j => ((this.j = j), this.func(this)))
+    else fill(this.xJ, j => ((this.j = j), this.func(this)))
+    this.forking = false
+  }
+
   // reweight by incrementing rN
   // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
     const timer = _timer_if(this.stats)
 
     // when optimizing, r (and ~ess) is controlled directly by _maximize
-    // we fork before/after to optimize posterior _predictive_ quantile q
-    // forking after is only for stats/plots, does not affect optimization
     if (this.optimizing) {
-      const { rN, log_wrJ, _log_wrJ, log_rwJ, stats } = this
+      const { rN, log_wrJ, log_rwJ, stats } = this
       if (rN.length > 1) fatal(`multi-objective optimization not supported`)
       const last_r = rN[0]
-      rN[0] = this.weights[0].inc_r(rN[0])
+      const weight = this.weights[0]
+      rN[0] = weight.inc_r(rN[0])
+
+      this._fork() // fork before reweight to optimize posterior _predictive_
+
       // we skip reweights when r is unchanged by inc_r
       // at r=1 this allows ess to increase q*J -> min_ess
-      // note optimization _will degrade_ due to noise, faster for smaller q
-      // (due to suboptimal samples randomly hitting quantile cutoff)
+      // note optimization _degrades rapidly_, faster for smaller q
+      // (due to sampling noise: samples randomly hitting quantile cutoff)
+      // degradation means skipping does not ensure mks convergence
       // recommend using larger J and min_ess=q*J to avoid quality loss
       if (
         this.r == last_r &&
-        this.options.min_ess > this.weights[0].q * this.J
+        this.options.min_ess > (1 - this.weights[0].q) * this.J
       ) {
-        fill(this.xJ, j => ((this.j = j), this.func(this)))
+        // each(rN, (r, n) => this.weights[n].init_log_wr?.(r))
         return
       }
 
-      fill(this.xJ, j => ((this.j = j), this.func(this)))
-      copy(_log_wrJ, log_wrJ) // save current state in swap buffer
-      this._fill_log_wrj(log_wrJ) // weights for next rN
-      apply(log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
+      // TODO: shrink global moves w/ r
+      // TODO: revisit these comments (and above) in light of new insights
+      // optimization log_wr are fundamentally "incremental" or "differential"
+      // i.e. log_wr actually encodes a delta (log_wr_final - _log_wr_final)
+      // furthermore log_wr is _random_ & log_wr_final is an asymptotic limit
+      // resample + move steps help deduplicate, decorrelate, explore
+      // but they operate "step-wise", on incremental random "noisy" log_wr
+      // critical sustained learning signal comes from (forked) _reweights_
+      // w/o reweights, resample+move are guided mostly by incremental noise
+      // weights "baked into" sample over weighted updates are lost over time
+      // there is no mechanism to "correct" bad jumps/moves due to noisy log_wr
+      // reweights do so by repeatedly evaluating "forks" of optimization vars
+      // also note resample+move steps do NOT update sample weights
+      this._fill_log_wrj(log_wrJ)
+      add(log_rwJ, log_wrJ)
       this.rwJ = null // reset cached posterior ratio weights and dependents
+
+      // fork after reweight for stats/plots to reflect posterior predictive
       // comment this out to see "predictive delta" in stats/plots
-      fill(this.xJ, j => ((this.j = j), this.func(this)))
+      this._fork()
 
       if (stats) {
         stats.reweights++
@@ -1119,6 +1152,7 @@ class _Sampler {
   // resample step
   // resample based on rwJ, reset rwJ=1
   _resample() {
+    // if (this.optimizing && this.r == 1) return
     const timer = _timer_if(this.stats)
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wrfJN, log_wrfJN } = this
@@ -1150,14 +1184,19 @@ class _Sampler {
   _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwrfJN, log_wrfJN, log_cwrJ, log_wrJ, stats } = this
-    const { awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
+    const { log_cwrfJN, log_wrfJN, log_cwrJ, log_wrJ, stats, awK, uawK } = this
+    const { atK, uatK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
     each(log_cwrfJN, log_cwrfjN => fill(log_cwrfjN, undefined))
+    fill(log_cwrJ, 0)
     each(yJK, yjK => fill(yjK, undefined))
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
+
+    // fill move targets atK|uatK & weights awK|uawK
+    this.options.move_targets(this, atK, uatK)
+    this.options.move_weights(this, awK, uawK)
 
     // choose random pivot based on uaJK, awK, and uawK
     // note exploration matters for optimization also
@@ -1173,6 +1212,15 @@ class _Sampler {
     const tmp_log_wrfJN = log_wrfJN // to be restored below
     this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
     fill(yJ, j => ((this.j = j), func(this)))
+    this._inc_log_wrj(log_cwrJ, log_cwrfJN)
+    // if (this.optimizing && this.r == 1) {
+    //   this._fork()
+    //   this._inc_log_wrj(log_cwrJ, log_cwrfJN)
+    //   this._fork()
+    //   this._inc_log_wrj(log_cwrJ, log_cwrfJN)
+    //   scale(log_cwrJ, 1 / 3)
+    // }
+    clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN
     this.moving = false // back to using xJK
 
@@ -1180,9 +1228,6 @@ class _Sampler {
     let accepts = 0
     this.move_log_w = 0
     this.move_log_p = 0
-    fill(log_cwrJ, 0)
-    this._inc_log_wrj(log_cwrJ, log_cwrfJN)
-    clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
 
     repeat(J, j => {
       const k_pivot = kJ[j]
@@ -1209,6 +1254,8 @@ class _Sampler {
         // (but not quite understood) in earlier implementations
         // log_rwJ[j] += log_dwj
         // log_rwJ[j] += log_mpJ[j]
+        // if (this.optimizing && this.r == 1)
+        //   this.log_rwJ[j] += log_dwj + log_mpJ[j]
         jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
         this.move_log_p += log_mpJ[j]
@@ -1258,9 +1305,7 @@ class _Sampler {
       reweight_if,
       resample_if,
       move_while,
-      move_weights,
     } = this.options
-    if (this.optimizing) max_mks = inf // mks misabled when optimizing
 
     if (!(this.u == 0)) fatal('_update requires u=0')
 
@@ -1301,8 +1346,12 @@ class _Sampler {
           break
         }
 
-        // check r==1 and target ess, and mks (or optimizing)
-        if (this.r == 1 && this.ess >= min_ess && this.mks <= max_mks)
+        // check r==1 and target ess, and mks
+        if (
+          this.r == 1 &&
+          this.ess >= min_ess &&
+          (max_mks == inf || this.mks <= max_mks)
+        )
           stable_updates++
         else stable_updates = 0
         if (this.r == 1) unweighted_updates++
@@ -1369,8 +1418,6 @@ class _Sampler {
       this.mlp = 0 // log_p improvement
       const move_timer = _timer()
       while (move_while(this)) {
-        // console.debug(this.uaK, this.upK, 0.1 * (this.J / this.K))
-        move_weights(this, this.awK, this.uawK)
         this._move()
         this.mlw += this.move_log_w
         this.mlp += this.move_log_p
@@ -1523,7 +1570,7 @@ class _Sampler {
           r,
           ess,
           wsum,
-          ...(this.optimizing ? [] : [mks]),
+          mks,
           // also omit t since redundant and confusable w/ x.t
           ...omit(last(stats.updates), ['t', 'r', 'ess', 'wsum', 'mks']),
         })
@@ -2026,7 +2073,6 @@ class _Sampler {
   }
 
   __mks() {
-    if (this.optimizing) return inf // invalid when optimizing
     const timer = _timer_if(this.stats)
     const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK, uaJK } = this
     const { log_p_xJK, rwJ, rwj_sum, rwj_uniform, stats } = this
@@ -2052,10 +2098,11 @@ class _Sampler {
     const wJk = (this.___mks_wJk ??= array(J))
     const rwbJk = (this.___mks_rwbJk ??= array(J))
 
-    // include only samples fully updated since buffered update
-    copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
-    const wj_sum = sum(wJ)
+    // unless optimizing, use only samples fully updated since buffered update
     // cancel if updated samples do not have at least 1/2 weight
+    if (this.optimizing) copy(wJ, rwJ)
+    else copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
+    const wj_sum = sum(wJ)
     if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
 
     const pR2 = fill((this.___mks_pK2 ??= array(K)), k => {
@@ -2085,6 +2132,7 @@ class _Sampler {
         }),
       ]
     }).filter(defined)
+    // print('mks_pK:', str(zip_object(this.nK, round_to(this.___mks_pK2, 3))))
 
     if (stats) stats.time.updates.mks += timer.t
     const R = pR2.length
@@ -2162,7 +2210,7 @@ class _Sampler {
     const value = this.values[k]
     if (value.called) fatal('sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
-    const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, moving } = this
+    const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, moving, forking } = this
     const { upJK, uaJK, uawK, upwK, log_p_xJK, log_p_yJK } = this
 
     // return undefined on nullish (undefined or null=empty) domain
@@ -2170,6 +2218,10 @@ class _Sampler {
 
     // return undefined on (effectively) rejected run if sampling posterior
     if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
+
+    // if "forking", return existing sampled values
+    // TODO: disallow or handle non-sample randomized domains
+    if (forking) return moving ? yJK[j][k] : xJK[j][k]
 
     // initialize on first call
     if (!value.sampler) {
@@ -2284,12 +2336,6 @@ class _Sampler {
     // prior sampling density is stored in log_p_xJK
     // first defined value is stored in value.first
     if (!moving) {
-      // if value is already sampled, keep it (can happen when optimizing)
-      // this is used for "forking" samples in _reweight when optimizing
-      // note this assumes the domain is unchanged across forked runs
-      // TODO: disallow or handle non-sample randomized domains
-      if (xJK[j][k] !== undefined) return xJK[j][k]
-
       return prior((x, log_pw = 0) => {
         log_pwJ[j] += log_pw
         log_p_xJK[j][k] = log_p(x)
@@ -2380,8 +2426,6 @@ class _Sampler {
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
     this.xJK[this.j][k] = x
-    // treat the "stay" as a "jump" to unblock move step w/ default move_while which does not distinguish plotted values from sampled values
-    this.upJK[this.j][k] = this.u
     return x
   }
 
@@ -2434,7 +2478,7 @@ class _Sampler {
     } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
 
     // set up weight.init_log_wr
-    weight.init_log_wr ??= () => {
+    weight.init_log_wr ??= r => {
       repeat(this.J, j => {
         const log_wr = this.log_wrfJN[j][n]
         dJ[j] = log_wr._d
@@ -2473,12 +2517,14 @@ class _Sampler {
     return x
   }
 
-  _minimize(n, x, q = 0.9, _log_wr) {
-    return this._maximize(n, -x, q, _log_wr)
+  _minimize(n, x, q = 0.1, _log_wr) {
+    if (!(q > 0 && q < 1)) fatal(`invalid quantile ${q}`)
+    return this._maximize(n, -x, 1 - q, _log_wr)
   }
 
   _maximize(n, x, q = 0.9, _log_wr) {
     const weight = this.weights[n]
+    if (!(q > 0 && q < 1)) fatal(`invalid quantile ${q}`)
     if (q != (weight.q ??= q)) fatal(`quantile ${q} modified from ${weight.q}`)
 
     // initialize on first call w/o init_log_wr set up
@@ -2492,7 +2538,9 @@ class _Sampler {
         this.options.opt_time ??
         max(weight.max_time / 2, weight.max_time - 1000)
       weight.inc_r = r => min(1, this.t / weight.opt_time)
-      weight.init_log_wr = () => {
+      // weight.inc_r = r =>
+      //   this.ess >= (1 - q) * this.J ? min(1, this.t / weight.opt_time) : r
+      weight.init_log_wr = r => {
         repeat(this.J, j => {
           const log_wr = this.log_wrfJN[j][n]
           weight.xJ[j] = log_wr._x
@@ -2500,7 +2548,7 @@ class _Sampler {
         weight.stats = undefined
         repeat(this.J, j => {
           const log_wr = this.log_wrfJN[j][n]
-          if (log_wr._stats) weight.stats ??= log_wr._stats()
+          if (log_wr._stats) weight.stats ??= log_wr._stats(r)
         })
         // print(str(weight.stats))
       }
@@ -2515,16 +2563,17 @@ class _Sampler {
       log_wr = r => {
         if (!weight.stats) return 0 // always 0 before stats init
         const [xq] = weight.stats
-        return x >= xq ? 0 : -inf
+        // note finite penalty allows some (limited) mks convergence
+        return x >= xq ? 0 : -inf // -inf => ess=(1-q), otherwise ess>(1-q)
       }
       log_wr._x = x // value x for stats
-      log_wr._stats = () => {
-        const { r, J, essu } = this
+      log_wr._stats = r => {
+        const { J, essu } = this
         // const rr = pow(r, 1)
         // const qa = 0.5 * (1 - rr) + q * rr
         // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / essu))
         const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / essu))
-        return quantiles(weight.xJ, [qq])
+        return quantiles(weight.xJ, [qq]) // => ess=(1-q)
       }
     }
 
