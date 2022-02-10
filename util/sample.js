@@ -1121,10 +1121,10 @@ class _Sampler {
           `ess too low to attempt reweight ` +
             `(ess=${this.ess} <= reweight_ess=${reweight_ess})`
         )
-      let tries = 1 // number of tries to reweight (i.e. increment rN)
+      let tries = 0 // number of tries to reweight (i.e. increment rN)
       copy(_rN, rN) // save current rN as base
       do {
-        if (tries == 1) fill(rN, n => min(1, _rN[n] + 1 / min_reweights))
+        if (++tries == 1) fill(rN, n => min(1, _rN[n] + 1 / min_reweights))
         else apply(rN, (r, n) => _rN[n] + (r - _rN[n]) * random())
         this._fill_log_wrj(log_wrJ) // weights for next rN
         copy(log_rwJ, _log_rwJ, (lw, j) => lw + log_wrJ[j] - _log_wrJ[j])
@@ -2489,7 +2489,7 @@ class _Sampler {
         const log_wr = this.log_wrfJN[j][n]
         if (log_wr._stats) weight.stats ??= log_wr._stats()
       })
-      // print(str(weight.stats))
+      // console.debug(str(weight.stats))
     }
 
     // if domain._log_wr is defined, wrap it to pass [c,d,log_p,dJ,log_pJ,stats]
@@ -2550,7 +2550,7 @@ class _Sampler {
           const log_wr = this.log_wrfJN[j][n]
           if (log_wr._stats) weight.stats ??= log_wr._stats(r)
         })
-        // print(str(weight.stats))
+        // console.debug(str(weight.stats))
       }
     }
 
