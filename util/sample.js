@@ -1094,7 +1094,7 @@ class _Sampler {
         weight.init_log_wr?.(r)
         repeat(J, j => {
           const log_wr = log_wrfJN[j][n]
-          const log_w = (log_wr._last = log_wr(r))
+          const log_w = clip(log_wr(r), -Number.MAX_VALUE, Number.MAX_VALUE)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
             // log_wr is differential, i.e. log_wr_final - _log_wr_final
@@ -1102,10 +1102,10 @@ class _Sampler {
             log_rwJ[j] += log_w
           } else {
             log_rwJ[j] += log_w - log_wr._prev
+            log_wr._last = log_w // for use as _prev in next reweight
           }
         })
       })
-      clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       this.wsum = null // since log_wrJ changed
       this.rwJ = null // reset cached posterior ratio weights and dependents
     } while (++tries < max_reweight_tries && this.ess < reweight_ess)
