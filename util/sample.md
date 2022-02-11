@@ -1,4 +1,4 @@
-#util/sample defines utilities for writing _self-learning_ programs by _sampling_ ___unknowns___ from #/domains via #/samplers that adapt to _confined_ outcomes. See #/examples.  
+#util/sample defines utilities for writing _self-learning_ programs by _sampling_ ___unknowns___ from #/domains via #/samplers that can adapt to specified outcomes. See #/examples.  
 << js_table() >>
 
 ```js_removed:sample.js
