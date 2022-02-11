@@ -337,7 +337,7 @@ function sample_array(J, xJ, domain, options = undefined) {
   fatal(`unexpected (unparsed) call to sample_array(…)`)
 }
 
-// confine value `x` to `domain`
+// confine `x` to `domain`
 // uses `distance(x, domain)` for guidance outside `domain`
 // uses `density(x, domain) ?? 0` as weights inside `domain`
 // distances help w/ rare domains, densities w/ unbounded domains
@@ -382,8 +382,8 @@ function weight(log_w, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to weight(…)`)
 }
 
-// maximize value `x` at quantile `q`
-// (re-)concentrates weight on `(1-q)*J` samples w/ _greatest_ `x`
+// maximize `x` at quantile `q`
+// concentrates weight on `(1-q)*J` samples w/ _greatest_ `x`
 // converges _around_ `(1-q)*J` samples w/ _maximal_ `q`-quantile `x:P(X≤x)=q`
 // spread is based on _sampling noise_, depends on samplers, `move_targets`, etc
 // expected ess is `(1-q)*J`, inexact due to sampling noise & duplication (`essu<J`)
@@ -393,8 +393,8 @@ function maximize(x, q = 0.9, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to maximize(…)`)
 }
 
-// minimize value `x` at quantile `q`
-// (re-)concentrates weight on `q*J` samples w/ _smallest_ `x`
+// minimize `x` at quantile `q`
+// concentrates weight on `q*J` samples w/ _smallest_ `x`
 // converges _around_ `q*J` samples w/ _minimal_ `q`-quantile `x:P(X≤x)=q`
 // see `maximize` above for additional comments
 function minimize(x, q = 0.1, log_wr = undefined) {
@@ -1037,7 +1037,7 @@ class _Sampler {
     const { log_rwJ, _log_rwJ, log_wrfJN, stats } = this
     const { reweight_ess, min_reweights, max_reweight_tries } = this.options
 
-    // check reweight_ess > optimization ess (if any)
+    // check reweight_ess > optimization quantile ess (if any)
     each(weights, weight => {
       if (weight.optimizing && reweight_ess >= (1 - weight.q) * J)
         fatal(
@@ -1062,7 +1062,7 @@ class _Sampler {
     copy(_rN, rN)
     copy(_log_rwJ, log_rwJ)
     if (weights.some(w => !w.optimizing))
-      each(log_wrfJN, fjN => each(fjN, fjn => (fjn._prev = fjn._last ?? 0)))
+      each(log_wrfJN, fjN => each(fjN, fjn => (fjn._base = fjn._last ?? 0)))
 
     do {
       fill(log_wrJ, 0)
@@ -1083,6 +1083,7 @@ class _Sampler {
           // we do not artificially restrict movement to boost ess
           if (r == _rN[n] && this.options.min_ess > (1 - weight.q) * J) {
             addf(log_wrJ, log_wrfJN, fjN => fjN[n](r))
+            clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
             return // nothing else to do
           }
         } else {
@@ -1097,12 +1098,15 @@ class _Sampler {
           const log_w = clip(log_wr(r), -Number.MAX_VALUE, Number.MAX_VALUE)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
-            // log_wr is differential, i.e. log_wr_final - _log_wr_final
-            // integral log_wr_final is NOT available non-asymptotically
+            // optimization log_wr is additive (or wr multiplicative)
+            // can be interpreted as a conjunctive (AND) condition
+            // log_w is (log) likelihood weight P(≥xq0)P(≥xq1)…, xqn⭇xq
+            // log_w concentrates around samples that maximize quantile xq
+            // final log_w only defined asymptotically as u→∞
             log_rwJ[j] += log_w
           } else {
-            log_rwJ[j] += log_w - log_wr._prev
-            log_wr._last = log_w // for use as _prev in next reweight
+            log_rwJ[j] += log_w - log_wr._base
+            log_wr._last = log_w // becomes _base in next reweight
           }
         })
       })
