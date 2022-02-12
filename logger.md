@@ -5,4 +5,8 @@
 // logger.js
 ```
 
+```css_removed:logger.css
+// logger.css
+```
+
 #_init #_listen #_util/core
