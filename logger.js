@@ -1,4 +1,4 @@
-// TODO: move #values here!
+// TODO: move #values into #logger/values
 // TODO: move #elog into #logger/elog
 // TODO: move #commands/log here
 // TODO: switch over from #elog to #logger/elog

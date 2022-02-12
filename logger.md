@@ -1,4 +1,4 @@
-#logger
+#logger see #/values
 << command_table() >>
 
 ```js_removed:logger.js
