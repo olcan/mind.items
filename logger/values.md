@@ -6,14 +6,10 @@
 - dollar sign ($) is allowed in name for easy parsing as prefix unit
 - pipe (|) is allowed in name to handle OR matching for colors
 
+**Example**: (run for output)
+```js_input
+parse_values(',ok,test, 2h 30m 2m 5s, 400cal, ok <30m, 2p')
+```
 ```js_removed:values.js
 // values.js
-```
-
-```js_input
-json(parse_values(',ok,test, 2h 30m 2m 5s, 400cal, ok <30m, 2p'))
-```
-
-```_output
-[{number:2.5347222222222223,name:"ok,test",unit:"h"},{number:400,unit:"c"},{number:0.5,name:"ok",comparison:"<",unit:"h"},{number:2,unit:"p"}]
 ```
