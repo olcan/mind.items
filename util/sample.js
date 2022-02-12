@@ -313,6 +313,12 @@ function density(x, domain) {
 // | `time`        | target time (ms) for sampling, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // |               | changes default `max_time` to `inf`
+// | `opt_time`    | optimization time, should be `<max_time`
+// |               | _default_: `(time || max_time) / 2`
+// | `opt_penalty` | optimization penalty, should be `<0`, _default_: `-5`
+// |               | used as default `log_w` for sub-optimal samples
+// |               | must be finite to allow non-opt. weights/conditions
+// |               | must be small for ess to be close to expected for quantile
 // | `targets`     | object of targets for named values sampled in this context
 // |               | see `target` option above for possible targets
 // |               | can be `true` for auto-generated targets
@@ -383,10 +389,11 @@ function weight(log_w, log_wr = undefined) {
 }
 
 // maximize `x` at quantile `q`
-// concentrates weight on `(1-q)*J` samples w/ _greatest_ `x`
-// converges _around_ `(1-q)*J` samples w/ _maximal_ `q`-quantile `x:P(X≤x)=q`
+// concentrates weight on `~(1-q)*J` samples w/ _greatest_ `x`
+// converges _around_ `~(1-q)*J` samples w/ _maximal_ `q`-quantile `x:P(X≤x)=q`
 // spread is based on _sampling noise_, depends on samplers, `move_targets`, etc
-// expected ess is `(1-q)*J`, inexact due to sampling noise & duplication (`essu<J`)
+// expected ess is `~(1-q)*J`, inexact due to sampling noise & duplication (`essu<J`)
+// spread and expected ess also increase w/ `opt_penalty` (see `sample` above)
 // ess can be increased using `min_ess`, at cost of larger spread (larger for smaller `q`)
 // ess can also be increased at computational cost by increasing sample size `J`
 function maximize(x, q = 0.9, log_wr = undefined) {
@@ -394,8 +401,8 @@ function maximize(x, q = 0.9, log_wr = undefined) {
 }
 
 // minimize `x` at quantile `q`
-// concentrates weight on `q*J` samples w/ _smallest_ `x`
-// converges _around_ `q*J` samples w/ _minimal_ `q`-quantile `x:P(X≤x)=q`
+// concentrates weight on `~q*J` samples w/ _smallest_ `x`
+// converges _around_ `~q*J` samples w/ _minimal_ `q`-quantile `x:P(X≤x)=q`
 // see `maximize` above for additional comments
 function minimize(x, q = 0.1, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
@@ -557,6 +564,7 @@ class _Sampler {
     // reweight buffers
     this._rN = array(N)
     this._log_rwJ = array(J)
+    this._log_rwJ_base = array(J)
 
     // define cached properties
     cache(this, 'pwJ', [])
@@ -703,10 +711,10 @@ class _Sampler {
               fatal(
                 `default values in assignment to array ${name} not supported`
               )
-            if (!(method == 'sample_array'))
+            if (method != 'sample_array')
               fatal(`destructuring assignment to array requires sample_array`)
             array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
-            if (!(size == array_names.length))
+            if (size != array_names.length)
               fatal('destructuring array assignment size mismatch')
           } else {
             if (names.has(name)) name += '_' + index // de-duplicate name
@@ -789,7 +797,7 @@ class _Sampler {
                 const index = values.length // element index
                 if (names.has(name)) name += '_' + index // de-duplicate name
                 names.add(name) // aligned w/ values & unique
-                values.push(lexical_context({ index, sampled: true }))
+                values.push(lexical_context({ index, name, sampled: true }))
               }
             }
             break
@@ -813,6 +821,7 @@ class _Sampler {
           case 'confine':
             let value_index = index // from maximize|minimize above
             index = weights.length
+            name ||= str(index)
             weights.push(lexical_context({ value_index }))
             break
           case 'simulate':
@@ -891,7 +900,8 @@ class _Sampler {
       this.nK.map(n => `a.${n}`),
       this.nK.map(n => `pp.${n}`),
       this.nK.map(n => `mean.${n}`),
-      this.nK.map(n => `median.${n}`)
+      this.nK.map(n => `median.${n}`),
+      this.weights.map(w => `r.${w.name}`)
     )
     if (options.stats == true) options.stats = known_keys
     // convert string to array of keys
@@ -989,6 +999,10 @@ class _Sampler {
     if (spec.a) update.a = this.u == 0 ? 0 : this.a
     if (spec.t) update.t = this.t
     if (spec.r) update.r = round_to(this.r, 3, inf, 'floor')
+    each(this.weights, (weight, n) => {
+      if (spec[`r.${weight.name}`])
+        update[`r.${weight.name}`] = round_to(this.rN[n], 3, inf, 'floor')
+    })
 
     if (this.u == 0) stats.updates = [update]
     else stats.updates.push(update)
@@ -1034,7 +1048,7 @@ class _Sampler {
     if (this.r == 1 && !this.optimizing) return // nothing to do
 
     const { rN, _rN, J, log_wrJ, weights } = this
-    const { log_rwJ, _log_rwJ, log_wrfJN, stats } = this
+    const { log_rwJ, _log_rwJ, _log_rwJ_base, log_wrfJN, stats } = this
     const { reweight_ess, min_reweights, max_reweight_tries } = this.options
 
     // check reweight_ess > optimization quantile ess (if any)
@@ -1066,6 +1080,7 @@ class _Sampler {
 
     do {
       fill(log_wrJ, 0)
+      fill(_log_rwJ_base, 0) // for _base
       if (tries > 0) copy(log_rwJ, _log_rwJ)
       each(rN, (r, n) => {
         const weight = weights[n]
@@ -1083,7 +1098,6 @@ class _Sampler {
           // we do not artificially restrict movement to boost ess
           if (r == _rN[n] && this.options.min_ess > (1 - weight.q) * J) {
             addf(log_wrJ, log_wrfJN, fjN => fjN[n](r))
-            clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
             return // nothing else to do
           }
         } else {
@@ -1095,7 +1109,7 @@ class _Sampler {
         weight.init_log_wr?.(r)
         repeat(J, j => {
           const log_wr = log_wrfJN[j][n]
-          const log_w = clip(log_wr(r), -Number.MAX_VALUE, Number.MAX_VALUE)
+          const log_w = log_wr(r)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
             // optimization log_wr is additive (or wr multiplicative)
@@ -1103,13 +1117,23 @@ class _Sampler {
             // log_w is (log) likelihood weight P(≥xq0)P(≥xq1)…, xqn⭇xq
             // log_w concentrates around samples that maximize quantile xq
             // final log_w only defined asymptotically as u→∞
+            // additive log_wr must be finite to allow non-additive log_w
+            // use opt_penalty to balance against non-additive finite log_w
+            // note issue is that log_rwJ is reset to 0 once baked in, so
+            //   non-additive log_w is only added for new samples from move
+            //   whereas additive log_w is added repeatly in each update step
             log_rwJ[j] += log_w
           } else {
-            log_rwJ[j] += log_w - log_wr._base
+            log_rwJ[j] += log_w // -log_wr._base
+            _log_rwJ_base[j] += log_wr._base
             log_wr._last = log_w // becomes _base in next reweight
           }
         })
       })
+      clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
+      clip_in(log_rwJ, -Number.MAX_VALUE, Number.MAX_VALUE)
+      clip_in(_log_rwJ_base, -Number.MAX_VALUE, Number.MAX_VALUE)
+      sub(log_rwJ, _log_rwJ_base) // subtract _base for non-optimizing weights
       this.wsum = null // since log_wrJ changed
       this.rwJ = null // reset cached posterior ratio weights and dependents
     } while (++tries < max_reweight_tries && this.ess < reweight_ess)
@@ -1672,6 +1696,12 @@ class _Sampler {
         })
       if (spec.essr) add_line('essr', { axis: 'y2', formatter: x => `${x}%` })
       if (spec.mar) add_line('mar', { axis: 'y2', formatter: x => `${x}%` })
+      if (spec.r)
+        add_line('r', {
+          axis: 'y2',
+          mapper: x => round_to(100 * x, 1),
+          formatter: x => round_to(x / 100, 3),
+        })
 
       each(this.nK, n => {
         if (spec[`mar.${n}`])
@@ -1680,6 +1710,15 @@ class _Sampler {
           add_line(`uar.${n}`, { axis: 'y2', formatter: x => `${x}%` })
         if (spec[`pp.${n}`])
           add_line(`pp.${n}`, { axis: 'y2', formatter: x => `${x}%` })
+      })
+
+      each(this.weights, weight => {
+        if (spec[`r.${weight.name}`])
+          add_line(`r.${weight.name}`, {
+            axis: 'y2',
+            mapper: x => round_to(100 * x, 1),
+            formatter: x => round_to(x / 100, 3),
+          })
       })
 
       if (spec.wsum) add_rescaled_line('wsum')
@@ -1703,7 +1742,6 @@ class _Sampler {
       if (spec.p) add_rescaled_line('p')
       if (spec.a) add_rescaled_line('a')
       if (spec.t) add_rescaled_line('t')
-      if (spec.r) add_rescaled_line('r', null, 3)
 
       each(this.nK, n => {
         if (spec[`up.${n}`]) add_rescaled_line(`up.${n}`, null, 0)
@@ -2523,9 +2561,8 @@ class _Sampler {
       // increase r based on time
       // opt_time is for optimization, remaining time is to achieve min_ess
       weight.max_time = this.options.time || this.options.max_time
-      weight.opt_time =
-        this.options.opt_time ??
-        max(weight.max_time / 2, weight.max_time - 1000)
+      weight.opt_time = this.options.opt_time ?? weight.max_time / 2
+      weight.opt_penalty = this.options.opt_penalty ?? -5
       weight.inc_r = r => min(1, this.t / weight.opt_time)
       // weight.inc_r = r =>
       //   this.ess >= (1 - q) * this.J ? min(1, this.t / weight.opt_time) : r
@@ -2552,8 +2589,7 @@ class _Sampler {
       log_wr = r => {
         if (!weight.stats) return 0 // always 0 before stats init
         const [xq] = weight.stats
-        // note finite penalty allows some (limited) mks convergence
-        return x >= xq ? 0 : -inf // -inf => ess=(1-q), otherwise ess>(1-q)
+        return x >= xq ? 0 : weight.opt_penalty
       }
       log_wr._x = x // value x for stats
       log_wr._stats = r => {
