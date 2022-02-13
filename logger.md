@@ -1,5 +1,6 @@
-#logger see #/values
+#logger
 << command_table() >>
+<< js_table() >>
 
 ```js_removed:logger.js
 // logger.js
