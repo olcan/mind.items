@@ -59,7 +59,7 @@ function plot(obj, name = undefined) {
     caption_text = read(caption + '_removed')
     if (!caption_text)
       fatal(`could not read caption block '${caption}_removed'`)
-    caption_sync_js = `function _on_item_change() { _sync_caption('${caption}') }`
+    caption_sync_js = `function _on_item_change(...args) { _sync_caption('${caption}', ...args) }`
   }
 
   // look up item, create if missing
@@ -120,7 +120,17 @@ function plot(obj, name = undefined) {
   })
 }
 
-function _sync_caption(caption) {
+function _sync_caption(
+  caption,
+  // ...args for _on_item_change
+  id,
+  label,
+  prev_label,
+  deleted,
+  remote,
+  dependency
+) {
+  if (remote || dependency || deleted) return
   const text = read(caption, { keep_empty_lines: true })
   const parent_name = _this.name.replace(/\/[^\/]*$/, '')
   const parent = _item(parent_name)
