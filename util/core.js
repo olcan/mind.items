@@ -722,8 +722,14 @@ function js_table(regex) {
         }
       }
 
-      // skip underscore-prefixed definitions unless modified
-      if (def._name.match(/^_/) && !def.modified) return
+      // filter by regex (applied to original _name) if specified
+      if (regex && !regex.test(def._name)) return
+
+      // skip underscore-prefixed definitions unless modified or regex-matched
+      if (def._name.match(/^_/) && !def.modified && !regex) return
+
+      // skip commands unless regex-matched
+      if (def._name.match(/^_on_command_/) && !regex) return
 
       // skip indented definitions unless modified by comments
       // NOTE: this means class methods/properties must be modified, w/ attention paid to arguments (used to distinguish method from properties) for proper rendering/linking
@@ -755,8 +761,6 @@ function js_table(regex) {
 
   let lines = []
   defs.forEach(def => {
-    // filter by regex (applied to original _name) if specified
-    if (regex && !regex.test(def._name)) return
     // process comment lines, converting pipe-prefixed/separated lines to tables
     // typically used to document function arguments or options
     let comment_lines = [] // processed comment
