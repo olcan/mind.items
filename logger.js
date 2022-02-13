@@ -1,72 +1,82 @@
-// TODO: move #values into #logger/values
-// TODO: move #elog into #logger/elog
-// TODO: move #commands/log here
-// TODO: switch over from #elog to #logger/elog
-// TODO: store keywords under #logger/...
+// => /log [text]
+// log `text` into daily #log items
+// daily log items are named `#YYYY/MM/DD`
+// log entry is prefixed with time as `HH:MM`
+// current time is used unless `text` starts with `HH:MM`
+function _on_command_log(text) {
+  const now = new Date()
+  const today = '#' + date_string(now) // from #events/util
+  let name = today // add to today's log item by default
+  // attempt to parse time from command, otherwise use current time
+  // if time is in the future for today, switch to yesterday's log item
+  const [h, m, b] = text.match(/^(\d\d?):(\d\d)\s+(.+)$/)?.slice(1) || []
+  if (h > now.getHours() || (h == now.getHours() && m > now.getMinutes())) {
+    let date = new Date()
+    date.setDate(date.getDate() - 1)
+    name = '#' + date_string(date)
+  }
+  const max_visible_lines = 10
+  const append = (item, text) => {
+    let lines = item
+      .read('log')
+      .split('\n')
+      .filter(l => l)
+    if (h) lines.unshift(`${_02d(h)}:${_02d(m)} ${b}`)
+    else lines.unshift(`${time_string(now)} ${text}`)
+    sort_by(lines, l => -parse_time(l))
+    item.write(lines.slice(0, max_visible_lines).join('\n'), 'log')
+    if (lines.length > max_visible_lines)
+      item.write(lines.slice(max_visible_lines).join('\n'), 'log_removed')
+    else item.remove('log_removed')
+    // touch item to move it above other #log items in same day
+    if (name == today) item.touch() // touching same-day log item is ok
+  }
+  if (_exists(name)) append(_item(name), text)
+  else
+    return {
+      text: `${name} #_log #_logger \<<log_header()>>`,
+      edit: false,
+      init: item => append(item, text),
+    }
+}
 
-const _self = _item('$id') // lexical self (vs eval-stack _this)
+// header macro for daily #log items
+function log_header() {
+  const visible = _that
+    .read('log')
+    .split('\n')
+    .filter(l => l)
+  const hidden = _that
+    .read('log_removed')
+    .split('\n')
+    .filter(l => l)
+  let header = `${visible.length} events`
+  if (hidden.length)
+    header += ` <font style="color:#666;font-size:80%">(${hidden.length} hidden)</font>`
+  return header
+}
 
-// reserved keywords that have special uses
-// e.g. in block names such as event_observe_<keyword>
-const reserved_keywords = new Set(['event', 'observe', 'config'])
+// highlight log `text` into `div` element
+function log_highlight(text, div, item = _this) {
+  div.innerHTML = hljs.highlight(text, { language: 'log' }).value
+  // invoke window._highlight (see _init) for clickable elements
+  div
+    .querySelectorAll('._highlight,._highlight_,._highlight__')
+    .forEach(elem => _highlight(elem, item.id))
+}
 
-// returns keywords read from (and cached on) specified item
-// used for both highlighting (below) and for parsing in #logger/elog
-const read_keywords = (item = _this, options = {}) =>
-  item.cached(`keywords.${JSON.stringify(options)}`, () =>
-    _.uniq(item.read('keywords', options)?.toLowerCase().match(/\S+/g))
-  )
+// initialize [highlight.js](https://highlightjs.org) plugin for `log` blocks
+function init_log_highlights() {
+  const keywords = uniq(_item('#logger')._global_store.keywords)
+    .sort((a, b) => b.length - a.length || b.localeCompare(a))
+    .join('|')
+  const keyword_regex = new RegExp(' (?:(?:' + keywords + ')(?=\\W|$))|(?= )')
 
-const read_keywords_deep = (item = _this, options = {}) =>
-  read_keywords(item, _.merge({ include_deps: true }, options))
-// returns RegExp for matching against keywords
-const read_keywords_regex = (item = _this, options = {}) =>
-  item.cached(
-    `keywords_regex.${JSON.stringify(options)}`,
-    () =>
-      new RegExp(
-        '^(?:' +
-          read_keywords(item, options)
-            .slice()
-            .sort((a, b) => b.length - a.length || b.localeCompare(a))
-            .join('|') +
-          ')$'
-      )
-  )
-
-// returns length-sorted keyword regex abc|ab|bc|...
-const elog_keywords = () =>
-  _self.cached('elog_keywords', () => {
-    const items = _labels(l => l.match(/^#logger\/.+$/)).map(l => _item(l))
-    let keywords = []
-    _self.cache.keyword_items = {} // for lookups in _highlight
-    items.forEach(item => {
-      const item_keywords = read_keywords(item)
-      item_keywords.forEach(
-        keyword => (_self.cache.keyword_items[keyword] = item.label)
-      )
-      keywords = keywords.concat(item_keywords)
-    })
-    // filter out reserved keywords
-    keywords = keywords.filter(keyword => {
-      if (!reserved_keywords.has(keyword)) return true
-      console.warn(`ignoring reserved keyword '${keyword}'`)
-      return false
-    })
-    return _.uniq(keywords)
-      .sort((a, b) => b.length - a.length || b.localeCompare(a))
-      .join('|')
-  })
-
-// registers highlight.js plugin ("language") for elog blocks
-function register_elog_highlight_plugin() {
-  // register highlighting language for 'elog' blocks
+  // register highlighting language for 'log' blocks
   // https://highlightjs.readthedocs.io/en/latest/language-guide.html
   // https://highlightjs.readthedocs.io/en/latest/mode-reference.html
   // https://highlightjs.readthedocs.io/en/latest/css-classes-reference.html
-  const keywords = elog_keywords()
-  const keyword_regex = new RegExp(' (?:(?:' + keywords + ')(?=\\W|$))|(?= )')
-  hljs.registerLanguage('elog', () => ({
+  hljs.registerLanguage('log', () => ({
     case_insensitive: true,
     keywords: '', // no keywords in global scope
     contains: [
@@ -113,28 +123,17 @@ function register_elog_highlight_plugin() {
       },
     ],
   }))
-  // register `event` as alias for `javascript`
-  // note this covers all suffixes e.g. event_*
-  hljs.registerAliases(['event'], { languageName: 'javascript' })
-  // register simple highlighting for event keywords
-  hljs.registerLanguage('keywords', () => ({
-    contains: [{ scope: 'keyword', match: /\S+/ }],
-  }))
-}
-
-function elog_highlight(div, text) {
-  div.innerHTML = hljs.highlight(text, { language: 'elog' }).value
-  // invoke window._highlight (see _init below) for clickable elements
-  div
-    .querySelectorAll('._highlight,._highlight_,._highlight__')
-    .forEach(elem => {
-      _highlight(elem, _this.id)
-    })
+  // // register `event` as alias for `javascript`
+  // // note this covers all suffixes e.g. event_*
+  // hljs.registerAliases(['event'], { languageName: 'javascript' })
+  // // register simple highlighting for event keywords
+  // hljs.registerLanguage('keywords', () => ({
+  //   contains: [{ scope: 'keyword', match: /\S+/ }],
+  // }))
 }
 
 function _init() {
-  return // TODO: enable once you are ready to switch over
-  register_elog_highlight_plugin()
+  init_log_highlights()
   // set up css (see css_removed block below) for styling highlights
   // in particular to truncate long lines with ellipsis
   document.head.insertAdjacentHTML(
@@ -142,8 +141,8 @@ function _init() {
     '<style>' + _this.read('css') + '</style>'
   ) // see below
   // set up _highlight callback to make dates/times, types, tags clickable
-  // also removed background from non-clickable lines
-  // NOTE: we set attributes to avoid capturing references
+  // also removes background from non-clickable lines
+  // we set attributes to avoid capturing references
   const prev_highlight = window._highlight // for chaining
   window._highlight = (elem, id) => {
     if (prev_highlight) prev_highlight(elem, id)
@@ -182,7 +181,7 @@ function _init() {
       source = sourceFromDateTime(text)
     } else if (elem.classList.contains('type_')) {
       // source = '#logger/user/' + text
-      source = _self.cache.keyword_items[text]
+      source = _item('#logger').cache.keyword_items[text]
     } else if (elem.classList.contains('hashtag_')) {
       source = text
     } else if (elem.classList.contains('line_')) {
@@ -246,47 +245,17 @@ function _init() {
     }
   }
 }
+// TODO: move #elog into #logger/elog
+// TODO: switch over from #elog to #logger/elog
 
-// update hash comment in #logger on changes to #logger/...
-function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
-  if (dependency) return // ignore dependency changes
-  // if this item has changed, this could be due to new keyword hash, so we update the highlight plugin after invalidating html caches (since html cache keys do not reflect highlighting rules); note that this is ok if keywords are unchanged, and this should work for remote changes also assuming keyword changes have also been synced
-  if (id == '$id') {
-    if (window._html_cache)
-      _self.dependents.forEach(id => (window._html_cache[id] = {}))
-    register_elog_highlight_plugin()
-    return
-  }
-  const relevant = l => l.match(/^#logger\/.+$/)
-  if (!relevant(label) && !relevant(prev_label)) return
-  // for remote changes to relevant items, we do NOT write a new hash comment since that should also happen remotely (and get synced locally), and if there is an inconsistency in keywords it could cause the hash to flip back and forth
-  if (remote) {
-    /*console.warn(`remote change to ${label}`);*/ return
-  }
-  const items = _labels(relevant).map(l => _item(l))
-  // NOTE: we store keyword hash instead of events hash
-  let keywords = items.map(read_keywords).flat()
-  keywords = _.uniq(keywords)
-    .sort((a, b) => b.length - a.length || b.localeCompare(a))
-    .join('|')
-  // TODO: refactor this logic, also used in #logger/elog (to be moved here)
-  const hash_comment = `<!-- ${_hash(keywords)} -->`
-  // console.log(hash_comment, keywords)
-  const text = _self.read()
-  if (!text.match(/<!-- [0-9a-fA-F]+ -->/))
-    console.error('#logger missing hash comment')
-  else if (!text.includes(hash_comment)) {
-    console.log(
-      'keywords changed',
-      hash_comment,
-      text.match(/<!-- [0-9a-fA-F]+ -->/)[0]
-    )
-    _self.write(
-      text.replace(/<!-- [0-9a-fA-F]+ -->/, hash_comment),
-      '' /* whole item */,
-      { keep_time: true } /* do not bring up */
-    )
-  }
+// on change to keywords (i.e. global store), re-init highlight.js plugin
+function _on_global_store_change() {
+  init_log_highlights()
+  // force-render dependents (since html cache keys exclude external css/js)
+  each(_this.dependents, id =>
+    _item(id).invalidate_elem_cache(true /* force render */)
+  )
+  // TODO: re-parse all log entries
 }
 
 // parse numbers from `text`
