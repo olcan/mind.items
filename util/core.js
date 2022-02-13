@@ -904,8 +904,9 @@ function _init() {
 }
 
 // re-install core.css on any changes to core (or dependencies)
+// only invoked for #core since it is not a listener
 function _on_item_change() {
-  if (_this.name != '#util/core') return // invoked from dependent
+  if (_this.name != '#util/core') fatal(`unexpected _on_item_change`)
   _install_core_css()
 }
 
