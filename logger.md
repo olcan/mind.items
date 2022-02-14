@@ -1,8 +1,4 @@
-#logger enables logging of _events_ into daily #log items named `#YYYY/MM/DD`.
-- Events are short text strings prefixed by a date and time.
-- Changes are auto-detected by elog.
-- TODO: improve these comments
-
+#logger logs _events_ into daily #log items named `#YYYY/MM/DD`. See #/summary.
 << command_table() >>
 << js_table() >>
 
@@ -14,4 +10,4 @@
 // logger.css
 ```
 
-#_init #_util/core #_util/sim
+#_init #_listen #_util/core #_util/sim

@@ -1,11 +1,13 @@
 // => /log [text]
-// log `text` into daily #log items
+// log `text` into today's #log item
 // daily log items are named `#YYYY/MM/DD`
-// log entry is prefixed with time as `HH:MM`
-// current time is used unless `text` starts with `HH:MM`
+// log entry is prefixed w/ current time as `HH:MM …`
+// `text` can specify custom time of day as `HH:MM …`
+// if custom time is in future for today, `text` is logged for yesterday
+// today's log item is _touched_ (moved up w/ its time updated) if modified
 function _on_command_log(text) {
   const now = new Date()
-  const today = '#' + date_string(now) // from #events/util
+  const today = '#' + date_string(now) // from #util/sim
   let name = today // add to today's log item by default
   // attempt to parse time from command, otherwise use current time
   // if time is in the future for today, switch to yesterday's log item
@@ -34,14 +36,14 @@ function _on_command_log(text) {
   if (_exists(name)) append(_item(name), text)
   else
     return {
-      text: `${name} #_log #_logger \<<log_header()>>`,
+      text: `${name} #_log #_logger \<<_log_header()>>`,
       edit: false,
       init: item => append(item, text),
     }
 }
 
 // header macro for daily #log items
-function log_header() {
+function _log_header() {
   const visible = _that
     .read('log')
     .split('\n')
@@ -57,19 +59,19 @@ function log_header() {
 }
 
 // highlight log `text` into `div` element
-function log_highlight(text, div, item = _this) {
+function _highlight_log(text, div) {
   div.innerHTML = hljs.highlight(text, { language: 'log' }).value
   // invoke window._highlight (see _init) for clickable elements
   div
     .querySelectorAll('._highlight,._highlight_,._highlight__')
-    .forEach(elem => _highlight(elem, item.id))
+    .forEach(elem => _highlight(elem, _this.id))
 }
 
+const _logger = _item('$id')
+
 // initialize [highlight.js](https://highlightjs.org) plugin for `log` blocks
-function init_log_highlights() {
-  const keywords = uniq(_item('#logger')._global_store.keywords)
-    .sort((a, b) => b.length - a.length || b.localeCompare(a))
-    .join('|')
+function _init_log_highlight() {
+  const keywords = _event_log_keywords_for_regex()
   const keyword_regex = new RegExp(' (?:(?:' + keywords + ')(?=\\W|$))|(?= )')
 
   // register highlighting language for 'log' blocks
@@ -123,6 +125,9 @@ function init_log_highlights() {
       },
     ],
   }))
+  // register `event_log` and `elog` as alias
+  hljs.registerAliases(['event-log', 'elog'], { languageName: 'log' })
+
   // // register `event` as alias for `javascript`
   // // note this covers all suffixes e.g. event_*
   // hljs.registerAliases(['event'], { languageName: 'javascript' })
@@ -133,7 +138,7 @@ function init_log_highlights() {
 }
 
 function _init() {
-  init_log_highlights()
+  _init_log_highlight()
   // set up css (see css_removed block below) for styling highlights
   // in particular to truncate long lines with ellipsis
   document.head.insertAdjacentHTML(
@@ -141,7 +146,6 @@ function _init() {
     '<style>' + _this.read('css') + '</style>'
   ) // see below
   // set up _highlight callback to make dates/times, types, tags clickable
-  // also removes background from non-clickable lines
   // we set attributes to avoid capturing references
   const prev_highlight = window._highlight // for chaining
   window._highlight = (elem, id) => {
@@ -180,26 +184,18 @@ function _init() {
     if (elem.classList.contains('date_time_')) {
       source = sourceFromDateTime(text)
     } else if (elem.classList.contains('type_')) {
-      // source = '#logger/user/' + text
-      source = _item('#logger').cache.keyword_items[text]
+      // attempt lookup of "source item" for keyword in global store
+      source = _logger._global_store.keyword_items?.[text]
     } else if (elem.classList.contains('hashtag_')) {
       source = text
     } else if (elem.classList.contains('line_')) {
       // look for date/time prefix in log line
       if (text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/))
         source = sourceFromDateTime(text.replace(/(\d\d:\d\d).*$/, '$1'))
+      else elem.style.background = 'none' // remove background from line
     }
-    if (!source) {
-      // elem is not clickable
-      elem.closest('.hljs-line').style.background = 'none'
-      return // could not determine source
-    }
+    if (!source) return // could not determine source
     elem.style.cursor = 'pointer'
-    // elem.setAttribute('title', source)
-    // elem.setAttribute("_clickable", "")
-    // elem._clickable = (e) => true
-    // elem.setAttribute('onclick',
-    // `event.stopPropagation();MindBox.toggle('${source}')`)
     elem.onclick = e => {
       e.stopPropagation()
       e.preventDefault()
@@ -237,25 +233,236 @@ function _init() {
         return target
       }
       // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on iphones, which we attempt to work around by focusing on the top textarea first
-      //      if (!edit_target()) {
       document.querySelector('textarea').focus()
       setTimeout(edit_target)
-      // _update_dom().then(edit_target)
-      //      }
     }
   }
 }
-// TODO: move #elog into #logger/elog
-// TODO: switch over from #elog to #logger/elog
 
-// on change to keywords (i.e. global store), re-init highlight.js plugin
-function _on_global_store_change() {
-  init_log_highlights()
-  // force-render dependents (since html cache keys exclude external css/js)
-  each(_this.dependents, id =>
-    _item(id).invalidate_elem_cache(true /* force render */)
+// detect change to keywords (i.e. global store)
+// re-init highlight.js plugin, invalidate cache & html for logger & dependents
+function _on_global_store_change(id) {
+  if (id != _this.id) return // listen to self only
+  _init_log_highlight()
+  _this.invalidate_cache()
+  _this.invalidate_elem_cache(true /* force render */)
+  each(_this.dependents, id => _item(id).invalidate_elem_cache(true))
+}
+
+// event log entries, most recent first
+// returns array of parsed objects w/ properties:
+// | `date`     | event date string as `YYYY/MM/DD`
+// | `time`     | event time string as `HH:MM`
+// | `body`     | event body text string
+// | `keyword`  | event keyword (if any)
+// | `numbers`  | numbers is event, via `parse_numbers(body)`
+// | `t_date`   | event time as `Date`, see `event_date` in #util/sim
+// | `t`        | event time, see `event_time` in #util/sim
+// optional `selector` function is used to filter events
+// `selector` can be keyword string/regex, converted via `match_keyword`
+// cached on `#logger` under keys `log` and `log.hash(selector)`
+// returned array should not be mutated
+function event_log(selector = undefined) {
+  if (is_string(selector)) selector = match_keyword(selector)
+  const eJ = _logger.cached('log', () => {
+    let log = []
+    const keywords = _event_log_keywords_for_regex()
+    const keyword_regex = new RegExp('^(?:' + keywords + ')(?=\\W|$)')
+    event_log_items().forEach(name => {
+      const item = _item(name)
+      const date = name.substring(1)
+      const events = item.read('e?log')
+      if (!events) return // no events in item
+      let last_time
+      events.split('\n').forEach(line => {
+        let [time] = line.match(/^\d\d:\d\d/) || []
+        const body = line.substring(5).trim()
+        // note comments are allowed in highlighting, but not in log items
+        if (!time || !body) {
+          // time and non-empty body are required
+          console.warn(`invalid event '${line}' in ${name}`)
+          return
+        }
+        if (last_time && time > last_time)
+          console.warn(`unordered event '${line}' in ${name}`)
+        last_time = time
+        const t_date = parse_date_time(date, time)
+        let [keyword] = body.toLowerCase().match(keyword_regex) || []
+        log.push({
+          date,
+          time,
+          body,
+          keyword,
+          numbers: parse_numbers(body),
+          t_date,
+          t: event_time(t_date),
+        })
+      })
+    })
+    // console.log(`cached ${log.length} events`)
+    return log
+  })
+  if (!selector) return eJ
+  return _logger.cached(`log.${hash(selector)}`, () => eJ.filter(selector))
+}
+
+// event log item names, most recent first
+// array of strings of the form `#YYYY/MM/DD`
+// cached on `#logger` under key `log_items`
+function event_log_items() {
+  return _logger.cached('log_items', () =>
+    _labels(l => l.match(/#\d\d\d\d\/\d\d\/\d\d/))
+      .sort()
+      .reverse()
   )
-  // TODO: re-parse all log entries
+}
+
+// event log keyword strings
+// stored in `_item('#logger').global_store.keywords`
+// sorted by decreasing length, then alphabetically
+// cached on `#logger` under key `log_keywords`
+const event_log_keywords = () =>
+  _logger.cached('log_keywords', () => _.uniq(_logger._global_store.keywords))
+
+function _event_log_keywords_for_regex() {
+  return _logger.cached('log_keywords_for_regex', () => {
+    const keywords = _.uniq(_logger._global_store.keywords)
+    sort(keywords, (a, b) => b.length - a.length || b.localeCompare(a))
+    return keywords.join('|')
+  })
+}
+
+// index of most recent event by time `t`
+// returns `event_log().length` if no events by time `t`
+// equal to lowest insertion index for event at time `t`
+// uses binary search w/ logarithmic scaling ~⟘i,t
+const event_log_index = t => sorted_index_by(event_log(), { t }, e => -e.t)
+
+// event log as text, one line per event
+// generates text from parsed objects, see `event_log` above
+// can `limit` events (lines) and filter (pre-limit) by `selector`
+// `selector` can be keyword string/regex, converted via `match_keyword`
+// cached on `#logger` under key `log_text.limit.hash(selector)`
+function event_log_text(
+  limit = inf,
+  selector = undefined,
+  options = undefined
+) {
+  return _logger.cached(`log_text.${limit}.${hash(selector)}`, () => {
+    const { summary = true } = options ?? {}
+    const K = limit
+    const eJ = event_log()
+    if (is_string(selector)) selector = match_keyword(selector)
+    const eR = selector ? eJ.filter(selector) : eJ
+    let sK = eR.slice(0, K).map(e => `${e.date} ${e.time} ${e.body}`)
+    // drop current YYYY/ and MM/DD/ if all lines share prefix
+    const date = date_string() + ' '
+    const [year] = date.match(/^\d\d\d\d\//)
+    if (sK.every(s => s.startsWith(date))) sK = sK.map(s => s.slice(11))
+    else if (sK.every(s => s.startsWith(year))) sK = sK.map(s => s.slice(5))
+    if (eR.length == sK.length) return sK.join('\n')
+    if (!options?.summary) return sK.join('\n') // drop summary line
+    return (
+      sK.join('\n') +
+      `\n+${eR.length - sK.length} of ` +
+      (!selector
+        ? `${eJ.length} events`
+        : `${eR.length}/${eJ.length} matching events`)
+    )
+  })
+}
+
+const event_log_block = (...args) => block('log', event_log_text(...args))
+
+// event log times, most recent first
+// `selector` can be keyword string/regex, converted via `match_keyword`
+// cached on `#logger` under key `log_times.hash(selector)`
+const event_log_times = (selector = undefined) =>
+  _logger.cached(`log_times.${hash(selector)}`, () =>
+    event_log(selector).map(e => e.t)
+  )
+
+// event log stats
+// hour-of-day is ordered in [-12,12]
+function event_log_stats(selector = undefined, max_days = inf) {
+  const te = ~~event_time() // exclude today
+  const ts = te - max_days
+  let eJ = event_log(selector).filter(e => e.t >= ts && e.t < te)
+  const days = eJ.length == 0 ? 0 : ~~eJ[0].t - ~~last(eJ).t + 1
+  const _12h = h => (h > 12 ? h - 24 : h)
+  const _24h = h => (h < 0 ? h + 24 : h)
+  const _hm = h => (
+    (h = _24h(h)), is_finite(h) ? _02d(~~h) + ':' + _02d((h - ~~h) * 60) : '?'
+  )
+  const hJ = eJ.map(e => (e.t - ~~e.t) * 24).map(_12h) // hour of day in [-12,12)
+  const dJ = eJ.map(e => ~~e.t % 7) // day of week in [0,7)
+  const pday = uniq(eJ.map(e => ~~e.t)).length / days
+  return [
+    hJ.length,
+    ...[
+      min_in(dJ) + '…' + max_in(dJ),
+      ~~(100 * pday),
+      _hm(min_in(hJ)) + '…' + _hm(max_in(hJ)),
+      //_time(mean(hJ))+'±'+_2f(stdev(hJ)),
+      _hm(circular_mean(hJ, 12)) + '±' + _hm(circular_stdev(hJ, 12)),
+      _hm(median(hJ)),
+    ],
+  ]
+}
+
+// event log stats as markdown table
+function event_log_stats_table(selectors, max_days = inf) {
+  return flat(
+    _event_log_stats_headers,
+    _event_log_stats_headers.replace(/[^|]+/g, '-:'),
+    flat(selectors).map(
+      selector =>
+        '|' +
+        (!defined(selector)
+          ? 'undefined (all)'
+          : selector === ''
+          ? "'' (no keyword)"
+          : str(selector)) +
+        '|' +
+        event_log_stats(selector, max_days)
+          .join('|')
+          .replace(/Infinity/g, '∞')
+          .replace(/-?∞/g, '?')
+          .replace(/NaN/g, '?')
+    ),
+    '',
+    _event_log_stats_style
+  ).join('\n')
+}
+
+const _event_log_stats_headers = '|selector|#|days|%|hours|mean±stdev|median|'
+const _event_log_stats_style = `<style> #item table { font-size:80%; line-height:140%; white-space:nowrap; color:gray; font-family:'jetbrains mono', monospace } </style>`
+
+// detect any changes to daily log items
+// invalidate cache & html for logger and dependents
+function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  if (dependency) return // ignore dependency changes
+  const relevant = l => l.match(/^#\d\d\d\d\/\d\d\/\d\d$/)
+  if (!relevant(label) && !relevant(prev_label)) return
+  _this.invalidate_cache()
+  _this.invalidate_elem_cache(true /* force render */)
+  each(_this.dependents, id => _item(id).invalidate_elem_cache(true))
+}
+
+// event selector by keyword `regex`
+// `regex` can be string or `RegExp` object
+// empty string matches events w/ _missing_ keyword
+// `RegExp` (if used) is attached to selector as `regex`
+// optional `fallback` selector is attached as `fallback`
+function match_keyword(regex, fallback) {
+  let selector
+  if (regex === '') selector = e => !e.keyword || fallback?.(e)
+  else {
+    if (is_string(regex)) regex = new RegExp(`^(?:${regex})$`)
+    if (!(regex instanceof RegExp)) fatal(`invalid regex`)
+    selector = e => regex.test(e.keyword) || fallback?.(e)
+  }
+  return assign(selector, { regex, fallback })
 }
 
 // parse numbers from `text`
@@ -324,4 +531,16 @@ function parse_numbers(text) {
   // for (let i=1; i<values.length; ++i)
   // values[i].name = values[i].name || values[i-1].name
   return values
+}
+
+function _test_parse_numbers() {
+  check(() => [
+    parse_numbers(',ok,test, 2h 30m 2m 5s, 400cal, ok <30m, 2p'),
+    [
+      { number: 2.5347222222222223, name: 'ok,test', unit: 'h' },
+      { number: 400, unit: 'c' },
+      { number: 0.5, name: 'ok', comparison: '<', unit: 'h' },
+      { number: 2, unit: 'p' },
+    ],
+  ])
 }

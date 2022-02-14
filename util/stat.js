@@ -813,7 +813,7 @@ function circular_stdev(xJ, r = pi) {
   if (xJ.length == 0) return NaN
   const z = r == pi ? 1 : pi / r
   const θJ = z == 1 ? xJ : xJ.map(x => x * z)
-  const R = sqrt(meanf(θJ, sin) ** 2 + meanf(θJ, cos) ** 2)
+  const R = sqrt(mean(θJ, sin) ** 2 + mean(θJ, cos) ** 2)
   return sqrt(-2 * log(R)) / z
 }
 

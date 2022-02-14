@@ -1,4 +1,4 @@
-.item .elog .hljs-line {
+.item .log .hljs-line {
   display: block;
   background: #171717;
   padding: 1px 0;
@@ -13,6 +13,6 @@
   width: fit-content; /* needed for block (vs inline-block) display */
   max-width: 100%;
 }
-.item .elog {
+.item .log {
   overflow: hidden; /* improves look of truncated lines */
 }
