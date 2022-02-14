@@ -129,13 +129,16 @@ function _init_log_highlight() {
 }
 
 function _init() {
+  // initialize highlight.js plugin
   _init_log_highlight()
+
   // set up css (see css_removed block below) for styling highlights
   // in particular to truncate long lines with ellipsis
   document.head.insertAdjacentHTML(
     'beforeend',
     '<style>' + _this.read('css') + '</style>'
   ) // see below
+
   // set up _highlight callback to make dates/times, types, tags clickable
   // we set attributes to avoid capturing references
   const prev_highlight = window._highlight // for chaining
@@ -231,13 +234,12 @@ function _init() {
 }
 
 // detect change to keywords (i.e. global store)
-// re-init highlight.js plugin, invalidate cache & html for logger & dependents
+// re-init highlight.js plugin, invalidate cache & highlights
 function _on_global_store_change(id) {
   if (id != _this.id) return // listen to self only
+  _this.invalidate_cache() // must be done first to invalidate keywords
   _init_log_highlight()
-  _this.invalidate_cache()
-  _this.invalidate_elem_cache(true /* force render */)
-  each(_this.dependents, id => _item(id).invalidate_elem_cache(true))
+  _invalidate_highlights()
 }
 
 // event log entries, most recent first
@@ -330,14 +332,17 @@ function _event_log_keywords_for_regex() {
 const event_log_index = t => sorted_index_by(event_log(), { t }, e => -e.t)
 
 // event log as text, one line per event
-// generates text from parsed objects, see `event_log` above
+// generates text from parsed objects (see `event_log` above)
 // cached on `#logger` under key `log_text.limit.hash(selector)`
+// | `limit`    | max number of events (lines)
+// | `selector` | selector function or string/regex
+// | `summary`  | include summary line? _default_: `true`
 function event_log_text(options = undefined) {
-  const { limit = 5, selector, summary = true } = options ?? {}
+  let { limit = 5, selector, summary = true } = options ?? {}
+  if (is_string(selector)) selector = match_keyword(selector)
   return _logger.cached(`log_text.${limit}.${hash(selector)}`, () => {
     const K = limit
     const eJ = event_log()
-    if (is_string(selector)) selector = match_keyword(selector)
     const eR = selector ? eJ.filter(selector) : eJ
     let sK = eR.slice(0, K).map(e => `${e.date} ${e.time} ${e.body}`)
     // drop current YYYY/ and MM/DD/ if all lines share prefix
@@ -423,15 +428,26 @@ function event_log_stats_table(selectors, max_days = inf) {
 const _event_log_stats_headers = '|selector|#|days|%|hours|mean±stdev|median|'
 const _event_log_stats_style = `<style> #item table { font-size:80%; line-height:140%; white-space:nowrap; color:gray; font-family:'jetbrains mono', monospace } </style>`
 
+function _invalidate_highlights() {
+  each(_this.dependents, id => {
+    const item = _item(id)
+    // for dependents that do not have any 'log' blocks outside of widget, update widget dynamically instead of invalidating entire item
+    const widget_only = array(item.elem?.querySelectorAll('.log')).every(log =>
+      log.closest('.logger-widget')
+    )
+    if (widget_only) _render_logger_widget(item)
+    else item.invalidate_elem_cache(true)
+  })
+}
+
 // detect any changes to daily log items
-// invalidate cache & html for logger and dependents
+// invalidate logger cache & dependent
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
   const relevant = l => l.match(/^#\d\d\d\d\/\d\d\/\d\d$/)
   if (!relevant(label) && !relevant(prev_label)) return
   _this.invalidate_cache()
-  _this.invalidate_elem_cache(true /* force render */)
-  each(_this.dependents, id => _item(id).invalidate_elem_cache(true))
+  _invalidate_highlights()
 }
 
 // event selector by keyword `regex`
@@ -566,15 +582,45 @@ function event_log_widget(options = undefined) {
   )
 }
 
-// on-demand highlighter used by the widget
-function _logger_widget_highlight(div, text) {
-  // div.innerHTML = hljs.highlight(text, { language: 'log' }).value
-  // // invoke window._highlight (see _init) for clickable elements
-  // div
-  //   .querySelectorAll('._highlight,._highlight_,._highlight__')
-  //   .forEach(elem => _highlight(elem, _this.id))
+// on-demand highlighter used by widget
+function _highlight_log(div, text) {
+  div.innerHTML = hljs.highlight(text, { language: 'log' }).value
+  // invoke window._highlight (see _init) for clickable elements
+  div
+    .querySelectorAll('._highlight,._highlight_,._highlight__')
+    .forEach(elem => _highlight(elem, _this.id))
 }
 
-function _logger_widget_init(div) {
-  // _on_change(MindBox.get())
+// detect changes to MindBox and update all widgets
+function _on_change(text, elem = document) {
+  elem?.querySelectorAll('.logger-widget .suggest').forEach(suggest => {
+    text = text.toLowerCase()
+    text = text.replace(/^\/done(?:\s|$)/, '/log done ')
+    text = text.replace(/^\/idea(?:\s|$)/, '/log idea ')
+    // TODO: filter based on rest of command acting as search terms?
+    // TODO: use value/unit based filtering logic from event items?
+    let keyword = text.match(/^\/log\s+(?:\d\d?:\d\d\s+)?(\S+)/)?.pop()
+    // workaround for :empty style (see css above) not being applied on android chrome when there is matching text in item (must be due to some interaction between highlighting and css rules for :empty)
+    suggest.style.display = keyword ? 'block' : 'none'
+    if (!keyword) {
+      suggest.innerHTML = ''
+      return
+    }
+    const matches = event_log_text({ limit: 5, selector: keyword })
+    const prefix = matches
+      ? `recent events for keyword '${keyword}': \n`
+      : `no events found for keyword '${keyword}'`
+    _highlight_log(suggest, prefix + matches)
+  })
+}
+
+// render/update widgets in item
+function _render_logger_widget(item = _this) {
+  if (!item.elem) return // item not visible, e.g. being edited
+  item.elem.querySelectorAll('.logger-widget .recent').forEach(recent => {
+    // const options = item.store[recent.id].options
+    _highlight_log(recent, event_log_text({ limit: 3, summary: false }))
+  })
+  // update .suggest via _on_change
+  _on_change(MindBox.get(), item.elem)
 }

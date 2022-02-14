@@ -1,12 +1,8 @@
 <div id="logger-widget-__cid__" class="logger-widget __classes__" __style__>
-  <pre><code class="log full"></code></pre>
-  <pre><code class="log filtered"></code></pre>
+  <pre><code class="log recent"></code></pre>
+  <pre><code class="log suggest"></code></pre>
   <script>
-    const { options } = _this.store['logger-widget-__cid__']
-    let div = _this.elem.querySelector('#logger-widget-__cid__')
-    let full = div.querySelector('.full')
-    _logger_widget_highlight(full, event_log_text({ limit: 3, summary: false }))
-    _logger_widget_init(div)
+    _render_logger_widget()
   </script>
 </div>
 
