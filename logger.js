@@ -58,15 +58,6 @@ function _log_header() {
   return header
 }
 
-// highlight log `text` into `div` element
-function _highlight_log(text, div) {
-  div.innerHTML = hljs.highlight(text, { language: 'log' }).value
-  // invoke window._highlight (see _init) for clickable elements
-  div
-    .querySelectorAll('._highlight,._highlight_,._highlight__')
-    .forEach(elem => _highlight(elem, _this.id))
-}
-
 const _logger = _item('$id')
 
 // initialize [highlight.js](https://highlightjs.org) plugin for `log` blocks
@@ -327,7 +318,7 @@ const event_log_keywords = () =>
 function _event_log_keywords_for_regex() {
   return _logger.cached('log_keywords_for_regex', () => {
     const keywords = _.uniq(_logger._global_store.keywords)
-    sort(keywords, (a, b) => b.length - a.length || b.localeCompare(a))
+    keywords.sort((a, b) => b.length - a.length || b.localeCompare(a))
     return keywords.join('|')
   })
 }
@@ -340,16 +331,10 @@ const event_log_index = t => sorted_index_by(event_log(), { t }, e => -e.t)
 
 // event log as text, one line per event
 // generates text from parsed objects, see `event_log` above
-// can `limit` events (lines) and filter (pre-limit) by `selector`
-// `selector` can be keyword string/regex, converted via `match_keyword`
 // cached on `#logger` under key `log_text.limit.hash(selector)`
-function event_log_text(
-  limit = inf,
-  selector = undefined,
-  options = undefined
-) {
+function event_log_text(options = undefined) {
+  const { limit = 5, selector, summary = true } = options ?? {}
   return _logger.cached(`log_text.${limit}.${hash(selector)}`, () => {
-    const { summary = true } = options ?? {}
     const K = limit
     const eJ = event_log()
     if (is_string(selector)) selector = match_keyword(selector)
@@ -361,7 +346,7 @@ function event_log_text(
     if (sK.every(s => s.startsWith(date))) sK = sK.map(s => s.slice(11))
     else if (sK.every(s => s.startsWith(year))) sK = sK.map(s => s.slice(5))
     if (eR.length == sK.length) return sK.join('\n')
-    if (!options?.summary) return sK.join('\n') // drop summary line
+    if (!summary) return sK.join('\n') // drop summary line
     return (
       sK.join('\n') +
       `\n+${eR.length - sK.length} of ` +
@@ -543,4 +528,53 @@ function _test_parse_numbers() {
       { number: 2, unit: 'p' },
     ],
   ])
+}
+
+function _extract_template_options(options = {}) {
+  const props = ['height', 'style', 'styles', 'classes']
+  let {
+    height = 'auto',
+    style = '',
+    styles = '',
+    classes = '',
+  } = pick(options, props)
+  options = omit(options, props) // remove props from options
+  if (is_number(height)) height += 'px'
+  style = `height:${height};${style}`
+  style = `style="${style}"`
+  styles = flat(styles).join('\n')
+  return { style, styles, classes, options }
+}
+
+// event log widget macro
+function event_log_widget(options = undefined) {
+  // note this macro structure follows that of _plot in #util/plot
+  const { style, styles, classes, widget_options } =
+    _extract_template_options(options)
+  // pass along options via item store keyed by macro cid
+  // macro cid is also passed to html via template string __cid__
+  // macro cid is preferred to html script cid for consistency
+  _this.store['logger-widget-$cid'] = { options: widget_options }
+  return html(
+    _logger
+      .read('html_widget')
+      .replace(/__classes__/g, classes)
+      .replace(/__style__/g, style)
+      .replace(/\/\* *__styles__ *\*\//g, styles)
+      .replace(/#widget\b/g, `#logger-widget-__cid__`)
+      .replace(/__cid__/g, '$cid')
+  )
+}
+
+// on-demand highlighter used by the widget
+function _logger_widget_highlight(div, text) {
+  // div.innerHTML = hljs.highlight(text, { language: 'log' }).value
+  // // invoke window._highlight (see _init) for clickable elements
+  // div
+  //   .querySelectorAll('._highlight,._highlight_,._highlight__')
+  //   .forEach(elem => _highlight(elem, _this.id))
+}
+
+function _logger_widget_init(div) {
+  // _on_change(MindBox.get())
 }

@@ -10,4 +10,8 @@
 // logger.css
 ```
 
+```html_widget_removed:logger-widget.html
+// logger-widget.html
+```
+
 #_init #_listen #_util/core #_util/sim
