@@ -248,18 +248,18 @@ function after(h) {
 }
 
 // absolute time scheduler
-// triggers at specific times `tJ`
-// times are in event time units: days since `_t0_monday_midnight`
+// triggers at specific absolute times `tJ`
+// `tJ` must be sorted (oldest first), in `event_time` units (see below)
 const times = (...tJ) => {
-  tJ = flat(tJ).sort((a, b) => a - b)
+  tJ = flat(tJ) //.sort((a, b) => a - b)
   const J = tJ.length
   tJ.push(inf) // tJ[J]=inf simplifies logic below
   let j = -1 // outside storage to remember last index
-  return (x, t) => {
-    if (j >= 0 && tJ[j] != t) j = -1 // reset if (t,j) inconsistent
-    if (j++ == J) return inf // done
-    while (tJ[j] <= x.t) j++
-    return tJ[j]
+  return x => {
+    while (true) {
+      if (++j == J) return inf
+      if (tJ[j] > x.t) return tJ[j]
+    }
   }
 }
 
