@@ -682,9 +682,10 @@ class _Sampler {
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
       /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|minimize|maximize|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
-    this.js = js.replace(
-      __sampler_regex,
-      (m, name, key, method, args, offset) => {
+
+    let line_index, line // shared across recursive calls
+    const _replace_calls = (js, root = false) =>
+      js.replace(__sampler_regex, (m, name, key, method, args, offset) => {
         // remove quotes from object object key
         if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
         // parse size (and alt name) from array method args
@@ -732,13 +733,6 @@ class _Sampler {
         const suffix = js.slice(offset + mt.length)
         const line_prefix = prefix.match(/.*$/)[0]
         const line_suffix = suffix.match(/^.*/)[0]
-        const line_index = _count_unescaped(prefix, '\n')
-        const line = lines[line_index]
-        check(() => [
-          line_prefix + mt + line_suffix,
-          line,
-          (a, b) => a.startsWith(b),
-        ]) // sanity check
 
         // skip matches inside comments or strings
         if (
@@ -756,6 +750,20 @@ class _Sampler {
         // skip function definitions (e.g. from imported #util/sample)
         if (line_prefix.match(/function *$/)) return m
         if (line_suffix.match(/{ *$/)) return m
+
+        // update & check line if processing at root level (vs in args)
+        if (root) {
+          line_index = _count_unescaped(prefix, '\n')
+          line = lines[line_index]
+          check(() => [
+            line_prefix + mt + line_suffix,
+            line,
+            (a, b) => a.startsWith(b),
+          ]) // sanity check
+        }
+
+        // recursively replace calls nested inside arguments
+        args = _replace_calls(args)
 
         // uncomment to debug replacement issues ...
         // console.log(offset, line_prefix + line_suffix)
@@ -852,8 +860,8 @@ class _Sampler {
           new RegExp(method + ' *\\(.+\\)$', 's'),
           `__sampler._${method}(${index},${args})`
         )
-      }
-    )
+      })
+    this.js = _replace_calls(js, true /*root js*/)
 
     // evaluate new function w/ replacements
     // use wrapper to pass along params (if any) from calling scope/context
