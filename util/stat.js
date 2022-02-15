@@ -606,7 +606,7 @@ function ks1(xJ, cdf, options = {}) {
 
 // `P(X<=x)` for [Kolmogorov distribution](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov_distribution)
 // `= jacobiTheta(4, 0, exp(-2*x*x))` using algorithm at [math.js](https://github.com/paulmasson/math/blob/29146e1a18b52d709770d1cbe17d8f0ad6bbdfd0/src/functions/elliptic-functions.js#L2)
-// `≡ EllipticTheta[4,0,Exp[-2*x*x]]` in Mathematica (used for testing)
+// `≡ EllipticTheta[4, 0, Exp[-2*x*x]]` in Mathematica (used for testing)
 function kolmogorov_cdf(x, ε = 1e-10) {
   const q = exp(-2 * x * x)
   let s = 0
@@ -620,7 +620,7 @@ function kolmogorov_cdf(x, ε = 1e-10) {
   return 1 + 2 * s
 }
 
-// `P(X<=x)` for two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
+// `P(X<=x)` for two-sample [Kolmogorov-Smirnov statistic](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic)
 // exact asymptotically (`J->∞,K->∞`) for continuous samples
 // approximate (within `0.27%` for `J,K≥20`) for small `J,K`
 // _invalid for discrete or mixed samples_
@@ -636,9 +636,10 @@ function ks2_cdf(x, J, K = J) {
 // approximate (within `0.27%` for `J≥10`) for small `J`
 // _invalid for discrete or mixed samples_
 function ks1_cdf(x, J) {
-  x *= sqrt(J)
+  const s = sqrt(J)
+  x *= s
   // small-sample correction from "Small-Sample Corrections to Kolmogorov–Smirnov Test Statistic" by Jan Vrbik, also mentioned in Wikipedia
-  x += 1 / (6 * sqrt(J)) + (x - 1) / (4 * J)
+  x += 1 / (6 * s) + (x - 1) / (4 * J)
   return kolmogorov_cdf(x)
 }
 
@@ -659,6 +660,67 @@ function ks2_test(xJ, yK, options = {}) {
 function ks1_test(xJ, cdf, options = {}) {
   const { wJ, wj_sum } = options
   return 1 - ks1_cdf(ks1(xJ, cdf, options), wJ ? ess(wJ, wj_sum) : xJ.length)
+}
+
+// (Log) density for [Kolmogorov distribution](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov_distribution)
+// `≡ Log[D[EllipticTheta[4, 0, Exp[-2*x*x]], x]]` in Mathematica
+function kolmogorov_density(x) {
+  // pieceise linear interpolation/fit below x<5
+  // keypoints: FindMaximum[…,{x,.5}], FindRoot[…,{x,.177}], FindRoot[…, {x, 1}]
+  // additional points added manually via inspection
+  // expected absolute error is ~0.01 (~.015 w/o normalizer)
+  const z = 0.0153762 // normalizer: Log@NIntegrate[Exp[g@x], {x, 0, 100}]
+  if (x < 0.25) return z - 74.8823 + 249.939 * x
+  if (x < 0.3) return z - 38.8508 + 105.813 * x
+  if (x < 0.4) return z - 21.5566 + 48.1654 * x
+  if (x < 0.45) return z - 11.3189 + 22.5711 * x
+  if (x < 0.5) return z - 7.59603 + 14.2982 * x
+  if (x < 0.54939) return z - 4.97152 + 9.04916 * x // log-density = 0
+  if (x < 0.6) return z - 3.04766 + 5.54734 * x
+  if (x < 0.65) return z - 1.59926 + 3.13336 * x
+  if (x < 0.735468) return z - 0.212356 + 0.999653 * x // log-density = max
+  if (x < 0.85) return z + 1.19502 - 0.913928 * x
+  if (x < 0.92) return z + 2.11995 - 2.00208 * x
+  if (x < 1.02353) return z + 2.74881 - 2.68563 * x // log-density = 0
+  if (x < 1.2) return z + 3.58984 - 3.50732 * x
+  if (x < 1.4) return z + 4.69209 - 4.42586 * x
+  if (x < 1.6) return z + 5.96095 - 5.33219 * x
+  if (x < 2.5) return z + 9.75604 - 7.70412 * x
+  if (x < 3.5) return z + 19.6546 - 11.6635 * x
+  if (x < 5) return z + 37.5 - 16.7622 * x
+  // quadratic fit above x>5 (log-density < -46.3111)
+  // Normal@NonlinearModelFit[Table[{x,SetPrecision[f@x,10]},{x,1,100}],a+b*x+c*x^2,{a,b,c},x]
+  // relative error is <=.003 for x>=5, <=.001 for x>=10
+  return z + 3.5008256 + 0.07386344 * x - 2.0004475 * x * x
+}
+
+// (Log) density for two-sample [Kolmogorov-Smirnov statistic](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic)
+function _ks2_density(x, J, K = J) {
+  return _ks1_density(x, (J * K) / (J + K))
+}
+
+// (Log) density for one-sample [Kolmogorov-Smirnov statistic](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic)
+function _ks1_density(x, J) {
+  const s = sqrt(J)
+  x *= s
+  x += 1 / (6 * s) + (x - 1) / (4 * J) // same as in ks1_cdf above
+  return kolmogorov_density(x)
+}
+
+// (Log) density for two-sample [Kolmogorov-Smirnov statistic](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic)
+function ks2_density(xJ, yK, options = {}) {
+  const { wJ, wj_sum, wK, wk_sum } = options
+  return _ks2_density(
+    ks2(xJ, yK, options),
+    wJ ? ess(wJ, wj_sum) : xJ.length,
+    wK ? ess(wK, wk_sum) : yK.length
+  )
+}
+
+// (Log) density for one-sample [Kolmogorov-Smirnov statistic](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic)
+function ks1_density(xJ, cdf, options = {}) {
+  const { wJ, wj_sum } = options
+  return _ks1_density(ks1(xJ, cdf, options), wJ ? ess(wJ, wj_sum) : xJ.length)
 }
 
 // minimum element in `xJ`
