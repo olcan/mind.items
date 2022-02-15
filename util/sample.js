@@ -2649,10 +2649,10 @@ function _run() {
   const js = read('js_input').trim()
   // if js begins w/ sample(...) call, assume no wrapper is needed
   if (js.match(/^sample *\(/)) return null
-  // if js contains any sample|sample_array call, then wrap inside sample(...)
+  // if js contains any sample|simulate|sample_array call, then wrap inside sample(...)
   // note this could match inside comments or strings
-  if (!js.match(/\b(?:sample|sample_array) *\(/)) return null
-  print('running inside sample(…) due to sampled values')
+  if (!js.match(/\b(?:sample|sample_array|simulate) *\(/)) return null
+  print('running inside sample(…) due to sampled or simulated values')
   const func = eval(flat('(context=>{', js, '})').join('\n'))
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)
