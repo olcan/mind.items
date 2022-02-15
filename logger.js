@@ -242,7 +242,7 @@ function _on_global_store_change(id) {
   _invalidate_highlights()
 }
 
-// event log entries, most recent first
+// event log entries, newest first
 // returns array of parsed objects w/ properties:
 // | `date`     | event date string as `YYYY/MM/DD`
 // | `time`     | event time string as `HH:MM`
@@ -299,7 +299,7 @@ function event_log(selector = undefined) {
   return _logger.cached(`log.${hash(selector)}`, () => eJ.filter(selector))
 }
 
-// event log item names, most recent first
+// event log item names, newest first
 // array of strings of the form `#YYYY/MM/DD`
 // cached on `#logger` under key `log_items`
 function event_log_items() {
@@ -325,7 +325,7 @@ function _event_log_keywords_for_regex() {
   })
 }
 
-// index of most recent event by time `t`
+// index of newest event by time `t`
 // returns `event_log().length` if no events by time `t`
 // equal to lowest insertion index for event at time `t`
 // uses binary search w/ logarithmic scaling ~⟘i,t
@@ -364,12 +364,14 @@ function event_log_text(options = undefined) {
 
 const event_log_block = (...args) => block('log', event_log_text(...args))
 
-// event log times, most recent first
+// event log times, oldest first
 // `selector` can be keyword string/regex, converted via `match_keyword`
 // cached on `#logger` under key `log_times.hash(selector)`
 const event_log_times = (selector = undefined) =>
   _logger.cached(`log_times.${hash(selector)}`, () =>
-    event_log(selector).map(e => e.t)
+    event_log(selector)
+      .map(e => e.t)
+      .reverse()
   )
 
 // event log stats
