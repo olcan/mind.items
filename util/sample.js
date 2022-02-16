@@ -581,7 +581,7 @@ class _Sampler {
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
     cache(this, 'ess', ['rwj_ess'])
-    cache(this, 'wsum', [], () => sum(this.log_wrJ, exp))
+    cache(this, 'lwr', [], () => sum(this.log_wrJ))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
     cache(this, 'elp', ['rwJ'])
@@ -607,7 +607,7 @@ class _Sampler {
     if (options.log) {
       print(
         `sampled ${J} prior runs (ess ${this.pwj_ess}, ` +
-          `wsum ${this.wsum}) in ${timer}`
+          `lwr ${this.lwr}) in ${timer}`
       )
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
@@ -899,7 +899,7 @@ class _Sampler {
     if (!options.stats) return // stats disabled
     // enable ALL stats for stats == true
     const known_keys = flat(
-      'ess essu essr elw elp wsum mar mlw mlp mks tks p a m t r'.split(/\W+/),
+      'ess essu essr elw elp lwr mar mlw mlp mks tks p a m t r'.split(/\W+/),
       this.nK.map(n => `mar.${n}`),
       this.nK.map(n => `uar.${n}`),
       this.nK.map(n => `up.${n}`),
@@ -962,7 +962,7 @@ class _Sampler {
     if (spec.essr) update.essr = round(100 * clip(this.ess / this.essu))
     if (spec.elw) update.elw = round_to(this.elw, 3)
     if (spec.elp) update.elp = round_to(this.elp, 3)
-    if (spec.wsum) update.wsum = round_to(this.wsum, 1)
+    if (spec.lwr) update.lwr = round_to(this.lwr, 1)
     if (spec.mar)
       update.mar = this.u == 0 ? 100 : round_to(100 * (this.a / this.p), 3, 3)
     each(this.nK, (n, k) => {
@@ -1034,7 +1034,7 @@ class _Sampler {
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       add(log_rwJ, log_wrJ)
     }
-    this.wsum = null // since log_wrJ changed
+    this.lwr = null // since log_wrJ changed
     fill(jJ, j => j) // init sample indices
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
@@ -1142,7 +1142,7 @@ class _Sampler {
       clip_in(log_rwJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       clip_in(_log_rwJ_base, -Number.MAX_VALUE, Number.MAX_VALUE)
       sub(log_rwJ, _log_rwJ_base) // subtract _base for non-optimizing weights
-      this.wsum = null // since log_wrJ changed
+      this.lwr = null // since log_wrJ changed
       this.rwJ = null // reset cached posterior ratio weights and dependents
     } while (++tries < max_reweight_tries && this.ess < reweight_ess)
 
@@ -1198,7 +1198,7 @@ class _Sampler {
     fill(log_rwJ, 0) // reset weights now "baked into" sample
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // since jJ changed
-    this.wsum = null // since log_wrJ changed
+    this.lwr = null // since log_wrJ changed
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
@@ -1292,7 +1292,7 @@ class _Sampler {
       apply(jJ, j => (j >= J ? jj++ : jjJ[j] >= 0 ? jjJ[j] : (jjJ[j] = jj++)))
       this.rwJ = null // reset cached posterior ratio weights and dependents
       this.counts = null // since jJ changed
-      this.wsum = null // since log_wrJ changed
+      this.lwr = null // since log_wrJ changed
     }
 
     if (stats) {
@@ -1579,18 +1579,18 @@ class _Sampler {
 
     const r = round_to(this.r, 3, inf, 'floor')
     const ess = round(this.ess)
-    const wsum = round_to(this.wsum, 1)
+    const lwr = round_to(this.lwr, 1)
     const mks = round_to(this.mks, 3)
     _this.write(
       table(
         entries({
-          // always display r, ess, wsum, and mks at the top
+          // always display r, ess, lwr, and mks at the top
           r,
           ess,
-          wsum,
+          lwr,
           mks,
           // also omit t since redundant and confusable w/ x.t
-          ...omit(last(stats.updates), ['t', 'r', 'ess', 'wsum', 'mks']),
+          ...omit(last(stats.updates), ['t', 'r', 'ess', 'lwr', 'mks']),
         })
       ),
       '_md_last_update'
@@ -1729,12 +1729,9 @@ class _Sampler {
           })
       })
 
-      if (spec.wsum) add_rescaled_line('wsum')
+      if (spec.lwr) add_rescaled_line('lwr')
       if (spec.elw) add_rescaled_line('elw', null, 3)
-      if (spec.elp) {
-        const [a, b] = min_max_in(map(updates, 'elp'))
-        add_rescaled_line('elp', [a, b], 3)
-      }
+      if (spec.elp) add_rescaled_line('elp', null, 3)
       let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
       if (spec.mlw) {
         const [a, b] = min_max_in(map(updates, 'mlw'))
@@ -1770,12 +1767,12 @@ class _Sampler {
           data: {
             colors: {
               // weight-related stats are gray
-              // elw/elp/wsum closely related, mlw/mlp is dashed to distinguish
+              // elw/elp/lwr closely related, mlw/mlp is dashed to distinguish
               mlw: '#666',
               mlp: '#666',
               elw: '#666',
               elp: '#666',
-              wsum: '#666',
+              lwr: '#666',
               ...from_pairs(
                 quantiles?.map(q => [
                   q,
