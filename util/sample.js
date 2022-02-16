@@ -2460,6 +2460,9 @@ class _Sampler {
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
     this.xJK[this.j][k] = x
+    // treat as jump to simplify update-related logic, e.g. in __mks
+    // value.sampled can also be used to treat plotted values differently
+    this.upJK[this.j][k] = this.u
     return x
   }
 
