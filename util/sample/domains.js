@@ -149,6 +149,16 @@ const index = K => uniform_integer(0, K - 1)
 // `x` in union of `domains`
 const or = mixture
 
+// `xJ` distributed like `yK`
+// modifies `yK` to sort
+function dist(...yK) {
+  if (yK.length == 1 && is_array(yK[0])) yK = yK[0]
+  const dom = { is: 'array' }
+  sort(yK) // pre-sort to save time in _log_p
+  dom._log_p = xJ => ks2_density(xJ, yK, { yk_sorted: true })
+  return dom
+}
+
 // `x∈(0,S)` in sum to `S>0`
 // `undefined` if `S` non-finite or non-positive
 // returns function `(j,J,s)=>…` to be passed to `sample_array(J, …)`

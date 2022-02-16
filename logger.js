@@ -281,6 +281,9 @@ function event_log(selector = undefined) {
         last_time = time
         const t_date = parse_date_time(date, time)
         let [keyword] = body.toLowerCase().match(keyword_regex) || []
+        const t = event_time(t_date)
+        const td = ~~t
+        const th = (t - td) * 24
         log.push({
           date,
           time,
@@ -288,7 +291,9 @@ function event_log(selector = undefined) {
           keyword,
           numbers: parse_numbers(body),
           t_date,
-          t: event_time(t_date),
+          t,
+          td,
+          th,
         })
       })
     })
@@ -380,15 +385,15 @@ function event_log_stats(selector = undefined, max_days = inf) {
   const te = ~~event_time() // exclude today
   const ts = te - max_days
   let eJ = event_log(selector).filter(e => e.t >= ts && e.t < te)
-  const days = eJ.length == 0 ? 0 : ~~eJ[0].t - ~~last(eJ).t + 1
+  const days = eJ.length == 0 ? 0 : eJ[0].td - last(eJ).td + 1
   const _12h = h => (h > 12 ? h - 24 : h)
   const _24h = h => (h < 0 ? h + 24 : h)
   const _hm = h => (
     (h = _24h(h)), is_finite(h) ? _02d(~~h) + ':' + _02d((h - ~~h) * 60) : '?'
   )
-  const hJ = eJ.map(e => (e.t - ~~e.t) * 24).map(_12h) // hour of day in [-12,12)
-  const dJ = eJ.map(e => ~~e.t % 7) // day of week in [0,7)
-  const pday = uniq(eJ.map(e => ~~e.t)).length / days
+  const hJ = eJ.map(e => e.th).map(_12h) // hour of day in [-12,12)
+  const dJ = eJ.map(e => e.td % 7) // day of week in [0,7)
+  const pday = uniq(eJ.map(e => e.td)).length / days
   return [
     hJ.length,
     ...[

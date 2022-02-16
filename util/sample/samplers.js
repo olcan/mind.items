@@ -255,7 +255,7 @@ function constant(x) {
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on arguments `xK`
 // `undefined` if `xK` is empty
 function uniform_discrete(...xK) {
-  if (!xK.length) return undefined
+  if (xK.length == 1 && is_array(xK[0])) xK = xK[0]
   const K = xK.length
   const dom = { in_equal: xK }
   dom._prior = f => f(random_element(xK))
@@ -354,7 +354,7 @@ function _test_uniform_binary() {
 // mixture(...samplers)
 // [mixture](https://en.wikipedia.org/wiki/Mixture_distribution) on union domain `{or:samplers}`
 function mixture(...sK) {
-  if (!sK.length) return undefined
+  if (sK.length == 1 && is_array(sK[0])) sK = sK[0]
   if (sK.length == 1) return sK[0]
   const dom = { or: sK }
   // return plain {or} domain if all domains are non-samplers
@@ -394,7 +394,8 @@ function _test_mixture() {
 // independent samplers on product domain
 function tuple(...args) {
   // handle special case of tuple(K, sk) as tuple(...array(K, sk))
-  if (args.length == 2 && is_integer(args[0])) return tuple(...array(...args))
+  if (args.length == 2 && is_integer(args[0])) return tuple(array(...args))
+  if (args.length == 1 && is_array(args[0])) args = args[0]
   const sK = args
   if (!sK.every(s => s?._prior)) return array(sK.length)
   sK._prior = f => f(copy(sK, s => s._prior(x => x)))
