@@ -57,8 +57,8 @@ const random_discrete_uniform_array = (xJ, a, b) => {
 
 // random_discrete(wJ, [sum_wj])
 // [discrete](https://en.wikipedia.org/wiki/Categorical_distribution) on `{0,…,J-1}` w/ prob. `P(j)∝wJ[j]`
-// normalizer `sum_wj` can be passed if known
 // faster if `wJ` is sorted by decreasing weight
+// normalizer `sum_wj` can be passed if known
 // `≡ random_discrete_uniform(J)` if `sum_wj==0`
 // assumes `wj>=0` and `sum_wj>=0`
 const random_discrete = (wJ, sum_wj) => {
@@ -79,6 +79,9 @@ const random_discrete = (wJ, sum_wj) => {
 
 // random_discrete_array(jK, wJ, [sum_wj])
 // fills `jK` with `discrete(wJ, sum_wj)`
+// faster if `wJ` is sorted by decreasing weight
+// normalizer `sum_wj` can be passed if known
+// `≡ random_discrete_uniform_array(jK, J)` if `sum_wj==0`
 // indices `jK` are ordered due to sampling method
 // use `random_shuffle(jK)` for random ordering
 function random_discrete_array(jK, wJ, sum_wj) {
