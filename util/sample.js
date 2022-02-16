@@ -582,6 +582,7 @@ class _Sampler {
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
     cache(this, 'ess', ['rwj_ess'])
     cache(this, 'lwr', [], () => sum(this.log_wrJ))
+    cache(this, 'lpx', [], () => sum(this.log_p_xJK, lpK => sum(lpK)))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
     cache(this, 'elp', ['rwJ'])
@@ -607,7 +608,7 @@ class _Sampler {
     if (options.log) {
       print(
         `sampled ${J} prior runs (ess ${this.pwj_ess}, ` +
-          `lwr ${this.lwr}) in ${timer}`
+          `lwr ${this.lwr}, lpx ${this.lpx}) in ${timer}`
       )
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
@@ -899,7 +900,9 @@ class _Sampler {
     if (!options.stats) return // stats disabled
     // enable ALL stats for stats == true
     const known_keys = flat(
-      'ess essu essr elw elp lwr mar mlw mlp mks tks p a m t r'.split(/\W+/),
+      'ess essu essr elw elp lwr lpx mar mlw mlp mks tks p a m t r'.split(
+        /\W+/
+      ),
       this.nK.map(n => `mar.${n}`),
       this.nK.map(n => `uar.${n}`),
       this.nK.map(n => `up.${n}`),
@@ -963,6 +966,7 @@ class _Sampler {
     if (spec.elw) update.elw = round_to(this.elw, 3)
     if (spec.elp) update.elp = round_to(this.elp, 3)
     if (spec.lwr) update.lwr = round_to(this.lwr, 1)
+    if (spec.lpx) update.lpx = round_to(this.lpx, 1)
     if (spec.mar)
       update.mar = this.u == 0 ? 100 : round_to(100 * (this.a / this.p), 3, 3)
     each(this.nK, (n, k) => {
@@ -1035,6 +1039,7 @@ class _Sampler {
       add(log_rwJ, log_wrJ)
     }
     this.lwr = null // since log_wrJ changed
+    this.lpx = null // since log_p_xJK changed
     fill(jJ, j => j) // init sample indices
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
@@ -1199,6 +1204,7 @@ class _Sampler {
     this.rwJ = null // reset cached posterior ratio weights and dependents
     this.counts = null // since jJ changed
     this.lwr = null // since log_wrJ changed
+    this.lpx = null // since log_p_xJK changed
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
@@ -1293,6 +1299,7 @@ class _Sampler {
       this.rwJ = null // reset cached posterior ratio weights and dependents
       this.counts = null // since jJ changed
       this.lwr = null // since log_wrJ changed
+      this.lpx = null // since log_p_xJK changed
     }
 
     if (stats) {
@@ -1580,6 +1587,7 @@ class _Sampler {
     const r = round_to(this.r, 3, inf, 'floor')
     const ess = round(this.ess)
     const lwr = round_to(this.lwr, 1)
+    const lpx = round_to(this.lpx, 1)
     const mks = round_to(this.mks, 3)
     _this.write(
       table(
@@ -1588,6 +1596,7 @@ class _Sampler {
           r,
           ess,
           lwr,
+          lpx,
           mks,
           // also omit t since redundant and confusable w/ x.t
           ...omit(last(stats.updates), ['t', 'r', 'ess', 'lwr', 'mks']),
@@ -1731,6 +1740,7 @@ class _Sampler {
       })
 
       if (spec.lwr) add_rescaled_line('lwr')
+      if (spec.lpx) add_rescaled_line('lpx')
       if (spec.elw) add_rescaled_line('elw', null, 3)
       if (spec.elp) add_rescaled_line('elp', null, 3)
       let mlw_0_on_y // for grid line to indicate 0 level for mlw on y axis
