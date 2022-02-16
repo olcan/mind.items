@@ -1671,7 +1671,8 @@ class _Sampler {
           each(quantiles, k => add_rescaled_line(k, [a, b]))
           return
         }
-        const [a, b] = range ?? min_max_in(map(updates, n))
+        // note we ignore infinite values for computing range
+        const [a, b] = range ?? min_max_in(map(updates, n).filter(is_finite))
         const _n = n.replace(/\./g, '_') // periods don't work well w/ context
         add_line(n, {
           axis: 'y2',
