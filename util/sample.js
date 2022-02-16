@@ -334,7 +334,7 @@ function sample(domain, options = undefined) {
     fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
   // decline target for root sampler since that is no parent to track tks
   if (options?.target) fatal(`invalid target outside of sample(context=>{ … })`)
-  return new _Sampler(domain, options).sample()
+  return new _Sampler(domain, options).sample(options)
 }
 
 // sample `J` _unknowns_ into `xJ` from `domain`
@@ -1047,7 +1047,7 @@ class _Sampler {
     this.lwr = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
     fill(jJ, j => j) // init sample indices
-    this._resort() // since log_rwJ changed, in case !rwj_uniform
+    this._resort() // since rwJ_agg changed
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
     copy(pxJ, xJ)
@@ -1177,7 +1177,7 @@ class _Sampler {
       this.elw = null // since log_wrJ changed
     }
 
-    this._resort() // since log_rwJ changed, in case !rwj_uniform
+    this._resort() // since rwJ_agg changed
 
     if (stats) {
       stats.reweights++
@@ -1216,13 +1216,14 @@ class _Sampler {
     this.lwr = null // since log_wrJ changed
     this.elw = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
+    this._resort() // since rwJ_agg changed
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
     }
   }
 
-  // (re)sort by decreasing weight (rwJ)
+  // (re)sort by decreasing aggregated weight (rwJ_agg)
   // allows enumerating samples in decreasing weight
   // speeds up random_discrete(_array) based on rwJ as in sample_index()
   // could also speed up other operations that are somehow biased by weight
@@ -1230,14 +1231,15 @@ class _Sampler {
   // e.g. revealed a weighted sorting bug in ks2
   // could be tied to an option in the future
   _resort() {
-    if (this.rwj_uniform) return // nothing to do!
+    if (this.ess == this.J) return // nothing to do
     const timer = _timer_if(this.stats)
-    const { jjJ, rwJ, stats, _jJ, jJ } = this
+    const { jjJ, rwJ_agg, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wrfJN, log_wrfJN } = this
     const { _uaJK, uaJK, _log_wrJ, log_wrJ, log_p_xJK, _log_p_xJK } = this
-    const { _log_rwJ, log_rwJ, ____rwJ, ___rwJ } = this // since !rwj_uniform
+    const { _log_rwJ, log_rwJ } = this // since ess<J
+
     fill(jjJ, j => j)
-    rank_by(jjJ, j => rwJ[j])
+    rank_by(jjJ, j => rwJ_agg[jJ[j]])
     scan(jjJ, (j, jj) => {
       _jJ[j] = jJ[jj]
       _xJ[j] = xJ[jj]
@@ -1247,7 +1249,6 @@ class _Sampler {
       _log_wrfJN[j] = log_wrfJN[jj]
       _log_wrJ[j] = log_wrJ[jj]
       _log_rwJ[j] = log_rwJ[jj]
-      ____rwJ[j] = ___rwJ[jj] // buffer used in __rwJ()
     })
     this._swap(
       'jJ',
@@ -1257,10 +1258,11 @@ class _Sampler {
       'log_p_xJK',
       'log_wrfJN',
       'log_wrJ',
-      'log_rwJ',
-      '___rwJ'
+      'log_rwJ'
     )
-    this._rwJ = this.___rwJ // updated cached _rwJ since ___rwJ was swapped
+    this.rwJ = null // since log_rwJ changed
+    // sanity check that first sample has maximal aggregate weight
+    check(() => [max_in(rwJ_agg), this.rwJ_agg[this.jJ[0]]])
     // note all other state should be invariant to permutation
     if (stats) {
       stats.resorts++
@@ -1361,6 +1363,7 @@ class _Sampler {
       this.lwr = null // since log_wrJ changed
       this.elw = null // since log_wrJ changed
       this.lpx = null // since log_p_xJK changed
+      this._resort() // since rwJ_agg changed
     }
 
     if (stats) {
@@ -2273,7 +2276,7 @@ class _Sampler {
     const j = options?.index ?? this.sample_index(options)
     const xJK = options?.prior ? this.pxJK : this.xJK
     // const xJ = options?.prior ? this.pxJ : this.xJ
-    const wJ = options?.prior ? this.pwJ : this.rwJ
+    const wJ = options?.prior ? this.pwJ : this.rwJ_agg
     switch (options?.format) {
       case 'array':
         return xJK[j]
@@ -2281,7 +2284,7 @@ class _Sampler {
       default:
         return assign(zip_object(this.nK, xJK[j]), {
           // _output: xJ[j],
-          _weight: wJ[j],
+          _weight: wJ[this.jJ[j]],
           _index: j,
         })
     }
@@ -2291,7 +2294,7 @@ class _Sampler {
     const j = options?.index ?? this.sample_index(options)
     const [xJK, xJ, wJ] = options?.prior
       ? [this.pxJK, this.pxJ, this.pwJ]
-      : [this.xJK, this.xJ, this.rwJ]
+      : [this.xJK, this.xJ, this.rwJ_agg]
     if (options?.values) {
       switch (options?.format) {
         case 'array':
@@ -2309,7 +2312,7 @@ class _Sampler {
     } else if (options?.output) {
       return {
         _output: xJ[j],
-        _weight: wJ[j],
+        _weight: wJ[this.jJ[j]],
         _index: j,
       }
     }
