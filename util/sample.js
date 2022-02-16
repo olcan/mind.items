@@ -553,7 +553,7 @@ class _Sampler {
     this.yJ = array(J) // proposed return values
     this.jJ = array(J) // sample indices
     this.jjJ = array(J) // shuffle indices
-    // resample (shuffle) buffers
+    // resample (shuffle) & resort buffers
     this._jJ = array(J)
     this._xJ = array(J)
     this._xJK = array(J)
@@ -561,9 +561,10 @@ class _Sampler {
     this._log_p_xJK = array(J)
     this._log_wrfJN = array(J)
     this._log_wrJ = array(J)
+    this.____rwJ = array(J) // resort only
     // reweight buffers
     this._rN = array(N)
-    this._log_rwJ = array(J)
+    this._log_rwJ = array(J) // also used in resort
     this._log_rwJ_base = array(J)
 
     // define cached properties
@@ -878,8 +879,9 @@ class _Sampler {
     const _func = function () {
       window.__sampler = __sampler
       __sampler._init_func()
-      func(...arguments)
+      const out = func(...arguments)
       window.__sampler = null
+      return out
     }
     return {
       func: _func,
@@ -936,6 +938,7 @@ class _Sampler {
       reweights: 0,
       reweight_tries: 0,
       resamples: 0,
+      resorts: 0,
       moves: 0,
       proposals: 0,
       accepts: 0,
@@ -947,6 +950,7 @@ class _Sampler {
           sample: 0,
           reweight: 0,
           resample: 0,
+          resort: 0,
           move: 0,
           mks: 0,
           tks: 0,
@@ -1024,7 +1028,7 @@ class _Sampler {
 
   _sample_prior() {
     const timer = _timer_if(this.stats)
-    const { func, J, xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
+    const { func, xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
     const { log_pwJ, rN, log_wrJ, log_rwJ, log_wrfJN, stats } = this
     this.u = 0 // prior is zero'th update step
     fill(log_pwJ, 0)
@@ -1043,6 +1047,7 @@ class _Sampler {
     this.lwr = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
     fill(jJ, j => j) // init sample indices
+    this._resort() // since log_rwJ changed, in case !rwj_uniform
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
     copy(pxJ, xJ)
@@ -1150,7 +1155,7 @@ class _Sampler {
       clip_in(_log_rwJ_base, -Number.MAX_VALUE, Number.MAX_VALUE)
       sub(log_rwJ, _log_rwJ_base) // subtract _base for non-optimizing weights
       this.lwr = null // since log_wrJ changed
-      this.rwJ = null // reset cached posterior ratio weights and dependents
+      this.rwJ = null // since log_rwJ changed
     } while (++tries < max_reweight_tries && this.ess < reweight_ess)
 
     if (this.ess < reweight_ess)
@@ -1168,7 +1173,11 @@ class _Sampler {
       this._fork()
       fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f(rN[n])))
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
+      this.lwr = null // since log_wrJ changed
+      this.elw = null // since log_wrJ changed
     }
+
+    this._resort() // since log_rwJ changed, in case !rwj_uniform
 
     if (stats) {
       stats.reweights++
@@ -1185,7 +1194,6 @@ class _Sampler {
   // resample step
   // resample based on rwJ, reset rwJ=1
   _resample() {
-    // if (this.optimizing && this.r == 1) return
     const timer = _timer_if(this.stats)
     const { J, jjJ, rwj_uniform, rwJ, rwj_sum, log_rwJ, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wrfJN, log_wrfJN } = this
@@ -1203,13 +1211,60 @@ class _Sampler {
     })
     this._swap('jJ', 'xJ', 'xJK', 'uaJK', 'log_p_xJK', 'log_wrfJN', 'log_wrJ')
     fill(log_rwJ, 0) // reset weights now "baked into" sample
-    this.rwJ = null // reset cached posterior ratio weights and dependents
+    this.rwJ = null // since log_rwJ changed
     this.counts = null // since jJ changed
     this.lwr = null // since log_wrJ changed
+    this.elw = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
+    }
+  }
+
+  // (re)sort by decreasing weight (rwJ)
+  // allows enumerating samples in decreasing weight
+  // speeds up random_discrete(_array) based on rwJ as in sample_index()
+  // could also speed up other operations that are somehow biased by weight
+  // not strictly necessary otherwise, but cheap & can reveal bugs
+  // e.g. revealed a weighted sorting bug in ks2
+  // could be tied to an option in the future
+  _resort() {
+    if (this.rwj_uniform) return // nothing to do!
+    const timer = _timer_if(this.stats)
+    const { jjJ, rwJ, stats, _jJ, jJ } = this
+    const { _xJ, xJ, _xJK, xJK, _log_wrfJN, log_wrfJN } = this
+    const { _uaJK, uaJK, _log_wrJ, log_wrJ, log_p_xJK, _log_p_xJK } = this
+    const { _log_rwJ, log_rwJ, ____rwJ, ___rwJ } = this // since !rwj_uniform
+    fill(jjJ, j => j)
+    rank_by(jjJ, j => rwJ[j])
+    scan(jjJ, (j, jj) => {
+      _jJ[j] = jJ[jj]
+      _xJ[j] = xJ[jj]
+      _xJK[j] = xJK[jj]
+      _uaJK[j] = uaJK[jj]
+      _log_p_xJK[j] = log_p_xJK[jj]
+      _log_wrfJN[j] = log_wrfJN[jj]
+      _log_wrJ[j] = log_wrJ[jj]
+      _log_rwJ[j] = log_rwJ[jj]
+      ____rwJ[j] = ___rwJ[jj] // buffer used in __rwJ()
+    })
+    this._swap(
+      'jJ',
+      'xJ',
+      'xJK',
+      'uaJK',
+      'log_p_xJK',
+      'log_wrfJN',
+      'log_wrJ',
+      'log_rwJ',
+      '___rwJ'
+    )
+    this._rwJ = this.___rwJ // updated cached _rwJ since ___rwJ was swapped
+    // note all other state should be invariant to permutation
+    if (stats) {
+      stats.resorts++
+      stats.time.updates.resort += timer.t
     }
   }
 
@@ -1298,9 +1353,13 @@ class _Sampler {
       fill(jjJ, -1)
       let jj = 0 // new indices
       apply(jJ, j => (j >= J ? jj++ : jjJ[j] >= 0 ? jjJ[j] : (jjJ[j] = jj++)))
-      this.rwJ = null // reset cached posterior ratio weights and dependents
+      // note log_rwJ is invariant by design (also see comment above)
+      // BUT its dependents generally ALSO depend on xJK, log_wrJ, etc
+      // this.rwJ = null // rwJ did NOT change
+      each(this.__deps['rwJ'], dep => (this[dep] = null))
       this.counts = null // since jJ changed
       this.lwr = null // since log_wrJ changed
+      this.elw = null // since log_wrJ changed
       this.lpx = null // since log_p_xJK changed
     }
 
@@ -1476,14 +1535,14 @@ class _Sampler {
     o.updates = o.min_updates = o.max_updates = 0 // no updates
     o.reweight_if = () => false // no reweight for u=0
     // o.size = 10 * this.J // 10x samples per run
-    o.r0 = 1 // so r=1 at u=0 and log_wrJ is final weight
+    o.r0 = 1 // so r=1 at u=0 and rwJ is final weight
 
     let targets = []
     while (targets.length < 1000 && timer.t < 1000) {
-      const { xJK, log_wrJ } = new _Sampler(f, o)
+      const { xJK, rwJ } = new _Sampler(f, o)
       let w_accept
       each(xJK, (xjK, j) => {
-        const w = exp(log_wrJ[j])
+        const w = rwJ[j]
         if (w == 0) return // skip rejected run
         w_accept ??= w
         if (!approx_equal(w, w_accept))
@@ -2117,7 +2176,7 @@ class _Sampler {
   __mks() {
     const timer = _timer_if(this.stats)
     const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK, uaJK } = this
-    const { log_p_xJK, rwJ, rwj_sum, rwj_uniform, stats } = this
+    const { log_p_xJK, rwJ, rwj_sum, stats } = this
     const { mks_tail, mks_period } = this.options
 
     // trim mks sample buffer to cover desired tail of updates
@@ -2146,6 +2205,7 @@ class _Sampler {
     else copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
     const wj_sum = sum(wJ)
     if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
+    const wj_uniform = _uniform(wJ, wj_sum)
 
     const pR2 = fill((this.___mks_pK2 ??= array(K)), k => {
       const value = this.values[k]
@@ -2157,16 +2217,16 @@ class _Sampler {
       copy(log_p_yJ, log_p_xBJK[0], log_p_yjK => log_p_yjK[k])
       return [
         ks2_test(xJ, yJ, {
-          wJ: copy(wJk, wJ),
-          wj_sum,
+          wJ: wj_uniform ? undefined : copy(wJk, wJ),
+          wj_sum: wj_uniform ? undefined : wj_sum,
           wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
           wk_sum: rwBj_sum[0],
           filter: true, // filter undefined
           numberize: !is_number(value.first), // map to random numbers
         }),
         ks2_test(log_p_xJ, log_p_yJ, {
-          wJ: copy(wJk, wJ),
-          wj_sum,
+          wJ: wj_uniform ? undefined : copy(wJk, wJ),
+          wj_sum: wj_uniform ? undefined : wj_sum,
           wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
           wk_sum: rwBj_sum[0],
           filter: true, // filter undefined
@@ -2210,22 +2270,28 @@ class _Sampler {
   }
 
   sample_values(options) {
-    const j = this.sample_index(options)
+    const j = options?.index ?? this.sample_index(options)
     const xJK = options?.prior ? this.pxJK : this.xJK
+    // const xJ = options?.prior ? this.pxJ : this.xJ
+    const wJ = options?.prior ? this.pwJ : this.rwJ
     switch (options?.format) {
       case 'array':
         return xJK[j]
       case 'object':
       default:
-        return set(zip_object(this.nK, xJK[j]), '_index', j)
+        return assign(zip_object(this.nK, xJK[j]), {
+          // _output: xJ[j],
+          _weight: wJ[j],
+          _index: j,
+        })
     }
   }
 
   sample(options) {
-    const j = this.sample_index(options)
-    const [xJK, xJ] = options?.prior
-      ? [this.pxJK, this.pxJ]
-      : [this.xJK, this.xJ]
+    const j = options?.index ?? this.sample_index(options)
+    const [xJK, xJ, wJ] = options?.prior
+      ? [this.pxJK, this.pxJ, this.pwJ]
+      : [this.xJK, this.xJ, this.rwJ]
     if (options?.values) {
       switch (options?.format) {
         case 'array':
@@ -2234,14 +2300,16 @@ class _Sampler {
         default:
           return assign(this.sample_values(options), {
             _output: xJ[j],
+            _weight: wJ[j],
             _index: j,
           })
         // default:
         //   return [xJ[j], this.sample_values(options)]
       }
-    } else if (options?.index) {
+    } else if (options?.output) {
       return {
         _output: xJ[j],
+        _weight: wJ[j],
         _index: j,
       }
     }
