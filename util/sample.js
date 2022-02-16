@@ -615,7 +615,7 @@ class _Sampler {
     // treat J==1 as "debug mode"
     // print sampled values or simulations and skip updates, plots, etc
     if (J == 1) {
-      print(str(this.sample_values()))
+      print('sampled values:', str(this.sample_values()))
       each(this.sims, s => {
         each(s.xt._events, print_event)
         each(s.xt._states, print_state)
@@ -2648,7 +2648,7 @@ class _Sampler {
     // for J==1 (debug mode), enable _events/_states & store sim.xt
     const sim = this.sims[s]
     x._events = []
-    x._states = [clone_state(x)]
+    x._states = [clone_deep(clean_state(x))]
     return (sim.xt = simulate(x, time, ...events))
   }
 }

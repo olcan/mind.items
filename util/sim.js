@@ -5,13 +5,15 @@
 // can be invoked again to _resume_ simulation w/o resampling
 function simulate(x, t, events) {
   x.t ??= 0 // default x.t is 0
+  x.td = ~~x.t
+  x.th = (x.t - x.td) * 24
   x._t ??= 0 // non-resuming sim starts at x._t=0 to be advanced x.t>t>0
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
   if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
   if (!is_array(events)) fatal(`invalid events, must be array`)
   apply(events, e => {
     if (!is_event(e)) fatal('invalid event')
-    if ((!e.t || !e._t) && x._t) fatal(`invalid events/state for resume`)
+    if (x._t && (!e.t || !e._t)) fatal(`invalid events/state for resume`)
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
@@ -20,9 +22,6 @@ function simulate(x, t, events) {
     // caching of valid times is handled in _Event to allow condition wrapper
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
     // store next scheduled event time as x._t for persistence across calls
-    // precompute day x.td and hour-of-day x.th to help schedulers
-    x.td = ~~x.t
-    x.th = (x.t - x.td) * 24
     each(events, e => (e.t = e.ft(x))) // caching is handled in _Event
     x._t = min_of(events, e => e.t) // can be inf
     if (!(x._t > x.t)) fatal('invalid e.ft(x) <= x.t')
@@ -30,6 +29,8 @@ function simulate(x, t, events) {
     if (x._t > t) break
     // advance to x.t=_t & trigger mutations
     x.t = x._t
+    x.td = ~~x.t
+    x.th = (x.t - x.td) * 24
     each(events, e => x.t != e.t || e.fx(x))
   }
   x.t = t
@@ -226,25 +227,37 @@ function _benchmark_inc() {
 // daily scheduler
 // triggers daily at hour-of-day `h∈[0,24)`
 // `h` can be any sampler, e.g. `within(9,1)`
+// `h` can be a function `x=>…` to be invoked _once_ for sampler
 // sampled `h` is mapped into `[0,24)` as `mod(h,24)`
 function daily(h) {
   if (h === undefined) return x => inf // never
   if (h == 0) return x => x.td + 1
   if (h > 0 && h < 24) return x => x.td + (x.th >= h) + h * _1h
-  if (!h._prior) fatal(`invalid hour '${str(h)}'`)
-  return x => h._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
+  let fh, _x
+  if (is_function(h)) fh = h
+  else if (!h._prior) fatal(`invalid hour '${str(h)}'`)
+  return x => {
+    if (x != _x && fh) h = fh((_x = x)) // init h for x
+    return h._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
+  }
 }
 
 // relative time scheduler
 // triggers after `h>0` hours (from `x.t`)
 // `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
+// `h` can be a function `x=>…` to be invoked _once_ for sampler
 // often used w/ condition `fc` to trigger `h` hours after `fc(x)` state
 // `h` should be short enough to avoid cancellation by `!fc(x)` state
 function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
-  if (!h._prior) fatal(`invalid hours '${str(h)}'`)
-  return x => h._prior(h => (h > 0 || fatal('negative hours'), x.t + h * _1h))
+  let fh, _x
+  if (is_function(h)) fh = h
+  else if (!h._prior) fatal(`invalid hours '${str(h)}'`)
+  return x => {
+    if (x != _x && fh) h = fh((_x = x)) // init h for x
+    return h._prior(h => (h > 0 || fatal('negative hours'), x.t + h * _1h))
+  }
 }
 
 // absolute time scheduler
@@ -368,13 +381,7 @@ function _test_event_time() {
   )
 }
 
-// clone state
-// shallow-copies underscore-prefixed keys, e.g. `_states`, `_events`, etc
-const clone_state = x =>
-  clone_deep_with(x, (v, k) => (k && k[0] == '_' ? v : undefined))
-
-// clean state
-// omits underscore-prefixed keys plus `td` and `th`
+// clean state by omitting underscore-prefixed keys plus `td` and `th`
 const clean_state = x =>
   omit_by(x, (v, k) => k && (k[0] == '_' || k == 'td' || k == 'th'))
 
