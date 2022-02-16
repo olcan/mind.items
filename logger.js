@@ -382,7 +382,7 @@ const event_log_times = (selector = undefined) =>
 // event log stats
 // hour-of-day is ordered in [-12,12]
 function event_log_stats(selector = undefined, max_days = inf) {
-  const te = ~~event_time() // exclude today
+  const te = ~~now() // exclude today
   const ts = te - max_days
   let eJ = event_log(selector).filter(e => e.t >= ts && e.t < te)
   const days = eJ.length == 0 ? 0 : eJ[0].td - last(eJ).td + 1

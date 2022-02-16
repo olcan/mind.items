@@ -13,7 +13,8 @@ function simulate(x, t, events) {
   if (!is_array(events)) fatal(`invalid events, must be array`)
   apply(events, e => {
     if (!is_event(e)) fatal('invalid event')
-    if (x._t && (!e.t || !e._t)) fatal(`invalid events/state for resume`)
+    if (x._t && (!e.t || !defined(e._t)))
+      fatal(`invalid events/state for resume`, x._t, e.t, e._t)
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
@@ -308,6 +309,8 @@ const last_hour = (h, t = event_time()) => {
 // _6am
 // time of last 6 AM (local time)
 const _6am = last_hour(6)
+
+const now = () => event_time()
 
 // convert event time to `Date`
 const event_date = (t = event_time()) => {

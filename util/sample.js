@@ -840,11 +840,13 @@ class _Sampler {
             break
           case 'plot':
             index = values.length
-            args = args.trim() // trim whitespace around args
-            if (args.match(/\s/)) fatal('invalid args (whitespace) for plot')
-            if (!args) fatal('missing args for plot')
-            if (!(args != 'undefined')) fatal('undefined args for plot')
-            name = args + (names.has(args) ? '_' + index : '') // de-duplicate
+            if (!name) {
+              ;[, name] = args.match(/^\s*(\S+?)\s*(?:,|$)/su) ?? []
+              name ??= method // name after plot method
+            }
+            if (names.has(name)) name += '_' + index // de-duplicate name
+            if (name.match(/^\d/))
+              fatal(`invalid numeric name '${name}' for optimized value`)
             names.add(name) // name aligned w/ values & unique
             values.push(lexical_context())
             break
@@ -2462,8 +2464,15 @@ class _Sampler {
     )
   }
 
-  _plot(k, x) {
+  _plot(k, x, name) {
     const value = this.values[k]
+    if (!value.called && is_string(name)) {
+      if (!name) fatal(`blank name for plotted value at index ${k}`)
+      if (name.match(/^\d/))
+        fatal(`invalid numeric name '${name}' for plotted value`)
+      value.name = name
+    }
+    value.called = true
     // treat NaN (usually due to undefined samples) as undefined
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
