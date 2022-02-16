@@ -353,9 +353,11 @@ function _test_ks2() {
     () => [ks2([3, 2, 1], [0.8, 3.1]), 1 / 2],
     () => [ks2([3, 2, 1], [3.1, 0.8]), 1 / 2],
     // test extreme weights equivalent to dropping values
-    () => [ks2([1, 2, 3], [1, 3], { wK: [1, 0], discrete: true }), 2 / 3],
-    () => [ks2([1, 2, 3], [1, 3], { wK: [0, 1], discrete: true }), 2 / 3],
-    () => [ks2([1, 2, 3], [1, 3], { wJ: [1, 0, 1], discrete: true }), 0],
+    // also reorder to check that weights are sorted alongside values
+    () => [ks2([1, 2, 3], [1, 2, 3], { wK: [1, 1, 0], discrete: true }), 1 / 3],
+    () => [ks2([1, 2, 3], [1, 2, 3], { wK: [1, 0, 1], discrete: true }), 1 / 6],
+    () => [ks2([1, 2, 3], [3, 2, 1], { wK: [0, 1, 1], discrete: true }), 1 / 3],
+    () => [ks2([1, 2, 3], [3, 2, 1], { wK: [1, 0, 1], discrete: true }), 1 / 6],
     () => [ks2([1, 2, 3], [1, 3], { wJ: [1, 0, 1], discrete: true }), 0],
     () => [ks2([1, 2, 3], [2.5, 3.1], { wK: [0, 1] }), 1],
     () => [ks2([1, 2, 3], [2.5, 3.1], { wK: [1, 0] }), 2 / 3],

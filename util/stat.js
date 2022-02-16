@@ -432,7 +432,6 @@ function beta_cdf(x, a, b) {
   return _ibeta(x, a, b)
 }
 
-let _ks2_buffer // global buffer reused below in ks2
 function _filter_undefined(J, xJ, wJ, wj_sum) {
   let jj = -1
   for (let j = 0; j < J; ++j) {
@@ -450,6 +449,9 @@ function _filter_undefined(J, xJ, wJ, wj_sum) {
   }
   return [J, xJ, wJ, wj_sum]
 }
+
+// arrays reused below in ks2
+let _ks2_rR, _ks2_jJ, _ks2_kK, _ks2__xJ, _ks2__yK, _ks2__wJ, _ks2__wK
 
 // ks2(xJ, yK, [options])
 // two-sample [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test#Kolmogorov–Smirnov_statistic) statistic
@@ -499,14 +501,40 @@ function ks2(xJ, yK, options = {}) {
   if (yK) if (!is_finite(yK[0])) fatal('non-finite value for ks2')
 
   // sort xJ and yK as needed
-  if (!xj_sorted) sort(xJ)
-  if (yK && !yk_sorted) sort(yK)
+  if (!xj_sorted) {
+    if (!wJ) sort(xJ)
+    else {
+      // sort xJ and wJ together by sorting indices
+      const jJ = set((_ks2_jJ ??= array(J)), 'length', J)
+      const _xJ = set((_ks2__xJ ??= array(J)), 'length', J)
+      const _wJ = set((_ks2__wJ ??= array(J)), 'length', J)
+      fill(jJ, j => j)
+      sort_by(jJ, j => xJ[j])
+      fill(_xJ, j => xJ[jJ[j]])
+      fill(_wJ, j => wJ[jJ[j]])
+      xJ = _xJ
+      wJ = _wJ
+    }
+  }
+  if (yK && !yk_sorted) {
+    if (!wK) sort(yK)
+    else {
+      // sort xJ and wJ together by sorting indices
+      const kK = set((_ks2_kK ??= array(K)), 'length', K)
+      const _yK = set((_ks2__yK ??= array(K)), 'length', K)
+      const _wK = set((_ks2__wK ??= array(K)), 'length', K)
+      fill(kK, k => k)
+      sort_by(kK, k => yK[k])
+      fill(_yK, k => yK[kK[k]])
+      fill(_wK, k => wK[kK[k]])
+      yK = _yK
+      wK = _wK
+    }
+  }
   const xR = yK ? r => (r < J ? xJ[r] : yK[r - J]) : r => xJ[r]
   // generate globally sorted indices rR
   // these are replaced below by cdf differences
-  _ks2_buffer ??= array(R) // reuse global buffer
-  _ks2_buffer.length = R
-  const rR = _ks2_buffer
+  const rR = set((_ks2_rR ??= array(R)), 'length', R)
   if (yK) {
     let j = 0
     let k = 0
