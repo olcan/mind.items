@@ -610,6 +610,7 @@ class _Sampler {
     // note "best" point is chosen based on "density" (log_p_xJK, log_wrJ) only
     // specifically NOT by sample weights log_pwJ, log_rwJ, or rwJ_agg
     // combining the two would result in double-counting
+    // "best" point may not be good if posterior is not concentrated around it
     // same w/ _prior|_weight|_posterior in sample|sample_values
     cache(this, 'best_prior_index', ['pwJ'], () =>
       _max_index_by(J, j => sum(this.log_p_xJK[j]))
