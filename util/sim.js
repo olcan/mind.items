@@ -49,37 +49,30 @@ const name_events = (...fE) =>
     return e
   })
 
-// _event(fx, [ft=daily(0)], [fc], [fθ])
+// _event(fx, [ft=daily(0)], [fc])
 // create mutation event `x → fx(x,…)`
-// state `x` _mutates_ to `fx(x,θ)` at time `ft(x)`
-// mutation can depend on _parameters_ `θ`
-// | `fx`      | _mutation function_ `fx(x,θ)`
+// state `x` _mutates_ to `fx(x)` at time `ft(x)`
+// | `fx`      | _mutation function_ `fx(x)`
 // |           | must modify (i.e. _mutate_) state `x`
 // |           | can return `null` to indicate _skipped_ mutation
-// |           | can return any parameters `θ` that affected mutation
-// |           | can use given parameters `θ` or generate own
-// |           | must be robust to undefined `θ` or `θ.*`
+// |           | can return (part of) state that affected mutation
 // | `ft`      | _scheduler function_ `ft(x)`
 // |           | must return future time `t > x.t`, can be `inf` (never)
 // |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
 // | `fc`      | optional _condition function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
 // |           | `!fc(x)` state also cancels any future time scheduled
-// | `fθ`      | optional _default parameter function_ `fθ(x)`
-// |           | invoked for each call to `fx` where `θ` is omitted
 const _event = (...args) => new _Event(...args)
 class _Event {
-  constructor(fx, ft = daily(0), fc = undefined, fθ = undefined) {
-    this.fx = (x, θ) => {
-      if (fθ && !defined(θ)) θ = fθ(x) // use fθ(x) as default θ
-      const _θ = fx(x, θ)
+  constructor(fx, ft = daily(0), fc = undefined) {
+    this.fx = x => {
+      const θ = fx(x)
       // count mutations and skips (if defined) for benchmarking
       if (defined(x._mutations)) x._mutations++ // includes skipped
-      if (_θ === null) {
+      if (θ === null) {
         if (defined(x._skips)) x._skips++
         return null
       }
-      if (defined(_θ)) θ = _θ
       x._events?.push({ t: x.t, ...θ, _source: this })
       x._states?.push(clone_deep(clean_state(x)))
     }
@@ -94,23 +87,22 @@ class _Event {
   }
 }
 
-// _do(fx, [ft=daily(0)], [fc], [fθ])
+// _do(fx, [ft=daily(0)], [fc])
 // alias for `_event(…)`, mutation (`fx`) first
 const _do = _event
 
-// _at(ft, fx, [fc], [fθ])
+// _at(ft, fx, [fc])
 // alias for `_event(…)`, scheduler (`ft`) first
-const _at = (ft, fx, fc, fθ) => _event(fx, ft, fc, fθ)
+const _at = (ft, fx, fc) => _event(fx, ft, fc)
 
-// _if(fc, ft, fx, [fθ])
+// _if(fc, ft, fx)
 // alias for `_event(…)`, condition (`fc`) first
-const _if = (fc, ft, fx, fθ) => _event(fx, ft, fc, fθ)
+const _if = (fc, ft, fx) => _event(fx, ft, fc)
 
 const is_event = e => e instanceof _Event
 
 // increment mutation
-// function `(x,θ) => …` applies `θ` as _increment_ to `x`
-// handles combined args `[...yJ, θ]` in order, by type:
+// handles args `...yJ` in order, by type:
 // | function `f`  | invoke as `r = f(x,r)`, `r` last returned value
 // |               | if last arg, handle `r` as arg (by type), return `r`
 // |               | else if `r` falsy (excl. `undefined`), cancel, return `null`
@@ -122,7 +114,7 @@ const is_event = e => e instanceof _Event
 // |  object       | increment all properties or paths in object
 // |               | can be nested, e.g. `{a:{b:{c:1}}}`
 // returns last returned value from last function arg, if any
-const inc = (...yJ) => (apply(yJ, _pathify), (x, θ) => _inc(x, ...yJ, θ))
+const inc = (...yJ) => (apply(yJ, _pathify), x => _inc(x, ...yJ))
 const _inc = (x, ...yJ) => {
   let ret // set below if there are function args
   let J = yJ.length
@@ -228,37 +220,29 @@ function _benchmark_inc() {
 // daily scheduler
 // triggers daily at hour-of-day `h∈[0,24)`
 // `h` can be any sampler, e.g. `within(9,1)`
-// `h` can be a function `x=>…` to be invoked _once_ for sampler
+// `h` can be function `x=>…` that returns a sampler
 // sampled `h` is mapped into `[0,24)` as `mod(h,24)`
 function daily(h) {
   if (h === undefined) return x => inf // never
   if (h == 0) return x => x.td + 1
   if (h > 0 && h < 24) return x => x.td + (x.th >= h) + h * _1h
-  let fh, _x
-  if (is_function(h)) fh = h
-  else if (!h._prior) fatal(`invalid hour '${str(h)}'`)
-  return x => {
-    if (x != _x && fh) h = fh((_x = x)) // init h for x
-    return h._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
-  }
+  const sampler = is_function(h) ? x => h(x) : () => h
+  return x =>
+    sampler(x)._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
 }
 
 // relative time scheduler
 // triggers after `h>0` hours (from `x.t`)
 // `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
-// `h` can be a function `x=>…` to be invoked _once_ for sampler
+// `h` can be function `x=>…` that returns a sampler
 // often used w/ condition `fc` to trigger `h` hours after `fc(x)` state
 // `h` should be short enough to avoid cancellation by `!fc(x)` state
 function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
-  let fh, _x
-  if (is_function(h)) fh = h
-  else if (!h._prior) fatal(`invalid hours '${str(h)}'`)
-  return x => {
-    if (x != _x && fh) h = fh((_x = x)) // init h for x
-    return h._prior(h => (h > 0 || fatal('negative hours'), x.t + h * _1h))
-  }
+  const sampler = is_function(h) ? x => h(x) : () => h
+  return x =>
+    sampler(x)._prior(h => (h > 0 || fatal('negative hours'), x.t + h * _1h))
 }
 
 // absolute time scheduler
