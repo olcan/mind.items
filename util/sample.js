@@ -611,7 +611,7 @@ class _Sampler {
     // specifically NOT by sample weights log_pwJ, log_rwJ, or rwJ_agg
     // combining the two would result in double-counting
     // "best" point may not be good if posterior is not concentrated around it
-    // same w/ _prior|_weight|_posterior in sample|sample_values
+    // must be consistent w/ sample|sample_values
     cache(this, 'best_prior_index', ['pwJ'], () =>
       _max_index_by(J, j => sum(this.log_p_xJK[j]))
     )
@@ -2323,21 +2323,12 @@ class _Sampler {
     if (options?.index == 'best')
       options.index = prior ? this.best_prior_index : this.best_index
     const j = options?.index ?? this.sample_index(options)
-    const px = sum(this.log_p_xJK[j])
-    const _prior = px - this.min_prior
-    const _weight = this.log_wrJ[j] - this.min_weight
-    const _posterior = px + this.log_wrJ[j] - this.min_posterior
     switch (options?.format) {
       case 'array':
         return xJK[j]
       case 'object':
       default:
-        return assign(zip_object(this.nK, xJK[j]), {
-          _index: j,
-          _prior,
-          _weight,
-          _posterior,
-        })
+        return assign(zip_object(this.nK, xJK[j]), { _index: j })
     }
   }
 
@@ -2348,10 +2339,27 @@ class _Sampler {
     if (options?.index == 'best')
       options.index = prior ? this.best_prior_index : this.best_index
     const j = options?.index ?? this.sample_index(options)
-    const px = sum(this.log_p_xJK[j])
-    const _prior = px - this.min_prior
-    const _weight = this.log_wrJ[j] - this.min_weight
-    const _posterior = px + this.log_wrJ[j] - this.min_posterior
+    let props
+    if (options?.details) {
+      if (prior) {
+        props = {
+          _prior: undefined,
+          _weight: undefined,
+          _posterior: undefined,
+          _importance: this.pwJ[j],
+          _importance_agg: this.pwJ[j],
+        }
+      } else {
+        const px = sum(this.log_p_xJK[j])
+        props = {
+          _prior: px - this.min_prior,
+          _weight: this.log_wrJ[j] - this.min_weight,
+          _posterior: px + this.log_wrJ[j] - this.min_posterior,
+          _importance: this.rwJ[j],
+          _importance_agg: this.rwJ_agg[this.jJ[j]],
+        }
+      }
+    }
     if (options?.values) {
       switch (options?.format) {
         case 'array':
@@ -2361,9 +2369,7 @@ class _Sampler {
           return assign(this.sample_values(options), {
             _output: xJ[j],
             _index: j,
-            _prior,
-            _weight,
-            _posterior,
+            ...props,
           })
         // default:
         //   return [xJ[j], this.sample_values(options)]
