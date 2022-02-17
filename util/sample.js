@@ -430,6 +430,18 @@ function _remove_undefined(xJ, wJ) {
   xJ.length = wJ.length = ++jj
 }
 
+function _max_index_by(J, f) {
+  let max_j = 0
+  let max_fj = f(0)
+  for (let j = 1; j < J; j++) {
+    const fj = f(j)
+    if (fj <= max_fj) continue
+    max_fj = fj
+    max_j = j
+  }
+  return max_j
+}
+
 class _Timer {
   constructor() {
     this.start = Date.now()
@@ -553,7 +565,7 @@ class _Sampler {
     this.yJ = array(J) // proposed return values
     this.jJ = array(J) // sample indices
     this.jjJ = array(J) // shuffle indices
-    // resample (shuffle) & resort buffers
+    // resample (shuffle) & sort buffers
     this._jJ = array(J)
     this._xJ = array(J)
     this._xJK = array(J)
@@ -561,10 +573,10 @@ class _Sampler {
     this._log_p_xJK = array(J)
     this._log_wrfJN = array(J)
     this._log_wrJ = array(J)
-    this.____rwJ = array(J) // resort only
+    this.____rwJ = array(J) // sort only
     // reweight buffers
     this._rN = array(N)
-    this._log_rwJ = array(J) // also used in resort
+    this._log_rwJ = array(J) // also used in sort
     this._log_rwJ_base = array(J)
 
     // define cached properties
@@ -572,6 +584,9 @@ class _Sampler {
     cache(this, 'pwj_sum', ['pwJ'], () => sum(this.pwJ))
     cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ, this.pwj_sum))
     cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
+    cache(this, 'best_prior_index', ['pwJ'], () =>
+      _max_index_by(J, j => this.pwJ[j])
+    )
 
     cache(this, 'counts', [])
     cache(this, 'essu', ['counts'], () => ess(this.counts, J))
@@ -581,6 +596,10 @@ class _Sampler {
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
+    cache(this, 'best_index', ['rwJ_agg'], () =>
+      _max_index_by(J, j => this.rwJ_agg[this.jJ[j]])
+    )
+
     cache(this, 'ess', ['rwj_ess'])
     cache(this, 'lwr', [], () => sum(this.log_wrJ))
     cache(this, 'lpx', [], () => sum(this.log_p_xJK, lpK => sum(lpK)))
@@ -938,7 +957,7 @@ class _Sampler {
       reweights: 0,
       reweight_tries: 0,
       resamples: 0,
-      resorts: 0,
+      sorts: 0,
       moves: 0,
       proposals: 0,
       accepts: 0,
@@ -950,7 +969,7 @@ class _Sampler {
           sample: 0,
           reweight: 0,
           resample: 0,
-          resort: 0,
+          sort: 0,
           move: 0,
           mks: 0,
           tks: 0,
@@ -1047,7 +1066,7 @@ class _Sampler {
     this.lwr = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
     fill(jJ, j => j) // init sample indices
-    this._resort() // since rwJ_agg changed
+    this._sort() // since rwJ_agg changed
     // copy prior samples for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
     copy(pxJ, xJ)
@@ -1177,7 +1196,7 @@ class _Sampler {
       this.elw = null // since log_wrJ changed
     }
 
-    this._resort() // since rwJ_agg changed
+    this._sort() // since rwJ_agg changed
 
     if (stats) {
       stats.reweights++
@@ -1216,7 +1235,7 @@ class _Sampler {
     this.lwr = null // since log_wrJ changed
     this.elw = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
-    this._resort() // since rwJ_agg changed
+    this._sort() // since rwJ_agg changed
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
@@ -1230,7 +1249,8 @@ class _Sampler {
   // not strictly necessary otherwise, but cheap & can reveal bugs
   // e.g. revealed a weighted sorting bug in ks2
   // could be tied to an option in the future
-  _resort() {
+  _sort() {
+    if (!this.options.sort) return // disabled
     if (this.ess == this.J) return // nothing to do
     const timer = _timer_if(this.stats)
     const { jjJ, rwJ_agg, stats, _jJ, jJ } = this
@@ -1265,8 +1285,8 @@ class _Sampler {
     check(() => [max_in(rwJ_agg), this.rwJ_agg[this.jJ[0]]])
     // note all other state should be invariant to permutation
     if (stats) {
-      stats.resorts++
-      stats.time.updates.resort += timer.t
+      stats.sorts++
+      stats.time.updates.sort += timer.t
     }
   }
 
@@ -1363,7 +1383,7 @@ class _Sampler {
       this.lwr = null // since log_wrJ changed
       this.elw = null // since log_wrJ changed
       this.lpx = null // since log_p_xJK changed
-      this._resort() // since rwJ_agg changed
+      this._sort() // since rwJ_agg changed
     }
 
     if (stats) {
@@ -2273,28 +2293,29 @@ class _Sampler {
   }
 
   sample_values(options) {
+    const prior = options?.prior
+    const xJK = prior ? this.pxJK : this.xJK
+    if (options?.index == 'best')
+      options.index = prior ? this.best_prior_index : this.best_index
     const j = options?.index ?? this.sample_index(options)
-    const xJK = options?.prior ? this.pxJK : this.xJK
-    // const xJ = options?.prior ? this.pxJ : this.xJ
-    const wJ = options?.prior ? this.pwJ : this.rwJ_agg
+    const w = prior ? this.pwJ[j] : this.rwJ_agg[this.jJ[j]]
     switch (options?.format) {
       case 'array':
         return xJK[j]
       case 'object':
       default:
-        return assign(zip_object(this.nK, xJK[j]), {
-          // _output: xJ[j],
-          _weight: wJ[this.jJ[j]],
-          _index: j,
-        })
+        return assign(zip_object(this.nK, xJK[j]), { _weight: w, _index: j })
     }
   }
 
   sample(options) {
+    const prior = options?.prior
+    const xJK = prior ? this.pxJK : this.xJK
+    const xJ = prior ? this.pxJ : this.xJ
+    if (options?.index == 'best')
+      options.index = prior ? this.best_prior_index : this.best_index
     const j = options?.index ?? this.sample_index(options)
-    const [xJK, xJ, wJ] = options?.prior
-      ? [this.pxJK, this.pxJ, this.pwJ]
-      : [this.xJK, this.xJ, this.rwJ_agg]
+    const w = prior ? this.pwJ[j] : this.rwJ_agg[this.jJ[j]]
     if (options?.values) {
       switch (options?.format) {
         case 'array':
@@ -2303,18 +2324,14 @@ class _Sampler {
         default:
           return assign(this.sample_values(options), {
             _output: xJ[j],
-            _weight: wJ[j],
+            _weight: w,
             _index: j,
           })
         // default:
         //   return [xJ[j], this.sample_values(options)]
       }
     } else if (options?.output) {
-      return {
-        _output: xJ[j],
-        _weight: wJ[this.jJ[j]],
-        _index: j,
-      }
+      return { _output: xJ[j], _weight: w, _index: j }
     }
     return xJ[j]
   }
