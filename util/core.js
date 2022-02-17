@@ -259,6 +259,7 @@ function _test_str() {
 // rounds arrays recursively by copying
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
   if (is_array(x)) return x.map(xj => round_to(xj, d, s, mode))
+  if (is_object(x)) return map_values(x, v => round_to(v, d, s, mode))
   if (!is_finite(x)) return x // return non-finite (incl. non-number) as is
   if (d == 0 && s == inf) return Math[mode](x) // just use Math.*
   // determine d automatically if s<inf

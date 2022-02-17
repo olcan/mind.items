@@ -337,7 +337,7 @@ function sample(domain, options = undefined) {
   const sampler = new _Sampler(domain, options)
   const sample = sampler.sample(options)
   if (options?.store) _this.global_store._sample = sample
-  return sample
+  if (options?.return ?? true) return sample
 }
 
 // sample `J` _unknowns_ into `xJ` from `domain`
@@ -587,9 +587,6 @@ class _Sampler {
     cache(this, 'pwj_sum', ['pwJ'], () => sum(this.pwJ))
     cache(this, 'pwj_ess', ['pwJ'], () => ess(this.pwJ, this.pwj_sum))
     cache(this, 'pwj_uniform', ['pwJ'], () => _uniform(this.pwJ, this.pwj_sum))
-    cache(this, 'best_prior_index', ['pwJ'], () =>
-      _max_index_by(J, j => this.pwJ[j])
-    )
 
     cache(this, 'counts', [])
     cache(this, 'essu', ['counts'], () => ess(this.counts, J))
@@ -599,9 +596,6 @@ class _Sampler {
     cache(this, 'rwj_sum', ['rwJ'], () => sum(this.rwJ))
     cache(this, 'rwj_ess', ['rwJ_agg'], () => ess(this.rwJ_agg, this.rwj_sum))
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
-    cache(this, 'best_index', ['rwJ_agg'], () =>
-      _max_index_by(J, j => this.rwJ_agg[this.jJ[j]])
-    )
 
     cache(this, 'ess', ['rwj_ess'])
     cache(this, 'lwr', [], () => sum(this.log_wrJ))
@@ -612,6 +606,24 @@ class _Sampler {
     cache(this, 'tks', ['rwJ'])
     cache(this, 'stdevK', ['rwJ'])
     cache(this, 'mks', ['rwJ'])
+
+    // note "best" point is chosen based on "density" (log_p_xJK, log_wrJ) only
+    // specifically NOT by sample weights log_pwJ, log_rwJ, or rwJ_agg
+    // combining the two would result in double-counting
+    // same w/ _prior|_weight|_posterior in sample|sample_values
+    cache(this, 'best_prior_index', ['pwJ'], () =>
+      _max_index_by(J, j => sum(this.log_p_xJK[j]))
+    )
+    cache(this, 'best_index', ['lpx', 'lwr'], () =>
+      _max_index_by(J, j => sum(this.log_p_xJK[j]) + this.log_wrJ[j])
+    )
+    cache(this, 'min_prior', ['pwJ'], () =>
+      min_of(J, j => sum(this.log_p_xJK[j]))
+    )
+    cache(this, 'min_weight', ['lwr'], () => min_in(this.log_wrJ))
+    cache(this, 'min_posterior', ['lwr', 'lpx'], () =>
+      min_of(J, j => sum(this.log_p_xJK[j]) + this.log_wrJ[j])
+    )
 
     // initialize stats
     this._init_stats()
@@ -1238,14 +1250,15 @@ class _Sampler {
     this.lwr = null // since log_wrJ changed
     this.elw = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
-    this._sort() // since rwJ_agg changed
+    // note this can be commented out if _sort is based on non-aggregate weight
+    this._sort() // since rwJ_agg changed (despite uniform log_rwJ)
     if (stats) {
       stats.resamples++
       stats.time.updates.resample += timer.t
     }
   }
 
-  // (re)sort by decreasing aggregated weight (rwJ_agg)
+  // (re)sort by decreasing aggregate weight (rwJ_agg)
   // allows enumerating samples in decreasing weight
   // speeds up random_discrete(_array) based on rwJ as in sample_index()
   // could also speed up other operations that are somehow biased by weight
@@ -1254,14 +1267,16 @@ class _Sampler {
   // could be tied to an option in the future
   _sort() {
     if (!this.options.sort) return // disabled
+    // if (this.rwj_uniform) return // nothing to do
     if (this.ess == this.J) return // nothing to do
     const timer = _timer_if(this.stats)
     const { jjJ, rwJ_agg, stats, _jJ, jJ } = this
     const { _xJ, xJ, _xJK, xJK, _log_wrfJN, log_wrfJN } = this
     const { _uaJK, uaJK, _log_wrJ, log_wrJ, log_p_xJK, _log_p_xJK } = this
-    const { _log_rwJ, log_rwJ } = this // since ess<J
+    const { _log_rwJ, log_rwJ } = this
 
     fill(jjJ, j => j)
+    // rank_by(jjJ, j => rwJ[j])
     rank_by(jjJ, j => rwJ_agg[jJ[j]])
     scan(jjJ, (j, jj) => {
       _jJ[j] = jJ[jj]
@@ -1285,6 +1300,7 @@ class _Sampler {
     )
     this.rwJ = null // since log_rwJ changed
     // sanity check that first sample has maximal aggregate weight
+    // note this should be commented out if _sort is based on non-aggregate weight
     check(() => [max_in(rwJ_agg), this.rwJ_agg[this.jJ[0]]])
     // note all other state should be invariant to permutation
     if (stats) {
@@ -1386,7 +1402,8 @@ class _Sampler {
       this.lwr = null // since log_wrJ changed
       this.elw = null // since log_wrJ changed
       this.lpx = null // since log_p_xJK changed
-      this._sort() // since rwJ_agg changed
+      // note this can be commented out if _sort is based on non-aggregate weight
+      this._sort() // since rwJ_agg changed (despite invariant log_rwJ)
     }
 
     if (stats) {
@@ -1712,6 +1729,10 @@ class _Sampler {
       ),
       '_md_time'
     )
+    const prior_best = this.sample({ values: true, index: 'best', prior: true })
+    const best = this.sample({ values: true, index: 'best' })
+    const combined = transpose_objects(round_to([prior_best, best], 2))
+    _this.write(table(entries(combined).map(row => flat(row))), '_md_best')
     _this.write(
       flat(
         '<style>',
@@ -2301,13 +2322,21 @@ class _Sampler {
     if (options?.index == 'best')
       options.index = prior ? this.best_prior_index : this.best_index
     const j = options?.index ?? this.sample_index(options)
-    const w = prior ? this.pwJ[j] : this.rwJ_agg[this.jJ[j]]
+    const px = sum(this.log_p_xJK[j])
+    const _prior = px - this.min_prior
+    const _weight = this.log_wrJ[j] - this.min_weight
+    const _posterior = px + this.log_wrJ[j] - this.min_posterior
     switch (options?.format) {
       case 'array':
         return xJK[j]
       case 'object':
       default:
-        return assign(zip_object(this.nK, xJK[j]), { _weight: w, _index: j })
+        return assign(zip_object(this.nK, xJK[j]), {
+          _index: j,
+          _prior,
+          _weight,
+          _posterior,
+        })
     }
   }
 
@@ -2318,7 +2347,10 @@ class _Sampler {
     if (options?.index == 'best')
       options.index = prior ? this.best_prior_index : this.best_index
     const j = options?.index ?? this.sample_index(options)
-    const w = prior ? this.pwJ[j] : this.rwJ_agg[this.jJ[j]]
+    const px = sum(this.log_p_xJK[j])
+    const _prior = px - this.min_prior
+    const _weight = this.log_wrJ[j] - this.min_weight
+    const _posterior = px + this.log_wrJ[j] - this.min_posterior
     if (options?.values) {
       switch (options?.format) {
         case 'array':
@@ -2327,8 +2359,10 @@ class _Sampler {
         default:
           return assign(this.sample_values(options), {
             _output: xJ[j],
-            _weight: w,
             _index: j,
+            _prior,
+            _weight,
+            _posterior,
           })
         // default:
         //   return [xJ[j], this.sample_values(options)]
