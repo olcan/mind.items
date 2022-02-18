@@ -512,8 +512,8 @@ class _Sampler {
         min_unweighted_updates: this.optimizing ? 1 : 3,
         max_time: options.time ? inf : 1000,
         min_time: 0,
-        min_ess: this.optimizing ? 1 : 0.9 * J,
-        max_mks: this.optimizing ? 5 : 1,
+        min_ess: this.optimizing || this.options.additive_log_wr ? 1 : 0.9 * J,
+        max_mks: this.optimizing || this.options.additive_log_wr ? 5 : 1,
         mks_tail: 1 / 2,
         mks_period: 1,
         max_tks: 5,
@@ -914,7 +914,7 @@ class _Sampler {
     const _func = function () {
       window.__sampler = __sampler
       __sampler._init_func()
-      const out = func(...arguments)
+      const out = func(__sampler)
       window.__sampler = null
       return out
     }
@@ -1066,11 +1066,11 @@ class _Sampler {
     const { func, xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
     const { log_pwJ, rN, log_wrJ, log_rwJ, log_wrfJN, stats } = this
     this.u = 0 // prior is zero'th update step
+    fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
     fill(log_pwJ, 0)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
     fill(xJ, j => ((this.j = j), func(this)))
     copy(log_rwJ, log_pwJ) // log_wrJ added below if r0>0
-    fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
     if (max_in(rN) == 0) {
       fill(log_wrJ, 0)
     } else {
@@ -1100,20 +1100,22 @@ class _Sampler {
   // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
     const timer = _timer_if(this.stats)
-    if (this.r == 1 && !this.optimizing) return // nothing to do
+    if (this.r == 1 && !this.optimizing && !this.options.additive_log_wr) return // nothing to do
 
     const { rN, _rN, J, log_wrJ, weights } = this
     const { log_rwJ, _log_rwJ, _log_rwJ_base, log_wrfJN, stats } = this
     const { reweight_ess, min_reweights, max_reweight_tries } = this.options
 
     // check reweight_ess > optimization quantile ess (if any)
-    each(weights, weight => {
-      if (weight.optimizing && reweight_ess >= (1 - weight.q) * J)
-        fatal(
-          `reweight_ess=${reweight_ess} too low ` +
-            `for optimization quantile q=${weights[0].q}`
-        )
-    })
+    if (this.optimizing) {
+      each(weights, weight => {
+        if (weight.optimizing && reweight_ess >= (1 - weight.q) * J)
+          fatal(
+            `reweight_ess=${reweight_ess} too low ` +
+              `for optimization quantile q=${weights[0].q}`
+          )
+      })
+    }
 
     // check ess > reweight_ess before attemping reweight
     if (this.ess <= reweight_ess)
@@ -1124,7 +1126,8 @@ class _Sampler {
 
     // if optimizing, fork before state-dependent reweight
     // ensures we optimize posterior _predictive_ distributions
-    if (this.optimizing) this._fork()
+    // TODO: comment on why additive log_wr also benefits from this, presumably because log_w are naturally relative to rest of sample? What about the post-weight fork? anyway clean up this new option and relevant comments/etc
+    if (this.optimizing || this.options.additive_log_wr) this._fork()
 
     // save state for possible retries w/ backtracking
     let tries = 0
@@ -1156,7 +1159,7 @@ class _Sampler {
             return // nothing else to do
           }
         } else {
-          if (r == 1) return // nothing to do once r=1
+          if (r == 1 && !this.options.additive_log_wr) return // nothing to do once r=1
           // increment by 1/min_reweights, then backtrack as needed
           if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
           else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
@@ -1180,8 +1183,10 @@ class _Sampler {
             log_rwJ[j] += log_w
           } else {
             log_rwJ[j] += log_w // -log_wr._base
-            _log_rwJ_base[j] += log_wr._base
-            log_wr._last = log_w // becomes _base in next reweight
+            if (!this.options.additive_log_wr) {
+              _log_rwJ_base[j] += log_wr._base
+              log_wr._last = log_w // becomes _base in next reweight
+            }
           }
         })
       })
@@ -1204,6 +1209,7 @@ class _Sampler {
     // comment this out to see "predictive delta" in stats/plots
     // we have to update log_wrJ for move step (verified by mks convergence)
     // note log_rwJ is invariant to forking (same as in _move)
+    // TODO: is this necessary for this.options.additive_log_wr, which presumably does NOT have a state-dependent log_w?
     if (this.optimizing) {
       this._fork()
       fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f(rN[n])))
@@ -1447,7 +1453,8 @@ class _Sampler {
       // should be skipped (even at u=0) if ess is too low
       // forced if optimizing (see comments in _reweight and _maximize)
       // NOTE: not forced on final step, so ess can be unrealistic (and r low) if updates are terminated early, e.g. due to max_time
-      if (this.optimizing || reweight_if(this)) this._reweight()
+      if (this.optimizing || this.options.additive_log_wr || reweight_if(this))
+        this._reweight()
 
       // update stats
       this._update_stats()
