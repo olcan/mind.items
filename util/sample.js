@@ -411,6 +411,10 @@ function minimize(x, q = 0.1, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
+function accumulate() {
+  fatal(`unexpected (unparsed) call to accumulate(…)`)
+}
+
 // =>plot(x)
 // plot value `x`
 function __plot(x) {}
@@ -512,8 +516,8 @@ class _Sampler {
         min_unweighted_updates: this.optimizing ? 1 : 3,
         max_time: options.time ? inf : 1000,
         min_time: 0,
-        min_ess: this.optimizing || this.options.additive_log_wr ? 1 : 0.9 * J,
-        max_mks: this.optimizing || this.options.additive_log_wr ? 5 : 1,
+        min_ess: this.optimizing || this.accumulating ? 1 : 0.9 * J,
+        max_mks: this.optimizing || this.accumulating ? 5 : 1,
         mks_tail: 1 / 2,
         mks_period: 1,
         max_tks: 5,
@@ -687,6 +691,8 @@ class _Sampler {
     const sims = []
     const names = new Set()
     let optimizing = false
+    let accumulating = false
+    let cumulative = false // flag for cumulative weight calls
 
     // parse positive integer variables for possible use w/ sample|confine_array
     // also include any positive integer params
@@ -718,7 +724,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|minimize|maximize|confine|confine_array) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|minimize|maximize|confine|confine_array|accumulate) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
 
     let line_index, line // shared across recursive calls
     const _replace_calls = (js, root = false) =>
@@ -778,8 +784,13 @@ class _Sampler {
           _count_unescaped(prefix, '`') % 2 ||
           _count_unescaped(line_prefix, "'") % 2 ||
           _count_unescaped(line_prefix, '"') % 2
-        )
-          return m
+        ) {
+          // note we still replace args in case only wrapper is commented out
+          return m.replace(
+            new RegExp(method + ' *\\(.+\\)$', 's'),
+            `${method}(${_replace_calls(args)})`
+          )
+        }
 
         // skip method calls
         if (line_prefix.match(/\.$/)) return m
@@ -799,8 +810,24 @@ class _Sampler {
           ]) // sanity check
         }
 
+        // if method is 'accumulate', enable global and per-call flags
+        if (method == 'accumulate') {
+          accumulating = true
+          cumulative = true
+        }
+
         // recursively replace calls nested inside arguments
         args = _replace_calls(args)
+
+        // if method is 'accumulate', just disable per-call flag and return
+        if (method == 'accumulate') {
+          cumulative = false
+          // note we still need to replace args
+          return m.replace(
+            new RegExp(method + ' *\\(.+\\)$', 's'),
+            `__sampler._${method}(${args})`
+          )
+        }
 
         // uncomment to debug replacement issues ...
         // console.log(offset, line_prefix + line_suffix)
@@ -810,6 +837,7 @@ class _Sampler {
           index,
           offset,
           method,
+          cumulative,
           name,
           args,
           line_index,
@@ -926,6 +954,7 @@ class _Sampler {
       names,
       nK: array(names),
       optimizing,
+      accumulating,
     }
   }
 
@@ -1100,7 +1129,7 @@ class _Sampler {
   // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
     const timer = _timer_if(this.stats)
-    if (this.r == 1 && !this.optimizing && !this.options.additive_log_wr) return // nothing to do
+    if (this.r == 1 && !this.optimizing && !this.accumulating) return // nothing to do
 
     const { rN, _rN, J, log_wrJ, weights } = this
     const { log_rwJ, _log_rwJ, _log_rwJ_base, log_wrfJN, stats } = this
@@ -1124,17 +1153,19 @@ class _Sampler {
           `(ess=${this.ess} <= reweight_ess=${reweight_ess})`
       )
 
-    // if optimizing, fork before state-dependent reweight
-    // ensures we optimize posterior _predictive_ distributions
-    // TODO: comment on why additive log_wr also benefits from this, presumably because log_w are naturally relative to rest of sample? What about the post-weight fork? anyway clean up this new option and relevant comments/etc
-    if (this.optimizing || this.options.additive_log_wr) this._fork()
+    // if optimizing, fork before additive reweight
+    // ensures fresh samples used for additive (asymptotic) log_w
+    // also ensures posterior _predictive_ distributions are optimized
+    if (this.optimizing || this.accumulating) this._fork()
 
     // save state for possible retries w/ backtracking
     let tries = 0
     copy(_rN, rN)
     copy(_log_rwJ, log_rwJ)
-    if (weights.some(w => !w.optimizing))
-      each(log_wrfJN, fjN => each(fjN, fjn => (fjn._base = fjn._last ?? 0)))
+    if (weights.some(w => !w.optimizing && !w.accumulating))
+      each(log_wrfJN, fjN =>
+        each(fjN, fjn => !fjn || (fjn._base = fjn._last ?? 0))
+      )
 
     do {
       fill(log_wrJ, 0)
@@ -1155,11 +1186,11 @@ class _Sampler {
           // prefer using larger J to increase ess at computational cost only
           // we do not artificially restrict movement to boost ess
           if (r == _rN[n] && this.options.min_ess > (1 - weight.q) * J) {
-            addf(log_wrJ, log_wrfJN, fjN => fjN[n](r))
+            addf(log_wrJ, log_wrfJN, fjN => fjN[n]?.(r) ?? 0)
             return // nothing else to do
           }
         } else {
-          if (r == 1 && !this.options.additive_log_wr) return // nothing to do once r=1
+          if (r == 1 && !weight.cumulative) return // nothing to do once r=1
           // increment by 1/min_reweights, then backtrack as needed
           if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
           else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
@@ -1167,10 +1198,11 @@ class _Sampler {
         weight.init_log_wr?.(r)
         repeat(J, j => {
           const log_wr = log_wrfJN[j][n]
+          if (!log_wr) return // not called in last pass
           const log_w = log_wr(r)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
-            // optimization log_wr is additive (or wr multiplicative)
+            // optimization|acccumulation log_wr is additive
             // can be interpreted as a conjunctive (AND) condition
             // log_w is (log) likelihood weight P(≥xq0)P(≥xq1)…, xqn⭇xq
             // log_w concentrates around samples that maximize quantile xq
@@ -1183,7 +1215,7 @@ class _Sampler {
             log_rwJ[j] += log_w
           } else {
             log_rwJ[j] += log_w // -log_wr._base
-            if (!this.options.additive_log_wr) {
+            if (!weight.cumulative) {
               _log_rwJ_base[j] += log_wr._base
               log_wr._last = log_w // becomes _base in next reweight
             }
@@ -1205,14 +1237,13 @@ class _Sampler {
       )
 
     // if optimizing, re-fork after reweight
-    // this is only for stats/plots to reflect posterior predictive
+    // ensures stats/plots also reflect posterior predictive
     // comment this out to see "predictive delta" in stats/plots
     // we have to update log_wrJ for move step (verified by mks convergence)
     // note log_rwJ is invariant to forking (same as in _move)
-    // TODO: is this necessary for this.options.additive_log_wr, which presumably does NOT have a state-dependent log_w?
-    if (this.optimizing) {
+    if (this.optimizing || this.accumulating) {
       this._fork()
-      fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f(rN[n])))
+      fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f?.(rN[n]) ?? 0))
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       this.lwr = null // since log_wrJ changed
       this.elw = null // since log_wrJ changed
@@ -1345,7 +1376,7 @@ class _Sampler {
     const tmp_log_wrfJN = log_wrfJN // to be restored below
     this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
     fill(yJ, j => ((this.j = j), func(this)))
-    each(this.rN, (r, n) => addf(log_cwrJ, log_cwrfJN, fjN => fjN[n](r)))
+    each(this.rN, (r, n) => addf(log_cwrJ, log_cwrfJN, fjN => fjN[n]?.(r) ?? 0))
     clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN
     this.moving = false // back to using xJK
@@ -1379,8 +1410,6 @@ class _Sampler {
         // (but not quite understood) in earlier implementations
         // log_rwJ[j] += log_dwj
         // log_rwJ[j] += log_mpJ[j]
-        // if (this.optimizing && this.r == 1)
-        //   this.log_rwJ[j] += log_dwj + log_mpJ[j]
         jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
         this.move_log_p += log_mpJ[j]
@@ -1451,9 +1480,9 @@ class _Sampler {
       // pre-stats for more meaningful ess, etc
       // also reweight on u=0 to avoid prior moves at u=1
       // should be skipped (even at u=0) if ess is too low
-      // forced if optimizing (see comments in _reweight and _maximize)
+      // forced if optimizing|accumulating (see comments in _reweight|_maximize)
       // NOTE: not forced on final step, so ess can be unrealistic (and r low) if updates are terminated early, e.g. due to max_time
-      if (this.optimizing || this.options.additive_log_wr || reweight_if(this))
+      if (this.optimizing || this.accumulating || reweight_if(this))
         this._reweight()
 
       // update stats
@@ -2632,10 +2661,7 @@ class _Sampler {
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
     // treat NaN (usually due to undefined samples) as 0
-    if (is_nan(log_w)) {
-      log_w = 0
-      log_wr = r => 0
-    }
+    if (is_nan(log_w)) log_w = 0
     const weight = this.weights[n]
     if (weight.called)
       fatal(
@@ -2809,6 +2835,11 @@ class _Sampler {
     x._events = []
     x._states = [clone_deep(clean_state(x))]
     return (sim.xt = simulate(x, time, ...events))
+  }
+
+  _accumulate() {
+    if (arguments.length > 0) return arguments[0]
+    else return arguments
   }
 }
 
