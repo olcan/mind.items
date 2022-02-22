@@ -411,6 +411,10 @@ function minimize(x, q = 0.1, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
+// accumulate(...)
+// accumulate weights across runs
+// applies to calls within arguments only
+// returns argument(s), as array if multiple
 function accumulate() {
   fatal(`unexpected (unparsed) call to accumulate(…)`)
 }
