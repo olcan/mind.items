@@ -103,6 +103,11 @@ function _init_log_highlight() {
             scope: 'tag.hashtag._highlight',
             match: /(?:^| |\()(#[^#\s<>&,.;:!"'`(){}\[\]]+)/,
           },
+          // urls (regexp)
+          {
+            scope: 'tag.link._highlight',
+            match: /(?:^| |\()(https?:\/\/[^\s)<]*)/,
+          },
           // numbers+units (regexp copied from #values)
           // we exclude name and comparison and allow $ in place of +/-
           {
@@ -182,6 +187,8 @@ function _init() {
       source = _logger._global_store.keyword_items?.[text]
     } else if (elem.classList.contains('hashtag_')) {
       source = text
+    } else if (elem.classList.contains('link_')) {
+      source = text
     } else if (elem.classList.contains('line_')) {
       // look for date/time prefix in log line
       if (text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/))
@@ -193,6 +200,11 @@ function _init() {
     elem.onclick = e => {
       e.stopPropagation()
       e.preventDefault()
+      if (source.match(/^http/)) {
+        // open link in new tab
+        window.open(source, '_blank')
+        return
+      }
       MindBox.set(source)
       // edit specific line if clicking on whole line or date/time prefix
       if (!text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/)) return
