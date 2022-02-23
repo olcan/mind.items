@@ -734,13 +734,15 @@ class _Sampler {
     // parse and replace key function calls
     // argument pattern allowing nested parentheses is derived from that in core.js
     // this particular pattern allows up to 5 levels of nesting for now
+    // note prefix ...|...| is to skip comments w/o matching calls inside
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|predict|condition|weight|minimize|maximize|confine|confine_array|accumulate) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /\s*\/\/[^\n]*|\s*\/\*.*?\*\/|(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|predict|condition|weight|minimize|maximize|confine|confine_array|accumulate) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
 
     let line_index, line // shared across recursive calls
     const _replace_calls = (js, root = false) =>
       js.replace(__sampler_regex, (m, name, key, method, args, offset) => {
+        if (!method) return m // skip comments (from prefix ...|...|)
         // remove quotes from object object key
         if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
         // parse size (and alt name) from array method args
@@ -797,11 +799,7 @@ class _Sampler {
           _count_unescaped(line_prefix, "'") % 2 ||
           _count_unescaped(line_prefix, '"') % 2
         ) {
-          // note we still replace args in case only wrapper is commented out
-          return m.replace(
-            new RegExp(method + ' *\\(.+\\)$', 's'),
-            `${method}(${_replace_calls(args)})`
-          )
+          return m
         }
 
         // skip method calls
@@ -1697,7 +1695,7 @@ class _Sampler {
     each(this.values, (value, k) => {
       let row = [value.name]
       const number = is_number(value.first)
-      const nstr = x => round_to(x, 2).toFixed(2)
+      const nstr = x => round_to(x, 2)?.toFixed(2)
       const wtd_mean = (xJ, wJ) => dot(xJ, wJ) / sum(wJ)
       // get weighted prior and posterior & remove undefined values
       const pxJ = array(J, j => pxJK[j][k])
@@ -2671,7 +2669,10 @@ class _Sampler {
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
     // treat NaN (usually due to undefined samples) as 0
-    if (is_nan(log_w)) log_w = 0
+    if (is_nan(log_w)) {
+      log_w = 0
+      log_wr = r => 0
+    }
     const weight = this.weights[n]
     if (weight.called)
       fatal(
