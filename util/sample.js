@@ -419,9 +419,8 @@ function accumulate() {
   fatal(`unexpected (unparsed) call to accumulate(…)`)
 }
 
-// =>plot(x)
-// plot value `x`
-function __plot(x) {}
+// predict value `x`
+function predict(x) {}
 
 // is `wJ` uniform?
 function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
@@ -439,6 +438,15 @@ function _remove_undefined(xJ, wJ) {
     wJ[jj] = wJ[j]
   }
   xJ.length = wJ.length = ++jj
+}
+
+function _rank_aggregated(xJ, wJ) {
+  let wX = new Map()
+  if (wJ) each(xJ, (x, j) => wX.set(x, (wX.get(x) ?? 0) + wJ[j]))
+  const [xR, wR] = transpose(rank_by(array(wX.entries()), last))
+  copy(xJ, xR)
+  copy(wJ, wR)
+  return wX
 }
 
 function _max_index_by(J, f) {
@@ -507,7 +515,7 @@ class _Sampler {
           fill(uawK, k => max(0, uatK[k] - uaK[k]))
         },
         move_targets: ({ J }, atK, uatK) => {
-          // split J or .1*J, excluding non-sampled (e.g. "plotted") values
+          // split J or .1*J, excluding non-sampled (e.g. "predicted") values
           fill(atK, k => (this.values[k].sampled ? 1 : 0))
           fill(uatK, k => (this.values[k].sampled ? 1 : 0))
           if (sum(atK) > 0) scale(atK, J / sum(atK))
@@ -728,7 +736,7 @@ class _Sampler {
     // this particular pattern allows up to 5 levels of nesting for now
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|plot|condition|weight|minimize|maximize|confine|confine_array|accumulate) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /(?:(?:^|\n|;) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^\{\}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|predict|condition|weight|minimize|maximize|confine|confine_array|accumulate) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
 
     let line_index, line // shared across recursive calls
     const _replace_calls = (js, root = false) =>
@@ -906,11 +914,11 @@ class _Sampler {
             // note simulation name is separate from sampled value names
             sims.push(lexical_context())
             break
-          case 'plot':
+          case 'predict':
             index = values.length
             if (!name) {
               ;[, name] = args.match(/^\s*(\S+?)\s*(?:,|$)/su) ?? []
-              name ??= method // name after plot method
+              name ??= method // name after predict method
             }
             if (names.has(name)) name += '_' + index // de-duplicate name
             if (name.match(/^\d/))
@@ -1688,41 +1696,39 @@ class _Sampler {
     let value_table = []
     each(this.values, (value, k) => {
       let row = [value.name]
-      if (!is_number(value.first)) return // value not number
-
-      // get prior w/ weights
-      let pxJ = array(J, j => pxJK[j][k])
-      const pwJ = copy(this.pwJ)
-      _remove_undefined(pxJ, pwJ)
+      const number = is_number(value.first)
       const nstr = x => round_to(x, 2).toFixed(2)
       const wtd_mean = (xJ, wJ) => dot(xJ, wJ) / sum(wJ)
-      const prior_mean = wtd_mean(pxJ, pwJ)
-      row.push(nstr(prior_mean))
-      pxJ = lookup(pxJ, random_discrete_array(array(10 * J), pwJ))
-      row.push(quantiles(pxJ, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
-
-      // get posterior w/ weights
+      // get weighted prior and posterior & remove undefined values
+      const pxJ = array(J, j => pxJK[j][k])
+      const pwJ = copy(this.pwJ)
       let xJ = array(J, j => xJK[j][k])
       const wJ = copy(rwJ)
       _remove_undefined(xJ, wJ)
-      const post_mean = wtd_mean(xJ, wJ)
+      _remove_undefined(pxJ, pwJ)
 
-      row.push(nstr(post_mean))
-      xJ = lookup(xJ, random_discrete_array(array(10 * J), wJ))
-      row.push(quantiles(xJ, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
-      const delta = post_mean - prior_mean
-      row.push((delta > 0 ? '+' : '') + nstr(delta))
-
-      // if (value.target && !is_function(value.target)) {
-      //   // get target sample w/ weights
-      //   let yT = value.target
-      //   const wT = array(value.target.length, 1)
-      //   if (value.target_weights) copy(wT, value.target_weights)
-      //   _remove_undefined(yT, wT)
-      //   row.push(nstr(wtd_mean(yT, wT)))
-      //   yT = lookup(yT, random_discrete_array(array(10 * J), wT))
-      //   row.push(quantiles(yT, [0.25, 0.5, 0.75]).map(nstr).join('⋮'))
-      // }
+      if (number) {
+        const prior = wtd_mean(pxJ, pwJ)
+        const post = wtd_mean(xJ, wJ)
+        const delta = post - prior
+        const [x_min, x_max] = min_max_in(xJ)
+        row.push(`[${nstr(x_min)},${nstr(x_max)}]`)
+        row.push(`${nstr(prior)} → ${nstr(post)}`)
+        row.push((delta > 0 ? '+' : '') + nstr(delta))
+      } else {
+        scale(wJ, 1 / sum(wJ))
+        _rank_aggregated(xJ, wJ)
+        scale(pwJ, 1 / sum(pwJ))
+        const pwX = _rank_aggregated(pxJ, pwJ)
+        const j_best = _max_index_by(xJ.length, j => wJ[j])
+        const x_post = xJ[j_best]
+        const w_post = wJ[j_best]
+        const w_prior = pwX.get(x_post)
+        const delta = w_post - w_prior
+        row.push(str(x_post))
+        row.push(`${nstr(w_prior)} → ${nstr(w_post)}`)
+        row.push((delta > 0 ? '+' : '') + nstr(delta))
+      }
 
       value_table.push(row)
     })
@@ -2636,12 +2642,12 @@ class _Sampler {
     )
   }
 
-  _plot(k, x, name) {
+  _predict(k, x, name) {
     const value = this.values[k]
     if (!value.called && is_string(name)) {
-      if (!name) fatal(`blank name for plotted value at index ${k}`)
+      if (!name) fatal(`blank name for predicted value at index ${k}`)
       if (name.match(/^\d/))
-        fatal(`invalid numeric name '${name}' for plotted value`)
+        fatal(`invalid numeric name '${name}' for predicted value`)
       value.name = name
     }
     value.called = true
@@ -2650,7 +2656,7 @@ class _Sampler {
     value.first ??= x // used to determine type
     this.xJK[this.j][k] = x
     // treat as jump to simplify update-related logic, e.g. in __mks
-    // value.sampled can also be used to treat plotted values differently
+    // value.sampled can also be used to treat predicted values differently
     this.upJK[this.j][k] = this.u
     return x
   }
@@ -2801,12 +2807,12 @@ class _Sampler {
 
     this._weight(n, log_wr(1), log_wr)
 
-    // also _plot and return value, negating for minimization
+    // also _predict and return value, negating for minimization
     if (weight.minimizing) {
-      this._plot(weight.value_index, -x)
+      this._predict(weight.value_index, -x)
       return -x
     } else {
-      this._plot(weight.value_index, x)
+      this._predict(weight.value_index, x)
       return x
     }
   }

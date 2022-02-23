@@ -784,7 +784,7 @@ function min_of(xJ, f = x => x) {
   return z
 }
 
-const min_by = _.minBy
+// const min_by = _.minBy
 
 // maximum element in `xJ`
 function max_in(xJ) {
@@ -816,7 +816,7 @@ function max_of(xJ, f = x => x) {
   return z
 }
 
-const max_by = _.maxBy
+// const max_by = _.maxBy
 
 // `≡ [min_in(xJ), max_in(xJ)]`
 function min_max_in(xJ) {
