@@ -50,10 +50,15 @@ const map = _.map
 const map_keys = _.mapKeys
 const map_values = _.mapValues
 
+// default-numeric sort/rank functions
 const sort = (xJ, f = (a, b) => a - b) => xJ.sort(f)
 const sort_by = (xJ, f = x => x) => xJ.sort((a, b) => f(a) - f(b))
 const rank = (xJ, f = (a, b) => a - b) => xJ.sort((a, b) => f(b, a))
 const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
+
+// other useful comparator functions
+const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+const compare_locale = (a, b, ...args) => a.localeCompare(b, ...args)
 
 const sorted_index = _.sortedIndex
 const sorted_index_by = _.sortedIndexBy
