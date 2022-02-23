@@ -254,6 +254,7 @@ function _on_global_store_change(id) {
   _invalidate_highlights()
 }
 
+// event_log([selector],[mapper],[options])
 // event log entries, newest first
 // returns array of parsed objects w/ properties:
 // | `date`     | event date string as `YYYY/MM/DD`
@@ -263,13 +264,19 @@ function _on_global_store_change(id) {
 // | `numbers`  | numbers is event, via `parse_numbers(body)`
 // | `t_date`   | event time as `Date`, see `event_date` in #util/sim
 // | `t`        | event time, see `event_time` in #util/sim
-// optional `selector` function is used to filter events
+// | `td`       | event day (integer part of `t`)
+// | `th`       | event hour of day (fractional part of `t`, times `24`)
+// `selector` can be function used to filter events
 // `selector` can be keyword string/regex, converted via `match_keyword`
-// cached on `#logger` under keys `log` and `log.hash(selector)`
+// `mapper` can be function `(e,j,eJ)=>…` or property name (see above)
+// other `options`:
+// | `reverse` | return oldest entries first, _default_: `false`
+// | `filter`  | remove entries mapped to `undefined`, _default_: `true`
+// cached on `#logger` under key `log` and `log.hash(arguments)`
 // returned array should not be mutated
-function event_log(selector = undefined) {
-  if (is_string(selector)) selector = match_keyword(selector)
-  const eJ = _logger.cached('log', () => {
+function event_log(selector, mapper, options) {
+  // parse (and cache) log entries before any selector/mapper/options
+  let eJ = _logger.cached('log', () => {
     let log = []
     const keywords = _event_log_keywords_for_regex()
     const keyword_regex = new RegExp('^(?:' + keywords + ')(?=\\W|$)')
@@ -280,9 +287,10 @@ function event_log(selector = undefined) {
       if (!events) return // no events in item
       let last_time
       events.split('\n').forEach(line => {
-        let [time] = line.match(/^\d\d:\d\d/) || []
-        const body = line.substring(5).trim()
-        // note comments are allowed in highlighting, but not in log items
+        line = line.trim()
+        if (!line) return // ignore empty line
+        const [_, time, body] = line.match(/^(\d\d:\d\d)\s+(\S.+)$/) || []
+        // note comments (//...) are allowed in highlighting, but not in log items
         if (!time || !body) {
           // time and non-empty body are required
           console.warn(`invalid event '${line}' in ${name}`)
@@ -297,6 +305,7 @@ function event_log(selector = undefined) {
         const td = ~~t
         const th = (t - td) * 24
         log.push({
+          line,
           date,
           time,
           body,
@@ -312,8 +321,27 @@ function event_log(selector = undefined) {
     // console.log(`cached ${log.length} events`)
     return log
   })
-  if (!selector) return eJ
-  return _logger.cached(`log.${hash(selector)}`, () => eJ.filter(selector))
+  if (arguments.length == 0) return eJ // return entries as parsed
+  return _logger.cached(`log.${hash(arguments)}`, () => {
+    const { reverse = false, filter = true } = options ?? {}
+    if (is_string(selector)) selector = match_keyword(selector)
+    if (selector) eJ = eJ.filter(selector)
+    if (mapper) {
+      if (is_string(mapper)) {
+        const prop = mapper
+        mapper = e => e[prop]
+      }
+      if (reverse) {
+        const _mapper = mapper
+        mapper = (e, j, eJ) => ((j = eJ.length - 1 - j), _mapper(eJ[j], j, eJ))
+      }
+      const xJ = eJ.map(mapper)
+      if (filter) remove(xJ, undefined)
+      return xJ
+    }
+    if (reverse) eJ = eJ.slice().reverse()
+    return eJ
+  })
 }
 
 // event log item names, newest first
@@ -321,9 +349,7 @@ function event_log(selector = undefined) {
 // cached on `#logger` under key `log_items`
 function event_log_items() {
   return _logger.cached('log_items', () =>
-    _labels(l => l.match(/#\d\d\d\d\/\d\d\/\d\d/))
-      .sort()
-      .reverse()
+    _labels(l => l.match(/#\d\d\d\d\/\d\d\/\d\d/)).sort((a, b) => compare(b, a))
   )
 }
 
@@ -350,14 +376,14 @@ const event_log_index = t => sorted_index_by(event_log(), { t }, e => -e.t)
 
 // event log as text, one line per event
 // generates text from parsed objects (see `event_log` above)
-// cached on `#logger` under key `log_text.limit.hash(selector)`
+// cached on `#logger` under key `log_text.hash(arguments)`
 // | `limit`    | max number of events (lines)
 // | `selector` | selector function or string/regex
 // | `summary`  | include summary line? _default_: `true`
 function event_log_text(options = undefined) {
-  let { limit = 5, selector, summary = true } = options ?? {}
-  if (is_string(selector)) selector = match_keyword(selector)
-  return _logger.cached(`log_text.${limit}.${hash(selector)}`, () => {
+  return _logger.cached(`log_text.${hash(arguments)}`, () => {
+    let { limit = 5, selector, summary = true } = options ?? {}
+    if (is_string(selector)) selector = match_keyword(selector)
     const K = limit
     const eJ = event_log()
     const eR = selector ? eJ.filter(selector) : eJ
@@ -382,14 +408,10 @@ function event_log_text(options = undefined) {
 const event_log_block = (...args) => block('log', event_log_text(...args))
 
 // event log times, oldest first
-// `selector` can be keyword string/regex, converted via `match_keyword`
-// cached on `#logger` under key `log_times.hash(selector)`
-const event_log_times = (selector = undefined) =>
-  _logger.cached(`log_times.${hash(selector)}`, () =>
-    event_log(selector)
-      .map(e => e.t)
-      .reverse()
-  )
+// `prop` can be `t` (_default_), `td` (day), `th` (hour of day)
+// `≡ event_log(selector, prop, {reverse:true})
+const event_log_times = (selector = undefined, prop = 't') =>
+  event_log(selector, prop, { reverse: true })
 
 // event log stats
 // hour-of-day is ordered in [-12,12]
