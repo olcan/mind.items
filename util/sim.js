@@ -483,12 +483,10 @@ const print_event = e => {
   const is_observe = name.startsWith('observe_')
   // NOTE: search for 'box drawings' in character viewer
   const pfx = is_now ? '╋━▶︎' : is_observe ? '╋━▶︎' : '│──'
-  // TODO: seal _Event, make these non-enumerable!
   const omit_props = [
     't',
     '_t', // time cached in _Event
     '_source',
-    '_elog',
     '_name',
     '_sfx',
   ]
