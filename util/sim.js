@@ -1,6 +1,7 @@
 class _State {
+  _schedulers = {}
   constructor(vars, params) {
-    // define variable properties
+    // define variable properties, subject to mutation tracking
     vars.t ??= 0 // defined required time variable if missing
     each(entries(vars), ([k, v]) => {
       // TODO: handle arrays, can be fixed size (example 13) or dynamic
@@ -9,9 +10,17 @@ class _State {
       Object.defineProperty(this, k, {
         enumerable: true, // variables (unlike parameters) can be enumerated
         get() {
+          // track scheduler access to any non-t state as a dependency
+          if (this._scheduler && k != 't')
+            (this._schedulers[k] ??= new Set()).add(this._scheduler)
           return vars[k]
         },
         set(v) {
+          // reset and clear any dependent schedulers
+          if (this._schedulers[k]?.size > 0) {
+            for (const e of this._schedulers[k]) e._t = 0
+            this._schedulers[k].clear()
+          }
           vars[k] = v
         },
       })
@@ -25,10 +34,11 @@ class _State {
       })
     })
 
-    // define auxiliary state properties _t, _events, _states
+    // define auxiliary state properties _t, _events, _states, _scheduler
     Object.defineProperty(this, '_t', { writable: true })
     Object.defineProperty(this, '_events', { writable: true })
     Object.defineProperty(this, '_states', { writable: true })
+    Object.defineProperty(this, '_scheduler', { writable: true })
 
     // seal state object to prevent untracked mutations
     Object.seal(this)
@@ -71,14 +81,18 @@ function simulate(x, t, events) {
     // caching of valid times is handled in _Event to allow condition wrapper
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
     // store next scheduled event time as x._t for persistence across calls
-    each(events, e => (e.t = e.ft(x))) // caching is handled in _Event
+    for (const e of events) {
+      x._scheduler = e // track event as dependent scheduler
+      e.t = e.ft(x)
+      x._scheduler = null
+    }
     x._t = min_of(events, e => e.t) // can be inf
     if (!(x._t > x.t)) fatal('invalid e.ft(x) <= x.t')
     // stop at t if next event is >t
     if (x._t > t) break
     // advance to x.t=_t & trigger mutations
     x.t = x._t
-    each(events, e => x.t != e.t || e.fx(x))
+    for (const e of events) if (x.t == e.t) e.fx(x)
   }
   x.t = t
   return x
@@ -112,10 +126,12 @@ const name_events = (...fE) =>
 // |           | can return (part of) state that affected mutation
 // | `ft`      | _scheduler function_ `ft(x)`
 // |           | must return future time `t > x.t`, can be `inf` (never)
+// |           | state variables accessed in `ft` are considered _dependencies_
+// |           | schedule is considered valid while dependencies are unchanged
 // |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
 // | `fc`      | optional _condition function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
-// |           | `!fc(x)` state also cancels any future time scheduled
+// |           | state variables accessed in `fc` are also dependencies (see above)
 const _event = (...args) => new _Event(...args)
 class _Event {
   constructor(fx, ft = daily(0), fc = undefined) {
@@ -131,14 +147,12 @@ class _Event {
       x._states?.push(clone_deep(x))
     }
 
-    // wrap scheduler w/ cache wrapper and optional condition wrapper
-    // note condition wrapper needs ability to bypass/reset any caching
+    // wrap scheduler w/ cache wrapper and optional condition wrapper fc
+    // fc establishes dependency on any variables x.* accessed in fc(x)
     const _ft = ft // _ft is original, ft is cached, this.ft is conditioned
-    this._t = 0 // cached scheduled time
-    // apply cache wrapper
+    this._t = 0 // cached scheduled time, can be reset via dependencies
     this.ft = ft = x => (this._t > x.t ? this._t : (this._t = _ft(x)))
-    // apply condition wrapper
-    if (fc) this.ft = x => (!fc(x) ? ((this._t = 0), inf) : ft(x))
+    if (fc) this.ft = x => (fc(x) ? ft(x) : inf)
   }
 }
 
@@ -323,7 +337,8 @@ function _benchmark_inc() {
 // daily scheduler
 // triggers daily at hour-of-day `h∈[0,24)`
 // `h` can be any sampler, e.g. `within(9,1)`
-// `h` can be function `x=>…` that returns a sampler
+// `h` can be function `x=>…` that returns sampler per `x`
+// state variables accessed in `h(x)` are considered dependencies
 // sampled `h` is mapped into `[0,24)` as `mod(h,24)`
 function daily(h) {
   if (h === undefined) return x => inf // never
@@ -337,7 +352,8 @@ function daily(h) {
 // relative time scheduler
 // triggers after `h>0` hours (from `x.t`)
 // `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
-// `h` can be function `x=>…` that returns a sampler
+// `h` can be function `x=>…` that returns sampler per `x`
+// state variables accessed in `h(x)` are considered dependencies
 // often used w/ condition `fc` to trigger `h` hours after `fc(x)` state
 // `h` should be short enough to avoid cancellation by `!fc(x)` state
 function after(h) {
