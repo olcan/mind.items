@@ -264,8 +264,8 @@ function _on_global_store_change(id) {
 // | `numbers`  | numbers is event, via `parse_numbers(body)`
 // | `t_date`   | event time as `Date`, see `event_date` in #util/sim
 // | `t`        | event time, see `event_time` in #util/sim
-// | `td`       | event day (integer part of `t`)
-// | `th`       | event hour of day (fractional part of `t`, times `24`)
+// | `d`        | event day (integer part of `t`)
+// | `h`        | event hour of day (fractional part of `t`, times `24`)
 // `selector` can be function used to filter events
 // `selector` can be keyword string/regex, converted via `match_keyword`
 // `mapper` can be function `(e,j,eJ)=>…` or property name (see above)
@@ -302,8 +302,8 @@ function event_log(selector, mapper, options) {
         const t_date = parse_date_time(date, time)
         let [keyword] = body.toLowerCase().match(keyword_regex) || []
         const t = event_time(t_date)
-        const td = ~~t
-        const th = (t - td) * 24
+        const d = ~~t
+        const h = (t - d) * 24
         log.push({
           line,
           date,
@@ -313,8 +313,8 @@ function event_log(selector, mapper, options) {
           numbers: parse_numbers(body),
           t_date,
           t,
-          td,
-          th,
+          d,
+          h,
         })
       })
     })
@@ -408,7 +408,7 @@ function event_log_text(options = undefined) {
 const event_log_block = (...args) => block('log', event_log_text(...args))
 
 // event log times, oldest first
-// `prop` can be `t` (_default_), `td` (day), `th` (hour of day)
+// `prop` can be `t` (_default_), `d` (day), `h` (hour of day)
 // `≡ event_log(selector, prop, {reverse:true})
 const event_log_times = (selector = undefined, prop = 't') =>
   event_log(selector, prop, { reverse: true })
@@ -419,15 +419,15 @@ function event_log_stats(selector = undefined, max_days = inf) {
   const te = ~~now() // exclude today
   const ts = te - max_days
   let eJ = event_log(selector).filter(e => e.t >= ts && e.t < te)
-  const days = eJ.length == 0 ? 0 : eJ[0].td - last(eJ).td + 1
+  const days = eJ.length == 0 ? 0 : eJ[0].d - last(eJ).d + 1
   const _12h = h => (h > 12 ? h - 24 : h)
   const _24h = h => (h < 0 ? h + 24 : h)
   const _hm = h => (
     (h = _24h(h)), is_finite(h) ? _02d(~~h) + ':' + _02d((h - ~~h) * 60) : '?'
   )
-  const hJ = eJ.map(e => e.th).map(_12h) // hour of day in [-12,12)
-  const dJ = eJ.map(e => e.td % 7) // day of week in [0,7)
-  const pday = uniq(eJ.map(e => e.td)).length / days
+  const hJ = eJ.map(e => e.h).map(_12h) // hour of day in [-12,12)
+  const dJ = eJ.map(e => e.d % 7) // day of week in [0,7)
+  const pday = uniq(eJ.map(e => e.d)).length / days
   return [
     hJ.length,
     ...[

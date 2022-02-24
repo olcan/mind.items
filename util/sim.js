@@ -1,12 +1,58 @@
+class _State {
+  constructor(vars, params) {
+    // define variable properties
+    vars.t ??= 0 // defined required time variable if missing
+    each(entries(vars), ([k, v]) => {
+      if (is_object(v)) fatal(`invalid nested object variable '${k}'`)
+      Object.defineProperty(this, k, {
+        enumerable: true, // variables (unlike parameters) can be enumerated
+        get() {
+          return vars[k]
+        },
+        set(v) {
+          vars[k] = v
+        },
+      })
+    })
+
+    // define (constant) parameter properties
+    each(entries(params), ([k, v]) => {
+      if (is_object(v)) fatal(`invalid nested object parameter '${k}'`)
+      Object.defineProperty(this, k, {
+        value: v,
+      })
+    })
+
+    // define auxiliary state properties _t, _events, _states
+    Object.defineProperty(this, '_t', { writable: true })
+    Object.defineProperty(this, '_events', { writable: true })
+    Object.defineProperty(this, '_states', { writable: true })
+
+    // seal state object to prevent untracked mutations
+    Object.seal(this)
+  }
+
+  get d() {
+    return ~~this.t
+  }
+  get h() {
+    return (this.t - this.d) * 24
+  }
+}
+
+// create state object
+const state = (vars, params = undefined) => new _State(vars, params)
+
+// is `x` a state object?
+const is_state = x => x instanceof _State
+
 // simulate `events` from state `x` to time `t`
 // `events` must be a flat array of event objects
 // includes all events at times `(x.t,t], t>x.t`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
 function simulate(x, t, events) {
-  x.t ??= 0 // default x.t is 0
-  x.td = ~~x.t
-  x.th = (x.t - x.td) * 24
+  if (!is_state(x)) fatal('invalid state object')
   x._t ??= 0 // non-resuming sim starts at x._t=0 to be advanced x.t>t>0
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
   if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
@@ -30,8 +76,6 @@ function simulate(x, t, events) {
     if (x._t > t) break
     // advance to x.t=_t & trigger mutations
     x.t = x._t
-    x.td = ~~x.t
-    x.th = (x.t - x.td) * 24
     each(events, e => x.t != e.t || e.fx(x))
   }
   x.t = t
@@ -40,14 +84,22 @@ function simulate(x, t, events) {
 
 // create _named_ events from functions `fE`
 // creates events as `set(e(), '_name', str(e))`
-// also flattens & filters arguments as `compact(flat(…))`
+// allows object arguments that specify names as keys
 const name_events = (...fE) =>
-  apply(compact(flat(fE)), e => {
-    if (!is_function(e)) fatal('invalid non-function argument')
-    e = set(e(), '_name', str(e))
-    if (!is_event(e)) fatal('function returned non-event')
-    return e
-  })
+  flat(
+    apply(flat(fE), e => {
+      if (is_object(e))
+        return entries(e).map(([n, e]) => {
+          if (!is_string(n)) fatal(`invalid event name ${str(n)}`)
+          if (!is_event(e)) fatal(`invalid event ${str(e)}`)
+          return set(e, '_name', n)
+        })
+      if (!is_function(e)) fatal('invalid argument')
+      e = set(e(), '_name', str(e))
+      if (!is_event(e)) fatal('function returned non-event')
+      return e
+    })
+  )
 
 // _event(fx, [ft=daily(0)], [fc])
 // create mutation event `x → fx(x,…)`
@@ -74,7 +126,7 @@ class _Event {
         return null
       }
       x._events?.push({ t: x.t, ...θ, _source: this })
-      x._states?.push(clone_deep(clean_state(x)))
+      x._states?.push(clone_deep(x))
     }
 
     // wrap scheduler w/ cache wrapper and optional condition wrapper
@@ -100,6 +152,7 @@ const _at = (ft, fx, fc) => _event(fx, ft, fc)
 // alias for `_event(…)`, condition (`fc`) first
 const _if = (fc, ft, fx) => _event(fx, ft, fc)
 
+// is `e` an event object?
 const is_event = e => e instanceof _Event
 
 // increment mutation
@@ -230,6 +283,7 @@ function _benchmark_inc() {
       count = v
     },
   })
+  Object.seal(obj) // no more properties
   // increment mutation functions
   const inc_count = inc('count')
   const inc_nested_count = inc('nested.count')
@@ -271,11 +325,11 @@ function _benchmark_inc() {
 // sampled `h` is mapped into `[0,24)` as `mod(h,24)`
 function daily(h) {
   if (h === undefined) return x => inf // never
-  if (h == 0) return x => x.td + 1
-  if (h > 0 && h < 24) return x => x.td + (x.th >= h) + h * _1h
+  if (h == 0) return x => x.d + 1
+  if (h > 0 && h < 24) return x => x.d + (x.h >= h) + h * _1h
   const sampler = is_function(h) ? x => h(x) : () => h
   return x =>
-    sampler(x)._prior(h => ((h = mod(h, 24)), x.td + (x.th >= h) + h * _1h))
+    sampler(x)._prior(h => ((h = mod(h, 24)), x.d + (x.h >= h) + h * _1h))
 }
 
 // relative time scheduler
@@ -415,10 +469,6 @@ function _test_event_time() {
   )
 }
 
-// clean state by omitting underscore-prefixed keys plus `td` and `th`
-const clean_state = x =>
-  omit_by(x, (v, k) => k && (k[0] == '_' || k == 'td' || k == 'th'))
-
 // print event
 const print_event = e => {
   const tstr = date_time_string(event_date(e.t))
@@ -429,11 +479,10 @@ const print_event = e => {
   const is_observe = name.startsWith('observe_')
   // NOTE: search for 'box drawings' in character viewer
   const pfx = is_now ? '╋━▶︎' : is_observe ? '╋━▶︎' : '│──'
+  // TODO: seal _Event, make these non-enumerable!
   const omit_props = [
     't',
-    'td',
-    'th',
-    '_t',
+    '_t', // time cached in _Event
     '_source',
     '_elog',
     '_name',
@@ -446,4 +495,4 @@ const print_event = e => {
 }
 
 // print state
-const print_state = x => print(str(clean_state(x)))
+const print_state = x => print(str(x))

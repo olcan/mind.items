@@ -2844,7 +2844,7 @@ class _Sampler {
     // for J==1 (debug mode), enable _events/_states & store sim.xt
     const sim = this.sims[s]
     x._events = []
-    x._states = [clone_deep(clean_state(x))]
+    x._states = [clone_deep(x)]
     return (sim.xt = simulate(x, time, ...events))
   }
 
