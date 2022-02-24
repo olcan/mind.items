@@ -77,8 +77,6 @@ class _Event {
       x._states?.push(clone_deep(clean_state(x)))
     }
 
-    // TODO: track access to 'x' via Proxy; start w/ blank Proxy, then register event as listener to changes to any properties accessed by ft, except those designated somehow as constants/parameters
-
     // wrap scheduler w/ cache wrapper and optional condition wrapper
     // note condition wrapper needs ability to bypass/reset any caching
     const _ft = ft // _ft is original, ft is cached, this.ft is conditioned
@@ -193,14 +191,46 @@ const _set_path = (x, y, z) => {
 
 function _benchmark_inc() {
   const x = { count: 0, nested: { count: 0 } }
-  const x_proxy = new Proxy(x, {
+  // proxy object for benchmarking proxy overhead
+  const proxy = new Proxy(x, {
     get(obj, prop, receiver) {
       return Reflect.get(...arguments)
     },
     set(obj, prop, value) {
       return Reflect.set(...arguments)
     },
-  }) // blank proxy
+  })
+  // regular object for benchmarking getter/setter overhead
+  const obj = {}
+  let count = 0
+  Object.defineProperty(obj, 'count', {
+    get() {
+      return count
+    },
+    set(v) {
+      count = v
+    },
+  })
+  // a 'tracked' property to assess additional overhead of tracking calls
+  let getters = new Set()
+  let setters = new Set()
+  let sets = new Set()
+  let gets = new Set()
+  Object.defineProperty(obj, 'count_tracked', {
+    get() {
+      getters.add(count % 10) // emulate a set of object pointers
+      getters.delete((count * 7) % 10) // emulate some deletion
+      gets.add('count')
+      return count
+    },
+    set(v) {
+      setters.add(v % 10) // emulate a set of object pointers
+      setters.delete((v * 7) % 10) // emulate some deletion
+      sets.add('count')
+      count = v
+    },
+  })
+  // increment mutation functions
   const inc_count = inc('count')
   const inc_nested_count = inc('nested.count')
   benchmark(
@@ -225,8 +255,12 @@ function _benchmark_inc() {
         if (is_number(b)) return (a || 0) + b
       }),
     () => _inc_obj(x, { nested: { count: 1 } }),
-    () => x_proxy.count++,
-    () => x_proxy['count']++
+    () => proxy.count++,
+    () => proxy['count']++,
+    () => obj.count++,
+    () => obj['count']++,
+    () => obj.count_tracked++,
+    () => obj['count_tracked']++
   )
 }
 
