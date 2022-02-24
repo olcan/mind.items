@@ -76,6 +76,9 @@ class _Event {
       x._events?.push({ t: x.t, ...θ, _source: this })
       x._states?.push(clone_deep(clean_state(x)))
     }
+
+    // TODO: track access to 'x' via Proxy; start w/ blank Proxy, then register event as listener to changes to any properties accessed by ft, except those designated somehow as constants/parameters
+
     // wrap scheduler w/ cache wrapper and optional condition wrapper
     // note condition wrapper needs ability to bypass/reset any caching
     const _ft = ft // _ft is original, ft is cached, this.ft is conditioned
@@ -190,6 +193,14 @@ const _set_path = (x, y, z) => {
 
 function _benchmark_inc() {
   const x = { count: 0, nested: { count: 0 } }
+  const x_proxy = new Proxy(x, {
+    get(obj, prop, receiver) {
+      return Reflect.get(...arguments)
+    },
+    set(obj, prop, value) {
+      return Reflect.set(...arguments)
+    },
+  }) // blank proxy
   const inc_count = inc('count')
   const inc_nested_count = inc('nested.count')
   benchmark(
@@ -213,7 +224,9 @@ function _benchmark_inc() {
       merge_with(x, { nested: { count: 1 } }, (a, b) => {
         if (is_number(b)) return (a || 0) + b
       }),
-    () => _inc_obj(x, { nested: { count: 1 } })
+    () => _inc_obj(x, { nested: { count: 1 } }),
+    () => x_proxy.count++,
+    () => x_proxy['count']++
   )
 }
 
