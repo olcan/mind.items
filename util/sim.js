@@ -3,7 +3,9 @@ class _State {
     // define variable properties
     vars.t ??= 0 // defined required time variable if missing
     each(entries(vars), ([k, v]) => {
-      if (is_object(v)) fatal(`invalid nested object variable '${k}'`)
+      // TODO: handle arrays
+      if (is_object(v) && !is_array(v))
+        fatal(`invalid nested object variable '${k}'`)
       Object.defineProperty(this, k, {
         enumerable: true, // variables (unlike parameters) can be enumerated
         get() {
@@ -17,7 +19,9 @@ class _State {
 
     // define (constant) parameter properties
     each(entries(params), ([k, v]) => {
-      if (is_object(v)) fatal(`invalid nested object parameter '${k}'`)
+      // TODO: handle arrays
+      if (is_object(v) && !is_array(v))
+        fatal(`invalid nested object parameter '${k}'`)
       Object.defineProperty(this, k, {
         value: v,
       })
