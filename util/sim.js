@@ -3,7 +3,7 @@ class _State {
     // define variable properties
     vars.t ??= 0 // defined required time variable if missing
     each(entries(vars), ([k, v]) => {
-      // TODO: handle arrays
+      // TODO: handle arrays, can be fixed size (example 13) or dynamic
       if (is_object(v) && !is_array(v))
         fatal(`invalid nested object variable '${k}'`)
       Object.defineProperty(this, k, {
@@ -19,9 +19,7 @@ class _State {
 
     // define (constant) parameter properties
     each(entries(params), ([k, v]) => {
-      // TODO: handle arrays
-      if (is_object(v) && !is_array(v))
-        fatal(`invalid nested object parameter '${k}'`)
+      if (is_object(v)) Object.freeze(v) // freeze nested parameters
       Object.defineProperty(this, k, {
         value: v,
       })
