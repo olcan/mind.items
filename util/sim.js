@@ -11,6 +11,7 @@ class _State {
         enumerable: true, // variables (unlike parameters) can be enumerated
         get() {
           // track scheduler access to any non-t state as a dependency
+          // note dependency continues until mutation or remove_dependent
           if (this._scheduler && k != 't')
             (this._schedulers[k] ??= new Set()).add(this._scheduler)
           return vars[k]
@@ -49,6 +50,10 @@ class _State {
   }
   get h() {
     return (this.t - this.d) * 24
+  }
+
+  remove_dependent(e) {
+    for (const deps of values(this._schedulers)) deps.delete(e)
   }
 }
 
@@ -147,12 +152,14 @@ class _Event {
       x._states?.push(clone_deep(x))
     }
 
-    // wrap scheduler w/ cache wrapper and optional condition wrapper fc
-    // fc establishes dependency on any variables x.* accessed in fc(x)
-    const _ft = ft // _ft is original, ft is cached, this.ft is conditioned
+    // wrap ft w/ cache wrapper and optional condition function fc
     this._t = 0 // cached scheduled time, can be reset via dependencies
-    this.ft = ft = x => (this._t > x.t ? this._t : (this._t = _ft(x)))
-    if (fc) this.ft = x => (fc(x) ? ft(x) : inf)
+    this.ft = x => {
+      if (this._t > x.t) return this._t
+      x.remove_dependent(this) // remove dependencies for previous _t
+      if (fc && !fc(x)) return (this._t = inf)
+      return (this._t = ft(x))
+    }
   }
 }
 
