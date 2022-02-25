@@ -1,31 +1,36 @@
 class _State {
-  _schedulers = {}
-  constructor(vars, params) {
+  constructor(vars, params, options) {
+    // define auxiliary state properties
+    // must be done first to detect name conflicts below
+    Object.defineProperty(this, '_t', { writable: true })
+    Object.defineProperty(this, '_events', { writable: true })
+    Object.defineProperty(this, '_states', { writable: true })
+    Object.defineProperty(this, '_scheduler', { writable: true })
+    Object.defineProperty(this, '_dependents', { writable: true })
+
     // define variable properties, subject to mutation tracking
     vars.t ??= 0 // defined required time variable if missing
-    each(entries(vars), ([k, v]) => {
-      // TODO: handle arrays, can be fixed size (example 13) or dynamic
-      if (is_object(v) && !is_array(v))
-        fatal(`invalid nested object variable '${k}'`)
+    for (const [k, v] of entries(vars)) {
+      // proxy existing nested objects (recursively)
+      // this is expensive and thus restricted by key
+      // non-proxied dependencies are detected at top level only
+      // note this excludes non-enumerable or inherited properties
+      if (k[0] == '_' && is_object(v)) vars[k] = this._proxy(k, v)
       Object.defineProperty(this, k, {
         enumerable: true, // variables (unlike parameters) can be enumerated
         get() {
-          // track scheduler access to any non-t state as a dependency
-          // note dependency continues until mutation or remove_dependent
-          if (this._scheduler && k != 't')
-            (this._schedulers[k] ??= new Set()).add(this._scheduler)
-          return vars[k]
+          const v = vars[k]
+          this._on_get(k, v)
+          return v
         },
         set(v) {
-          // reset and clear any dependent schedulers
-          if (this._schedulers[k]?.size > 0) {
-            for (const e of this._schedulers[k]) e._t = 0
-            this._schedulers[k].clear()
-          }
+          // proxy new nested object (recursively), restricted by key
+          if (k[0] == '_' && is_object(v)) v = this._proxy(k, v)
           vars[k] = v
+          this._on_set(k)
         },
       })
-    })
+    }
 
     // define (constant) parameter properties
     each(entries(params), ([k, v]) => {
@@ -34,12 +39,6 @@ class _State {
         value: v,
       })
     })
-
-    // define auxiliary state properties _t, _events, _states, _scheduler
-    Object.defineProperty(this, '_t', { writable: true })
-    Object.defineProperty(this, '_events', { writable: true })
-    Object.defineProperty(this, '_states', { writable: true })
-    Object.defineProperty(this, '_scheduler', { writable: true })
 
     // seal state object to prevent untracked mutations
     Object.seal(this)
@@ -52,13 +51,59 @@ class _State {
     return (this.t - this.d) * 24
   }
 
-  remove_dependent(e) {
-    for (const deps of values(this._schedulers)) deps.delete(e)
+  _on_get(k, v) {
+    // track scheduler access to any non-t state as a dependency
+    // non-proxied nested object dependencies are not allowed
+    // dependency continues until mutation or _cancel
+    if (this._scheduler && k != 't') {
+      if (is_object(v) && !v._proxied)
+        fatal(`dependency on non-proxied nested object variable ${k}`)
+      this._dependents ??= {}
+      this._dependents[k] ??= new Set()
+      this._dependents[k].add(this._scheduler)
+    }
+  }
+
+  _on_set(k) {
+    // reset and clear any dependent schedulers
+    if (this._dependents?.[k]?.size > 0) {
+      for (const e of this._dependents[k]) e._t = 0
+      this._dependents[k].clear()
+    }
+  }
+
+  _cancel(e) {
+    if (this._dependents)
+      for (const deps of values(this._dependents)) deps.delete(e)
+  }
+
+  _proxy(k, obj) {
+    const pfx = k + '.'
+    const state = this
+    obj._proxied = true // indicate object has been proxied
+    // proxy existing nested objects
+    // note this excludes non-enumerable or inherited properties
+    for (const [k, v] of entries(obj))
+      if (is_object(v)) obj[k] = this._proxy(pfx + k, v)
+    return new Proxy(obj, {
+      get(obj, k) {
+        const v = obj[k]
+        state._on_get(pfx + k, v)
+        return v
+      },
+      set(obj, k, v) {
+        if (is_object(v)) v = this._proxy(pfx + k, v) // proxy new nested object
+        obj[k] = v
+        state._on_set(pfx + k)
+        return true // accept change
+      },
+    })
   }
 }
 
 // create state object
-const state = (vars, params = undefined) => new _State(vars, params)
+const state = (vars, params = undefined, options = undefined) =>
+  new _State(vars, params, options)
 
 // is `x` a state object?
 const is_state = x => x instanceof _State
@@ -156,7 +201,7 @@ class _Event {
     this._t = 0 // cached scheduled time, can be reset via dependencies
     this.ft = x => {
       if (this._t > x.t) return this._t
-      x.remove_dependent(this) // remove dependencies for previous _t
+      x._cancel(this) // cancel dependencies for previous _t
       if (fc && !fc(x)) return (this._t = inf)
       return (this._t = ft(x))
     }
@@ -269,11 +314,20 @@ function _benchmark_inc() {
   const x = { count: 0, nested: { count: 0 } }
   // proxy object for benchmarking proxy overhead
   const proxy = new Proxy(x, {
-    get(obj, prop, receiver) {
-      return Reflect.get(...arguments)
+    get(...args) {
+      return Reflect.get(...args)
+    },
+    set(...args) {
+      return Reflect.set(...args)
+    },
+  })
+  const proxy2 = new Proxy(x, {
+    get(obj, prop) {
+      return obj[prop]
     },
     set(obj, prop, value) {
-      return Reflect.set(...arguments)
+      obj[prop] = value
+      return true
     },
   })
   // regular object for benchmarking getter/setter overhead
@@ -334,6 +388,8 @@ function _benchmark_inc() {
     () => _inc_obj(x, { nested: { count: 1 } }),
     () => proxy.count++,
     () => proxy['count']++,
+    () => proxy2.count++,
+    () => proxy2['count']++,
     () => obj.count++,
     () => obj['count']++,
     () => obj.count_tracked++,
