@@ -514,13 +514,15 @@ class _Sampler {
           fill(awK, k => max(0, atK[k] - aK[k]))
           fill(uawK, k => max(0, uatK[k] - uaK[k]))
         },
-        move_targets: ({ J }, atK, uatK) => {
+        move_targets: ({ J /*, r, accumulating*/ }, atK, uatK) => {
           // split J or .1*J, excluding non-sampled (e.g. "predicted") values
           fill(atK, k => (this.values[k].sampled ? 1 : 0))
           fill(uatK, k => (this.values[k].sampled ? 1 : 0))
           if (sum(atK) > 0) scale(atK, J / sum(atK))
           if (sum(uatK) > 0) scale(uatK, (0.1 * J) / sum(uatK))
           // if (optimizing && r == 1) scale(uatK, 0)
+          // if (accumulating && r == 1) scale(uatK, 0)
+          // if (accumulating && r == 1) scale(atK, 0)
         },
         max_updates: options.updates ? inf : 1000,
         min_updates: 0,
@@ -1229,8 +1231,10 @@ class _Sampler {
             //   whereas additive log_w is added repeatly in each update step
             log_rwJ[j] += log_w
           } else {
-            log_rwJ[j] += log_w // -log_wr._base
-            if (!weight.cumulative) {
+            if (weight.cumulative) {
+              log_rwJ[j] += log_w
+            } else {
+              log_rwJ[j] += log_w // -log_wr._base
               _log_rwJ_base[j] += log_wr._base
               log_wr._last = log_w // becomes _base in next reweight
             }
