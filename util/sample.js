@@ -1142,7 +1142,8 @@ class _Sampler {
   // multiply rwJ by wrJ@r_next / wrJ@r
   _reweight() {
     const timer = _timer_if(this.stats)
-    if (this.r == 1 && !this.optimizing && !this.accumulating) return // nothing to do
+    if (this.r == 1 && !this.optimizing && !this.accumulating) return
+    // if (this.r == 1 && !this.optimizing) return
 
     const { rN, _rN, J, log_wrJ, weights } = this
     const { log_rwJ, _log_rwJ, _log_rwJ_base, log_wrfJN, stats } = this
@@ -1175,7 +1176,7 @@ class _Sampler {
     let tries = 0
     copy(_rN, rN)
     copy(_log_rwJ, log_rwJ)
-    if (weights.some(w => !w.optimizing && !w.accumulating))
+    if (weights.some(w => !w.optimizing && !w.cumulative))
       each(log_wrfJN, fjN =>
         each(fjN, fjn => !fjn || (fjn._base = fjn._last ?? 0))
       )
@@ -1203,7 +1204,8 @@ class _Sampler {
             return // nothing else to do
           }
         } else {
-          if (r == 1 && !weight.cumulative) return // nothing to do once r=1
+          if (r == 1 && !weight.cumulative) return
+          // if (r == 1) return
           // increment by 1/min_reweights, then backtrack as needed
           if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
           else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
@@ -2324,8 +2326,6 @@ class _Sampler {
           wj_sum: wj_uniform ? undefined : wj_sum,
           wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
           wk_sum: rwBj_sum[0],
-          filter: true, // filter undefined
-          numberize: !is_number(value.first), // map to random numbers
         }),
       ]
     }).filter(defined)
