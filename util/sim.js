@@ -407,9 +407,10 @@ function daily(h) {
   if (h === undefined) return x => inf // never
   if (h == 0) return x => x.d + 1
   if (h > 0 && h < 24) return x => x.d + (x.h >= h) + h * _1h
-  const sampler = is_function(h) ? x => h(x) : () => h
+  const sampler = is_function(h) ? h : () => h
   return x =>
-    sampler(x)._prior(h => ((h = mod(h, 24)), x.d + (x.h >= h) + h * _1h))
+    sampler(x)?._prior(h => ((h = mod(h, 24)), x.d + (x.h >= h) + h * _1h)) ??
+    inf
 }
 
 // relative time scheduler
@@ -422,9 +423,11 @@ function daily(h) {
 function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
-  const sampler = is_function(h) ? x => h(x) : () => h
+  const sampler = is_function(h) ? h : () => h
   return x =>
-    sampler(x)._prior(h => (h > 0 || fatal('negative hours'), x.t + h * _1h))
+    sampler(x)?._prior(
+      h => (h > 0 || fatal('negative hours'), x.t + h * _1h)
+    ) ?? inf
 }
 
 // absolute time scheduler

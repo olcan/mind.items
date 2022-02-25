@@ -155,7 +155,8 @@ function dist(...yK) {
   if (yK.length == 1 && is_array(yK[0])) yK = yK[0]
   const dom = { is: 'array' }
   sort(yK) // pre-sort to save time in _log_p
-  dom._log_p = xJ => ks2_density(xJ, yK, { yk_sorted: true })
+  dom._log_p = xJ =>
+    xJ.length == 0 ? -inf : ks2_density(xJ, yK, { yk_sorted: true })
   return dom
 }
 
