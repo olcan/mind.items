@@ -1216,7 +1216,7 @@ class _Sampler {
         repeat(J, j => {
           const log_wr = log_wrfJN[j][n]
           if (!log_wr) return // not called in last pass
-          const log_w = log_wr(r) * (weight.cumulative ? 1 / (1 + this.u) : 1)
+          const log_w = log_wr(r)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
             // optimization|acccumulation log_wr is additive
