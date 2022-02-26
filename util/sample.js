@@ -272,6 +272,7 @@ function density(x, domain) {
 // | `reweight_ess`| minimum `ess` after reweight, _default_: `10`
 // |               | smaller minimum allows more extreme weights
 // | `min_reweights`| minimum number of reweight steps, _default_: `3`
+// |                | does not apply when optimizing via `minimize|maximize`
 // | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
@@ -1208,9 +1209,15 @@ class _Sampler {
         } else {
           if (r == 1 && !weight.cumulative) return
           // if (r == 1) return
-          // increment by 1/min_reweights, then backtrack as needed
-          if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
-          else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
+          if (weight.cumulative) {
+            // increment based on time relative to half-time point
+            const acc_time = (this.options.time || this.options.max_time) / 2
+            r = rN[n] = min(1, this.t / acc_time)
+          } else {
+            // increment by 1/min_reweights, then backtrack as needed
+            if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
+            else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
+          }
         }
         weight.init_log_wr?.(r)
         repeat(J, j => {
@@ -1265,7 +1272,6 @@ class _Sampler {
       fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f?.(rN[n]) ?? 0))
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       this.lwr = null // since log_wrJ changed
-      this.elw = null // since log_wrJ changed
     }
 
     this._sort() // since rwJ_agg changed
@@ -1305,7 +1311,6 @@ class _Sampler {
     this.rwJ = null // since log_rwJ changed
     this.counts = null // since jJ changed
     this.lwr = null // since log_wrJ changed
-    this.elw = null // since log_wrJ changed
     this.lpx = null // since log_p_xJK changed
     // note this can be commented out if _sort is based on non-aggregate weight
     this._sort() // since rwJ_agg changed (despite uniform log_rwJ)
@@ -1455,7 +1460,7 @@ class _Sampler {
       each(this.__deps['rwJ'], dep => (this[dep] = null))
       this.counts = null // since jJ changed
       this.lwr = null // since log_wrJ changed
-      this.elw = null // since log_wrJ changed
+      this.elw = null // since log_wrfJN changed (though rwJ did not)
       this.lpx = null // since log_p_xJK changed
       // note this can be commented out if _sort is based on non-aggregate weight
       this._sort() // since rwJ_agg changed (despite invariant log_rwJ)
@@ -1757,7 +1762,7 @@ class _Sampler {
           lpx,
           mks,
           // also omit t since redundant and confusable w/ x.t
-          ...omit(last(stats.updates), ['t', 'r', 'ess', 'lwr', 'mks']),
+          ...omit(last(stats.updates), ['t', 'r', 'ess', 'lwr', 'lpx', 'mks']),
         })
       ),
       '_md_last_update'
@@ -2212,11 +2217,11 @@ class _Sampler {
   }
 
   __elw() {
-    // note we no longer track log_wJ=log_wr(1), so elw is now sensitive to r
-    const { rwJ, rwj_sum, log_wrJ } = this
+    const { J, rwJ, rwj_sum, log_wrfJN } = this
+    const log_wJ = (this.___elw_log_wJ ??= array(J))
+    fill(log_wJ, j => sum(log_wrfJN[j], f => f?.(1) ?? 0))
     const z = 1 / rwj_sum
-    return sum(log_wrJ, (log_wj, j) => {
-      // NOTE: elw==0 when conditioning (log_wj 0 or -inf for all j)
+    return sum(log_wJ, (log_wj, j) => {
       if (rwJ[j] == 0) return 0 // take 0 * -inf == 0 instead of NaN
       return log_wj * rwJ[j] * z
     })
