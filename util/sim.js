@@ -111,9 +111,10 @@ const is_state = x => x instanceof _State
 // simulate `events` from state `x` to time `t`
 // `events` must be a flat array of event objects
 // includes all events at times `(x.t,t], t>x.t`
+// may include events `>t` given option `allow_next`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
-function simulate(x, t, events) {
+function simulate(x, t, events, options = undefined) {
   if (!is_state(x)) fatal('invalid state object')
   x._t ??= 0 // non-resuming sim starts at x._t=0 to be advanced x.t>t>0
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
@@ -126,9 +127,18 @@ function simulate(x, t, events) {
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
     return e
   })
-  while (x._t <= t) {
-    // get time of next scheduled event > x.t, ensuring caching of valid times
-    // caching of valid times is handled in _Event to allow condition wrapper
+  if (x._t > t) return (x.t = t), x // fast forward since no events till _t>t
+  if (x._t == t) {
+    // apply events (previously) scheduled at _t == t
+    x.t = x._t // advance x.t first
+    for (const e of events) if (e.t == x.t) e.fx(x)
+    return x
+  }
+  // schedule and apply events as needed until x._t >= t
+  const allow_next = options?.allow_next // allow events >t ?
+  while (x._t < t) {
+    // schedule events for times >x.t
+    // valid times >x.t are cached inside _Event and reset by _State as needed
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
     // store next scheduled event time as x._t for persistence across calls
     for (const e of events) {
@@ -138,13 +148,13 @@ function simulate(x, t, events) {
     }
     x._t = min_of(events, e => e.t) // can be inf
     if (!(x._t > x.t)) fatal('invalid e.ft(x) <= x.t')
-    // stop at t if next event is >t
-    if (x._t > t) break
-    // advance to x.t=_t & trigger mutations
-    x.t = x._t
+    // stop at t if next events are >t and !allow_next
+    // these events will be applied at next call to simulate
+    if (x._t > t && !allow_next) return (x.t = t), x
+    // apply events scheduled at _t
+    x.t = x._t // advance x.t first
     for (const e of events) if (x.t == e.t) e.fx(x)
   }
-  x.t = t
   return x
 }
 
