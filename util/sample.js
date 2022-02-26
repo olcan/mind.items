@@ -399,7 +399,7 @@ function weight(log_w, log_wr = undefined) {
 // spread and expected ess also increase w/ `opt_penalty` (see `sample` above)
 // ess can be increased using `min_ess`, at cost of larger spread (larger for smaller `q`)
 // ess can also be increased at computational cost by increasing sample size `J`
-function maximize(x, q = 0.9, log_wr = undefined) {
+function maximize(x, q = 0.5, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to maximize(…)`)
 }
 
@@ -407,7 +407,7 @@ function maximize(x, q = 0.9, log_wr = undefined) {
 // concentrates weight on `~q*J` samples w/ _smallest_ `x`
 // converges _around_ `~q*J` samples w/ _minimal_ `q`-quantile `x:P(X≤x)=q`
 // see `maximize` above for additional comments
-function minimize(x, q = 0.1, log_wr = undefined) {
+function minimize(x, q = 0.5, log_wr = undefined) {
   fatal(`unexpected (unparsed) call to minimize(…)`)
 }
 
@@ -1216,7 +1216,7 @@ class _Sampler {
         repeat(J, j => {
           const log_wr = log_wrfJN[j][n]
           if (!log_wr) return // not called in last pass
-          const log_w = log_wr(r)
+          const log_w = log_wr(r) * (weight.cumulative ? 1 / (1 + this.u) : 1)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
             // optimization|acccumulation log_wr is additive
@@ -2736,6 +2736,8 @@ class _Sampler {
       log_wr = r => domain._log_wr(r, c, d, log_p, dJ, log_pJ, weight.stats)
     } else {
       log_wr = r => {
+        // if (weight.cumulative) return r * log_p >= -10 ? 0 : -10
+        // if (weight.cumulative) return (1 - r) * log_p
         if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
         if (d == 0) return r * log_p // inside OR unknown distance, note r>0
         const [z, b] = weight.stats // from _stats below
@@ -2754,12 +2756,12 @@ class _Sampler {
     return x
   }
 
-  _minimize(n, x, q = 0.1, _log_wr) {
+  _minimize(n, x, q = 0.5, _log_wr) {
     if (!(q > 0 && q < 1)) fatal(`invalid quantile ${q}`)
     return this._maximize(n, -x, 1 - q, _log_wr)
   }
 
-  _maximize(n, x, q = 0.9, _log_wr) {
+  _maximize(n, x, q = 0.5, _log_wr) {
     const weight = this.weights[n]
     if (!(q > 0 && q < 1)) fatal(`invalid quantile ${q}`)
     if (q != (weight.q ??= q)) fatal(`quantile ${q} modified from ${weight.q}`)
