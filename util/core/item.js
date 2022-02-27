@@ -127,6 +127,7 @@ const start = (...args) => _this.start(...args)
 // invoke(func)
 // invokes `func` w/ item on [stack](https://mindbox.io/#MindPage/core/properties/_stack)
 // forwards returns & throws from `func`
+// function can be async or return promise
 // invokes `invalidate_elem_cache` on error
 const invoke = (...args) => _this.invoke(...args)
 
