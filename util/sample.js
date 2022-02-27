@@ -485,6 +485,7 @@ class _Sampler {
     this.options = options
     this.domain = func // save sampler function as domain
     this.start_time = Date.now()
+    this.dispatch_delay = 0 // to be excluded from this.t
 
     // parse sampled values and determine K
     assign(this, this._parse_func(func))
@@ -660,20 +661,23 @@ class _Sampler {
 
         // update sample to posterior if there are weights OR targets
         if (this.weights.length || this.values.some(v => v.target)) {
-          const timer = _timer_if(stats)
+          let dispatch_start = Date.now() // used repeatedly below
           while (!this.done) {
+            this.dispatch_delay += Date.now() - dispatch_start
+            dispatch_start = Date.now()
             await invoke(async () => {
+              this.dispatch_delay += Date.now() - dispatch_start
               const timer = _timer_if(stats)
               this._update()
               if (stats) {
                 stats.time.update += timer.t
                 stats.quanta++
               }
+              dispatch_start = Date.now()
             })
             await _update_dom() // keep dom responsive
           }
-          // any time spent over stats.time.update is dispatch overhead
-          if (stats) stats.time.dispatch = timer.t - stats.time.update
+          if (stats) stats.time.dispatch = this.dispatch_delay
         }
 
         this._init_posterior()
@@ -742,7 +746,7 @@ class _Sampler {
 
     if (options.table) this._table()
     if (options.quantiles) this._quantiles()
-    if (options.plot) this._render_plots()
+    if (options.plot) this._plot()
   }
 
   _parse_func(func) {
@@ -1703,7 +1707,7 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const f = this.domain // sampler domain function
     let o = clone_deep(this.options)
-    o = omit(o, ['log', 'plot', 'quantiles', 'targets', 'async'])
+    o = omit(o, ['log', 'plot', 'table', 'quantiles', 'targets', 'async'])
     o.warn = false
     o.updates = o.min_updates = o.max_updates = 0 // no updates
     o.reweight_if = () => false // no reweight for u=0
@@ -1876,7 +1880,7 @@ class _Sampler {
     )
   }
 
-  _render_plots() {
+  _plot() {
     const updates = this.stats?.updates
     if (updates) {
       const spec = this.options.stats
@@ -2175,7 +2179,7 @@ class _Sampler {
   }
 
   get t() {
-    return Date.now() - this.start_time
+    return Date.now() - this.start_time - this.dispatch_delay
   }
 
   get r() {
