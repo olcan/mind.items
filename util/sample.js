@@ -282,7 +282,6 @@ function density(x, domain) {
 // |               | called _until false_ every update step `context.u = 0,1,…`
 // |               | `context.p` is proposed moves (current update step)
 // |               | `context.a` is accepted moves (current update step)
-// |               | `context.tm` is time spent moving (current update step)
 // |               | `context.aK` is accepts per posterior "pivot"
 // |               | `context.uaK` is accepts per prior "jump" value
 // |               | _default_: `({essu,J,a,awK,uawK}) =>`
@@ -337,8 +336,8 @@ function sample(domain, options = undefined) {
   if (options?.target) fatal(`invalid target outside of sample(context=>{ … })`)
   const sampler = new _Sampler(domain, options)
   const sample = sampler.sample(options)
-  if (options?.store) _this.global_store._sample = sample
-  if (options?.return ?? true) return sample
+  // if (options?.store) _this.global_store._sample = sample
+  return sample
 }
 
 // sample `J` _unknowns_ into `xJ` from `domain`
@@ -645,16 +644,54 @@ class _Sampler {
       min_of(J, j => sum(this.log_p_xJK[j]) + this.log_wrJ[j])
     )
 
-    // initialize stats
+    this._init()
+  }
+
+  _init() {
     this._init_stats()
-    const stats = this.stats
+    const { stats, options } = this
+
+    if (options.async) {
+      // async mode
+      return (this._pending_init = attach(
+        (async () => {
+          this._init_prior()
+
+          // update sample to posterior if there are weights OR targets
+          if (this.weights.length || this.values.some(v => v.target)) {
+            const timer = _timer_if(stats)
+            this._update()
+            if (stats) stats.time.update = timer.t
+          }
+
+          this._init_posterior()
+        })()
+      ))
+    }
+
+    this._init_prior()
+
+    // update sample to posterior if there are weights OR targets
+    if (this.weights.length || this.values.some(v => v.target)) {
+      const timer = _timer_if(stats)
+      this._update()
+      if (stats) stats.time.update = timer.t
+    }
+
+    this._init_posterior()
+  }
+
+  _init_prior() {
+    const { J, stats, options } = this
 
     if (defined(this.options.targets)) {
       if (this.options.targets == true) this._targets()
       else if (!is_object(this.options.targets)) fatal('invalid option targets')
     }
 
-    if (stats) stats.time.init = this.t // init time, including target sampling
+    // init time includes constructor & target sampling
+    if (stats) stats.time.init = this.t
+    this.start_time = Date.now() // exclude init time from total time
 
     // sample prior (along w/ u=0 posterior)
     let timer = _timer_if(options.log || stats)
@@ -681,13 +718,10 @@ class _Sampler {
       })
       return
     }
+  }
 
-    // update sample to posterior if there are weights OR targets
-    if (this.weights.length || this.values.some(v => v.target)) {
-      timer = _timer_if(options.log || stats)
-      this._update()
-      if (stats) stats.time.update = timer.t
-    }
+  _init_posterior() {
+    const { stats, options } = this
 
     if (options.log) {
       print(`applied ${this.u} updates in ${timer}`)
@@ -1023,6 +1057,7 @@ class _Sampler {
       proposals: 0,
       accepts: 0,
       time: {
+        delay: 0,
         init: 0,
         prior: 0,
         update: 0,
@@ -1500,6 +1535,8 @@ class _Sampler {
       move_targets,
     } = this.options
 
+    // TODO: make this function re-entrant, w/ special modes for
+
     if (!(this.u == 0)) fatal('_update requires u=0')
 
     let stable_updates = 0
@@ -1603,7 +1640,6 @@ class _Sampler {
       this.a = 0 // accepted move count
       this.up = 0 // proposed jump count
       this.ua = 0 // accepted jump count
-      this.tm = 0 // move time
       fill(this.pK, 0) // proposed moves by pivot value
       fill(this.aK, 0) // accepted moves by pivot value
       fill(this.upK, 0) // proposed moves by jump value
@@ -1617,7 +1653,6 @@ class _Sampler {
         this._move()
         this.mlw += this.move_log_w
         this.mlp += this.move_log_p
-        this.tm = move_timer.t
         if (this.t >= max_time) {
           if (this.options.warn)
             warn(`last move step (u=${this.u}) cut short to due to max_time`)
@@ -1640,7 +1675,7 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const f = this.domain // sampler domain function
     let o = clone_deep(this.options)
-    o = omit(o, ['log', 'plot', 'quantiles', 'targets'])
+    o = omit(o, ['log', 'plot', 'quantiles', 'targets', 'async'])
     o.warn = false
     o.updates = o.min_updates = o.max_updates = 0 // no updates
     o.reweight_if = () => false // no reweight for u=0
@@ -1786,7 +1821,8 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          time: this.t,
+          // "time" includes init time and delays
+          time: this.t + stats.time.init + stats.time.delay,
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
@@ -2394,7 +2430,7 @@ class _Sampler {
     }
   }
 
-  sample(options) {
+  sample_sync(options) {
     const prior = options?.prior
     const xJK = prior ? this.pxJK : this.xJK
     const xJ = prior ? this.pxJ : this.xJ
@@ -2440,6 +2476,18 @@ class _Sampler {
       return { _output: xJ[j], _weight: w, _index: j }
     }
     return xJ[j]
+  }
+
+  sample(options) {
+    if (options.async) {
+      return attach(
+        (async () => {
+          await this._pending_init
+          return this.sample_sync(options)
+        })()
+      )
+    }
+    return this.sample_sync(options)
   }
 
   _sample(k, domain, options, /* (base,length) for arrays: */ k0, J) {
