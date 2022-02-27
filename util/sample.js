@@ -1239,7 +1239,13 @@ class _Sampler {
             log_rwJ[j] += log_w
           } else {
             if (weight.cumulative) {
+              // if (r == 1) {
+              //   const acc_time =
+              //     (this.options.time || this.options.max_time) / 2
+              //   log_rwJ[j] += log_w * clip(2 - this.t / acc_time)
+              // } else {
               log_rwJ[j] += log_w
+              // }
             } else {
               log_rwJ[j] += log_w // -log_wr._base
               _log_rwJ_base[j] += log_wr._base
@@ -2343,7 +2349,7 @@ class _Sampler {
     if (stats) stats.time.updates.mks += timer.t
     const R = pR2.length
     if (R == 0) return inf
-    // note there are many dependencies in the statistics, especially between x and log_p for same value (k), so we process take min across post-beta adjustment
+    // note there are many dependencies in the statistics, especially between x and log_p for same value (k), so we take min across post-beta adjustment
     return -log2(min_in(transpose(pR2).map(pR => beta_cdf(min_in(pR), 1, R))))
   }
 
