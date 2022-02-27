@@ -2875,6 +2875,7 @@ class _Sampler {
 }
 
 function _run() {
+  _this.log_options.source = 'self' // exclude background logs (for async runs)
   const js = read('js_input').trim()
   // if js begins w/ sample(...) call, assume no wrapper is needed
   if (js.match(/^sample *\(/)) return null
