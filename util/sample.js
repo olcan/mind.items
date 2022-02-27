@@ -313,6 +313,7 @@ function density(x, domain) {
 // | `time`        | target time (ms) for sampling, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // |               | changes default `max_time` to `inf`
+// | `quantum`     | maximum time (ms) per update/move call, _default_: `100`
 // | `opt_time`    | optimization time, should be `<max_time`
 // |               | _default_: `(time || max_time) / 2`
 // | `opt_penalty` | optimization penalty, should be `<0`, _default_: `-5`
@@ -535,6 +536,7 @@ class _Sampler {
         mks_tail: 1 / 2,
         mks_period: 1,
         max_tks: 5,
+        quantum: 100,
       },
       options
     )
@@ -653,20 +655,29 @@ class _Sampler {
 
     if (options.async) {
       // async mode
-      return (this._pending_init = attach(
-        (async () => {
-          this._init_prior()
+      return (this._pending_init = invoke(async () => {
+        this._init_prior()
 
-          // update sample to posterior if there are weights OR targets
-          if (this.weights.length || this.values.some(v => v.target)) {
-            const timer = _timer_if(stats)
-            this._update()
-            if (stats) stats.time.update = timer.t
+        // update sample to posterior if there are weights OR targets
+        if (this.weights.length || this.values.some(v => v.target)) {
+          const timer = _timer_if(stats)
+          while (!this.done) {
+            await invoke(async () => {
+              const timer = _timer_if(stats)
+              this._update()
+              if (stats) {
+                stats.time.update += timer.t
+                stats.quanta++
+              }
+            })
+            await _update_dom() // keep dom responsive
           }
+          // any time spent over stats.time.update is dispatch overhead
+          if (stats) stats.time.dispatch = timer.t - stats.time.update
+        }
 
-          this._init_posterior()
-        })()
-      ))
+        this._init_posterior()
+      }))
     }
 
     this._init_prior()
@@ -674,7 +685,7 @@ class _Sampler {
     // update sample to posterior if there are weights OR targets
     if (this.weights.length || this.values.some(v => v.target)) {
       const timer = _timer_if(stats)
-      this._update()
+      while (!this.done) this._update()
       if (stats) stats.time.update = timer.t
     }
 
@@ -1056,8 +1067,9 @@ class _Sampler {
       moves: 0,
       proposals: 0,
       accepts: 0,
+      quanta: 0,
       time: {
-        delay: 0,
+        dispatch: 0,
         init: 0,
         prior: 0,
         update: 0,
@@ -1516,7 +1528,7 @@ class _Sampler {
   }
 
   _update() {
-    let {
+    const {
       time,
       updates,
       max_time,
@@ -1526,146 +1538,162 @@ class _Sampler {
       min_stable_updates,
       min_unweighted_updates,
       max_mks,
-      max_tks,
       min_ess,
       reweight_if,
       resample_if,
-      move_while,
-      move_weights,
       move_targets,
     } = this.options
 
-    // TODO: make this function re-entrant, w/ special modes for
+    // if done, just return
+    if (this.done) fatal(`_update invoked after done`)
 
-    if (!(this.u == 0)) fatal('_update requires u=0')
+    // initialize update-related state on u=0
+    if (this.u == 0) {
+      this.stable_updates = 0
+      this.unweighted_updates = 0
+      this.done = false
+    }
+    const timer = _timer() // step timer
 
-    let stable_updates = 0
-    let unweighted_updates = 0
+    // if resuming move, do that ...
+    if (this.resume_move) return this._update_move(timer)
 
-    do {
-      // reweight
-      // pre-stats for more meaningful ess, etc
-      // also reweight on u=0 to avoid prior moves at u=1
-      // should be skipped (even at u=0) if ess is too low
-      // forced if optimizing|accumulating (see comments in _reweight|_maximize)
-      // NOTE: not forced on final step, so ess can be unrealistic (and r low) if updates are terminated early, e.g. due to max_time
-      if (this.optimizing || this.accumulating || reweight_if(this))
-        this._reweight()
+    // reweight
+    // pre-stats for more meaningful ess, etc
+    // also reweight on u=0 to avoid prior moves at u=1
+    // should be skipped (even at u=0) if ess is too low
+    // forced if optimizing|accumulating (see comments in _reweight|_maximize)
+    // NOTE: not forced on final step, so ess can be unrealistic (and r low) if updates are terminated early, e.g. due to max_time
+    if (this.optimizing || this.accumulating || reweight_if(this))
+      this._reweight()
 
-      // update stats
-      this._update_stats()
+    // update stats
+    this._update_stats()
 
-      // check for termination
-      // continue based on min_time/updates
-      // minimums supersede maximum and target settings
-      // targets override default maximums (see constructor)
-      // actual stopping is below, after reweight and update_stats
-      if (this.t >= min_time && this.u >= min_updates) {
-        // check target updates
-        if (this.u >= updates) {
-          const { t, u } = this
-          if (this.options.log)
-            print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
-          break
-        }
-
-        // check target time
-        if (this.t >= time) {
-          const { t, u } = this
-          if (this.options.log)
-            print(`reached target time t=${t}≥${time}ms (u=${u})`)
-          break
-        }
-
-        // check r==1 and target ess, and mks
-        if (
-          this.r == 1 &&
-          this.ess >= min_ess &&
-          (max_mks == inf || this.mks <= max_mks)
-        )
-          stable_updates++
-        else stable_updates = 0
-        if (this.r == 1) unweighted_updates++
-        if (
-          stable_updates >= min_stable_updates &&
-          unweighted_updates >= min_unweighted_updates
-        ) {
-          const { t, u, ess, mks } = this
-          if (this.options.log)
-            print(
-              `reached target ess=${round(ess)}≥${min_ess}, ` +
-                `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
-                `@ u=${u}, t=${t}ms, stable_updates=${stable_updates}, ` +
-                `unweighted_updates=${unweighted_updates}`
-            )
-          break
-        }
-
-        // check max_time/updates for potential early termination
-        if (this.t >= max_time || this.u >= max_updates) {
-          const { t, u } = this
-          if (this.options.warn) {
-            // warn about running out of time or updates
-            if (t > max_time)
-              warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
-            else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
-          }
-          break
-        }
+    // check for termination
+    // continue based on min_time/updates
+    // minimums supersede maximum and target settings
+    // targets override default maximums (see constructor)
+    // actual stopping is below, after reweight and update_stats
+    if (this.t >= min_time && this.u >= min_updates) {
+      // check target updates
+      if (this.u >= updates) {
+        const { t, u } = this
+        if (this.options.log)
+          print(`reached target updates u=${u}≥${updates} (t=${t}ms)`)
+        return this._done()
       }
 
-      // buffer samples at u=0 and then every mks_period updates
-      if (this.u % this.options.mks_period == 0) {
-        this.uB.push(this.u)
-        this.xBJK.push(clone_deep(this.xJK))
-        this.log_p_xBJK.push(clone_deep(this.log_p_xJK))
-        if (this.rwj_uniform) {
-          this.rwBJ.push(undefined)
-          this.rwBj_sum.push(undefined)
-        } else {
-          this.rwBJ.push(clone_deep(this.rwJ))
-          this.rwBj_sum.push(this.rwj_sum)
-        }
+      // check target time
+      if (this.t >= time) {
+        const { t, u } = this
+        if (this.options.log)
+          print(`reached target time t=${t}≥${time}ms (u=${u})`)
+        return this._done()
       }
 
-      // advance to next step
-      this.u++
-
-      // resample
-      if (resample_if(this)) this._resample()
-
-      // move
-      // must be done after reweights (w/ same u) for accurate mlw
-      this.p = 0 // proposed move count
-      this.a = 0 // accepted move count
-      this.up = 0 // proposed jump count
-      this.ua = 0 // accepted jump count
-      fill(this.pK, 0) // proposed moves by pivot value
-      fill(this.aK, 0) // accepted moves by pivot value
-      fill(this.upK, 0) // proposed moves by jump value
-      fill(this.uaK, 0) // accepted moves by jump value
-      this.mlw = 0 // log_w improvement
-      this.mlp = 0 // log_p improvement
-      move_targets(this, this.atK, this.uatK)
-      const move_timer = _timer()
-      while (move_while(this)) {
-        move_weights(this, this.awK, this.uawK)
-        this._move()
-        this.mlw += this.move_log_w
-        this.mlp += this.move_log_p
-        if (this.t >= max_time) {
-          if (this.options.warn)
-            warn(`last move step (u=${this.u}) cut short to due to max_time`)
-          break
-        }
+      // check r==1 and target ess, and mks
+      if (
+        this.r == 1 &&
+        this.ess >= min_ess &&
+        (max_mks == inf || this.mks <= max_mks)
+      )
+        this.stable_updates++
+      else this.stable_updates = 0
+      if (this.r == 1) this.unweighted_updates++
+      if (
+        this.stable_updates >= min_stable_updates &&
+        this.unweighted_updates >= min_unweighted_updates
+      ) {
+        const { t, u, ess, mks } = this
+        if (this.options.log)
+          print(
+            `reached target ess=${round(ess)}≥${min_ess}, ` +
+              `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
+              `@ u=${u}, t=${t}ms, stable_updates=${this.stable_updates}, ` +
+              `unweighted_updates=${this.unweighted_updates}`
+          )
+        return this._done()
       }
-    } while (true)
 
-    // check r=1 and target tks if warnings enabled
+      // check max_time/updates for potential early termination
+      if (this.t >= max_time || this.u >= max_updates) {
+        const { t, u } = this
+        if (this.options.warn) {
+          // warn about running out of time or updates
+          if (t > max_time)
+            warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
+          else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
+        }
+        return this._done()
+      }
+    }
+
+    // buffer samples at u=0 and then every mks_period updates
+    if (this.u % this.options.mks_period == 0) {
+      this.uB.push(this.u)
+      this.xBJK.push(clone_deep(this.xJK))
+      this.log_p_xBJK.push(clone_deep(this.log_p_xJK))
+      if (this.rwj_uniform) {
+        this.rwBJ.push(undefined)
+        this.rwBj_sum.push(undefined)
+      } else {
+        this.rwBJ.push(clone_deep(this.rwJ))
+        this.rwBj_sum.push(this.rwj_sum)
+      }
+    }
+
+    // advance to next step
+    this.u++
+
+    // resample
+    if (resample_if(this)) this._resample()
+
+    // move
+    // must be done after reweights (w/ same u) for accurate mlw
+    this.p = 0 // proposed move count
+    this.a = 0 // accepted move count
+    this.up = 0 // proposed jump count
+    this.ua = 0 // accepted jump count
+    fill(this.pK, 0) // proposed moves by pivot value
+    fill(this.aK, 0) // accepted moves by pivot value
+    fill(this.upK, 0) // proposed moves by jump value
+    fill(this.uaK, 0) // accepted moves by jump value
+    this.mlw = 0 // log_w improvement
+    this.mlp = 0 // log_p improvement
+    move_targets(this, this.atK, this.uatK)
+    this._update_move(timer)
+  }
+
+  _update_move(timer) {
+    const { max_time, move_while, move_weights, quantum } = this.options
+    this.resume_move = true // resume if we return w/o completing move step
+    if (timer.t >= quantum) return // continue (will resume move)
+
+    while (move_while(this)) {
+      move_weights(this, this.awK, this.uawK)
+      this._move()
+      this.mlw += this.move_log_w
+      this.mlp += this.move_log_p
+      if (timer.t >= quantum) return // continue (will resume move)
+      if (this.t >= max_time) {
+        if (this.options.warn)
+          warn(`last move step (u=${this.u}) cut short to due to max_time`)
+        this.resume_move = false
+        return // continue (will terminate updates on next call)
+      }
+    }
+    this.resume_move = false
+    return // continue
+  }
+
+  _done() {
+    this.done = true // no more updates
+    // warn about r<1 and tks>max_tks if warnings enabled
     if (this.options.warn) {
       if (this.r < 1) warn(`pre-posterior sample w/ r=${this.r}<1`)
-      if (this.tks > max_tks) {
-        warn(`failed to achieve target tks=${this.tks}≤${max_tks}`)
+      if (this.tks > this.max_tks) {
+        warn(`failed to achieve target tks=${this.tks}≤${this.max_tks}`)
         print('tks_pK:', str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
       }
     }
@@ -1821,8 +1849,8 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          // "time" includes init time and delays
-          time: this.t + stats.time.init + stats.time.delay,
+          // "time" includes init time and dispatch time
+          time: this.t + stats.time.init + stats.time.dispatch,
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
@@ -2480,12 +2508,10 @@ class _Sampler {
 
   sample(options) {
     if (options.async) {
-      return attach(
-        (async () => {
-          await this._pending_init
-          return this.sample_sync(options)
-        })()
-      )
+      return invoke(async () => {
+        await this._pending_init
+        return this.sample_sync(options)
+      })
     }
     return this.sample_sync(options)
   }
