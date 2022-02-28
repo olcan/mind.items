@@ -1860,9 +1860,8 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          time: this.t,
-          // "wall" time includes init time and dispatch time
-          wall: this.t + stats.time.init + stats.time.dispatch,
+          time: this.t + stats.time.init + stats.time.dispatch,
+          running: this.t,
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
