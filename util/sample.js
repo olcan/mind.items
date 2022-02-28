@@ -274,6 +274,7 @@ function density(x, domain) {
 // | `min_reweights`| minimum number of reweight steps, _default_: `3`
 // |                | does not apply when optimizing via `minimize|maximize`
 // | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
+// |               | default is `1` when optimizing via `minimize|maximize`
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -508,7 +509,7 @@ class _Sampler {
         reweight_if: ({ ess, J }) => ess >= 0.9 * J,
         reweight_ess: 10,
         min_reweights: 3,
-        max_reweight_tries: 100,
+        max_reweight_tries: this.optimizing || this.accumulating ? 1 : 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, a, awK, uawK }) =>
           essu < 0.9 * J || a < J || max_in(awK) > 0 || max_in(uawK) > 0,
@@ -597,7 +598,6 @@ class _Sampler {
     this._log_p_xJK = array(J)
     this._log_wrfJN = array(J)
     this._log_wrJ = array(J)
-    this.____rwJ = array(J) // sort only
     // reweight buffers
     this._rN = array(N)
     this._log_rwJ = array(J) // also used in sort
@@ -665,16 +665,20 @@ class _Sampler {
           while (!this.done) {
             this.dispatch_delay += Date.now() - dispatch_start
             dispatch_start = Date.now()
-            await invoke(async () => {
-              this.dispatch_delay += Date.now() - dispatch_start
-              const timer = _timer_if(stats)
-              this._update()
-              if (stats) {
-                stats.time.update += timer.t
-                stats.quanta++
-              }
-              dispatch_start = Date.now()
-            })
+            try {
+              await invoke(async () => {
+                this.dispatch_delay += Date.now() - dispatch_start
+                const timer = _timer_if(stats)
+                this._update()
+                if (stats) {
+                  stats.time.update += timer.t
+                  stats.quanta++
+                }
+                dispatch_start = Date.now()
+              })
+            } catch (e) {
+              this.done = true
+            } // already logged
             await _update_dom() // keep dom responsive
           }
           if (stats) stats.time.dispatch = this.dispatch_delay
@@ -1286,7 +1290,7 @@ class _Sampler {
             // use opt_penalty to balance against non-additive finite log_w
             // note issue is that log_rwJ is reset to 0 once baked in, so
             //   non-additive log_w is only added for new samples from move
-            //   whereas additive log_w is added repeatly in each update step
+            //   whereas additive log_w is added repeatedly in each update step
             log_rwJ[j] += log_w
           } else {
             if (weight.cumulative) {
