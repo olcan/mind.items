@@ -1234,6 +1234,7 @@ class _Sampler {
     let tries = 0
     copy(_rN, rN)
     copy(_log_rwJ, log_rwJ)
+    // NOTE: we store _last and _base on log_wr functions to avoid having to shuffle around additional buffers in _resample (and _sort); note a downside is that base is lost on _fork, so we couldn't subtract base for optimization or accumulation even if we wanted to
     if (weights.some(w => !w.optimizing && !w.cumulative))
       each(log_wrfJN, fjN =>
         each(fjN, fjn => !fjn || (fjn._base = fjn._last ?? 0))
