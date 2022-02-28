@@ -266,15 +266,15 @@ function density(x, domain) {
 // | `reweight_if` | reweight predicate `context => …`
 // |               | called once per update step `context.u = 0,1,2,…`
 // |               | reduces `ess` to `≥reweight_ess` (see below)
-// |               | predicate ignored when optimizing via `minimize|maximize`
+// |               | predicate ignored when optimizing or accumulating
 // |               | _default_: `({ess,J}) => ess >= .9 * J`
 // |               | default helps reduce reweight failures/retries
 // | `reweight_ess`| minimum `ess` after reweight, _default_: `10`
 // |               | smaller minimum allows more extreme weights
 // | `min_reweights`| minimum number of reweight steps, _default_: `3`
-// |                | does not apply when optimizing via `minimize|maximize`
+// |                | does not apply when optimizing or accumulating
 // | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
-// |               | default is `1` when optimizing via `minimize|maximize`
+// |               | default is `1` when optimizing or accumulating
 // | `resample_if` | resample predicate `context => …`
 // |               | called once per update step `context.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
@@ -296,17 +296,18 @@ function density(x, domain) {
 // | `max_updates` | maximum number of update steps, _default_: `1000`
 // | `min_updates` | minimum number of update steps, _default_: `0`
 // | `min_stable_updates` | minimum stable update steps, _default_: `1`
-// | `min_unweighted_updates` | minimum unweighted update steps, _default_: `3`
-// |               | default is `1` when optimizing via `minimize|maximize`
+// | `min_posterior_updates` | minimum posterior update steps, _default_: `3`
+// |               | posterior updates are fully-weighted (`r==1`) updates
 // | `max_time`    | maximum time (ms) for sampling, _default_: `1000` ms
 // | `min_time`    | minimum time (ms) for sampling, _default_: `0` ms
 // | `min_ess`     | minimum `ess` desired (within `max_time`), _default_: `.9*J`
-// |               | default is `1` when optimizing via `minimize|maximize`
+// |               | default is `1` when optimizing or accumulating
 // | `max_mks`     | maximum `mks` desired (within `max_time`)
 // |               | `mks` is _move KS_ `-log2(ks2_test(from, to))`
 // |               | _default_: `1` ≡ failure to reject same-dist at `α<1/2`
-// |               | default is `5` when optimizing via `minimize|maximize`
 // | `mks_tail`    | ratio (<1) of recent updates for `mks`, _default_: `1/2`
+// |               | integer values `≥1` are interpreted as _mks periods_
+// |               | default is `1` when optimizing or accumulating
 // | `mks_period`  | minimum update steps for `mks`, _default_: `1`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
@@ -530,12 +531,12 @@ class _Sampler {
         max_updates: options.updates ? inf : 1000,
         min_updates: 0,
         min_stable_updates: 1,
-        min_unweighted_updates: this.optimizing ? 1 : 3,
+        min_posterior_updates: 3,
         max_time: options.time ? inf : 1000,
         min_time: 0,
         min_ess: this.optimizing || this.accumulating ? 1 : 0.9 * J,
-        max_mks: this.optimizing || this.accumulating ? 5 : 1,
-        mks_tail: 1 / 2,
+        max_mks: 1,
+        mks_tail: this.optimizing || this.accumulating ? 1 : 0.5,
         mks_period: 1,
         max_tks: 5,
         quantum: 100,
@@ -1545,9 +1546,10 @@ class _Sampler {
       max_updates,
       min_updates,
       min_stable_updates,
-      min_unweighted_updates,
+      min_posterior_updates,
       max_mks,
       min_ess,
+      mks_period,
       reweight_if,
       resample_if,
       move_targets,
@@ -1559,7 +1561,7 @@ class _Sampler {
     // initialize update-related state on u=0
     if (this.u == 0) {
       this.stable_updates = 0
-      this.unweighted_updates = 0
+      this.posterior_updates = 0
       this.done = false
     }
     const timer = _timer() // step timer
@@ -1609,10 +1611,10 @@ class _Sampler {
       )
         this.stable_updates++
       else this.stable_updates = 0
-      if (this.r == 1) this.unweighted_updates++
+      if (this.r == 1) this.posterior_updates++
       if (
         this.stable_updates >= min_stable_updates &&
-        this.unweighted_updates >= min_unweighted_updates
+        this.posterior_updates >= min_posterior_updates
       ) {
         const { t, u, ess, mks } = this
         if (this.options.log)
@@ -1620,7 +1622,7 @@ class _Sampler {
             `reached target ess=${round(ess)}≥${min_ess}, ` +
               `r=1, mks=${round_to(mks, 3)}≤${max_mks} ` +
               `@ u=${u}, t=${t}ms, stable_updates=${this.stable_updates}, ` +
-              `unweighted_updates=${this.unweighted_updates}`
+              `posterior_updates=${this.posterior_updates}`
           )
         return this._done()
       }
@@ -1639,7 +1641,7 @@ class _Sampler {
     }
 
     // buffer samples at u=0 and then every mks_period updates
-    if (this.u % this.options.mks_period == 0) {
+    if (this.u % mks_period == 0) {
       this.uB.push(this.u)
       this.xBJK.push(clone_deep(this.xJK))
       this.log_p_xBJK.push(clone_deep(this.log_p_xJK))
@@ -1858,8 +1860,9 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          // "time" includes init time and dispatch time
-          time: this.t + stats.time.init + stats.time.dispatch,
+          time: this.t,
+          // "wall" time includes init time and dispatch time
+          wall: this.t + stats.time.init + stats.time.dispatch,
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
@@ -2365,8 +2368,15 @@ class _Sampler {
     const { mks_tail, mks_period } = this.options
 
     // trim mks sample buffer to cover desired tail of updates
+    // note last buffered update can be within < mks_period steps
+    // so we always include that, plus specified "tail" of updates
     if (xBJK.length < 2) return inf // not enough updates yet
-    const B = min(xBJK.length, max(2, 1 + ceil((u * mks_tail) / mks_period)))
+    if (mks_tail < 0 || (mks_tail >= 1 && !is_integer(mks_tail)))
+      fatal(`invalid mks_tail ${mks_tail}, must be <1 or integer ≥1`)
+    const B = min(
+      xBJK.length,
+      1 + (is_integer(mks_tail) ? mks_tail : ceil((u * mks_tail) / mks_period))
+    )
     while (xBJK.length > B) {
       uB.shift()
       xBJK.shift()
