@@ -659,6 +659,7 @@ class _Sampler {
       // async mode
       return (this._pending_init = invoke(async () => {
         this._init_prior()
+        if (this.J == 1) return // skip updates/posterior in debug mode
 
         // update sample to posterior if there are weights OR targets
         if (this.weights.length || this.values.some(v => v.target)) {
@@ -690,6 +691,7 @@ class _Sampler {
     }
 
     this._init_prior()
+    if (this.J == 1) return // skip updates/posterior in debug mode
 
     // update sample to posterior if there are weights OR targets
     if (this.weights.length || this.values.some(v => v.target)) {
@@ -726,12 +728,15 @@ class _Sampler {
     }
 
     // treat J==1 as "debug mode"
-    // print sampled values or simulations and skip updates, plots, etc
+    // print sampled values or simulations and skip posterior (see _init)
     if (J == 1) {
       print('values:', str(this.sample_values()))
       const states = new Set()
       each(this.sims, s => {
         if (states.has(s.xt)) return
+        // _events/_states should be enabled by default under sampler w/ J==1
+        if (!s.xt._events) fatal(`missing _events in simulated state w/ J==1`)
+        if (!s.xt._states) fatal(`missing _states in simulated state w/ J==1`)
         each(s.xt._events, print_event)
         each(s.xt._states, print_state)
         states.add(s.xt)
@@ -2951,13 +2956,10 @@ class _Sampler {
     return each(xJ, (x, j) => this._confine(n + j, x, domain_fj(j, J)))
   }
 
-  _simulate(s, x, time, ...events) {
-    if (this.J > 1) return simulate(x, time, ...events)
-    // for J==1 (debug mode), enable _events/_states & store sim.xt
-    const sim = this.sims[s]
-    x._events ??= []
-    x._states ??= [clone_deep(x)]
-    return (sim.xt = simulate(x, time, ...events))
+  _simulate(s, ...args) {
+    // for J==1 (debug mode), store sim.xt
+    if (this.J == 1) return (this.sims[s].xt = simulate(...args))
+    return simulate(...args)
   }
 
   _accumulate() {

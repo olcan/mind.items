@@ -1,22 +1,31 @@
 class _State {
   constructor(vars, params, options) {
+    let { trace, events, states } = options ?? {}
+    // enable events/states by default under sampler w/ J==1
+    if (window.__sampler?.J == 1) {
+      events = true
+      states = true
+    }
+
     // define auxiliary state properties
     // must be done first to detect name conflicts below
-    Object.defineProperty(this, '_t', { writable: true })
-    Object.defineProperty(this, '_events', { writable: true })
-    Object.defineProperty(this, '_states', { writable: true })
-    Object.defineProperty(this, '_scheduler', { writable: true })
-    Object.defineProperty(this, '_dependents', { writable: true })
+    define(this, '_t', { writable: true })
+    define(this, '_mutator', { writable: true })
+    define(this, '_scheduler', { writable: true })
+    define(this, '_dependents', { writable: true })
+    if (trace) define(this, '_trace', { writable: true, value: [] })
+    if (events) define(this, '_events', { writable: true, value: [] })
+    if (states) define(this, '_states', { writable: true }) // set below
 
     // define variable properties, subject to mutation tracking
     vars.t ??= 0 // defined required time variable if missing
     for (const [k, v] of entries(vars)) {
       // proxy existing nested objects (recursively)
-      // this is expensive and thus restricted by key
+      // this is expensive and thus restricted by key (or options.trace)
       // non-proxied dependencies are detected at top level only
       // note this excludes non-enumerable or inherited properties
-      if (k[0] == '_' && is_object(v)) vars[k] = this._proxy(k, v)
-      Object.defineProperty(this, k, {
+      if ((k[0] == '_' || trace) && is_object(v)) vars[k] = this._proxy(k, v)
+      define(this, k, {
         enumerable: true, // variables (unlike parameters) can be enumerated
         get() {
           const v = vars[k]
@@ -25,9 +34,10 @@ class _State {
         },
         set(v) {
           // proxy new nested object (recursively), restricted by key
-          if (k[0] == '_' && is_object(v)) v = this._proxy(k, v)
+          if ((k[0] == '_' || trace) && is_object(v)) v = this._proxy(k, v)
+          const v_old = vars[k]
           vars[k] = v
-          this._on_set(k)
+          this._on_set(k, v, v_old)
         },
       })
     }
@@ -35,10 +45,11 @@ class _State {
     // define (constant) parameter properties
     each(entries(params), ([k, v]) => {
       if (is_object(v)) Object.freeze(v) // freeze nested parameters
-      Object.defineProperty(this, k, {
-        value: v,
-      })
+      define(this, k, { value: v })
     })
+
+    // initialize _states w/ initial value if enabled
+    if (states) this._states = [clone_deep(this)]
 
     // seal state object to prevent untracked mutations
     Object.seal(this)
@@ -52,6 +63,14 @@ class _State {
   }
 
   _on_get(k, v) {
+    this._trace?.push({
+      t: x.t,
+      get: k,
+      v,
+      e_fx: this._mutator,
+      e_ft: this._scheduler,
+    })
+
     // track scheduler access to any non-t state as a "dependency"
     // non-proxied nested object dependencies are not allowed
     // dependency continues until mutation or _cancel
@@ -64,7 +83,15 @@ class _State {
     }
   }
 
-  _on_set(k) {
+  _on_set(k, v_new, v_old) {
+    this._trace?.push({
+      t: x.t,
+      set: k,
+      v_new,
+      v_old,
+      e_fx: this._mutator,
+      e_ft: this._scheduler,
+    })
     // reset and clear any dependent schedulers
     if (this._dependents?.[k]?.size > 0) {
       for (const e of this._dependents[k]) e._t = 0
@@ -93,8 +120,9 @@ class _State {
       },
       set(obj, k, v) {
         if (is_object(v)) v = this._proxy(pfx + k, v) // proxy new nested object
+        const v_old = obj[k]
         obj[k] = v
-        state._on_set(pfx + k)
+        state._on_set(pfx + k, v, v_old)
         return true // accept change
       },
     })
@@ -153,7 +181,12 @@ function simulate(x, t, events, options = undefined) {
     if (x._t > t && !allow_next) return (x.t = t), x
     // apply events scheduled at _t
     x.t = x._t // advance x.t first
-    for (const e of events) if (x.t == e.t) e.fx(x)
+    for (const e of events) {
+      if (x.t < e.t) continue
+      x._mutator = e // track event as mutator
+      e.fx(x)
+      x._mutator = null
+    }
   }
   return x
 }
@@ -342,7 +375,7 @@ function _benchmark_inc() {
   // regular object for benchmarking getter/setter overhead
   const obj = {}
   let count = 0
-  Object.defineProperty(obj, 'count', {
+  define(obj, 'count', {
     get() {
       return count
     },
@@ -355,7 +388,7 @@ function _benchmark_inc() {
   let setters = new Set()
   let sets = new Set()
   let gets = new Set()
-  Object.defineProperty(obj, 'count_tracked', {
+  define(obj, 'count_tracked', {
     get() {
       getters.add(count % 10) // emulate a set of object pointers
       getters.delete((count * 7) % 10) // emulate some deletion

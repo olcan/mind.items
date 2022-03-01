@@ -5,6 +5,7 @@ const assign = Object.assign
 const from_entries = Object.fromEntries
 const from_pairs = _.fromPairs
 const to_pairs = _.toPairs
+const define = Object.defineProperty
 
 const get = _.get
 const set = _.set
@@ -519,7 +520,7 @@ function timing(f) {
 // dependencies must be specified explicitly in array `deps`
 // setting to `obj.prop=null` also sets all dependents to `null`
 // `obj.__prop` method can be specified as argument `f`
-// `options` are passed to `Object.defineProperty` in descriptor argument
+// `options` are passed to `define` as descriptor
 function cache(obj, prop, deps, f, options = {}) {
   if (!(is_string(prop) && prop.match(/^\w+$/))) fatal(`invalid prop '${prop}'`)
   if (!is_array(deps)) fatal(`invalid/missing deps for cached '${prop}'`)
@@ -542,7 +543,7 @@ function cache(obj, prop, deps, f, options = {}) {
     if (!is_array(obj.__deps[dep])) fatal(`unknown dep '${dep}' for '${prop}'`)
     obj.__deps[dep].push(prop)
   })
-  Object.defineProperty(obj, prop, {
+  define(obj, prop, {
     get: () => (obj['_' + prop] ??= obj['__' + prop].call(obj)),
     set: v => {
       if (!(v === null))
