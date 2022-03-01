@@ -70,18 +70,19 @@ class _State {
   }
 
   _on_get(k, v) {
-    this._trace?.push({
-      get: k,
-      v,
-      t: this.t,
-      e_fx: this._mutator,
-      e_ft: this._scheduler,
-    })
-
+    if (k == 't') return // ignore access to x.t (also avoids recursion below)
+    if (this._mutator || this._scheduler)
+      this._trace?.push({
+        get: k,
+        v,
+        t: this.t,
+        e_fx: this._mutator,
+        e_ft: this._scheduler,
+      })
     // track scheduler access to any non-t state as a "dependency"
     // non-proxied nested object dependencies are not allowed
     // dependency continues until mutation or _cancel
-    if (this._scheduler && k != 't') {
+    if (this._scheduler) {
       if (is_object(v) && !v._proxied)
         fatal(`dependency on non-proxied nested object variable ${k}`)
       this._dependents ??= {}
@@ -91,13 +92,18 @@ class _State {
   }
 
   _on_set(k, v_new, v_old) {
+    if (this._scheduler) fatal(`state mutated in scheduler`)
+    if (!this._mutator) {
+      if (k != 't') fatal('non-t state mutated outside of mutator')
+      return
+    }
+    if (k == 't') fatal('x.t set in mutator')
     this._trace?.push({
       set: k,
       v_new,
       v_old,
       t: this.t,
-      e_fx: this._mutator,
-      e_ft: this._scheduler,
+      e: this._mutator,
     })
     // reset and clear any dependent schedulers
     if (this._dependents?.[k]?.size > 0) {
