@@ -71,15 +71,15 @@ class _State {
 
   _on_get(k, v) {
     if (k == 't') return // ignore access to x.t (also avoids recursion below)
-    if (this._mutator || this._scheduler)
-      this._trace?.push({
-        get: k,
-        v,
-        t: this.t,
-        e_fx: this._mutator,
-        e_ft: this._scheduler,
-      })
-    // track scheduler access to any non-t state as a "dependency"
+    if (!this._mutator && !this._scheduler) return // ignore non-sim access
+    this._trace?.push({
+      type: this._mutator ? 'fx_get' : 'ft_get',
+      k,
+      v,
+      t: this.t,
+      e: this._mutator ?? this._scheduler,
+    })
+    // track scheduler access (to non-t state) as a "dependency"
     // non-proxied nested object dependencies are not allowed
     // dependency continues until mutation or _cancel
     if (this._scheduler) {
@@ -99,7 +99,8 @@ class _State {
     }
     if (k == 't') fatal('x.t set in mutator')
     this._trace?.push({
-      set: k,
+      type: 'fx_set',
+      k,
       v_new,
       v_old,
       t: this.t,
@@ -182,11 +183,7 @@ function simulate(x, t, events, options = undefined) {
     // valid times >x.t are cached inside _Event and reset by _State as needed
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
     // store next scheduled event time as x._t for persistence across calls
-    for (const e of events) {
-      x._scheduler = e // track event as dependent scheduler
-      e.t = e.ft(x)
-      x._scheduler = null
-    }
+    for (const e of events) e.t = e.ft(x)
     x._t = min_of(events, e => e.t) // can be inf
     if (!(x._t > x.t)) fatal('invalid e.ft(x) <= x.t')
     // stop at t if next events are >t and !allow_next
@@ -194,12 +191,7 @@ function simulate(x, t, events, options = undefined) {
     if (x._t > t && !allow_next) return (x.t = t), x
     // apply events scheduled at _t
     x.t = x._t // advance x.t first
-    for (const e of events) {
-      if (x.t < e.t) continue
-      x._mutator = e // track event as mutator
-      e.fx(x)
-      x._mutator = null
-    }
+    for (const e of events) if (x.t == e.t) e.fx(x)
   }
   return x
 }
@@ -229,7 +221,7 @@ const name_events = (...fE) =>
 // | `fx`      | _mutator function_ `fx(x)`
 // |           | must modify (i.e. _mutate_) state `x`
 // |           | can return `null` to indicate _skipped_ mutation
-// |           | can return (part of) state that affected mutation
+// |           | can return mutation parameters to be recorded in `x._events`
 // | `ft`      | _scheduler function_ `ft(x)`
 // |           | must return future time `t > x.t`, can be `inf` (never)
 // |           | state variables accessed in `ft` are considered _dependencies_
@@ -242,7 +234,9 @@ const _event = (...args) => new _Event(...args)
 class _Event {
   constructor(fx, ft = daily(0), fc = undefined) {
     this.fx = x => {
+      x._mutator = this // track event as mutator
       const θ = fx(x)
+      x._mutator = null
       // count mutations and skips (if defined) for benchmarking
       if (defined(x._mutations)) x._mutations++ // includes skipped
       if (θ === null) {
@@ -258,8 +252,10 @@ class _Event {
     this.ft = x => {
       if (this._t > x.t) return this._t
       x._cancel(this) // cancel dependencies for previous _t
-      if (fc && !fc(x)) return (this._t = inf)
-      return (this._t = ft(x))
+      x._scheduler = this // track event as dependent scheduler
+      this._t = fc && !fc(x) ? inf : ft(x)
+      x._scheduler = null
+      return this._t
     }
   }
 }
@@ -611,25 +607,22 @@ function _test_event_time() {
 // print event
 const print_event = e => {
   const tstr = date_time_string(event_date(e.t))
-  const is_now = tstr == date_time_string()
   const name =
     e._name || e._source._name || str(e._source.fx).replace(/\S+\s*=>\s*/g, '')
   const sfx = e._sfx || e._source?._sfx || e._source?.fx._sfx
-  const is_observe = name.startsWith('observe_')
-  // NOTE: search for 'box drawings' in character viewer
-  const pfx = is_now ? '╋━▶︎' : is_observe ? '╋━▶︎' : '│──'
-  const omit_props = [
-    't',
-    '_t', // time cached in _Event
-    '_source',
-    '_name',
-    '_sfx',
-  ]
+  const omit_props = ['t', '_t', '_source', '_name', '_sfx']
   const attachments = entries(omit(e, omit_props)).map(
     ([k, v]) => k + ':' + (v?._name || str(v))
   )
-  print(pfx, tstr, name, sfx, ...attachments)
+  print(tstr, name, sfx, ...attachments)
 }
 
 // print state
 const print_state = x => print(str(x))
+
+// print trace
+const print_trace = m => {
+  const tstr = date_time_string(event_date(m.t))
+  const e_name = m.e._name || str(m.e.fx).replace(/\S+\s*=>\s*/g, '')
+  print(tstr, m.type, m.k, e_name)
+}

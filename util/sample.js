@@ -731,15 +731,25 @@ class _Sampler {
     // print sampled values or simulations and skip posterior (see _init)
     if (J == 1) {
       print('values:', str(this.sample_values()))
-      const states = new Set()
+      const printed_histories = new Set()
       each(this.sims, s => {
-        if (states.has(s.xt)) return
-        // _events/_states should be enabled by default under sampler w/ J==1
-        if (!s.xt._events) fatal(`missing _events in simulated state w/ J==1`)
-        if (!s.xt._states) fatal(`missing _states in simulated state w/ J==1`)
-        each(s.xt._events, print_event)
-        each(s.xt._states, print_state)
-        states.add(s.xt)
+        if (printed_histories.has(s.xt)) return
+        // print out history (trace/events/states) merged by time
+        // auxiliary state should be enabled by default under sampler w/ J==1
+        if (!s.xt._trace || !s.xt._events || !s.xt._states)
+          fatal(`missing history in simulated state w/ J==1`)
+        const trace = s.xt._trace.map(e =>
+          define(e, '_print', { value: print_trace })
+        )
+        const events = s.xt._events.map(e =>
+          define(e, '_print', { value: print_event })
+        )
+        const states = s.xt._states.map(e =>
+          define(e, '_print', { value: print_state })
+        )
+        const history = sort_by([...events, ...trace, ...states], h => h.t)
+        for (const h of history) h._print(h)
+        printed_histories.add(s.xt)
       })
       return
     }
