@@ -303,7 +303,6 @@ const _inc_path = (x, y) => {
 }
 const _inc_obj = (x, y) => {
   for (const k of keys(y)) {
-    if (k[0] == '_' && k[1] == '_') continue // skip double-underscore key
     const v = y[k]
     if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
     // non-numbers are _set_ instead of incremented (w/ coercion)
