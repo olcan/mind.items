@@ -1,21 +1,28 @@
 class _State {
   constructor(vars, params, options) {
-    let { trace, events, states } = options ?? {}
-    // enable events/states by default under sampler w/ J==1
+    let events = false
+    let states = false
+    let trace = false
+    // enable events/states/trace by default under sampler w/ J==1
     if (window.__sampler?.J == 1) {
       events = true
       states = true
+      trace = true
     }
-
+    if (options) {
+      events = options.events
+      states = options.states
+      trace = options.trace
+    }
     // define auxiliary state properties
     // must be done first to detect name conflicts below
     define(this, '_t', { writable: true })
     define(this, '_mutator', { writable: true })
     define(this, '_scheduler', { writable: true })
     define(this, '_dependents', { writable: true })
-    if (trace) define(this, '_trace', { writable: true, value: [] })
     if (events) define(this, '_events', { writable: true, value: [] })
     if (states) define(this, '_states', { writable: true }) // set below
+    if (trace) define(this, '_trace', { writable: true, value: [] })
 
     // define variable properties, subject to mutation tracking
     vars.t ??= 0 // defined required time variable if missing
