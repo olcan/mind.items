@@ -52,7 +52,7 @@ class _State {
   }
 
   _on_get(k, v) {
-    // track scheduler access to any non-t state as a dependency
+    // track scheduler access to any non-t state as a "dependency"
     // non-proxied nested object dependencies are not allowed
     // dependency continues until mutation or _cancel
     if (this._scheduler && k != 't') {
@@ -180,7 +180,7 @@ const name_events = (...fE) =>
 // _event(fx, [ft=daily(0)], [fc])
 // create mutation event `x → fx(x,…)`
 // state `x` _mutates_ to `fx(x)` at time `ft(x)`
-// | `fx`      | _mutation function_ `fx(x)`
+// | `fx`      | _mutator function_ `fx(x)`
 // |           | must modify (i.e. _mutate_) state `x`
 // |           | can return `null` to indicate _skipped_ mutation
 // |           | can return (part of) state that affected mutation
@@ -219,7 +219,7 @@ class _Event {
 }
 
 // _do(fx, [ft=daily(0)], [fc])
-// alias for `_event(…)`, mutation (`fx`) first
+// alias for `_event(…)`, mutator (`fx`) first
 const _do = _event
 
 // _at(ft, fx, [fc])
@@ -233,7 +233,7 @@ const _if = (fc, ft, fx) => _event(fx, ft, fc)
 // is `e` an event object?
 const is_event = e => e instanceof _Event
 
-// increment mutation
+// increment mutator
 // handles args `...yJ` in order, by type:
 // | function `f`  | invoke as `r = f(x,r)`, `r` last returned value
 // |               | if last arg, handle `r` as arg (by type), return `r`
@@ -370,7 +370,7 @@ function _benchmark_inc() {
     },
   })
   Object.seal(obj) // no more properties
-  // increment mutation functions
+  // increment mutator functions
   const inc_count = inc('count')
   const inc_nested_count = inc('nested.count')
   benchmark(
