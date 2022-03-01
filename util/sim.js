@@ -64,9 +64,9 @@ class _State {
 
   _on_get(k, v) {
     this._trace?.push({
-      t: x.t,
       get: k,
       v,
+      t: this.t,
       e_fx: this._mutator,
       e_ft: this._scheduler,
     })
@@ -85,10 +85,10 @@ class _State {
 
   _on_set(k, v_new, v_old) {
     this._trace?.push({
-      t: x.t,
       set: k,
       v_new,
       v_old,
+      t: this.t,
       e_fx: this._mutator,
       e_ft: this._scheduler,
     })
