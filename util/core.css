@@ -4,7 +4,7 @@
 
 /* style marks (tags) like anchors to avoid confusion since search/highlights not supported yet for macros like js_table */
 .core_js_table mark {
-  background: #222;
+  background: #222 !important; /* important to avoid changes via classes, e.g. for missing tags */
   color: #79e;
 }
 

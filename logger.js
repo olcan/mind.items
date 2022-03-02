@@ -1,5 +1,5 @@
 // => /log [text]
-// log `text` into today's #log item
+// log `text` into today's [log](https://mindbox.io/#features/log) item
 // daily log items are named `#YYYY/MM/DD`
 // log entry is prefixed w/ current time as `HH:MM …`
 // `text` can specify custom time of day as `HH:MM …`
@@ -42,7 +42,7 @@ function _on_command_log(text) {
     }
 }
 
-// header macro for daily #log items
+// header macro for daily [log](https://mindbox.io/#features/log) items
 function _log_header() {
   const visible = _that
     .read('log')

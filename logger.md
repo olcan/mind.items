@@ -1,4 +1,4 @@
-#logger logs _events_ into daily #log items named `#YYYY/MM/DD`. See #/summary.
+#logger logs _events_ into daily [log](https://mindbox.io/#features/log) items named `#YYYY/MM/DD`. See #/summary.
 << command_table() >>
 << js_table() >>
 
