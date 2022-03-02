@@ -1217,3 +1217,6 @@ function _js_table_show_benchmark(name) {
 }
 
 const command_table = () => js_table(/^_on_command_/)
+
+// wrap `content` in block `type`
+const block = (type, content) => '```' + type + '\n' + content + '\n```'
