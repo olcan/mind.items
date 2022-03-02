@@ -214,9 +214,9 @@ async function github_token(item) {
   // if still missing, prompt user for token and store in local storage
   if (!token) {
     token = await _modal({
-      content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for updating items from GitHub. Token is optional for public repos but is strongly recommended as token-free access can be severely throttled by GitHub.`,
+      content: `${_this.name} needs your [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for updating items from GitHub. Token is required even for public repos to avoid strict rate limits imposed on token-free access by GitHub.`,
       confirm: 'Use Token',
-      cancel: 'Skip',
+      cancel: 'Cancel',
       input: '',
     })
     if (token) localStorage.setItem('mindpage_github_token', token)
@@ -247,6 +247,13 @@ async function check_updates(item, mark_pushables = false) {
   const source = `${owner}/${repo}/${branch}`
   // _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
   const token = await github_token(item)
+  if (!token) {
+    _this.warn(
+      `unable to check for updates to ${item.name} from ` +
+        `${source}/${path} due to missing token`
+    )
+    return false
+  }
   const github = token ? new Octokit({ auth: token }) : new Octokit()
   const updates = {} // path->hash object of available updates
   try {
@@ -372,6 +379,13 @@ async function update_item(item, updates) {
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
   const token = await github_token(item)
+  if (!token) {
+    _this.warn(
+      `update cancelled for ${item.name} from ` +
+        `${source}/${path} due to missing token`
+    )
+    return false
+  }
   const github = token ? new Octokit({ auth: token }) : new Octokit()
   _this.log(`updating ${item.name} from ${source}/${path} ...`)
   try {
