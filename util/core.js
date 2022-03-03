@@ -906,10 +906,16 @@ function _install_core_css() {
   _this.store.css_hash = css_hash
 }
 
-// install core.css on init
+// install core.css and set up globals (attached to window) on init
 function _init() {
   _install_core_css()
-  delete window.print // prevent any ambiguity w/ print() in #/item
+
+  // delete window.print to prevent ambiguity w/ print() in #/item
+  delete window.print
+
+  // attach MindBox to window for easy access from HTML and non-dependents
+  // only dependents will auto-update with latest code
+  window.MindBox = MindBox
 }
 
 // re-install core.css on any changes to core (or dependencies)
@@ -1220,3 +1226,46 @@ const command_table = () => js_table(/^_on_command_/)
 
 // wrap `content` in block `type`
 const block = (type, content) => '```' + type + '\n' + content + '\n```'
+
+// MindBox static class/object
+class MindBox {
+  static get() {
+    return MindBox.elem.value
+  }
+  static set(text) {
+    MindBox.elem.value = text
+    // also shift selection to the end
+    // on Safari, setting the selection can auto-focus so we have to blur
+    const wasFocused = document.activeElement.isSameNode(MindBox.elem)
+    MindBox.elem.selectionStart = MindBox.elem.value.length
+    if (!wasFocused) MindBox.elem.blur()
+    // trigger input event for handling of change
+    MindBox.elem.dispatchEvent(new Event('input'))
+  }
+  static clear() {
+    MindBox.set('')
+  }
+  static toggle(text) {
+    if (MindBox.get().trim() == text.trim()) MindBox.clear()
+    else MindBox.set(text)
+  }
+  static focus(text) {
+    if (typeof text == 'string') MindBox.set(text)
+    MindBox.elem.selectionStart = MindBox.elem.value.length
+    MindBox.elem.focus()
+    // scroll up to header if necessary
+    const header = document.getElementsByClassName('header')[0]
+    if (document.body.scrollTop > header.offsetTop)
+      document.body.scrollTo(0, header.offsetTop)
+  }
+  // MindBox.create emulates 'create' button
+  static create(text, options) {
+    text ??= MindBox.get() // default text is from MindBox
+    options = _.merge({ emulate_button: true }, options)
+    return window._create(text, options)
+  }
+  // MindBox.elem property
+  static get elem() {
+    return document.getElementById('textarea-mindbox')
+  }
+}
