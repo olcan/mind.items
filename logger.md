@@ -1,4 +1,6 @@
-#logger logs _events_ into daily [log](https://mindbox.io/#features/log) items named `#YYYY/MM/DD`. See #/summary.
+#logger logs _events_ into daily [log](https://mindbox.io/#features/log) items named `#YYYY/MM/DD`.
+- <<link_eval(_this, 'create_menu_item()', 'Create menu item')>> (pinned to top) w/ logger widget.
+- See #/summary of log events & items.
 << command_table() >>
 << js_table() >>
 

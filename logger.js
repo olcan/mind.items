@@ -624,6 +624,19 @@ function event_log_widget(options = undefined) {
   )
 }
 
+// create menu item w/ widget
+function create_menu_item() {
+  const item = _create()
+  item.write_lines(
+    `#_menu #_pin/0 [#log](#log) \\`,
+    `\<<link_js('MindBox.focus("/log ")','/log')>> \\`,
+    `\<<link_js('MindBox.focus("/idea ")','idea')>> \\`,
+    `\<<link_js('MindBox.focus("/done ")','done')>> \\`,
+    `\<<event_log_widget({style:'margin-left:7px;margin-top:3px'})>>`,
+    `#_logger`
+  )
+}
+
 // on-demand highlighter used by widget
 function _highlight_log(div, text) {
   div.innerHTML = hljs.highlight(text, { language: 'log' }).value
