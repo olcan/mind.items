@@ -612,7 +612,8 @@ function event_log_widget(options = undefined) {
   // macro cid is also passed to html via template string __cid__
   // macro cid is preferred to html script cid for consistency
   _this.store['logger-widget-$cid'] = { options: widget_options }
-  return html(
+  return block(
+    '_html',
     _logger
       .read('html_widget')
       .replace(/__classes__/g, classes)
