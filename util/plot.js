@@ -442,7 +442,8 @@ function _plot(type, data, _options, defaults = {}) {
   // macro cid is also passed to html via template string __cid__
   // macro cid is preferred to html script cid for consistency
   _this.store[`${type}-$cid`] = { data, options: merge(defaults, options) }
-  return html(
+  return block(
+    '_html',
     _item('#util/plot')
       .read(`html_${type}`)
       .replace(/__classes__/g, classes)
