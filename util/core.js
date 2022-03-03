@@ -598,7 +598,7 @@ function _js_table_function_status(name) {
   const gs = _this._global_store
   if (gs._tests && gs._tests[name]) {
     test = gs._tests[name]
-    status += evallink(
+    status += link_eval(
       _this,
       `_js_table_show_test('${name}', event)`,
       test.ok ? 'test' : 'FAILED test',
@@ -607,7 +607,7 @@ function _js_table_function_status(name) {
   }
   if (gs._benchmarks && gs._benchmarks[name]) {
     benchmark = gs._benchmarks[name]
-    status += evallink(
+    status += link_eval(
       _this,
       `_js_table_show_benchmark('${name}', event)`,
       benchmark.ok ? 'benchmark' : 'FAILED benchmark',
@@ -914,8 +914,17 @@ function _init() {
   delete window.print
 
   // attach MindBox to window for easy access from HTML and non-dependents
-  // only dependents will auto-update with latest code
+  // importing #util/core is optional, enables auto-updates
   window.MindBox = MindBox
+
+  // attach global "macros" to window
+  // importing #util/core is optional, enables auto-updates
+  // importing #util/core also ensures _this refers to invoking item
+  // _this shold generally be avoided in global macros to avoid this ambiguity
+  window.block = block
+  window.link_js = link_js
+  window.link_eval = link_eval
+  window.link_command = link_command
 }
 
 // re-install core.css on any changes to core (or dependencies)
@@ -1071,13 +1080,13 @@ function _js_table_show_function(name) {
 function _js_table_show_test(name) {
   if (!_this.elem) return // element not on page, cancel
   const test = _this._global_store._tests[name]
-  const run_link = evallink(
+  const run_link = link_eval(
     _this,
     `_js_table_run_test('${name}',event)`,
     'run',
     'run test' + (test.ok ? ' ok' : '')
   )
-  const def_link = evallink(
+  const def_link = link_eval(
     _this,
     `_js_table_show_function('${name}', event)`,
     '<-',
@@ -1170,13 +1179,13 @@ function _js_table_show_benchmark(name) {
     } else if (!line.match(/in (\d+)ms$/)) log.push(line)
   }
   sort_by(rows, r => -parseInt(r[0].replace(/,/g, '')))
-  const run_link = evallink(
+  const run_link = link_eval(
     _this,
     `_js_table_run_benchmark('${name}',event)`,
     'run',
     'run benchmark' + (benchmark.ok ? ' ok' : '')
   )
-  const def_link = evallink(
+  const def_link = link_eval(
     _this,
     `_js_table_show_function('${name}', event)`,
     '<-',
@@ -1226,6 +1235,36 @@ const command_table = () => js_table(/^_on_command_/)
 
 // wrap `content` in block `type`
 const block = (type, content) => '```' + type + '\n' + content + '\n```'
+
+// link html (`<a>…</a>`) to eval `js`
+// sets up `js` as `onmousedown` handler
+const link_js = (js, text = js, classes = '', style = '') =>
+  `<a href="#" onmousedown="` +
+  js.replace(/"/g, "'") +
+  `;event.preventDefault();event.stopPropagation()" ` +
+  `onclick="event.preventDefault();event.stopPropagation()" ` +
+  `class="${classes}" style="${style}">${text}</a>`
+// NOTE: using onmousedown + cancelled onclick maintains keyboard focus and is generally more robust, especially on mobile devices w/ virtual keyboards
+
+// link to eval `js` in context of `item`
+const link_eval = (item, js, text = js, classes = '', style = '') =>
+  link_js(
+    `_item('${item.id}')` + '.eval(`' + js.replace(/([`\\$])/g, '\\$1') + '`)',
+    text,
+    classes,
+    style
+  )
+// NOTE: mouse 'event' is still available in context of eval
+
+// link to run `command`
+const link_command = (
+  command,
+  text = cmd,
+  options = '',
+  classes = '',
+  style = ''
+) =>
+  link_js(`MindBox.create(\`${command}\`,{${options}})`, text, classes, style)
 
 // MindBox static class/object
 class MindBox {
