@@ -630,11 +630,10 @@ function create_menu_item() {
   item.write_lines(
     `#_menu #_pin/0 [#log](#log) \\`,
     `\<<link_js('MindBox.focus("/log ")','/log')>> \\`,
-    `\<<link_js('MindBox.focus("/idea ")','idea')>> \\`,
-    `\<<link_js('MindBox.focus("/done ")','done')>> \\`,
     `\<<event_log_widget({style:'margin-left:7px;margin-top:3px'})>>`,
     `#_logger`
   )
+  MindBox.create('/log hello world!')
 }
 
 // on-demand highlighter used by widget
@@ -650,8 +649,8 @@ function _highlight_log(div, text) {
 function _on_change(text, elem = document) {
   elem?.querySelectorAll('.logger-widget .suggest').forEach(suggest => {
     text = text.toLowerCase()
-    text = text.replace(/^\/done(?:\s|$)/, '/log done ')
-    text = text.replace(/^\/idea(?:\s|$)/, '/log idea ')
+    // text = text.replace(/^\/done(?:\s|$)/, '/log done ')
+    // text = text.replace(/^\/idea(?:\s|$)/, '/log idea ')
     // TODO: filter based on rest of command acting as search terms?
     // TODO: use value/unit based filtering logic from event items?
     let keyword = text.match(/^\/log\s+(?:\d\d?:\d\d\s+)?(\S+)/)?.pop()
