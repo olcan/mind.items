@@ -20,11 +20,12 @@ async function init_updater() {
 
   // listen for updates through firebase
   _this.log(`listening for updates ...`)
-  firebase
-    .firestore()
-    .collection('github_webhooks')
-    .where('time', '>', Date.now())
-    .onSnapshot(snapshot => {
+  onSnapshot(
+    query(
+      collection(getFirestore(firebase), 'github_webhooks'),
+      where('time', '>', Date.now())
+    ),
+    snapshot => {
       snapshot.docChanges().forEach(change => {
         if (change.type != 'added') return // new documents only
         const body = change.doc.data().body
@@ -140,7 +141,8 @@ async function init_updater() {
           } else _this.log(`update no longer needed for ${item.name}`)
         }
       })
-    })
+    }
+  )
 }
 
 // detect remote updates and cancel unnecessary local updates
