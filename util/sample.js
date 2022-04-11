@@ -1027,6 +1027,7 @@ class _Sampler {
     const _func = function () {
       window.__sampler = __sampler
       __sampler._init_func()
+      // TODO: investigate use of a worker pool here! challenge is to initialize self.__sampler in all workers, e.g. using shared memory or in other ways (initially in other ways since shared memory requires painful cross-origin isolation), start by running all function calls in a single worker; document all inputs/outputs/state and investigate best method to transfer state to it: looks like "transferables" is best as it does not require cross-origin isolation, see https://stackoverflow.com/a/30370720
       const out = func(__sampler)
       window.__sampler = null
       return out
