@@ -2,7 +2,8 @@
 // class for all items
 // as returned by `_item(…)`, `_items(…)`, `_create(…)`, etc
 // extendable as `_Item.prototype.method = function(…) { … }`
-const _Item = _this.constructor
+// can be `null` in non-window contexts, e.g. web workers
+const _Item = typeof _this != 'undefined' ? _this.constructor : null
 
 // => item.eval(code,{…})
 // evaluates `code` in context of `item`
@@ -57,8 +58,10 @@ const write = (...args) => _this.write(...args)
 // replaces existing item text
 // `≡ write(flat(lines).filter(defined).join('\n').trim(),'')`
 const write_lines = (...args) => _this.write_lines(...args)
-_Item.prototype.write_lines = function (...lines) {
-  this.write(flat(lines).filter(defined).join('\n').trim(), '')
+if (_Item) {
+  _Item.prototype.write_lines = function (...lines) {
+    this.write(flat(lines).filter(defined).join('\n').trim(), '')
+  }
 }
 
 // => item.clear(type)
