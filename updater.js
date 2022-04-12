@@ -20,6 +20,8 @@ async function init_updater() {
 
   // listen for updates through firebase
   _this.log(`listening for updates ...`)
+  const { getFirestore, query, collection, where, onSnapshot } =
+    firebase.firestore
   onSnapshot(
     query(
       collection(getFirestore(firebase), 'github_webhooks'),
