@@ -81,7 +81,7 @@ function is(x, type) {
     case 'map':
       return x instanceof Map
     case 'array':
-      return Array.isArray(x)
+      return Array.isArray(x) || x instanceof TypedArray // defined below
     case 'indexed':
       return is_indexed(x)
     default:
@@ -117,6 +117,7 @@ function _test_is() {
     () => is(new Set(), 'set'),
     () => is(new Map(), 'map'),
     () => is([], 'array'),
+    () => is(new Int32Array(), 'array'),
     () => is({ 0: '0' }, 'indexed')
   )
 }
@@ -200,7 +201,10 @@ const _benchmark_is_object_functions = ['is_object', 'is_primitive']
 
 const is_set = x => x instanceof Set
 const is_map = x => x instanceof Map
-const is_array = Array.isArray
+// NOTE: is_array allows typed arrays, e.g. Int32Array
+// can also be detected as: ArrayBuffer.isView(x) && !(x instanceof DataView)
+const TypedArray = Int32Array.prototype.__proto__.constructor
+const is_array = x => Array.isArray(x) || x instanceof TypedArray
 
 // is `x` array or object w/ keys `0,1,2...`?
 function is_indexed(x) {
