@@ -249,6 +249,8 @@ function _benchmark_min_max_in() {
 function _benchmark_sum() {
   const x10 = random_array(10)
   const x100 = random_array(100)
+  // typed arrays are much faster to copy but not necessarily to manipulate
+  const x100_int32 = new Int32Array(random_array(100))
   benchmark(
     () => sum([0]),
     () => _.sum([0]),
@@ -257,6 +259,8 @@ function _benchmark_sum() {
     () => sum(x10),
     () => _.sum(x10),
     () => sum(x100),
-    () => _.sum(x100)
+    () => _.sum(x100),
+    () => sum(x100_int32),
+    () => _.sum(x100_int32)
   )
 }
