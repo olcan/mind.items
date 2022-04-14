@@ -1031,6 +1031,7 @@ class _Sampler {
       const worker = init_worker()
       eval_on_worker(worker, () => print('hello world'))
       close_worker(worker)
+
       // TODO: at this point, all we have is the function code (js) w/ replacements and associated state that is returned by this function and then further initialized in the constructor. Do NOT worry about number of workers yet (likely related to navigator.hardwareConcurrency), just implement logic to set up _func in a worker, and then implement ability to transfer state and run func for any range of indices [js,je) on that worker (starting w/ [0,J)); just need to focus on _parse_func (esp. the wrappers and state returned below) and any state touched during _run_func.
     }
 
@@ -1041,29 +1042,26 @@ class _Sampler {
       const params = this.options.params
       const wrapper = `(function({${_.keys(params)}}) { return ${js} })`
       func = eval(wrapper)(params)
-    } else func = eval('(' + js + ')')
-    // use another wrapper to invoke _init_func and set window.__sampler
+    } else func = eval(`${js}`)
+
+    // use another wrapper to prep __sampler & set self.__sampler
     const _func = function () {
-      window.__sampler = __sampler
-      const timer = _timer_if(__sampler.stats)
-      __sampler._init_func()
+      each(__sampler.values, v => (v.called = false))
+      each(__sampler.weights, w => (w.called = false))
+      self.__sampler = __sampler
       const out = func(__sampler)
-      window.__sampler = null
-      if (__sampler.stats) __sampler.stats.time.func += timer.t
+      self.__sampler = null
       return out
     }
 
     return assign(state, { func: _func })
   }
 
-  _init_func() {
-    each(this.values, v => (v.called = false))
-    each(this.weights, w => (w.called = false))
-  }
-
   _run_func() {
+    const timer = _timer_if(this.stats)
     const { func, xJ, yJ, moving } = this
     fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
+    if (this.stats) this.stats.time.func += timer.t
   }
 
   _init_stats() {
@@ -1199,7 +1197,7 @@ class _Sampler {
 
   _sample_prior() {
     const timer = _timer_if(this.stats)
-    const { func, xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
+    const { xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
     const { log_pwJ, rN, log_wrJ, log_rwJ, log_wrfJN, stats } = this
     this.u = 0 // prior is zero'th update step
     fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
@@ -1472,7 +1470,7 @@ class _Sampler {
   // take metropolis-hastings steps along posterior chain
   _move() {
     const timer = _timer_if(this.stats)
-    const { J, K, N, func, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
+    const { J, K, N, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
     const { log_cwrfJN, log_wrfJN, log_cwrJ, log_wrJ, stats } = this
     const { awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
