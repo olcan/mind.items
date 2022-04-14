@@ -1028,7 +1028,7 @@ class _Sampler {
       window.__sampler = __sampler
       const timer = _timer_if(__sampler.stats)
       __sampler._init_func()
-      // TODO: now that we know function calls are a major bottleneck, next step is to set up workers that can each handle a subset of function invocations, i.e. subset of indices j = 0,...,J-1, for each of the three places where func(this) is invoked (_sample_prior, _fork/_reweight, and _move)
+      // TODO: now that we know function calls are a major bottleneck, next step is to set up workers that can each handle a subset of function invocations, i.e. subset of indices j = 0,...,J-1, for each of the three places where func(this) is invoked (_sample_prior, _fork/_reweight, and _move); set up a shared function invoked from each of these places that handles all indices 0,...,J-1 but splits them into the workers, and logs per-worker timing information to make it easier to confirm utilization
       const out = func(__sampler)
       window.__sampler = null
       if (__sampler.stats) __sampler.stats.time.func += timer.t
