@@ -1026,10 +1026,12 @@ class _Sampler {
     // use another wrapper to invoke _init_func and set window.__sampler
     const _func = function () {
       window.__sampler = __sampler
+      const timer = _timer_if(__sampler.stats)
       __sampler._init_func()
-      // TODO: confirm that bottleneck is invocations of func(), implement sharding across workers using a proxy __sampler in each worker, w/ workes initialized here to ensure consistent init!
+      // TODO: now that we know function calls are a major bottleneck, next step is to set up workers that can each handle a subset of function invocations, i.e. subset of indices j = 0,...,J-1, for each of the three places where func(this) is invoked (_sample_prior, _fork/_reweight, and _move)
       const out = func(__sampler)
       window.__sampler = null
+      if (__sampler.stats) __sampler.stats.time.func += timer.t
       return out
     }
     return {
@@ -1095,6 +1097,7 @@ class _Sampler {
       quanta: 0,
       time: {
         dispatch: 0,
+        func: 0,
         init: 0,
         prior: 0,
         update: 0,
@@ -1207,9 +1210,10 @@ class _Sampler {
   }
 
   _fork() {
+    const { func, xJ, yJ, moving } = this
     this.forking = true
-    if (this.moving) fill(this.yJ, j => ((this.j = j), this.func(this)))
-    else fill(this.xJ, j => ((this.j = j), this.func(this)))
+    if (moving) fill(yJ, j => ((this.j = j), func(this)))
+    else fill(xJ, j => ((this.j = j), func(this)))
     this.forking = false
   }
 
