@@ -120,7 +120,7 @@ function eval_on_worker(worker, js, options = {}) {
   // set up single-message 'done' handler if specified
   // eval must post message w/ { done:true } to trigger done handler
   // done handler simply invokes done(e) and restores default handler
-  // evals are serialized via worker.eval promise chain
+  // evals are serialized (made 'sync' on worker) via worker.eval promise chain
   if (done) {
     worker.eval = Promise.allSettled([worker.eval]).then(() => {
       worker.postMessage({ js, context }, transfer)
@@ -134,6 +134,9 @@ function eval_on_worker(worker, js, options = {}) {
         }
       })
     })
+  } else {
+    // post async eval message
+    worker.postMessage({ js, context }, transfer)
   }
 }
 
@@ -143,9 +146,13 @@ function close_worker(worker) {
   eval_on_worker(
     worker,
     () => {
-      postMessage(`closed worker ${id} (${item})`)
       close()
+      postMessage({ done: true })
     },
-    { context: { id: worker.id, item: worker.item.name } }
+    {
+      done: () => {
+        print(`closed worker ${worker.id} (${worker.item.name})`)
+      },
+    }
   )
 }

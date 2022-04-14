@@ -649,9 +649,6 @@ class _Sampler {
     )
 
     this._init()
-
-    // close any workers
-    if (this.workers) each(this.workers, close_worker)
   }
 
   _init() {
@@ -690,7 +687,10 @@ class _Sampler {
         }
 
         this._init_posterior()
-      }))
+      })).finally(() => {
+        // ensure any workers are closed
+        if (this.workers) each(this.workers, close_worker)
+      })
     }
 
     this._init_prior()
@@ -1044,6 +1044,7 @@ class _Sampler {
 
     let workers // undefined unless there are workers
     if (this.options.workers > 0) {
+      if (!this.options.async) fatal(`workers not allowed in sync mode`)
       const worker = init_worker({
         imports: ['/lodash.min.js', '#util/sample'],
       })
