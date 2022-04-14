@@ -807,6 +807,7 @@ class _Sampler {
     }
 
     // parse and replace key function calls
+    // we use global __sampler variable instead of 'this' to avoid ambiguity
     // argument pattern allowing nested parentheses is derived from that in core.js
     // this particular pattern allows up to 5 levels of nesting for now
     // note prefix ...|...| is to skip comments w/o matching calls inside
@@ -1029,27 +1030,25 @@ class _Sampler {
 
     if (this.options.workers > 0) {
       const worker = init_worker()
-      eval_on_worker(worker, () => print('hello world'))
+      eval_on_worker(worker, () => {})
       close_worker(worker)
 
       // TODO: at this point, all we have is the function code (js) w/ replacements and associated state that is returned by this function and then further initialized in the constructor. Do NOT worry about number of workers yet (likely related to navigator.hardwareConcurrency), just implement logic to set up _func in a worker, and then implement ability to transfer state and run func for any range of indices [js,je) on that worker (starting w/ [0,J)); just need to focus on _parse_func (esp. the wrappers and state returned below) and any state touched during _run_func.
     }
 
-    // evaluate new function w/ replacements
-    // use wrapper to pass along params (if any) from calling scope/context
-    const __sampler = this // since 'this' is overloaded in function(){...}
+    // create (eval) function from js w/ replacements
+    // wrap function to pass along params (if any) from calling context
     if (this.options.params) {
       const params = this.options.params
-      const wrapper = `(function({${_.keys(params)}}) { return ${js} })`
-      func = eval(wrapper)(params)
+      func = eval(`(function({${_.keys(params)}}) { return ${js} })`)(params)
     } else func = eval(`${js}`)
 
-    // use another wrapper to prep __sampler & set self.__sampler
-    const _func = function () {
-      each(__sampler.values, v => (v.called = false))
-      each(__sampler.weights, w => (w.called = false))
-      self.__sampler = __sampler
-      const out = func(__sampler)
+    // wrap function again to prep sampler & set self.__sampler
+    const _func = function (sampler) {
+      each(sampler.values, v => (v.called = false))
+      each(sampler.weights, w => (w.called = false))
+      self.__sampler = sampler
+      const out = func(sampler)
       self.__sampler = null
       return out
     }

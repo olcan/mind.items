@@ -602,7 +602,7 @@ function init_worker(options = {}) {
     // write_log()
   }
   // initialize worker via initial eval
-  function init(item, host) {
+  function init(id, item, host) {
     const start = Date.now()
 
     // set up _this to redirect (most) _Item methods to initializing item
@@ -655,11 +655,11 @@ function init_worker(options = {}) {
 
     // load lodash as _ (not for module workers, which should use import keyword)
     // importScripts(host + '/lodash.min.js')
-    // _this.print(`loaded lodash (${_?.VERSION}) in ${Date.now()-start}ms`)
+    // print(`loaded lodash (${_?.VERSION}) in ${Date.now()-start}ms`)
 
-    _this.print(`initialized worker in ${Date.now() - start}ms`)
+    print(`initialized worker ${id} (${item}) in ${Date.now() - start}ms`)
   }
-  worker.postMessage(`(${init})('${_this.name}','${host}')`)
+  worker.postMessage(`(${init})('${worker.id}','${_this.name}','${host}')`)
 
   return worker
 }
