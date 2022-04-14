@@ -5,4 +5,4 @@
 // worker.js
 ```
 
-#_//core˝
+#_//core
