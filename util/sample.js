@@ -1027,7 +1027,7 @@ class _Sampler {
     const _func = function () {
       window.__sampler = __sampler
       __sampler._init_func()
-      // TODO: confirm that bottleneck is invocations of func(), implement sharding across workers using a proxy __sampler in each worker, w/ workes initialized here to ensure consistent init
+      // TODO: confirm that bottleneck is invocations of func(), implement sharding across workers using a proxy __sampler in each worker, w/ workes initialized here to ensure consistent init!
       const out = func(__sampler)
       window.__sampler = null
       return out
