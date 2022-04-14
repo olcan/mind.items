@@ -649,6 +649,9 @@ class _Sampler {
     )
 
     this._init()
+
+    // close any workers
+    if (this.workers) each(this.workers, close_worker)
   }
 
   _init() {
@@ -1017,8 +1020,8 @@ class _Sampler {
 
     js = _replace_calls(js, true /*root js*/)
 
+    const params = this.options.params // params (if any) from calling context
     const state = {
-      js,
       values,
       weights,
       sims,
@@ -1028,39 +1031,86 @@ class _Sampler {
       accumulating,
     }
 
+    // function wrapper to prep sampler & set self.__sampler
+    const wrap = func =>
+      function (sampler) {
+        each(sampler.values, v => (v.called = false))
+        each(sampler.weights, w => (w.called = false))
+        self.__sampler = sampler
+        const out = func(sampler)
+        self.__sampler = null
+        return out
+      }
+
+    let workers // undefined unless there are workers
     if (this.options.workers > 0) {
-      const worker = init_worker()
-      eval_on_worker(worker, () => {})
-      close_worker(worker)
-
-      // TODO: at this point, all we have is the function code (js) w/ replacements and associated state that is returned by this function and then further initialized in the constructor. Do NOT worry about number of workers yet (likely related to navigator.hardwareConcurrency), just implement logic to set up _func in a worker, and then implement ability to transfer state and run func for any range of indices [js,je) on that worker (starting w/ [0,J)); just need to focus on _parse_func (esp. the wrappers and state returned below) and any state touched during _run_func.
+      const worker = init_worker({
+        imports: ['/lodash.min.js', '#util/sample'],
+      })
+      eval_on_worker(
+        worker,
+        () => {
+          // parse function as in main thread (see below)
+          let func = params
+            ? eval(`(function({${keys(params)}}){return ${js}})`)(params)
+            : eval(`(${js})`)
+          func = eval(wrap)(func)
+          // set up proxy __sampler for worker
+          self.__sampler = assign(state, {
+            func,
+            // TODO: set up replacement functions _sample, etc ...
+          })
+        },
+        {
+          context: {
+            js,
+            params,
+            state,
+            wrap: wrap.toString(), // needs eval on worker
+          },
+        }
+      )
+      workers = [worker]
     }
 
-    // create (eval) function from js w/ replacements
-    // wrap function to pass along params (if any) from calling context
-    if (this.options.params) {
-      const params = this.options.params
-      func = eval(`(function({${_.keys(params)}}) { return ${js} })`)(params)
-    } else func = eval(`${js}`)
-
-    // wrap function again to prep sampler & set self.__sampler
-    const _func = function (sampler) {
-      each(sampler.values, v => (v.called = false))
-      each(sampler.weights, w => (w.called = false))
-      self.__sampler = sampler
-      const out = func(sampler)
-      self.__sampler = null
-      return out
-    }
-
-    return assign(state, { func: _func })
+    // evaluate function from js w/ replacements & optional params
+    // also wrap function using _wrap_func (see below)
+    func = params
+      ? eval(`(function({${keys(params)}}){return ${js}})`)(params)
+      : eval(`(${js})`)
+    return assign(state, { func: wrap(func), workers })
   }
 
   _run_func() {
     const timer = _timer_if(this.stats)
-    const { func, xJ, yJ, moving } = this
-    fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
-    if (this.stats) this.stats.time.func += timer.t
+    const { func, xJ, yJ, moving, workers } = this
+    if (workers) {
+      this.runs ??= 0
+      const run = ++this.runs
+      eval_on_worker(
+        workers[0],
+        () => {
+          // TODO: how to read back xJ or yJ or other state synchronously? is that even possible? if not possible, then we are going to have to eval at async update level!
+          // __sampler.func(__sampler)
+          postMessage({ done: true })
+        },
+        {
+          done: e => {
+            console.log(`worker done w/ run ${run}`, str(e.data))
+          },
+        }
+      )
+
+      // TODO: this is temporary until workers are working!
+      fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
+    } else {
+      // no workers, invoke on main thread
+      fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
+    }
+    if (this.stats) {
+      this.stats.time.func += timer.t
+      this.stats.runs++
+    }
   }
 
   _init_stats() {
@@ -1107,6 +1157,7 @@ class _Sampler {
       proposals: 0,
       accepts: 0,
       quanta: 0,
+      runs: 0,
       time: {
         dispatch: 0,
         func: 0,
