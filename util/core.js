@@ -627,6 +627,7 @@ function init_worker(options = {}) {
             case 'save':
             case 'debug':
             case 'print':
+            case 'log':
             case 'info':
             case 'warn':
             case 'error':

@@ -771,7 +771,7 @@ class _Sampler {
 
   _parse_func(func) {
     // replace sample|condition|weight|confine calls
-    const js = func.toString()
+    let js = func.toString()
     const lines = js.split('\n')
     const values = []
     const weights = []
@@ -1013,9 +1013,11 @@ class _Sampler {
           `__sampler._${method}(${index},${args})`
         )
       })
-    this.js = _replace_calls(js, true /*root js*/)
+
+    js = _replace_calls(js, true /*root js*/)
 
     const state = {
+      js,
       values,
       weights,
       sims,
@@ -1027,7 +1029,7 @@ class _Sampler {
 
     if (this.options.workers > 0) {
       const worker = init_worker()
-      eval_on_worker(worker, () => postMessage('hello world'))
+      eval_on_worker(worker, () => print('hello world'))
       close_worker(worker)
       // TODO: at this point, all we have is the function code (js) w/ replacements and associated state that is returned by this function and then further initialized in the constructor. Do NOT worry about number of workers yet (likely related to navigator.hardwareConcurrency), just implement logic to set up _func in a worker, and then implement ability to transfer state and run func for any range of indices [js,je) on that worker (starting w/ [0,J)); just need to focus on _parse_func (esp. the wrappers and state returned below) and any state touched during _run_func.
     }
@@ -1037,9 +1039,9 @@ class _Sampler {
     const __sampler = this // since 'this' is overloaded in function(){...}
     if (this.options.params) {
       const params = this.options.params
-      const wrapper = `(function({${_.keys(params)}}) { return ${this.js} })`
+      const wrapper = `(function({${_.keys(params)}}) { return ${js} })`
       func = eval(wrapper)(params)
-    } else func = eval('(' + this.js + ')')
+    } else func = eval('(' + js + ')')
     // use another wrapper to invoke _init_func and set window.__sampler
     const _func = function () {
       window.__sampler = __sampler
