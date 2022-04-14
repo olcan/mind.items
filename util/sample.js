@@ -489,7 +489,7 @@ class _Sampler {
     this.start_time = Date.now()
     this.dispatch_delay = 0 // to be excluded from this.t
 
-    // parse sampled values and determine K
+    // parse sampled values & observed weights
     assign(this, this._parse_func(func))
     const K = (this.K = this.values.length)
     const N = (this.N = this.weights.length)
@@ -1015,6 +1015,23 @@ class _Sampler {
       })
     this.js = _replace_calls(js, true /*root js*/)
 
+    const state = {
+      values,
+      weights,
+      sims,
+      names,
+      nK: array(names),
+      optimizing,
+      accumulating,
+    }
+
+    if (this.options.workers > 0) {
+      const worker = init_worker()
+      eval_on_worker(worker, () => postMessage('hello world'))
+      close_worker(worker)
+      // TODO: at this point, all we have is the function code (js) w/ replacements and associated state that is returned by this function and then further initialized in the constructor. Do NOT worry about number of workers yet (likely related to navigator.hardwareConcurrency), just implement logic to set up _func in a worker, and then implement ability to transfer state and run func for any range of indices [js,je) on that worker (starting w/ [0,J)); just need to focus on _parse_func (esp. the wrappers and state returned below) and any state touched during _run_func.
+    }
+
     // evaluate new function w/ replacements
     // use wrapper to pass along params (if any) from calling scope/context
     const __sampler = this // since 'this' is overloaded in function(){...}
@@ -1028,27 +1045,23 @@ class _Sampler {
       window.__sampler = __sampler
       const timer = _timer_if(__sampler.stats)
       __sampler._init_func()
-      // TODO: now that we know function calls are a major bottleneck, next step is to set up workers that can each handle a subset of function invocations, i.e. subset of indices j = 0,...,J-1, for each of the three places where func(this) is invoked (_sample_prior, _fork/_reweight, and _move); set up a shared function invoked from each of these places that handles all indices 0,...,J-1 but splits them into the workers, and logs per-worker timing information to make it easier to confirm utilization; use navigator.hardwareConcurrency to determine number of workers/shards!
       const out = func(__sampler)
       window.__sampler = null
       if (__sampler.stats) __sampler.stats.time.func += timer.t
       return out
     }
-    return {
-      func: _func,
-      values,
-      weights,
-      sims,
-      names,
-      nK: array(names),
-      optimizing,
-      accumulating,
-    }
+
+    return assign(state, { func: _func })
   }
 
   _init_func() {
     each(this.values, v => (v.called = false))
     each(this.weights, w => (w.called = false))
+  }
+
+  _run_func() {
+    const { func, xJ, yJ, moving } = this
+    fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
   }
 
   _init_stats() {
@@ -1099,6 +1112,7 @@ class _Sampler {
         dispatch: 0,
         func: 0,
         init: 0,
+        targets: 0,
         prior: 0,
         update: 0,
         updates: {
@@ -1189,7 +1203,7 @@ class _Sampler {
     fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
     fill(log_pwJ, 0)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
-    fill(xJ, j => ((this.j = j), func(this)))
+    this._run_func()
     copy(log_rwJ, log_pwJ) // log_wrJ added below if r0>0
     if (max_in(rN) == 0) {
       fill(log_wrJ, 0)
@@ -1210,10 +1224,8 @@ class _Sampler {
   }
 
   _fork() {
-    const { func, xJ, yJ, moving } = this
     this.forking = true
-    if (moving) fill(yJ, j => ((this.j = j), func(this)))
-    else fill(xJ, j => ((this.j = j), func(this)))
+    this._run_func()
     this.forking = false
   }
 
@@ -1482,7 +1494,7 @@ class _Sampler {
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wrfJN = log_wrfJN // to be restored below
     this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
-    fill(yJ, j => ((this.j = j), func(this)))
+    this._run_func()
     each(this.rN, (r, n) => addf(log_cwrJ, log_cwrfJN, fjN => fjN[n]?.(r) ?? 0))
     clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN
@@ -1734,7 +1746,15 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const f = this.domain // sampler domain function
     let o = clone_deep(this.options)
-    o = omit(o, ['log', 'plot', 'table', 'quantiles', 'targets', 'async'])
+    o = omit(o, [
+      'log',
+      'plot',
+      'table',
+      'quantiles',
+      'targets',
+      'workers',
+      'async',
+    ])
     o.warn = false
     o.updates = o.min_updates = o.max_updates = 0 // no updates
     o.reweight_if = () => false // no reweight for u=0
@@ -1759,7 +1779,7 @@ class _Sampler {
     this.options.targets = transpose_objects(targets)
     if (this.options.log)
       print(`generated ${targets.length} targets in ${timer.t}ms`)
-    // if (this.stats) this.stats.targets = timer.t
+    if (this.stats) this.stats.time.targets = timer.t
   }
 
   _quantiles() {

@@ -562,6 +562,7 @@ function cache(obj, prop, deps, f, options = {}) {
 }
 
 // initialize worker
+// can be _closed_ using `close_worker` (see below)
 // `options.imports` can be (array of) `/path` or `#item` strings
 // default imports are lodash (`/lodash.min.js`) and `#util/core`
 function init_worker(options = {}) {
@@ -678,6 +679,10 @@ function eval_on_worker(worker, js, options = {}) {
     .join(';\n')
   return worker.postMessage({ js, context }, transfer)
 }
+
+// closes worker
+// ensures pending messages are handled, unlike `worker.terminate()`
+const close_worker = worker => eval_on_worker(worker, () => close())
 
 // markdown table for `cells`
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`
