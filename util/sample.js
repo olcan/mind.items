@@ -342,9 +342,6 @@ function sample(domain, options = undefined) {
     fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
   // decline target for root sampler since that is no parent to track tks
   if (options?.target) fatal(`invalid target outside of sample(context=>{ … })`)
-  // TODO: separate _Sampler from _AsyncSampler, the latter supporting workers
-  //       and having async methods allowing simple await statements! should be ok to
-  //       have both classes in util/sample for now
   const sampler = new _Sampler(domain, options)
   const sample = sampler.sample(options)
   // if (options?.store) _this.global_store._sample = sample
