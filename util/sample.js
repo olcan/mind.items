@@ -315,7 +315,12 @@ function density(x, domain) {
 // | `time`        | target time (ms) for sampling, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // |               | changes default `max_time` to `inf`
-// | `quantum`     | maximum time (ms) per update/move call, _default_: `100`
+// | `async`       | run updates/moves in async _quanta_, _default_: `false`
+// |               | allows dom updates & main-thread tasks between quanta
+// | `quantum`     | maximum time (ms) per async update/move, _default_: `100`
+// |               | shorter quanta = more responsive of dom & main-thread
+// |               | longer quanta = less dispatch delay (`await` time)
+// |               | does not apply in sync mode (`async:false`)
 // | `opt_time`    | optimization time, should be `<max_time`
 // |               | _default_: `(time || max_time) / 2`
 // | `opt_penalty` | optimization penalty, should be `<0`, _default_: `-5`
@@ -337,6 +342,9 @@ function sample(domain, options = undefined) {
     fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
   // decline target for root sampler since that is no parent to track tks
   if (options?.target) fatal(`invalid target outside of sample(context=>{ … })`)
+  // TODO: separate _Sampler from _AsyncSampler, the latter supporting workers
+  //       and having async methods allowing simple await statements! should be ok to
+  //       have both classes in util/sample for now
   const sampler = new _Sampler(domain, options)
   const sample = sampler.sample(options)
   // if (options?.store) _this.global_store._sample = sample
@@ -651,13 +659,13 @@ class _Sampler {
     this._init()
   }
 
-  _init() {
+  async _init() {
     this._init_stats()
     const { stats, options } = this
 
     if (options.async) {
       // async mode
-      return (this._pending_init = invoke(async () => {
+      return (this._init_promise = invoke(async () => {
         this._init_prior()
         if (this.J == 1) return // skip updates/posterior in debug mode
 
@@ -671,7 +679,7 @@ class _Sampler {
               await invoke(async () => {
                 this.dispatch_delay += Date.now() - dispatch_start
                 const timer = _timer_if(stats)
-                this._update()
+                await this._update() // TODO: track this/other dispatch delay?
                 if (stats) {
                   stats.time.update += timer.t
                   stats.quanta++
@@ -681,7 +689,7 @@ class _Sampler {
             } catch (e) {
               this.done = true
             } // already logged
-            await _update_dom() // keep dom responsive
+            await _update_dom() // keep dom responsive between update quanta
           }
           if (stats) stats.time.dispatch = this.dispatch_delay
         }
@@ -699,7 +707,7 @@ class _Sampler {
     // update sample to posterior if there are weights OR targets
     if (this.weights.length || this.values.some(v => v.target)) {
       const timer = _timer_if(stats)
-      while (!this.done) this._update()
+      while (!this.done) await this._update()
       if (stats) stats.time.update = timer.t
     }
 
@@ -1053,9 +1061,9 @@ class _Sampler {
         () => {
           // parse function as in main thread (see below)
           let func = params
-            ? eval(`(function({${keys(params)}}){return ${js}})`)(params)
-            : eval(`(${js})`)
-          func = eval(wrap)(func)
+            ? clean_eval(`(function(${keys(params)}){return ${js}})`)(params)
+            : clean_eval(`(${js})`)
+          func = clean_eval(wrap)(func)
           // set up proxy __sampler for worker
           self.__sampler = assign(state, {
             func,
@@ -1077,8 +1085,8 @@ class _Sampler {
     // evaluate function from js w/ replacements & optional params
     // also wrap function using _wrap_func (see below)
     func = params
-      ? eval(`(function({${keys(params)}}){return ${js}})`)(params)
-      : eval(`(${js})`)
+      ? clean_eval(`(function({${keys(params)}}){return ${js}})`)(params)
+      : clean_eval(`(${js})`)
     return assign(state, { func: wrap(func), workers })
   }
 
@@ -1157,7 +1165,7 @@ class _Sampler {
       moves: 0,
       proposals: 0,
       accepts: 0,
-      quanta: 0,
+      quanta: 0, // remains 0 for sync mode
       runs: 0,
       time: {
         dispatch: 0,
@@ -1620,7 +1628,7 @@ class _Sampler {
     }
   }
 
-  _update() {
+  async _update() {
     const {
       time,
       updates,
@@ -2025,7 +2033,7 @@ class _Sampler {
         add_line(n, {
           axis: 'y2',
           mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), d, s),
-          formatter: eval(
+          formatter: clean_eval(
             `(x => round_to((x / 100) * (${_n}_b - ${_n}_a) + ${_n}_a, ${d}, ${s}))`
           ),
           formatter_context: { [`${_n}_a`]: a, [`${_n}_b`]: b },
@@ -2618,7 +2626,7 @@ class _Sampler {
   sample(options) {
     if (options.async) {
       return invoke(async () => {
-        await this._pending_init
+        await this._init_promise
         return this.sample_sync(options)
       })
     }
@@ -3063,7 +3071,7 @@ function _run() {
   // note this could match inside comments or strings
   if (!js.match(/\b(?:sample|sample_array|simulate) *\(/)) return null
   print('running inside sample(…) due to sampled or simulated values')
-  const func = eval(flat('(context=>{', js, '})').join('\n'))
+  const func = clean_eval(flat('(context=>{', js, '})').join('\n'))
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)
   return sample(func, options)

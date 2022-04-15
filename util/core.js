@@ -165,11 +165,11 @@ function parse(text) {
   return JSON.parse(text, function (k, v) {
     if (is_string(v) && v.match(/^__function:/)) {
       v = v.replace(/^__function:/, '')
-      if (!this.__function_context) return eval(v)
+      if (!this.__function_context) return clean_eval(v)
       const context = this.__function_context
       // we use a wrapper to emulate original function context/scope
       const wrapper = `(function({${keys(context)}}) { return ${v} })`
-      return eval(wrapper)(context)
+      return clean_eval(wrapper)(context)
     }
     return v
   })
@@ -560,6 +560,11 @@ function cache(obj, prop, deps, f, options = {}) {
   })
   obj['_' + prop] = null // init as null
 }
+
+// => clean_eval(js)
+// `eval` in _clean_ global scope
+// does _NOT_ capture calling context, unlike standard (_unclean_) `eval`
+const clean_eval = js => eval(js)
 
 // markdown table for `cells`
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`
