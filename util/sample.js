@@ -489,10 +489,14 @@ function _timer_if(c) {
 
 class _Sampler {
   constructor(func, options = {}) {
+    // in sync mode, create _SampleSync defined dynamically below
+    if (!options.async && this.constructor.name != '_SamplerSync')
+      return new _SamplerSync(func, options)
+
     this.options = options
     this.domain = func // save sampler function as domain
     this.start_time = Date.now()
-    this.dispatch_delay = 0 // to be excluded from this.t
+    this.pending_time = 0 // any delays (e.g. dom updates) excluded from this.t
 
     // parse sampled values & observed weights
     assign(this, this._parse_func(func))
@@ -656,62 +660,58 @@ class _Sampler {
     this._init()
   }
 
+  // NOTE: _init remains sync even in async mode so that new _Sampler always returns a sampler object and calling contexts are not forced to use async/await; instead the promise is stored internally as _init_promise to be resolved later in sample() method once invoked
   _init() {
     this._init_stats()
     const { stats, options } = this
 
     if (options.async) {
-      // async mode
       return (this._init_promise = invoke(async () => {
-        this._init_prior()
+        await this._init_prior()
         if (this.J == 1) return // skip updates/posterior in debug mode
 
         // update sample to posterior if there are weights OR targets
         if (this.weights.length || this.values.some(v => v.target)) {
-          let dispatch_start = Date.now() // used repeatedly below
           while (!this.done) {
-            this.dispatch_delay += Date.now() - dispatch_start
-            dispatch_start = Date.now()
             try {
               await invoke(async () => {
-                this.dispatch_delay += Date.now() - dispatch_start
                 const timer = _timer_if(stats)
-                this._update()
+                await this._update()
                 if (stats) {
                   stats.time.update += timer.t
                   stats.quanta++
                 }
-                dispatch_start = Date.now()
               })
             } catch (e) {
               this.done = true // stop updates on error
             } // already logged
-            await _update_dom() // keep dom responsive between update quanta
-          }
-          if (stats) stats.time.dispatch = this.dispatch_delay
-        }
 
-        this._init_posterior()
+            // update dom to keep page responsive between update quanta
+            const timer = _timer()
+            await _update_dom()
+            this.pending_time += timer.t
+          }
+        }
+        this._output()
       })).finally(() => {
         // ensure any workers are closed
         if (this.workers) each(this.workers, close_worker)
       })
     }
 
-    this._init_prior()
+    this._init_prior() // not async in sync mode
     if (this.J == 1) return // skip updates/posterior in debug mode
 
     // update sample to posterior if there are weights OR targets
     if (this.weights.length || this.values.some(v => v.target)) {
       const timer = _timer_if(stats)
-      while (!this.done) this._update()
+      while (!this.done) this._update() // not async in sync mode
       if (stats) stats.time.update = timer.t
     }
-
-    this._init_posterior()
+    this._output()
   }
 
-  _init_prior() {
+  async _init_prior() {
     const { J, stats, options } = this
 
     if (defined(this.options.targets)) {
@@ -725,7 +725,7 @@ class _Sampler {
 
     // sample prior (along w/ u=0 posterior)
     let timer = _timer_if(options.log || stats)
-    this._sample_prior()
+    await this._sample_prior()
     if (stats) stats.time.prior = timer.t
     if (options.log) {
       print(
@@ -763,7 +763,7 @@ class _Sampler {
     }
   }
 
-  _init_posterior() {
+  _output() {
     const { stats, options } = this
 
     if (options.log) {
@@ -1087,13 +1087,13 @@ class _Sampler {
     return assign(state, { func: wrap(func), workers })
   }
 
-  _run_func() {
+  async _run_func() {
     const timer = _timer_if(this.stats)
     const { func, xJ, yJ, moving, workers } = this
     if (workers) {
       this.runs ??= 0
       const run = ++this.runs
-      eval_on_worker(
+      await eval_on_worker(
         workers[0],
         () => {
           // TODO: figure out cleanest way to handle async runs inside async updates
@@ -1165,7 +1165,6 @@ class _Sampler {
       quanta: 0, // remains 0 for sync mode
       runs: 0,
       time: {
-        dispatch: 0,
         func: 0,
         init: 0,
         targets: 0,
@@ -1251,7 +1250,7 @@ class _Sampler {
     else stats.updates.push(update)
   }
 
-  _sample_prior() {
+  async _sample_prior() {
     const timer = _timer_if(this.stats)
     const { xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
     const { log_pwJ, rN, log_wrJ, log_rwJ, log_wrfJN, stats } = this
@@ -1259,7 +1258,7 @@ class _Sampler {
     fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
     fill(log_pwJ, 0)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
-    this._run_func()
+    await this._run_func()
     copy(log_rwJ, log_pwJ) // log_wrJ added below if r0>0
     if (max_in(rN) == 0) {
       fill(log_wrJ, 0)
@@ -1279,15 +1278,15 @@ class _Sampler {
     if (stats) stats.time.updates.sample += timer.t
   }
 
-  _fork() {
+  async _fork() {
     this.forking = true
-    this._run_func()
+    await this._run_func()
     this.forking = false
   }
 
   // reweight by incrementing rN
   // multiply rwJ by wrJ@r_next / wrJ@r
-  _reweight() {
+  async _reweight() {
     const timer = _timer_if(this.stats)
     if (this.r == 1 && !this.optimizing && !this.accumulating) return
     // if (this.r == 1 && !this.optimizing) return
@@ -1317,7 +1316,7 @@ class _Sampler {
     // if optimizing, fork before additive reweight
     // ensures fresh samples used for additive (asymptotic) log_w
     // also ensures posterior _predictive_ distributions are optimized
-    if (this.optimizing || this.accumulating) this._fork()
+    if (this.optimizing || this.accumulating) await this._fork()
 
     // save state for possible retries w/ backtracking
     let tries = 0
@@ -1419,7 +1418,7 @@ class _Sampler {
     // we have to update log_wrJ for move step (verified by mks convergence)
     // note log_rwJ is invariant to forking (same as in _move)
     if (this.optimizing || this.accumulating) {
-      this._fork()
+      await this._fork()
       fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f?.(rN[n]) ?? 0))
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       this.lwr = null // since log_wrJ changed
@@ -1524,7 +1523,7 @@ class _Sampler {
 
   // move step
   // take metropolis-hastings steps along posterior chain
-  _move() {
+  async _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
     const { log_cwrfJN, log_wrfJN, log_cwrJ, log_wrJ, stats } = this
@@ -1550,7 +1549,7 @@ class _Sampler {
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wrfJN = log_wrfJN // to be restored below
     this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
-    this._run_func()
+    await this._run_func()
     each(this.rN, (r, n) => addf(log_cwrJ, log_cwrfJN, fjN => fjN[n]?.(r) ?? 0))
     clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN
@@ -1625,7 +1624,7 @@ class _Sampler {
     }
   }
 
-  _update() {
+  async _update() {
     const {
       time,
       updates,
@@ -1655,7 +1654,7 @@ class _Sampler {
     const timer = _timer() // step timer
 
     // if resuming move, do that ...
-    if (this.resume_move) return this._update_move(timer)
+    if (this.resume_move) return await this._update_move(timer)
 
     // reweight
     // pre-stats for more meaningful ess, etc
@@ -1664,7 +1663,7 @@ class _Sampler {
     // forced if optimizing|accumulating (see comments in _reweight|_maximize)
     // NOTE: not forced on final step, so ess can be unrealistic (and r low) if updates are terminated early, e.g. due to max_time
     if (this.optimizing || this.accumulating || reweight_if(this))
-      this._reweight()
+      await this._reweight()
 
     // update stats
     this._update_stats()
@@ -1761,17 +1760,17 @@ class _Sampler {
     this.mlw = 0 // log_w improvement
     this.mlp = 0 // log_p improvement
     move_targets(this, this.atK, this.uatK)
-    this._update_move(timer)
+    await this._update_move(timer)
   }
 
-  _update_move(timer) {
+  async _update_move(timer) {
     const { max_time, move_while, move_weights, quantum } = this.options
     this.resume_move = true // resume if we return w/o completing move step
     if (timer.t >= quantum) return // continue (will resume move)
 
     while (move_while(this)) {
       move_weights(this, this.awK, this.uawK)
-      this._move()
+      await this._move()
       this.mlw += this.move_log_w
       this.mlp += this.move_log_p
       if (timer.t >= quantum) return // continue (will resume move)
@@ -1956,8 +1955,9 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          time: this.t + stats.time.init + stats.time.dispatch,
+          time: this.t + stats.time.init + this.pending_time,
           running: this.t,
+          pending: this.pending_time,
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
@@ -2282,7 +2282,7 @@ class _Sampler {
   }
 
   get t() {
-    return Date.now() - this.start_time - this.dispatch_delay
+    return Date.now() - this.start_time - this.pending_time
   }
 
   get r() {
@@ -3057,7 +3057,21 @@ class _Sampler {
     if (arguments.length > 0) return arguments[0]
     else return arguments
   }
-}
+} // class _Sampler
+
+// define _SamplerSync from _Sampler by dropping async|await keywords
+// regex pattern avoids matches inside strings and comments
+const _SamplerSync = eval(
+  '(' +
+    _Sampler
+      .toString()
+      .replace(/^class _Sampler/, 'class _SamplerSync')
+      .replace(
+        /`.*?`|'[^\n]*?'|"[^\n]*?"|\/\/[^\n]*|\/\*.*?\*\/|(?:^|\s)(?:async|await)\s+/g,
+        m => m.replace(/(?:async|await)\s+$/, '') // drop async|await... suffix
+      ) +
+    ')'
+)
 
 function _run() {
   _this.log_options.source = 'self' // exclude background logs (for async runs)

@@ -122,7 +122,7 @@ function eval_on_worker(worker, js, options = {}) {
   // done handler simply invokes done(e) and restores default handler
   // evals are serialized (made 'sync' on worker) via worker.eval promise chain
   if (done) {
-    worker.eval = Promise.allSettled([worker.eval]).then(() => {
+    return (worker.eval = Promise.allSettled([worker.eval]).then(() => {
       worker.postMessage({ js, context }, transfer)
       const default_handler = worker.onmessage
       return new Promise(resolve => {
@@ -133,7 +133,7 @@ function eval_on_worker(worker, js, options = {}) {
           resolve() // resolve eval promise
         }
       })
-    })
+    }))
   } else {
     // post async eval message
     worker.postMessage({ js, context }, transfer)
