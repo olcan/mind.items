@@ -656,8 +656,7 @@ class _Sampler {
     this._init()
   }
 
-  // NOTE: _init() and any other non-returning internal methods can be async to enable await to be used internally to dramatically simplify implementation of async mode & use of workers (esp. in _run_func); other returning methods (e.g sample) can use invoke(async ()=>{...}) pattern (or Promise.resolve on a separate async function if overhead is acceptable in sync mode) internally to avoid use of async keyword and thus avoid returning a promise in sync mode
-  async _init() {
+  _init() {
     this._init_stats()
     const { stats, options } = this
 
@@ -677,7 +676,7 @@ class _Sampler {
               await invoke(async () => {
                 this.dispatch_delay += Date.now() - dispatch_start
                 const timer = _timer_if(stats)
-                await this._update() // TODO: track this/other dispatch delay?
+                this._update()
                 if (stats) {
                   stats.time.update += timer.t
                   stats.quanta++
@@ -685,7 +684,7 @@ class _Sampler {
                 dispatch_start = Date.now()
               })
             } catch (e) {
-              this.done = true
+              this.done = true // stop updates on error
             } // already logged
             await _update_dom() // keep dom responsive between update quanta
           }
@@ -705,7 +704,7 @@ class _Sampler {
     // update sample to posterior if there are weights OR targets
     if (this.weights.length || this.values.some(v => v.target)) {
       const timer = _timer_if(stats)
-      while (!this.done) await this._update()
+      while (!this.done) this._update()
       if (stats) stats.time.update = timer.t
     }
 
@@ -1626,7 +1625,7 @@ class _Sampler {
     }
   }
 
-  async _update() {
+  _update() {
     const {
       time,
       updates,
