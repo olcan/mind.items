@@ -188,7 +188,7 @@ function parse(text) {
 // | object   | `{...}`, values stringified recursively
 // |          | `x.toString()` if overloaded (e.g. Date)
 function str(x) {
-  if (!defined(x)) return 'undefined'
+  if (x === undefined) return 'undefined'
   if (x === null) return 'null'
   // string as is
   if (is_string(x)) return `'${x}'`
