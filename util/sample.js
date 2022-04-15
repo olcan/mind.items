@@ -659,6 +659,7 @@ class _Sampler {
     this._init()
   }
 
+  // NOTE: _init() and any other non-returning internal methods can be async to enable await to be used internally to dramatically simplify implementation of async mode & use of workers (esp. in _run_func); other returning methods (e.g sample) can use invoke(async ()=>{...}) pattern (or Promise.resolve on a separate async function if overhead is acceptable in sync mode) internally to avoid use of async keyword and thus avoid returning a promise in sync mode
   async _init() {
     this._init_stats()
     const { stats, options } = this
