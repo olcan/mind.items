@@ -1091,9 +1091,9 @@ class _Sampler {
       eval_on_worker(
         workers[0],
         () => {
-          // TODO: how to read back xJ or yJ or other state synchronously? is that even possible? if not possible, then we are going to have to eval at async update level!
+          // TODO: figure out cleanest way to handle async runs inside async updates
           // __sampler.func(__sampler)
-          postMessage({ done: true })
+          postMessage({ done: true }) // TODO: transfer outputs xJ/yJ
         },
         {
           done: e => {
@@ -1772,7 +1772,7 @@ class _Sampler {
       if (timer.t >= quantum) return // continue (will resume move)
       if (this.t >= max_time) {
         if (this.options.warn)
-          warn(`last move step (u=${this.u}) cut short to due to max_time`)
+          warn(`last move step (u=${this.u}) cut short due to max_time`)
         this.resume_move = false
         return // continue (will terminate updates on next call)
       }
