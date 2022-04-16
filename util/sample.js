@@ -665,11 +665,11 @@ class _Sampler {
   _init() {
     this._init_stats()
     const { stats, options } = this
+    if (options._worker) return // skip further init on worker
 
     if (options.async) {
       return (this._init_promise = invoke(async () => {
-        // wait for any workers to be initialized (from _parse_func)
-        if (this.workers) await Promise.allSettled(map(this.workers, 'eval'))
+        if (options.workers > 0) await this._init_workers() // init workers
         await this._init_prior()
         if (this.J == 1) return // skip updates/posterior in debug mode
 
@@ -711,6 +711,59 @@ class _Sampler {
       if (stats) stats.time.update = timer.t
     }
     this._output()
+  }
+
+  async _init_workers() {
+    const timer = _timer()
+    this.workers = array(this.options.workers, w => {
+      const worker = init_worker()
+      worker.index = w
+      eval_on_worker(
+        worker,
+        () => {
+          try {
+            self.__sampler = new _Sampler(clean_eval(js), parse(options))
+          } catch (error) {
+            postMessage({ error }) // report error
+            // throw error // on worker (can be redundant)
+            return
+          }
+          postMessage({ done: true }) // report init completion
+        },
+        {
+          context: {
+            js: this.domain.toString(), // sampler function as string
+            options: stringify(
+              assign(
+                omit(this.options, [
+                  'log',
+                  'plot',
+                  'table',
+                  'quantiles',
+                  'targets',
+                  'workers',
+                  'async',
+                ]),
+                { _worker: true } // internal option to skip init
+              )
+            ), // same omits as in _targets, w/ functions stringified
+          },
+          done: e => {
+            print(
+              `parse_func done on worker ${worker.index} in ${timer}`,
+              str(e.data)
+            )
+          },
+        }
+      )
+      return worker
+    })
+    try {
+      await Promise.all(map(this.workers, 'eval'))
+    } catch (e) {
+      console.error('failed to initialize worker;', e)
+      throw e // stops init & closes workers (via finally block in _init)
+    }
   }
 
   async _init_prior() {
@@ -1047,58 +1100,18 @@ class _Sampler {
         return out
       }
 
-    let workers // undefined unless there are workers
-    if (this.options.workers > 0) {
-      if (!this.options.async) fatal(`workers not allowed in sync mode`)
-      const timer = _timer()
-      workers = array(this.options.workers, w => {
-        const worker = init_worker()
-        worker.index = w
-        eval_on_worker(
-          worker,
-          () => {
-            // parse function as in main thread (see below)
-            let func = params
-              ? clean_eval(`(function(${keys(params)}){return ${js}})`)(params)
-              : clean_eval(`(${js})`)
-            func = clean_eval(wrap)(func)
-            // set up proxy __sampler for worker
-            self.__sampler = assign(state, {
-              func,
-              // TODO: set up replacement functions _sample, etc ...
-            })
-            postMessage({ done: true }) // report init completion
-          },
-          {
-            context: {
-              js,
-              params,
-              state,
-              wrap: wrap.toString(), // needs eval on worker
-            },
-            done: e => {
-              print(
-                `parse_func done on worker ${worker.index} in ${timer}`,
-                str(e.data)
-              )
-            },
-          }
-        )
-        return worker
-      })
-    }
-
     // evaluate function from js w/ replacements & optional params
     // also wrap function using _wrap_func (see below)
     func = params
       ? clean_eval(`(function({${keys(params)}}){return ${js}})`)(params)
       : clean_eval(`(${js})`)
-    return { ...state, func: wrap(func), workers }
+    return { ...state, func: wrap(func) }
   }
 
   async _run_func() {
     const timer = _timer_if(this.stats)
     const { func, xJ, yJ, moving, workers, J } = this
+
     if (workers) {
       this.runs ??= 0
       const run = ++this.runs
@@ -1111,8 +1124,14 @@ class _Sampler {
         eval_on_worker(
           worker,
           () => {
-            // TODO: figure out cleanest way to handle async runs inside async updates
-            // __sampler.func(__sampler)
+            try {
+              // TODO: figure out cleanest way to handle async runs inside async updates
+              // __sampler.func(__sampler)
+            } catch (error) {
+              postMessage({ error }) // report error
+              // throw error // on worker (can be redundant)
+              return
+            }
             postMessage({ done: true }) // TODO: transfer outputs xJ/yJ
           },
           {
@@ -1819,8 +1838,7 @@ class _Sampler {
   _targets() {
     const timer = _timer_if(this.stats)
     const f = this.domain // sampler domain function
-    let o = clone_deep(this.options)
-    o = omit(o, [
+    let o = omit(this.options, [
       'log',
       'plot',
       'table',
@@ -1867,8 +1885,15 @@ class _Sampler {
     const R = options.quantile_runs
     if (!(is_integer(R) && R > 0)) fatal('invalid option quantile_runs')
     const f = this.domain // sampler domain function
-    let o = clone_deep(options)
-    o = omit(o, ['log', 'plot', 'quantiles', 'targets'])
+    let o = omit(options, [
+      'log',
+      'plot',
+      'table',
+      'quantiles',
+      'targets',
+      'workers',
+      'async',
+    ]) // same as in _targets
     o.warn = false
     o.updates = o.min_updates = o.max_updates = this.u // fix update steps
     const sR = [this.stats, ...array(R - 1, r => new _Sampler(f, o).stats)]

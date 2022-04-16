@@ -104,12 +104,13 @@ function init_worker(options = {}) {
 
 // evaluate `js` on `worker`
 // `js` can be string or function
-// |`deps`    | optional dependency item names
-// |`context` | optional context object (can contain transferables)
-// |`transfer`| optional transferables (e.g. typed array buffers)
+// |`deps`    | dependency item names
+// |`context` | context object (can contain transferables)
+// |`transfer`| transferables (e.g. typed array buffers)
 // |`done`    | done message handler, can return `null` to fall back to default
+// |`error`   | error message handler
 function eval_on_worker(worker, js, options = {}) {
-  let { deps, context, transfer, done } = options
+  let { deps, context, transfer, done, error } = options
   if (deps) deps = [deps].flat()
   if (transfer) transfer = [transfer].flat()
   if (typeof js == 'function') js = `(${js})()`
@@ -120,14 +121,22 @@ function eval_on_worker(worker, js, options = {}) {
 
   // set up single-message 'done' handler if specified
   // eval must post message w/ { done:true } to trigger done handler
+  // eval can also post message w/ { error:... } to reject eval promise
   // done handler simply invokes done(e) and restores default handler
   // evals are serialized (made 'sync' on worker) via worker.eval promise chain
   if (done) {
+    // note we use allSettled to continue eval, assuming errors in prior evals are properly reported and handled (and trigger close/terminate of workers as appropriate), instead of propagating errors to next eval
     return (worker.eval = Promise.allSettled([worker.eval]).then(() => {
       worker.postMessage({ js, context }, transfer)
       const default_handler = worker.onmessage
-      return new Promise(resolve => {
+      return new Promise((resolve, reject) => {
         worker.onmessage = e => {
+          if (e.data.error) {
+            error?.(e.data.error) // invoke error handler if any
+            worker.onmessage = default_handler // restore default handler
+            reject(e.data.error)
+            return
+          }
           if (!e.data.done) return default_handler(e) // use default until done
           if (done(e) === null) default_handler(e) // use default if null
           worker.onmessage = default_handler // restore default handler
