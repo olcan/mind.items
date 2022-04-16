@@ -915,6 +915,7 @@ function _install_core_css() {
 
 // install core.css and set up globals (attached to window) on init
 function _init() {
+  if (typeof window === 'undefined') return // non-window context
   _install_core_css()
 
   // delete window.print to prevent ambiguity w/ print() in #/item

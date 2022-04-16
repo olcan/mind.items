@@ -4,7 +4,7 @@ class _State {
     let states = false
     let trace = false
     // enable events/states/trace by default under sampler w/ J==1
-    if (window.__sampler?.J == 1) {
+    if (self.__sampler?.J == 1) {
       events = true
       states = true
       trace = true
@@ -329,7 +329,7 @@ class _Path {
   }
 }
 const _is_path = x => x.constructor.name == '_Path'
-window._path_cache ??= new Map()
+self._path_cache ??= new Map()
 const _path = (...args) => new _Path(...args)
 const _pathify = x => {
   if (!is_string(x)) return x
@@ -541,7 +541,7 @@ const event_date = (t = event_time()) => {
   return date
 }
 
-const _02d = d3.format('02d')
+const _02d = x => (~~x).toString().padStart(2, '0')
 
 // event date string `YYYY/MM/DD`
 const date_string = (d = new Date()) =>

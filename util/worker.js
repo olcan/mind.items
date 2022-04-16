@@ -1,9 +1,10 @@
 // initialize worker
 // can be _closed_ using `close_worker` (see below)
 // `options.imports` can be (array of) `/path` or `#item` strings
-// default imports are lodash (`/lodash.min.js`) and `#util/core`
+// default imports are lodash (`/lodash.min.js`) and `_this.name`
 function init_worker(options = {}) {
-  const { imports = ['/lodash.min.js', '#util/core'] } = options
+  if (!_this.name.startsWith('#')) fatal('init_worker called from unnamed item')
+  const { imports = ['/lodash.min.js', _this.name] } = options
   // create worker
   // const worker = new Worker('worker.js')
   const host = location.protocol + '//' + location.host

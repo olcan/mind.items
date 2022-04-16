@@ -1052,9 +1052,7 @@ class _Sampler {
       if (!this.options.async) fatal(`workers not allowed in sync mode`)
       const timer = _timer()
       workers = array(this.options.workers, w => {
-        const worker = init_worker({
-          imports: ['/lodash.min.js', '#util/sample'],
-        })
+        const worker = init_worker()
         worker.index = w
         eval_on_worker(
           worker,
@@ -1100,28 +1098,34 @@ class _Sampler {
 
   async _run_func() {
     const timer = _timer_if(this.stats)
-    const { func, xJ, yJ, moving, workers } = this
+    const { func, xJ, yJ, moving, workers, J } = this
     if (workers) {
-      const worker = workers[0] // use only first for now
       this.runs ??= 0
       const run = ++this.runs
       const timer = _timer()
-      await eval_on_worker(
-        worker,
-        () => {
-          // TODO: figure out cleanest way to handle async runs inside async updates
-          // __sampler.func(__sampler)
-          postMessage({ done: true }) // TODO: transfer outputs xJ/yJ
-        },
-        {
-          done: e => {
-            print(
-              `run ${run} done on worker ${worker.index} in ${timer}`,
-              str(e.data)
-            )
+      let j = 0
+      const evals = workers.map(worker => {
+        if (j == J) return // nothing to do for this worker
+        const [js, je] = [j, min(J, j + max(1, J / workers.length))]
+        j = je // for next worker
+        eval_on_worker(
+          worker,
+          () => {
+            // TODO: figure out cleanest way to handle async runs inside async updates
+            // __sampler.func(__sampler)
+            postMessage({ done: true }) // TODO: transfer outputs xJ/yJ
           },
-        }
-      )
+          {
+            done: e => {
+              print(
+                `run ${run}/[${js},${je}) done on worker ${worker.index} in ${timer}`,
+                str(e.data)
+              )
+            },
+          }
+        )
+      })
+      await Promise.all(evals)
 
       // TODO: this is temporary until workers are working!
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
@@ -1962,6 +1966,7 @@ class _Sampler {
         entries({
           updates: stats.updates ? stats.updates.length - 1 : 0,
           ...pick_by(stats, is_number),
+          workers: this.workers?.length ?? 0,
         })
       ),
       '_md_stats'
