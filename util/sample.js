@@ -496,6 +496,7 @@ class _Sampler {
     this.options = options
     this.domain = func // save sampler function as domain
     this.start_time = Date.now()
+    this.init_time = 0 // any init time excluded from this.t
     this.pending_time = 0 // any delays (e.g. dom updates) excluded from this.t
 
     // parse sampled values & observed weights
@@ -660,13 +661,15 @@ class _Sampler {
     this._init()
   }
 
-  // NOTE: _init remains sync even in async mode so that new _Sampler always returns a sampler object and calling contexts are not forced to use async/await; instead the promise is stored internally as _init_promise to be resolved later in sample() method once invoked
+  // NOTE: _init remains sync even in async mode so that new _Sampler always returns a sampler object and calling contexts are not forced to use async/await; instead the promise is stored internally as _init_promise to be resolved later in sample once invoked
   _init() {
     this._init_stats()
     const { stats, options } = this
 
     if (options.async) {
       return (this._init_promise = invoke(async () => {
+        // wait for any workers to be initialized (from _parse_func)
+        if (this.workers) await Promise.allSettled(map(this.workers, 'eval'))
         await this._init_prior()
         if (this.J == 1) return // skip updates/posterior in debug mode
 
@@ -694,8 +697,7 @@ class _Sampler {
         }
         this._output()
       })).finally(() => {
-        // ensure any workers are closed
-        if (this.workers) each(this.workers, close_worker)
+        if (this.workers) each(this.workers, close_worker) // close workers
       })
     }
 
@@ -719,9 +721,7 @@ class _Sampler {
       else if (!is_object(this.options.targets)) fatal('invalid option targets')
     }
 
-    // init time includes constructor & target sampling
-    if (stats) stats.time.init = this.t
-    this.start_time = Date.now() // exclude init time from total time
+    this.init_time = this.t // includes constructor & target sampling
 
     // sample prior (along w/ u=0 posterior)
     let timer = _timer_if(options.log || stats)
@@ -1050,33 +1050,44 @@ class _Sampler {
     let workers // undefined unless there are workers
     if (this.options.workers > 0) {
       if (!this.options.async) fatal(`workers not allowed in sync mode`)
-      const worker = init_worker({
-        imports: ['/lodash.min.js', '#util/sample'],
-      })
-      eval_on_worker(
-        worker,
-        () => {
-          // parse function as in main thread (see below)
-          let func = params
-            ? clean_eval(`(function(${keys(params)}){return ${js}})`)(params)
-            : clean_eval(`(${js})`)
-          func = clean_eval(wrap)(func)
-          // set up proxy __sampler for worker
-          self.__sampler = assign(state, {
-            func,
-            // TODO: set up replacement functions _sample, etc ...
-          })
-        },
-        {
-          context: {
-            js,
-            params,
-            state,
-            wrap: wrap.toString(), // needs eval on worker
+      const timer = _timer()
+      workers = array(this.options.workers, w => {
+        const worker = init_worker({
+          imports: ['/lodash.min.js', '#util/sample'],
+        })
+        worker.index = w
+        eval_on_worker(
+          worker,
+          () => {
+            // parse function as in main thread (see below)
+            let func = params
+              ? clean_eval(`(function(${keys(params)}){return ${js}})`)(params)
+              : clean_eval(`(${js})`)
+            func = clean_eval(wrap)(func)
+            // set up proxy __sampler for worker
+            self.__sampler = assign(state, {
+              func,
+              // TODO: set up replacement functions _sample, etc ...
+            })
+            postMessage({ done: true }) // report init completion
           },
-        }
-      )
-      workers = [worker]
+          {
+            context: {
+              js,
+              params,
+              state,
+              wrap: wrap.toString(), // needs eval on worker
+            },
+            done: e => {
+              print(
+                `parse_func done on worker ${worker.index} in ${timer}`,
+                str(e.data)
+              )
+            },
+          }
+        )
+        return worker
+      })
     }
 
     // evaluate function from js w/ replacements & optional params
@@ -1084,17 +1095,19 @@ class _Sampler {
     func = params
       ? clean_eval(`(function({${keys(params)}}){return ${js}})`)(params)
       : clean_eval(`(${js})`)
-    return assign(state, { func: wrap(func), workers })
+    return { ...state, func: wrap(func), workers }
   }
 
   async _run_func() {
     const timer = _timer_if(this.stats)
     const { func, xJ, yJ, moving, workers } = this
     if (workers) {
+      const worker = workers[0] // use only first for now
       this.runs ??= 0
       const run = ++this.runs
+      const timer = _timer()
       await eval_on_worker(
-        workers[0],
+        worker,
         () => {
           // TODO: figure out cleanest way to handle async runs inside async updates
           // __sampler.func(__sampler)
@@ -1102,7 +1115,10 @@ class _Sampler {
         },
         {
           done: e => {
-            console.log(`worker done w/ run ${run}`, str(e.data))
+            print(
+              `run ${run} done on worker ${worker.index} in ${timer}`,
+              str(e.data)
+            )
           },
         }
       )
@@ -1166,7 +1182,6 @@ class _Sampler {
       runs: 0,
       time: {
         func: 0,
-        init: 0,
         targets: 0,
         prior: 0,
         update: 0,
@@ -1830,10 +1845,10 @@ class _Sampler {
       })
     }
     if (targets.length < 1000)
-      fatal(`generated only ${targets.length}/1000 targets in ${timer.t}ms`)
+      fatal(`generated only ${targets.length}/1000 targets in ${timer}`)
     this.options.targets = transpose_objects(targets)
     if (this.options.log)
-      print(`generated ${targets.length} targets in ${timer.t}ms`)
+      print(`generated ${targets.length} targets in ${timer}`)
     if (this.stats) this.stats.time.targets = timer.t
   }
 
@@ -1955,9 +1970,10 @@ class _Sampler {
     _this.write(
       table(
         entries({
-          time: this.t + stats.time.init + this.pending_time,
+          time: this.t + this.init_time + this.pending_time,
           running: this.t,
           pending: this.pending_time,
+          init: this.init_time,
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
@@ -2282,7 +2298,7 @@ class _Sampler {
   }
 
   get t() {
-    return Date.now() - this.start_time - this.pending_time
+    return Date.now() - this.start_time - this.init_time - this.pending_time
   }
 
   get r() {

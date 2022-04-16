@@ -94,7 +94,7 @@ function init_worker(options = {}) {
     // importScripts(host + '/lodash.min.js')
     // print(`loaded lodash (${_?.VERSION}) in ${Date.now()-start}ms`)
 
-    print(`initialized worker ${id} (${item}) in ${Date.now() - start}ms`)
+    print(`initialized worker ${id} in ${Date.now() - start}ms`)
   }
   worker.postMessage(`(${init})('${worker.id}','${_this.name}','${host}')`)
 
