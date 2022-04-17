@@ -2693,8 +2693,9 @@ class _Sampler {
   // TODO: list input/output state for all replacement methods below!
   // TODO: isolate 'this' to top of function, document all properties
 
-  _sample(k, domain, options, array_k0, array_len) {
+  _sample(k, domain, opt, array_k0, array_len) {
     const {
+      options, // in, not to be confused w/ 'opt' for sample-specific options
       values, // in-out, first sampling special, has non-cloneable properties
       names, // in-out, first sampling only
       nK, // in-out, first sampling only
@@ -2714,9 +2715,8 @@ class _Sampler {
       log_p_xJK, // in-out
       log_p_yJK, // out, moving only
     } = this
-    const _options = this.options // in
-    const value = values[k] // in-out, see values above
 
+    const value = values[k]
     if (value.called) fatal('sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
 
@@ -2736,23 +2736,23 @@ class _Sampler {
     if (!value.sampler) {
       value.sampler = this
 
-      // process name if specified (only on first call)
+      // process name if specified in sample options (only on first call)
       // handle sample_array case (w/ k0,len), and string/array shorthands
       if (
-        options &&
-        (options.name ||
-          is_string(options) ||
-          (defined(array_k0) && (options.names || options.every?.(is_string))))
+        opt &&
+        (opt.name ||
+          is_string(opt) ||
+          (defined(array_k0) && (opt.names || opt.every?.(is_string))))
       ) {
         let name
         if (defined(array_k0)) {
-          if (options.names) name = options.names[k - array_k0]
-          if (is_string(options)) options = options.split(/\W+/)
-          if (!is_array(options)) fatal(`invalid options ${str(options)}`)
-          if (!(options.length == array_len))
+          if (opt.names) name = opt.names[k - array_k0]
+          if (is_string(opt)) opt = opt.split(/\W+/)
+          if (!is_array(opt)) fatal(`invalid options ${str(opt)}`)
+          if (!(opt.length == array_len))
             fatal(`name (options) array size mismatch`)
-          name = options[k - array_k0]
-        } else name = options.name ?? options
+          name = opt[k - array_k0]
+        } else name = opt.name ?? opt
         if (!is_string(name)) fatal(`invalid name '${name}' for sampled value`)
         if (!name) fatal(`blank name for sampled value at index ${k}`)
         if (name.match(/^\d/))
@@ -2765,20 +2765,20 @@ class _Sampler {
 
       // pre-process function domain if parameter-free
       // otherwise have to do it on every call before sampling (see below)
-      if (is_function(domain) && size(options?.params) == 0)
-        value.domain = new _Sampler(domain, options)
+      if (is_function(domain) && size(opt?.params) == 0)
+        value.domain = new _Sampler(domain, opt)
 
       const { index, name, args } = value
       const line = `line ${value.line_index}: ${value.line.trim()}`
 
       // process target if specified
-      const target = options?.target ?? _options.targets?.[name]
+      const target = opt?.target ?? options.targets?.[name]
       if (target) {
-        const timer = _timer_if(_options.log)
+        const timer = _timer_if(options.log)
         value.target = target
         // sample from sampler domain (_prior)
         if (value.target?._prior) {
-          const T = options?.size ?? J
+          const T = opt?.size ?? J
           const xT = array(T)
           let log_wT // weight array allocated below if needed
           const prior = value.target._prior
@@ -2796,18 +2796,18 @@ class _Sampler {
             value.target_weights = apply(log_wT, exp)
             value.target_weight_sum = sum(value.target_weights)
           }
-          if (_options.log) print(`sampled ${T} target values in ${timer}`)
+          if (options.log) print(`sampled ${T} target values in ${timer}`)
         } else {
           if (!is_function(value.target) && !is_array(value.target))
             fatal(`invalid target @ ${line}`)
-          if (defined(options?.size)) fatal(`unexpected size option @ ${line}`)
+          if (defined(opt?.size)) fatal(`unexpected size option @ ${line}`)
         }
       } else {
-        if (defined(options?.size)) fatal(`unexpected size option @ ${line}`)
+        if (defined(opt?.size)) fatal(`unexpected size option @ ${line}`)
       }
 
       // log sampled value
-      if (_options.log) {
+      if (options.log) {
         let target = ''
         if (is_array(value.target))
           target =
@@ -2828,16 +2828,16 @@ class _Sampler {
       if (value.domain)
         if (!(str(value.domain.domain) == str(domain)))
           fatal('function (sampler) domain modified across runs')
-      domain = value.domain ?? new _Sampler(domain, options)
+      domain = value.domain ?? new _Sampler(domain, opt)
       if (!approx_equal(domain.ess, domain.J, 1e-3))
         fatal('sampler domain failed to achieve full ess')
     }
 
     // require prior and log_p to be defined via domain or options
     // note we do not auto-wrap as constant(domain) for now
-    const prior = options?.prior ?? domain._prior
+    const prior = opt?.prior ?? domain._prior
     if (!prior) fatal('missing prior sampler (_prior)')
-    const log_p = options?.log_p ?? domain._log_p
+    const log_p = opt?.log_p ?? domain._log_p
     if (!log_p) fatal('missing prior density (_log_p)')
 
     // if not moving, sample from prior into xJK
@@ -2914,7 +2914,7 @@ class _Sampler {
     }
 
     // if at k_pivot, move from xjk along posterior chain
-    const posterior = options?.posterior ?? domain._posterior
+    const posterior = opt?.posterior ?? domain._posterior
     if (!posterior) fatal('missing posterior sampler (_posterior)')
     // upJK[j][k] = this.u // jump proposed
     return posterior(
