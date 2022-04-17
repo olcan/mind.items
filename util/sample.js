@@ -474,7 +474,7 @@ class _Timer {
     this.start = Date.now()
   }
   toString() {
-    return Date.now() - this.start + 'ms'
+    return this.t + 'ms'
   }
   get t() {
     return Date.now() - this.start
@@ -714,21 +714,27 @@ class _Sampler {
   }
 
   async _init_workers() {
+    const { J } = this
+    const W = this.options.workers
     const timer = _timer()
-    this.workers = array(this.options.workers, w => {
-      const worker = init_worker()
-      worker.index = w
+    this.workers = []
+    let js, je
+    let j = 0
+    while (j < J) {
+      js = j
+      j = je = min(J, j + ~~max(1, J / W))
+      const worker = init_worker({ silent: true /* logged here */ })
+      assign(worker, { index: this.workers.length, js, je })
       eval_on_worker(
         worker,
         () => {
           try {
-            self.__sampler = new _Sampler(clean_eval(js), parse(options))
+            self.sampler = new _Sampler(clean_eval(js), parse(options))
+            postMessage({ done: true }) // report init completion
           } catch (error) {
             postMessage({ error }) // report error
             // throw error // on worker (can be redundant)
-            return
           }
-          postMessage({ done: true }) // report init completion
         },
         {
           context: {
@@ -744,22 +750,26 @@ class _Sampler {
                   'workers',
                   'async',
                 ]),
-                { _worker: true } // internal option to skip init
+                {
+                  size: je - js, // restrict size to range [js,je)
+                  _worker: true, // internal option to skip init
+                }
               )
             ), // same omits as in _targets, w/ functions stringified
           },
           done: e => {
-            print(
-              `parse_func done on worker ${worker.index} in ${timer}`,
-              str(e.data)
-            )
+            // print(
+            //   `init eval done on worker ${worker.index} in ${timer}`,
+            //   str(e.data)
+            // )
           },
         }
       )
-      return worker
-    })
+      this.workers.push(worker)
+    }
     try {
       await Promise.all(map(this.workers, 'eval'))
+      print(`initialized ${this.workers.length} workers in ${timer}`)
     } catch (e) {
       console.error('failed to initialize worker;', e)
       throw e // stops init & closes workers (via finally block in _init)
@@ -1115,36 +1125,40 @@ class _Sampler {
     if (workers) {
       this.runs ??= 0
       const run = ++this.runs
-      const timer = _timer()
-      let j = 0
-      const evals = workers.map(worker => {
-        if (j == J) return // nothing to do for this worker
-        const [js, je] = [j, min(J, j + max(1, J / workers.length))]
-        j = je // for next worker
+      // print(`starting run ${run} on ${this.workers.length} workers ...`)
+      const evals = workers.map(worker =>
         eval_on_worker(
           worker,
           () => {
             try {
-              // TODO: figure out cleanest way to handle async runs inside async updates
-              // __sampler.func(__sampler)
+              // TODO: transfer input state
+              // what is it?
+
+              sampler._run_func()
+              // TODO: transfer output state
+              // what is it?
+              // - xJ or yJ
+
+              postMessage({ done: true })
             } catch (error) {
               postMessage({ error }) // report error
               // throw error // on worker (can be redundant)
-              return
             }
-            postMessage({ done: true }) // TODO: transfer outputs xJ/yJ
           },
           {
+            context: { run },
             done: e => {
-              print(
-                `run ${run}/[${js},${je}) done on worker ${worker.index} in ${timer}`,
-                str(e.data)
-              )
+              // print(
+              //   `run ${run}.[${worker.js},${worker.je}) done ` +
+              //     `on worker ${worker.index} in ${timer}`,
+              //   str(e.data)
+              // )
             },
           }
         )
-      })
+      )
       await Promise.all(evals)
+      print(`run ${run} done on ${this.workers.length} workers in ${timer}`)
 
       // TODO: this is temporary until workers are working!
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
@@ -2676,12 +2690,35 @@ class _Sampler {
     return this.sample_sync(options)
   }
 
-  _sample(k, domain, options, /* (base,length) for arrays: */ k0, J) {
-    const value = this.values[k]
+  // TODO: list input/output state for all replacement methods below!
+  // TODO: isolate 'this' to top of function, document all properties
+
+  _sample(k, domain, options, array_k0, array_len) {
+    const {
+      values, // in-out, first sampling special, has non-cloneable properties
+      names, // in-out, first sampling only
+      nK, // in-out, first sampling only
+      J, // in
+      j, // in
+      xJK, // in-out, in if forking or moving
+      log_pwJ, // out
+      yJK, // in-out, moving only, in if forking
+      log_mwJ, // out
+      log_mpJ, // in-out, used to shortcut (undefined) for -inf
+      moving, // in
+      forking, // in
+      upJK, // out
+      uaJK, // in
+      uawK, // in
+      upwK, // internal, computed at pivot value, used at/after pivot
+      log_p_xJK, // in-out
+      log_p_yJK, // out, moving only
+    } = this
+    const _options = this.options // in
+    const value = values[k] // in-out, see values above
+
     if (value.called) fatal('sample(…) invoked dynamically (e.g. inside loop)')
     value.called = true
-    const { j, xJK, log_pwJ, yJK, log_mwJ, log_mpJ, moving, forking } = this
-    const { upJK, uaJK, uawK, upwK, log_p_xJK, log_p_yJK } = this
 
     // return undefined on nullish (undefined or null=empty) domain
     if (is_nullish(domain)) return undefined
@@ -2700,30 +2737,30 @@ class _Sampler {
       value.sampler = this
 
       // process name if specified (only on first call)
-      // handle sample_array case (w/ k0,J), and string/array shorthands
+      // handle sample_array case (w/ k0,len), and string/array shorthands
       if (
         options &&
         (options.name ||
           is_string(options) ||
-          (defined(k0) && (options.names || options.every?.(is_string))))
+          (defined(array_k0) && (options.names || options.every?.(is_string))))
       ) {
         let name
-        if (defined(k0)) {
-          if (options.names) name = options.names[k - k0]
+        if (defined(array_k0)) {
+          if (options.names) name = options.names[k - array_k0]
           if (is_string(options)) options = options.split(/\W+/)
           if (!is_array(options)) fatal(`invalid options ${str(options)}`)
-          if (!(options.length == J))
+          if (!(options.length == array_len))
             fatal(`name (options) array size mismatch`)
-          name = options[k - k0]
+          name = options[k - array_k0]
         } else name = options.name ?? options
         if (!is_string(name)) fatal(`invalid name '${name}' for sampled value`)
         if (!name) fatal(`blank name for sampled value at index ${k}`)
         if (name.match(/^\d/))
           fatal(`invalid numeric name '${name}' for sampled value`)
         value.name = name
-        if (this.names.has(value.name)) value.name += '_' + value.index
-        this.names.add(value.name)
-        this.nK[k] = value.name
+        if (names.has(value.name)) value.name += '_' + value.index
+        names.add(value.name)
+        nK[k] = value.name
       }
 
       // pre-process function domain if parameter-free
@@ -2735,13 +2772,13 @@ class _Sampler {
       const line = `line ${value.line_index}: ${value.line.trim()}`
 
       // process target if specified
-      const target = options?.target ?? this.options.targets?.[name]
+      const target = options?.target ?? _options.targets?.[name]
       if (target) {
-        const timer = _timer_if(this.options.log)
+        const timer = _timer_if(_options.log)
         value.target = target
         // sample from sampler domain (_prior)
         if (value.target?._prior) {
-          const T = options?.size ?? this.J
+          const T = options?.size ?? J
           const xT = array(T)
           let log_wT // weight array allocated below if needed
           const prior = value.target._prior
@@ -2759,7 +2796,7 @@ class _Sampler {
             value.target_weights = apply(log_wT, exp)
             value.target_weight_sum = sum(value.target_weights)
           }
-          if (this.options.log) print(`sampled ${T} target values in ${timer}`)
+          if (_options.log) print(`sampled ${T} target values in ${timer}`)
         } else {
           if (!is_function(value.target) && !is_array(value.target))
             fatal(`invalid target @ ${line}`)
@@ -2770,7 +2807,7 @@ class _Sampler {
       }
 
       // log sampled value
-      if (this.options.log) {
+      if (_options.log) {
         let target = ''
         if (is_array(value.target))
           target =

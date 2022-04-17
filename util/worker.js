@@ -40,7 +40,7 @@ function init_worker(options = {}) {
     // write_log()
   }
   // initialize worker via initial eval
-  function init(id, item, host) {
+  function init(id, item, host, silent) {
     const start = Date.now()
 
     // set up _this to redirect (most) _Item methods to initializing item
@@ -95,9 +95,11 @@ function init_worker(options = {}) {
     // importScripts(host + '/lodash.min.js')
     // print(`loaded lodash (${_?.VERSION}) in ${Date.now()-start}ms`)
 
-    print(`initialized worker ${id} in ${Date.now() - start}ms`)
+    if (!silent) print(`initialized worker ${id} in ${Date.now() - start}ms`)
   }
-  worker.postMessage(`(${init})('${worker.id}','${_this.name}','${host}')`)
+  worker.postMessage(
+    `(${init})('${worker.id}','${_this.name}','${host}',${options.silent})`
+  )
 
   return worker
 }
