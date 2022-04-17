@@ -1146,7 +1146,27 @@ class _Sampler {
             }
           },
           {
-            context: { run },
+            context: {
+              run,
+              // values: omit(this.values, []), // in-out, first sampling special, some non-cloneable properties
+              // names, // in-out, first sampling only
+              // nK, // in-out, first sampling only
+              // J, // in
+              // j, // in
+              // xJK, // in-out, in if forking or moving
+              // log_pwJ, // out
+              // yJK, // in-out, moving only, in if forking
+              // log_mwJ, // out
+              // log_mpJ, // in-out, used to shortcut (undefined) for -inf
+              // moving, // in
+              // forking, // in
+              // upJK, // out
+              // uaJK, // in
+              // uawK, // in
+              // upwK, // internal, computed at pivot value, used at/after pivot
+              // log_p_xJK, // in-out
+              // log_p_yJK, // out, moving only
+            },
             done: e => {
               // print(
               //   `run ${run}.[${worker.js},${worker.je}) done ` +
@@ -2394,7 +2414,7 @@ class _Sampler {
     const stdevK = (this.___stdevK ??= array(K))
     return fill(stdevK, k => {
       const value = this.values[k]
-      if (!value.sampler) return // value not sampled
+      if (!value.sampled) return // value not sampled
       // return per-element stdev for arrays of numbers
       if (is_array(value.first) && is_finite(value.first[0])) {
         const R = value.first.length
@@ -2559,7 +2579,7 @@ class _Sampler {
 
     const pR2 = fill((this.___mks_pK2 ??= array(K)), k => {
       const value = this.values[k]
-      if (!value.sampler) return // value not sampled
+      if (!value.sampled) return // value not sampled
       if (!is_primitive(value.first)) return // value not primitive
       copy(xJ, xJK, xjK => xjK[k])
       copy(yJ, xBJK[0], yjK => yjK[k])
@@ -2696,7 +2716,7 @@ class _Sampler {
   _sample(k, domain, opt, array_k0, array_len) {
     const {
       options, // in, not to be confused w/ 'opt' for sample-specific options
-      values, // in-out, first sampling special, has non-cloneable properties
+      values, // in-out, first sampling special, value.domain non-cloneable
       names, // in-out, first sampling only
       nK, // in-out, first sampling only
       J, // in
@@ -2733,8 +2753,8 @@ class _Sampler {
     if (forking) return moving ? yJK[j][k] : xJK[j][k]
 
     // initialize on first call
-    if (!value.sampler) {
-      value.sampler = this
+    if (!value.sampled) {
+      value.sampled = true
 
       // process name if specified in sample options (only on first call)
       // handle sample_array case (w/ k0,len), and string/array shorthands
@@ -2762,11 +2782,6 @@ class _Sampler {
         names.add(value.name)
         nK[k] = value.name
       }
-
-      // pre-process function domain if parameter-free
-      // otherwise have to do it on every call before sampling (see below)
-      if (is_function(domain) && size(opt?.params) == 0)
-        value.domain = new _Sampler(domain, opt)
 
       const { index, name, args } = value
       const line = `line ${value.line_index}: ${value.line.trim()}`
@@ -2819,16 +2834,14 @@ class _Sampler {
       }
     }
 
-    // init sampler for function domain if not done above (e.g. due to params)
-    // ensure ~full ess since that is assumed by posterior sampler
+    // init sampler for function domain
+    // reuse parameter-free samplers across sample calls (via value.domain)
+    // also require full ess since that is assumed by posterior sampler
+    // TODO: disallow or handle changes to sampler function
+    //       i.e. value.domain.domain should match domain
     if (is_function(domain)) {
-      // reusing sampler assumes domain (function) is unchanged across runs
-      // for now we perform a basic check on the stringified function
-      // in the future we may require object reuse for efficiency
-      if (value.domain)
-        if (!(str(value.domain.domain) == str(domain)))
-          fatal('function (sampler) domain modified across runs')
       domain = value.domain ?? new _Sampler(domain, opt)
+      if (size(opt?.params) == 0) value.domain = domain
       if (!approx_equal(domain.ess, domain.J, 1e-3))
         fatal('sampler domain failed to achieve full ess')
     }
