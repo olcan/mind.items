@@ -1126,15 +1126,15 @@ class _Sampler {
       this.runs ??= 0
       const run = ++this.runs
       // print(`starting run ${run} on ${this.workers.length} workers ...`)
-      const evals = workers.map(worker =>
-        eval_on_worker(
+      const evals = workers.map(worker => {
+        const { js, je } = worker
+        return eval_on_worker(
           worker,
           () => {
             try {
-              // TODO: transfer input state
-              // what is it?
-
+              assign(sampler, input)
               sampler._run_func()
+
               // TODO: transfer output state
               // what is it?
               // - xJ or yJ
@@ -1148,35 +1148,36 @@ class _Sampler {
           {
             context: {
               run,
-              // values: omit(this.values, []), // in-out, first sampling special, some non-cloneable properties
-              // names, // in-out, first sampling only
-              // nK, // in-out, first sampling only
-              // J, // in
-              // j, // in
-              // xJK, // in-out, in if forking or moving
-              // log_pwJ, // out
-              // yJK, // in-out, moving only, in if forking
-              // log_mwJ, // out
-              // log_mpJ, // in-out, used to shortcut (undefined) for -inf
-              // moving, // in
-              // forking, // in
-              // upJK, // out
-              // uaJK, // in
-              // uawK, // in
-              // upwK, // internal, computed at pivot value, used at/after pivot
-              // log_p_xJK, // in-out
-              // log_p_yJK, // out, moving only
+              input: {
+                // TODO: note this is for _sample, review other functions!
+                values: this.values.map(value => omit(value, 'domain')),
+                names: this.names,
+                nK: this.nK,
+                moving: this.moving,
+                forking: this.forking,
+                xJK: this.xJK.slice(js, je),
+                log_p_xJK: this.log_p_xJK.slice(js, je),
+                ...(this.moving
+                  ? {
+                      yJK: this.yJK.slice(js, je),
+                      log_mpJ: this.log_mpJ.slice(js, je),
+                      log_p_yJK: this.log_p_yJK.slice(js, je),
+                      uaJK: this.uaJK,
+                      uawK: this.uawK,
+                    }
+                  : {}),
+              },
             },
             done: e => {
               // print(
-              //   `run ${run}.[${worker.js},${worker.je}) done ` +
+              //   `run ${run}.[${js},${je}) done ` +
               //     `on worker ${worker.index} in ${timer}`,
               //   str(e.data)
               // )
             },
           }
         )
-      )
+      })
       await Promise.all(evals)
       print(`run ${run} done on ${this.workers.length} workers in ${timer}`)
 
@@ -2724,14 +2725,14 @@ class _Sampler {
       xJK, // in-out, in if forking or moving
       log_pwJ, // out
       yJK, // in-out, moving only, in if forking
-      log_mwJ, // out
-      log_mpJ, // in-out, used to shortcut (undefined) for -inf
+      log_mwJ, // out, moving only
+      log_mpJ, // in-out, moving only, used to shortcut (undefined) for -inf
       moving, // in
       forking, // in
-      upJK, // out
-      uaJK, // in
-      uawK, // in
-      upwK, // internal, computed at pivot value, used at/after pivot
+      upJK, // out, moving only
+      uaJK, // in, moving only
+      uawK, // in, moving only
+      upwK, // internal, moving only, computed at pivot value
       log_p_xJK, // in-out
       log_p_yJK, // out, moving only
     } = this
