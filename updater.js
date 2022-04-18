@@ -285,7 +285,9 @@ async function check_updates(item, mark_pushables = false) {
           (m, pfx, sfx, body) => {
             if (!sfx.includes('.')) return m // not path
             const path = resolve_embed_path(sfx, attr)
-            body = item.attr.embeds.find(e => e.path == path).body
+            body = item.attr.embeds.find(e => e.path == path)?.body
+            if (!defined(body))
+              _this.fatal(`missing body for embed ${item.name}:${path}`)
             return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
           }
         )
