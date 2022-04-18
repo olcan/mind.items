@@ -1132,14 +1132,31 @@ class _Sampler {
           worker,
           () => {
             try {
-              assign(sampler, input)
+              merge(sampler, input)
               sampler._run_func()
-
-              // TODO: transfer output state
-              // what is it?
-              // - xJ or yJ
-
-              postMessage({ done: true })
+              postMessage({
+                done: true,
+                output: {
+                  // _sample
+                  values: sampler.values, // not forking
+                  names: sampler.names, // not forking
+                  nK: sampler.nK, // not forking
+                  xJK: sampler.xJK, // not forking|moving
+                  log_pwJ: sampler.log_pwJ, // not forking|moving
+                  log_p_xJK: sampler.log_p_xJK, // not forking|moving
+                  yJK: sampler.yJK, // moving
+                  log_mwJ: sampler.log_mwJ, // moving
+                  log_mpJ: sampler.log_mpJ, // moving
+                  upJK: sampler.upJK, // moving
+                  log_p_yJK: sampler.log_p_yJK, // moving
+                  // _predict
+                  //   xJK
+                  //   upJK
+                  // _weight
+                  //weights: sampler.weights,
+                  //log_wrfJN: sampler.log_wrfJN, // TODO: how to get this out?
+                },
+              })
             } catch (error) {
               postMessage({ error }) // report error
               // throw error // on worker (can be redundant)
@@ -1149,37 +1166,57 @@ class _Sampler {
             context: {
               run,
               input: {
-                // TODO: note this is for _sample, review other functions!
-                values: this.values.map(value => omit(value, 'domain')),
-                names: this.names,
-                nK: this.nK,
-                moving: this.moving,
+                // _sample
                 forking: this.forking,
+                moving: this.moving,
+                values: this.values, // not forking
+                names: this.names, // not forking
+                nK: this.nK, // not forking
                 xJK: this.xJK.slice(js, je),
-                log_p_xJK: this.log_p_xJK.slice(js, je),
-                ...(this.moving
-                  ? {
-                      yJK: this.yJK.slice(js, je),
-                      log_mpJ: this.log_mpJ.slice(js, je),
-                      log_p_yJK: this.log_p_yJK.slice(js, je),
-                      uaJK: this.uaJK,
-                      uawK: this.uawK,
-                    }
-                  : {}),
+                log_p_xJK: this.log_p_xJK.slice(js, je), // not forking
+                yJK: this.yJK.slice(js, je), // forking|moving
+                log_mpJ: this.log_mpJ.slice(js, je), // moving
+                log_p_yJK: this.log_p_yJK.slice(js, je), // moving
+                uaJK: this.uaJK.slice(js, je), // moving
+                uawK: this.uawK, // moving
+                // _predict
+                //   values
+                u: this.u,
+                // _weights
+                // weights,
+
+                // TODO: other state for non-_sample functions!
               },
             },
             done: e => {
+              // const output = e.data.output
+              // merge(this.values, output.values) // not forking
+              // this.names = output.names // not forking
+              // this.nK = output.nK // not forking
+              // copy_at(this.xJK, output.xJK, js) // not forking|moving
+              // copy_at(this.log_pwJ, output.log_pwJ, js) // not forking|moving
+              // copy_at(this.log_p_xJK, output.log_p_xJK, js) // not forking|moving
+              // copy_at(this.yJK, output.yJK, js) // moving
+              // copy_at(this.log_mwJ, output.log_mwJ, js) // moving
+              // copy_at(this.log_mpJ, output.log_mpJ, js) // moving
+              // copy_at(this.upJK, output.upJK, js) // moving
+              // copy_at(this.log_p_yJK, output.log_p_yJK, js) // moving
               // print(
               //   `run ${run}.[${js},${je}) done ` +
-              //     `on worker ${worker.index} in ${timer}`,
-              //   str(e.data)
+              //     `on worker ${worker.index} in ${timer}`
               // )
             },
           }
         )
       })
-      await Promise.all(evals)
-      print(`run ${run} done on ${this.workers.length} workers in ${timer}`)
+
+      try {
+        await Promise.all(evals)
+        print(`run ${run} done on ${this.workers.length} workers in ${timer}`)
+      } catch (e) {
+        console.error('run ${run} failed on worker;', e)
+        throw e // stops init & closes workers (via finally block in _init)
+      }
 
       // TODO: this is temporary until workers are working!
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
@@ -2723,7 +2760,7 @@ class _Sampler {
       J, // in
       j, // in
       xJK, // in-out, in if forking or moving
-      log_pwJ, // out
+      log_pwJ, // out, non-moving only
       yJK, // in-out, moving only, in if forking
       log_mwJ, // out, moving only
       log_mpJ, // in-out, moving only, used to shortcut (undefined) for -inf
@@ -2733,7 +2770,7 @@ class _Sampler {
       uaJK, // in, moving only
       uawK, // in, moving only
       upwK, // internal, moving only, computed at pivot value
-      log_p_xJK, // in-out
+      log_p_xJK, // in-out, in if forking or moving
       log_p_yJK, // out, moving only
     } = this
 
@@ -2744,14 +2781,14 @@ class _Sampler {
     // return undefined on nullish (undefined or null=empty) domain
     if (is_nullish(domain)) return undefined
 
-    // return undefined on (effectively) rejected run if sampling posterior
-    if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
-
     // if "forking", return existing sampled values
     // note forking is for non-sampled random values/weights only
     // sampled random values can be forked explicitly if needed
     // TODO: disallow or handle non-sampled randomized domains
     if (forking) return moving ? yJK[j][k] : xJK[j][k]
+
+    // return undefined on (effectively) rejected run if sampling posterior
+    if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
 
     // initialize on first call
     if (!value.sampled) {
@@ -2842,7 +2879,8 @@ class _Sampler {
     //       i.e. value.domain.domain should match domain
     if (is_function(domain)) {
       domain = value.domain ?? new _Sampler(domain, opt)
-      if (size(opt?.params) == 0) value.domain = domain
+      if (size(opt?.params) == 0 && !value.domain)
+        define(value, 'domain', { value: domain }) // non-enumerable
       if (!approx_equal(domain.ess, domain.J, 1e-3))
         fatal('sampler domain failed to achieve full ess')
     }
@@ -2944,7 +2982,14 @@ class _Sampler {
   }
 
   _predict(k, x, name) {
-    const value = this.values[k]
+    const {
+      values, // in-out
+      j, // in
+      u, // in
+      xJK, // out
+      upJK, // out
+    } = this
+    const value = values[k]
     if (!value.called && is_string(name)) {
       if (!name) fatal(`blank name for predicted value at index ${k}`)
       if (name.match(/^\d/))
@@ -2955,10 +3000,10 @@ class _Sampler {
     // treat NaN (usually due to undefined samples) as undefined
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
-    this.xJK[this.j][k] = x
+    xJK[j][k] = x
     // treat as jump to simplify update-related logic, e.g. in __mks
     // value.sampled can also be used to treat predicted values differently
-    this.upJK[this.j][k] = this.u
+    upJK[j][k] = u
     return x
   }
 
@@ -2971,12 +3016,20 @@ class _Sampler {
   }
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
+    const {
+      weights, // in-out
+      j, // in
+      // out, contains functions log_wr w/ properties
+      //   _d, _log_p, _stats(r), _x, _base, _last
+      log_wrfJN,
+    } = this
+
     // treat NaN (usually due to undefined samples) as 0
     if (is_nan(log_w)) {
       log_w = 0
       log_wr = r => 0
     }
-    const weight = this.weights[n]
+    const weight = weights[n]
     if (weight.called)
       fatal(
         'confine|maximize|minimize|condition|weight(…) ' +
@@ -2988,7 +3041,7 @@ class _Sampler {
     // note we require log_wr(1) == log_w
     if (log_wr(1) != log_w)
       fatal(`log_wr(1)=${log_wr(1)} does not match log_w=${log_w}`)
-    this.log_wrfJN[this.j][n] = log_wr
+    log_wrfJN[j][n] = log_wr
     return log_w
   }
 
@@ -2997,12 +3050,18 @@ class _Sampler {
     // allows undefined/empty domains as in _sample
     if (is_nullish(domain)) return this._weight(n, -inf)
 
-    const weight = this.weights[n]
+    const {
+      weights, // in-out, contains function weight.init_log_wr
+      J, // in
+      log_wrfJN, // in-out, used _async_ in weight.init_log_wr when invoked
+    } = this
+
+    const weight = weights[n]
     const c = from(x, domain)
     const d = distance(x, domain) ?? 0 // take 0 if undefined
     const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
-    const dJ = (weight.dJ ??= array(this.J))
-    const log_pJ = (weight.log_pJ ??= array(this.J))
+    const dJ = (weight.dJ ??= array(J))
+    const log_pJ = (weight.log_pJ ??= array(J))
 
     // debug(x, str(domain), d, log_p)
     if (!c) {
@@ -3012,14 +3071,14 @@ class _Sampler {
 
     // set up weight.init_log_wr
     weight.init_log_wr ??= r => {
-      repeat(this.J, j => {
-        const log_wr = this.log_wrfJN[j][n]
+      repeat(J, j => {
+        const log_wr = log_wrfJN[j][n]
         dJ[j] = log_wr._d
         log_pJ[j] = log_wr._log_p
       })
       weight.stats = undefined // reset _stats (if any)
-      repeat(this.J, j => {
-        const log_wr = this.log_wrfJN[j][n]
+      repeat(J, j => {
+        const log_wr = log_wrfJN[j][n]
         if (log_wr._stats) weight.stats ??= log_wr._stats()
       })
       // console.debug(str(weight.stats))
@@ -3058,31 +3117,40 @@ class _Sampler {
   }
 
   _maximize(n, x, q = 0.5, _log_wr) {
-    const weight = this.weights[n]
+    const {
+      weights, // in-out, contains function weight.init_log_wr
+      J, // in
+      // t, in, computed/used async as this.t in weight.inc_r
+      // essu, in, computed/cached/used async as this.essu in log_wr
+      options, // in
+      log_wrfJN, // in-out, used _async_ in weight.init_log_wr when invoked
+    } = this
+
+    const weight = weights[n]
     if (!(q > 0 && q < 1)) fatal(`invalid quantile ${q}`)
     if (q != (weight.q ??= q)) fatal(`quantile ${q} modified from ${weight.q}`)
 
     // initialize on first call w/o init_log_wr set up
     if (!weight.init_log_wr) {
-      weight.xJ ??= array(this.J)
+      weight.xJ ??= array(J)
       weight.optimizing = true
       weight.minimizing = weight.method == 'minimize'
       // increase r based on time
       // opt_time is for optimization, remaining time is to achieve min_ess
-      weight.max_time = this.options.time || this.options.max_time
-      weight.opt_time = this.options.opt_time ?? weight.max_time / 2
-      weight.opt_penalty = this.options.opt_penalty ?? -5
+      weight.max_time = options.time || options.max_time
+      weight.opt_time = options.opt_time ?? weight.max_time / 2
+      weight.opt_penalty = options.opt_penalty ?? -5
       weight.inc_r = r => min(1, this.t / weight.opt_time)
       // weight.inc_r = r =>
-      //   this.ess >= (1 - q) * this.J ? min(1, this.t / weight.opt_time) : r
+      //   this.ess >= (1 - q) * J ? min(1, this.t / weight.opt_time) : r
       weight.init_log_wr = r => {
-        repeat(this.J, j => {
-          const log_wr = this.log_wrfJN[j][n]
+        repeat(J, j => {
+          const log_wr = log_wrfJN[j][n]
           weight.xJ[j] = log_wr._x
         })
         weight.stats = undefined
-        repeat(this.J, j => {
-          const log_wr = this.log_wrfJN[j][n]
+        repeat(J, j => {
+          const log_wr = log_wrfJN[j][n]
           if (log_wr._stats) weight.stats ??= log_wr._stats(r)
         })
         // console.debug(str(weight.stats))
@@ -3102,11 +3170,10 @@ class _Sampler {
       }
       log_wr._x = x // value x for stats
       log_wr._stats = r => {
-        const { J, essu } = this
         // const rr = pow(r, 1)
         // const qa = 0.5 * (1 - rr) + q * rr
-        // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / essu))
-        const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / essu))
+        // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / this.essu))
+        const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / this.essu))
         return quantiles(weight.xJ, [qq]) // => ess=(1-q)
       }
     }
@@ -3145,8 +3212,13 @@ class _Sampler {
   }
 
   _simulate(s, ...args) {
+    const {
+      sims, // out
+      J, // in
+    } = this
+    const sim = sims[s]
     // for J==1 (debug mode), store sim.xt
-    if (this.J == 1) return (this.sims[s].xt = simulate(...args))
+    if (J == 1) return (sim.xt = simulate(...args))
     return simulate(...args)
   }
 
