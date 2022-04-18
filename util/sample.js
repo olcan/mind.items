@@ -1186,7 +1186,7 @@ class _Sampler {
                 // weights,
 
                 // TODO: other state for non-_sample functions!
-                // TODO: need a mechanism to encode/decode functions before/after structured cloning, similar to stringify/parse in core, but on arbitrary objects recursively and _in place_, which seems to require a custom implementation that could be modeled after str()
+                // TODO: need a mechanism to encode/decode functions before/after structured cloning, similar to stringify/parse in core, but on arbitrary objects recursively and _in place_, which seems to require a custom implementation that could be modeled after str() for type detection, and stringify/parse for function encoding w/ optional context, although we need to review all function contexts; note it may be reasonable to do the clone_deep_with here because we do have to clone any arrays depending on J, and this would also be an opportunity to clone them into typed arrays for even more efficient transfer!
                 // TODO: could we simply clone & transfer entire sampler state? why not?
                 //       this could be a useful exercise in any case, to get a comprehensive sense of sampler state
               },
@@ -2786,7 +2786,7 @@ class _Sampler {
     // if "forking", return existing sampled values
     // note forking is for non-sampled random values/weights only
     // sampled random values can be forked explicitly if needed
-    // TODO: disallow or handle non-sampled randomized domains
+    // TODO: disallow or handle non-sampled randomized domains, e.g. using domJK
     if (forking) return moving ? yJK[j][k] : xJK[j][k]
 
     // return undefined on (effectively) rejected run if sampling posterior
