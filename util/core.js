@@ -153,12 +153,17 @@ function stringify(value) {
     if (is_function(v)) {
       // transform function to object w/ property __function
       // copy any properties of function, e.g. __context (see parse below)
+      // if __context is a function, it is invoked here and must return object
+      let __context = is_function(v.__context) ? v.__context() : v.__context
+      if (defined(__context) && !is_object(__context))
+        fatal(`invalid non-object __context in stringified function`)
       return {
         // collapse all leading spaces not inside backticks
         __function: v
           .toString()
           .replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n ')),
         ...v, // may include __context (see parse below)
+        ...(__context ? { __context } : {}),
       }
     }
     return v
@@ -170,7 +175,9 @@ function parse(text) {
   return JSON.parse(text, function (k, v) {
     if (is_object(v) && is_string(v.__function)) {
       // transform {__function:...} object back to function
-      // use wrapper to treat v.__context as function context
+      // use wrapper to treat object v.__context as function context
+      if (defined(v.__context) && !is_object(v.__context))
+        fatal(`invalid non-object __context in parsed {__function:...}`)
       const js = v.__function
       const f = v.__context
         ? clean_eval(`(({${keys(v.__context)}})=>(${js}))`)(v.__context)
@@ -188,7 +195,7 @@ function _test_parse() {
     () => [
       parse(
         stringify({
-          f: assign(() => a, { __context: { a: 1 }, b: 2 }),
+          f: assign(() => a, { __context: { a: 1 }, b: 2, c: { d: 3 } }),
         })
       ).f(),
       1,
@@ -197,11 +204,11 @@ function _test_parse() {
       str(
         parse(
           stringify({
-            f: assign(() => a, { __context: { a: 1 }, b: 2 }),
+            f: assign(() => a, { __context: { a: 1 }, b: 2, c: { d: 3 } }),
           })
         )
       ),
-      '{ f:a [function Function] { b:2 } }',
+      '{ f:a [function Function] { b:2 c:{ d:3 } } }',
     ]
   )
 }
