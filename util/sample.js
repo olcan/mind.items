@@ -1186,6 +1186,8 @@ class _Sampler {
                 // weights,
 
                 // TODO: other state for non-_sample functions!
+                // TODO: need a mechanism to encode/decode functions before/after structured cloning, similar to stringify/parse in core, but on arbitrary objects recursively and _in place_, which seems to require a custom implementation that could be modeled after str()
+                // TODO: could we simply transfer ALL sampler state? why not?
               },
             },
             done: e => {
