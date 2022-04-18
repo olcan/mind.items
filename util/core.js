@@ -202,7 +202,7 @@ function str(x) {
   if (is_function(x))
     return (
       x.toString().replace(/^\(\)\s*=>\s*/, '') +
-      (_.keys(x).length ? ' ' + _str_object(x) : '')
+      (keys(x).length ? ' ' + _str_object(x) : '')
     )
   // array elements stringified recursively
   if (is_array(x)) return '[ ' + x.map(str).join(' ') + ' ]'
@@ -1308,7 +1308,7 @@ class MindBox {
   // MindBox.create emulates 'create' button
   static create(text, options) {
     text ??= MindBox.get() // default text is from MindBox
-    options = _.merge({ emulate_button: true }, options)
+    options = merge({ emulate_button: true }, options)
     return window._create(text, options)
   }
   // MindBox.elem property
