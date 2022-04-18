@@ -1187,7 +1187,8 @@ class _Sampler {
 
                 // TODO: other state for non-_sample functions!
                 // TODO: need a mechanism to encode/decode functions before/after structured cloning, similar to stringify/parse in core, but on arbitrary objects recursively and _in place_, which seems to require a custom implementation that could be modeled after str()
-                // TODO: could we simply transfer ALL sampler state? why not?
+                // TODO: could we simply clone & transfer entire sampler state? why not?
+                //       this could be a useful exercise in any case, to get a comprehensive sense of sampler state
               },
             },
             done: e => {
@@ -2119,8 +2120,7 @@ class _Sampler {
 
       const values = []
       const series = []
-      const formatters = { __function_context: {} }
-      const formatter_context = formatters.__function_context
+      const formatters = {}
       // function for adding line to plot
       const add_line = (prop, options = {}) => {
         if (quantiles && !quantiles.includes(prop)) {
@@ -2133,8 +2133,8 @@ class _Sampler {
         options.axis ??= 'y'
         if (options.formatter) formatters[prop] = options.formatter
         if (options.formatter_context)
-          merge(formatter_context, options.formatter_context)
-        series.push(omit(options, ['mapper', 'formatter']))
+          formatters[prop + '__context'] = options.formatter_context
+        series.push(omit(options, ['mapper', 'formatter', 'formatter_context']))
       }
       // function for adding a "rescaled" line to y2 axis of plot
       const add_rescaled_line = (n, range, d = 1, s = inf) => {
@@ -2268,7 +2268,7 @@ class _Sampler {
               tick: {
                 values: y_ticks,
                 format: y => y_labels[round(log10(2 ** y))] ?? '?',
-                __function_context: { y_labels },
+                format__context: { y_labels },
               },
             },
             y2: {
@@ -2284,7 +2284,7 @@ class _Sampler {
             format: {
               title: x => 'step ' + x,
               value: (v, _, n) => formatters[n]?.(v) ?? v,
-              __function_context: { formatters },
+              value__context: { formatters },
             },
           },
           grid: {

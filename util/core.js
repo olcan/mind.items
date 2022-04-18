@@ -165,8 +165,8 @@ function parse(text) {
   return JSON.parse(text, function (k, v) {
     if (is_string(v) && v.match(/^__function:/)) {
       v = v.replace(/^__function:/, '')
-      if (!this.__function_context) return clean_eval(v)
-      const context = this.__function_context
+      const context = this[k + '__context']
+      if (!context) return clean_eval(v)
       // we use a wrapper to emulate original function context/scope
       const wrapper = `(function({${keys(context)}}) { return ${v} })`
       return clean_eval(wrapper)(context)
