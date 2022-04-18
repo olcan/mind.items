@@ -738,7 +738,7 @@ class _Sampler {
         },
         {
           context: {
-            js: this.domain.toString(), // sampler function as string
+            js: `(${this.domain})`, // original sampler function as string
             options: stringify(
               assign(
                 omit(this.options, [
@@ -1087,7 +1087,6 @@ class _Sampler {
       })
 
     js = _replace_calls(js, true /*root js*/)
-
     const params = this.options.params // params (if any) from calling context
     const state = {
       values,
@@ -1113,8 +1112,8 @@ class _Sampler {
     // evaluate function from js w/ replacements & optional params
     // also wrap function using _wrap_func (see below)
     func = params
-      ? clean_eval(`(function({${keys(params)}}){return ${js}})`)(params)
-      : clean_eval(`(${js})`)
+      ? clean_eval(`(({${keys(params)}})=>(${js}))`)(params)
+      : clean_eval(`(${js})`) // parentheses required for function(){...}
     return { ...state, func: wrap(func) }
   }
 
@@ -2133,7 +2132,7 @@ class _Sampler {
         options.axis ??= 'y'
         if (options.formatter) formatters[prop] = options.formatter
         if (options.formatter_context)
-          formatters[prop + '__context'] = options.formatter_context
+          formatters[prop].__context = options.formatter_context
         series.push(omit(options, ['mapper', 'formatter', 'formatter_context']))
       }
       // function for adding a "rescaled" line to y2 axis of plot
@@ -2267,8 +2266,9 @@ class _Sampler {
               max: last(y_ticks),
               tick: {
                 values: y_ticks,
-                format: y => y_labels[round(log10(2 ** y))] ?? '?',
-                format__context: { y_labels },
+                format: assign(y => y_labels[round(log10(2 ** y))] ?? '?', {
+                  __context: { y_labels },
+                }),
               },
             },
             y2: {
@@ -2283,8 +2283,9 @@ class _Sampler {
           tooltip: {
             format: {
               title: x => 'step ' + x,
-              value: (v, _, n) => formatters[n]?.(v) ?? v,
-              value__context: { formatters },
+              value: assign((v, _, n) => formatters[n]?.(v) ?? v, {
+                __context: { formatters },
+              }),
             },
           },
           grid: {

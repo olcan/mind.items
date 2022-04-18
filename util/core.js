@@ -1,6 +1,6 @@
 const keys = Object.keys
 const values = Object.values
-const entries = Object.entries
+const entries = Object.entries // _.entries uses Map.entries
 const assign = Object.assign
 const from_entries = Object.fromEntries
 const from_pairs = _.fromPairs
@@ -151,10 +151,15 @@ function _test_transpose_objects() {
 function stringify(value) {
   return JSON.stringify(value, function (k, v) {
     if (is_function(v)) {
-      v = v.toString()
-      // collapse all leading spaces not inside backticks
-      v = v.replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n '))
-      return `__function:${v}`
+      // transform function to object w/ property __function
+      // copy any properties of function, e.g. __context (see parse below)
+      return {
+        // collapse all leading spaces not inside backticks
+        __function: v
+          .toString()
+          .replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n ')),
+        ...v, // may include __context (see parse below)
+      }
     }
     return v
   })
@@ -163,16 +168,42 @@ function stringify(value) {
 // [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
 function parse(text) {
   return JSON.parse(text, function (k, v) {
-    if (is_string(v) && v.match(/^__function:/)) {
-      v = v.replace(/^__function:/, '')
-      const context = this[k + '__context']
-      if (!context) return clean_eval(v)
-      // we use a wrapper to emulate original function context/scope
-      const wrapper = `(function({${keys(context)}}) { return ${v} })`
-      return clean_eval(wrapper)(context)
+    if (is_object(v) && is_string(v.__function)) {
+      // transform {__function:...} object back to function
+      // use wrapper to treat v.__context as function context
+      const js = v.__function
+      const f = v.__context
+        ? clean_eval(`(({${keys(v.__context)}})=>(${js}))`)(v.__context)
+        : clean_eval(`(${js})`) // parentheses required for function(){...}
+      // copy any other properties into function
+      for (const k in v) if (k != '__function' && k != '__context') f[k] = v[k]
+      return f
     }
     return v
   })
+}
+
+function _test_parse() {
+  check(
+    () => [
+      parse(
+        stringify({
+          f: assign(() => a, { __context: { a: 1 }, b: 2 }),
+        })
+      ).f(),
+      1,
+    ],
+    () => [
+      str(
+        parse(
+          stringify({
+            f: assign(() => a, { __context: { a: 1 }, b: 2 }),
+          })
+        )
+      ),
+      '{ f:a [function Function] { b:2 } }',
+    ]
+  )
 }
 
 // convert `x` to a simple string

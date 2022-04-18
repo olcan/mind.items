@@ -86,8 +86,8 @@ function init_worker(options = {}) {
     self.onmessage = e => {
       const { js, context } = e.data
       if (js) {
-        if (context) eval(`(function({${_.keys(context)}}){${js}})`)(context)
-        else eval(js)
+        if (context) eval(`(({${_.keys(context)}})=>(${js}))`)(context)
+        else eval(`(${js})`) // parentheses required for function(){...}
       }
     }
 
