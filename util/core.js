@@ -156,17 +156,21 @@ function object_from_function(f) {
   // transform function to object w/ property __function
   // copy any properties of function, e.g. __context (see parse below)
   // if __context is a function, it is invoked here and must return object
-  let __context = is_function(f.__context) ? f.__context() : f.__context
-  if (defined(__context) && !is_object(__context))
-    fatal(`invalid non-object __context in stringified function`)
-  return {
-    // collapse all leading spaces not inside backticks
-    __function: f
-      .toString()
-      .replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n ')),
-    ...f, // may include __context (see parse below)
-    ...(__context ? { __context } : {}),
-  }
+  const ctx = is_function(f.__context) ? f.__context() : f.__context
+  if (defined(ctx) && !is_object(ctx))
+    fatal(`invalid non-object __context in function`)
+  const o = {}
+  // collapse all leading spaces not inside backticks
+  o.__function = f
+    .toString()
+    .replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n '))
+  // copy context object
+  if (ctx) o.__context = ctx
+  // copy any other properties, transforming recursively as needed
+  for (const k in f)
+    if (k != '__context')
+      o[k] = is_function(f[k]) ? object_from_function(f[k]) : f[k]
+  return o
 }
 
 // transform object back to function
@@ -175,13 +179,16 @@ function function_from_object(o) {
   // transform {__function:...} object back to function
   // use wrapper to treat object v.__context as function context
   if (defined(o.__context) && !is_object(o.__context))
-    fatal(`invalid non-object __context in parsed {__function:...}`)
+    fatal(`invalid non-object __context in object {__function:...}`)
   const js = o.__function
   const f = o.__context
     ? clean_eval(`(({${keys(o.__context)}})=>(${js}))`)(o.__context)
     : clean_eval(`(${js})`) // parentheses required for function(){...}
-  // copy any other properties into function
-  for (const k in o) if (k != '__function' && k != '__context') f[k] = o[k]
+  // copy any other properties, transforming recursively as needed
+  // note __context is no longer needed since absorbed into function
+  for (const k in o)
+    if (k != '__function' && k != '__context')
+      f[k] = is_string(o[k]?.__function) ? function_from_object(o[k]) : o[k]
   return f
 }
 
