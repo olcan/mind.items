@@ -1129,44 +1129,77 @@ class _Sampler {
       return 'this.' + path
     }
 
-    // note for now we simply assume function-free means cloneable
-    // for a comprehensive list of cloneable types see https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm#supported_types
+    // checks if value is a function or contains a function
+    // we assume (for now) that function-free means cloneable
+    // for official list of cloneable types see https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm#supported_types
     const has_function = v =>
       is_function(v) ||
       (is_array(v)
         ? has_function(v[0]) // assume uniform arrays
         : is_object(v) && some(values(v), has_function))
 
-    return omit_by(
+    // transforms functions to cloneable objects
+    const transform_functions = v => {
+      if (is_function(v)) return object_from_function(v)
+      if (is_array(v)) return v.map(transform_functions)
+      if (is_object(v)) return map_values(v, transform_functions)
+      return v
+    }
+
+    // deletes any null-valued properties in non-array objects
+    const delete_nulls = obj => {
+      if (!is_object(obj) || is_array(obj)) return // skip non-objects, arrays
+      for (const [k, v] of entries(obj)) {
+        if (v === null) delete obj[k]
+        else delete_nulls(v) // delete recursively
+      }
+    }
+
+    return delete_nulls(
       clone_deep_with(this, (v, k, obj) => {
-        if (v == this) return // nothing to do at top level
-        if (is_nullish(v)) return null // skip nullish (null or undefined)
-        if (k[0] == '_') return null // skip buffers & cached properties
-        if (k.includes?.('B')) return null // skip buffered sample state
+        if (v == this) return // ignore first call at top level
+        if (v === null) return null // keep null value (to be dropped)
+        if (v === undefined) return null // drop undefined
+        if (k[0] == '_') return null // drop buffers & cached properties
+        if (k.includes?.('B')) return null // drop buffered sample state
 
-        // skip certain specific top-level properties
-        if (obj == this && ['options', 'workers', 'func', 'domain'].includes(k))
-          return null
-
-        // skip functions (for now)
-        if (is_function(v)) {
-          if (debug) warn(`skipping function ${path(v, k, obj)}`)
-          return null
+        // drop specific top-level properties
+        if (obj == this) {
+          switch (k) {
+            case 'options':
+            case 'workers':
+            case 'func':
+            case 'domain':
+              return null
+            default: // continue
+          }
         }
 
+        // slice J-indexed arrays down to specified range [js,je)
+        // transform functions inside function arrays, e.g. log_wrfJN
+        if (is_array(v) && k.includes?.('J')) {
+          if (debug) print(`slicing ${path(v, k, obj)}[${js},${je})`)
+          if (js > 0 || je < this.J) v = v.slice(js, je)
+          if (k.includes('fJ')) {
+            if (debug) print(`transforming in ${path(v, k, obj)}[${js},${je})`)
+            v = transform_functions(v)
+          }
+          return v
+        }
+
+        // transform function into cloneable object
+        if (is_function(v)) {
+          if (debug) print(`transforming ${path(v, k, obj)}`)
+          return object_from_function(v)
+        }
+
+        // move function-free objects by reference
+        // set up __key/__parent for logging nested properties in debug mode
         if (is_object(v)) {
-          // "move" function-free objects by reference (w/o cloning)
           if (!has_function(v)) {
-            // slice J-indexed arrays down to [js,je)
-            if (is_array(v) && v.length == this.J) {
-              v = v.slice(js, je)
-              if (debug) print(`moving ${path(v, k, obj)}[${js},${je})`)
-            } else if (debug) print(`moving ${path(v, k, obj)}`)
+            if (debug) print(`moving ${path(v, k, obj)}`)
             return v
           }
-          // TODO: log_wrfJN remains undefined/function-free on main thread because we are not copying back from workers; once we do, it should be cloned and its functions processed above as with all other functions, modeled after how functions are handled in stringify/parse in core
-          if (k == 'log_wrfJN') print('cloning log_wrfJN ...', typeof v[0][0])
-          // in debug mode, define __key/__parent for path tracing
           if (debug && v.__key === undefined) {
             define(v, '__key', { value: k })
             define(v, '__parent', { value: obj })
@@ -1176,13 +1209,26 @@ class _Sampler {
         // log all cloned values (except nested primitives) in debug mode
         if (debug && (!is_primitive(v) || obj == this))
           print(`cloning ${path(v, k, obj)} (${typeof v})`)
-      }),
-      is_nullish
-    ) // drop nullish values
+      })
+    )
   }
 
   _merge(obj, js = 0) {
-    // TODO: merge obj into this, w/ handling functions & J-indexed arrays
+    // transforms function objects back to functions
+    const transform_function_objects = v => {
+      if (is_string(v?.__function)) return function_from_object(v)
+      if (is_array(v)) return v.map(transform_function_objects)
+      if (is_object(v)) return map_values(v, transform_function_objects)
+      return v
+    }
+    merge_with(this, obj, (x, v, k) => {
+      if (is_string(v?.__function)) return function_from_object(v)
+      if (is_array(v) && k.includes?.('J')) {
+        // TODO: avoid unnecessary copy here once this works
+        if (k.includes('fJ')) v = transform_function_objects(v)
+        return copy_at(x, v, js)
+      }
+    })
   }
 
   async _sample_func() {
@@ -1205,8 +1251,8 @@ class _Sampler {
               const transferables = []
               postMessage({
                 done: true,
-                // output: sampler._clone(transferables),
-                // transfer: transferables,
+                output: sampler._clone(transferables),
+                transfer: transferables,
               })
             } catch (error) {
               postMessage({ error }) // report error
@@ -1217,7 +1263,7 @@ class _Sampler {
             context: { s, input },
             transfer: transferables,
             done: e => {
-              // this._merge(e.data.output, js)
+              this._merge(e.data.output, js)
               // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
@@ -1232,7 +1278,10 @@ class _Sampler {
         throw e // stops init & closes workers (via finally block in _init)
       }
 
-      // TODO: this is temporary until clone/merge_clone are working!
+      // TODO: log_wr are currently NOT portable, and this may be why sampling does not currently work!
+      //       how to make them portable?
+      // TODO: remove this line and ensure convergence as expected!
+      // TODO: move on to examples 2+
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
     } else {
       // no workers, invoke on main thread
@@ -1378,7 +1427,7 @@ class _Sampler {
   async _sample_prior() {
     const timer = _timer_if(this.stats)
     const { xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
-    const { log_pwJ, rN, log_wrJ, log_rwJ, log_wrfJN, stats } = this
+    const { log_pwJ, rN, log_wrJ, log_rwJ, log_wrfJN, stats, weights } = this
     this.u = 0 // prior is zero'th update step
     this.s = 0 // prior is zero'th sampling step
     fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
@@ -1389,7 +1438,7 @@ class _Sampler {
     if (max_in(rN) == 0) {
       fill(log_wrJ, 0)
     } else {
-      each(rN, (r, n) => this.weights[n].init_log_wr?.(r))
+      each(rN, (r, n) => weights[n].init_log_wr?.(r, n, this))
       fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f(rN[n])))
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       add(log_rwJ, log_wrJ)
@@ -1462,7 +1511,7 @@ class _Sampler {
         const weight = weights[n]
         if (weight.optimizing) {
           // increment via weight.inc_r
-          r = rN[n] = weight.inc_r(r)
+          r = rN[n] = weight.inc_r(r, n, this)
           // we skip reweights when r is unchanged by inc_r
           // at r=1 this allows ess to increase (1-q)*J -> min_ess
           // cost is increasing spread, greater increase for smaller q
@@ -1489,10 +1538,10 @@ class _Sampler {
             else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
           }
         }
-        weight.init_log_wr?.(r)
-        repeat(J, j => {
+        weight.init_log_wr?.(r, n, this)
+        for (let j = 0; j < J; ++j) {
           const log_wr = log_wrfJN[j][n]
-          if (!log_wr) return // not called in last pass
+          if (!log_wr) continue // _weight not called in last pass
           const log_w = log_wr(r)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
@@ -1522,7 +1571,7 @@ class _Sampler {
               log_wr._last = log_w // becomes _base in next reweight
             }
           }
-        })
+        }
       })
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       clip_in(log_rwJ, -Number.MAX_VALUE, Number.MAX_VALUE)
@@ -2765,9 +2814,6 @@ class _Sampler {
     return this.sample_sync(options)
   }
 
-  // TODO: list input/output state for all replacement methods below!
-  // TODO: isolate 'this' to top of function, document all properties
-
   _sample(k, domain, opt, array_k0, array_len) {
     const {
       options, // in, not to be confused w/ 'opt' for sample-specific options
@@ -3070,7 +3116,6 @@ class _Sampler {
     const {
       weights, // in-out, contains function weight.init_log_wr
       J, // in
-      log_wrfJN, // in-out, used _async_ in weight.init_log_wr when invoked
     } = this
 
     const weight = weights[n]
@@ -3087,17 +3132,17 @@ class _Sampler {
     } else if (d != 0) fatal(`non-zero distance ${d} inside domain`)
 
     // set up weight.init_log_wr
-    weight.init_log_wr ??= r => {
-      repeat(J, j => {
+    // note for portability this function must NOT use variables from scope
+    weight.init_log_wr ??= function (r, n, { log_wrfJN }) {
+      const weight = this // assume invoked as method weight.init_log_wr
+      weight.stats = undefined // reset previous stats (if any)
+      for (let j = 0; j < J; ++j) {
         const log_wr = log_wrfJN[j][n]
-        dJ[j] = log_wr._d
-        log_pJ[j] = log_wr._log_p
-      })
-      weight.stats = undefined // reset _stats (if any)
-      repeat(J, j => {
-        const log_wr = log_wrfJN[j][n]
+        if (!log_wr) continue // _weight not called in last pass
+        weight.dJ[j] = log_wr._d
+        weight.log_pJ[j] = log_wr._log_p
         if (log_wr._stats) weight.stats ??= log_wr._stats()
-      })
+      }
       // console.debug(str(weight.stats))
     }
 
@@ -3137,10 +3182,8 @@ class _Sampler {
     const {
       weights, // in-out, contains function weight.init_log_wr
       J, // in
-      // t, in, computed/used async as this.t in weight.inc_r
       // essu, in, computed/cached/used async as this.essu in log_wr
       options, // in
-      log_wrfJN, // in-out, used _async_ in weight.init_log_wr when invoked
     } = this
 
     const weight = weights[n]
@@ -3157,19 +3200,20 @@ class _Sampler {
       weight.max_time = options.time || options.max_time
       weight.opt_time = options.opt_time ?? weight.max_time / 2
       weight.opt_penalty = options.opt_penalty ?? -5
-      weight.inc_r = r => min(1, this.t / weight.opt_time)
-      // weight.inc_r = r =>
-      //   this.ess >= (1 - q) * J ? min(1, this.t / weight.opt_time) : r
-      weight.init_log_wr = r => {
-        repeat(J, j => {
+      // note for portability these functions must NOT use variables from scope
+      weight.inc_r = function (r, n, { t }) {
+        const weight = this // assume invoked as method weight.inc_r
+        min(1, t / weight.opt_time)
+      }
+      weight.init_log_wr = function (r, n, { log_wrfJN }) {
+        const weight = this // assume invoked as method weight.init_log_wr
+        weight.stats = undefined // reset previous stats (if any)
+        for (let j = 0; j < J; ++j) {
           const log_wr = log_wrfJN[j][n]
+          if (!log_wr) continue // _weight not called in last pass
           weight.xJ[j] = log_wr._x
-        })
-        weight.stats = undefined
-        repeat(J, j => {
-          const log_wr = log_wrfJN[j][n]
           if (log_wr._stats) weight.stats ??= log_wr._stats(r)
-        })
+        }
         // console.debug(str(weight.stats))
       }
     }
