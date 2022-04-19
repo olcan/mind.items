@@ -375,8 +375,9 @@ function confine_array(J, xJ, domain) {
 // conditions models `P(X) → P(X|c)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
-// rare conditions require _relaxation function_ `log_wr(r), r∈(0,1]`
+// rare conditions require _relaxation function_ `log_wr(r,…), r∈(0,1]`
 // default `log_wr = r=>log(c||1-r)` uses `1-r` as penalty for `!c`
+// TODO: mention portability requirements for `log_wr`
 // domain conditions, e.g. `from(x,domain)`, define own default
 // `cond._log_wr` (if defined) supersedes default `log_wr`
 // `cond` is unwrapped via `cond.valueOf` if defined
@@ -390,7 +391,7 @@ function condition(cond, log_wr = undefined) {
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
 // _likelihood weights_ `∝ P(c|X)` _fork-condition_ models `P(X) → P(X|c')`
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
-// extreme weights require _relaxation function_ `log_wr(r), r∈(0,1]`
+// extreme weights require _relaxation function_ `log_wr(r,…), r∈(0,1]`
 // default `log_wr = r=>r*log_w` treats `r` as _weight exponent_
 // `log_w._log_wr` (if defined) supersedes default `log_wr`
 // `log_w` is unwrapped using `log_w.valueOf` if defined
@@ -1439,7 +1440,9 @@ class _Sampler {
       fill(log_wrJ, 0)
     } else {
       each(rN, (r, n) => weights[n].init_log_wr?.(r, n, this))
-      fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f(rN[n])))
+      fill(log_wrJ, j =>
+        sum(log_wrfJN[j], (f, n) => f(rN[n], n, weights[n], this))
+      )
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       add(log_rwJ, log_wrJ)
     }
@@ -1522,7 +1525,7 @@ class _Sampler {
           // prefer using larger J to increase ess at computational cost only
           // we do not artificially restrict movement to boost ess
           if (r == _rN[n] && this.options.min_ess > (1 - weight.q) * J) {
-            addf(log_wrJ, log_wrfJN, fjN => fjN[n]?.(r) ?? 0)
+            addf(log_wrJ, log_wrfJN, fjN => fjN[n]?.(r, n, weight, this) ?? 0)
             return // nothing else to do
           }
         } else {
@@ -1542,7 +1545,7 @@ class _Sampler {
         for (let j = 0; j < J; ++j) {
           const log_wr = log_wrfJN[j][n]
           if (!log_wr) continue // _weight not called in last pass
-          const log_w = log_wr(r)
+          const log_w = log_wr(r, n, weight, this)
           log_wrJ[j] += log_w
           if (weight.optimizing) {
             // optimization|acccumulation log_wr is additive
@@ -1594,7 +1597,9 @@ class _Sampler {
     // note log_rwJ is invariant to forking (same as in _move)
     if (this.optimizing || this.accumulating) {
       await this._fork()
-      fill(log_wrJ, j => sum(log_wrfJN[j], (f, n) => f?.(rN[n]) ?? 0))
+      fill(log_wrJ, j =>
+        sum(log_wrfJN[j], (f, n) => f?.(rN[n], n, weights[n], this) ?? 0)
+      )
       clip_in(log_wrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
       this.lwr = null // since log_wrJ changed
     }
@@ -1701,7 +1706,7 @@ class _Sampler {
   async _move() {
     const timer = _timer_if(this.stats)
     const { J, K, N, yJ, yJK, kJ, upJK, uaJK, xJ, xJK, jJ, jjJ } = this
-    const { log_cwrfJN, log_wrfJN, log_cwrJ, log_wrJ, stats } = this
+    const { log_cwrfJN, log_wrfJN, log_cwrJ, log_wrJ, weights, stats } = this
     const { awK, uawK, log_mwJ, log_mpJ, log_p_xJK, log_p_yJK } = this
     fill(log_mwJ, 0) // reset move log-weights log(∝q(x|y)/q(y|x))
     fill(log_mpJ, 0) // reset move log-densities log(∝p(y)/p(x))
@@ -1725,7 +1730,9 @@ class _Sampler {
     const tmp_log_wrfJN = log_wrfJN // to be restored below
     this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
     await this._sample_func()
-    each(this.rN, (r, n) => addf(log_cwrJ, log_cwrfJN, fjN => fjN[n]?.(r) ?? 0))
+    each(this.rN, (r, n) =>
+      addf(log_cwrJ, log_cwrfJN, fjN => fjN[n]?.(r, n, weights[n], this) ?? 0)
+    )
     clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN
     this.moving = false // back to using xJK
@@ -3071,10 +3078,20 @@ class _Sampler {
   }
 
   _condition(n, cond, log_wr = cond._log_wr) {
+    const weight = this.weights[n]
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
-    // note log_wr(1) supersedes (cond?0:-inf) as default log_w
-    if (!log_wr) this._weight(n, cond ? 0 : -inf, r => log(cond || 1 - r))
-    else this._weight(n, log_wr(1), log_wr)
+    if (!log_wr) {
+      this._weight(
+        n,
+        cond ? 0 : -inf, // default log_w for default log_wr
+        assign(r => log(cond || 1 - r), {
+          __context: { cond },
+        })
+      )
+    } else {
+      // note log_wr(1,…) supersedes (cond?0:-inf) as default log_w
+      this._weight(n, log_wr(1, n, weight, this), log_wr)
+    }
     return cond
   }
 
@@ -3100,10 +3117,17 @@ class _Sampler {
       )
     weight.called = true
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
-    log_wr ??= r => r * log_w // note r>0
-    // note we require log_wr(1) == log_w
-    if (log_wr(1) != log_w)
-      fatal(`log_wr(1)=${log_wr(1)} does not match log_w=${log_w}`)
+    // check custom log_wr satisfies log_wr(1,…) == log_w
+    if (log_wr) {
+      const log_wr_1 = log_wr(1, n, weight, this)
+      if (log_wr_1 != log_w)
+        fatal(`log_wr(1,…)=${log_wr_1} does not match log_w=${log_w}`)
+    } else {
+      log_wr = assign(
+        r => r * log_w, // note r>0
+        { __context: { log_w } }
+      )
+    }
     log_wrfJN[j][n] = log_wr
     return log_w
   }
@@ -3115,15 +3139,12 @@ class _Sampler {
 
     const {
       weights, // in-out, contains function weight.init_log_wr
-      J, // in
     } = this
 
     const weight = weights[n]
     const c = from(x, domain)
     const d = distance(x, domain) ?? 0 // take 0 if undefined
     const log_p = density(x, domain) ?? 0 // take 0 (improper) if undefined
-    const dJ = (weight.dJ ??= array(J))
-    const log_pJ = (weight.log_pJ ??= array(J))
 
     // debug(x, str(domain), d, log_p)
     if (!c) {
@@ -3133,43 +3154,60 @@ class _Sampler {
 
     // set up weight.init_log_wr
     // note for portability this function must NOT use variables from scope
-    weight.init_log_wr ??= function (r, n, { log_wrfJN }) {
+    weight.init_log_wr ??= function (r, n, sampler) {
+      const { J, log_wrfJN } = sampler
       const weight = this // assume invoked as method weight.init_log_wr
+      weight.dJ ??= array(J)
+      weight.log_pJ ??= array(J)
       weight.stats = undefined // reset previous stats (if any)
       for (let j = 0; j < J; ++j) {
         const log_wr = log_wrfJN[j][n]
         if (!log_wr) continue // _weight not called in last pass
         weight.dJ[j] = log_wr._d
         weight.log_pJ[j] = log_wr._log_p
-        if (log_wr._stats) weight.stats ??= log_wr._stats()
+        if (log_wr._stats) weight.stats ??= log_wr._stats(r, n, weight, sampler)
       }
       // console.debug(str(weight.stats))
     }
 
-    // if domain._log_wr is defined, wrap it to pass [c,d,log_p,dJ,log_pJ,stats]
+    // TODO: ensure log_wr below is PORTABLE; use __context for c,d,log_p computed from domain, and pass along stats to log_wr and weight to log_wr._stats
+
+    // use domain._log_wr if defined, passing (r,c,d,log_p,stats)
     // otherwise define default log_wr w/ basic distance/density support
     let log_wr
     if (domain._log_wr) {
-      log_wr = r => domain._log_wr(r, c, d, log_p, dJ, log_pJ, weight.stats)
+      const domain_log_wr = domain._log_wr
+      log_wr = assign(
+        (r, n, { stats }) => domain_log_wr(r, c, d, log_p, stats),
+        {
+          __context: { domain_log_wr, c, d, log_p },
+        }
+      )
     } else {
-      log_wr = r => {
-        // if (weight.cumulative) return r * log_p >= -10 ? 0 : -10
-        // if (weight.cumulative) return (1 - r) * log_p
-        if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
-        if (d == 0) return r * log_p // inside OR unknown distance, note r>0
-        const [z, b] = weight.stats // from _stats below
-        return r * b + log(1 - r) * (1 + 100 * d * z)
-      }
+      log_wr = assign(
+        (r, n, weight) => {
+          if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
+          if (d == 0) return r * log_p // inside OR unknown distance, note r>0
+          const [z, b] = weight.stats // from _stats below
+          return r * b + log(1 - r) * (1 + 100 * d * z)
+        },
+        {
+          __context: { c, d, log_p },
+        }
+      )
       log_wr._d = d // distance for scaling factor z
       log_wr._log_p = c ? log_p : inf // log_p for base offset b
-      log_wr._stats = () => [
-        1 / max_in(dJ), // 0 if all undefined
-        (b => (b == inf ? 0 : b))(min_in(log_pJ)), // 0 if all undefined
-      ]
+      log_wr._stats = (r, n, { dJ, log_pJ }) => {
+        const b = min_in(log_pJ)
+        return [
+          1 / max_in(dJ), // 0 if all undefined
+          b == inf ? 0 : b, // 0 if all undefined
+        ]
+      }
     }
 
-    // note log_wr(1) supersedes (cond?0:-inf) as default log_w
-    this._weight(n, log_wr(1), log_wr)
+    // note log_wr(1,...) supersedes (cond?0:-inf) as default log_w
+    this._weight(n, log_wr(1, n, weight, this), log_wr)
     return x
   }
 
@@ -3181,8 +3219,6 @@ class _Sampler {
   _maximize(n, x, q = 0.5, _log_wr) {
     const {
       weights, // in-out, contains function weight.init_log_wr
-      J, // in
-      // essu, in, computed/cached/used async as this.essu in log_wr
       options, // in
     } = this
 
@@ -3192,7 +3228,6 @@ class _Sampler {
 
     // initialize on first call w/o init_log_wr set up
     if (!weight.init_log_wr) {
-      weight.xJ ??= array(J)
       weight.optimizing = true
       weight.minimizing = weight.method == 'minimize'
       // increase r based on time
@@ -3205,14 +3240,17 @@ class _Sampler {
         const weight = this // assume invoked as method weight.inc_r
         min(1, t / weight.opt_time)
       }
-      weight.init_log_wr = function (r, n, { log_wrfJN }) {
+      weight.init_log_wr = function (r, n, sampler) {
+        const { J, log_wrfJN } = sampler
         const weight = this // assume invoked as method weight.init_log_wr
+        weight.xJ ??= array(J)
         weight.stats = undefined // reset previous stats (if any)
         for (let j = 0; j < J; ++j) {
           const log_wr = log_wrfJN[j][n]
           if (!log_wr) continue // _weight not called in last pass
           weight.xJ[j] = log_wr._x
-          if (log_wr._stats) weight.stats ??= log_wr._stats(r)
+          if (log_wr._stats)
+            weight.stats ??= log_wr._stats(r, n, weight, sampler)
         }
         // console.debug(str(weight.stats))
       }
@@ -3222,24 +3260,29 @@ class _Sampler {
     // otherwise define default log_wr w/ basic optimization support
     let log_wr
     if (_log_wr) {
-      log_wr = r => _log_wr(r, xJ, weight.stats)
+      log_wr = assign((r, n, weight) => _log_wr(r, weight.xJ, weight.stats), {
+        __context: { _log_wr },
+      })
     } else {
-      log_wr = r => {
-        if (!weight.stats) return 0 // always 0 before stats init
-        const [xq] = weight.stats
-        return x >= xq ? 0 : weight.opt_penalty
-      }
+      log_wr = assign(
+        (r, n, weight) => {
+          if (!weight.stats) return 0 // always 0 before stats init
+          const [xq] = weight.stats
+          return x >= xq ? 0 : weight.opt_penalty
+        },
+        { __context: { x } }
+      )
       log_wr._x = x // value x for stats
-      log_wr._stats = r => {
+      log_wr._stats = (r, n, { xJ }, { J, essu }) => {
         // const rr = pow(r, 1)
         // const qa = 0.5 * (1 - rr) + q * rr
-        // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / this.essu))
-        const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / this.essu))
-        return quantiles(weight.xJ, [qq]) // => ess=(1-q)
+        // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / essu))
+        const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / essu))
+        return quantiles(xJ, [qq]) // => ess=(1-q)
       }
     }
 
-    this._weight(n, log_wr(1), log_wr)
+    this._weight(n, log_wr(1, n, weight, this), log_wr)
 
     // also _predict and return value, negating for minimization
     if (weight.minimizing) {
