@@ -1117,44 +1117,101 @@ class _Sampler {
     return { ...state, func: wrap(func) }
   }
 
-  async _run_func() {
+  _clone(transferables, js = 0, je = this.J, debug = false) {
+    const path = (v, k, obj) => {
+      if (v == this) return 'this'
+      if (obj != this && !obj.__key) return 'this.….' + k // unknown path
+      let path = 'this'
+      while (obj?.__key) {
+        path += '.' + obj.__key
+        obj = obj.__parent
+      }
+      return path + '.' + k
+    }
+
+    const has_function = v =>
+      is_function(v) ||
+      (is_array(v)
+        ? has_function(v[0]) // assume uniform arrays
+        : is_object(v) && some(values(v), has_function))
+    const is_plain = v => Object.getPrototypeOf(v) == Object.prototype
+    const is_complex = v => !is_primitive(v) && !is_plain(v) && !is_array(v)
+    const has_complex = v =>
+      is_complex(v) ||
+      (is_array(v)
+        ? has_complex(v[0]) // assume uniform arrays
+        : is_object(v) && some(values(v), has_complex))
+    const is_simple = v => !has_function(v) && !has_complex(v)
+
+    return omit_by(
+      clone_deep_with(this, (v, k, obj) => {
+        if (v == this) return // use default cloner
+        if (is_nullish(v)) return
+        if (k[0] == '_') return null // skip buffers & cached properties
+        if (obj == this && ['options', 'workers'].includes(k)) return null
+
+        // skip functions (for now)
+        if (is_function(v)) {
+          if (debug) console.warn(`skipping function ${path(v, k, obj)}`)
+          return null
+        }
+
+        if (is_object(v)) {
+          // skip complex objects
+          if (is_complex(v)) {
+            if (debug) console.warn(`skipping complex ${path(v, k, obj)}`)
+            return null
+          }
+
+          // TODO: slice J-indexed arrays to [js,je)
+          // if (is_array(v) && v.length == J)
+
+          // move simple objects by reference (w/o cloning)
+          if (is_simple(v)) {
+            if (debug) console.log(`moving ${path(v, k, obj)}`)
+            return v
+          }
+
+          // in debug mode, define __key/__parent for path tracing
+          if (debug && !v.__key) {
+            define(v, '__key', { value: k })
+            define(v, '__parent', { value: this })
+          }
+
+          // TODO: review clonings for run==2, better organize and document logic
+        }
+
+        if (debug) console.log(`cloning ${path(v, k, obj)} (${typeof v})`)
+      }),
+      is_nullish
+    ) // drop nullish values
+  }
+
+  _merge(obj, js = 0) {
+    // TODO: merge obj into this, w/ handling functions & J-indexed arrays
+  }
+
+  async _sample_func() {
     const timer = _timer_if(this.stats)
-    const { func, xJ, yJ, moving, workers, J } = this
+    const { s, func, xJ, yJ, moving, workers, J } = this
 
     if (workers) {
-      this.runs ??= 0
-      const run = ++this.runs
-      // print(`starting run ${run} on ${this.workers.length} workers ...`)
-      const evals = workers.map(worker => {
+      // print(`starting sample ${s} on ${workers.length} workers ...`)
+      const evals = workers.map((worker, w) => {
         const { js, je } = worker
+        const transferables = []
+        const input = this._clone(transferables, js, je, s == 2 && w == 0)
         return eval_on_worker(
           worker,
           () => {
             try {
-              merge(sampler, input)
-              sampler._run_func()
+              sampler._merge(input)
+              sampler._sample_func()
+              const transferables = []
               postMessage({
                 done: true,
-                output: {
-                  // _sample
-                  values: sampler.values, // not forking
-                  names: sampler.names, // not forking
-                  nK: sampler.nK, // not forking
-                  xJK: sampler.xJK, // not forking|moving
-                  log_pwJ: sampler.log_pwJ, // not forking|moving
-                  log_p_xJK: sampler.log_p_xJK, // not forking|moving
-                  yJK: sampler.yJK, // moving
-                  log_mwJ: sampler.log_mwJ, // moving
-                  log_mpJ: sampler.log_mpJ, // moving
-                  upJK: sampler.upJK, // moving
-                  log_p_yJK: sampler.log_p_yJK, // moving
-                  // _predict
-                  //   xJK
-                  //   upJK
-                  // _weight
-                  //weights: sampler.weights,
-                  //log_wrfJN: sampler.log_wrfJN, // TODO: how to get this out?
-                },
+                output: sampler._clone(transferables),
+                transfer: transferables,
               })
             } catch (error) {
               postMessage({ error }) // report error
@@ -1162,51 +1219,11 @@ class _Sampler {
             }
           },
           {
-            context: {
-              run,
-              input: {
-                // _sample
-                forking: this.forking,
-                moving: this.moving,
-                values: this.values, // not forking
-                names: this.names, // not forking
-                nK: this.nK, // not forking
-                xJK: this.xJK.slice(js, je),
-                log_p_xJK: this.log_p_xJK.slice(js, je), // not forking
-                yJK: this.yJK.slice(js, je), // forking|moving
-                log_mpJ: this.log_mpJ.slice(js, je), // moving
-                log_p_yJK: this.log_p_yJK.slice(js, je), // moving
-                uaJK: this.uaJK.slice(js, je), // moving
-                uawK: this.uawK, // moving
-                // _predict
-                //   values
-                u: this.u,
-                // _weights
-                // weights,
-
-                // TODO: other state for non-_sample functions!
-                // TODO: need a mechanism to encode/decode functions before/after structured cloning, similar to stringify/parse in core, but on arbitrary objects recursively and _in place_, which seems to require a custom implementation that could be modeled after str() for type detection, and stringify/parse for function encoding w/ optional context, although we need to review all function contexts; note it may be reasonable to do the clone_deep_with here because we do have to clone any arrays depending on J, and this would also be an opportunity to clone them into typed arrays for even more efficient transfer!
-                // TODO: could we simply clone & transfer entire sampler state? why not?
-                //       this could be a useful exercise in any case, to get a comprehensive sense of sampler state
-              },
-            },
+            context: { s, input },
+            transfer: transferables,
             done: e => {
-              // const output = e.data.output
-              // merge(this.values, output.values) // not forking
-              // this.names = output.names // not forking
-              // this.nK = output.nK // not forking
-              // copy_at(this.xJK, output.xJK, js) // not forking|moving
-              // copy_at(this.log_pwJ, output.log_pwJ, js) // not forking|moving
-              // copy_at(this.log_p_xJK, output.log_p_xJK, js) // not forking|moving
-              // copy_at(this.yJK, output.yJK, js) // moving
-              // copy_at(this.log_mwJ, output.log_mwJ, js) // moving
-              // copy_at(this.log_mpJ, output.log_mpJ, js) // moving
-              // copy_at(this.upJK, output.upJK, js) // moving
-              // copy_at(this.log_p_yJK, output.log_p_yJK, js) // moving
-              // print(
-              //   `run ${run}.[${js},${je}) done ` +
-              //     `on worker ${worker.index} in ${timer}`
-              // )
+              this._merge(e.data.output, js)
+              // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
         )
@@ -1214,21 +1231,22 @@ class _Sampler {
 
       try {
         await Promise.all(evals)
-        print(`run ${run} done on ${this.workers.length} workers in ${timer}`)
+        print(`sample ${s} done on ${workers.length} workers in ${timer}`)
       } catch (e) {
-        console.error('run ${run} failed on worker;', e)
+        console.error(`sample ${s} failed on worker;`, e)
         throw e // stops init & closes workers (via finally block in _init)
       }
 
-      // TODO: this is temporary until workers are working!
+      // TODO: this is temporary until clone/merge_clone are working!
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
     } else {
       // no workers, invoke on main thread
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
     }
+    this.s++ // advance sampling step
     if (this.stats) {
       this.stats.time.func += timer.t
-      this.stats.runs++
+      this.stats.samples++
     }
   }
 
@@ -1276,7 +1294,7 @@ class _Sampler {
       proposals: 0,
       accepts: 0,
       quanta: 0, // remains 0 for sync mode
-      runs: 0,
+      samples: 0,
       time: {
         func: 0,
         targets: 0,
@@ -1367,10 +1385,11 @@ class _Sampler {
     const { xJ, pxJ, pxJK, xJK, jJ, log_p_xJK } = this
     const { log_pwJ, rN, log_wrJ, log_rwJ, log_wrfJN, stats } = this
     this.u = 0 // prior is zero'th update step
+    this.s = 0 // prior is zero'th sampling step
     fill(rN, this.options.r0 ?? 0) // default r0=0 at u=0
     fill(log_pwJ, 0)
     each(log_p_xJK, log_p_xjK => fill(log_p_xjK, 0))
-    await this._run_func()
+    await this._sample_func()
     copy(log_rwJ, log_pwJ) // log_wrJ added below if r0>0
     if (max_in(rN) == 0) {
       fill(log_wrJ, 0)
@@ -1392,7 +1411,7 @@ class _Sampler {
 
   async _fork() {
     this.forking = true
-    await this._run_func()
+    await this._sample_func()
     this.forking = false
   }
 
@@ -1661,7 +1680,7 @@ class _Sampler {
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wrfJN = log_wrfJN // to be restored below
     this.log_wrfJN = log_cwrfJN // redirect log_wrfJN -> log_cwrfJN temporarily
-    await this._run_func()
+    await this._sample_func()
     each(this.rN, (r, n) => addf(log_cwrJ, log_cwrfJN, fjN => fjN[n]?.(r) ?? 0))
     clip_in(log_cwrJ, -Number.MAX_VALUE, Number.MAX_VALUE)
     this.log_wrfJN = tmp_log_wrfJN // restore log_wrfJN

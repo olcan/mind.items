@@ -174,14 +174,17 @@ const is_string = x => typeof x == 'string'
 const is_function = x => typeof x == 'function'
 
 const is_object = x => typeof x == 'object' && x !== null
-// NOTE: is_object is _plain_ object, NOT instanceof Object
+// NOTE: is_object is not same as POJO
+//       (Object.getPrototypeOf(x) == Object.prototype)
+//       https://masteringjs.io/tutorials/fundamentals/pojo
+// NOTE: is_object is not same as instanceof Object, e.g. excludes functions
+//       instanceof could even be customized using Symbol.hasInstance
+//       https://www.30secondsofcode.org/articles/s/javascript-primitive-instanceof
+
 // NOTE: is_array implies is_object; should always be tested first
 // see https://stackoverflow.com/a/52453477
 
 // const is_primitive = x => !(x instanceof Object)
-// NOTE: instanceof could be customized using Symbol.hasInstance
-//   https://www.30secondsofcode.org/articles/s/javascript-primitive-instanceof
-
 const is_primitive = x =>
   (typeof x != 'object' && typeof x != 'function') || x === null
 
