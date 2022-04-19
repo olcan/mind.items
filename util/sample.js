@@ -1120,68 +1120,62 @@ class _Sampler {
   _clone(transferables, js = 0, je = this.J, debug = false) {
     const path = (v, k, obj) => {
       if (v == this) return 'this'
-      if (obj != this && !obj.__key) return 'this.….' + k // unknown path
-      let path = 'this'
-      while (obj?.__key) {
-        path += '.' + obj.__key
+      if (obj != this && obj.__key === undefined) return 'this.….' + k
+      let path = k
+      while (obj?.__key !== undefined) {
+        path = obj.__key + '.' + path
         obj = obj.__parent
       }
-      return path + '.' + k
+      return 'this.' + path
     }
 
+    // note for now we simply assume function-free means cloneable
+    // for a comprehensive list of cloneable types see https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm#supported_types
     const has_function = v =>
       is_function(v) ||
       (is_array(v)
         ? has_function(v[0]) // assume uniform arrays
         : is_object(v) && some(values(v), has_function))
-    const is_plain = v => Object.getPrototypeOf(v) == Object.prototype
-    const is_complex = v => !is_primitive(v) && !is_plain(v) && !is_array(v)
-    const has_complex = v =>
-      is_complex(v) ||
-      (is_array(v)
-        ? has_complex(v[0]) // assume uniform arrays
-        : is_object(v) && some(values(v), has_complex))
-    const is_simple = v => !has_function(v) && !has_complex(v)
 
     return omit_by(
       clone_deep_with(this, (v, k, obj) => {
-        if (v == this) return // use default cloner
-        if (is_nullish(v)) return
+        if (v == this) return // nothing to do at top level
+        if (is_nullish(v)) return null // skip nullish (null or undefined)
         if (k[0] == '_') return null // skip buffers & cached properties
-        if (obj == this && ['options', 'workers'].includes(k)) return null
+        if (k.includes?.('B')) return null // skip buffered sample state
+
+        // skip certain specific top-level properties
+        if (obj == this && ['options', 'workers', 'func', 'domain'].includes(k))
+          return null
 
         // skip functions (for now)
         if (is_function(v)) {
-          if (debug) console.warn(`skipping function ${path(v, k, obj)}`)
+          if (debug) warn(`skipping function ${path(v, k, obj)}`)
           return null
         }
 
         if (is_object(v)) {
-          // skip complex objects
-          if (is_complex(v)) {
-            if (debug) console.warn(`skipping complex ${path(v, k, obj)}`)
-            return null
-          }
-
-          // TODO: slice J-indexed arrays to [js,je)
-          // if (is_array(v) && v.length == J)
-
-          // move simple objects by reference (w/o cloning)
-          if (is_simple(v)) {
-            if (debug) console.log(`moving ${path(v, k, obj)}`)
+          // "move" function-free objects by reference (w/o cloning)
+          if (!has_function(v)) {
+            // slice J-indexed arrays down to [js,je)
+            if (is_array(v) && v.length == this.J) {
+              v = v.slice(js, je)
+              if (debug) print(`moving ${path(v, k, obj)}[${js},${je})`)
+            } else if (debug) print(`moving ${path(v, k, obj)}`)
             return v
           }
-
+          // TODO: log_wrfJN remains undefined/function-free on main thread because we are not copying back from workers; once we do, it should be cloned and its functions processed above as with all other functions, modeled after how functions are handled in stringify/parse in core
+          if (k == 'log_wrfJN') print('cloning log_wrfJN ...', typeof v[0][0])
           // in debug mode, define __key/__parent for path tracing
-          if (debug && !v.__key) {
+          if (debug && v.__key === undefined) {
             define(v, '__key', { value: k })
-            define(v, '__parent', { value: this })
+            define(v, '__parent', { value: obj })
           }
-
-          // TODO: review clonings for run==2, better organize and document logic
         }
 
-        if (debug) console.log(`cloning ${path(v, k, obj)} (${typeof v})`)
+        // log all cloned values (except nested primitives) in debug mode
+        if (debug && (!is_primitive(v) || obj == this))
+          print(`cloning ${path(v, k, obj)} (${typeof v})`)
       }),
       is_nullish
     ) // drop nullish values
@@ -1200,7 +1194,8 @@ class _Sampler {
       const evals = workers.map((worker, w) => {
         const { js, je } = worker
         const transferables = []
-        const input = this._clone(transferables, js, je, s == 2 && w == 0)
+        // note new properties (e.g. weight.init_log_wr) can be defined during sampling so it is insufficient to debug first sampling step s=0, although it should suffice to debug first worker (w=0)
+        const input = this._clone(transferables, js, je, s == 1 && w == 0)
         return eval_on_worker(
           worker,
           () => {
@@ -1210,8 +1205,8 @@ class _Sampler {
               const transferables = []
               postMessage({
                 done: true,
-                output: sampler._clone(transferables),
-                transfer: transferables,
+                // output: sampler._clone(transferables),
+                // transfer: transferables,
               })
             } catch (error) {
               postMessage({ error }) // report error
@@ -1222,7 +1217,7 @@ class _Sampler {
             context: { s, input },
             transfer: transferables,
             done: e => {
-              this._merge(e.data.output, js)
+              // this._merge(e.data.output, js)
               // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
