@@ -327,7 +327,8 @@ function density(x, domain) {
 // |               | used as default `log_w` for sub-optimal samples
 // |               | must be finite to allow non-opt. weights/conditions
 // |               | must be small for ess to be close to expected for quantile
-// | `targets`     | object of targets for named values sampled in this context
+// | `targets`     | targets for values sampled in this context
+// |               | must be name-keyed object, or function that returns it
 // |               | see `target` option above for possible targets
 // |               | can be `true` for auto-generated targets
 // | `max_tks`     | maximum `tks` desired once updates are complete
@@ -783,6 +784,7 @@ class _Sampler {
 
     if (defined(options.targets)) {
       if (options.targets == true) this._targets()
+      if (is_function(options.targets)) options.targets = options.targets()
       if (!is_object(options.targets)) fatal('invalid option targets')
     }
 
