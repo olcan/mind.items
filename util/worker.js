@@ -140,7 +140,15 @@ function eval_on_worker(worker, js, options = {}) {
             return
           }
           if (!e.data.done) return default_handler(e) // use default until done
-          if (done(e) === null) default_handler(e) // use default if null
+          try {
+            if (done(e) === null) default_handler(e) // use default if null
+          } catch (e) {
+            // reject eval promise if done handler throws error
+            // note we do not invoke error handler since error is not on worker
+            worker.onmessage = default_handler // restore default handler
+            reject(e)
+            return
+          }
           worker.onmessage = default_handler // restore default handler
           resolve() // resolve eval promise
         }

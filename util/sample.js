@@ -1149,11 +1149,13 @@ class _Sampler {
 
     // deletes any null-valued properties in non-array objects
     const delete_nulls = obj => {
-      if (!is_object(obj) || is_array(obj)) return // skip non-objects, arrays
-      for (const [k, v] of entries(obj)) {
-        if (v === null) delete obj[k]
-        else delete_nulls(v) // delete recursively
+      if (is_object(obj) && !is_array(obj)) {
+        for (const [k, v] of entries(obj)) {
+          if (v === null) delete obj[k]
+          else delete_nulls(v) // delete recursively
+        }
       }
+      return obj
     }
 
     return delete_nulls(
@@ -1214,7 +1216,18 @@ class _Sampler {
     )
   }
 
-  _merge(obj, js = 0) {
+  _merge(obj, js = 0, debug = false) {
+    const path = (v, k, obj) => {
+      if (v == this) return 'this'
+      if (obj != this && obj.__key === undefined) return 'this.….' + k
+      let path = k
+      while (obj?.__key !== undefined) {
+        path = obj.__key + '.' + path
+        obj = obj.__parent
+      }
+      return 'this.' + path
+    }
+
     // transforms function objects back to functions
     const transform_function_objects = v => {
       if (is_string(v?.__function)) return function_from_object(v)
@@ -1222,19 +1235,31 @@ class _Sampler {
       if (is_object(v)) return map_values(v, transform_function_objects)
       return v
     }
-    merge_with(this, obj, (x, v, k) => {
+
+    merge_with(this, obj, (x, v, k, obj) => {
+      if (debug) print(`merging into ${path(x, k, obj)} (${typeof v})`)
       if (is_string(v?.__function)) return function_from_object(v)
-      if (is_array(v) && k.includes?.('J')) {
-        // TODO: avoid unnecessary copy here once this works
-        if (k.includes('fJ')) v = transform_function_objects(v)
-        return copy_at(x, v, js)
+      if (is_array(v)) {
+        if (k.includes?.('J')) {
+          // TODO: avoid unnecessary copy here once this works
+          if (k.includes('fJ')) v = transform_function_objects(v)
+          return copy_at(x, v, js)
+        }
+        if (x.length != v.length) fatal('array size mismatch')
+        return copy(x, v)
       }
+      // set up __key/__parent for logging nested properties in debug mode
+      if (debug && is_object(v) && v.__key === undefined) {
+        define(v, '__key', { value: k })
+        define(v, '__parent', { value: obj })
+      }
+      // return v // replace by default
     })
   }
 
   async _sample_func() {
     const timer = _timer_if(this.stats)
-    const { s, func, xJ, yJ, moving, workers, J } = this
+    const { s, func, xJ, yJ, moving, workers } = this
 
     if (workers) {
       // print(`starting sample ${s} on ${workers.length} workers ...`)
@@ -1242,7 +1267,7 @@ class _Sampler {
         const { js, je } = worker
         const transferables = []
         // note new properties (e.g. weight.init_log_wr) can be defined during sampling so it is insufficient to debug first sampling step s=0, although it should suffice to debug first worker (w=0)
-        const input = this._clone(transferables, js, je, s == 1 && w == 0)
+        const input = this._clone(transferables, js, je, s == 0 && w == 0)
         return eval_on_worker(
           worker,
           () => {
@@ -1250,11 +1275,8 @@ class _Sampler {
               sampler._merge(input)
               sampler._sample_func()
               const transferables = []
-              postMessage({
-                done: true,
-                output: sampler._clone(transferables),
-                transfer: transferables,
-              })
+              const output = sampler._clone(transferables)
+              postMessage({ done: true, output, transfer: transferables })
             } catch (error) {
               postMessage({ error }) // report error
               // throw error // on worker (can be redundant)
@@ -1264,7 +1286,7 @@ class _Sampler {
             context: { s, input },
             transfer: transferables,
             done: e => {
-              this._merge(e.data.output, js)
+              this._merge(e.data.output, js, s == 0 && w == 0)
               // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
@@ -1278,12 +1300,6 @@ class _Sampler {
         console.error(`sample ${s} failed on worker;`, e)
         throw e // stops init & closes workers (via finally block in _init)
       }
-
-      // TODO: log_wr are currently NOT portable, and this may be why sampling does not currently work!
-      //       how to make them portable?
-      // TODO: remove this line and ensure convergence as expected!
-      // TODO: move on to examples 2+
-      fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
     } else {
       // no workers, invoke on main thread
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
@@ -3169,8 +3185,6 @@ class _Sampler {
       }
       // console.debug(str(weight.stats))
     }
-
-    // TODO: ensure log_wr below is PORTABLE; use __context for c,d,log_p computed from domain, and pass along stats to log_wr and weight to log_wr._stats
 
     // use domain._log_wr if defined, passing (r,c,d,log_p,stats)
     // otherwise define default log_wr w/ basic distance/density support
