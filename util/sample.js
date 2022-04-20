@@ -531,8 +531,8 @@ class _Sampler {
         },
         move_targets: ({ J /*, r, accumulating*/ }, atK, uatK) => {
           // split J or .1*J, excluding non-sampled (e.g. "predicted") values
-          fill(atK, k => (this.values[k].sampled ? 1 : 0))
-          fill(uatK, k => (this.values[k].sampled ? 1 : 0))
+          fill(atK, k => (this.values[k].sampling ? 1 : 0))
+          fill(uatK, k => (this.values[k].sampling ? 1 : 0))
           if (sum(atK) > 0) scale(atK, J / sum(atK))
           if (sum(uatK) > 0) scale(uatK, (0.1 * J) / sum(uatK))
           // if (optimizing && r == 1) scale(uatK, 0)
@@ -754,7 +754,7 @@ class _Sampler {
                 ]),
                 {
                   size: je - js, // restrict size to range [js,je)
-                  _worker: true, // internal option to skip init
+                  _worker: true, // internal to skip init, targets (in _sample)
                 }
               )
             ), // same omits as in _targets, w/ functions stringified
@@ -781,9 +781,9 @@ class _Sampler {
   async _init_prior() {
     const { J, stats, options } = this
 
-    if (defined(this.options.targets)) {
-      if (this.options.targets == true) this._targets()
-      else if (!is_object(this.options.targets)) fatal('invalid option targets')
+    if (defined(options.targets)) {
+      if (options.targets == true) this._targets()
+      if (!is_object(options.targets)) fatal('invalid option targets')
     }
 
     this.init_time = this.t // includes constructor & target sampling
@@ -1021,7 +1021,7 @@ class _Sampler {
               repeat(size, i => {
                 const index = values.length // element index
                 names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
-                values.push(lexical_context({ index, sampled: true }))
+                values.push(lexical_context({ index, sampling: true }))
               })
             } else {
               // process names from destructuring assignment
@@ -1029,7 +1029,7 @@ class _Sampler {
                 const index = values.length // element index
                 if (names.has(name)) name += '_' + index // de-duplicate name
                 names.add(name) // aligned w/ values & unique
-                values.push(lexical_context({ index, name, sampled: true }))
+                values.push(lexical_context({ index, name, sampling: true }))
               }
             }
             break
@@ -1077,7 +1077,7 @@ class _Sampler {
             // replace sample call
             index = values.length
             names.add((name ||= str(index))) // name aligned w/ values & unique
-            values.push(lexical_context({ sampled: true }))
+            values.push(lexical_context({ sampling: true }))
             break
           default:
             fatal(`unknown method ${method}`)
@@ -1181,11 +1181,15 @@ class _Sampler {
           if (v == this) return // ignore first call at top level
           if (v === null) return null // keep null value (to be dropped)
           if (v === undefined) return null // drop undefined
-          if (k[0] == '_') return null // drop buffers, cached properties, etc
+          if (obj == this && exclusions.has(k)) return null // drop exclusions
           if (k.includes?.('B')) return null // drop buffered sample state
-
-          // drop exclusions
-          if (obj == this && exclusions.has(k)) return null
+          // drop all buffers, caches, etc
+          // only exception is _stdevK owned by main thread for global stdev
+          // posterior stdevK calculation must be triggered via this.stdevK
+          if (k[0] == '_' && k != '_stdevK') return null
+          // drop target state (value.target*) from values
+          if (k == 'values')
+            v = v.map(v => omit_by(v, (_, k) => k.startsWith('target')))
 
           // slice J-indexed arrays down to specified range [js,je)
           // pack functions inside function arrays, e.g. log_wrfJN
@@ -1252,6 +1256,11 @@ class _Sampler {
       // copy J-indexed slices, unpacking functions in function arrays
       if (is_array(x) && k.includes?.('J')) {
         const je = js + v.length
+        if (this.workers) {
+          // main thread
+          if (k == 'xJK') print(`merging slice [${js}, ${je}) of xJK`)
+          if (k == 'yJK') print(`merging slice [${js}, ${je}) of yJK`)
+        }
         if (k.includes('fJ')) {
           if (debug) print(`unpacking ${path(v, k, obj)}[${js},${je})`)
           v = unpack_functions(v)
@@ -1273,7 +1282,8 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const { s, func, xJ, yJ, moving, workers } = this
 
-    if (workers) {
+    // note we sample prior locally to allow value.target to be calculated and kept on main thread
+    if (workers && s > 0) {
       const exclusions = new Set([
         'options', // separate on worker (see _init_workers)
         'stats', // no stats on worker
@@ -1312,6 +1322,9 @@ class _Sampler {
         'pending_time', // owned by main thread
         'moving', // owned by main thread
         'forking', // owned by main thread
+        'log_rwJ', // owned by main thread (TODO)
+        'log_wrJ', // owned by main thread (TODO)
+        '_stdevK', // owner by main thread (TODO)
         'uaJK', // input to _sample
         'uawK', // input to _sample
         ...(moving
@@ -1331,8 +1344,9 @@ class _Sampler {
         const { js, je } = worker
         const transferables = []
         // note new properties (e.g. weight.init_log_wr) can be defined during sampling so it is insufficient to debug first sampling step s=0, although it should suffice to debug first worker (w=0)
-        const debug = false // s == 0 && w == 0
+        const debug = false // s == 1 && w == 0
         const timer = _timer()
+        if (s > 0) this.stdevK // trigger caching of global posterior stdevK
         const input = this._clone(
           transferables,
           input_exclusions,
@@ -2078,12 +2092,13 @@ class _Sampler {
   }
 
   _done() {
+    const { r, tks, options } = this
     this.done = true // no more updates
     // warn about r<1 and tks>max_tks if warnings enabled
-    if (this.options.warn) {
-      if (this.r < 1) warn(`pre-posterior sample w/ r=${this.r}<1`)
-      if (this.tks > this.max_tks) {
-        warn(`failed to achieve target tks=${this.tks}≤${this.max_tks}`)
+    if (options.warn) {
+      if (r < 1) warn(`pre-posterior sample w/ r=${r}<1`)
+      if (tks > options.max_tks) {
+        warn(`failed to achieve target tks=${tks}≤${options.max_tks}`)
         print('tks_pK:', str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
       }
     }
@@ -2189,7 +2204,7 @@ class _Sampler {
       // get weighted prior and posterior & remove undefined values
       const pxJ = array(J, j => pxJK[j][k])
       const pwJ = copy(this.pwJ)
-      let xJ = array(J, j => xJK[j][k])
+      const xJ = array(J, j => xJK[j][k])
       const wJ = copy(rwJ)
       _remove_undefined(xJ, wJ)
       _remove_undefined(pxJ, pwJ)
@@ -2753,6 +2768,7 @@ class _Sampler {
         numberize: !is_number(value.first), // map to random numbers
       })
     })
+    // print('tks_pK:', str(zip_object(this.nK, round_to(pK, 3))))
     const pR = pK.filter(defined)
     if (stats) stats.time.updates.tks += timer.t
     // minimum p-value ~ Beta(1,R) so we transform as beta_cdf(p,1,R)
@@ -2793,6 +2809,8 @@ class _Sampler {
     const rwbJk = (this.___mks_rwbJk ??= array(J))
 
     // TODO: why is mks much higher (increasing update steps) when using workers? is something wrong w/ transfer of relevant state, e.g. uaJK? easily reproducible and does not depend on number of workers used, which hints at a basic transfer issue.
+    // - actually there is likely a more fundamental issue since the posterior means are also obviously wrong (same as prior) when using workers
+    // - confirmed that xJK is not getting cloned/merged properly
 
     // unless optimizing, use only samples fully updated since buffered update
     // cancel if updated samples do not have at least 1/2 weight
@@ -2976,7 +2994,7 @@ class _Sampler {
 
     // initialize on first call
     if (!value.sampled) {
-      value.sampled = true
+      value.sampled = true // actually sampled (unlike value.sampling)
 
       // process name if specified in sample options (only on first call)
       // handle sample_array case (w/ k0,len), and string/array shorthands
@@ -3008,9 +3026,9 @@ class _Sampler {
       const { index, name, args } = value
       const line = `line ${value.line_index}: ${value.line.trim()}`
 
-      // process target if specified
+      // process target if specified (except on workers)
       const target = opt?.target ?? options.targets?.[name]
-      if (target) {
+      if (target && !options._worker) {
         const timer = _timer_if(options.log)
         value.target = target
         // sample from sampler domain (_prior)
@@ -3186,7 +3204,7 @@ class _Sampler {
     value.first ??= x // used to determine type
     xJK[j][k] = x
     // treat as jump to simplify update-related logic, e.g. in __mks
-    // value.sampled can also be used to treat predicted values differently
+    // value.sampling can also be used to treat predicted values differently
     upJK[j][k] = u
     return x
   }
