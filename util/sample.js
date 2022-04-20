@@ -746,6 +746,7 @@ class _Sampler {
                   'log',
                   'plot',
                   'table',
+                  'stats',
                   'quantiles',
                   'targets',
                   'workers',
@@ -1118,7 +1119,7 @@ class _Sampler {
     return { ...state, func: wrap(func) }
   }
 
-  _clone(transferables, js = 0, je = this.J, debug = false) {
+  _clone(transferables, exclusions, js = 0, je = this.J, debug = false) {
     const path = (v, k, obj) => {
       if (v == this) return 'this'
       if (obj != this && obj.__key === undefined) return 'this.….' + k
@@ -1140,10 +1141,26 @@ class _Sampler {
         : is_object(v) && some(values(v), has_function))
 
     // transforms functions to cloneable objects
-    const transform_functions = v => {
+    const pack_functions = v => {
       if (is_function(v)) return object_from_function(v)
-      if (is_array(v)) return v.map(transform_functions)
-      if (is_object(v)) return map_values(v, transform_functions)
+      if (is_array(v)) return v.map(pack_functions)
+      if (is_object(v)) return map_values(v, pack_functions)
+      return v
+    }
+
+    // transforms numeric arrays into transferable typed arrays
+    // note we check type at index 0 only, assuming uniformly typed arrays
+    const convert_transferables = v => {
+      return v // disabled for now due to inefficiency
+      if (is_array(v)) {
+        if (is_number(v[0])) {
+          v = new Float32Array(v)
+          transferables.push(v.buffer)
+          return v
+        }
+        return apply(v, convert_transferables)
+      }
+      if (is_object(v)) for (const k in v) v[k] = convert_transferables(v[k])
       return v
     }
 
@@ -1158,65 +1175,57 @@ class _Sampler {
       return obj
     }
 
-    return delete_nulls(
-      clone_deep_with(this, (v, k, obj) => {
-        if (v == this) return // ignore first call at top level
-        if (v === null) return null // keep null value (to be dropped)
-        if (v === undefined) return null // drop undefined
-        if (k[0] == '_') return null // drop buffers & cached properties
-        if (k.includes?.('B')) return null // drop buffered sample state
+    return convert_transferables(
+      delete_nulls(
+        clone_deep_with(this, (v, k, obj) => {
+          if (v == this) return // ignore first call at top level
+          if (v === null) return null // keep null value (to be dropped)
+          if (v === undefined) return null // drop undefined
+          if (k[0] == '_') return null // drop buffers, cached properties, etc
+          if (k.includes?.('B')) return null // drop buffered sample state
 
-        // drop specific top-level properties
-        if (obj == this) {
-          switch (k) {
-            case 'options':
-            case 'workers':
-            case 'func':
-            case 'domain':
-              return null
-            default: // continue
-          }
-        }
+          // drop exclusions
+          if (obj == this && exclusions.has(k)) return null
 
-        // slice J-indexed arrays down to specified range [js,je)
-        // transform functions inside function arrays, e.g. log_wrfJN
-        if (is_array(v) && k.includes?.('J')) {
-          if (debug) print(`slicing ${path(v, k, obj)}[${js},${je})`)
-          if (js > 0 || je < this.J) v = v.slice(js, je)
-          if (k.includes('fJ')) {
-            if (debug) print(`transforming in ${path(v, k, obj)}[${js},${je})`)
-            v = transform_functions(v)
-          }
-          return v
-        }
-
-        // transform function into cloneable object
-        if (is_function(v)) {
-          if (debug) print(`transforming ${path(v, k, obj)}`)
-          return object_from_function(v)
-        }
-
-        // move function-free objects by reference
-        // set up __key/__parent for logging nested properties in debug mode
-        if (is_object(v)) {
-          if (!has_function(v)) {
-            if (debug) print(`moving ${path(v, k, obj)}`)
+          // slice J-indexed arrays down to specified range [js,je)
+          // pack functions inside function arrays, e.g. log_wrfJN
+          if (is_array(v) && k.includes?.('J')) {
+            if (js > 0 || je < this.J) v = v.slice(js, je)
+            if (k.includes('fJ')) {
+              if (debug) print(`packing ${path(v, k, obj)}[${js},${je})`)
+              v = pack_functions(v)
+            } else if (debug) print(`slicing ${path(v, k, obj)}[${js},${je})`)
             return v
           }
-          if (debug && v.__key === undefined) {
-            define(v, '__key', { value: k })
-            define(v, '__parent', { value: obj })
-          }
-        }
 
-        // log all cloned values (except nested primitives) in debug mode
-        if (debug && (!is_primitive(v) || obj == this))
-          print(`cloning ${path(v, k, obj)} (${typeof v})`)
-      })
+          // transform function into cloneable object
+          if (is_function(v)) {
+            if (debug) print(`packing ${path(v, k, obj)}`)
+            return object_from_function(v)
+          }
+
+          // move function-free objects by reference
+          // set up __key/__parent for logging nested properties in debug mode
+          if (is_object(v)) {
+            if (!has_function(v)) {
+              if (debug) print(`moving ${path(v, k, obj)}`)
+              return v
+            }
+            if (debug && v.__key === undefined) {
+              define(v, '__key', { value: k })
+              define(v, '__parent', { value: obj })
+            }
+          }
+
+          // log all cloned values (except nested primitives) in debug mode
+          if (debug && (!is_primitive(v) || obj == this))
+            print(`cloning ${path(v, k, obj)} (${typeof v})`)
+        })
+      )
     )
   }
 
-  _merge(obj, js = 0, debug = false) {
+  _merge(from, js = 0, debug = false) {
     const path = (v, k, obj) => {
       if (v == this) return 'this'
       if (obj != this && obj.__key === undefined) return 'this.….' + k
@@ -1228,32 +1237,35 @@ class _Sampler {
       return 'this.' + path
     }
 
-    // transforms function objects back to functions
-    const transform_function_objects = v => {
+    const unpack_functions = v => {
       if (is_string(v?.__function)) return function_from_object(v)
-      if (is_array(v)) return v.map(transform_function_objects)
-      if (is_object(v)) return map_values(v, transform_function_objects)
+      if (is_array(v)) return apply(v, unpack_functions)
+      if (is_object(v)) for (const k in v) v[k] = unpack_functions(v[k])
       return v
     }
 
-    merge_with(this, obj, (x, v, k, obj) => {
-      if (debug) print(`merging into ${path(x, k, obj)} (${typeof v})`)
-      if (is_string(v?.__function)) return function_from_object(v)
-      if (is_array(v)) {
-        if (k.includes?.('J')) {
-          // TODO: avoid unnecessary copy here once this works
-          if (k.includes('fJ')) v = transform_function_objects(v)
-          return copy_at(x, v, js)
-        }
-        if (x.length != v.length) fatal('array size mismatch')
-        return copy(x, v)
+    merge_with(this, from, (x, v, k, obj) => {
+      if (is_string(v?.__function)) {
+        if (debug) print(`unpacking ${path(v, k, obj)}`)
+        return function_from_object(v)
+      }
+      // copy J-indexed slices, unpacking functions in function arrays
+      if (is_array(x) && k.includes?.('J')) {
+        const je = js + v.length
+        if (k.includes('fJ')) {
+          if (debug) print(`unpacking ${path(v, k, obj)}[${js},${je})`)
+          v = unpack_functions(v)
+        } else if (debug) print(`merging ${path(v, k, obj)}[${js},${je})`)
+        return copy_at(x, v, js)
       }
       // set up __key/__parent for logging nested properties in debug mode
-      if (debug && is_object(v) && v.__key === undefined) {
-        define(v, '__key', { value: k })
-        define(v, '__parent', { value: obj })
+      if (debug && is_object(x) && x.__key === undefined) {
+        define(x, '__key', { value: k })
+        define(x, '__parent', { value: obj })
       }
-      // return v // replace by default
+      // log all merged values (except nested primitives) in debug mode
+      if (debug && (!is_primitive(v) || obj == this))
+        print(`merging ${path(v, k, obj)} (${typeof v})`)
     })
   }
 
@@ -1262,12 +1274,70 @@ class _Sampler {
     const { s, func, xJ, yJ, moving, workers } = this
 
     if (workers) {
+      const exclusions = new Set([
+        'options', // separate on worker (see _init_workers)
+        'stats', // no stats on worker
+        'func', // same on worker
+        'domain', // same on worker
+        'K', // same on worker
+        'N', // same on worker
+        'J', // separate on worker
+        'optimizing',
+        'accumulating',
+        'workers', // no workers on worker
+        'upwK', // used internally in _sample
+        'jJ', // unused in sampling
+        'jjJ', // unused in sampling
+        'pxJ', // unused in sampling
+        'pxJK', // unused in sampling
+        'atK', // unused in sampling (used in move_weights)
+        'uatK', // unused in sampling (used in move_weights)
+      ])
+      const input_exclusions = new Set([
+        ...exclusions,
+        'xJ', // owned by worker
+        'yJ', // owned by worker
+        ...(!moving
+          ? [
+              'uaJK', // unused in _sample unless moving
+              'uawK', // unused in _sample unless moving
+            ]
+          : []),
+      ])
+      const output_exclusions = new Set([
+        ...exclusions,
+        'start_time', // owned by main thread
+        'init_time', // owned by main thread
+        'pending_time', // owned by main thread
+        'moving', // owned by main thread
+        'forking', // owned by main thread
+        'uaJK', // input to _sample
+        'uawK', // input to _sample
+        ...(moving
+          ? [
+              'xJK', // unchanged in sample when moving
+              'log_p_xJK', // unchanged in sample when moving
+            ]
+          : []),
+      ])
+
       // print(`starting sample ${s} on ${workers.length} workers ...`)
+      let clone_time = 0
+      let merge_time = 0
       const evals = workers.map((worker, w) => {
         const { js, je } = worker
         const transferables = []
         // note new properties (e.g. weight.init_log_wr) can be defined during sampling so it is insufficient to debug first sampling step s=0, although it should suffice to debug first worker (w=0)
-        const input = this._clone(transferables, js, je, s == 0 && w == 0)
+        const debug = false // s == 0 && w == 0
+        const timer = _timer()
+        const input = this._clone(
+          transferables,
+          input_exclusions,
+          js,
+          je,
+          debug
+        )
+        clone_time += timer.t
         return eval_on_worker(
           worker,
           () => {
@@ -1275,7 +1345,7 @@ class _Sampler {
               sampler._merge(input)
               sampler._sample_func()
               const transferables = []
-              const output = sampler._clone(transferables)
+              const output = sampler._clone(transferables, output_exclusions)
               postMessage({ done: true, output, transfer: transferables })
             } catch (error) {
               postMessage({ error }) // report error
@@ -1283,19 +1353,24 @@ class _Sampler {
             }
           },
           {
-            context: { s, input },
+            context: { s, input, output_exclusions },
             transfer: transferables,
             done: e => {
-              this._merge(e.data.output, js, s == 0 && w == 0)
+              // note this merge should advance this.s
+              const timer = _timer()
+              this._merge(e.data.output, js, debug)
+              merge_time += timer.t
               // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
         )
       })
-
       try {
         await Promise.all(evals)
-        print(`sample ${s} done on ${workers.length} workers in ${timer}`)
+        print(
+          `sample ${s} done on ${workers.length} workers in ${timer}` +
+            ` (${clone_time}ms clone, ${merge_time}ms merge)`
+        )
       } catch (e) {
         console.error(`sample ${s} failed on worker;`, e)
         throw e // stops init & closes workers (via finally block in _init)
@@ -1303,8 +1378,8 @@ class _Sampler {
     } else {
       // no workers, invoke on main thread
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
+      this.s++ // advance sampling step
     }
-    this.s++ // advance sampling step
     if (this.stats) {
       this.stats.time.func += timer.t
       this.stats.samples++
@@ -2002,6 +2077,7 @@ class _Sampler {
       'log',
       'plot',
       'table',
+      'stats',
       'quantiles',
       'targets',
       'workers',
@@ -2049,6 +2125,7 @@ class _Sampler {
       'log',
       'plot',
       'table',
+      'stats',
       'quantiles',
       'targets',
       'workers',
