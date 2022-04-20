@@ -784,7 +784,11 @@ class _Sampler {
 
     if (defined(options.targets)) {
       if (options.targets == true) this._targets()
-      if (is_function(options.targets)) options.targets = options.targets()
+      if (is_function(options.targets)) {
+        const timer = _timer_if(this.stats)
+        options.targets = options.targets()
+        if (stats) stats.time.targets = timer.t
+      }
       if (!is_object(options.targets)) fatal('invalid option targets')
     }
 
