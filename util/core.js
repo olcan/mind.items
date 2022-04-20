@@ -620,7 +620,10 @@ function cache(obj, prop, deps, f, options = {}) {
 // => clean_eval(js)
 // `eval` in _clean_ global scope
 // does _NOT_ capture calling context, unlike standard (_unclean_) `eval`
-const clean_eval = js => eval(js)
+// `js` must be _portable_, i.e. w/o references to its lexical context
+// caches evaluation results in `self._clean_eval_cache`
+const clean_eval = js => (_clean_eval_cache[js] ??= eval(js))
+self._clean_eval_cache ??= {}
 
 // markdown table for `cells`
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`
