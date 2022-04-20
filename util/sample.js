@@ -1256,11 +1256,6 @@ class _Sampler {
       // copy J-indexed slices, unpacking functions in function arrays
       if (is_array(x) && k.includes?.('J')) {
         const je = js + v.length
-        if (this.workers) {
-          // main thread
-          if (k == 'xJK') print(`merging slice [${js}, ${je}) of xJK`)
-          if (k == 'yJK') print(`merging slice [${js}, ${je}) of yJK`)
-        }
         if (k.includes('fJ')) {
           if (debug) print(`unpacking ${path(v, k, obj)}[${js},${je})`)
           v = unpack_functions(v)
@@ -1322,9 +1317,11 @@ class _Sampler {
         'pending_time', // owned by main thread
         'moving', // owned by main thread
         'forking', // owned by main thread
-        'log_rwJ', // owned by main thread (TODO)
-        'log_wrJ', // owned by main thread (TODO)
-        '_stdevK', // owner by main thread (TODO)
+        'log_cwrfJN', // owned by main thread (workers send log_wrfJN)
+        'log_cwrJ', // owned by main thread
+        'log_rwJ', // owned by main thread
+        'log_wrJ', // owned by main thread
+        '_stdevK', // owner by main thread
         'uaJK', // input to _sample
         'uawK', // input to _sample
         ...(moving
@@ -2808,10 +2805,6 @@ class _Sampler {
     const wJk = (this.___mks_wJk ??= array(J))
     const rwbJk = (this.___mks_rwbJk ??= array(J))
 
-    // TODO: why is mks much higher (increasing update steps) when using workers? is something wrong w/ transfer of relevant state, e.g. uaJK? easily reproducible and does not depend on number of workers used, which hints at a basic transfer issue.
-    // - actually there is likely a more fundamental issue since the posterior means are also obviously wrong (same as prior) when using workers
-    // - confirmed that xJK is not getting cloned/merged properly
-
     // unless optimizing, use only samples fully updated since buffered update
     // cancel if updated samples do not have at least 1/2 weight
     if (this.optimizing) copy(wJ, rwJ)
@@ -3150,7 +3143,7 @@ class _Sampler {
         log_p_yjK[k] = log_p(y)
         // sampling from prior is equivalent to weighting by prior likelihood
         // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
-        value.first ??= x // save first defined value (in case xjk was undefined)
+        value.first ??= y // save first defined value (in case xjk was undefined)
         return (yjK[k] = y)
       })
     }
