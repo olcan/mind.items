@@ -10,6 +10,7 @@ function init_worker(options = {}) {
   const host = location.protocol + '//' + location.host
   const js = [
     imports.filter(s => s[0] == '/').map(s => `import '${host}/lodash.min.js'`),
+    _pre_init_js(options),
     imports.filter(s => s[0] == '#').map(s => _item(s)?.read_deep('js')),
     `self.onmessage = function(e){ self.onmessage=null; eval(e.data) }`,
   ]
@@ -43,6 +44,30 @@ function init_worker(options = {}) {
   function init(id, item, host, silent) {
     const start = Date.now()
 
+    // load lodash as _ (not for module workers, which can use import keyword)
+    // importScripts(host + '/lodash.min.js')
+    // print(`loaded lodash (${_?.VERSION}) in ${Date.now()-start}ms`)
+
+    // set up message handler for custom js eval via message {js:'...'}
+    self.onmessage = e => {
+      const { js, context } = e.data
+      if (js) {
+        if (context) eval(`(({${_.keys(context)}})=>(${js}))`)(context)
+        else eval(`(${js})`) // parentheses required for function(){...}
+      }
+    }
+
+    if (!silent) print(`initialized worker ${id} in ${Date.now() - start}ms`)
+  }
+  worker.postMessage(
+    `(${init})('${worker.id}','${_this.name}','${host}',${options.silent})`
+  )
+
+  return worker
+}
+
+function _pre_init_js(options) {
+  function pre_init(item) {
     // set up _this to redirect (most) _Item methods to initializing item
     // see #util/item for listing of _Item methods
     self._this = new Proxy(
@@ -81,27 +106,8 @@ function init_worker(options = {}) {
         },
       }
     )
-
-    // set up message handler for custom js eval via message {js:'...'}
-    self.onmessage = e => {
-      const { js, context } = e.data
-      if (js) {
-        if (context) eval(`(({${_.keys(context)}})=>(${js}))`)(context)
-        else eval(`(${js})`) // parentheses required for function(){...}
-      }
-    }
-
-    // load lodash as _ (not for module workers, which should use import keyword)
-    // importScripts(host + '/lodash.min.js')
-    // print(`loaded lodash (${_?.VERSION}) in ${Date.now()-start}ms`)
-
-    if (!silent) print(`initialized worker ${id} in ${Date.now() - start}ms`)
   }
-  worker.postMessage(
-    `(${init})('${worker.id}','${_this.name}','${host}',${options.silent})`
-  )
-
-  return worker
+  return `(${pre_init})('${_this.name}',${options.silent})`
 }
 
 // evaluate `js` on `worker`
