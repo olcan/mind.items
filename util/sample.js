@@ -336,7 +336,7 @@ function density(x, domain) {
 // |               | ignored if no targets specified via `target(s)` option
 // |               | used only as diagnostic test, not as stopping condition
 // |               | _default_: `5` ≡ failure to reject same-dist at `α<1/32`
-// | `params`      | object of parameters to be captured from parent context
+// | `context`     | object of values captured from parent context
 function sample(domain, options = undefined) {
   // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
   if (!is_function(domain))
@@ -516,7 +516,7 @@ class _Sampler {
         quantiles: false,
         log: false, // silent by default
         warn: true,
-        params: {},
+        context: {},
         quantile_runs: 100,
         size: J,
         reweight_if: ({ ess, J }) => ess >= 0.9 * J,
@@ -861,7 +861,7 @@ class _Sampler {
     let cumulative = false // flag for cumulative weight calls
 
     // parse positive integer variables for possible use w/ sample|confine_array
-    // also include any positive integer params
+    // also include any positive integer variables from context
     const sizes = from_entries(
       Array.from(
         js.matchAll(
@@ -873,8 +873,8 @@ class _Sampler {
         }
       )
     )
-    if (this.options.params) {
-      each(entries(this.options.params), ([k, v]) => {
+    if (this.options.context) {
+      each(entries(this.options.context), ([k, v]) => {
         if (is_integer(v) && v > 0) sizes[k] = v
       })
     }
@@ -1095,7 +1095,7 @@ class _Sampler {
       })
 
     js = _replace_calls(js, true /*root js*/)
-    const params = this.options.params // params (if any) from calling context
+    const context = this.options.context // calling context (if any)
     const state = {
       values,
       weights,
@@ -1117,10 +1117,10 @@ class _Sampler {
         return out
       }
 
-    // evaluate function from js w/ replacements & optional params
+    // evaluate function from js w/ replacements & optional context
     // also wrap function using _wrap_func (see below)
-    func = params
-      ? clean_eval(`(({${keys(params)}})=>(${js}))`)(params)
+    func = context
+      ? clean_eval(`(({${keys(context)}})=>(${js}))`)(context)
       : clean_eval(`(${js})`) // parentheses required for function(){...}
     return { ...state, func: wrap(func) }
   }
@@ -3074,13 +3074,13 @@ class _Sampler {
     }
 
     // init sampler for function domain
-    // reuse parameter-free samplers across sample calls (via value.domain)
+    // reuse context-free samplers across sample calls (via value.domain)
     // also require full ess since that is assumed by posterior sampler
     // TODO: disallow or handle changes to sampler function
     //       i.e. value.domain.domain should match domain
     if (is_function(domain)) {
       domain = value.domain ?? new _Sampler(domain, opt)
-      if (size(opt?.params) == 0 && !value.domain)
+      if (size(opt?.context) == 0 && !value.domain)
         define(value, 'domain', { value: domain }) // non-enumerable
       if (!approx_equal(domain.ess, domain.J, 1e-3))
         fatal('sampler domain failed to achieve full ess')
