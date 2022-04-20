@@ -1282,6 +1282,7 @@ class _Sampler {
         'K', // same on worker
         'N', // same on worker
         'J', // separate on worker
+        'j', // used internally during sampling
         'optimizing',
         'accumulating',
         'workers', // no workers on worker
@@ -1324,6 +1325,8 @@ class _Sampler {
       // print(`starting sample ${s} on ${workers.length} workers ...`)
       let clone_time = 0
       let merge_time = 0
+      let worker_clone_times = []
+      let worker_merge_times = []
       const evals = workers.map((worker, w) => {
         const { js, je } = worker
         const transferables = []
@@ -1342,11 +1345,19 @@ class _Sampler {
           worker,
           () => {
             try {
-              sampler._merge(input)
+              const [, merge_time] = timing(() => sampler._merge(input))
               sampler._sample_func()
               const transferables = []
-              const output = sampler._clone(transferables, output_exclusions)
-              postMessage({ done: true, output, transfer: transferables })
+              const [output, clone_time] = timing(() =>
+                sampler._clone(transferables, output_exclusions)
+              )
+              postMessage({
+                done: true,
+                output,
+                merge_time,
+                clone_time,
+                transfer: transferables,
+              })
             } catch (error) {
               postMessage({ error }) // report error
               // throw error // on worker (can be redundant)
@@ -1357,9 +1368,10 @@ class _Sampler {
             transfer: transferables,
             done: e => {
               // note this merge should advance this.s
-              const timer = _timer()
-              this._merge(e.data.output, js, debug)
-              merge_time += timer.t
+              const [, t] = timing(() => this._merge(e.data.output, js, debug))
+              merge_time += t
+              worker_clone_times.push(e.data.clone_time)
+              worker_merge_times.push(e.data.merge_time)
               // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
@@ -1367,10 +1379,15 @@ class _Sampler {
       })
       try {
         await Promise.all(evals)
-        print(
-          `sample ${s} done on ${workers.length} workers in ${timer}` +
-            ` (${clone_time}ms clone, ${merge_time}ms merge)`
-        )
+        // print(
+        //   `sample ${s} done on ${workers.length} workers in ${timer}` +
+        //     ` (${clone_time}+${max_in(worker_clone_times)}ms clone` +
+        //     `, ${merge_time}+${max_in(worker_merge_times)}ms merge)`
+        // )
+        if (this.stats) {
+          this.stats.time.clone += clone_time + max_in(worker_clone_times)
+          this.stats.time.merge += merge_time + max_in(worker_merge_times)
+        }
       } catch (e) {
         console.error(`sample ${s} failed on worker;`, e)
         throw e // stops init & closes workers (via finally block in _init)
@@ -1381,7 +1398,7 @@ class _Sampler {
       this.s++ // advance sampling step
     }
     if (this.stats) {
-      this.stats.time.func += timer.t
+      this.stats.time.sample += timer.t
       this.stats.samples++
     }
   }
@@ -1432,7 +1449,9 @@ class _Sampler {
       quanta: 0, // remains 0 for sync mode
       samples: 0,
       time: {
-        func: 0,
+        sample: 0,
+        clone: 0,
+        merge: 0,
         targets: 0,
         prior: 0,
         update: 0,
@@ -2772,6 +2791,8 @@ class _Sampler {
     // buffers to copy wJ and rwBJ[0] inside loop since ks2 can modify
     const wJk = (this.___mks_wJk ??= array(J))
     const rwbJk = (this.___mks_rwbJk ??= array(J))
+
+    // TODO: why is mks much higher (increasing update steps) when using workers? is something wrong w/ transfer of relevant state, e.g. uaJK? easily reproducible and does not depend on number of workers used, which hints at a basic transfer issue.
 
     // unless optimizing, use only samples fully updated since buffered update
     // cancel if updated samples do not have at least 1/2 weight
