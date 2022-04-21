@@ -338,8 +338,10 @@ function density(x, domain) {
 // |               | _default_: `5` ≡ failure to reject same-dist at `α<1/32`
 // | `context`     | object of values captured from parent context
 function sample(domain, options = undefined) {
-  // decline non-function domain which requires a parent sampler that would have replaced calls to sample(…)
-  if (!is_function(domain))
+  // this function can only be invoked for a "root" sampler domain
+  // root sampler domain can be a function or string '(context=>{…})'
+  // non-root samplers would have their sample(…) calls parsed & replaced
+  if (!is_function(domain) && !domain.startsWith?.('(context=>{'))
     fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
   // decline target for root sampler since that is no parent to track tks
   if (options?.target) fatal(`invalid target outside of sample(context=>{ … })`)
@@ -3468,15 +3470,15 @@ const _SamplerSync = eval(
 
 function _run() {
   _this.log_options.source = 'self' // exclude background logs (for async runs)
-  const js = read('js_input').trim()
+  let js = read('js_input').trim()
   // if js begins w/ sample(...) call, assume no wrapper is needed
   if (js.match(/^sample *\(/)) return null
   // if js contains any sample|simulate|sample_array call, then wrap inside sample(...)
   // note this could match inside comments or strings
   if (!js.match(/\b(?:sample|sample_array|simulate) *\(/)) return null
   print('running inside sample(…) due to sampled or simulated values')
-  const func = clean_eval(flat('(context=>{', js, '})').join('\n'))
+  js = flat('(context=>{', js, '})').join('\n')
   const options = {}
   if (typeof _sample_options == 'object') merge(options, _sample_options)
-  return sample(func, options)
+  return sample(js, options)
 }
