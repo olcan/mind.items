@@ -50,10 +50,11 @@ class _State {
     }
 
     // define (constant) parameter properties
-    each(entries(params), ([k, v]) => {
-      if (is_object(v)) Object.freeze(v) // freeze nested parameters
-      define(this, k, { value: v })
-    })
+    if (params)
+      each(entries(params), ([k, v]) => {
+        if (is_object(v)) Object.freeze(v) // freeze nested parameters
+        define(this, k, { value: v })
+      })
 
     // initialize _states w/ initial value if enabled
     if (states) this._states = [clone_deep(this)]
