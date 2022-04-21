@@ -12,15 +12,16 @@ function init_worker(options = {}) {
     imports.filter(s => s[0] == '/').map(s => `import '${host}/lodash.min.js'`),
     _pre_init_js(options),
     imports.filter(s => s[0] == '#').map(s => _item(s)?.read_deep('js')),
-    `self.onmessage = function(e){ self.onmessage=null; eval(e.data) }`,
+    `self.onmessage = function(e){ console.log('worker got message'); self.onmessage=null; eval(e.data) }`,
   ]
     .flat()
     .filter(s => s)
     .join(';\n')
+  console.log(js)
   const worker = new Worker(
     URL.createObjectURL(new Blob([js], { type: 'application/javascript' })),
     { type: 'module' }
-  ) // module works support import keyword
+  ) // module workers support import keyword
   worker.id = _hash(Date.now()) // unique id based on init time
   worker.item = _this // creator item
   worker.host = host // host url for imports
@@ -43,6 +44,7 @@ function init_worker(options = {}) {
   // initialize worker via initial eval
   function init(id, item, host, silent) {
     const start = Date.now()
+    console.log('initializing worker!')
 
     // load lodash as _ (not for module workers, which can use import keyword)
     // importScripts(host + '/lodash.min.js')
@@ -59,6 +61,7 @@ function init_worker(options = {}) {
 
     if (!silent) print(`initialized worker ${id} in ${Date.now() - start}ms`)
   }
+  console.log('posting message to worker')
   worker.postMessage(
     `(${init})('${worker.id}','${_this.name}','${host}',${options.silent})`
   )
