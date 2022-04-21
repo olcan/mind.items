@@ -490,7 +490,7 @@ function _timer_if(c) {
 }
 
 class _Sampler {
-  constructor(func, options = {}) {
+  constructor(func /* can be string */, options = {}) {
     // in sync mode, create _SampleSync defined dynamically below
     if (!options.async && this.constructor.name != '_SamplerSync')
       return new _SamplerSync(func, options)
@@ -731,7 +731,7 @@ class _Sampler {
         worker,
         () => {
           try {
-            self.sampler = new _Sampler(clean_eval(js), parse(options))
+            self.sampler = new _Sampler(js, parse(options))
             postMessage({ done: true }) // report init completion
           } catch (error) {
             postMessage({ error }) // report error
@@ -1096,15 +1096,6 @@ class _Sampler {
 
     js = _replace_calls(js, true /*root js*/)
     const context = this.options.context // calling context (if any)
-    const state = {
-      values,
-      weights,
-      sims,
-      names,
-      nK: array(names),
-      optimizing,
-      accumulating,
-    }
 
     // function wrapper to prep sampler & set self.__sampler
     const wrap = func =>
@@ -1122,7 +1113,16 @@ class _Sampler {
     func = context
       ? clean_eval(`(({${keys(context)}})=>(${js}))`)(context)
       : clean_eval(`(${js})`) // parentheses required for function(){...}
-    return { ...state, func: wrap(func) }
+    return {
+      values,
+      weights,
+      sims,
+      names,
+      nK: array(names),
+      optimizing,
+      accumulating,
+      func: wrap(func),
+    }
   }
 
   _clone(transferables, exclusions, js = 0, je = this.J, debug = false) {
