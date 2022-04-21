@@ -1113,8 +1113,8 @@ class _Sampler {
     // evaluate function from js w/ replacements & optional context
     // also wrap function using _wrap_func (see below)
     func = context
-      ? clean_eval(`(({${keys(context)}})=>(${js}))`)(context)
-      : clean_eval(`(${js})`) // parentheses required for function(){...}
+      ? global_eval(`(({${keys(context)}})=>(${js}))`)(context)
+      : global_eval(`(${js})`) // parentheses required for function(){...}
     return {
       values,
       weights,
@@ -2351,7 +2351,7 @@ class _Sampler {
         add_line(n, {
           axis: 'y2',
           mapper: x => round_to((100 * (x - a)) / max(b - a, 1e-6), d, s),
-          formatter: clean_eval(
+          formatter: global_eval(
             `(x => round_to((x / 100) * (${_n}_b - ${_n}_a) + ${_n}_a, ${d}, ${s}))`
           ),
           formatter_context: { [`${_n}_a`]: a, [`${_n}_b`]: b },

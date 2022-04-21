@@ -183,8 +183,8 @@ function unpack(o) {
     fatal(`invalid non-object __context in object {__function:...}`)
   const js = o.__function
   const f = o.__context
-    ? clean_eval(`(({${keys(o.__context)}})=>(${js}))`)(o.__context)
-    : clean_eval(`(${js})`) // parentheses required for function(){...}
+    ? global_eval(`(({${keys(o.__context)}})=>(${js}))`)(o.__context)
+    : global_eval(`(${js})`) // parentheses required for function(){...}
   // copy any other properties, transforming recursively as needed
   // note __context is no longer needed since absorbed into function
   for (const k in o)
@@ -625,21 +625,21 @@ function cache(obj, prop, deps, f, options = {}) {
   obj['_' + prop] = null // init as null
 }
 
-// => clean_eval(js, [options])
-// `eval` in _clean_ global scope
-// `js` may not refer to local context (as in a locally defined function)
-// `js` may still refer to global context (as in a globally defined function)
-// `strict` option disables even global context via [indirect eval](http://perfectionkills.com/global-eval-what-are-the-options/#indirect_eval_call_theory)
-// `uncached` option bypasses default cache `self._clean_eval_cache`
+// => global_eval(js, [options])
+// `eval` in global context
+// `js` may not refer to local context (where `global_eval` is invoked)
+// `js` may still refer to global context (where `global_eval` is defined)
+// `strict` option forces absolute global context (of `self`) using [indirect eval](http://perfectionkills.com/global-eval-what-are-the-options/#indirect_eval_call_theory)
+// `cached` option (_default_:`true`) stores eval result in `self._global_eval_cache`
 // **WARNING**: cached non-strict eval can break `instanceof`, `prototype` comparisons, etc, for non-built-in classes defined (and redefined after caching) in global context
-function clean_eval(__js, __options = {}) {
-  if (__options.uncached)
+function global_eval(__js, __options = {}) {
+  if (!(__options.cached ?? true))
     return __options.strict ? eval.call(self, __js) : eval(__js)
-  return (_clean_eval_cache[__js] ??= __options.strict
+  return (_global_eval_cache[__js] ??= __options.strict
     ? eval.call(self, __js)
     : eval(__js))
 }
-self._clean_eval_cache ??= {}
+self._global_eval_cache ??= {}
 
 // markdown table for `cells`
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`

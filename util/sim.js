@@ -149,7 +149,7 @@ const state = (vars, params = undefined, options = undefined) =>
   new _State(vars, params, options)
 
 // is `x` a state object?
-const is_state = x => x?.constructor?.name == '_State' // robust to clean_eval
+const is_state = x => x?.constructor?.name == '_State' // robust to global_eval
 
 // simulate `events` from state `x` to time `t`
 // `events` must be a flat array of event objects
@@ -274,7 +274,7 @@ const _at = (ft, fx, fc) => _event(fx, ft, fc)
 const _if = (fc, ft, fx) => _event(fx, ft, fc)
 
 // is `e` an event object?
-const is_event = e => e?.constructor?.name == '_Event' // robust to clean_eval
+const is_event = e => e?.constructor?.name == '_Event' // robust to global_eval
 
 // increment mutator
 // handles args `...yJ` in order, by type:
