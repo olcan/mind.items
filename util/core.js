@@ -152,7 +152,7 @@ function _test_transpose_objects() {
 // properties on function are preserved, packed as needed
 // property `__context` can be used to _capture_ references
 // property `__context` can be a function invoked once for context
-// function must be _portable_ w/ all references captured in `__context`
+// function must be _portable_ w/o external references outside `__context`
 function pack(f) {
   // transform function to object w/ property __function
   // copy any properties of function, e.g. __context (see parse below)
@@ -625,12 +625,20 @@ function cache(obj, prop, deps, f, options = {}) {
   obj['_' + prop] = null // init as null
 }
 
-// => clean_eval(js)
+// => clean_eval(js, [options])
 // `eval` in _clean_ global scope
-// does _NOT_ capture calling context, unlike standard (_unclean_) `eval`
-// `js` must be _portable_ w/o references to its lexical context
-// caches evaluation results in `self._clean_eval_cache`
-const clean_eval = js => (_clean_eval_cache[js] ??= eval(js))
+// `js` may not refer to local context (as in a locally defined function)
+// `js` may still refer to global context (as in a globally defined function)
+// `strict` option disables even global context via [indirect eval](http://perfectionkills.com/global-eval-what-are-the-options/#indirect_eval_call_theory)
+// `uncached` option bypasses default cache `self._clean_eval_cache`
+// **WARNING**: cached non-strict eval can break `instanceof`, `prototype` comparisons, etc, for non-built-in classes defined (and redefined after caching) in global context
+function clean_eval(__js, __options = {}) {
+  if (__options.uncached)
+    return __options.strict ? eval.call(self, __js) : eval(__js)
+  return (_clean_eval_cache[__js] ??= __options.strict
+    ? eval.call(self, __js)
+    : eval(__js))
+}
 self._clean_eval_cache ??= {}
 
 // markdown table for `cells`
