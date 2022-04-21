@@ -147,12 +147,13 @@ function _test_transpose_objects() {
   )
 }
 
-// transform function to object
+// pack function into object
 // object can be cloned or stringified
-// properties on function are preserved
-// property `__context` is used as context for function
-// property `__context` can be function that returns object
-function object_from_function(f) {
+// properties on function are preserved, packed as needed
+// property `__context` can be used to _capture_ references
+// property `__context` can be a function invoked once for context
+// function must be _portable_ w/ all references captured in `__context`
+function pack(f) {
   // transform function to object w/ property __function
   // copy any properties of function, e.g. __context (see parse below)
   // if __context is a function, it is invoked here and must return object
@@ -168,14 +169,14 @@ function object_from_function(f) {
   if (ctx) o.__context = ctx
   // copy any other properties, transforming recursively as needed
   for (const k in f)
-    if (k != '__context')
-      o[k] = is_function(f[k]) ? object_from_function(f[k]) : f[k]
+    if (k != '__context') o[k] = is_function(f[k]) ? pack(f[k]) : f[k]
   return o
 }
 
-// transform object back to function
-// object must be from `function_to_object` (see above)
-function function_from_object(o) {
+// unpack function from object
+// object must be from `pack` (see above)
+// packed function must be portable (see `pack` above)
+function unpack(o) {
   // transform {__function:...} object back to function
   // use wrapper to treat object v.__context as function context
   if (defined(o.__context) && !is_object(o.__context))
@@ -188,22 +189,29 @@ function function_from_object(o) {
   // note __context is no longer needed since absorbed into function
   for (const k in o)
     if (k != '__function' && k != '__context')
-      f[k] = is_string(o[k]?.__function) ? function_from_object(o[k]) : o[k]
+      f[k] = is_string(o[k]?.__function) ? unpack(o[k]) : o[k]
   return f
 }
 
+// captures context for function
+// attaches context to function as `__context`
+// can make function _portable_ for packing (see `pack` above)
+const capture = (f, context) => set(f, '__context', context)
+
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
+// all functions must be _portable_ (see `pack` above)
 function stringify(value) {
   return JSON.stringify(value, function (k, v) {
-    if (is_function(v)) return object_from_function(v)
+    if (is_function(v)) return pack(v)
     return v
   })
 }
 
 // [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
+// all functions must be _portable_ (see `pack` above)
 function parse(text) {
   return JSON.parse(text, function (k, v) {
-    if (is_string(v?.__function)) return function_from_object(v)
+    if (is_string(v?.__function)) return unpack(v)
     return v
   })
 }
@@ -620,7 +628,7 @@ function cache(obj, prop, deps, f, options = {}) {
 // => clean_eval(js)
 // `eval` in _clean_ global scope
 // does _NOT_ capture calling context, unlike standard (_unclean_) `eval`
-// `js` must be _portable_, i.e. w/o references to its lexical context
+// `js` must be _portable_ w/o references to its lexical context
 // caches evaluation results in `self._clean_eval_cache`
 const clean_eval = js => (_clean_eval_cache[js] ??= eval(js))
 self._clean_eval_cache ??= {}

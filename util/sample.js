@@ -1148,7 +1148,7 @@ class _Sampler {
 
     // transforms functions to cloneable objects
     const pack_functions = v => {
-      if (is_function(v)) return object_from_function(v)
+      if (is_function(v)) return pack(v)
       if (is_array(v)) return v.map(pack_functions)
       if (is_object(v)) return map_values(v, pack_functions)
       return v
@@ -1211,7 +1211,7 @@ class _Sampler {
           // transform function into cloneable object
           if (is_function(v)) {
             if (debug) print(`packing ${path(v, k, obj)}`)
-            return object_from_function(v)
+            return pack(v)
           }
 
           // move function-free objects by reference
@@ -1248,7 +1248,7 @@ class _Sampler {
     }
 
     const unpack_functions = v => {
-      if (is_string(v?.__function)) return function_from_object(v)
+      if (is_string(v?.__function)) return unpack(v)
       if (is_array(v)) return apply(v, unpack_functions)
       if (is_object(v)) for (const k in v) v[k] = unpack_functions(v[k])
       return v
@@ -1257,7 +1257,7 @@ class _Sampler {
     merge_with(this, from, (x, v, k, obj) => {
       if (is_string(v?.__function)) {
         if (debug) print(`unpacking ${path(v, k, obj)}`)
-        return function_from_object(v)
+        return unpack(v)
       }
       // copy J-indexed slices, unpacking functions in function arrays
       if (is_array(x) && k.includes?.('J')) {
@@ -2466,8 +2466,8 @@ class _Sampler {
               max: last(y_ticks),
               tick: {
                 values: y_ticks,
-                format: assign(y => y_labels[round(log10(2 ** y))] ?? '?', {
-                  __context: { y_labels },
+                format: capture(y => y_labels[round(log10(2 ** y))] ?? '?', {
+                  y_labels,
                 }),
               },
             },
@@ -2483,8 +2483,8 @@ class _Sampler {
           tooltip: {
             format: {
               title: x => 'step ' + x,
-              value: assign((v, _, n) => formatters[n]?.(v) ?? v, {
-                __context: { formatters },
+              value: capture((v, _, n) => formatters[n]?.(v) ?? v, {
+                formatters,
               }),
             },
           },
@@ -3215,9 +3215,7 @@ class _Sampler {
       this._weight(
         n,
         cond ? 0 : -inf, // default log_w for default log_wr
-        assign(r => log(cond || 1 - r), {
-          __context: { cond },
-        })
+        capture(r => log(cond || 1 - r), { cond })
       )
     } else {
       // note log_wr(1,…) supersedes (cond?0:-inf) as default log_w
@@ -3254,10 +3252,7 @@ class _Sampler {
       if (log_wr_1 != log_w)
         fatal(`log_wr(1,…)=${log_wr_1} does not match log_w=${log_w}`)
     } else {
-      log_wr = assign(
-        r => r * log_w, // note r>0
-        { __context: { log_w } }
-      )
+      log_wr = capture(r => r * log_w /* note r>0 */, { log_w })
     }
     log_wrfJN[j][n] = log_wr
     return log_w
@@ -3306,23 +3301,19 @@ class _Sampler {
     let log_wr
     if (domain._log_wr) {
       const domain_log_wr = domain._log_wr
-      log_wr = assign(
+      log_wr = capture(
         (r, n, { stats }) => domain_log_wr(r, c, d, log_p, stats),
-        {
-          __context: { domain_log_wr, c, d, log_p },
-        }
+        { domain_log_wr, c, d, log_p }
       )
     } else {
-      log_wr = assign(
+      log_wr = capture(
         (r, n, weight) => {
           if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
           if (d == 0) return r * log_p // inside OR unknown distance, note r>0
           const [z, b] = weight.stats // from _stats below
           return r * b + log(1 - r) * (1 + 100 * d * z)
         },
-        {
-          __context: { c, d, log_p },
-        }
+        { c, d, log_p }
       )
       log_wr._d = d // distance for scaling factor z
       log_wr._log_p = c ? log_p : inf // log_p for base offset b
@@ -3389,17 +3380,17 @@ class _Sampler {
     // otherwise define default log_wr w/ basic optimization support
     let log_wr
     if (_log_wr) {
-      log_wr = assign((r, n, weight) => _log_wr(r, weight.xJ, weight.stats), {
-        __context: { _log_wr },
+      log_wr = capture((r, n, weight) => _log_wr(r, weight.xJ, weight.stats), {
+        _log_wr,
       })
     } else {
-      log_wr = assign(
+      log_wr = capture(
         (r, n, weight) => {
           if (!weight.stats) return 0 // always 0 before stats init
           const [xq] = weight.stats
           return x >= xq ? 0 : weight.opt_penalty
         },
-        { __context: { x } }
+        { x }
       )
       log_wr._x = x // value x for stats
       log_wr._stats = (r, n, { xJ }, { J, essu }) => {
