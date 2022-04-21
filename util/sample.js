@@ -564,6 +564,7 @@ class _Sampler {
     // for efficiency, we require parent to ensure ess≈J s.t. weights≈0
     const sampler = f => f(this.sample())
     this._prior = this._posterior = sampler
+    // TODO: this is missing _log_p, and should probably be modeled after discrete_uniform with a check for full ess to force uniform weights
 
     // initialize run state
     this.xJK = matrix(J, K) // samples per run/value
@@ -3360,7 +3361,7 @@ class _Sampler {
       // note for portability these functions must NOT use variables from scope
       weight.inc_r = function (r, n, { t }) {
         const weight = this // assume invoked as method weight.inc_r
-        min(1, t / weight.opt_time)
+        return min(1, t / weight.opt_time)
       }
       weight.init_log_wr = function (r, n, sampler) {
         const { J, log_wrfJN } = sampler
@@ -3395,13 +3396,16 @@ class _Sampler {
         { x }
       )
       log_wr._x = x // value x for stats
-      log_wr._stats = (r, n, { xJ }, { J, essu }) => {
-        // const rr = pow(r, 1)
-        // const qa = 0.5 * (1 - rr) + q * rr
-        // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / essu))
-        const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / essu))
-        return quantiles(xJ, [qq]) // => ess=(1-q)
-      }
+      log_wr._stats = capture(
+        (r, n, { xJ }, { J, essu }) => {
+          // const rr = pow(r, 1)
+          // const qa = 0.5 * (1 - rr) + q * rr
+          // const qb = qa < .5 ? qa : max(.5, 1 - (1 - qa) * (J / essu))
+          const qq = q < 0.5 ? q : max(0.5, 1 - (1 - q) * (J / essu))
+          return quantiles(xJ, [qq]) // => ess=(1-q)
+        },
+        { q }
+      )
     }
 
     this._weight(n, log_wr(1, n, weight, this), log_wr)
