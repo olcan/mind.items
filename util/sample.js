@@ -2228,9 +2228,9 @@ class _Sampler {
         const j_best = _max_index_by(xJ.length, j => wJ[j])
         const x_post = xJ[j_best]
         const w_post = wJ[j_best]
-        const w_prior = pwX.get(x_post)
+        const w_prior = pwX.get(x_post) ?? 0
         const delta = w_post - w_prior
-        row.push(str(x_post))
+        row.push(str(round_to(x_post, 2)))
         row.push(`${nstr(w_prior)} → ${nstr(w_post)}`)
         row.push((delta > 0 ? '+' : '') + nstr(delta))
       }
