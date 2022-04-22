@@ -1167,19 +1167,15 @@ class _Sampler {
       return v
     }
 
-    // transforms numeric arrays into transferable typed arrays
-    // note we check type at index 0 only, assuming uniformly typed arrays
-    const convert_transferables = v => {
-      return v // disabled for now due to inefficiency
+    // clones typed arrays and adds their buffers to transferables array
+    const clone_transferables = v => {
+      return v // disabled for now because bottleneck is functions (log_wrfJN)
       if (is_array(v)) {
-        if (is_number(v[0])) {
-          v = new Float32Array(v)
-          transferables.push(v.buffer)
-          return v
-        }
-        return apply(v, convert_transferables)
-      }
-      if (is_object(v)) for (const k in v) v[k] = convert_transferables(v[k])
+        if (v instanceof TypedArray) transferables.push((v = v.slice()).buffer)
+        else if (is_primitive(v[0])) return v // just move for efficiency
+        else return apply(v, clone_transferables)
+      } else if (is_object(v))
+        for (const k in v) v[k] = clone_transferables(v[k])
       return v
     }
 
@@ -1194,7 +1190,7 @@ class _Sampler {
       return obj
     }
 
-    return convert_transferables(
+    return clone_transferables(
       delete_nulls(
         clone_deep_with(this, (v, k, obj) => {
           if (v == this) return // ignore first call at top level
@@ -1480,8 +1476,12 @@ class _Sampler {
       samples: 0,
       time: {
         sample: 0,
-        clone: 0,
-        merge: 0,
+        ...(options.workers
+          ? {
+              clone: 0,
+              merge: 0,
+            }
+          : {}),
         targets: 0,
         prior: 0,
         update: 0,
@@ -2215,7 +2215,7 @@ class _Sampler {
     each(this.values, (value, k) => {
       let row = [value.name]
       const number = is_number(value.first)
-      const nstr = x => round_to(x, 2)?.toFixed(2)
+      const nstr = x => round_to(x, '2')
       const wtd_mean = (xJ, wJ) => dot(xJ, wJ) / sum(wJ)
       // get weighted prior and posterior & remove undefined values
       const pxJ = array(J, j => pxJK[j][k])
@@ -2294,6 +2294,12 @@ class _Sampler {
           ...pick_by(stats.time, is_number),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
+          ...(this.workers
+            ? {
+                cps: round_to(stats.time.clone / stats.samples, '2'),
+                mps: round_to(stats.time.merge / stats.samples, '2'),
+              }
+            : {}),
         })
       ),
       '_md_time'

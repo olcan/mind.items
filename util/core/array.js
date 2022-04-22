@@ -106,7 +106,7 @@ function copy(xJ, yJ, f, g) {
   if (yJ === undefined) return xJ.slice() // single-arg mode
   // single-array mode: shift args and allocate xJ
   if (!yJ || is_function(yJ)) return copy(array(xJ.length), ...arguments)
-  xJ.length = yJ.length // resize xJ if needed
+  if (xJ.length != yJ.length) xJ.length = yJ.length // resize xJ if needed
   // filter mode; use function g to filter yJ into (resized) xJ
   if (g) {
     let jx = 0
