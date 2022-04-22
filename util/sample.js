@@ -336,7 +336,8 @@ function density(x, domain) {
 // |               | ignored if no targets specified via `target(s)` option
 // |               | used only as diagnostic test, not as stopping condition
 // |               | _default_: `5` ≡ failure to reject same-dist at `α<1/32`
-// | `context`     | object of values captured from parent context
+// | `context`     | object of values to be captured from calling context
+// |               | can be function to be invoked once for context object
 function sample(domain, options = undefined) {
   // this function can only be invoked for a "root" sampler domain
   // root sampler domain can be a function or string '(context=>{…})'
@@ -496,6 +497,13 @@ class _Sampler {
     // in sync mode, create _SampleSync defined dynamically below
     if (!options.async && this.constructor.name != '_SamplerSync')
       return new _SamplerSync(func, options)
+
+    if (options.context) {
+      // invoke context if specified as function
+      // note workers get passed the context as object
+      if (is_function(options.context)) options.context = options.context()
+      if (!is_object(options.context)) fatal('invalid context')
+    }
 
     this.options = options
     this.domain = func // save sampler function as domain
