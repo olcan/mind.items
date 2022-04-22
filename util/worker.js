@@ -72,9 +72,11 @@ function init_worker(options = {}) {
 }
 
 function _pre_init_js(options) {
-  function pre_init(item) {
+  function pre_init(item, silent) {
     // emulate global functions to log errors
-    self._item = () => (console.error('_item not available in worker'), null)
+    self._item = () => (
+      silent || console.warn('_item not available in worker'), null
+    )
     // emulate _this to redirect (most) _Item methods to initializing item
     // see #util/item for listing of _Item methods
     self._this = new Proxy(

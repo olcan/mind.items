@@ -573,6 +573,7 @@ class _Sampler {
     const sampler = f => f(this.sample())
     this._prior = this._posterior = sampler
     // TODO: this is missing _log_p, and should probably be modeled after discrete_uniform with a check for full ess to force uniform weights
+    // TODO: also need to make all these functions portable for them to work on workers!
 
     // initialize run state
     this.xJK = matrix(J, K) // samples per run/value
@@ -1150,11 +1151,12 @@ class _Sampler {
 
     // checks if value is a function or contains a function
     // we assume (for now) that function-free means cloneable
+    // note large function arrays (e.g. log_wrfJN) should be handled separately
     // for official list of cloneable types see https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm#supported_types
     const has_function = v =>
       is_function(v) ||
       (is_array(v)
-        ? has_function(v[0]) // assume uniform arrays
+        ? some(v, has_function) // assume uniform arrays
         : is_object(v) && some(values(v), has_function))
 
     // transforms functions to cloneable objects
