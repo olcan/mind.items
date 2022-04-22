@@ -327,6 +327,7 @@ function _test_str() {
 // round `x` to `d` decimal places
 // `d` can be negative for digits _before_ decimal point
 // `d` can be restricted to at most `s` significant (non-zero) digits
+// `d` can be a string (e.g. `'3'`) to fix digits after decimal point
 // `mode` string can be `round`, `floor`, or `ceil`
 // rounds arrays recursively by copying
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
@@ -334,6 +335,7 @@ const round_to = (x, d = 0, s = inf, mode = 'round') => {
   if (is_object(x)) return map_values(x, v => round_to(v, d, s, mode))
   if (!is_finite(x)) return x // return non-finite (incl. non-number) as is
   if (d == 0 && s == inf) return Math[mode](x) // just use Math.*
+  if (is_string(d)) return round_to(x, parseInt(d), s, mode).toFixed(d)
   // determine d automatically if s<inf
   if (s < inf) {
     if (!(s > 0)) fatal(`invalid significant digits ${s}`)
