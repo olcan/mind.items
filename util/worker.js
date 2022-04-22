@@ -10,18 +10,22 @@ function init_worker(options = {}) {
   const host = location.protocol + '//' + location.host
   const js = [
     imports.filter(s => s[0] == '/').map(s => `import '${host}/lodash.min.js'`),
+    '(() => {', // wrapper, prevents silent (hard to debug) init failures
     _pre_init_js(options),
-    imports.filter(s => s[0] == '#').map(s => _item(s)?.read_deep('js')),
-    `self.onmessage = function(e){ console.log('worker got message'); self.onmessage=null; eval(e.data) }`,
+    imports
+      .filter(s => s[0] == '#')
+      .map(s => _item(s)?.read_deep('js', { replace_ids: true })),
+    `self.onmessage = function(e){ self.onmessage=null; eval(e.data) }`,
+    '})()',
   ]
     .flat()
     .filter(s => s)
     .join(';\n')
-  console.log(js)
-  const worker = new Worker(
-    URL.createObjectURL(new Blob([js], { type: 'application/javascript' })),
-    { type: 'module' }
-  ) // module workers support import keyword
+  const blob = URL.createObjectURL(
+    new Blob([js], { type: 'application/javascript' })
+  )
+  // console.log(blob)
+  const worker = new Worker(blob, { type: 'module' }) // module workers support import keyword
   worker.id = _hash(Date.now()) // unique id based on init time
   worker.item = _this // creator item
   worker.host = host // host url for imports
@@ -44,7 +48,6 @@ function init_worker(options = {}) {
   // initialize worker via initial eval
   function init(id, item, host, silent) {
     const start = Date.now()
-    console.log('initializing worker!')
 
     // load lodash as _ (not for module workers, which can use import keyword)
     // importScripts(host + '/lodash.min.js')
@@ -61,7 +64,6 @@ function init_worker(options = {}) {
 
     if (!silent) print(`initialized worker ${id} in ${Date.now() - start}ms`)
   }
-  console.log('posting message to worker')
   worker.postMessage(
     `(${init})('${worker.id}','${_this.name}','${host}',${options.silent})`
   )
@@ -71,7 +73,9 @@ function init_worker(options = {}) {
 
 function _pre_init_js(options) {
   function pre_init(item) {
-    // set up _this to redirect (most) _Item methods to initializing item
+    // emulate global functions to log errors
+    self._item = () => (console.error('_item not available in worker'), null)
+    // emulate _this to redirect (most) _Item methods to initializing item
     // see #util/item for listing of _Item methods
     self._this = new Proxy(
       {},
@@ -126,7 +130,7 @@ function eval_on_worker(worker, js, options = {}) {
   if (transfer) transfer = [transfer].flat()
   if (typeof js == 'function') js = `(${js})()`
   if (!is_string(js)) fatal(`invalid argument js; must be function or string`)
-  js = [deps?.map(s => _item(s)?.read_deep('js')), js]
+  js = [deps?.map(s => _item(s)?.read_deep('js', { replace_ids: true })), js]
     .filter(s => s)
     .join(';\n')
 
