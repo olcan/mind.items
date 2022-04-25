@@ -20,6 +20,7 @@ function uniform(a, b) {
   // undefined if a or b non-finite
   if (!is_finite(a) || !is_finite(b)) return undefined
   if (a >= b) return null // empty (null) if a >= b
+  // return new Uniform(a, b)
   const dom = { gt: a, lt: b }
   dom._prior = f => f(a + (b - a) * random())
   const log_z = -log(b - a) // z ⊥ x
@@ -29,6 +30,41 @@ function uniform(a, b) {
   dom._log_p = x => log_z
   dom._posterior = _uniform_posterior(a, b, dom._prior)
   return dom
+}
+
+// TODO: either switch to this new architecture, or remove this
+class Uniform {
+  constructor(a, b) {
+    this.gt = a
+    this.lt = b
+  }
+  _log_p(x) {
+    const a = this.gt
+    const b = this.lt
+    // note _log_p can assume x inside domain, sampled via _prior or _posterior
+    // density(x, domain) can be used to ensure -inf outside domain
+    // otherwise we need x => (x <= a || x >= b ? -inf : log_z)
+    return this.__log_p ?? define_value(this, '__log_p', -log(b - a))
+  }
+  _prior(f) {
+    const a = this.gt
+    const b = this.lt
+    return f(a + (b - a) * random())
+  }
+  _posterior(f, x, stdev) {
+    if (!stdev) return this._prior(f) // degenerate sample
+    const a = this.gt
+    const b = this.lt
+    const r = min((b - a) / 2, stdev) // chosen based on aps in examples
+    const xa = max(x - r, a)
+    const xb = min(x + r, b)
+    const y = xa + (xb - xa) * random()
+    const ya = max(y - r, a)
+    const yb = min(y + r, b)
+    // log(q(x|y)) - log(q(y|x))
+    const log_mw = -log(yb - ya) - -log(xb - xa)
+    return f(y, log_mw)
+  }
 }
 
 function _log_p_normalized(sampler, a, b) {

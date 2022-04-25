@@ -572,8 +572,8 @@ class _Sampler {
     // for efficiency, we require parent to ensure ess≈J s.t. weights≈0
     const sampler = f => f(this.sample())
     this._prior = this._posterior = sampler
-    // TODO: this is missing _log_p, and should probably be modeled after discrete_uniform with a check for full ess to force uniform weights
-    // TODO: also need to make all these functions portable for them to work on workers!
+    // TODO: implement _log_p like discrete_uniform w/ built-in full-ess check (to be able to assume uniform weights)
+    // TODO: also consider switching to new model where ALL samplers are portable, but first explore more efficient alternatives to current implementation of portability
 
     // initialize run state
     this.xJK = matrix(J, K) // samples per run/value
@@ -3107,9 +3107,9 @@ class _Sampler {
 
     // require prior and log_p to be defined via domain or options
     // note we do not auto-wrap as constant(domain) for now
-    const prior = opt?.prior ?? domain._prior
+    const prior = opt?.prior ?? domain._prior //.bind(domain)
     if (!prior) fatal('missing prior sampler (_prior)')
-    const log_p = opt?.log_p ?? domain._log_p
+    const log_p = opt?.log_p ?? domain._log_p //.bind(domain)
     if (!log_p) fatal('missing prior density (_log_p)')
 
     // if not moving, sample from prior into xJK
@@ -3186,7 +3186,7 @@ class _Sampler {
     }
 
     // if at k_pivot, move from xjk along posterior chain
-    const posterior = opt?.posterior ?? domain._posterior
+    const posterior = opt?.posterior ?? domain._posterior //.bind(domain)
     if (!posterior) fatal('missing posterior sampler (_posterior)')
     // upJK[j][k] = this.u // jump proposed
     return posterior(
@@ -3325,6 +3325,16 @@ class _Sampler {
         { domain_log_wr, c, d, log_p }
       )
     } else {
+      // TODO: benchmark different mechanisms for storing context/args for a shared function
+      // TODO: study cost of function creation, pack/unpack, etc
+      //       (remember functions for looping/etc are still created once)
+      // TODO: make these functions global/static
+      // TODO: figure out another way to store/pack/unpack context
+      // TODO: figure out another way to transfer these functions, e.g. by name
+      // TODO: you could perhaps use bind but that also creates a new function
+      // TODO: most efficient way may be to store a special kind of object that
+      //       knows which function to invoke on its state
+
       log_wr = capture(
         (r, n, weight) => {
           if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
