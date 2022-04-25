@@ -3221,11 +3221,6 @@ class _Sampler {
     '_Sampler._condition_log_wr'
   )
 
-  static _weight_log_wr = packable(
-    (log_w, r) => r * log_w, // note r > 0
-    '_Sampler._weight_log_wr'
-  )
-
   _condition(n, cond, log_wr = cond._log_wr) {
     const weight = this.weights[n]
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
@@ -3241,6 +3236,11 @@ class _Sampler {
     }
     return cond
   }
+
+  static _weight_log_wr = packable(
+    (log_w, r) => r * log_w, // note r > 0
+    '_Sampler._weight_log_wr'
+  )
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
     const {
