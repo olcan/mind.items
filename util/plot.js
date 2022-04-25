@@ -13,11 +13,11 @@ function plot(obj, name = undefined) {
   if (!obj.data) obj = { data: obj } // data-only obj
   let {
     data, // required
-    renderer = 'table', // string or portable function
+    renderer = 'table', // string or packable function
     renderer_options, // options for renderer, passed via stringify/parse
     encoding = 'json', // used as language for markdown block
     encoder = stringify, // must be function (invoked by plot)
-    decoder = 'parse', // string or portable function
+    decoder = 'parse', // string or packable function
     dependencies, // optional dependencies (besides #_util/plot)
     caption, // optional caption block (default: _md|markdown_<name> if exists)
     title, // optional title markdown placed immediately after label

@@ -154,12 +154,12 @@ function _test_transpose_objects() {
 }
 
 // pack function(s)
-// object can be cloned, stringified, unpacked
+// enables cloning & stringification
 // applies recursively through objects/arrays
-// properties on functions are preserved & packed
-// property `__context` can store _captured_ references
-// property `__bindings` can store _bound_ arguments
-// function must be _portable_ w/o external references outside `__context`
+// preserves (and packs) properties on functions
+// property `__context` can store external references
+// property `__bindings` can store fixed (_bound_) arguments
+// function must be _packable_, w/o external references outside `__context`
 function pack(f) {
   if (is_array(f)) return f.map(pack)
   if (is_object(f)) return map_values(f, pack)
@@ -178,7 +178,6 @@ function pack(f) {
 // object can be packed again
 // applies recursively through objects/arrays
 // modifies objects/arrays _in place_ (clone before unpack if needed)
-// functions must be _portable_ and packed using `pack` (see above)
 function unpack(o) {
   if (!is_object(o)) return o // nothing to unpack for non-objects
   // avoid redundant unpacking (e.g. in parse) via non-enumerable flag
@@ -214,16 +213,10 @@ function unpack(o) {
   return f
 }
 
-// captures context for function
-// attaches context to function as `__context`
-// can make function _portable_ for packing (see `pack` above)
-const capture = (f, context) => set(f, '__context', context)
-
-// binds arguments for function
+// bind arguments for function
 // attaches arguments to function as `__bindings`
 // preserves any properties on original function
 // preserves string form of underlying function as `__function`
-// can make function _portable_ for packing (see `pack` above)
 const bind = (f, ...args) => {
   if (f.__bindings) fatal(`function already bound`)
   const g = f.bind(null, ...args)
@@ -237,8 +230,19 @@ const bind = (f, ...args) => {
   return g
 }
 
+// capture `context` for function
+// attaches `context` object to function as `__context`
+// can be used to `pack` functions w/ external references
+const capture = (f, context) => set(f, '__context', context)
+
+// designate function packable as `str`
+// attaches string to function as `__function`
+// overrides default string form based on `toString`
+// can be used to `pack` global functions by reference
+const packable = (f, str) => set(f, '__function', str)
+
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
-// all functions must be _portable_ (see `pack` above)
+// all functions must be _packable_ (see `pack` above)
 function stringify(value) {
   return JSON.stringify(value, function (k, v) {
     if (is_function(v)) return pack(v)
@@ -247,7 +251,7 @@ function stringify(value) {
 }
 
 // [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
-// all functions must be _portable_ (see `pack` above)
+// all functions must be _packable_ (see `pack` above)
 function parse(text) {
   return JSON.parse(text, function (k, v) {
     if (is_object(v) && is_string(v.__function)) return unpack(v)
