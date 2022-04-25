@@ -7,6 +7,12 @@ const from_pairs = _.fromPairs
 const to_pairs = _.toPairs
 const define = Object.defineProperty
 
+// define `value` for property
+// does not modify existing properties
+const define_value = (obj, prop, value, options = undefined) => (
+  define(obj, prop, { value, ...options }), value
+)
+
 const get = _.get
 const set = _.set
 const unset = _.unset
