@@ -209,7 +209,7 @@ function unpack(o) {
 
   // preserve properties (already unpacked recursively above)
   // include __function/__context/__bindings for possible re-packing
-  // note __function remains original function w/o context or bindings
+  // note __function remains original function (w/o context or bindings)
   for (const k in o) f[k] = o[k]
   return f
 }
