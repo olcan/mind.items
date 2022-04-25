@@ -830,13 +830,13 @@ class _Sampler {
         if (!s.xt._trace || !s.xt._events || !s.xt._states)
           fatal(`missing history in simulated state w/ J==1`)
         const trace = s.xt._trace.map(e =>
-          define(e, '_print', { value: print_trace })
+          define_value(e, '_print', print_trace)
         )
         const events = s.xt._events.map(e =>
-          define(e, '_print', { value: print_event })
+          define_value(e, '_print', print_event)
         )
         const states = s.xt._states.map(e =>
-          define(e, '_print', { value: print_state })
+          define_value(e, '_print', print_state)
         )
         const history = sort_by([...events, ...trace, ...states], h => h.t)
         for (const h of history) h._print(h)
@@ -1159,14 +1159,6 @@ class _Sampler {
         ? some(v, has_function) // assume uniform arrays
         : is_object(v) && some(values(v), has_function))
 
-    // transforms functions to cloneable objects
-    const pack_functions = v => {
-      if (is_function(v)) return pack(v)
-      if (is_array(v)) return v.map(pack_functions)
-      if (is_object(v)) return map_values(v, pack_functions)
-      return v
-    }
-
     // clones typed arrays and adds their buffers to transferables array
     const clone_transferables = v => {
       return v // disabled for now because bottleneck is functions (log_wrfJN)
@@ -1212,7 +1204,7 @@ class _Sampler {
             if (js > 0 || je < this.J) v = v.slice(js, je)
             if (k.includes('fJ')) {
               if (debug) print(`packing ${path(v, k, obj)}[${js},${je})`)
-              v = pack_functions(v)
+              v = pack(v)
             } else if (debug) print(`slicing ${path(v, k, obj)}[${js},${je})`)
             return v
           }
@@ -1231,8 +1223,8 @@ class _Sampler {
               return v
             }
             if (debug && v.__key === undefined) {
-              define(v, '__key', { value: k })
-              define(v, '__parent', { value: obj })
+              define_value(v, '__key', k)
+              define_value(v, '__parent', obj)
             }
           }
 
@@ -1256,15 +1248,8 @@ class _Sampler {
       return 'this.' + path
     }
 
-    const unpack_functions = v => {
-      if (is_string(v?.__function)) return unpack(v)
-      if (is_array(v)) return apply(v, unpack_functions)
-      if (is_object(v)) for (const k in v) v[k] = unpack_functions(v[k])
-      return v
-    }
-
     merge_with(this, from, (x, v, k, obj) => {
-      if (is_string(v?.__function)) {
+      if (is_object(v) && is_string(v.__function)) {
         if (debug) print(`unpacking ${path(v, k, obj)}`)
         return unpack(v)
       }
@@ -1273,18 +1258,20 @@ class _Sampler {
         const je = js + v.length
         if (k.includes('fJ')) {
           if (debug) print(`unpacking ${path(v, k, obj)}[${js},${je})`)
-          v = unpack_functions(v)
+          v = unpack(v)
         } else if (debug) print(`merging ${path(v, k, obj)}[${js},${je})`)
         return copy_at(x, v, js)
       }
-      // set up __key/__parent for logging nested properties in debug mode
-      if (debug && is_object(x) && x.__key === undefined) {
-        define(x, '__key', { value: k })
-        define(x, '__parent', { value: obj })
+      if (debug) {
+        // set up __key/__parent for logging nested properties in debug mode
+        if (is_object(x) && x.__key === undefined) {
+          define_value(x, '__key', k)
+          define_value(x, '__parent', obj)
+        }
+        // log all merged values (except nested primitives) in debug mode
+        if (!is_primitive(v) || obj == this)
+          print(`merging ${path(v, k, obj)} (${typeof v})`)
       }
-      // log all merged values (except nested primitives) in debug mode
-      if (debug && (!is_primitive(v) || obj == this))
-        print(`merging ${path(v, k, obj)} (${typeof v})`)
     })
   }
 
@@ -3100,7 +3087,7 @@ class _Sampler {
     if (is_function(domain)) {
       domain = value.domain ?? new _Sampler(domain, opt)
       if (size(opt?.context) == 0 && !value.domain)
-        define(value, 'domain', { value: domain }) // non-enumerable
+        define_value(value, 'domain', value) // non-enumerable
       if (!approx_equal(domain.ess, domain.J, 1e-3))
         fatal('sampler domain failed to achieve full ess')
     }
@@ -3325,24 +3312,26 @@ class _Sampler {
         { domain_log_wr, c, d, log_p }
       )
     } else {
-      // TODO: benchmark different mechanisms for storing context/args for a shared function
-      // TODO: study cost of function creation, pack/unpack, etc
-      //       (remember functions for looping/etc are still created once)
-      // TODO: make these functions global/static
-      // TODO: figure out another way to store/pack/unpack context
-      // TODO: figure out another way to transfer these functions, e.g. by name
-      // TODO: you could perhaps use bind but that also creates a new function
-      // TODO: most efficient way may be to store a special kind of object that
-      //       knows which function to invoke on its state
-
-      log_wr = capture(
-        (r, n, weight) => {
+      // TODO: try using bindings instead of context
+      // log_wr = capture(
+      //   (r, n, weight) => {
+      //     if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
+      //     if (d == 0) return r * log_p // inside OR unknown distance, note r>0
+      //     const [z, b] = weight.stats // from _stats below
+      //     return r * b + log(1 - r) * (1 + 100 * d * z)
+      //   },
+      //   { c, d, log_p }
+      // )
+      log_wr = bind(
+        (c, d, log_p, r, n, weight) => {
           if (r == 1) return d == 0 ? log_p : -inf // log_p vs 0 in default log_w
           if (d == 0) return r * log_p // inside OR unknown distance, note r>0
           const [z, b] = weight.stats // from _stats below
           return r * b + log(1 - r) * (1 + 100 * d * z)
         },
-        { c, d, log_p }
+        c,
+        d,
+        log_p
       )
       log_wr._d = d // distance for scaling factor z
       log_wr._log_p = c ? log_p : inf // log_p for base offset b

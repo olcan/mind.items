@@ -153,49 +153,64 @@ function _test_transpose_objects() {
   )
 }
 
-// pack function into object
-// object can be cloned or stringified
-// properties on function are preserved, packed as needed
-// property `__context` can be used to _capture_ references
-// property `__context` can be a function invoked once for context
+// pack function(s)
+// object can be cloned, stringified, unpacked
+// applies recursively through objects/arrays
+// properties on functions are preserved & packed
+// property `__context` can store _captured_ references
+// property `__bindings` can store _bound_ arguments
 // function must be _portable_ w/o external references outside `__context`
 function pack(f) {
-  // transform function to object w/ property __function
-  // copy any properties of function, e.g. __context (see parse below)
-  // if __context is a function, it is invoked here and must return object
-  const ctx = is_function(f.__context) ? f.__context() : f.__context
-  if (defined(ctx) && !is_object(ctx))
-    fatal(`invalid non-object __context in function`)
-  const o = {}
-  // collapse all leading spaces not inside backticks
-  o.__function = f
+  if (is_array(f)) return f.map(pack)
+  if (is_object(f)) return map_values(f, pack)
+  if (!is_function(f)) return f // nothing to pack
+  const o = map_values(f, pack) // preserve properties
+  // store (compact) string form as __function
+  // reuse __function if already set (e.g. via bind or unpack)
+  o.__function ??= f
     .toString()
+    // collapse all leading spaces not inside backticks
     .replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n '))
-  // copy context object
-  if (ctx) o.__context = ctx
-  // copy any other properties, transforming recursively as needed
-  for (const k in f)
-    if (k != '__context') o[k] = is_function(f[k]) ? pack(f[k]) : f[k]
   return o
 }
 
-// unpack function from object
-// object must be from `pack` (see above)
-// packed function must be portable (see `pack` above)
+// unpack function(s)
+// object can be packed again
+// applies recursively through objects/arrays
+// modifies objects/arrays _in place_ (clone before unpack if needed)
+// functions must be _portable_ and packed using `pack` (see above)
 function unpack(o) {
-  // transform {__function:...} object back to function
-  // use wrapper to treat object v.__context as function context
-  if (defined(o.__context) && !is_object(o.__context))
-    fatal(`invalid non-object __context in object {__function:...}`)
+  if (!is_object(o)) return o // nothing to unpack for non-objects
+  // avoid redundant unpacking (e.g. in parse) via non-enumerable flag
+  if (o.__unpacked) return o // already unpacked
+  define_value(o, '__unpacked', true)
+
+  if (is_array(o)) return apply(o, unpack)
+  // handle object, which may be packed function
+  for (const k in o) o[k] = unpack(o[k])
+  if (!is_string(o.__function)) return o // nothing (else) to unpack
   const js = o.__function
-  const f = o.__context
-    ? global_eval(`(({${keys(o.__context)}})=>(${js}))`)(o.__context)
-    : global_eval(`(${js})`) // parentheses required for function(){...}
-  // copy any other properties, transforming recursively as needed
-  // note __context is no longer needed since absorbed into function
-  for (const k in o)
-    if (k != '__function' && k != '__context')
-      f[k] = is_string(o[k]?.__function) ? unpack(o[k]) : o[k]
+  let f
+
+  // apply captured context (already unpacked recursively above)
+  if (o.__context) {
+    if (!is_object(o.__context))
+      fatal(`invalid non-object __context in object {__function:...}`)
+    f = global_eval(`(({${keys(o.__context)}})=>(${js}))`)(o.__context)
+  }
+  f ??= global_eval(`(${js})`) // parentheses required for function(){...}
+
+  // apply bindings (already unpacked recursively above)
+  if (o.__bindings) {
+    if (!is_array(o.__bindings))
+      fatal(`invalid non-array __bindings in object {__function:...}`)
+    f = f.bind(null, ...o.__bindings)
+  }
+
+  // preserve properties (already unpacked recursively above)
+  // include __function/__context/__bindings for possible re-packing
+  // note __function remains original function w/o context or bindings
+  for (const k in o) f[k] = o[k]
   return f
 }
 
@@ -203,6 +218,24 @@ function unpack(o) {
 // attaches context to function as `__context`
 // can make function _portable_ for packing (see `pack` above)
 const capture = (f, context) => set(f, '__context', context)
+
+// binds arguments for function
+// attaches arguments to function as `__bindings`
+// preserves any properties on original function
+// preserves string form of underlying function as `__function`
+// can make function _portable_ for packing (see `pack` above)
+const bind = (f, ...args) => {
+  if (f.__bindings) fatal(`function already bound`)
+  const g = f.bind(null, ...args)
+  for (const k in f) g[k] = f[k] // preserve properties
+  // preserve (compact) string form
+  g.__function ??= f
+    .toString()
+    // collapse all leading spaces not inside backticks
+    .replace(/`.*`|\n\s+/gs, m => (m[0] == '`' ? m : '\n '))
+  g.__bindings = args
+  return g
+}
 
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
 // all functions must be _portable_ (see `pack` above)
@@ -217,7 +250,7 @@ function stringify(value) {
 // all functions must be _portable_ (see `pack` above)
 function parse(text) {
   return JSON.parse(text, function (k, v) {
-    if (is_string(v?.__function)) return unpack(v)
+    if (is_object(v) && is_string(v.__function)) return unpack(v)
     return v
   })
 }
@@ -240,7 +273,7 @@ function _test_parse() {
           })
         )
       ),
-      '{ f:a [function Function] { b:2 c:{ d:3 } } }',
+      "{ f:a [function Function] { __context:{ a:1 } b:2 c:{ d:3 } __function:'() => a' } }",
     ]
   )
 }
