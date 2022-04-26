@@ -2757,9 +2757,11 @@ class _Sampler {
   }
 
   __elw() {
-    const { J, rwJ, rwj_sum, log_wrfJN } = this
+    const { J, rwJ, rwj_sum, log_wrfJN, weights } = this
     const log_wJ = (this.___elw_log_wJ ??= array(J))
-    fill(log_wJ, j => sum(log_wrfJN[j], f => f?.(1) ?? 0))
+    fill(log_wJ, j =>
+      sum(log_wrfJN[j], (f, n) => f?.(1, n, weights[n], this) ?? 0)
+    )
     const z = 1 / rwj_sum
     return sum(log_wJ, (log_wj, j) => {
       if (rwJ[j] == 0) return 0 // take 0 * -inf == 0 instead of NaN
