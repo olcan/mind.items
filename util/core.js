@@ -203,9 +203,9 @@ function unpack(o) {
   if (o.__bindings) {
     if (!is_array(o.__bindings))
       fatal(`invalid non-array __bindings in object {__function:...}`)
-    f = f.bind(null, ...o.__bindings)
-    // const ff = f
-    // f = (...args) => ff(...o.__bindings, ...args)
+    const _f = f
+    f = (...args) => _f(...o.__bindings, ...args) // faster in Safari
+    // f = f.bind(null, ...o.__bindings)
     // f = _.bind(f, null, ...o.__bindings) // SLOWEST
   }
 
