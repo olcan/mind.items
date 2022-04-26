@@ -581,6 +581,8 @@ class _Sampler {
     this.yJK = matrix(J, K) // posterior samples per run/value
     this.log_p_xJK = matrix(J, K) // sample (prior) log-densities
     this.log_p_yJK = matrix(J, K) // posterior sample (prior) log-densities
+    // this.log_p_xJK = array(J, () => new Float32Array(K)) // sample (prior) log-densities
+    // this.log_p_yJK = array(J, () => new Float32Array(K)) // posterior sample (prior) log-densities
     // this.domJK = matrix(J, K) // sampler domains per run/value
 
     this.kJ = array(J) // array of (posterior) pivot values in _move
@@ -601,13 +603,18 @@ class _Sampler {
     this.aK = array(K) // move accepts per pivot value
     this.upK = array(K) // move proposals per jump value
     this.uaK = array(K) // move accepts per jump value
-    this.log_pwJ = array(J) // prior log-weights per run
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
     this.rN = array(N) // relaxation parameters
+    this.log_pwJ = array(J) // prior log-weights per run
     this.log_wrJ = array(J) // posterior relaxed log-weights
     this.log_rwJ = array(J) // posterior/sample ratio log-weights
     this.log_mwJ = array(J) // posterior move log-weights
     this.log_mpJ = array(J) // posterior move log-densities
+    // this.log_pwJ = new Float32Array(J) // prior log-weights per run
+    // this.log_wrJ = new Float32Array(J) // posterior relaxed log-weights
+    // this.log_rwJ = new Float32Array(J) // posterior/sample ratio log-weights
+    // this.log_mwJ = new Float32Array(J) // posterior move log-weights
+    // this.log_mpJ = new Float32Array(J) // posterior move log-densities
     this.log_cwrJ = array(J) // posterior candidate relaxed log-weights
     this.log_cwrfJN = matrix(J, N) // posterior candidate log-weight relaxations
     this.xJ = array(J) // return values
@@ -1161,7 +1168,7 @@ class _Sampler {
 
     // clones typed arrays and adds their buffers to transferables array
     const clone_transferables = v => {
-      return v // disabled for now because bottleneck is functions (log_wrfJN)
+      return v // disabled for now because does not appear to be a bottleneck
       if (is_array(v)) {
         if (v instanceof TypedArray) transferables.push((v = v.slice()).buffer)
         else if (is_primitive(v[0])) return v // just move for efficiency
@@ -1341,6 +1348,8 @@ class _Sampler {
       let merge_time = 0
       let worker_clone_times = []
       let worker_merge_times = []
+      let worker_input_times = []
+      let worker_output_times = []
       const evals = workers.map((worker, w) => {
         const { js, je } = worker
         const transferables = []
@@ -1360,6 +1369,7 @@ class _Sampler {
           worker,
           () => {
             try {
+              const input_time = Date.now() - eval_time
               const [, merge_time] = timing(() => sampler._merge(input))
               sampler._sample_func()
               const transferables = []
@@ -1371,7 +1381,9 @@ class _Sampler {
                 output,
                 merge_time,
                 clone_time,
+                input_time,
                 transfer: transferables,
+                done_time: Date.now(),
               })
             } catch (error) {
               postMessage({ error }) // report error
@@ -1379,14 +1391,17 @@ class _Sampler {
             }
           },
           {
-            context: { s, input, output_exclusions },
+            context: { s, input, output_exclusions, eval_time: Date.now() },
             transfer: transferables,
             done: e => {
+              const output_time = Date.now() - e.data.done_time
               // note this merge should advance this.s
               const [, t] = timing(() => this._merge(e.data.output, js, debug))
               merge_time += t
               worker_clone_times.push(e.data.clone_time)
               worker_merge_times.push(e.data.merge_time)
+              worker_input_times.push(e.data.input_time)
+              worker_output_times.push(output_time)
               // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
@@ -1402,6 +1417,9 @@ class _Sampler {
         if (this.stats) {
           this.stats.time.clone += clone_time + max_in(worker_clone_times)
           this.stats.time.merge += merge_time + max_in(worker_merge_times)
+          this.stats.time.transfer += max_in(
+            add(worker_input_times, worker_output_times)
+          )
         }
       } catch (e) {
         console.error(`sample ${s} failed on worker;`, e)
@@ -1469,9 +1487,9 @@ class _Sampler {
           ? {
               clone: 0,
               merge: 0,
+              transfer: 0,
             }
           : {}),
-        targets: 0,
         prior: 0,
         update: 0,
         updates: {
@@ -2287,6 +2305,7 @@ class _Sampler {
             ? {
                 cps: round_to(stats.time.clone / stats.samples, '2'),
                 mps: round_to(stats.time.merge / stats.samples, '2'),
+                tps: round_to(stats.time.transfer / stats.samples, '2'),
               }
             : {}),
         })
