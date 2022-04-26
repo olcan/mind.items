@@ -736,6 +736,7 @@ class _Sampler {
 
   async _init_workers() {
     const { J } = this
+    if (J == 1) return // no workers in debug mode
     const W = this.options.workers
     const timer = _timer()
     this.workers = []
@@ -743,7 +744,8 @@ class _Sampler {
     let j = 0
     while (j < J) {
       js = j
-      j = je = min(J, j + ceil(max(1, J / W)))
+      j = je = min(J, j + max(2, ceil(J / W))) // at least 2 per worker
+      if (je == J - 1) j = je = J // avoid J=1 (debug mode) on last worker
       const worker = init_worker({ silent: true /* logged here */ })
       assign(worker, { index: this.workers.length, js, je })
       eval_on_worker(
@@ -1288,7 +1290,7 @@ class _Sampler {
     const { s, func, xJ, yJ, moving, workers, stats } = this
     const timer = _timer_if(stats)
 
-    // note we sample prior locally to allow value.target to be calculated and kept on main thread
+    // note we sample prior (s=0) locally to allow value.target to be calculated and kept on main thread
     if (workers && s > 0) {
       const exclusions = new Set([
         'options', // separate on worker (see _init_workers)
