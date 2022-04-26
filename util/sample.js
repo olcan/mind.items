@@ -1246,7 +1246,7 @@ class _Sampler {
   }
 
   _merge(from, js = 0, debug = false) {
-    // TODO: why is merge still relatively slow compared to clone?
+    // TODO: is it reasonable for merge to be relatively slow compared to clone?
 
     const path = (v, k, obj) => {
       if (v == this) return 'this'
