@@ -204,13 +204,15 @@ function unpack(o) {
     if (!is_array(o.__bindings))
       fatal(`invalid non-array __bindings in object {__function:...}`)
     f = f.bind(null, ...o.__bindings)
+    // const ff = f
+    // f = (...args) => ff(...o.__bindings, ...args)
+    // f = _.bind(f, null, ...o.__bindings) // SLOWEST
   }
 
   // preserve properties (already unpacked recursively above)
   // include __function/__context/__bindings for possible re-packing
   // note __function remains original function (w/o context or bindings)
-  for (const k in o) f[k] = o[k]
-  return f
+  return assign(f, o)
 }
 
 // bind arguments for function
