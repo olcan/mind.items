@@ -743,7 +743,7 @@ class _Sampler {
     let j = 0
     while (j < J) {
       js = j
-      j = je = min(J, j + ~~max(1, J / W))
+      j = je = min(J, j + ceil(max(1, J / W)))
       const worker = init_worker({ silent: true /* logged here */ })
       assign(worker, { index: this.workers.length, js, je })
       eval_on_worker(
@@ -781,8 +781,8 @@ class _Sampler {
           },
           done: e => {
             // print(
-            //   `init eval done on worker ${worker.index} in ${timer}`,
-            //   str(e.data)
+            //   `init eval done on worker ${worker.index} ` +
+            //     `[${worker.js},${worker.je}) in ${timer}`
             // )
           },
         }
