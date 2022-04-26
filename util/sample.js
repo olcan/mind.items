@@ -1285,8 +1285,8 @@ class _Sampler {
   }
 
   async _sample_func() {
-    const timer = _timer_if(this.stats)
-    const { s, func, xJ, yJ, moving, workers } = this
+    const { s, func, xJ, yJ, moving, workers, stats } = this
+    const timer = _timer_if(stats)
 
     // note we sample prior locally to allow value.target to be calculated and kept on main thread
     if (workers && s > 0) {
@@ -1414,14 +1414,16 @@ class _Sampler {
       try {
         await Promise.all(evals)
         // print(`sample ${s} done on ${workers.length} workers in ${timer}`)
-        if (this.stats) {
+        if (stats) {
           // overhead is everything except sampling time on workers
-          this.stats.time.overhead += timer.t - max_in(worker_sample_times)
-          this.stats.time.sampling += sum(worker_sample_times)
-          this.stats.time.clone += clone_time + max_in(worker_clone_times)
-          this.stats.time.merge += merge_time + max_in(worker_merge_times)
+          stats.time.overhead += timer.t - max_in(worker_sample_times)
+          stats.time.sampling += sum(worker_sample_times)
+          stats.time.boost =
+            round_to(stats.time.sampling / stats.time.sample, '2') + 'x'
+          stats.time.clone += clone_time + max_in(worker_clone_times)
+          stats.time.merge += merge_time + max_in(worker_merge_times)
           const transfer_time = max_of(W, w => input_times[w] + output_times[w])
-          this.stats.time.transfer += transfer_time
+          stats.time.transfer += transfer_time
         }
       } catch (e) {
         console.error(`sample ${s} failed on worker;`, e)
@@ -1432,9 +1434,9 @@ class _Sampler {
       fill(moving ? yJ : xJ, j => ((this.j = j), func(this)))
       this.s++ // advance sampling step
     }
-    if (this.stats) {
-      this.stats.time.sample += timer.t
-      this.stats.samples++
+    if (stats) {
+      stats.time.sample += timer.t
+      stats.samples++
     }
   }
 
@@ -1489,6 +1491,7 @@ class _Sampler {
           ? {
               overhead: 0,
               sampling: 0,
+              boost: 0,
               clone: 0,
               merge: 0,
               transfer: 0,
@@ -2302,7 +2305,7 @@ class _Sampler {
           running: this.t,
           pending: this.pending_time,
           init: this.init_time,
-          ...pick_by(stats.time, is_number),
+          ...pick_by(stats.time, (v, k) => is_number(v) || k == 'boost'),
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
           ...(this.workers
