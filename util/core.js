@@ -181,8 +181,8 @@ function pack(f) {
 function unpack(o) {
   if (!is_object(o)) return o // nothing to unpack for non-objects
   // avoid redundant unpacking (e.g. in parse) via non-enumerable flag
-  if (o.__unpacked) return o // already unpacked
-  define_value(o, '__unpacked', true)
+  // if (o.__unpacked) return o // already unpacked
+  // define_value(o, '__unpacked', true)
 
   if (is_array(o)) return apply(o, unpack)
   // handle object, which may be packed function
