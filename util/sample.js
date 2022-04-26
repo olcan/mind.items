@@ -1346,10 +1346,12 @@ class _Sampler {
       // print(`starting sample ${s} on ${workers.length} workers ...`)
       let clone_time = 0
       let merge_time = 0
-      let worker_clone_times = []
-      let worker_merge_times = []
-      let worker_input_times = []
-      let worker_output_times = []
+      const W = workers.length
+      let input_times = array(W)
+      let output_times = array(W)
+      let worker_sample_times = array(W)
+      let worker_clone_times = array(W)
+      let worker_merge_times = array(W)
       const evals = workers.map((worker, w) => {
         const { js, je } = worker
         const transferables = []
@@ -1371,7 +1373,7 @@ class _Sampler {
             try {
               const input_time = Date.now() - eval_time
               const [, merge_time] = timing(() => sampler._merge(input))
-              sampler._sample_func()
+              const [, sample_time] = timing(() => sampler._sample_func())
               const transferables = []
               const [output, clone_time] = timing(() =>
                 sampler._clone(transferables, output_exclusions)
@@ -1380,6 +1382,7 @@ class _Sampler {
                 done: true,
                 output,
                 merge_time,
+                sample_time,
                 clone_time,
                 input_time,
                 transfer: transferables,
@@ -1398,10 +1401,11 @@ class _Sampler {
               // note this merge should advance this.s
               const [, t] = timing(() => this._merge(e.data.output, js, debug))
               merge_time += t
-              worker_clone_times.push(e.data.clone_time)
-              worker_merge_times.push(e.data.merge_time)
-              worker_input_times.push(e.data.input_time)
-              worker_output_times.push(output_time)
+              worker_sample_times[w] = e.data.sample_time
+              worker_clone_times[w] = e.data.clone_time
+              worker_merge_times[w] = e.data.merge_time
+              input_times[w] = e.data.input_time
+              output_times[w] = output_time
               // print(`sample ${s}.[${js},${je}) done on worker ${w} in ${timer}`)
             },
           }
@@ -1409,17 +1413,15 @@ class _Sampler {
       })
       try {
         await Promise.all(evals)
-        // print(
-        //   `sample ${s} done on ${workers.length} workers in ${timer}` +
-        //     ` (${clone_time}+${max_in(worker_clone_times)}ms clone` +
-        //     `, ${merge_time}+${max_in(worker_merge_times)}ms merge)`
-        // )
+        // print(`sample ${s} done on ${workers.length} workers in ${timer}`)
         if (this.stats) {
+          // overhead is everything except sampling time on workers
+          this.stats.time.overhead += timer.t - max_in(worker_sample_times)
+          this.stats.time.sampling += sum(worker_sample_times)
           this.stats.time.clone += clone_time + max_in(worker_clone_times)
           this.stats.time.merge += merge_time + max_in(worker_merge_times)
-          this.stats.time.transfer += max_in(
-            add(worker_input_times, worker_output_times)
-          )
+          const transfer_time = max_of(W, w => input_times[w] + output_times[w])
+          this.stats.time.transfer += transfer_time
         }
       } catch (e) {
         console.error(`sample ${s} failed on worker;`, e)
@@ -1485,6 +1487,8 @@ class _Sampler {
         sample: 0,
         ...(options.workers
           ? {
+              overhead: 0,
+              sampling: 0,
               clone: 0,
               merge: 0,
               transfer: 0,
