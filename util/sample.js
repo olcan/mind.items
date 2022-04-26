@@ -1488,6 +1488,8 @@ class _Sampler {
       quanta: 0, // remains 0 for sync mode
       samples: 0,
       time: {
+        prior: 0,
+        update: 0,
         sample: 0,
         ...(options.workers
           ? {
@@ -1499,8 +1501,6 @@ class _Sampler {
               transfer: 0,
             }
           : {}),
-        prior: 0,
-        update: 0,
         updates: {
           sample: 0,
           reweight: 0,
@@ -2307,7 +2307,14 @@ class _Sampler {
           running: this.t,
           pending: this.pending_time,
           init: this.init_time,
-          ...pick_by(stats.time, (v, k) => is_number(v) || k == 'boost'),
+          ...pick_by(stats.time, is_number),
+        })
+      ),
+      '_md_time'
+    )
+    _this.write(
+      table(
+        entries({
           pps: round((1000 * stats.proposals) / stats.time.updates.move),
           aps: round((1000 * stats.accepts) / stats.time.updates.move),
           ...(this.workers
@@ -2315,11 +2322,12 @@ class _Sampler {
                 cps: round_to(stats.time.clone / stats.samples, '2'),
                 mps: round_to(stats.time.merge / stats.samples, '2'),
                 tps: round_to(stats.time.transfer / stats.samples, '2'),
+                boost: stats.time.boost,
               }
             : {}),
         })
       ),
-      '_md_time'
+      '_md_perf'
     )
     const prior_best = this.sample({ values: true, index: 'best', prior: true })
     const best = this.sample({ values: true, index: 'best' })
