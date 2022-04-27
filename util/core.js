@@ -692,6 +692,7 @@ self._global_eval_cache ??= {}
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`
 // allows optional header row `options.headers`
 function table(cells, options = {}) {
+  if (cells.length == 0) return ''
   const { headers } = options
   let lines = []
   if (headers) {
