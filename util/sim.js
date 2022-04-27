@@ -29,7 +29,7 @@ class _State {
     for (const [k, v] of entries(vars)) {
       // proxy existing nested objects (recursively)
       // this is expensive and thus restricted by key (or options.trace)
-      // non-proxied dependencies are detected at top level only
+      // non-proxied nested dependencies are detected at top level only
       // note this excludes non-enumerable or inherited properties
       if ((k[0] == '_' || trace) && is_object(v)) vars[k] = this._proxy(k, v)
       define(this, k, {
