@@ -2284,7 +2284,7 @@ class _Sampler {
           // also omit t since redundant and confusable w/ x.t
           ...omit(last(stats.updates), ['t', 'r', 'ess', 'lwr', 'lpx', 'mks']),
         })
-      ),
+      ).replace(/Infinity/g, '∞'),
       '_md_last_update'
     )
     _this.write(
@@ -2310,12 +2310,13 @@ class _Sampler {
       ),
       '_md_time'
     )
+    const move_secs = max(1, stats.time.updates.move) / 1000
     _this.write(
       table(
         entries({
-          pps: round((1000 * stats.proposals) / stats.time.updates.move),
-          aps: round((1000 * stats.accepts) / stats.time.updates.move),
-          ...(this.workers
+          pps: round(stats.proposals / move_secs),
+          aps: round(stats.accepts / move_secs),
+          ...(this.workers && stats.samples
             ? {
                 cps: round_to(stats.time.clone / stats.samples, '2'),
                 mps: round_to(stats.time.merge / stats.samples, '2'),
