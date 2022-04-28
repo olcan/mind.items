@@ -881,6 +881,8 @@ class _Sampler {
     let accumulating = false
     let cumulative = false // flag for cumulative weight calls
 
+    // NOTE: there is a question of whether we should avoid static/lexical processing and just use a special first run to determine sampled values and their names and simply check subsequent runs for consistency; the main downside seems to be that sampled values can no longer (in general) be associated with a distinct lexical context and e.g. assigned default names based on that. In general dynamic processing could also make the code more complex/implicit and harder to read (e.g. for values sampled via external functions or libraries) and at the same time more verbose (e.g. for specifying useful names); there is also the issue that we are already special-casing the first run (or at least the first calls to various functions via .called flags) and thus arguably employing a hybrid approach where that makes sense.
+
     // parse positive integer variables for possible use w/ sample|confine_array
     // also include any positive integer variables from context
     const sizes = from_entries(
