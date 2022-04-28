@@ -25,7 +25,9 @@ class _State {
     if (trace) define(this, '_trace', { writable: true, value: [] })
 
     // define variable properties, subject to mutation tracking
-    if (is_function(vars)) vars = vars() // can define offline & still sample
+    // note vars argument is modified directly to avoid copying to 'this'
+    // vars can be a function defined "offline", i.e. outside sampler function
+    if (is_function(vars)) vars = vars() // can be "offline" function
     vars.t ??= 0 // defined required time variable if missing
     for (const [k, v] of entries(vars)) {
       // proxy existing nested objects (recursively)
@@ -52,7 +54,7 @@ class _State {
 
     // define (constant) parameter properties
     if (params) {
-      if (is_function(params)) params = params() // can define offline & sample
+      if (is_function(params)) params = params() // can be "offline" function
       each(entries(params), ([k, v]) => {
         if (is_object(v)) Object.freeze(v) // freeze nested parameters
         define(this, k, { value: v })
