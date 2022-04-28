@@ -25,6 +25,7 @@ class _State {
     if (trace) define(this, '_trace', { writable: true, value: [] })
 
     // define variable properties, subject to mutation tracking
+    if (is_function(vars)) vars = vars() // can define offline & still sample
     vars.t ??= 0 // defined required time variable if missing
     for (const [k, v] of entries(vars)) {
       // proxy existing nested objects (recursively)
@@ -50,11 +51,13 @@ class _State {
     }
 
     // define (constant) parameter properties
-    if (params)
+    if (params) {
+      if (is_function(params)) params = params() // can define offline & sample
       each(entries(params), ([k, v]) => {
         if (is_object(v)) Object.freeze(v) // freeze nested parameters
         define(this, k, { value: v })
       })
+    }
 
     // initialize _states w/ initial value if enabled
     if (states) this._states = [clone_deep(this)]
@@ -152,7 +155,6 @@ const state = (vars, params = undefined, options = undefined) =>
 const is_state = x => x?.constructor?.name == '_State' // robust to global_eval
 
 // simulate `events` from state `x` to time `t`
-// `events` must be a flat array of event objects
 // includes all events at times `(x.t,t], t>x.t`
 // may include events `>t` given option `allow_next`
 // events at same time are invoked in order of `events`
