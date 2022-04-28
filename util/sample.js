@@ -2337,9 +2337,8 @@ class _Sampler {
         '<style>',
         `#item table { font-size:80%; line-height:140%; white-space:nowrap; color:#aaa; font-family:'jetbrains mono', monospace }`,
         `#item table + br { display: none }`,
-        `#item table { display: inline-block; vertical-align:top; margin-right:10px; margin-bottom:10px }`,
-        `#item table:first-of-type { display: table }`,
-        `#item table:first-of-type td:not(:first-child) { padding-left:15px }`,
+        `#item table { display: inline-block; vertical-align:top; background:#171717; padding:10px; margin-right:5px; margin-bottom: 5px; border-radius:4px }`,
+        `#item table > thead { display: none }`,
         '</style>'
       ).join('\n'),
       '_html'
