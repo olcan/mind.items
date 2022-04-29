@@ -6,6 +6,24 @@ const from_entries = Object.fromEntries
 const from_pairs = _.fromPairs
 const to_pairs = _.toPairs
 const define = Object.defineProperty
+const seal = Object.seal
+const freeze = Object.freeze
+
+// seal object recursively
+const seal_deep = obj => {
+  Object.seal(obj)
+  if (is_array(obj)) return each(obj, seal_deep)
+  if (is_object(obj)) return each(values(obj), seal_deep)
+  return obj
+}
+
+// freeze object recursively
+const freeze_deep = obj => {
+  Object.freeze(obj)
+  if (is_array(obj)) return each(obj, freeze_deep)
+  if (is_object(obj)) return each(values(obj), freeze_deep)
+  return obj
+}
 
 // define `value` for property
 // does not modify existing properties
@@ -678,7 +696,7 @@ function cache(obj, prop, deps, f, options = {}) {
 // `js` may still refer to global context (where `global_eval` is defined)
 // `strict` option forces absolute global context (of `self`) using [indirect eval](http://perfectionkills.com/global-eval-what-are-the-options/#indirect_eval_call_theory)
 // `cached` option (_default_:`true`) stores eval result in `self._global_eval_cache`
-// **WARNING**: cached non-strict eval can break `instanceof`, `prototype` comparisons, etc, for non-built-in classes defined (and redefined after caching) in global context
+// **WARNING**: cached non-strict eval can use stale definitions and may break `instanceof`, `prototype` comparisons, etc, for non-built-in classes defined (and redefined after caching) in global context
 function global_eval(__js, __options = {}) {
   if (!(__options.cached ?? true))
     return __options.strict ? eval.call(self, __js) : eval(__js)
