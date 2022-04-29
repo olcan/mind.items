@@ -1420,7 +1420,7 @@ class _Sampler {
           // overhead is everything except sampling time on workers
           stats.time.overhead += timer.t - max_in(worker_sample_times)
           stats.time.sampling += sum(worker_sample_times)
-          stats.time.boost =
+          stats.time.parallelism =
             round_to(stats.time.sampling / stats.time.sample, '2') + 'x'
           stats.time.clone += clone_time + max_in(worker_clone_times)
           stats.time.merge += merge_time + max_in(worker_merge_times)
@@ -2318,12 +2318,13 @@ class _Sampler {
         entries({
           pps: round(stats.proposals / move_secs),
           aps: round(stats.accepts / move_secs),
+          tpsa: round(stats.time.sample / stats.samples),
           ...(this.workers && stats.samples
             ? {
-                cps: round_to(stats.time.clone / stats.samples, '2'),
-                mps: round_to(stats.time.merge / stats.samples, '2'),
-                tps: round_to(stats.time.transfer / stats.samples, '2'),
-                boost: stats.time.boost,
+                ctpsa: round_to(stats.time.clone / stats.samples, '2'),
+                mtpsa: round_to(stats.time.merge / stats.samples, '2'),
+                ttpsa: round_to(stats.time.transfer / stats.samples, '2'),
+                parallelism: stats.time.parallelism,
               }
             : {}),
         })

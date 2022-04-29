@@ -30,11 +30,12 @@ class _State {
     if (is_function(vars)) vars = vars() // can be "offline" function
     vars.t ??= 0 // defined required time variable if missing
     for (const [k, v] of entries(vars)) {
-      // proxy existing nested objects (recursively)
-      // this is expensive and thus restricted by key (or options.trace)
-      // non-proxied nested dependencies are detected at top level only
+      // proxy existing nested non-array non-frozen objects recursively
+      // arrays are excluded by default (can be enabled later by name)
+      // non-proxied nested dependencies are detected at _on_get for parent
       // note this excludes non-enumerable or inherited properties
-      if ((k[0] == '_' || trace) && is_object(v)) vars[k] = this._proxy(k, v)
+      if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
+        vars[k] = this._proxy(k, v)
       define(this, k, {
         enumerable: true, // variables (unlike parameters) can be enumerated
         get() {
@@ -43,8 +44,9 @@ class _State {
           return v
         },
         set(v) {
-          // proxy new nested object (recursively), restricted by key
-          if ((k[0] == '_' || trace) && is_object(v)) v = this._proxy(k, v)
+          // proxy new nested non-array non-frozen object recursively
+          if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
+            v = this._proxy(k, v)
           const v_old = vars[k]
           vars[k] = v
           this._on_set(k, v, v_old)
@@ -56,7 +58,19 @@ class _State {
     if (params) {
       if (is_function(params)) params = params() // can be "offline" function
       each(entries(params), ([k, v]) => {
-        if (is_object(v)) Object.freeze(v) // freeze nested parameters
+        if (is_object(v)) {
+          freeze_deep(v) // freeze nested parameters recursively
+          // merge into existing object value in this[k], if it exists
+          // note if it exists as non-object define will fail below
+          // note setters will not proxy since v is frozen
+          // note we have to designate this as mutator
+          if (is_object(this[k])) {
+            this._mutator = this
+            merge(this[k], v)
+            this._mutator = null
+            return
+          }
+        }
         define(this, k, { value: v })
       })
     }
@@ -65,7 +79,7 @@ class _State {
     if (states) this._states = [clone_deep(this)]
 
     // seal state object to prevent untracked mutations
-    Object.seal(this)
+    seal(this)
   }
 
   get d() {
@@ -86,11 +100,11 @@ class _State {
       e: this._mutator ?? this._scheduler,
     })
     // track scheduler access (to non-t state) as a "dependency"
-    // non-proxied nested object dependencies are not allowed
+    // non-proxied non-frozen nested dependencies are not allowed
     // dependency continues until mutation or _cancel
     if (this._scheduler) {
-      if (is_object(v) && !v._proxied)
-        fatal(`dependency on non-proxied nested object variable ${k}`)
+      if (is_object(v) && !Object.isFrozen(v) && !v._proxied)
+        fatal(`dependency on non-proxied non-frozen nested variable ${k}`)
       this._dependents ??= {}
       this._dependents[k] ??= new Set()
       this._dependents[k].add(this._scheduler)
@@ -100,7 +114,7 @@ class _State {
   _on_set(k, v_new, v_old) {
     if (this._scheduler) fatal(`state mutated in scheduler`)
     if (!this._mutator) {
-      if (k != 't') fatal('non-t state mutated outside of mutator')
+      if (k != 't') fatal(`non-t state '${k}' mutated outside of mutator`)
       return
     }
     if (k == 't') fatal('x.t set in mutator')
@@ -128,10 +142,11 @@ class _State {
     const pfx = k + '.'
     const state = this
     obj._proxied = true // indicate object has been proxied
-    // proxy existing nested objects
-    // note this excludes non-enumerable or inherited properties
+    // proxy existing nested non-array non-frozen objects recursively
+    // see similar logic in constructor for additional comments
     for (const [k, v] of entries(obj))
-      if (is_object(v)) obj[k] = this._proxy(pfx + k, v)
+      if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
+        obj[k] = state._proxy(pfx + k, v)
     return new Proxy(obj, {
       get(obj, k) {
         const v = obj[k]
@@ -139,7 +154,9 @@ class _State {
         return v
       },
       set(obj, k, v) {
-        if (is_object(v)) v = this._proxy(pfx + k, v) // proxy new nested object
+        // proxy new nested non-array non-frozen object recursively
+        if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
+          v = state._proxy(pfx + k, v)
         const v_old = obj[k]
         obj[k] = v
         state._on_set(pfx + k, v, v_old)
@@ -416,7 +433,7 @@ function _benchmark_inc() {
       count = v
     },
   })
-  Object.seal(obj) // no more properties
+  seal(obj) // no more properties
   // increment mutator functions
   const inc_count = inc('count')
   const inc_nested_count = inc('nested.count')
