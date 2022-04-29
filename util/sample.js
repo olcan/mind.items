@@ -2324,7 +2324,7 @@ class _Sampler {
                 ctpsa: round_to(stats.time.clone / stats.samples, '2'),
                 mtpsa: round_to(stats.time.merge / stats.samples, '2'),
                 ttpsa: round_to(stats.time.transfer / stats.samples, '2'),
-                parallelism: stats.time.parallelism,
+                prlism: stats.time.parallelism,
               }
             : {}),
         })
