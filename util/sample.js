@@ -1122,6 +1122,10 @@ class _Sampler {
     js = _replace_calls(js, true /*root js*/)
     const context = this.options.context // calling context (if any)
 
+    // extract value name array and sanity check against values[#].name
+    const nK = array(names)
+    each(values, (v, k) => v.name == nK[k] || fatal('value name mismatch'))
+
     // function wrapper to prep sampler & set self.__sampler
     const wrap = func =>
       function (sampler) {
@@ -1143,7 +1147,7 @@ class _Sampler {
       weights,
       sims,
       names,
-      nK: array(names),
+      nK,
       optimizing,
       accumulating,
       func: wrap(func),
