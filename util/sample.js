@@ -869,6 +869,14 @@ class _Sampler {
     if (options.plot) this._plot()
   }
 
+  _name_value(name, index) {
+    // disallow numeric names to avoid confusion with indices
+    if (name.match(/^\d/)) fatal(`invalid numeric name '${name}' for value`)
+    name ||= str(index) // use index as name by default
+    if (names.has(name)) name += '_' + index // de-duplicate name
+    return name
+  }
+
   _parse_func(func) {
     // replace sample|condition|weight|confine calls
     let js = func.toString()
@@ -953,7 +961,6 @@ class _Sampler {
             if (size != array_names.length)
               fatal('destructuring array assignment size mismatch')
           } else {
-            if (names.has(name)) name += '_' + index // de-duplicate name
             if (name.match(/^\d/))
               fatal(`invalid numeric name '${name}' for sampled value`)
           }
@@ -1047,18 +1054,19 @@ class _Sampler {
             if (!array_names) {
               // process using array name
               const array_name = name || str(index)
+              if (names.has(array_name + `[0]`)) array_name += '_' + index // de-duplicate array name
               repeat(size, i => {
                 const index = values.length // element index
-                names.add((name = array_name + `[${i}]`)) // aligned w/ values & unique
+                name = array_name + `[${i}]`
+                names.add((name = this._name_value(name, index)))
                 values.push(lexical_context({ index, sampling: true }))
               })
             } else {
               // process names from destructuring assignment
               for (const name of array_names) {
                 const index = values.length // element index
-                if (names.has(name)) name += '_' + index // de-duplicate name
-                names.add(name) // aligned w/ values & unique
-                values.push(lexical_context({ index, name, sampling: true }))
+                names.add((name = this._name_value(name, index)))
+                values.push(lexical_context({ index, sampling: true }))
               }
             }
             break
@@ -1071,10 +1079,7 @@ class _Sampler {
               ;[, name] = args.match(/^\s*(\S+?)\s*(?:,|$)/su) ?? []
               name ??= method // name after optimization method
             }
-            if (names.has(name)) name += '_' + index // de-duplicate name
-            if (name.match(/^\d/))
-              fatal(`invalid numeric name '${name}' for optimized value`)
-            names.add(name) // name aligned w/ values & unique
+            names.add((name = this._name_value(name, index)))
             values.push(lexical_context())
           // continue to process as weight ...
           case 'condition':
@@ -1096,16 +1101,13 @@ class _Sampler {
               ;[, name] = args.match(/^\s*(\S+?)\s*(?:,|$)/su) ?? []
               name ??= method // name after predict method
             }
-            if (names.has(name)) name += '_' + index // de-duplicate name
-            if (name.match(/^\d/))
-              fatal(`invalid numeric name '${name}' for optimized value`)
-            names.add(name) // name aligned w/ values & unique
+            names.add((name = this._name_value(name, index)))
             values.push(lexical_context())
             break
           case 'sample':
             // replace sample call
             index = values.length
-            names.add((name ||= str(index))) // name aligned w/ values & unique
+            names.add((name = this._name_value(name, index)))
             values.push(lexical_context({ sampling: true }))
             break
           default:
@@ -3061,12 +3063,10 @@ class _Sampler {
         } else name = opt.name ?? opt
         if (!is_string(name)) fatal(`invalid name '${name}' for sampled value`)
         if (!name) fatal(`blank name for sampled value at index ${k}`)
-        if (name.match(/^\d/))
-          fatal(`invalid numeric name '${name}' for sampled value`)
+        name = this._name_value(name, k)
         value.name = name
-        if (names.has(value.name)) value.name += '_' + value.index
-        names.add(value.name)
-        nK[k] = value.name
+        names.add(name)
+        nK[k] = name
       }
 
       const { index, name, args } = value
@@ -3238,11 +3238,12 @@ class _Sampler {
       upJK, // out
     } = this
     const value = values[k]
-    if (!value.called && is_string(name)) {
+    if (!value.called && is_string(name) && value.name != name) {
       if (!name) fatal(`blank name for predicted value at index ${k}`)
-      if (name.match(/^\d/))
-        fatal(`invalid numeric name '${name}' for predicted value`)
+      name = this._name_value(name, k)
       value.name = name
+      this.names.add(name)
+      this.nK[k] = name
     }
     value.called = true
     // treat NaN (usually due to undefined samples) as undefined
