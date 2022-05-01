@@ -873,7 +873,7 @@ class _Sampler {
     // disallow numeric names to avoid confusion with indices
     if (name.match(/^\d/)) fatal(`invalid numeric name '${name}' for value`)
     name ||= str(index) // use index as name by default
-    if (names.has(name)) name += '_' + index // de-duplicate name
+    if (this.names.has(name)) name += '_' + index // de-duplicate name
     return name
   }
 
@@ -884,7 +884,7 @@ class _Sampler {
     const values = []
     const weights = []
     const sims = []
-    const names = new Set()
+    const names = (this.names = new Set()) // used in this._name_value()
     let optimizing = false
     let accumulating = false
     let cumulative = false // flag for cumulative weight calls
