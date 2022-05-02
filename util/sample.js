@@ -871,7 +871,7 @@ class _Sampler {
 
   _name_value(name, index) {
     // disallow numeric names to avoid confusion with indices
-    if (name.match(/^\d/)) fatal(`invalid numeric name '${name}' for value`)
+    if (name?.match(/^\d/)) fatal(`invalid numeric name '${name}' for value`)
     name ||= str(index) // use index as name by default
     if (this.names.has(name)) name += '_' + index // de-duplicate name
     return name
@@ -937,7 +937,7 @@ class _Sampler {
           ;[size, args_name] = parse_array_args(args)
           if (!(size > 0)) fatal(`invalid/missing size for ${method}`)
         }
-        // if name (via assignment) is mising, try object key or args
+        // if name (via assignment) is missing, try object key or args
         name ??= key ?? args_name
         // check name, parse into array names if possible
         let array_names
@@ -1017,11 +1017,40 @@ class _Sampler {
         // if method is 'accumulate', just disable per-call flag and return
         if (method == 'accumulate') {
           cumulative = false
-          // note we still need to replace args
           return m.replace(
             new RegExp(method + ' *\\(.+\\)$', 's'),
             `__sampler._${method}(${args})`
           )
+        }
+
+        // attempt to determine path for nested object keys
+        // we scan backwards for unclosed object literal valued property names
+        if (key && name == key) {
+          let pfx = prefix
+          let j = pfx.length
+          let closings = 0
+          let path = ''
+          while (--j >= 0) {
+            if (pfx[j - 1] == '\\') continue // ignore escaped braces
+            if (pfx[j] == '}') closings++
+            else if (pfx[j] == '{') {
+              if (closings > 0) {
+                closings-- // ignore closed brace
+                continue
+              }
+              pfx = pfx.slice(0, j).trimEnd()
+              j = pfx.length
+              if (pfx.match(/[)>]$/)) break // break at unclosed function block
+              const [, pkey] =
+                pfx.match(
+                  /(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *:$/su
+                ) ?? []
+              if (!pkey) break // break at unclosed object literal
+              if (pkey.match(/^[`'"].*[`'"]$/s)) pkey = pkey.slice(1, -1)
+              path = pkey + '.' + path
+            }
+          }
+          name = path + key
         }
 
         // uncomment to debug replacement issues ...
