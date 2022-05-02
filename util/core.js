@@ -27,6 +27,7 @@ const freeze_deep = obj => {
 
 // define `value` for property
 // does not modify existing properties
+// returns defined value (vs object as in `define`)
 const define_value = (obj, prop, value, options = undefined) => (
   define(obj, prop, { value, ...options }), value
 )
