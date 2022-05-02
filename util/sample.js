@@ -2309,7 +2309,7 @@ class _Sampler {
     _this.write(table(value_table), '_md_values')
 
     const r = round_to(this.r, 3, inf, 'floor')
-    const _ess = round(this.ess)
+    const ess = round(this.ess)
     const lwr = round_to(this.lwr, 1)
     const lpx = round_to(this.lpx, 1)
     const mks = round_to(this.mks, 3)
@@ -2318,7 +2318,7 @@ class _Sampler {
         entries({
           // always display r, ess, lwr, and mks at the top
           r,
-          ess: _ess,
+          ess,
           lwr,
           lpx,
           mks,
