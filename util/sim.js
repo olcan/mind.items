@@ -1,19 +1,9 @@
 class _State {
   constructor(vars, params, options) {
-    let events = false
-    let states = false
-    let trace = false
-    // enable events/states/trace by default under sampler w/ J==1
-    if (self.__sampler?.J == 1) {
-      events = true
-      states = true
-      trace = true
-    }
-    if (options) {
-      events = options.events
-      states = options.states
-      trace = options.trace
-    }
+    const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
+    const events = options?.events ?? debug
+    const states = options?.states ?? debug
+    const trace = options?.trace ?? debug
     // define auxiliary state properties
     // must be done first to detect name conflicts below
     define(this, '_t', { writable: true })
@@ -40,7 +30,7 @@ class _State {
         enumerable: true, // variables (unlike parameters) can be enumerated
         get() {
           const v = vars[k]
-          this._on_get(k, v)
+          if (this._mutator || this._scheduler) this._on_get(k, v)
           return v
         },
         set(v) {
@@ -91,7 +81,6 @@ class _State {
 
   _on_get(k, v) {
     if (k == 't') return // ignore access to x.t (also avoids recursion below)
-    if (!this._mutator && !this._scheduler) return // ignore non-sim access
     this._trace?.push({
       type: this._mutator ? 'fx_get' : 'ft_get',
       k,
@@ -150,7 +139,9 @@ class _State {
     return new Proxy(obj, {
       get(obj, k) {
         const v = obj[k]
-        state._on_get(pfx + k, v)
+        // note this conditional avoids _on_get during cloning of state
+        // otherwise deep cloning (e.g. for _states) can cause a type error
+        if (state._mutator || state._scheduler) state._on_get(pfx + k, v)
         return v
       },
       set(obj, k, v) {
