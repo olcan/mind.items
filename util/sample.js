@@ -691,7 +691,11 @@ class _Sampler {
     if (options.async) {
       return (this._init_promise = invoke(async () => {
         if (options.workers > 0) await this._init_workers() // init workers
-        await this._init_prior()
+        try {
+          await this._init_prior()
+        } catch (e) {
+          error(e)
+        }
         if (this.J == 1) return // skip updates/posterior in debug mode
 
         // update sample to posterior if there are weights OR targets
@@ -836,15 +840,15 @@ class _Sampler {
         if (printed_histories.has(s.xt)) return
         // print out history (trace/events/states) merged by time
         // auxiliary state should be enabled by default under sampler w/ J==1
-        if (!s.xt._trace || !s.xt._events || !s.xt._states)
+        if (!s.xt._trace && !s.xt._events && !s.xt._states)
           fatal(`missing history in simulated state w/ J==1`)
-        const trace = s.xt._trace.map(e =>
+        const trace = each(s.xt._trace ?? [], e =>
           define_value(e, '_print', print_trace)
         )
-        const events = s.xt._events.map(e =>
+        const events = each(s.xt._events ?? [], e =>
           define_value(e, '_print', print_event)
         )
-        const states = s.xt._states.map(e =>
+        const states = each(s.xt._states ?? [], e =>
           define_value(e, '_print', print_state)
         )
         const history = sort_by([...events, ...trace, ...states], h => h.t)
@@ -2305,7 +2309,7 @@ class _Sampler {
     _this.write(table(value_table), '_md_values')
 
     const r = round_to(this.r, 3, inf, 'floor')
-    const ess = round(this.ess)
+    const _ess = round(this.ess)
     const lwr = round_to(this.lwr, 1)
     const lpx = round_to(this.lpx, 1)
     const mks = round_to(this.mks, 3)
@@ -2314,7 +2318,7 @@ class _Sampler {
         entries({
           // always display r, ess, lwr, and mks at the top
           r,
-          ess,
+          ess: _ess,
           lwr,
           lpx,
           mks,
@@ -3267,7 +3271,9 @@ class _Sampler {
       values, // in-out
       j, // in
       u, // in
-      xJK, // out
+      moving, // in
+      xJK, // out, if !moving
+      yJK, // out, if moving
       upJK, // out
     } = this
     const value = values[k]
@@ -3282,7 +3288,8 @@ class _Sampler {
     // treat NaN (usually due to undefined samples) as undefined
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
-    xJK[j][k] = x
+    if (moving) yJK[j][k] = x
+    else xJK[j][k] = x
     // treat as jump to simplify update-related logic, e.g. in __mks
     // value.sampling can also be used to treat predicted values differently
     upJK[j][k] = u
