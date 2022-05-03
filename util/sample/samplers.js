@@ -32,7 +32,7 @@ function uniform(a, b) {
   return dom
 }
 
-// TODO: either switch to this new architecture, or remove this
+// Uniform class for testing alternate implementation for domains/samplers
 class Uniform {
   constructor(a, b) {
     this.gt = a
@@ -205,6 +205,7 @@ function _test_beta() {
 function normal(μ, σ) {
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
+  // return new Normal(μ, σ)
   const dom = { is: 'finite' } // all finite numbers
   dom._prior = f => f(μ + σ * random_normal())
   const inv_σ2 = 1 / (σ * σ)
@@ -213,6 +214,26 @@ function normal(μ, σ) {
   // TODO: see #random/normal if this is too slow for prior far from data
   dom._posterior = (f, x, stdev) => f(x + (stdev || σ) * random_normal())
   return dom
+}
+
+// Normal class for testing alternate implementation for domains/samplers
+class Normal {
+  constructor(μ, σ) {
+    this.is = 'finite'
+    this._μ = μ
+    this._σ = σ
+  }
+  _log_p(x) {
+    this._inv_σ2 ??= 1 / (this._σ * this._σ)
+    this._log_z ??= -log(this._σ) - log(sqrt(2 * pi)) // z ⊥ x
+    return -0.5 * this._inv_σ2 * (x - this._μ) ** 2 + this._log_z
+  }
+  _prior(f) {
+    return f(this._μ + this._σ * random_normal())
+  }
+  _posterior(f, x, stdev) {
+    return f(x + (stdev || this._σ) * random_normal())
+  }
 }
 
 function _test_normal() {
