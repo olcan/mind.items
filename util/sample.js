@@ -1165,9 +1165,11 @@ class _Sampler {
         each(sampler.values, v => (v.called = false))
         each(sampler.weights, w => (w.called = false))
         self.__sampler = sampler
-        const out = func(sampler)
-        self.__sampler = null
-        return out
+        try {
+          return func(sampler)
+        } finally {
+          self.__sampler = null
+        }
       }
 
     // evaluate function from js w/ replacements & optional context
