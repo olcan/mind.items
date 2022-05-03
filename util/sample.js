@@ -1208,7 +1208,7 @@ class _Sampler {
     const has_function = v =>
       is_function(v) ||
       (is_array(v)
-        ? some(v, has_function) // assume uniform arrays
+        ? some(v, has_function)
         : is_object(v) && some(values(v), has_function))
 
     // clones typed arrays and adds their buffers to transferables array
