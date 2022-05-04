@@ -1138,10 +1138,16 @@ class _Sampler {
             values.push(lexical_context())
             break
           case 'sample':
-            // replace sample call
             index = values.length
+            // cache args if possible (no dependencies on local context)
+            // we use global_eval to ensure no dependencies on local context
+            let cached_args
+            try {
+              cached_args = global_eval(`[${args}]`)
+              args = `...__sampler.values[${index}].cached_args`
+            } catch (e) {}
             names.add((name = this._name_value(name, index)))
-            values.push(lexical_context({ sampling: true }))
+            values.push(lexical_context({ sampling: true, cached_args }))
             break
           default:
             fatal(`unknown method ${method}`)
@@ -1246,9 +1252,11 @@ class _Sampler {
           // only exception is _stdevK owned by main thread for global stdev
           // posterior stdevK calculation must be triggered via this.stdevK
           if (k[0] == '_' && k != '_stdevK') return null
-          // drop target state (value.target*) from values
+          // drop target state (value.target*) and cached_args from values
           if (k == 'values')
-            v = v.map(v => omit_by(v, (_, k) => k.startsWith('target')))
+            v = v.map(v =>
+              omit_by(v, (_, k) => k == 'cached_args' || k.startsWith('target'))
+            )
 
           // slice J-indexed arrays down to specified range [js,je)
           // pack functions inside function arrays, e.g. log_wrfJN
