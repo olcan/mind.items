@@ -566,14 +566,18 @@ class _Sampler {
       options
     )
 
-    // set up default prior/posterior sampler functions
-    // note posterior here refers to posterior in parent context
-    // for posterior, we need to consider weights for log(∝q(x|y)/q(y|x))
-    // for efficiency, we require parent to ensure ess≈J s.t. weights≈0
-    const sampler = f => f(this.sample())
-    this._prior = this._posterior = sampler
-    // TODO: implement _log_p like discrete_uniform w/ built-in full-ess check (to be able to assume uniform weights)
-    // TODO: also consider switching to new model where ALL samplers are packable, but first explore more efficient alternatives to current implementation of portability
+    // set up default _prior/_posterior sampler functions
+    // note here "prior" and "posterior" is in reference to parent context
+    // we require ess≈J so rwJ≈0 and posterior≈prior (as in uniform_discrete)
+    // note otherwise posterior would have to calculate log(∝q(x|y)/q(y|x))
+    // ess≈J also implies _log_p can be uniform (also as in uniform_discrete)
+    this._prior = this._posterior = f => {
+      if (!approx_equal(this.ess, this.J, 1e-3))
+        fatal('sampler domain failed to achieve full ess')
+      return f(this.sample())
+    }
+    const log_z = -log(J)
+    this._log_p = x => log_z
 
     // initialize run state
     this.xJK = matrix(J, K) // samples per run/value
@@ -3168,16 +3172,11 @@ class _Sampler {
     }
 
     // init sampler for function domain
-    // reuse context-free samplers across sample calls (via value.domain)
-    // also require full ess since that is assumed by posterior sampler
-    // TODO: disallow or handle changes to sampler function
-    //       i.e. value.domain.domain should match domain
     if (is_function(domain)) {
       domain = value.domain ?? new _Sampler(domain, opt)
-      if (size(opt?.context) == 0 && !value.domain)
-        define_value(value, 'domain', value) // non-enumerable
-      if (!approx_equal(domain.ess, domain.J, 1e-3))
-        fatal('sampler domain failed to achieve full ess')
+      // if sampler is context-free and args are cached, reuse via value.domain
+      if (!value.domain && size(opt?.context) == 0 && value.cached_args)
+        define_value(value, 'domain', domain) // non-enumerable
     }
 
     // require prior and log_p to be defined via domain or options
