@@ -566,19 +566,6 @@ class _Sampler {
       options
     )
 
-    // set up default _prior/_posterior sampler functions
-    // note here "prior" and "posterior" is in reference to parent context
-    // we require ess≈J so rwJ≈0 and posterior≈prior (as in uniform_discrete)
-    // note otherwise posterior would have to calculate log(∝q(x|y)/q(y|x))
-    // ess≈J also implies _log_p can be uniform (also as in uniform_discrete)
-    this._prior = this._posterior = f => {
-      if (!approx_equal(this.ess, this.J, 1e-3))
-        fatal('sampler domain failed to achieve full ess')
-      return f(this.sample())
-    }
-    const log_z = -log(J)
-    this._log_p = x => log_z
-
     // initialize run state
     this.xJK = matrix(J, K) // samples per run/value
     this.pxJK = matrix(J, K) // prior samples per run/value
@@ -867,7 +854,7 @@ class _Sampler {
     const { stats, options } = this
 
     if (options.log) {
-      print(`applied ${this.u} updates in ${timer}`)
+      print(`applied ${this.u} updates in ${this.t - this.init_time}ms`)
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=${this.u}`)
       if (stats) print(str(omit(stats, 'updates')))
     }
@@ -1020,6 +1007,7 @@ class _Sampler {
         }
 
         // recursively replace calls nested inside arguments
+        const orig_args = args // args before any replacements here or below
         args = _replace_calls(args)
 
         // if method is 'accumulate', just disable per-call flag and return
@@ -1071,7 +1059,7 @@ class _Sampler {
           method,
           cumulative,
           name,
-          args,
+          args: orig_args,
           line_index,
           line,
           js,
@@ -1174,11 +1162,12 @@ class _Sampler {
       function (sampler) {
         each(sampler.values, v => (v.called = false))
         each(sampler.weights, w => (w.called = false))
+        const parent_sampler = self.__sampler // can be null/undefined
         self.__sampler = sampler
         try {
           return func(sampler)
         } finally {
-          self.__sampler = null
+          self.__sampler = parent_sampler
         }
       }
 
@@ -3043,7 +3032,7 @@ class _Sampler {
   }
 
   sample(options) {
-    if (options.async) {
+    if (options?.async) {
       return invoke(async () => {
         await this._init_promise
         return this.sample_sync(options)
@@ -3055,7 +3044,7 @@ class _Sampler {
   _sample(k, domain, opt, array_k0, array_len) {
     const {
       options, // in, not to be confused w/ 'opt' for sample-specific options
-      values, // in-out, first sampling special, value.domain non-cloneable
+      values, // in-out, first sampling special
       names, // in-out, first sampling only
       nK, // in-out, first sampling only
       J, // in
@@ -3169,14 +3158,6 @@ class _Sampler {
           target = ` --> target cdf ${str(value.target)}`
         print(`[${index}] ${name ? name + ' = ' : ''}sample(${args})${target}`)
       }
-    }
-
-    // init sampler for function domain
-    if (is_function(domain)) {
-      domain = value.domain ?? new _Sampler(domain, opt)
-      // if sampler is context-free and args are cached, reuse via value.domain
-      if (!value.domain && size(opt?.context) == 0 && value.cached_args)
-        define_value(value, 'domain', domain) // non-enumerable
     }
 
     // require prior and log_p to be defined via domain or options
