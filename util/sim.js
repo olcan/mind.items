@@ -80,16 +80,17 @@ class _State {
   }
 
   _on_get(k, v) {
-    if (k == 't') return // ignore access to x.t (also avoids recursion below)
     this._trace?.push({
       type: this._mutator ? 'fx_get' : 'ft_get',
       k,
       v,
-      t: this.t,
+      t: v,
       e: this._mutator ?? this._scheduler,
     })
-    // track scheduler access (to non-t state) as a "dependency"
-    // non-proxied non-frozen nested dependencies are not allowed
+    // track scheduler access as a "dependency"
+    // non-proxied non-frozen nested dependencies are disallowed
+    // direct dependency on time (t) is allowed but not recommended
+    // (alternative is to introduce other variables/events)
     // dependency continues until mutation or _cancel
     if (this._scheduler) {
       if (is_object(v) && !Object.isFrozen(v) && !v._proxied)
