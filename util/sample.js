@@ -1100,9 +1100,9 @@ class _Sampler {
               })
             } else {
               // process names from destructuring assignment
-              for (const name of array_names) {
+              for (const assigned_name of array_names) {
                 const index = values.length // element index
-                names.add((name = this._name_value(name, index)))
+                names.add((name = this._name_value(assigned_name, index)))
                 values.push(lexical_context({ index, sampling: true }))
               }
             }
