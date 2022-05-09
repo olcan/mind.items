@@ -289,7 +289,7 @@ async function check_updates(item, mark_pushables = false) {
             if (!defined(body))
               _this.fatal(
                 `missing body for embed ${item.name}:${path}`,
-                src(item.attr)
+                str(item.attr)
               )
             return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
           }
