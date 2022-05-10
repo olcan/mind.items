@@ -64,12 +64,6 @@ class _State {
         define(this, k, { value: v })
       })
     }
-
-    // initialize _states w/ initial value if enabled
-    if (states) this._states = [clone_deep(this)]
-
-    // seal state object to prevent untracked mutations
-    seal(this)
   }
 
   get d() {
@@ -172,6 +166,8 @@ const is_state = x => x?.constructor?.name == '_State' // robust to global_eval
 // can be invoked again to _resume_ simulation w/o resampling
 function simulate(x, t, events, options = undefined) {
   if (!is_state(x)) fatal('invalid state object')
+  if (!Object.isSealed(x)) seal(x) // finalize (seal) state object
+  if (x._states?.length == 0) x._states = [clone_deep(x)] // init x._states
   x._t ??= 0 // non-resuming sim starts at x._t=0 to be advanced x.t>t>0
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
   if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
