@@ -11,17 +11,21 @@ const freeze = Object.freeze
 
 // seal object recursively
 const seal_deep = obj => {
-  Object.seal(obj)
-  if (is_array(obj)) return each(obj, seal_deep)
-  if (is_object(obj)) return each(values(obj), seal_deep)
+  if (is_object(obj)) {
+    Object.seal(obj)
+    if (is_array(obj)) each(obj, seal_deep)
+    else each(values(obj), seal_deep)
+  }
   return obj
 }
 
 // freeze object recursively
 const freeze_deep = obj => {
-  Object.freeze(obj)
-  if (is_array(obj)) return each(obj, freeze_deep)
-  if (is_object(obj)) return each(values(obj), freeze_deep)
+  if (is_object(obj)) {
+    Object.freeze(obj)
+    if (is_array(obj)) each(obj, freeze_deep)
+    else each(values(obj), freeze_deep)
+  }
   return obj
 }
 
