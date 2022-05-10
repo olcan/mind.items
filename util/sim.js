@@ -1,3 +1,139 @@
+class _NestedState {
+  constructor(state, path) {
+    define_value(this, '_state', state)
+    define_value(this, '_path', path)
+  }
+  _merge_vars(vars, path) {
+    path = path ? this._path + '.' + path : this._path
+    return this._state._merge_vars(vars, path)
+  }
+  _merge_params(params, path) {
+    path = path ? this._path + '.' + path : this._path
+    return this._state._merge_params(params, path)
+  }
+}
+
+class _State2 {
+  constructor(options) {
+    const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
+    const events = options?.events ?? debug
+    const states = options?.states ?? debug
+    const trace = options?.trace ?? debug
+    // define auxiliary state properties
+    // must be done first to detect name conflicts below
+    define(this, '_t', { writable: true })
+    define(this, '_ready', { writable: true })
+    define(this, '_mutator', { writable: true })
+    define(this, '_scheduler', { writable: true })
+    define(this, '_dependents', { writable: true })
+    if (events) define(this, '_events', { writable: true, value: [] })
+    if (states) define(this, '_states', { writable: true }) // set below
+    if (trace) define(this, '_trace', { writable: true, value: [] })
+  }
+  get d() {
+    return ~~this.t
+  }
+  get h() {
+    return (this.t - this.d) * 24
+  }
+  _merge_vars(vars, path) {
+    const state = this
+    let path_state = state
+    if (path) {
+      path_state = get(state, path) ?? new _NestedState(this, path)
+      if (!is_object(path_state))
+        fatal(`_merge_vars: '${path}' is not an object`)
+      path += '.'
+    }
+    for (let [k, v] of entries(vars)) {
+      const path_k = path + k
+      if (is_object(v)) v = state._merge_vars(v, path_k)
+      define(path_state, k, {
+        enumerable: true, // variables can be enumerated
+        get() {
+          if (state._mutator || state._scheduler) state._on_get(k, v)
+          return v
+        },
+        set(v_new) {
+          const v_old = v
+          if (is_object(v_new)) v_new = state._merge_vars(v_new, path_k)
+          state._on_set(k, (v = v_new), v_old)
+        },
+      })
+    }
+    return path_state
+  }
+  _merge_params(params, path) {
+    const state = this
+    let path_state = state
+    if (path) {
+      path_state = get(state, path) ?? new _NestedState(this, path)
+      if (!is_object(path_state))
+        fatal(`_merge_params: '${path}' is not an object`)
+      path += '.'
+    }
+    for (let [k, v] of entries(params)) {
+      if (is_object(v)) v = state._merge_params(v, path + k)
+      define_value(path_state, k, v) // read-only
+    }
+    return path_state
+  }
+
+  _cancel(e) {
+    if (this._dependents)
+      for (const deps of values(this._dependents)) deps.delete(e)
+  }
+  _on_get(k, v) {
+    this._trace?.push({
+      type: this._mutator ? 'fx_get' : 'ft_get',
+      k,
+      v,
+      t: v,
+      e: this._mutator ?? this._scheduler,
+    })
+    // track scheduler access as a "dependency"
+    // non-proxied non-frozen nested dependencies are disallowed
+    // direct dependency on time (t) is allowed but not recommended
+    // (alternative is to introduce other variables/events)
+    // dependency continues until mutation or _cancel
+    if (this._scheduler) {
+      if (is_object(v) && !Object.isFrozen(v) && !v._proxied)
+        fatal(`dependency on non-proxied non-frozen nested variable ${k}`)
+      this._dependents ??= {}
+      this._dependents[k] ??= new Set()
+      this._dependents[k].add(this._scheduler)
+    }
+  }
+  _on_set(k, v_new, v_old) {
+    if (this._scheduler) fatal(`state mutated in scheduler`)
+    if (!this._mutator) {
+      if (k != 't') fatal(`non-t state '${k}' mutated outside of mutator`)
+      return
+    }
+    if (k == 't') fatal('x.t set in mutator')
+    this._trace?.push({
+      type: 'fx_set',
+      k,
+      v_new,
+      v_old,
+      t: this.t,
+      e: this._mutator,
+    })
+    // reset and clear any dependent schedulers
+    if (this._dependents?.[k]?.size > 0) {
+      for (const e of this._dependents[k]) e._t = 0
+      this._dependents[k].clear()
+    }
+  }
+
+  _prepare() {
+    if (this._ready) return // already prepped
+    this._ready = true
+    if (this._states) this._states = [clone_deep(this)]
+    seal_deep(this)
+  }
+}
+
 class _State {
   constructor(vars, params, options) {
     const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
@@ -7,6 +143,7 @@ class _State {
     // define auxiliary state properties
     // must be done first to detect name conflicts below
     define(this, '_t', { writable: true })
+    define(this, '_ready', { writable: true })
     define(this, '_mutator', { writable: true })
     define(this, '_scheduler', { writable: true })
     define(this, '_dependents', { writable: true })
@@ -18,7 +155,6 @@ class _State {
     // note vars argument is modified directly to avoid copying to 'this'
     // vars can be a function defined "offline", i.e. outside sampler function
     if (is_function(vars)) vars = vars() // can be "offline" function
-    vars.t ??= 0 // defined required time variable if missing
     for (const [k, v] of entries(vars)) {
       // proxy existing nested non-array non-frozen objects recursively
       // arrays are excluded by default (can be enabled later by name)
@@ -150,6 +286,13 @@ class _State {
       },
     })
   }
+
+  _prepare() {
+    if (this._ready) return // already prepped
+    this._ready = true
+    if (this._states) this._states = [clone_deep(this)]
+    seal(this)
+  }
 }
 
 // create state object
@@ -157,7 +300,7 @@ const state = (vars, params = undefined, options = undefined) =>
   new _State(vars, params, options)
 
 // is `x` a state object?
-const is_state = x => x?.constructor?.name == '_State' // robust to global_eval
+const is_state = x => x?.constructor?.name.startsWith('_State') // robust to global_eval
 
 // simulate `events` from state `x` to time `t`
 // includes all events at times `(x.t,t], t>x.t`
@@ -166,8 +309,7 @@ const is_state = x => x?.constructor?.name == '_State' // robust to global_eval
 // can be invoked again to _resume_ simulation w/o resampling
 function simulate(x, t, events, options = undefined) {
   if (!is_state(x)) fatal('invalid state object')
-  if (!Object.isSealed(x)) seal(x) // finalize (seal) state object
-  if (x._states?.length == 0) x._states = [clone_deep(x)] // init x._states
+  x._prepare() // prepare state for simulation
   x._t ??= 0 // non-resuming sim starts at x._t=0 to be advanced x.t>t>0
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
   if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
