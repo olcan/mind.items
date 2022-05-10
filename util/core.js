@@ -696,14 +696,14 @@ function cache(obj, prop, deps, f, options = {}) {
 // `js` may not refer to local context (where `global_eval` is invoked)
 // `js` may still refer to global context (where `global_eval` is defined)
 // `strict` option forces absolute global context (of `self`) using [indirect eval](http://perfectionkills.com/global-eval-what-are-the-options/#indirect_eval_call_theory)
-// `cached` option (_default_:`true`) stores eval result in `self._global_eval_cache`
+// `cached` option (_default_:`false`) stores eval result in `self._global_eval_cache`
 // **WARNING**: cached non-strict eval can use stale definitions and may break `instanceof`, `prototype` comparisons, etc, for non-built-in classes defined (and redefined after caching) in global context
 function global_eval(__js, __options = {}) {
-  if (!(__options.cached ?? true))
-    return __options.strict ? eval.call(self, __js) : eval(__js)
-  return (_global_eval_cache[__js] ??= __options.strict
-    ? eval.call(self, __js)
-    : eval(__js))
+  if (__options.cached)
+    return (_global_eval_cache[__js] ??= __options.strict
+      ? eval.call(self, __js)
+      : eval(__js))
+  return __options.strict ? eval.call(self, __js) : eval(__js)
 }
 self._global_eval_cache ??= {}
 
