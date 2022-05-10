@@ -8,10 +8,10 @@ class _State {
       vars,
       params,
     } = options ?? {}
-    if (vars) this._merge_vars(vars)
-    if (params) this._merge_params(params)
     // define auxiliary state properties
     // must be done first to detect name conflicts below
+    define(this, '_vars', { writable: true })
+    define(this, '_params', { writable: true })
     define(this, '_mutator', { writable: true })
     define(this, '_scheduler', { writable: true })
     define(this, '_dependents', { writable: true })
@@ -25,23 +25,71 @@ class _State {
         if (_t === undefined) {
           if (this.t === undefined) this._merge_vars({ t: 0 }) // default x.t=0
           if (states) this._states = [clone_deep(this)]
-          invoke_deep(this, v => (v._freeze ? freeze : seal)(v))
+          // seal vars, freeze params, check for unexpected external state
+          // external state can only exist on nested parents w/o _path
+          invoke_deep(this, v => {
+            if (v == this || v._path)
+              each(keys(v), k => {
+                const path = v._path ? v._path + '.' + k : k
+                if (!this._vars.has(path) && !this._params.has(path))
+                  fatal(`unexpected external state '${path}'`)
+              })
+            if (v._freeze) freeze(v)
+            else seal(v)
+          })
         }
         _t = t
       },
     })
+    // merge initial vars & params
+    // vars first to avoid _freeze flag on mixed nested objects
+    if (vars) this._merge_vars(vars)
+    if (params) this._merge_params(params)
   }
+
   get d() {
     return ~~this.t
   }
   get h() {
     return (this.t - this.d) * 24
   }
+
+  _define_var(path_k, path_state, k, v) {
+    ;(this._vars ??= new Set()).add(path_k)
+    define(path_state, k, {
+      enumerable: true,
+      get: () => (this._on_get(path_k, v), v),
+      set: v_new => {
+        const v_old = v
+        if (is_object(v_new)) v_new = this._merge_vars(v_new, path_k)
+        this._on_set(path_k, (v = v_new), v_old)
+      },
+    })
+  }
+
+  _define_param(path_k, path_state, k, v) {
+    ;(this._params ??= new Set()).add(path_k)
+    define_value(path_state, k, v, { enumerable: true })
+  }
+
+  _merge(obj, v, f) {
+    let definers = []
+    merge_with(obj, v, (y, x, k, obj) => {
+      // if source is non-object, invoke definer f post-merge
+      // only exception is merges into untraced objects (w/o _path)
+      if (!is_object(x) && obj._path) definers.push(() => f(x, k, obj))
+      // if target is non-object, move source
+      // ensures defined props (e.g. _path) are maintained from source
+      // otherwise a new object would be created for any existing target
+      if (!is_object(y)) return x
+    })
+    each(definers, f => f())
+  }
+
   _merge_vars(vars, path) {
-    const state = this
-    let path_state = state
+    let path_state = this
     if (path) {
-      path_state = get(state, path) ?? new _NestedState(state, path)
+      path_state = get(this, path) ?? new _NestedState(this, path)
       if (!is_object(path_state))
         fatal(`_merge_vars: '${path}' is not an object`)
       path += '.'
@@ -49,68 +97,57 @@ class _State {
     for (let [k, v] of entries(vars)) {
       const path_k = path ? path + k : k
       if (is_object(v)) {
-        if (v._traced || !is_array(v)) v = state._merge_vars(v, path_k)
+        // TODO: just disallow all object<->non-object merges
+        // TODO: got object merges, _merge_vars should during (not before) _merge
+        // TODO: review all relevant comments and test on examples
+        if (v._traced || !is_array(v)) v = this._merge_vars(v, path_k)
         else define_value(v, '_path', path_k)
+
         // if exists as object, merge into it
         // if exists as non-object, define will fail below
-        // custom merge maintains defined props (e.g. _path) in dest OR source
+        // custom merge maintains props (e.g. _path), getters, setters, etc
         // also note setters allow non-mutator changes until x._t is set
-        if (is_object(this[k])) {
-          merge_with(this[k], v, (y, x) => {
-            // always move x for any non-object y
-            // ensures defined props (e.g. _path) are maintained from x
-            // otherwise a new object is created for any existing y
-            if (!is_object(to)) return x
-          })
+        if (is_object(path_state[k])) {
+          this._merge(path_state[k], v, (x, k, obj) =>
+            this._define_var(obj._path + '.' + k, obj, k, x)
+          )
           continue
         }
       }
-      // print(`defining ${path_k}`)
-      define(path_state, k, {
-        enumerable: true,
-        get() {
-          state._on_get(path_k, v)
-          return v
-        },
-        set(v_new) {
-          const v_old = v
-          if (is_object(v_new)) v_new = state._merge_vars(v_new, path_k)
-          state._on_set(path_k, (v = v_new), v_old)
-        },
-      })
+      this._define_var(path_k, path_state, k, v)
     }
     // define (constant) length for arrays
     if (is_array(vars)) define_value(path_state, 'length', vars.length)
     return path_state
   }
   _merge_params(params, path) {
-    const state = this
-    let path_state = state
+    let path_state = this
     if (path) {
-      path_state = get(state, path) ?? new _NestedState(state, path)
+      path_state = get(this, path) ?? new _NestedState(this, path)
       if (!is_object(path_state))
         fatal(`_merge_params: '${path}' is not an object`)
       path += '.'
     }
     for (let [k, v] of entries(params)) {
+      const path_k = path ? path + k : k
       if (is_object(v)) {
-        const path_k = path ? path + k : k
-        if (v._traced || !is_array(v)) v = state._merge_params(v, path_k)
+        if (v._traced || !is_array(v)) v = this._merge_params(v, path_k)
         else define_value(v, '_path', path_k)
         // mark all objects in params to be frozen (vs sealed)
         invoke_deep(v, v => define_value(v, '_freeze', true))
         // see _merge_vars above for merge-related comments
-        if (is_object(this[k])) {
-          merge_with(this[k], v, (y, x) => {
-            if (!is_object(to)) return x
-          })
+        if (is_object(path_state[k])) {
+          this._merge(path_state[k], v, (x, k, obj) =>
+            this._define_param(obj._path + '.' + k, obj, k, x)
+          )
           continue
         }
       }
-      define_value(path_state, k, v, { enumerable: true })
+      this._define_param(path_k, path_state, k, v)
     }
     return path_state
   }
+  _finalize() {}
 
   _cancel(e) {
     if (this._dependents)
