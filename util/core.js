@@ -9,25 +9,21 @@ const define = Object.defineProperty
 const seal = Object.seal
 const freeze = Object.freeze
 
-// seal object recursively
-const seal_deep = obj => {
+// invoke `f` on all objects in `obj`
+const invoke_deep = (obj, f) => {
   if (is_object(obj)) {
-    Object.seal(obj)
-    if (is_array(obj)) each(obj, seal_deep)
-    else each(values(obj), seal_deep)
+    if (is_array(obj)) each(obj, o => invoke_deep(o, f))
+    else each(values(obj), o => invoke_deep(o, f))
+    f(obj)
   }
   return obj
 }
 
-// freeze object recursively
-const freeze_deep = obj => {
-  if (is_object(obj)) {
-    Object.freeze(obj)
-    if (is_array(obj)) each(obj, freeze_deep)
-    else each(values(obj), freeze_deep)
-  }
-  return obj
-}
+// seal all objects in `obj`
+const seal_deep = obj => invoke_deep(obj, seal)
+
+// freeze all objects in `obj`
+const freeze_deep = obj => invoke_deep(obj, freeze)
 
 // define `value` for property
 // does not modify existing properties

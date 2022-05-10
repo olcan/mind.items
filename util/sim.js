@@ -1,10 +1,11 @@
-// seal object recursively
 const _finalize_state = obj => {
-  // NOTE: even external (untraced) objects are frozen/sealed
-  if (obj?._freeze) Object.freeze(obj)
-  else Object.seal(obj)
-  if (is_array(obj)) return each(obj, _finalize_state)
-  if (is_object(obj)) return each(values(obj), _finalize_state)
+  if (is_object(obj)) {
+    // NOTE: even external (untraced) objects are frozen/sealed
+    if (obj?._freeze) Object.freeze(obj)
+    else Object.seal(obj)
+    if (is_array(obj)) each(obj, _finalize_state)
+    else each(values(obj), _finalize_state)
+  }
   return obj
 }
 
@@ -35,7 +36,7 @@ class _State2 {
         if (_t === undefined) {
           if (this.t === undefined) this._merge_vars({ t: 0 }) // default x.t=0
           if (states) this._states = [clone_deep(this)]
-          _finalize_state(this) // seal vars, freeze params
+          invoke_deep(this, v => (v._freeze ? freeze : seal)(v))
         }
         _t = t
       },
@@ -94,7 +95,14 @@ class _State2 {
         const path_k = path ? path + k : k
         if (v._traced || !is_array(v)) v = state._merge_params(v, path_k)
         else define_value(v, '_path', path_k)
-        define_value(v, '_freeze', true) // to be frozen in _finalize_state
+        // mark all objects in params to be frozen (vs sealed)
+        invoke_deep(v, v => define_value(v, '_freeze', true))
+        // if exists as object, merge into it
+        // if exists as non-object, define_value will fail below
+        if (is_object(this[k])) {
+          merge(this[k], v) // TODO: why does this not trigger error in setter?
+          continue
+        }
       }
       define_value(path_state, k, v, { enumerable: true })
     }
