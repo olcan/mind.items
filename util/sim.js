@@ -1,15 +1,4 @@
-const _finalize_state = obj => {
-  if (is_object(obj)) {
-    // NOTE: even external (untraced) objects are frozen/sealed
-    if (obj?._freeze) Object.freeze(obj)
-    else Object.seal(obj)
-    if (is_array(obj)) each(obj, _finalize_state)
-    else each(values(obj), _finalize_state)
-  }
-  return obj
-}
-
-class _State2 {
+class _State {
   constructor(options) {
     const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
     let {
@@ -62,6 +51,19 @@ class _State2 {
       if (is_object(v)) {
         if (v._traced || !is_array(v)) v = state._merge_vars(v, path_k)
         else define_value(v, '_path', path_k)
+        // if exists as object, merge into it
+        // if exists as non-object, define will fail below
+        // custom merge maintains defined props (e.g. _path) in dest OR source
+        // also note setters allow non-mutator changes until x._t is set
+        if (is_object(this[k])) {
+          merge_with(this[k], v, (y, x) => {
+            // always move x for any non-object y
+            // ensures defined props (e.g. _path) are maintained from x
+            // otherwise a new object is created for any existing y
+            if (!is_object(to)) return x
+          })
+          continue
+        }
       }
       // print(`defining ${path_k}`)
       define(path_state, k, {
@@ -97,10 +99,11 @@ class _State2 {
         else define_value(v, '_path', path_k)
         // mark all objects in params to be frozen (vs sealed)
         invoke_deep(v, v => define_value(v, '_freeze', true))
-        // if exists as object, merge into it
-        // if exists as non-object, define_value will fail below
+        // see _merge_vars above for merge-related comments
         if (is_object(this[k])) {
-          merge(this[k], v) // TODO: why does this not trigger error in setter?
+          merge_with(this[k], v, (y, x) => {
+            if (!is_object(to)) return x
+          })
           continue
         }
       }
@@ -114,6 +117,7 @@ class _State2 {
       for (const deps of values(this._dependents)) deps.delete(e)
   }
   _on_get(k, v) {
+    if (this._t === undefined) return // ignore access until x._t is set
     // track scheduler access as a "dependency"
     // dependency continues until mutation or _cancel
     // untraced nested dependencies are detected via _on_get for ancestor
@@ -123,7 +127,7 @@ class _State2 {
       this._dependents ??= {}
       this._dependents[k] ??= new Set()
       this._dependents[k].add(this._scheduler)
-    } else if (!this._mutator) return // ignore non-mutator/scheduler get
+    } else if (!this._mutator) return // ignore non-mutator/scheduler access
     this._trace?.push({
       type: this._mutator ? 'fx_get' : 'ft_get',
       k,
@@ -133,10 +137,11 @@ class _State2 {
     })
   }
   _on_set(k, v_new, v_old) {
-    if (this._scheduler) fatal(`state mutated in scheduler`)
+    if (this._t === undefined) return // ignore mutation until x._t is set
+    if (this._scheduler) fatal(`state set in scheduler`)
     if (!this._mutator) {
-      if (k != 't') fatal(`non-t state '${k}' mutated outside of mutator`)
-      return
+      if (k == 't') return // ignore non-mutator changes to x.t
+      fatal(`state '${k}' set outside of mutator`)
     }
     if (k == 't') fatal('x.t set in mutator')
     this._trace?.push({
@@ -152,179 +157,20 @@ class _State2 {
       for (const e of this._dependents[k]) e._t = 0
       this._dependents[k].clear()
     }
-  }
-}
-
-class _State {
-  constructor(vars, params, options) {
-    const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
-    const events = options?.events ?? debug
-    const states = options?.states ?? debug
-    const trace = options?.trace ?? debug
-    // define auxiliary state properties
-    // must be done first to detect name conflicts below
-    define(this, '_mutator', { writable: true })
-    define(this, '_scheduler', { writable: true })
-    define(this, '_dependents', { writable: true })
-    if (events) define(this, '_events', { writable: true, value: [] })
-    if (states) define(this, '_states', { writable: true }) // set below
-    if (trace) define(this, '_trace', { writable: true, value: [] })
-    let _t // undefined before first call to simulate(x,…)
-    define(this, '_t', {
-      get: () => _t,
-      set: t => {
-        if (_t === undefined) {
-          if (states) this._states = [clone_deep(this)]
-          seal_deep(this)
-        }
-        _t = t
-      },
-    })
-
-    // define variable properties, subject to mutation tracking
-    // note vars argument is modified directly to avoid copying to 'this'
-    // vars can be a function defined "offline", i.e. outside sampler function
-    if (is_function(vars)) vars = vars() // can be "offline" function
-    vars.t ??= 0 // default x.t=0
-    for (const [k, v] of entries(vars)) {
-      // proxy existing nested non-array non-frozen objects recursively
-      // arrays are excluded by default (can be enabled later by name)
-      // non-proxied nested dependencies are detected at _on_get for parent
-      // note this excludes non-enumerable or inherited properties
-      if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
-        vars[k] = this._proxy(k, v)
-      define(this, k, {
-        enumerable: true, // variables (unlike parameters) can be enumerated
-        get() {
-          const v = vars[k]
-          if (this._mutator || this._scheduler) this._on_get(k, v)
-          return v
-        },
-        set(v) {
-          // proxy new nested non-array non-frozen object recursively
-          if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
-            v = this._proxy(k, v)
-          const v_old = vars[k]
-          vars[k] = v
-          this._on_set(k, v, v_old)
-        },
-      })
-    }
-
-    // define (constant) parameter properties
-    if (params) {
-      if (is_function(params)) params = params() // can be "offline" function
-      each(entries(params), ([k, v]) => {
-        if (is_object(v)) {
-          freeze_deep(v) // freeze nested parameters recursively
-          // merge into existing object value in this[k], if it exists
-          // note if it exists as non-object define will fail below
-          // note setters will not proxy since v is frozen
-          // note we have to designate this as mutator
-          if (is_object(this[k])) {
-            this._mutator = this
-            merge(this[k], v)
-            this._mutator = null
-            return
-          }
-        }
-        define(this, k, { value: v })
-      })
-    }
-  }
-
-  get d() {
-    return ~~this.t
-  }
-  get h() {
-    return (this.t - this.d) * 24
-  }
-
-  _on_get(k, v) {
-    this._trace?.push({
-      type: this._mutator ? 'fx_get' : 'ft_get',
-      k,
-      v,
-      t: k == 't' ? v : this.t,
-      e: this._mutator ?? this._scheduler,
-    })
-    // track scheduler access as a "dependency"
-    // non-proxied non-frozen nested dependencies are disallowed
-    // direct dependency on time (t) is allowed but not recommended
-    // (alternative is to introduce other variables/events)
-    // dependency continues until mutation or _cancel
-    if (this._scheduler) {
-      if (is_object(v) && !Object.isFrozen(v) && !v._proxied)
-        fatal(`dependency on non-proxied non-frozen nested variable ${k}`)
-      this._dependents ??= {}
-      this._dependents[k] ??= new Set()
-      this._dependents[k].add(this._scheduler)
-    }
-  }
-
-  _on_set(k, v_new, v_old) {
-    if (this._scheduler) fatal(`state mutated in scheduler`)
-    if (!this._mutator) {
-      if (k != 't') fatal(`non-t state '${k}' mutated outside of mutator`)
-      return
-    }
-    if (k == 't') fatal('x.t set in mutator')
-    this._trace?.push({
-      type: 'fx_set',
-      k,
-      v_new,
-      v_old,
-      t: this.t,
-      e: this._mutator,
-    })
-    // reset and clear any dependent schedulers
-    if (this._dependents?.[k]?.size > 0) {
-      for (const e of this._dependents[k]) e._t = 0
-      this._dependents[k].clear()
-    }
-  }
-
-  _cancel(e) {
-    if (this._dependents)
-      for (const deps of values(this._dependents)) deps.delete(e)
-  }
-
-  _proxy(k, obj) {
-    const pfx = k + '.'
-    const state = this
-    obj._proxied = true // indicate object has been proxied
-    // proxy existing nested non-array non-frozen objects recursively
-    // see similar logic in constructor for additional comments
-    for (const [k, v] of entries(obj))
-      if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
-        obj[k] = state._proxy(pfx + k, v)
-    return new Proxy(obj, {
-      get(obj, k) {
-        const v = obj[k]
-        // note this conditional avoids _on_get during cloning of state
-        // otherwise deep cloning (e.g. for _states) can cause a type error
-        if (state._mutator || state._scheduler) state._on_get(pfx + k, v)
-        return v
-      },
-      set(obj, k, v) {
-        // proxy new nested non-array non-frozen object recursively
-        if (is_object(v) && !is_array(v) && !Object.isFrozen(v))
-          v = state._proxy(pfx + k, v)
-        const v_old = obj[k]
-        obj[k] = v
-        state._on_set(pfx + k, v, v_old)
-        return true // accept change
-      },
-    })
   }
 }
 
 // create state object
-const state = (vars, params = undefined, options = undefined) =>
-  new _State(vars, params, options)
+const state = (options = undefined) => new _State(options)
+
+// merge variable state
+const vars = (x, vars, path) => x._merge_vars(vars, path)
+
+// merge (fixed) parameter state
+const params = (x, params, path) => x._merge_params(params, path)
 
 // is `x` a state object?
-const is_state = x => x instanceof _State || x instanceof _State2 // TODO
+const is_state = x => x instanceof _State
 
 class _NestedState {
   constructor(state, path) {
