@@ -2,7 +2,10 @@ class _State {
   constructor({ _options, ...state } = {}, _path, _root) {
     if (_path) define_value(this, '_path', _path)
     if (_root) define_value(this, '_root', _root)
-    if (_options) define_value(this, '_options', _options) // for _init
+    if (_options) {
+      if (!is_object(_options)) fatal('invalid non-object _options')
+      define_value(this, '_options', _options, { writable: true })
+    }
     if (keys(state).length) this.merge(state)
   }
 
@@ -26,7 +29,7 @@ class _State {
       if (trace) define(this, '_trace', { writable: true, value: [] })
       define(this, 'd', { get: () => ~~this.t })
       define(this, 'h', { get: () => (this.t - this.d) * 24 })
-      if (this.t === undefined) this._merge({ t: 0 }) // merge default x.t=0
+      if (this.t === undefined) this.merge({ t: 0 }) // merge default x.t=0
       if (this._states) this._states = [clone_deep(this)] // save initial state
     }
 
@@ -69,9 +72,9 @@ class _State {
   }
 
   merge(obj, params = false) {
-    const { _path, _root = this } = this
+    if (this._initialized) fatal(`can't merge after sim (init)`)
     if (is_array(obj)) define_value(this, 'length', obj.length)
-    const base = _path ? _path + '.' : ''
+    const base = this._path ? this._path + '.' : ''
     for (let [k, v] of entries(obj)) {
       const path = base ? base + k : k
       if (is_function(v)) {
@@ -90,7 +93,7 @@ class _State {
           if (!is_nullish(v_to))
             fatal(`can't merge state object into existing value '${path}' `)
           define_value(v, '_path', path)
-          define_value(v, '_root', _root)
+          define_value(v, '_root', root(this))
           this[k] = v
           continue
         }
@@ -103,7 +106,7 @@ class _State {
           continue
         }
         if (v._traced || !is_array(v))
-          v = new _State(params ? { _params: v } : v, path, _root)
+          v = new _State(params ? { _params: v } : v, path, root(this))
       } else if (is_object(v_to))
         fatal(`can't merge non-object into object '${path}'`)
       // if already defined (as non-object), write into it
@@ -122,11 +125,11 @@ class _State {
         define(this, k, {
           enumerable: true, // required for state properties
           configurable: true, // allow merges until _init
-          get: () => (_root._on_get(path, v), v),
+          get: () => (root(this)._on_get(path, v), v),
           set: v_new => {
             const v_old = v
-            if (is_object(v_new)) v_new = new _State(v_new, path, _root)
-            _root._on_set(path, (v = v_new), v_old)
+            if (is_object(v_new)) v_new = new _State(v_new, path, root(this))
+            root(this)._on_set(path, (v = v_new), v_old)
           },
         })
     }
@@ -135,6 +138,17 @@ class _State {
 
   merge_params(obj) {
     return this.merge(obj, true /*params*/)
+  }
+
+  configure(options) {
+    if (this._initialized) fatal(`can't configure after sim (init)`)
+    if (!is_object(options)) fatal('invalid non-object options')
+    if (this._options) {
+      this._options = merge(this._options, options)
+      return this
+    }
+    define_value(this, '_options', options, { writable: true })
+    return this
   }
 
   _cancel(e) {
@@ -187,11 +201,32 @@ class _State {
   }
 }
 
-// create state object
-const state = (options = undefined) => new _State(options)
+// create state from `obj`
+// options can be specified under key `_options`
+// functions are invoked in order specified in `obj`
+const state = obj => new _State(obj)
 
 // is `x` a state object?
 const is_state = x => x instanceof _State
+
+// merge `obj` into state `x`
+const merge_state = (x, obj) => x.merge(obj)
+
+// merge `obj` into `x` as _parameters_
+// parameters are treated as _constants_ during simulation
+const merge_params = (x, obj) => x.merge_params(obj)
+
+// configure `options` for state `x`
+const configure = (x, options) => x.configure(options)
+
+// path for (nested) state `x`
+// path is `undefined` for root state
+// optional `path` relative to `x` can be specified
+const path = (x, path = undefined) =>
+  path ? (x._path ? x._path + '.' + path : path) : x._path
+
+// root state for (nested) state `x`
+const root = x => x._root ?? x
 
 // enable tracing for nested state
 // enables access (dependency) from schedulers

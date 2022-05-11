@@ -686,6 +686,7 @@ class _Sampler {
           await this._init_prior()
         } catch (e) {
           error(e)
+          return // stop, do not update or output
         }
         if (this.J == 1) return // skip updates/posterior in debug mode
 
