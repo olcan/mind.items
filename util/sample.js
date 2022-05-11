@@ -1046,6 +1046,7 @@ class _Sampler {
               path = pkey + '.' + path
             }
           }
+          path = path.replace(/_params\./g, '') // drop _params. for sim states
           name = path + key
         }
 

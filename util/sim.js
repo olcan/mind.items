@@ -1,12 +1,9 @@
 class _State {
-  constructor(options, path, root) {
-    if (path) define_value(this, '_path', path)
-    if (root) define_value(this, '_root', root)
-    if (options) {
-      define_value(this, '_options', options) // for _init
-      if (options.vars) this.vars(options.vars)
-      if (options.params) this.params(options.params)
-    }
+  constructor({ _options, ...state } = {}, _path, _root) {
+    if (_path) define_value(this, '_path', _path)
+    if (_root) define_value(this, '_root', _root)
+    if (_options) define_value(this, '_options', _options) // for _init
+    if (keys(state).length) this.merge(state)
   }
 
   _init() {
@@ -50,12 +47,42 @@ class _State {
     seal(this) // prevent new properties, make existing ones non-configurable
   }
 
-  _merge(obj, as_param = false) {
+  _check_args(f, path) {
+    let fstr = f.toString()
+    let [, args] =
+      fstr.match(/(?:function)?\s*\(\s*\{(.*)\}\s*\)\s*(?:=>|\{)/) ?? []
+    if (!args) fatal(`invalid function '${path}', must have form ({…})=>`)
+    const names = args.match(/[_\p{L}][_\p{L}\d]*/gu)
+    if (!names) return
+    global_eval(
+      `(({${args}})=>(` +
+        names
+          .map(
+            name =>
+              `${name} ?? ` +
+              `fatal("undefined argument '${name}' ` +
+              `for function '${path}'")`
+          )
+          .join(',') +
+        '))'
+    )(this)
+  }
+
+  merge(obj, params = false) {
     const { _path, _root = this } = this
     if (is_array(obj)) define_value(this, 'length', obj.length)
     const base = _path ? _path + '.' : ''
     for (let [k, v] of entries(obj)) {
       const path = base ? base + k : k
+      if (is_function(v)) {
+        this._check_args(v, path) // ensure all arguments are defined
+        v = v(this) // invoke function w/ current state
+      }
+      if (k == '_params') {
+        if (!is_object(v)) fatal(`invalid non-object _params '${path}'`)
+        this.merge(v, true /*params*/) // drop _params:{…} wrapper
+        continue
+      }
       const v_to = this[k]
       if (is_object(v)) {
         // allow state v to be "attached" to nullish property
@@ -71,12 +98,12 @@ class _State {
         if (v_to !== undefined) {
           if (!is_object(v_to))
             fatal(`can't merge object into non-object '${path}'`)
-          if (v_to._merge) v_to._merge(v, as_param) // merge as state object
+          if (v_to._merge) v_to.merge(v, params) // merge as state object
           else merge(v_to, v) // merge as external/untraced object
           continue
         }
         if (v._traced || !is_array(v))
-          v = new _State(as_param ? { params: v } : { vars: v }, path, _root)
+          v = new _State(params ? { _params: v } : v, path, _root)
       } else if (is_object(v_to))
         fatal(`can't merge non-object into object '${path}'`)
       // if already defined (as non-object), write into it
@@ -85,7 +112,7 @@ class _State {
         this[k] = v
         continue
       }
-      if (as_param)
+      if (params)
         define_value(this, k, v, {
           enumerable: true, // required for state properties
           configurable: true, // allow merges until _init
@@ -98,8 +125,7 @@ class _State {
           get: () => (_root._on_get(path, v), v),
           set: v_new => {
             const v_old = v
-            if (is_object(v_new))
-              v_new = new _State({ vars: v_new }, path, _root)
+            if (is_object(v_new)) v_new = new _State(v_new, path, _root)
             _root._on_set(path, (v = v_new), v_old)
           },
         })
@@ -107,12 +133,8 @@ class _State {
     return this
   }
 
-  vars(obj) {
-    return this._merge(obj, false /*as_param*/)
-  }
-
-  params(obj) {
-    return this._merge(obj, true /*as_param*/)
+  merge_params(obj) {
+    return this.merge(obj, true /*params*/)
   }
 
   _cancel(e) {
