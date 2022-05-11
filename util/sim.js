@@ -58,12 +58,13 @@ class _State {
       const path = base ? base + k : k
       const v_to = this[k]
       if (is_object(v)) {
-        // allow state v to be "attached" to undefined property
+        // allow state v to be "attached" to nullish property
         if (is_state(v)) {
-          if (v_to !== undefined)
+          if (!is_nullish(v_to))
             fatal(`can't merge state object into existing value '${path}' `)
           define_value(v, '_path', path)
           define_value(v, '_root', _root)
+          this[k] = v
           continue
         }
         // if already defined (as object), merge into it
