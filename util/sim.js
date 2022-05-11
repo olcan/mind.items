@@ -1,98 +1,105 @@
 class _State {
-  constructor(options = {}, _path, _root) {
-    const { vars, params } = options
-    // note aux props must be defined first to detect name conflicts
-    // note params should be defined last to avoid _freeze on mixed objects
-    if (_path) {
-      define_value(this, '_path', _path)
-      define_value(this, '_root', _root)
-      if (vars) this.vars(vars)
-      if (params) this.params(params) // last to avoid _freeze
-      return this
+  constructor(options, path, root) {
+    if (path) define_value(this, '_path', path)
+    if (root) define_value(this, '_root', root)
+    if (options) {
+      define_value(this, '_options', options) // for _init
+      if (options.vars) this.vars(options.vars)
+      if (options.params) this.params(options.params)
     }
-    const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
-    const { events = debug, states = debug, trace = debug } = options
-    // define auxiliary state properties
-    // done before vars/params to detect name conflicts
-    define_value(this, '_root', (_root = this)) // root is self
-    define(this, '_mutator', { writable: true })
-    define(this, '_scheduler', { writable: true })
-    define(this, '_dependents', { writable: true })
-    if (events) define(this, '_events', { writable: true, value: [] })
-    if (states) define(this, '_states', { writable: true }) // set below
-    if (trace) define(this, '_trace', { writable: true, value: [] })
-    let _t // undefined before first call to simulate(x,…)
-    define(this, '_t', {
-      get: () => _t,
-      set(t) {
-        if (_t === undefined) {
-          if (this.t === undefined) this._merge({ t: 0 }) // x.t required
-          if (states) this._states = [clone_deep(this)] // save initial state
-          // check enumerable properties, seal vars, freeze params
-          invoke_deep(this, v => {
-            v._check?.()
-            if (v._freeze) freeze(v)
-            else seal(v)
-          })
-        }
-        _t = t
-      },
-    })
-    define(this, 'd', { get: () => ~~this.t })
-    define(this, 'h', { get: () => (this.t - this.d) * 24 })
-    if (vars) this.vars(vars)
-    if (params) this.params(params) // last to avoid _freeze
   }
 
-  _check() {
-    for (const k of keys(this)) {
-      const { configurable, writable, value, get, set } =
-        Object.getOwnPropertyDescriptor(this, k)
-      if (configurable) fatal(`invalid state '${k}' (expected !configurable)`)
-      const parameter = !writable && value !== undefined
-      const variable = !!(get && set)
-      if (!parameter) {
-        if (this._freeze) fatal(`invalid state '${k}' (expected parameter)`)
-        if (!variable) fatal(`invalid state '${k}' (expected variable)`)
-      }
+  _init() {
+    if (this._initialized) return // already initialized
+    define_value(this, '_initialized', true)
+
+    if (!this._path) {
+      const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
+      const {
+        events = debug,
+        states = debug,
+        trace = debug,
+      } = this._options ?? {}
+      define(this, '_t', { writable: true })
+      define(this, '_mutator', { writable: true })
+      define(this, '_scheduler', { writable: true })
+      define(this, '_dependents', { writable: true })
+      if (events) define(this, '_events', { writable: true, value: [] })
+      if (states) define(this, '_states', { writable: true }) // set below
+      if (trace) define(this, '_trace', { writable: true, value: [] })
+      define(this, 'd', { get: () => ~~this.t })
+      define(this, 'h', { get: () => (this.t - this.d) * 24 })
+      if (this.t === undefined) this._merge({ t: 0 }) // merge default x.t=0
+      if (this._states) this._states = [clone_deep(this)] // save initial state
     }
+
+    for (const [k, v] of entries(this)) {
+      let desc = Object.getOwnPropertyDescriptor(this, k)
+      if (!desc.configurable)
+        fatal(`invalid state '${k}' (expected configurable)`)
+      // note params can be writeable but must be defined before _init
+      const parameter = desc.value !== undefined
+      const variable = !!(desc.get && desc.set)
+      if (!parameter && !variable) fatal(`invalid state '${k}'`)
+      // make writable properties (params) non-writable
+      // note all properties are made non-configurable in seal() below
+      if (desc.writable) define(this, k, { writeable: false })
+      if (is_state(v)) v._init() // initialized nested state
+    }
+
+    seal(this) // prevent new properties, make existing ones non-configurable
   }
 
   _merge(obj, as_param = false) {
-    const { _path, _root } = this
+    const { _path, _root = this } = this
     if (is_array(obj)) define_value(this, 'length', obj.length)
     const base = _path ? _path + '.' : ''
     for (let [k, v] of entries(obj)) {
       const path = base ? base + k : k
       const v_to = this[k]
       if (is_object(v)) {
-        if (defined(v_to)) {
+        // allow state v to be "attached" to undefined property
+        if (is_state(v)) {
+          if (v_to !== undefined)
+            fatal(`can't merge state object into existing value '${path}' `)
+          define_value(v, '_path', path)
+          define_value(v, '_root', _root)
+          continue
+        }
+        // if already defined (as object), merge into it
+        if (v_to !== undefined) {
           if (!is_object(v_to))
             fatal(`can't merge object into non-object '${path}'`)
-          if (v_to._freeze && !as_param)
-            fatal(`can't merge vars into existing param object '${path}'`)
           if (v_to._merge) v_to._merge(v, as_param) // merge as state object
           else merge(v_to, v) // merge as external/untraced object
           continue
         }
-        if (v._traced || !is_array(v)) {
-          v = as_param
-            ? new _State({ params: v }, path, _root)
-            : new _State({ vars: v }, path, _root)
-        }
-        // mark all objects in params to be frozen (vs sealed)
-        if (as_param) invoke_deep(v, v => define_value(v, '_freeze', true))
+        if (v._traced || !is_array(v))
+          v = new _State(as_param ? { params: v } : { vars: v }, path, _root)
       } else if (is_object(v_to))
         fatal(`can't merge non-object into object '${path}'`)
-      if (as_param) define_value(this, k, v, { enumerable: true })
+      // if already defined (as non-object), write into it
+      // note both params & vars allow writes until _init
+      if (v_to !== undefined) {
+        this[k] = v
+        continue
+      }
+      if (as_param)
+        define_value(this, k, v, {
+          enumerable: true, // required for state properties
+          configurable: true, // allow merges until _init
+          writable: true, // allow writes until _init
+        })
       else
         define(this, k, {
-          enumerable: true,
+          enumerable: true, // required for state properties
+          configurable: true, // allow merges until _init
           get: () => (_root._on_get(path, v), v),
           set: v_new => {
             const v_old = v
-            v = is_object(v_new) ? new _State({ path, vars: v_new }) : v_new
-            _root._on_set(path, v_new, v_old)
+            if (is_object(v_new))
+              v_new = new _State({ vars: v_new }, path, _root)
+            _root._on_set(path, (v = v_new), v_old)
           },
         })
     }
@@ -113,7 +120,7 @@ class _State {
   }
 
   _on_get(k, v) {
-    if (this._t === undefined) return // ignore access until x._t is set
+    if (!this._initialized) return // ignore access until _init
     // track scheduler access as a "dependency"
     // dependency continues until mutation or _cancel
     // untraced nested dependencies are detected via _on_get for ancestor
@@ -134,7 +141,7 @@ class _State {
   }
 
   _on_set(k, v_new, v_old) {
-    if (this._t === undefined) return // ignore mutation until x._t is set
+    if (!this._initialized) return // ignore mutation until _init
     if (this._scheduler) fatal(`state set in scheduler`)
     if (!this._mutator) {
       if (k == 't') return // ignore non-mutator changes to x.t
@@ -175,6 +182,7 @@ const trace = obj => (define_value(obj, '_traced', true), obj)
 // can be invoked again to _resume_ simulation w/o resampling
 function simulate(x, t, events, options = undefined) {
   if (!is_state(x)) fatal('invalid state object')
+  x._init() // init state for first sim
   x._t ??= 0 // non-resuming sim starts at x._t=0 (to be advanced to t>x.t>0)
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
   if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
