@@ -1112,15 +1112,17 @@ class _Sampler {
           case 'condition':
           case 'weight':
           case 'confine':
-            let value_index = index // from maximize|minimize above
+            const value_index = index // if defined, from maximize|minimize cases above
             index = weights.length
-            name ||= str(index)
+            name ||= `${method}_${index}`
             weights.push(lexical_context({ value_index }))
             break
           case 'simulate':
             index = sims.length
-            // note simulation name is separate from sampled value names
-            sims.push(lexical_context())
+            name ||= `${method}_${index}`
+            // note we also process as weight to handle _log_w from sim
+            sims.push(lexical_context({ weight_index: weights.length }))
+            weights.push(lexical_context({ sim_index: index }))
             break
           case 'predict':
             index = values.length
@@ -2101,7 +2103,7 @@ class _Sampler {
         const { t, u } = this
         if (this.options.warn) {
           // warn about running out of time or updates
-          if (t > max_time)
+          if (t >= max_time)
             warn(`ran out of time t=${t}≥${max_time}ms (u=${u})`)
           else warn(`ran out of updates u=${u}≥${max_updates} (t=${t}ms)`)
         }
@@ -2172,7 +2174,7 @@ class _Sampler {
     this.done = true // no more updates
     // warn about r<1 and tks>max_tks if warnings enabled
     if (options.warn) {
-      if (r < 1) warn(`pre-posterior sample w/ r=${r}<1`)
+      if (r < 1) warn(`pre-posterior sample w/ r=${round_to(r, 3)}<1`)
       if (tks > options.max_tks) {
         warn(`failed to achieve target tks=${tks}≤${options.max_tks}`)
         print('tks_pK:', str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
@@ -3277,7 +3279,7 @@ class _Sampler {
       this.nK[k] = name
     }
     value.called = true
-    // treat NaN (usually due to undefined samples) as undefined
+    // treat nan (usually due to undefined samples) as undefined
     if (is_nan(x)) x = undefined
     value.first ??= x // used to determine type
     if (moving) yJK[j][k] = x
@@ -3323,11 +3325,6 @@ class _Sampler {
       log_wrfJN,
     } = this
 
-    // treat NaN (usually due to undefined samples) as 0
-    if (is_nan(log_w)) {
-      log_w = 0
-      log_wr = r => 0
-    }
     const weight = weights[n]
     if (weight.called)
       fatal(
@@ -3336,6 +3333,12 @@ class _Sampler {
       )
     weight.called = true
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
+
+    // treat NaN (usually due to undefined samples) as -inf
+    // also use fixed log_wr as default for log_w==-inf
+    if (is_nan(log_w)) log_w = -inf
+    if (log_w == -inf) log_wr ??= r => -inf
+
     // check custom log_wr satisfies log_wr(1,…) == log_w
     if (log_wr) {
       const log_wr_1 = log_wr(1, n, weight, this)
@@ -3542,9 +3545,11 @@ class _Sampler {
       J, // in
     } = this
     const sim = sims[s]
-    // for J==1 (debug mode), store sim.xt
-    if (J == 1) return (sim.xt = simulate(...args))
-    return simulate(...args)
+    const xt = simulate(...args)
+    if (J == 1) sim.xt = xt // save for printing history in debug mode
+    // apply _log_w from state if defined & non-zero
+    if (xt._log_w) this._weight(sim.weight_index, xt._log_w)
+    return xt
   }
 
   _accumulate() {

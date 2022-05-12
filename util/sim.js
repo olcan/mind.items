@@ -81,9 +81,16 @@ class _State {
         this._check_args(v, path) // ensure all arguments are defined
         v = v(this) // invoke function w/ current state
       }
+      // handle _params
       if (k == '_params') {
         if (!is_object(v)) fatal(`invalid non-object _params '${path}'`)
         this.merge(v, true /*params*/) // drop _params:{…} wrapper
+        continue
+      }
+      // handle _log_w
+      if (k == '_log_w') {
+        if (!is_number(v)) fatal(`invalid non-number _log_w '${path}'`)
+        this.weight(v)
         continue
       }
       const v_to = this[k]
@@ -94,6 +101,10 @@ class _State {
             fatal(`can't merge state object into existing value '${path}' `)
           define_value(v, '_path', path)
           define_value(v, '_root', root(this))
+          if (v._log_w) {
+            this.weight(v._log_w) // transfer pre-attach _log_w
+            v._log_w = 0 // no longer used at non-root
+          }
           this[k] = v
           continue
         }
@@ -133,7 +144,7 @@ class _State {
           },
         })
     }
-    return this
+    return this // for chaining
   }
 
   merge_params(obj) {
@@ -148,7 +159,17 @@ class _State {
       return this
     }
     define_value(this, '_options', options, { writable: true })
-    return this
+    return this // for chaining
+  }
+
+  weight(log_w) {
+    const x = root(this) // to accumulate _log_w globally at root level
+    if (is_function(log_w)) log_w = log_w(this) // invoke function
+    if (!is_number(log_w)) fatal(`invalid non-number weight log_w=${log_w}`)
+    if (is_nan(log_w)) log_w = -inf // take nan as -inf
+    if (defined(x._log_w)) x._log_w += log_w
+    else define_value(x, '_log_w', log_w, { writable: true })
+    return this // for chaining
   }
 
   _cancel(e) {
@@ -233,6 +254,12 @@ const root = x => x._root ?? x
 // certain state (e.g. non-array objects) are traced by default
 const trace = obj => (define_value(obj, '_traced', true), obj)
 
+// weight state `x` as `log_w`
+// `log_w` can be a function `x=>…`
+// weights are accumulated at `root(x)._log_w`
+// simulation is terminated early when `_log_w==-inf`
+const weight_state = (x, log_w) => x.weight(log_w)
+
 // simulate `events` from state `x` to time `t`
 // includes all events at times `(x.t,t], t>x.t`
 // may include events `>t` given option `allow_next`
@@ -262,6 +289,8 @@ function simulate(x, t, events, options = undefined) {
   // schedule and apply events as needed until x._t >= t
   const allow_next = options?.allow_next // allow events >t ?
   while (x._t < t) {
+    // stop early if x._log_w == -inf
+    if (x._log_w == -inf) return x
     // schedule events for times >x.t
     // valid times >x.t are cached inside _Event and reset by _State as needed
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
