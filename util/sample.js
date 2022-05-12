@@ -3539,17 +3539,25 @@ class _Sampler {
     return each(xJ, (x, j) => this._confine(n + j, x, domain_fj(j, J)))
   }
 
-  _simulate(s, ...args) {
+  _simulate(s, x, ...args) {
     const {
       sims, // out
       J, // in
     } = this
     const sim = sims[s]
-    const xt = simulate(...args)
-    if (J == 1) sim.xt = xt // save for printing history in debug mode
+    // in debug mode (J==1), store state as sim.xt for _init_prior
+    // also store full history (by default) for printing in _init_prior
+    if (J == 1) {
+      sim.xt = x
+      if (!x._events && !x._states && !x._trace) {
+        print('enabling full history for simulate(…) in debug mode (size==1)')
+        x.merge({ _events: [], _states: [], _trace: [] })
+      }
+    }
+    simulate(x, ...args)
     // apply _log_w from state if defined & non-zero
-    if (xt._log_w) this._weight(sim.weight_index, xt._log_w)
-    return xt
+    if (x._log_w) this._weight(sim.weight_index, x._log_w)
+    return x
   }
 
   _accumulate() {

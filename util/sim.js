@@ -1,12 +1,8 @@
 class _State {
-  constructor({ _options, ...state } = {}, _path, _root) {
+  constructor(state, _path, _root) {
     if (_path) define_value(this, '_path', _path)
     if (_root) define_value(this, '_root', _root)
-    if (_options) {
-      if (!is_object(_options)) fatal('invalid non-object _options')
-      define_value(this, '_options', _options, { writable: true })
-    }
-    if (keys(state).length) this.merge(state)
+    if (state) this.merge(state)
   }
 
   _init() {
@@ -14,23 +10,14 @@ class _State {
     define_value(this, '_initialized', true)
 
     if (!this._path) {
-      const debug = self.__sampler?.J == 1 // running in sampler in debug mode?
-      const {
-        events = debug,
-        states = debug,
-        trace = debug,
-      } = this._options ?? {}
       define(this, '_t', { writable: true })
       define(this, '_mutator', { writable: true })
       define(this, '_scheduler', { writable: true })
       define(this, '_dependents', { writable: true })
-      if (events) define(this, '_events', { writable: true, value: [] })
-      if (states) define(this, '_states', { writable: true }) // set below
-      if (trace) define(this, '_trace', { writable: true, value: [] })
       define(this, 'd', { get: () => ~~this.t })
       define(this, 'h', { get: () => (this.t - this.d) * 24 })
       if (this.t === undefined) this.merge({ t: 0 }) // merge default x.t=0
-      if (this._states) this._states = [clone_deep(this)] // save initial state
+      if (this._states?.length == 0) this._states.push(clone_deep(this))
     }
 
     for (const [k, v] of entries(this)) {
@@ -93,6 +80,12 @@ class _State {
         this.weight(v)
         continue
       }
+      // handle _events, _states, or _trace arrays
+      if (k == '_events' || k == '_states' || k == '_trace') {
+        if (!is_array(v)) fatal(`invalid non-array state '${path}'`)
+        define_value(this, k, v)
+        continue
+      }
       const v_to = this[k]
       if (is_object(v)) {
         // allow state v to be "attached" to nullish property
@@ -149,17 +142,6 @@ class _State {
 
   merge_params(obj) {
     return this.merge(obj, true /*params*/)
-  }
-
-  configure(options) {
-    if (this._initialized) fatal(`can't configure after sim (init)`)
-    if (!is_object(options)) fatal('invalid non-object options')
-    if (this._options) {
-      this._options = merge(this._options, options)
-      return this
-    }
-    define_value(this, '_options', options, { writable: true })
-    return this // for chaining
   }
 
   weight(log_w) {
@@ -223,8 +205,7 @@ class _State {
 }
 
 // create state from `obj`
-// options can be specified under key `_options`
-// functions are invoked in order specified in `obj`
+// functions are invoked in [property order](https://stackoverflow.com/a/38218582)
 const state = obj => new _State(obj)
 
 // is `x` a state object?
@@ -236,9 +217,6 @@ const merge_state = (x, obj) => x.merge(obj)
 // merge `obj` into `x` as _parameters_
 // parameters are treated as _constants_ during simulation
 const merge_params = (x, obj) => x.merge_params(obj)
-
-// configure `options` for state `x`
-const configure = (x, options) => x.configure(options)
 
 // path for (nested) state `x`
 // path is `undefined` for root state
