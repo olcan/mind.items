@@ -256,6 +256,7 @@ const weight_state = (x, log_w) => x.weight(log_w)
 // may include events `>t` given option `allow_next`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
+// cancelled if state is assigned zero weight, i.e. `x._log_w==-inf`
 function simulate(x, t, events, options = undefined) {
   if (!is_state(x)) fatal('invalid state object')
   x._init() // init state for first sim
@@ -280,8 +281,7 @@ function simulate(x, t, events, options = undefined) {
   // schedule and apply events as needed until x._t >= t
   const allow_next = options?.allow_next // allow events >t ?
   while (x._t < t) {
-    // stop early if x._log_w == -inf
-    if (x._log_w == -inf) return x
+    if (x._log_w == -inf) return x // cancel if state assigned 0 weight
     // schedule events for times >x.t
     // valid times >x.t are cached inside _Event and reset by _State as needed
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
