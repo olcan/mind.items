@@ -25,6 +25,13 @@ const seal_deep = obj => invoke_deep(obj, seal)
 // freeze all objects in `obj`
 const freeze_deep = obj => invoke_deep(obj, freeze)
 
+// extract all non-object values in `obj`
+const values_deep = obj => {
+  if (!is_object(obj)) return [obj]
+  if (is_array(obj)) return flatten(obj.map(values_deep))
+  return flatten(values(obj).map(values_deep))
+}
+
 // define `value` for property
 // does not modify existing properties
 // returns defined value (vs object as in `define`)

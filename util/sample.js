@@ -925,16 +925,23 @@ class _Sampler {
     const _replace_calls = (js, root = false) =>
       js.replace(__sampler_regex, (m, name, key, method, args, offset) => {
         if (!method) return m // skip comments (from prefix ...|...|)
+
+        // converg args of form ...{…} to ...values_deep({…})
+        // args = args.replace(/^\.\.\.\s*(\{.*\})$/s, '...values_deep($1)')
+
         // remove quotes from object object key
         if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
+
         // parse size (and alt name) from array method args
         let size, args_name
         if (method.endsWith('_array')) {
           ;[size, args_name] = parse_array_args(args)
           if (!(size > 0)) fatal(`invalid/missing size for ${method}`)
         }
+
         // if name (via assignment) is missing, try object key or args
         name ??= key ?? args_name
+
         // check name, parse into array names if possible
         let array_names
         if (name) {
@@ -961,6 +968,7 @@ class _Sampler {
               fatal(`invalid numeric name '${name}' for sampled value`)
           }
         }
+
         // extract lexical context
         let mt = m
         if (js[offset] == '\n') {
