@@ -4,7 +4,8 @@ function plot(obj, name = undefined) {
   if (!is_object(obj)) fatal('non-object argument')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
   if (!_this.name.startsWith('#')) fatal('plot called from unnamed item')
-  if (!name.match(/^#?\/?\w+$/)) fatal(`invalid name '${name}' for plot item`)
+  if (!name.match(/^#?\/?[_\p{L}\d]+$/u))
+    fatal(`invalid non-alphanumeric name '${name}' for plot item`)
   // prefix name with #/ if missing and convert to absolute name
   if (name.match(/^\w/)) name = '#/' + name
   else if (name.match(/^\/\w/)) name = '#' + name

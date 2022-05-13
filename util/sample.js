@@ -2642,7 +2642,9 @@ class _Sampler {
     const { J, rwJ, xJK, pxJK } = this
     each(this.values, (value, k) => {
       // use value name as plot name but replace non-alphanum w/ underscore
-      const name = value.name.replace(/\W/g, '_').replace(/^_+|_+$/g, '')
+      const name = value.name
+        .replace(/[^\p{L}\d]/gu, '_')
+        .replace(/^_+|_+$/g, '')
 
       // filter by plot name if names are specified
       if (plot_names && !plot_names.has(name)) return
