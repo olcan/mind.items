@@ -1,7 +1,7 @@
 class _State {
   constructor(state, _path, _root) {
-    if (_path) define_value(this, '_path', _path)
     if (_root) define_value(this, '_root', _root)
+    if (_path) define_value(this, '_path', _path)
     if (state) this.merge(state)
   }
 
@@ -10,14 +10,16 @@ class _State {
     define_value(this, '_initialized', true)
 
     if (!this._path) {
+      // define root-only properties used by simulate(…) and _Event constructor
       define(this, '_t', { writable: true })
       define(this, '_mutator', { writable: true })
       define(this, '_scheduler', { writable: true })
       define(this, '_dependents', { writable: true })
-      define(this, 'd', { get: () => ~~this.t })
-      define(this, 'h', { get: () => (this.t - this.d) * 24 })
       if (this.t === undefined) this.merge({ t: 0 }) // merge default x.t=0
       if (this._states?.length == 0) this._states.push(clone_deep(this))
+    } else {
+      // redirect non-root t to root (fails if t was merged into non-root)
+      define(this, 't', { get: () => this._root.t })
     }
 
     for (const [k, v] of entries(this)) {
@@ -35,6 +37,17 @@ class _State {
     }
 
     seal(this) // prevent new properties, make existing ones non-configurable
+  }
+
+  // define convenience temporal properties d & h at ALL levels (via prototype)
+  // these use root(x).t, always defined on root on/before _init
+  // non-root t is also redirected to root(x).t at _init
+  get d() {
+    return ~~root(this).t
+  }
+  get h() {
+    const t = root(this).t
+    return (t - ~~t) * 24
   }
 
   _check_args(f, path) {
@@ -305,7 +318,11 @@ const name_events = (...fE) =>
     })
   )
 
-// _event(fx, [ft=daily(0)], [fc])
+// attach events `eJ` to (nested) state `x`
+// event functions will be invoked on `x` instead of `root(x)`
+const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
+
+// _event(fx, [ft=daily(0)], [fc], [x])
 // create mutation event `x → fx(x,…)`
 // state `x` _mutates_ to `fx(x)` at time `ft(x)`
 // | `fx`      | _mutator function_ `fx(x)`
@@ -320,19 +337,17 @@ const name_events = (...fE) =>
 // | `fc`      | optional _condition function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
 // |           | state variables accessed in `fc` are also dependencies (see above)
+// | `x`       | optional (nested) state object pre-attached to event
+// |           | all functions will be invoked on `x` instead of `root(x)`
 const _event = (...args) => new _Event(...args)
 class _Event {
-  constructor(fx, ft = daily(0), fc = undefined) {
+  constructor(fx, ft = daily(0), fc = undefined, x) {
+    if (x) this._x = x // pre-attached state
     this.fx = x => {
       x._mutator = this // track event as mutator
-      const θ = fx(x)
+      const θ = fx(this._x ?? x)
       x._mutator = null
-      // count mutations and skips (if defined) for benchmarking
-      if (defined(x._mutations)) x._mutations++ // includes skipped
-      if (θ === null) {
-        if (defined(x._skips)) x._skips++
-        return null
-      }
+      if (θ === null) return null // event (mutation) skipped
       x._events?.push({ t: x.t, ...θ, _source: this })
       x._states?.push(clone_deep(x))
     }
@@ -343,24 +358,25 @@ class _Event {
       if (this._t > x.t) return this._t
       x._cancel(this) // cancel dependencies for previous _t
       x._scheduler = this // track event as dependent scheduler
-      this._t = fc && !fc(x) ? inf : ft(x)
+      const _x = this._x ?? x
+      this._t = fc && !fc(_x) ? inf : ft(_x)
       x._scheduler = null
       return this._t
     }
   }
 }
 
-// _do(fx, [ft=daily(0)], [fc])
+// _do(fx, [ft=daily(0)], [fc], [x])
 // alias for `_event(…)`, mutator (`fx`) first
 const _do = _event
 
-// _at(ft, fx, [fc])
+// _at(ft, fx, [fc], [x])
 // alias for `_event(…)`, scheduler (`ft`) first
-const _at = (ft, fx, fc) => _event(fx, ft, fc)
+const _at = (ft, fx, fc, x) => _event(fx, ft, fc, x)
 
-// _if(fc, ft, fx)
+// _if(fc, ft, fx, [x])
 // alias for `_event(…)`, condition (`fc`) first
-const _if = (fc, ft, fx) => _event(fx, ft, fc)
+const _if = (fc, ft, fx, x) => _event(fx, ft, fc, x)
 
 // is `e` an event object?
 const is_event = e => e instanceof _Event
