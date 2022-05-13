@@ -32,6 +32,8 @@ const values_deep = obj => {
   return flatten(values(obj).map(values_deep))
 }
 
+const args = values_deep
+
 // define `value` for property
 // does not modify existing properties
 // returns defined value (vs object as in `define`)

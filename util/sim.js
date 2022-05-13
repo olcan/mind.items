@@ -337,12 +337,15 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // | `fc`      | optional _condition function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
 // |           | state variables accessed in `fc` are also dependencies (see above)
-// | `x`       | optional (nested) state object pre-attached to event
+// | `x`       | optional (nested) state object, attached to event as `_x`
 // |           | all functions will be invoked on `x` instead of `root(x)`
+// | `name`    | optional event name string, attached as `_name`
+// |           | extended as `path(x,name)` if `x` is also specified
 const _event = (...args) => new _Event(...args)
 class _Event {
-  constructor(fx, ft = daily(0), fc = undefined, x) {
+  constructor(fx, ft = daily(0), fc = undefined, x, name) {
     if (x) this._x = x // pre-attached state
+    if (name) this._name = x ? path(x, name) : name
     this.fx = x => {
       x._mutator = this // track event as mutator
       const θ = fx(this._x ?? x)
@@ -366,17 +369,17 @@ class _Event {
   }
 }
 
-// _do(fx, [ft=daily(0)], [fc], [x])
+// _do(fx, [ft=daily(0)], [fc], [x], [name])
 // alias for `_event(…)`, mutator (`fx`) first
 const _do = _event
 
-// _at(ft, fx, [fc], [x])
+// _at(ft, fx, [fc], [x], [name])
 // alias for `_event(…)`, scheduler (`ft`) first
-const _at = (ft, fx, fc, x) => _event(fx, ft, fc, x)
+const _at = (ft, fx, fc, x, name) => _event(fx, ft, fc, x, name)
 
-// _if(fc, ft, fx, [x])
+// _if(fc, ft, fx, [x], [name])
 // alias for `_event(…)`, condition (`fc`) first
-const _if = (fc, ft, fx, x) => _event(fx, ft, fc, x)
+const _if = (fc, ft, fx, x, name) => _event(fx, ft, fc, x, name)
 
 // is `e` an event object?
 const is_event = e => e instanceof _Event

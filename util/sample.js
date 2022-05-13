@@ -1050,7 +1050,12 @@ class _Sampler {
                 pfx.match(
                   /(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *:$/su
                 ) ?? []
-              if (!pkey) break // break at unclosed object literal
+              if (!pkey) {
+                // use assignment name as final path prefix
+                const [, pkey] = pfx.match(/([_\p{L}][_\p{L}\d]*) *=$/su) ?? []
+                if (pkey) path = pkey + '.' + path
+                break // break at unclosed object literal
+              }
               if (pkey.match(/^[`'"].*[`'"]$/s)) pkey = pkey.slice(1, -1)
               path = pkey + '.' + path
             }
