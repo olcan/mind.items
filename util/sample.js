@@ -926,49 +926,6 @@ class _Sampler {
       js.replace(__sampler_regex, (m, name, key, method, args, offset) => {
         if (!method) return m // skip comments (from prefix ...|...|)
 
-        // converg args of form ...{…} to ...values_deep({…})
-        // args = args.replace(/^\.\.\.\s*(\{.*\})$/s, '...values_deep($1)')
-
-        // remove quotes from object object key
-        if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
-
-        // parse size (and alt name) from array method args
-        let size, args_name
-        if (method.endsWith('_array')) {
-          ;[size, args_name] = parse_array_args(args)
-          if (!(size > 0)) fatal(`invalid/missing size for ${method}`)
-        }
-
-        // if name (via assignment) is missing, try object key or args
-        name ??= key ?? args_name
-
-        // check name, parse into array names if possible
-        let array_names
-        if (name) {
-          // decline destructuring assignment to object {...}
-          if (!(name[0] != '{'))
-            fatal(`destructuring assignment to object ${name} not supported`)
-          // allow destructuring assignment to full flat array from sample_array
-          if (name[0] == '[') {
-            if (name.slice(1, -1).match(/\[|{/))
-              fatal(
-                `destructuring assignment to nested array ${name} not supported`
-              )
-            if (name.slice(1, -1).match(/=/))
-              fatal(
-                `default values in assignment to array ${name} not supported`
-              )
-            if (method != 'sample_array')
-              fatal(`destructuring assignment to array requires sample_array`)
-            array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
-            if (size != array_names.length)
-              fatal('destructuring array assignment size mismatch')
-          } else {
-            if (name.match(/^\d/))
-              fatal(`invalid numeric name '${name}' for sampled value`)
-          }
-        }
-
         // extract lexical context
         let mt = m
         if (js[offset] == '\n') {
@@ -1007,6 +964,52 @@ class _Sampler {
             line,
             (a, b) => a.startsWith(b),
           ]) // sanity check
+        }
+
+        // remove quotes from object object key
+        if (key?.match(/^[`'"].*[`'"]$/s)) key = key.slice(1, -1)
+
+        // parse size (and alt name) from array method args
+        let size, args_name
+        if (method.endsWith('_array')) {
+          ;[size, args_name] = parse_array_args(args)
+          if (!(size > 0)) fatal(`invalid/missing size for ${method}`)
+        }
+
+        // if name (via assignment) is missing, try object key or args
+        name ??= key ?? args_name
+
+        // if name is still missing, try suffix of form <<- alphanumeric_name
+        // commenting out is optional and done automatically below if missing
+        name ??= suffix.match(
+          /\s*,?\s*(?:\/[/*])?\s*<<-\s*([_\p{L}][_\p{L}\d]*)/su
+        )?.[1]
+
+        // check name, parse into array names if possible
+        let array_names
+        if (name) {
+          // decline destructuring assignment to object {...}
+          if (!(name[0] != '{'))
+            fatal(`destructuring assignment to object ${name} not supported`)
+          // allow destructuring assignment to full flat array from sample_array
+          if (name[0] == '[') {
+            if (name.slice(1, -1).match(/\[|{/))
+              fatal(
+                `destructuring assignment to nested array ${name} not supported`
+              )
+            if (name.slice(1, -1).match(/=/))
+              fatal(
+                `default values in assignment to array ${name} not supported`
+              )
+            if (method != 'sample_array')
+              fatal(`destructuring assignment to array requires sample_array`)
+            array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
+            if (size != array_names.length)
+              fatal('destructuring array assignment size mismatch')
+          } else {
+            if (name.match(/^\d/))
+              fatal(`invalid numeric name '${name}' for sampled value`)
+          }
         }
 
         // if method is 'accumulate', enable global and per-call flags
@@ -1168,7 +1171,13 @@ class _Sampler {
       })
 
     js = _replace_calls(js, true /*root js*/)
-    const context = this.options.context // calling context (if any)
+
+    // comment out any annotation suffixes of the form <<- alphanumeric_name
+    // regex pattern avoids matches inside strings or comments
+    js = js.replace(
+      /`.*?`|'[^\n]*?'|"[^\n]*?"|\/\/[^\n]*|\/\*.*?\*\/|(<<-\s*[_\p{L}][_\p{L}\d]*)/gsu,
+      m => m.replace(/^<<-.*$/, '/* $1 */')
+    )
 
     // extract value name array and sanity check against values[#].name
     const nK = array(names)
@@ -1190,6 +1199,7 @@ class _Sampler {
 
     // evaluate function from js w/ replacements & optional context
     // also wrap function using _wrap_func (see below)
+    const context = this.options.context
     func = context
       ? global_eval(`(({${keys(context)}})=>(${js}))`)(context)
       : global_eval(`(${js})`) // parentheses required for function(){...}
@@ -3589,7 +3599,7 @@ const _SamplerSync = eval(
       .toString()
       .replace(/^class _Sampler/, 'class _SamplerSync')
       .replace(
-        /`.*?`|'[^\n]*?'|"[^\n]*?"|\/\/[^\n]*|\/\*.*?\*\/|(?:^|\s)(?:async|await)\s+/g,
+        /`.*?`|'[^\n]*?'|"[^\n]*?"|\/\/[^\n]*|\/\*.*?\*\/|(?:^|\s)(?:async|await)\s+/gs,
         m => m.replace(/(?:async|await)\s+$/, '') // drop async|await... suffix
       ) +
     ')'
