@@ -979,11 +979,12 @@ class _Sampler {
         // if name (via assignment) is missing, try object key or args
         name ??= key ?? args_name
 
-        // if name is still missing, try suffix of form <<- alphanumeric_name
+        // check for name annotation suffix of form <<- alphanumeric_name
         // commenting out is optional and done automatically below if missing
-        name ??= suffix.match(
+        const sfx_name = suffix.match(
           /\s*,?\s*(?:\/[/*])?\s*<<-\s*([_\p{L}][_\p{L}\d]*)/su
         )?.[1]
+        if (sfx_name) name = sfx_name
 
         // check name, parse into array names if possible
         let array_names
