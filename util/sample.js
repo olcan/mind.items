@@ -884,6 +884,7 @@ class _Sampler {
     let optimizing = false
     let accumulating = false
     let cumulative = false // flag for cumulative weight calls
+    const parent_names = []
 
     // NOTE: there is a question of whether we should avoid static/lexical processing and just use a special first run to determine sampled values and their names and simply check subsequent runs for consistency; the main downside seems to be that sampled values can no longer (in general) be associated with a distinct lexical context and e.g. assigned default names based on that. In general dynamic processing could also make the code more complex/implicit and harder to read (e.g. for values sampled via external functions or libraries) and at the same time more verbose (e.g. for specifying useful names); there is also the issue that we are already special-casing the first run (or at least the first calls to various functions via .called flags) and thus arguably employing a hybrid approach where that makes sense.
 
@@ -919,7 +920,7 @@ class _Sampler {
     // note prefix ...|...| is to skip comments w/o matching calls inside
     // also note javascript engine _should_ cache the compiled regex
     const __sampler_regex =
-      /\s*\/\/[^\n]*|\s*\/\*.*?\*\/|(?:(?:^|[\n;{]) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^{}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)(sample|sample_array|simulate|predict|condition|weight|minimize|maximize|confine|confine_array|accumulate) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
+      /\s*\/\/[^\n]*|\s*\/\*.*?\*\/|(?:(?:^|[\n;{]) *(?:const|let|var)? *(\[[^\[\]]+\]|\{[^{}]+\}|\S+)\s*=\s*(?:\S+\s*=\s*)*|(?:^|[,{\s])(`.*?`|'[^\n]*?'|"[^\n]*?"|[_\p{L}][_\p{L}\d]*) *: *|\b)([_\p{L}][_\p{L}\d]*) *\(((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?\)|.*?)*?)\)/gsu
 
     let line_index, line // shared across recursive calls
     const _replace_calls = (js, root = false) =>
@@ -982,9 +983,13 @@ class _Sampler {
         // check for name annotation suffix of form <<- alphanumeric_name
         // commenting out is optional and done automatically below if missing
         const sfx_name = suffix.match(
-          /\s*,?\s*(?:\/[/*])?\s*<<-\s*([_\p{L}][_\p{L}\d]*)/su
+          /^\s*,?\s*(?:\/[/*])?\s*<<-\s*([_\p{L}][_\p{L}\d]*)/su
         )?.[1]
         if (sfx_name) name = sfx_name
+
+        // use parent name, at least as prefix
+        if (parent_names.length && last(parent_names))
+          name = last(parent_names) + (name ? '.' + name : '.arg')
 
         // check name, parse into array names if possible
         let array_names
@@ -1021,7 +1026,11 @@ class _Sampler {
 
         // recursively replace calls nested inside arguments
         const orig_args = args // args before any replacements here or below
+        // TODO: track arg names as well?
+        // global_eval(method).toString()
+        parent_names.push(name)
         args = _replace_calls(args)
+        parent_names.pop()
 
         // if method is 'accumulate', just disable per-call flag and return
         if (method == 'accumulate') {
@@ -1163,7 +1172,11 @@ class _Sampler {
             values.push(lexical_context({ sampling: true, cached_args }))
             break
           default:
-            fatal(`unknown method ${method}`)
+            // unkonwn method, replace args only
+            return m.replace(
+              new RegExp(method + ' *\\(.+\\)$', 's'),
+              `${method}(${args})`
+            )
         }
         return m.replace(
           new RegExp(method + ' *\\(.+\\)$', 's'),

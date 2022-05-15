@@ -206,7 +206,8 @@ function normal(μ, σ) {
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
   // return new Normal(μ, σ)
-  const dom = { is: 'finite' } // all finite numbers
+  // TODO: standardize this idea of storing args inside domain object?
+  const dom = { is: 'finite', _μ: μ, _σ: σ } // all finite numbers
   dom._prior = f => f(μ + σ * random_normal())
   const inv_σ2 = 1 / (σ * σ)
   const log_z = -log(σ) - log(sqrt(2 * pi)) // z ⊥ x
