@@ -380,8 +380,7 @@ function confine_array(J, xJ, domain) {
 // corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
 // rare conditions require _relaxation function_ `log_wr(r,…), r∈(0,1]`
-// default `log_wr = r=>log(c||1-r)` uses `1-r` as penalty for `!c`
-// TODO: mention portability requirements for `log_wr`
+// TODO: mention portability and monotonicity requirements for `log_wr`
 // domain conditions, e.g. `from(x,domain)`, define own default
 // `cond._log_wr` (if defined) supersedes default `log_wr`
 // `cond` is unwrapped via `cond.valueOf` if defined
@@ -397,6 +396,7 @@ function condition(cond, log_wr = undefined) {
 // effective sample size (ess) becomes `1/E[W²]`; ___can fail for extreme weights___
 // extreme weights require _relaxation function_ `log_wr(r,…), r∈(0,1]`
 // default `log_wr = r=>r*log_w` treats `r` as _weight exponent_
+// TODO: mention portability and monotonicity requirements for `log_wr`
 // `log_w._log_wr` (if defined) supersedes default `log_wr`
 // `log_w` is unwrapped using `log_w.valueOf` if defined
 // see #/weight for technical details
@@ -1186,6 +1186,7 @@ class _Sampler {
     // function wrapper to prep sampler & set self.__sampler
     const wrap = func =>
       function (sampler) {
+        sampler.rejected = false // can be set true in _weight or _sample
         each(sampler.values, v => (v.called = false))
         each(sampler.weights, w => (w.called = false))
         const parent_sampler = self.__sampler // can be null/undefined
@@ -3071,6 +3072,9 @@ class _Sampler {
   }
 
   _sample(k, domain, opt, array_k0, array_len) {
+    // all internal methods must return immediately if run is rejected
+    // note rejected flag is set iff min(log_wr,log_mpj,log_mwj) == -inf
+    if (this.rejected) return
     const {
       options, // in, not to be confused w/ 'opt' for sample-specific options
       values, // in-out, first sampling special
@@ -3105,9 +3109,6 @@ class _Sampler {
     // sampled random values can be forked explicitly if needed
     // TODO: disallow or handle non-sampled randomized domains, e.g. using domJK
     if (forking) return moving ? yJK[j][k] : xJK[j][k]
-
-    // return undefined on (effectively) rejected run if sampling posterior
-    if (moving && min(log_mwJ[j], log_mpJ[j]) == -inf) return undefined
 
     // initialize on first call
     if (!value.sampled) {
@@ -3252,6 +3253,7 @@ class _Sampler {
         log_p_yjK[k] = log_p(y)
         // sampling from prior is equivalent to weighting by prior likelihood
         // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
+        // if (log_mpJ[j] == -inf) this.rejected = true
         value.first ??= y // save first defined value (in case xjk was undefined)
         return (yjK[k] = y)
       })
@@ -3262,10 +3264,12 @@ class _Sampler {
     if (k != k_pivot) {
       if (!from(xjk, domain)) {
         log_mpJ[j] = -inf
+        this.rejected = true
         return undefined
       }
       log_p_yjK[k] = log_p(xjk) // new log_p under pivot
       log_mpJ[j] += log_p_yjK[k] - log_p_xjk
+      if (log_mpJ[j] == -inf) this.rejected = true
       return (yjK[k] = xjk)
     }
 
@@ -3276,8 +3280,10 @@ class _Sampler {
     return posterior(
       (y, log_mw = 0) => {
         log_mwJ[j] += log_mw
+        if (log_mwJ[j] == -inf) this.rejected = true
         log_p_yjK[k] = log_p(y)
         log_mpJ[j] += log_p_yjK[k] - log_p_xjk
+        if (log_mpJ[j] == -inf) this.rejected = true
         return (yjK[k] = y)
       },
       xjk,
@@ -3286,6 +3292,7 @@ class _Sampler {
   }
 
   _predict(k, x, name) {
+    if (this.rejected) return
     const {
       values, // in-out
       j, // in
@@ -3315,24 +3322,12 @@ class _Sampler {
     return x
   }
 
-  static _condition_log_wr = packable(
-    (cond, r) => log(cond || 1 - r),
-    '_Sampler._condition_log_wr'
-  )
-
   _condition(n, cond, log_wr = cond._log_wr) {
+    if (this.rejected) return
     const weight = this.weights[n]
     if (cond.valueOf) cond = cond.valueOf() // unwrap object
-    if (!log_wr) {
-      this._weight(
-        n,
-        cond ? 0 : -inf, // default log_w for default log_wr
-        bind(_Sampler._condition_log_wr, cond)
-      )
-    } else {
-      // note log_wr(1,…) supersedes (cond?0:-inf) as default log_w
-      this._weight(n, log_wr(1, n, weight, this), log_wr)
-    }
+    // note log_wr(1,…) supersedes (cond?0:-inf) as default log_w
+    this._weight(n, log_wr?.(1, n, weight, this) ?? (cond ? 0 : -inf), log_wr)
     return cond
   }
 
@@ -3342,9 +3337,11 @@ class _Sampler {
   )
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
+    if (this.rejected) return
     const {
       weights, // in-out
       j, // in
+      r, // in
       // out, contains functions log_wr w/ properties
       //   _d, _log_p, _stats(r), _x, _base, _last
       log_wrfJN,
@@ -3360,18 +3357,19 @@ class _Sampler {
     if (log_w.valueOf) log_w = log_w.valueOf() // unwrap object
 
     // treat NaN (usually due to undefined samples) as -inf
-    // also use fixed log_wr as default for log_w==-inf
     if (is_nan(log_w)) log_w = -inf
-    if (log_w == -inf) log_wr ??= r => -inf
 
-    // check custom log_wr satisfies log_wr(1,…) == log_w
     if (log_wr) {
+      // check custom log_wr satisfies log_wr(1,…) == log_w
       const log_wr_1 = log_wr(1, n, weight, this)
       if (log_wr_1 != log_w)
         fatal(`log_wr(1,…)=${log_wr_1} does not match log_w=${log_w}`)
-    } else {
-      log_wr = bind(_Sampler._weight_log_wr, log_w)
-    }
+    } else log_wr = bind(_Sampler._weight_log_wr, log_w)
+
+    // reject weighted/posterior (r>0) run if log_wr(r) is -inf for r>0
+    // note log_wr(r) can become -inf as r increases, e.g. for domain relaxation
+    if (r > 0 && log_wr(r, n, weight, this) == -inf) this.rejected = true
+
     log_wrfJN[j][n] = log_wr
     return log_w
   }
@@ -3413,6 +3411,7 @@ class _Sampler {
   }, '_Sampler._confine_log_wr_stats')
 
   _confine(n, x, domain) {
+    if (this.rejected) return
     // reject outright on nullish (null=empty or undefined) domain
     // allows undefined/empty domains as in _sample
     if (is_nullish(domain)) return this._weight(n, -inf)
@@ -3448,12 +3447,13 @@ class _Sampler {
       log_wr._stats = _Sampler._confine_log_wr_stats
     }
 
-    // note log_wr(1,...) supersedes (cond?0:-inf) as default log_w
+    // note log_wr(1,…) supersedes (cond?0:-inf) as default log_w
     this._weight(n, log_wr(1, n, weight, this), log_wr)
     return x
   }
 
   _minimize(n, x, q = 0.5, _log_wr) {
+    if (this.rejected) return
     if (!(q > 0 && q < 1)) fatal(`invalid quantile ${q}`)
     return this._maximize(n, -x, 1 - q, _log_wr)
   }
@@ -3497,6 +3497,7 @@ class _Sampler {
   }, '_Sampler._maximize_log_wr_stats')
 
   _maximize(n, x, q = 0.5, _log_wr) {
+    if (this.rejected) return
     const {
       weights, // in-out, contains function weight.init_log_wr
       options, // in
@@ -3544,6 +3545,7 @@ class _Sampler {
   }
 
   _sample_array(k, J, xJ, domain, options) {
+    if (this.rejected) return
     if (!is_array(xJ))
       fatal('invalid non-array second argument for sample_array')
     if (!(xJ.length == J)) fatal('array size mismatch for sample_array')
@@ -3557,6 +3559,7 @@ class _Sampler {
   }
 
   _confine_array(n, J, xJ, domain) {
+    if (this.rejected) return
     if (!is_array(xJ))
       fatal('invalid non-array second argument for confine_array')
     if (!(xJ.length == J)) fatal('array size mismatch for confine_array')
@@ -3565,6 +3568,7 @@ class _Sampler {
   }
 
   _simulate(s, x, ...args) {
+    if (this.rejected) return
     const {
       sims, // out
       J, // in
@@ -3581,11 +3585,13 @@ class _Sampler {
     }
     simulate(x, ...args)
     // apply _log_w from state if defined & non-zero
+    // note simulation is cancelled (stopped early) when x._log_w == -inf
     if (x._log_w) this._weight(sim.weight_index, x._log_w)
     return x
   }
 
   _accumulate() {
+    if (this.rejected) return
     if (arguments.length > 0) return arguments[0]
     else return arguments
   }

@@ -7,7 +7,6 @@ class _State {
 
   _init() {
     if (this._initialized) return // already initialized
-    define_value(this, '_initialized', true)
 
     if (!this._path) {
       // define root-only properties used by simulate(…) and _Event constructor
@@ -36,6 +35,7 @@ class _State {
       if (is_state(v)) v._init() // initialized nested state
     }
 
+    define_value(this, '_initialized', true)
     seal(this) // prevent new properties, make existing ones non-configurable
   }
 
