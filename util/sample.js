@@ -1030,7 +1030,7 @@ class _Sampler {
           .toString()
           .match(/^(?:[^\(]*\()?(.*?)\)?\s*(?:=>|\{)/s)?.[1]
           .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/) // commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568
-          .map(s => s.trim().replace(/=.*$/, ''))
+          .map(s => s.replace(/=.*$/, '').trim())
 
         if (defined_arg_names.length) {
           const split_args = args.split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/)
