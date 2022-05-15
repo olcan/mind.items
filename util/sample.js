@@ -884,7 +884,7 @@ class _Sampler {
     let optimizing = false
     let accumulating = false
     let cumulative = false // flag for cumulative weight calls
-    const parent_names = []
+    let defined_arg_name // name inferred from function definitions
 
     // NOTE: there is a question of whether we should avoid static/lexical processing and just use a special first run to determine sampled values and their names and simply check subsequent runs for consistency; the main downside seems to be that sampled values can no longer (in general) be associated with a distinct lexical context and e.g. assigned default names based on that. In general dynamic processing could also make the code more complex/implicit and harder to read (e.g. for values sampled via external functions or libraries) and at the same time more verbose (e.g. for specifying useful names); there is also the issue that we are already special-casing the first run (or at least the first calls to various functions via .called flags) and thus arguably employing a hybrid approach where that makes sense.
 
@@ -978,7 +978,8 @@ class _Sampler {
         }
 
         // if name (via assignment) is missing, try object key or args
-        name ??= key ?? args_name
+        // if still missing, try defined arg names from context
+        name ??= key ?? args_name ?? defined_arg_name
 
         // check for name annotation suffix of form <<- alphanumeric_name
         // commenting out is optional and done automatically below if missing
@@ -986,10 +987,6 @@ class _Sampler {
           /^\s*,?\s*(?:\/[/*])?\s*<<-\s*([_\p{L}][_\p{L}\d]*)/su
         )?.[1]
         if (sfx_name) name = sfx_name
-
-        // use parent name, at least as prefix
-        if (parent_names.length && last(parent_names))
-          name = last(parent_names) + (name ? '.' + name : '.arg')
 
         // check name, parse into array names if possible
         let array_names
@@ -1025,12 +1022,26 @@ class _Sampler {
         }
 
         // recursively replace calls nested inside arguments
+        // if possible, we parse arg names from function definition
+        // if we can extract names, we process args individually
+        // otherwise we process all args as a single string
         const orig_args = args // args before any replacements here or below
-        // TODO: track arg names as well?
-        // global_eval(method).toString()
-        parent_names.push(name)
-        args = _replace_calls(args)
-        parent_names.pop()
+        const defined_arg_names = global_eval(method)
+          .toString()
+          .match(/^(?:[^\(]*\()?(.*?)\)?\s*(?:=>|\{)/s)?.[1]
+          .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/) // commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568
+          .map(s => s.trim().replace(/=.*$/, ''))
+
+        if (defined_arg_names.length) {
+          const split_args = args.split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/)
+          args = ''
+          each(split_args, (arg, i) => {
+            defined_arg_name =
+              (name ?? method) + '.' + (defined_arg_names[i] ?? 'arg' + i)
+            args += (i > 0 ? ',' : '') + _replace_calls(arg)
+            defined_arg_name = null
+          })
+        } else args = _replace_calls(args)
 
         // if method is 'accumulate', just disable per-call flag and return
         if (method == 'accumulate') {
