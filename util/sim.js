@@ -167,7 +167,7 @@ class _State {
 
   weight(log_w) {
     const x = root(this) // to accumulate _log_w globally at root level
-    if (is_function(log_w)) log_w = log_w(this) // invoke function
+    if (is_function(log_w)) log_w = log_w(x) // invoke function (on root state)
     if (!is_number(log_w)) fatal(`invalid non-number weight log_w=${log_w}`)
     if (is_nan(log_w)) log_w = -inf // take nan as -inf
     if (defined(x._log_w)) x._log_w += log_w
