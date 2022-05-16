@@ -122,8 +122,14 @@ class _State {
           else merge(v_to, v) // merge as external/untraced object
           continue
         }
-        if (v._traced || !is_array(v))
+        // replace nested object value with "traced" state object
+        // requires v._traced flag except for plain objects
+        // not supported for params (assumed fixed)
+        // see setter below for similar logic
+        if (v._traced ?? (is_plain_object(v) && !params)) {
+          if (params) fatal(`tracing not supported (& unnecessary) for params`)
           v = new _State(params ? { _params: v } : v, path, root(this))
+        }
       } else if (is_object(v_to))
         fatal(`can't merge non-object into object '${path}'`)
       // if already defined (as non-object), write into it
@@ -145,7 +151,9 @@ class _State {
           get: () => (root(this)._on_get(path, v), v),
           set: v_new => {
             const v_old = v
-            if (is_object(v_new)) v_new = new _State(v_new, path, root(this))
+            // see condition on v._traced above for comments on tracing
+            if (is_object(v_new) && (v_new._traced ?? is_plain_object(v_new)))
+              v_new = new _State(v_new, path, root(this))
             root(this)._on_set(path, (v = v_new), v_old)
           },
         })
@@ -242,7 +250,7 @@ const root = x => x._root ?? x
 
 // enable tracing for nested state
 // enables access (dependency) from schedulers
-// certain state (e.g. non-array objects) are traced by default
+// certain nested state (e.g. plain objects) are traced by default
 const trace = obj => (define_value(obj, '_traced', true), obj)
 
 // weight state `x` as `log_w`

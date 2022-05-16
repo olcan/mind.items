@@ -74,6 +74,8 @@ function is(x, type) {
       return typeof x == 'function'
     case 'object':
       return typeof x == 'object' && x !== null
+    case 'plain_object':
+      return Object.getPrototypeOf(x) == Object.prototype
     case 'primitive':
       return (typeof x != 'object' && typeof x != 'function') || x === null
     case 'set':
@@ -109,6 +111,7 @@ function _test_is() {
     () => is('true', 'string'),
     () => is(() => 0, 'function'),
     () => is({}, 'object'),
+    () => is({}, 'plain_object'),
     () => is(0, 'primitive'),
     () => is('0', 'primitive'),
     () => !is({}, 'primitive'),
@@ -177,6 +180,7 @@ const is_object = x => typeof x == 'object' && x !== null
 // NOTE: is_object is not same as POJO
 //       (Object.getPrototypeOf(x) == Object.prototype)
 //       https://masteringjs.io/tutorials/fundamentals/pojo
+const is_plain_object = x => Object.getPrototypeOf(x) == Object.prototype
 // NOTE: is_object is not same as instanceof Object, e.g. excludes functions
 //       instanceof could even be customized using Symbol.hasInstance
 //       https://www.30secondsofcode.org/articles/s/javascript-primitive-instanceof

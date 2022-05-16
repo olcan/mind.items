@@ -949,9 +949,6 @@ class _Sampler {
           return m
         }
 
-        // skip method calls
-        if (line_prefix.match(/\.$/)) return m
-
         // skip function definitions (e.g. from imported #util/sample)
         if (line_prefix.match(/function *$/)) return m
         if (line_suffix.match(/{ *$/)) return m
