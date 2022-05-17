@@ -1019,17 +1019,19 @@ class _Sampler {
         }
 
         // recursively replace calls nested inside arguments
-        // if possible, we parse arg names from function definition
+        // we attempt to parse arg names from function definition
         // if we can extract names, we process args individually
         // otherwise we process all args as a single string
         const orig_args = args // args before any replacements here or below
-        const defined_arg_names = global_eval(method)
-          .toString()
-          .match(/^(?:[^\(]*\()?(.*?)\)?\s*(?:=>|\{)/s)?.[1]
-          .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/) // commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568
-          .map(s => s.replace(/=.*$/, '').trim())
-
-        if (defined_arg_names.length) {
+        let defined_arg_names
+        try {
+          defined_arg_names = global_eval(method)
+            .toString()
+            .match(/^(?:[^\(]*\()?(.*?)\)?\s*(?:=>|\{)/s)?.[1]
+            .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/) // commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568
+            .map(s => s.replace(/=.*$/, '').trim())
+        } catch (e) {} // ignore errors
+        if (defined_arg_names?.length) {
           const split_args = args.split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/)
           args = ''
           each(split_args, (arg, i) => {

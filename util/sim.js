@@ -14,6 +14,7 @@ class _State {
       define(this, '_mutator', { writable: true })
       define(this, '_scheduler', { writable: true })
       define(this, '_dependents', { writable: true })
+      define(this, '_sim_events', { writable: true })
       if (this.t === undefined) this.merge({ t: 0 }) // merge default x.t=0
       if (this._states?.length == 0) this._states.push(clone_deep(this))
     } else {
@@ -175,6 +176,23 @@ class _State {
     return this // for chaining
   }
 
+  enable(e) {
+    const x = root(this)
+    if (e._t >= 0) fatal(`event '${e._name}' already enabled (_t=${e._t})`)
+    x._sim_events.add(e)
+    e._t = 0 // enable & reset (same as in non-resuming sim)
+    return this // for chaining
+  }
+
+  disable(e) {
+    const x = root(this)
+    if (e._t === undefined) fatal(`event '${e._name}' already disabled`)
+    if (!x._sim_events.delete(e)) fatal(`missing event '${e._name}' to disable`)
+    x._cancel(e) // cancel any dependencies
+    e._t = undefined // disable (same as in _Event constructor)
+    return this // for chaining
+  }
+
   _cancel(e) {
     if (this._dependents)
       for (const deps of values(this._dependents)) deps.delete(e)
@@ -267,43 +285,51 @@ const weight_state = (x, log_w) => x.weight(log_w)
 // cancelled if state is assigned zero weight, i.e. `x._log_w==-inf`
 function simulate(x, t, events, options = undefined) {
   if (!is_state(x)) fatal('invalid state object')
-  x._init() // init state for first sim
+  if (!is_array(events)) fatal(`invalid events, must be array`)
   x._t ??= 0 // non-resuming sim starts at x._t=0 (to be advanced to t>x.t>0)
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
   if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
-  if (!is_array(events)) fatal(`invalid events, must be array`)
-  apply(events, e => {
+  // fast forward to t if next event already scheduled at _t > t
+  if (x._t > t) {
+    x.t = t
+    return x
+  }
+  // apply any events already scheduled at _t == t
+  if (x._t == t) {
+    x.t = x._t // advance x.t to previously scheduled _t
+    for (const e of events) if (e.t == x.t) e.fx(x)
+    return x
+  }
+  x._init() // init state (if needed) for first simulation
+  x._sim_events = events = new Set(events) // event set for x.enable/disable
+  for (const e of events) {
     if (!is_event(e)) fatal('invalid event')
     if (x._t && (!e.t || !defined(e._t)))
       fatal(`invalid events/state for resume`, x._t, e.t, e._t)
     if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
-    return e
-  })
-  if (x._t > t) return (x.t = t), x // fast forward since no events till _t>t
-  if (x._t == t) {
-    // apply events (previously) scheduled at _t == t
-    x.t = x._t // advance x.t first
-    for (const e of events) if (e.t == x.t) e.fx(x)
-    return x
   }
   // schedule and apply events as needed until x._t >= t
   const allow_next = options?.allow_next // allow events >t ?
   while (x._t < t) {
-    if (x._log_w == -inf) return x // cancel if state assigned 0 weight
+    if (x._log_w == -inf) break // cancel if state assigned 0 weight
     // schedule events for times >x.t
     // valid times >x.t are cached inside _Event and reset by _State as needed
     // can be inf (never), e.g. if all events fail conditions (= frozen state)
     // store next scheduled event time as x._t for persistence across calls
-    for (const e of events) e.t = e.ft(x)
-    x._t = min_of(events, e => e.t) // can be inf
+    x._t = inf
+    for (const e of events) if ((e.t = e.ft(x)) < x._t) x._t = e.t
     if (!(x._t > x.t)) fatal('invalid e.ft(x) <= x.t')
     // stop at t if next events are >t and !allow_next
     // these events will be applied at next call to simulate
-    if (x._t > t && !allow_next) return (x.t = t), x
+    if (x._t > t && !allow_next) {
+      x.t = t
+      break
+    }
     // apply events scheduled at _t
     x.t = x._t // advance x.t first
     for (const e of events) if (x.t == e.t) e.fx(x)
   }
+  x._sim_events = null // dissociate state from event set
   return x
 }
 
@@ -364,10 +390,11 @@ class _Event {
     }
 
     // wrap ft w/ cache wrapper and optional condition function fc
-    this._t = 0 // cached scheduled time, can be reset via dependencies
+    // note this._t is set externally, e.g. in simulate(…) or x.enable
+    this._t = undefined // cached scheduled time (undefined = event disabled)
     this.ft = x => {
       if (this._t > x.t) return this._t
-      x._cancel(this) // cancel dependencies for previous _t
+      x._cancel(this) // cancel dependencies for any previous _t
       x._scheduler = this // track event as dependent scheduler
       const _x = this._x ?? x
       this._t = fc && !fc(_x) ? inf : ft(_x)
