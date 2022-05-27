@@ -642,7 +642,8 @@ const times = (...tJ) => {
 }
 
 // time intervals (<1d) in days
-const _1ms = 1 / (24 * 60 * 60 * 1000)
+const _ms_per_day = 24 * 60 * 60 * 1000
+const _1ms = 1 / _ms_per_day
 const _1s = 1 / (24 * 60 * 60)
 const _1m = 1 / (24 * 60)
 const _1h = 1 / 24
@@ -681,7 +682,7 @@ const event_date = (t = event_time()) => {
   const date = new Date(_t0_monday_midnight),
     midnights = ~~t
   date.setDate(_t0_monday_midnight.getDate() + midnights)
-  date.setTime(date.getTime() + (t - midnights) * 24 * 60 * 60 * 1000)
+  date.setTime(date.getTime() + (t - midnights) * _ms_per_day)
   return date
 }
 
