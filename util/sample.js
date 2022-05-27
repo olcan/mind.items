@@ -834,6 +834,10 @@ class _Sampler {
       print(`ess ${~~this.ess} (essu ${~~this.essu}) for posterior@u=0`)
     }
 
+    // check that samples are weighted unless weights are sim-only
+    if (this.weights.length > this.sims.length && !this.weighted)
+      fatal('expected/parsed calls to weight(…) never invoked in prior runs')
+
     // treat J==1 as "debug mode"
     // print sampled values or simulations and skip posterior (see _init)
     if (J == 1) {
