@@ -2499,11 +2499,12 @@ class _Sampler {
 
   _plot() {
     const updates = this.stats?.updates
+    const options = this.options
     if (updates) {
-      const spec = this.options.stats
+      const spec = options.stats
       let quantiles
-      if (this.options.quantiles)
-        quantiles = this.options.quantiles.map(q => 'q' + round(100 * q))
+      if (options.quantiles)
+        quantiles = options.quantiles.map(q => 'q' + round(100 * q))
 
       // y is logarithmic ks p-value axis
       // y2 is linear percentage axis
@@ -2723,11 +2724,10 @@ class _Sampler {
     // plot posteriors (vs priors and targets if specified)
     // if plot is specified as string or array, use it to filter values by name
     let plot_names
-    if (is_string(this.options.plot))
-      plot_names = new Set(this.options.plot.split(/\W+/))
-    else if (is_array(this.options.plot)) {
-      if (!every(this.options.plot, is_string)) fatal('invalid option plot')
-      plot_names = new Set(this.options.plot)
+    if (is_string(options.plot)) plot_names = new Set(options.plot.split(/\W+/))
+    else if (is_array(options.plot)) {
+      if (!every(options.plot, is_string)) fatal('invalid option plot')
+      plot_names = new Set(options.plot)
     }
     const { J, rwJ, xJK, pxJK } = this
     each(this.values, (value, k) => {
@@ -2762,7 +2762,11 @@ class _Sampler {
       scale(wJ, J / sum(wJ)) // rescale to sum to J
 
       if (!value.target) {
-        hist([pxJ, xJ], { weights: [pwJ, wJ] }).hbars({
+        hist([pxJ, xJ], {
+          weights: [pwJ, wJ],
+          ...pick_by(options.hist, v => !is_object(v)),
+          ...(options.hist?.[name] ?? {}),
+        }).hbars({
           name,
           series: [
             { label: 'prior', color: '#555' },
@@ -2786,7 +2790,11 @@ class _Sampler {
       if (wJ.length == 0) warn('missing target samples to plot ' + name)
       scale(wT, J / sum(wT)) // rescale to sum to J
 
-      hist([pxJ, xJ, yT], { weights: [pwJ, wJ, wT] }).hbars({
+      hist([pxJ, xJ, yT], {
+        weights: [pwJ, wJ, wT],
+        ...pick_by(options.hist, v => !is_object(v)),
+        ...(options.hist?.[name] ?? {}),
+      }).hbars({
         name,
         series: [
           { label: 'prior', color: '#555' },
