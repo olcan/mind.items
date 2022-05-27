@@ -433,7 +433,17 @@ function accumulate() {
 }
 
 // predict value `x`
-function predict(x) {}
+function predict(x) {
+  fatal(`unexpected (unparsed) call to predict(…)`)
+}
+
+// get value `x`
+// can be name string or identifier
+// may refer to sampled or predicted value
+// for static (lexical) names only, use `context.value(…)` for dynamic names
+function value(x) {
+  fatal(`unexpected (unparsed) call to value(…)`)
+}
 
 // is `wJ` uniform?
 function _uniform(wJ, wj_sum = sum(wJ), ε = 1e-6) {
@@ -873,6 +883,28 @@ class _Sampler {
     return name
   }
 
+  _add_name(name, index) {
+    // added name must be unique, de-duplicated as needed via _name_value
+    if (this.names.has(name))
+      fatal(
+        `duplicate name '${name}' for value at index ${index}; ` +
+          `previously used for value at index ${this.names.get(name)})`
+      )
+    this.names.set(name, index)
+  }
+
+  _change_name(name, index) {
+    // changed name must be unique, replaces previous (also unique) name
+    if (this.names.has(name))
+      fatal(
+        `duplicate name '${name}' for value at index ${index}; ` +
+          `previously used for value at index ${this.names.get(name)})`
+      )
+    this.names.delete(this.nK[index])
+    this.names.set(name, index)
+    this.nK[index] = name
+  }
+
   _parse_func(func) {
     // replace sample|condition|weight|confine calls
     let js = func.toString()
@@ -880,7 +912,7 @@ class _Sampler {
     const values = []
     const weights = []
     const sims = []
-    const names = (this.names = new Set()) // used in this._name_value()
+    const names = (this.names = new Map()) // used in this._name_value()
     let optimizing = false
     let accumulating = false
     let cumulative = false // flag for cumulative weight calls
@@ -1104,7 +1136,22 @@ class _Sampler {
           ...context,
         })
 
-        switch (method) {
+        // note we force 'default' case for methods invoked on objects
+        // e.g. value(...) is non-default but context.value(...) is default
+        // also note javascript allows arbitrary whitespace after period
+        switch (prefix.match(/\.\s*$/) ? '' : method) {
+          case 'value':
+            // value lookup based on static/lexical index
+            // note dynamic names require call to context.value(name)
+            name = args.match(/^\s*(\S+)\s*$/su)?.pop()
+            if (name?.match(/^[`'"].*[`'"]$/s)) name = name.slice(1, -1)
+            if (!name) fatal(`count not determine value name in '${m}'`)
+            index = this.names.get(name)
+            if (index === undefined) fatal(`unknown value name ${name}`)
+            return m.replace(
+              new RegExp(method + ' *\\(.+\\)$', 's'),
+              `__sampler.value_at(${index})`
+            )
           case 'confine_array':
             index = weights.length
             repeat(size, () => {
@@ -1121,14 +1168,17 @@ class _Sampler {
               repeat(size, i => {
                 const index = values.length // element index
                 name = array_name + `[${i}]`
-                names.add((name = this._name_value(name, index)))
+                this._add_name((name = this._name_value(name, index)), index)
                 values.push(lexical_context({ index, sampling: true }))
               })
             } else {
               // process names from destructuring assignment
               for (const assigned_name of array_names) {
                 const index = values.length // element index
-                names.add((name = this._name_value(assigned_name, index)))
+                this._add_name(
+                  (name = this._name_value(assigned_name, index)),
+                  index
+                )
                 values.push(lexical_context({ index, sampling: true }))
               }
             }
@@ -1142,7 +1192,7 @@ class _Sampler {
               ;[, name] = args.match(/^\s*(\S+?)\s*(?:,|$)/su) ?? []
               name ??= method // name after optimization method
             }
-            names.add((name = this._name_value(name, index)))
+            this._add_name((name = this._name_value(name, index)), index)
             values.push(lexical_context())
           // continue to process as weight ...
           case 'condition':
@@ -1166,7 +1216,7 @@ class _Sampler {
               ;[, name] = args.match(/^\s*(\S+?)\s*(?:,|$)/su) ?? []
               name ??= method // name after predict method
             }
-            names.add((name = this._name_value(name, index)))
+            this._add_name((name = this._name_value(name, index)), index)
             values.push(lexical_context())
             break
           case 'sample':
@@ -1178,11 +1228,11 @@ class _Sampler {
               cached_args = global_eval(`[${args}]`)
               args = `...__sampler.values[${index}].cached_args`
             } catch (e) {}
-            names.add((name = this._name_value(name, index)))
+            this._add_name((name = this._name_value(name, index)), index)
             values.push(lexical_context({ sampling: true, cached_args }))
             break
           default:
-            // unkonwn method, replace args only
+            // unknown method, replace args only
             return m.replace(
               new RegExp(method + ' *\\(.+\\)$', 's'),
               `${method}(${args})`
@@ -1204,7 +1254,7 @@ class _Sampler {
     )
 
     // extract value name array and sanity check against values[#].name
-    const nK = array(names)
+    const nK = array(names.keys())
     each(values, (v, k) => v.name == nK[k] || fatal('value name mismatch'))
 
     // function wrapper to prep sampler & set self.__sampler
@@ -2996,6 +3046,18 @@ class _Sampler {
     return -log2(min_in(transpose(pR2).map(pR => beta_cdf(min_in(pR), 1, R))))
   }
 
+  value(name) {
+    const { j, moving, xJK, yJK } = this
+    const k = this.names.get(name)
+    if (k === undefined) fatal(`unknown value name ${name}`)
+    return (moving ? yJK : xJK)[j][k]
+  }
+
+  value_at(k) {
+    const { j, moving, xJK, yJK } = this
+    return (moving ? yJK : xJK)[j][k]
+  }
+
   sample_index(options) {
     if (options?.prior) {
       const { J, pwj_uniform, pwJ, pwj_sum } = this
@@ -3102,8 +3164,7 @@ class _Sampler {
     const {
       options, // in, not to be confused w/ 'opt' for sample-specific options
       values, // in-out, first sampling special
-      names, // in-out, first sampling only
-      nK, // in-out, first sampling only
+      // names, nK in-out via this._change_name, first sampling only
       J, // in
       j, // in
       xJK, // in-out, in if forking or moving
@@ -3159,8 +3220,7 @@ class _Sampler {
         if (!name) fatal(`blank name for sampled value at index ${k}`)
         name = this._name_value(name, k)
         value.name = name
-        names.add(name)
-        nK[k] = name
+        this._change_name(name, k)
       }
 
       const { index, name, args } = value
@@ -3319,6 +3379,7 @@ class _Sampler {
     if (this.rejected) return
     const {
       values, // in-out
+      // names, nK in-out via this._change_name, first sampling only
       j, // in
       u, // in
       moving, // in
@@ -3331,8 +3392,7 @@ class _Sampler {
       if (!name) fatal(`blank name for predicted value at index ${k}`)
       name = this._name_value(name, k)
       value.name = name
-      this.names.add(name)
-      this.nK[k] = name
+      this._change_name(name, k)
     }
     value.called = true
     // treat nan (usually due to undefined samples) as undefined
