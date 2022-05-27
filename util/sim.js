@@ -608,13 +608,15 @@ function daily(h) {
     inf
 }
 
-// relative time scheduler
-// triggers after `h>0` hours (from `x.t`)
+// interval scheduler
+// triggers _after_ `h>0` hours (from `x.t`)
 // `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
 // `h` can be function `x=>…` that returns sampler per `x`
 // state variables accessed in `h(x)` are considered dependencies
-// often used w/ condition `fc` to trigger `h` hours after `fc(x)` state
-// `h` should be short enough to avoid cancellation by `!fc(x)` state
+// often used w/ condition `fc` to trigger `h` hours _after_ `fc(x)` state
+// cancelled by `!fc(x)` states, especially for larger intervals `h`
+// triggers repeatedly _every_ `h` hours unless cancelled
+// intervals _memoryless_ iff `h` exponential & `h ⊥ x`
 function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
@@ -624,6 +626,8 @@ function after(h) {
       h => (h > 0 || fatal('negative hours'), x.t + h * _1h)
     ) ?? inf
 }
+
+const every = h => after(above(0, h))
 
 // absolute time scheduler
 // triggers at specific absolute times `tJ`

@@ -178,7 +178,7 @@ function hist(xSJ, options = {}) {
   // - xZ has too few distinct numbers: < max(K+1, J*min_distinct_ratio))
   if (
     defined(values) ||
-    !every(xZ, is_number) ||
+    !xZ.every(is_number) ||
     uniq(xZ).length < max(max_bins + 1, xZ.length * min_distinct_ratio)
   ) {
     // rank non-numeric values

@@ -1314,8 +1314,8 @@ class _Sampler {
     const has_function = v =>
       is_function(v) ||
       (is_array(v)
-        ? some(v, has_function)
-        : is_object(v) && some(values(v), has_function))
+        ? v.some(has_function)
+        : is_object(v) && values(v).some(has_function))
 
     // clones typed arrays and adds their buffers to transferables array
     const clone_transferables = v => {
@@ -1616,10 +1616,10 @@ class _Sampler {
       options.stats = options.stats.split(/[^\.\w]+/)
     // convert array of string keys to object of booleans (true)
     if (is_array(options.stats)) {
-      if (!every(options.stats, is_string)) fatal('invalid option stats')
+      if (!options.stats.every(is_string)) fatal('invalid option stats')
       options.stats = from_entries(options.stats.map(k => [k, true]))
     }
-    if (!(is_object(options.stats) && every(values(options.stats), is_boolean)))
+    if (!(is_object(options.stats) && values(options.stats).every(is_boolean)))
       fatal('invalid option stats')
     const unknown_keys = diff(keys(options.stats), known_keys).filter(
       k => !k.includes('.') // since names can change at runtime
@@ -2726,7 +2726,7 @@ class _Sampler {
     let plot_names
     if (is_string(options.plot)) plot_names = new Set(options.plot.split(/\W+/))
     else if (is_array(options.plot)) {
-      if (!every(options.plot, is_string)) fatal('invalid option plot')
+      if (!options.plot.every(is_string)) fatal('invalid option plot')
       plot_names = new Set(options.plot)
     }
     const { J, rwJ, xJK, pxJK } = this

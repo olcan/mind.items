@@ -255,7 +255,8 @@ function _gamma_mean_from_mode(c, σ) {
 }
 
 // [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) on `(a,∞)` or `(-∞,a)` w/ mean `μ`, stdev `σ`
-// domain is `(a,∞)` if `σ>0`, `(-∞,a)` if `σ<0`
+// domain is `(a,∞)` if `μ>a`, `(-∞,a)` if `μ<a`
+// [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) iff `σ==abs(μ-a)`
 // `undefined` if `a` non-finite
 // `undefined` if `μ` non-finite or `μ==a`
 // `undefined` if `σ` non-finite or `σ≤0`
@@ -296,6 +297,12 @@ function gamma(a, μ, σ) {
 function _test_gamma() {
   check(() => _log_p_normalized(gamma(2, 5, 1), 2, 100))
 }
+
+// [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) on `(a,∞)` or `(-∞,a)` w/ mean `μ`
+// domain is `(a,∞)` if `μ>a`, `(-∞,a)` if `μ<a`
+// `undefined` if `a` non-finite
+// `undefined` if `μ` non-finite or `μ==a`
+const exponential = (a, μ) => gamma(a, μ, abs(μ - a))
 
 // [constant](https://en.wikipedia.org/wiki/Degenerate_distribution#Constant_random_variable) at `x`
 // `undefined` if `x` is undefined

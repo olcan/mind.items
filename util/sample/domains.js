@@ -12,7 +12,8 @@
 // | `(a,∞)`      | `μ|c > a`, `[σ]` | `gamma(a,μ,σ)`
 // | `(-∞,b)`     | `μ|c < b`, `[σ]` | `gamma(b,μ,σ)`
 // | `(-∞,∞)`     | `μ|c`, `σ`       | `normal(μ,σ)`
-// default `σ` for half-bounded interval is 1/2 distance to bound
+// default `σ` for half-bounded interval is distance to bound
+// gamma sampler w/ default `σ` is exponential special case
 // `undefined` if `a` or `b` non-number
 // `null` (empty) if `a>=b`
 const interval = (a, b, options = undefined) => {
@@ -59,10 +60,10 @@ const interval = (a, b, options = undefined) => {
   // if (!(defined(σ))) fatal( 'missing stdev for half-bounded interval')
   // mode supercedes mean if both are specified
   if (defined(c)) {
-    σ ??= abs(c - a) / 2 // default sigma is 1/2 distance to bound
+    σ ??= abs(c - a) // default sigma is distance to bound
     μ = a + sign(c - a) * _gamma_mean_from_mode(abs(c - a), σ)
   }
-  σ ??= abs(μ - a) / 2 // default sigma is 1/2 distance to bound
+  σ ??= abs(μ - a) // default sigma is distance to bound
   return gamma(a, μ, σ)
 }
 
@@ -89,12 +90,12 @@ function within(y, ε, options = undefined) {
 
 // `x>a`, `x≈μ±σ`
 // `μ` is mean, or mode if passed as `{mode:μ}` or `{c:μ}`
-// `σ` is optional standard deviation w/ default `(μ-a)/2`
+// `σ` is optional standard deviation w/ default `μ-a`
 // `undefined` if `a` non-finite
 // `undefined` if `μ` non-finite or `μ <= a`
 // `undefined` if `σ` non-finite or `σ <= 0`
 // `≡ {gt:a}` if `μ` omitted
-function above(a, μ = undefined, σ = (μ - a) / 2) {
+function above(a, μ = undefined, σ = μ - a) {
   if (!is_finite(a)) return undefined
   if (!defined(μ)) return { gt: a } // plain domain for conditioning
   const mode = is_object(μ)
@@ -107,12 +108,12 @@ function above(a, μ = undefined, σ = (μ - a) / 2) {
 
 // `x<b`, `x≈μ±σ`
 // `μ` is mean, or mode if passed as `{mode:μ}` or `{c:μ}`
-// `σ` is optional standard deviation w/ default `(b-μ)/2`
+// `σ` is optional standard deviation w/ default `b-μ`
 // `undefined` if `b` non-finite
 // `undefined` if `μ` non-finite or `μ >= b`
 // `undefined` if `σ` non-finite or `σ <= 0`
 // `≡ {lt:b}` if `μ` omitted
-function below(b, μ = undefined, σ = (b - μ) / 2) {
+function below(b, μ = undefined, σ = b - μ) {
   if (!is_finite(b)) return undefined
   if (!defined(μ)) return { lt: b } // plain domain for conditioning
   const mode = is_object(μ)
