@@ -700,8 +700,9 @@ class _Sampler {
         }
         if (this.J == 1) return // skip updates/posterior in debug mode
 
-        // update sample to posterior if there are weights OR targets
-        if (this.weights.length || this.values.some(v => v.target)) {
+        // skip updates if unweighted && no targets specified
+        // note unweighted means weight(…) never invoked during prior run
+        if (this.weighted || this.values.some(v => v.target)) {
           while (!this.done) {
             try {
               await invoke(async () => {
@@ -731,8 +732,8 @@ class _Sampler {
     this._init_prior() // not async in sync mode
     if (this.J == 1) return // skip updates/posterior in debug mode
 
-    // update sample to posterior if there are weights OR targets
-    if (this.weights.length || this.values.some(v => v.target)) {
+    // skip updates if unnecessary (see comments above)
+    if (this.weighted || this.values.some(v => v.target)) {
       const timer = _timer_if(stats)
       while (!this.done) this._update() // not async in sync mode
       if (stats) stats.time.update = timer.t
@@ -2411,7 +2412,7 @@ class _Sampler {
       value_table.push(row)
     })
     const stats = this.stats
-    _this.write(table(value_table), '_md_values')
+    if (this.values.length) _this.write(table(value_table), '_md_values')
 
     const r = round_to(this.r, 3, inf, 'floor')
     const ess = round(this.ess)
@@ -2976,6 +2977,7 @@ class _Sampler {
     const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK, uaJK } = this
     const { log_p_xJK, rwJ, rwj_sum, stats } = this
     const { mks_tail, mks_period } = this.options
+    if (K == 0) return 0 // no sampled values
 
     // trim mks sample buffer to cover desired tail of updates
     // note last buffered update can be within < mks_period steps
@@ -3422,6 +3424,7 @@ class _Sampler {
 
   _weight(n, log_w, log_wr = log_w._log_wr) {
     if (this.rejected) return
+    this.weighted = true // weight(…) invoked at least once
     const {
       weights, // in-out
       j, // in
