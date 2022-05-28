@@ -616,7 +616,7 @@ function daily(h) {
 // often used w/ condition `fc` to trigger `h` hours _after_ `fc(x)` state
 // cancelled by `!fc(x)` states, especially for larger intervals `h`
 // triggers repeatedly _every_ `h` hours unless cancelled
-// intervals _memoryless_ iff `h` exponential & `h ⊥ x`
+// _memoryless_ iff `h` is exponential, e.g. `above(0, μ)`
 function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
