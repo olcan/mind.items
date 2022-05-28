@@ -616,7 +616,7 @@ function daily(h) {
 // often used w/ condition `fc` to trigger `h` hours _after_ `fc(x)` state
 // cancelled by `!fc(x)` states, especially for larger intervals `h`
 // triggers repeatedly _every_ `h` hours unless cancelled
-// _memoryless_ iff `h` is exponential, e.g. `above(0, μ)`
+// _memoryless_ iff exponential, see `randomly` below
 function after(h) {
   if (h === undefined) return x => inf // never
   if (h > 0) return x => x.t + h * _1h
@@ -627,7 +627,10 @@ function after(h) {
     ) ?? inf
 }
 
-const every = h => after(above(0, h))
+// random interval scheduler
+// `≡ after(exponential(0, h))`
+// _memoryless_: `P(T>s+t|T>s) = P(T>t)`
+const randomly = h => after(exponential(0, h))
 
 // absolute time scheduler
 // triggers at specific absolute times `tJ`
