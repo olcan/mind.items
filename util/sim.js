@@ -635,7 +635,8 @@ const after = h =>
 // random interval scheduler
 // triggers randomly every `h>0` hours _on average_
 // `h` can be positive number, sampler, or function `x=>…`
-// consistent under rescheduling since _memoryless_: `P(T>s+t|T>s) = P(T>t)`
+// consistent under rescheduling, _memoryless_: `P(T>s+t|T>s) = P(T>t)`
+// corresponds _uniquely_ to transitions of _continuous-time markov chain_
 // can be used w/ condition `fc` to trigger only in `fc(x)` states
 // `h==r*log(1/(1-p))` triggers within `r` hours w/ prob. `p`
 // `≡ after(exponential(0, h))` (but more efficient)
