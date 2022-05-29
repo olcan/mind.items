@@ -670,11 +670,13 @@ const _1s = 1 / (24 * 60 * 60)
 const _1m = 1 / (24 * 60)
 const _1h = 1 / 24
 
-// convert `Date` to _event time_
+// convert `date` to _event time_
+// `date` must be a `Date` or valid argument for `new Date(…)`
 // event times are in _days_ since `_t0_monday_midnight` (see below)
 // _days_ are defined as DST-adjusted _midnights + hours in local time_
 // local times are generally subject to DST (unlike UTC times)
-const event_time = (date = new Date()) => {
+const event_time = date => {
+  date = date ? (date instanceof Date ? date : new Date(date)) : new Date()
   const midnight = (d => (d.setHours(0, 0, 0, 0), d))(new Date(date))
   const days = Math.round(_1ms * (midnight - _t0_monday_midnight))
   return days + _1ms * (date.getTime() - midnight)
