@@ -592,45 +592,59 @@ function _benchmark_inc() {
   )
 }
 
+// wrapper to convert sampler|function arguments for schedulers below
+function _scheduler(v, f) {
+  if (v === undefined) return x => inf // never
+  if (v._prior) return x => v._prior(v => f(v)(x))
+  if (is_function(v))
+    return x => {
+      const _v = v(x)
+      if (_v._prior) return _v._prior(v => f(v)(x))
+      return f(_v)(x)
+    }
+  return f(v)
+}
+
 // daily scheduler
 // triggers daily at hour-of-day `h∈[0,24)`
-// `h` can be any sampler, e.g. `within(9,1)`
-// `h` can be function `x=>…` that returns sampler per `x`
-// state variables accessed in `h(x)` are considered dependencies
-// sampled `h` is mapped into `[0,24)` as `mod(h,24)`
-function daily(h) {
-  if (h === undefined) return x => inf // never
-  if (h == 0) return x => x.d + 1
-  if (h > 0 && h < 24) return x => x.d + (x.h >= h) + h * _1h
-  const sampler = is_function(h) ? h : () => h
-  return x =>
-    sampler(x)?._prior(h => ((h = mod(h, 24)), x.d + (x.h >= h) + h * _1h)) ??
-    inf
-}
+// `h` can be number, sampler, or function `x=>…`
+// `h∉[0,24)` is mapped into `[0,24)` as `mod(h,24)`
+const daily = h =>
+  _scheduler(h, h => {
+    if (!is_number(h)) fatal(`daily: invalid hour ${h}`)
+    if (h == 0) return x => x.d + 1
+    h = mod(h, 24)
+    const ht = h * _1h
+    return x => x.d + (x.h >= h) + ht
+  })
 
 // interval scheduler
 // triggers _after_ `h>0` hours (from `x.t`)
-// `h` can be any sampler on `[0,∞)`, e.g. `between(0,10)`
-// `h` can be function `x=>…` that returns sampler per `x`
+// `h` can be positive number, sampler, or function `x=>…`
 // state variables accessed in `h(x)` are considered dependencies
 // often used w/ condition `fc` to trigger `h` hours _after_ `fc(x)` state
 // cancelled by `!fc(x)` states, especially for larger intervals `h`
 // triggers repeatedly _every_ `h` hours unless cancelled
 // _memoryless_ iff exponential, see `randomly` below
-function after(h) {
-  if (h === undefined) return x => inf // never
-  if (h > 0) return x => x.t + h * _1h
-  const sampler = is_function(h) ? h : () => h
-  return x =>
-    sampler(x)?._prior(
-      h => (h > 0 || fatal('negative hours'), x.t + h * _1h)
-    ) ?? inf
-}
+const after = h =>
+  _scheduler(h, h => {
+    if (!(h > 0)) fatal(`after: invalid hours ${h}`)
+    const ht = h * _1h
+    return x => x.t + ht
+  })
 
 // random interval scheduler
-// `≡ after(exponential(0, h))`
-// _memoryless_: `P(T>s+t|T>s) = P(T>t)`
-const randomly = h => after(exponential(0, h))
+// triggers randomly every `h>0` hours _on average_
+// `h` can be positive number, sampler, or function `x=>…`
+// consistent under rescheduling since _memoryless_: `P(T>s+t|T>s) = P(T>t)`
+// can be used w/ condition `fc` to trigger only in `fc(x)` states
+// `≡ after(exponential(0, h))` (but more efficient)
+const randomly = h =>
+  _scheduler(h, h => {
+    if (!(h > 0)) fatal(`randomly: invalid hours ${h}`)
+    const ht = h * _1h
+    return x => x.t + ht * random_exponential()
+  })
 
 // absolute time scheduler
 // triggers at specific absolute times `tJ`
