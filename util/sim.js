@@ -646,7 +646,7 @@ const randomly = h =>
     return x => x.t + ht * random_exponential()
   })
 
-// absolute time scheduler
+// specific time scheduler
 // triggers _at_ specific times `tJ`
 // `tJ` must be sorted (oldest first), in `event_time` units (see below)
 const at = (...tJ) => {
