@@ -621,7 +621,6 @@ const daily = h =>
 // interval scheduler
 // triggers _after_ `h>0` hours (from `x.t`)
 // `h` can be positive number, sampler, or function `x=>…`
-// state variables accessed in `h(x)` are considered dependencies
 // often used w/ condition `fc` to trigger `h` hours _after_ `fc(x)` state
 // cancelled by `!fc(x)` states, especially for larger intervals `h`
 // triggers repeatedly _every_ `h` hours unless cancelled
@@ -638,6 +637,7 @@ const after = h =>
 // `h` can be positive number, sampler, or function `x=>…`
 // consistent under rescheduling since _memoryless_: `P(T>s+t|T>s) = P(T>t)`
 // can be used w/ condition `fc` to trigger only in `fc(x)` states
+// `h==r*log(1/(1-p))` triggers within `r` hours w/ prob. `p`
 // `≡ after(exponential(0, h))` (but more efficient)
 const randomly = h =>
   _scheduler(h, h => {
@@ -647,9 +647,9 @@ const randomly = h =>
   })
 
 // absolute time scheduler
-// triggers at specific absolute times `tJ`
+// triggers _at_ specific times `tJ`
 // `tJ` must be sorted (oldest first), in `event_time` units (see below)
-const times = (...tJ) => {
+const at = (...tJ) => {
   tJ = flat(tJ) //.sort((a, b) => a - b)
   const J = tJ.length
   tJ.push(inf) // tJ[J]=inf simplifies logic below
