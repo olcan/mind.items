@@ -6,7 +6,7 @@ class _State {
   }
 
   _init() {
-    if (this._initialized) return // already initialized
+    if (this._sim) return // already initialized
 
     if (!this._path) {
       // define root-only properties used by simulate(…) and _Event constructor
@@ -17,6 +17,15 @@ class _State {
       define(this, '_sim_events', { writable: true })
       if (this.t === undefined) this.merge({ t: 0 }) // merge default x.t=0
       if (this._states?.length == 0) this._states.push(clone_deep(this))
+      // define x.__t w/ getter bypass for use during tracing
+      define(this, '__t', {
+        get: () => {
+          this._sim = false // disable _on_get
+          const t = this.t
+          this._sim = true
+          return t
+        },
+      })
     } else {
       // redirect non-root t to root (fails if t was merged into non-root)
       define(this, 't', { get: () => this._root.t })
@@ -36,7 +45,7 @@ class _State {
       if (is_state(v)) v._init() // initialized nested state
     }
 
-    define_value(this, '_initialized', true)
+    define_value(this, '_sim', true, { writable: true }) // enable _on_get/_set
     seal(this) // prevent new properties, make existing ones non-configurable
   }
 
@@ -73,7 +82,7 @@ class _State {
   }
 
   merge(obj, params = false) {
-    if (this._initialized) fatal(`can't merge after sim (init)`)
+    if (this._sim) fatal(`can't merge after sim`)
     if (is_array(obj)) define_value(this, 'length', obj.length)
     const base = this._path ? this._path + '.' : ''
     for (let [k, v] of entries(obj)) {
@@ -199,7 +208,7 @@ class _State {
   }
 
   _on_get(k, v) {
-    if (!this._initialized) return // ignore access until _init
+    if (!this._sim) return // ignore non-sim access
     // track scheduler access as a "dependency"
     // dependency continues until mutation or _cancel
     // untraced nested dependencies are detected via _on_get for ancestor
@@ -214,32 +223,32 @@ class _State {
       type: this._mutator ? 'fx_get' : 'ft_get',
       k,
       v,
-      t: k == 't' ? v : this.t,
+      t: k == 't' ? v : this.__t,
       e: this._mutator ?? this._scheduler,
     })
   }
 
   _on_set(k, v_new, v_old) {
-    if (!this._initialized) return // ignore mutation until _init
+    if (!this._sim) return // ignore non-sim access
     if (this._scheduler) fatal(`state set in scheduler`)
     if (!this._mutator) {
       if (k == 't') return // ignore non-mutator changes to x.t
       fatal(`state '${k}' set outside of mutator`)
     }
     if (k == 't') fatal('x.t set in mutator')
-    this._trace?.push({
-      type: 'fx_set',
-      k,
-      v_new,
-      v_old,
-      t: this.t,
-      e: this._mutator,
-    })
     // reset and clear any dependent schedulers
     if (this._dependents?.[k]?.size > 0) {
       for (const e of this._dependents[k]) e._t = 0
       this._dependents[k].clear()
     }
+    this._trace?.push({
+      type: 'fx_set',
+      k,
+      v_new,
+      v_old,
+      t: this.__t,
+      e: this._mutator,
+    })
   }
 }
 
