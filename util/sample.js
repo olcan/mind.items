@@ -3672,7 +3672,7 @@ class _Sampler {
   }
 
   _simulate(s, x, ...args) {
-    if (this.rejected) return
+    if (this.rejected) return x
     const {
       sims, // out
       J, // in
