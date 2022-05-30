@@ -858,7 +858,7 @@ class _Sampler {
         const states = each(s.xt._states ?? [], e =>
           define_value(e, '_print', print_state)
         )
-        const history = sort_by([...events, ...trace, ...states], h => h.t)
+        const history = sort_by([...states, ...events, ...trace], h => h.t)
         for (const h of history) h._print(h)
         printed_histories.add(s.xt)
       })
