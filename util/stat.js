@@ -94,8 +94,8 @@ function random_discrete_array(jK, wJ, sum_wj) {
   if (sum_wj == 0) return random_discrete_uniform_array(jK, wJ.length)
   // if (!(min_in(wJ) >= 0)) fatal(`wj<0: ${min_in(wJ)}`)
   // generate (exp) increments for K+1 uniform numbers in (0,sum_wj) w/o sorting
-  let rK = apply(random_array(jK), r => -Math.log(r))
-  const z = sum_wj / (sum(rK) - Math.log(random()))
+  let rK = apply(random_array(jK), r => -log(r))
+  const z = sum_wj / (sum(rK) - log(random()))
   apply(rK, r => r * z) // rescale to (0,sum_wJ)
   let k = 0
   let j = 0
@@ -752,6 +752,22 @@ function ks2_density(xJ, yK, options = {}) {
 function ks1_density(xJ, cdf, options = {}) {
   const { wJ, wj_sum } = options
   return _ks1_density(ks1(xJ, cdf, options), wJ ? ess(wJ, wj_sum) : xJ.length)
+}
+
+// [inverse error function](https://en.wikipedia.org/wiki/Error_function#Inverse_functions)
+function erf_inverse(q) {
+  // from https://stackoverflow.com/a/69510308
+  // more compact implementation of https://stackoverflow.com/a/12556710
+  // based on Abramowitz and Stegun's algorithm described at https://en.wikipedia.org/wiki/Error_function#Numerical_approximations
+  // note reported relative errors are for erf(x), NOT erf_inverse(q)
+  // relative error for erf_inverse(q) grows for q>.9 to ~0.00191 @ q=.999
+  // due to increasing under-estimation, see stat-tests.js for details
+  if (q == 0) return 0
+  const a = 0.147 // for relative error <= .00013 for erf(x)
+  const b = 2 / (pi * a) + log(1 - q ** 2) / 2
+  const sqrt1 = sqrt(b ** 2 - log(1 - q ** 2) / a)
+  const sqrt2 = sqrt(sqrt1 - b)
+  return sqrt2 * sign(q)
 }
 
 // minimum element in `xJ`

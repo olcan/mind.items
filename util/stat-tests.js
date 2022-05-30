@@ -480,6 +480,40 @@ function _test_ks2_test() {
   )
 }
 
+function _test_erf_inverse() {
+  const aeq = (a, b) => approx_equal(a, b, 0.00013) // expected max rel. error
+  check(
+    // reference values from Mathematica as SetPrecision[InverseErf[x],20]
+    () => [erf_inverse(0), 0],
+    () => [erf_inverse(1), inf],
+    () => [erf_inverse(0.001), 0.00088622715746655212395, aeq],
+    () => [erf_inverse(0.01), 0.008862501280950597915, aeq],
+    () => [erf_inverse(0.1), 0.088855990494257686141, aeq],
+    () => [erf_inverse(0.5), 0.47693627620446993332, aeq],
+    () => [erf_inverse(0.9), 1.1630871536766744789, aeq],
+    () => [
+      erf_inverse(0.91),
+      1.1988272177415733033,
+      (a, b) => approx_equal(a, b, 0.0001606),
+    ],
+    () => [
+      erf_inverse(0.95),
+      1.3859038243496777376,
+      (a, b) => approx_equal(a, b, 0.000467),
+    ],
+    () => [
+      erf_inverse(0.99),
+      1.8213863677184496392,
+      (a, b) => approx_equal(a, b, 0.001306),
+    ],
+    () => [
+      erf_inverse(0.999),
+      2.3267537655135246411,
+      (a, b) => approx_equal(a, b, 0.00191),
+    ]
+  )
+}
+
 function _test_min_in() {
   check(
     () => throws(() => min_in()),
