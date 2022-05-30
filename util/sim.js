@@ -42,7 +42,7 @@ class _State {
       // make writable properties (params) non-writable
       // note all properties are made non-configurable in seal() below
       if (desc.writable) define(this, k, { writeable: false })
-      if (is_state(v)) v._init() // initialized nested state
+      if (is_state(v)) v._init() // init nested state
     }
 
     define_value(this, '_sim', true, { writable: true }) // enable _on_get/_set
@@ -110,7 +110,7 @@ class _State {
             this.weight(v._log_w) // transfer pre-attach _log_w
             v._log_w = 0 // no longer used at non-root
           }
-          this[k] = v
+          this[k] = v // note merge does NOT clone
           continue
         }
         // if already defined (as object), merge into it
@@ -123,12 +123,13 @@ class _State {
         }
         // replace nested object value with "traced" state object
         // requires v._traced flag except for plain objects
-        // not supported for params (assumed fixed)
+        // params are never traced (assumed fixed)
         // see setter below for similar logic
+        // note merge does NOT clone
         if (v._traced ?? (is_plain_object(v) && !params)) {
           if (params) fatal(`tracing not supported (& unnecessary) for params`)
           v = new _State(params ? { _params: v } : v, path, root(this))
-        }
+        } // else if (!params) v = clone_deep(v) // always clone variables
       } else if (is_object(v_to))
         fatal(`can't merge non-object into object '${path}'`)
       // if already defined (as non-object), write into it
@@ -151,8 +152,11 @@ class _State {
           set: v_new => {
             const v_old = v
             // see condition on v._traced above for comments on tracing
-            if (is_object(v_new) && (v_new._traced ?? is_plain_object(v_new)))
-              v_new = new _State(v_new, path, root(this))
+            if (is_object(v_new)) {
+              if (v_new._traced ?? is_plain_object(v_new))
+                v_new = new _State(v_new, path, root(this))
+              // else v_new = clone_deep(v_new) // always clone variables
+            }
             root(this)._on_set(path, (v = v_new), v_old)
           },
         })
