@@ -1052,6 +1052,10 @@ class _Sampler {
           }
         }
 
+        if (!array_names && method == 'sample_array') {
+          // TODO: attempt parsing array_names by evaluating last argument of sample_array to an object.names OR array of strings
+        }
+
         // if method is 'accumulate', enable global and per-call flags
         if (method == 'accumulate') {
           accumulating = true
