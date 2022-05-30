@@ -486,6 +486,7 @@ function _test_erf_inverse() {
     // reference values from Mathematica as SetPrecision[InverseErf[x],20]
     () => [erf_inverse(0), 0],
     () => [erf_inverse(1), inf],
+    () => [erf_inverse(-1), -inf],
     () => [erf_inverse(0.001), 0.00088622715746655212395, aeq],
     () => [erf_inverse(0.01), 0.008862501280950597915, aeq],
     () => [erf_inverse(0.1), 0.088855990494257686141, aeq],
@@ -509,6 +510,11 @@ function _test_erf_inverse() {
     () => [
       erf_inverse(0.999),
       2.3267537655135246411,
+      (a, b) => approx_equal(a, b, 0.00191),
+    ],
+    () => [
+      erf_inverse(-0.999),
+      -2.3267537655135246411,
       (a, b) => approx_equal(a, b, 0.00191),
     ]
   )
