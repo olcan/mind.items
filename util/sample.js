@@ -3724,8 +3724,13 @@ function _run() {
   // if js begins w/ sample(...) call, assume no wrapper is needed
   if (js.match(/^sample *\(/)) return null
   // if js contains any sample|simulate|sample_array call, then wrap inside sample(...)
-  // note this could match inside comments or strings
-  if (!js.match(/\b(?:sample|sample_array|simulate) *\(/)) return null
+  // note we filter out matches inside strings and comments
+  const calls = js
+    .match(
+      /`.*?`|'[^\n]*?'|"[^\n]*?"|\/\/[^\n]*|\/\*.*?\*\/|\b(?:sample|sample_array|simulate) *\(/gs
+    )
+    .filter(s => s.match(/^[^`'"/]/))
+  if (calls.length == 0) return null
   print('running inside sample(…) due to sampled or simulated values')
   js = flat('(context=>{', js, '})').join('\n')
   const options = {}
