@@ -55,6 +55,21 @@ const zip_with = _.zipWith
 const zip_object = _.zipObject
 const unzip = _.unzip
 
+// benchmark to illustrate clone/clone_deep overhead
+// structuredClone is slightly faster in Safari, slower in Chrome
+function _benchmark_clone() {
+  benchmark(
+    () => ({}),
+    () => clone({}),
+    () => ({ a: 1, b: 1, c: 1 }),
+    () => clone({ a: 1, b: 1, c: 1 }),
+    () => structuredClone({ a: 1, b: 1, c: 1 }),
+    () => ({ a: 1, b: [1, 2, 3], c: { a: 1, b: 1, c: 1 } }),
+    () => clone_deep({ a: 1, b: [1, 2, 3], c: { a: 1, b: 1, c: 1 } }),
+    () => structuredClone({ a: 1, b: [1, 2, 3], c: { a: 1, b: 1, c: 1 } })
+  )
+}
+
 const first = _.first
 const last = _.last
 const take = _.take
