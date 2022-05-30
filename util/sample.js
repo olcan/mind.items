@@ -515,6 +515,9 @@ class _Sampler {
       if (!is_object(options.context)) fatal('invalid context')
     }
 
+    // attach __now from options (overrides 'now' in #util/sim)
+    this.__now = options.__now // can be fixed externally
+
     this.options = options
     this.domain = func // save sampler function as domain
     this.start_time = Date.now()
@@ -1073,7 +1076,9 @@ class _Sampler {
           args = ''
           each(split_args, (arg, i) => {
             defined_arg_name =
-              (name ?? method) + '.' + (defined_arg_names[i] ?? 'arg' + i)
+              (name?.match(/^[^[{]/) ? name : method) +
+              '.' +
+              (defined_arg_names[i] ?? 'arg' + i)
             args += (i > 0 ? ',' : '') + _replace_calls(arg)
             defined_arg_name = null
           })
@@ -3730,5 +3735,7 @@ function _run() {
     if (!is_plain_object(_sample_options)) fatal('invalid _sample_options')
     merge(options, _sample_options)
   }
+  // fix __now for sampling (via options to apply to workers also)
+  options.__now ??= event_time()
   return sample(js, options)
 }

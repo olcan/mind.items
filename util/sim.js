@@ -284,6 +284,7 @@ const weight_state = (x, log_w) => x.weight(log_w)
 function simulate(x, t, events, options = undefined) {
   if (!is_state(x)) fatal('invalid state object')
   if (!is_array(events)) fatal(`invalid events, must be array`)
+  x._init() // init state (if needed) for first simulation
   x._t ??= 0 // non-resuming sim starts at x._t=0 (to be advanced to t>x.t>0)
   if (!(x.t >= 0)) fatal(`invalid x.t=${x.t}, must be >=0`)
   if (!(t > x.t)) fatal(`invalid t=${t}, must be >x.t=${x.t}`)
@@ -298,7 +299,6 @@ function simulate(x, t, events, options = undefined) {
     for (const e of events) if (e.t == x.t) e.fx(x)
     return x
   }
-  x._init() // init state (if needed) for first simulation
   x._sim_events = events = new Set(events) // event set for x.enable/disable
   for (const e of events) {
     if (!is_event(e)) fatal('invalid event')
@@ -678,12 +678,18 @@ const _1h = 1 / 24
 // event times are in _days_ since `_t0_monday_midnight` (see below)
 // _days_ are defined as DST-adjusted _midnights + hours in local time_
 // local times are generally subject to DST (unlike UTC times)
+// returns current time (as event time) if `date` is `undefined` (or omitted)
 const event_time = date => {
+  // allow override of current event_time() by sampler (via sampler.__now)
+  if (date === undefined && self.__sampler?.__now !== undefined)
+    return self.__sampler.__now
   date = date ? (date instanceof Date ? date : new Date(date)) : new Date()
   const midnight = (d => (d.setHours(0, 0, 0, 0), d))(new Date(date))
   const days = Math.round(_1ms * (midnight - _t0_monday_midnight))
   return days + _1ms * (date.getTime() - midnight)
 }
+
+const now = () => event_time()
 
 // _t0_monday_midnight
 // `new Date(2021, 0, 4)`
@@ -697,12 +703,6 @@ const last_hour = (h, t = event_time()) => {
   const s = ~~t + h * _1h
   return s < t ? s : s - 1 // today or yesterday
 }
-
-// _6am
-// time of last 6 AM (local time)
-const _6am = last_hour(6)
-
-const now = () => event_time()
 
 // convert event time to `Date`
 const event_date = (t = event_time()) => {
