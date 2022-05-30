@@ -49,17 +49,6 @@ class _State {
     seal(this) // prevent new properties, make existing ones non-configurable
   }
 
-  // define convenience temporal properties d & h at ALL levels (via prototype)
-  // these use root(x).t, always defined on root on/before _init
-  // non-root t is also redirected to root(x).t at _init
-  get d() {
-    return ~~root(this).t
-  }
-  get h() {
-    const t = root(this).t
-    return (t - ~~t) * 24
-  }
-
   _check_args(f, path) {
     let fstr = f.toString()
     let [, args] =
@@ -621,10 +610,15 @@ function _scheduler(v, f) {
 const daily = h =>
   _scheduler(h, h => {
     if (!is_number(h)) fatal(`daily: invalid hour ${h}`)
-    if (h == 0) return x => x.d + 1
+    if (h == 0) return x => ~~x.t + 1
     h = mod(h, 24)
     const ht = h * _1h
-    return x => x.d + (x.h >= h) + ht
+    return x => {
+      const xt = x.t // call x.t once
+      const xd = ~~xt
+      const xh = (xt - xd) * 24
+      return xd + (xh >= h) + ht
+    }
   })
 
 // interval scheduler
