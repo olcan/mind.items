@@ -3721,7 +3721,14 @@ function _run() {
   print('running inside sample(…) due to sampled or simulated values')
   js = flat('(context=>{', js, '})').join('\n')
   const options = {}
-  if (typeof _sample_context !== 'undefined') options.context = _sample_context
-  if (typeof _sample_options == 'object') merge(options, _sample_options)
+  if (typeof _sample_context !== 'undefined') {
+    if (!is_plain_object(_sample_context) && !is_function(_sample_context))
+      fatal('invalid _sample_context')
+    options.context = _sample_context
+  }
+  if (typeof _sample_options !== 'undefined') {
+    if (!is_plain_object(_sample_options)) fatal('invalid _sample_options')
+    merge(options, _sample_options)
+  }
   return sample(js, options)
 }
