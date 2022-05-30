@@ -4,7 +4,7 @@
     const { x_values, values } = data
     const labels = options.series?.map(s => s.label) ?? []
     const colors = options.series?.map(s => s.color) ?? []
-    const axes = options.series?.map(s => s.axis) ?? []
+    const axes = options.series?.map(s => s.axis ?? 'y') ?? []
     const xSJ = matrixify(values)
     c3._chart(
       '#lines-__cid__',
