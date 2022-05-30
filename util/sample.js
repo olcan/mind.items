@@ -1029,8 +1029,8 @@ class _Sampler {
         let array_names
         if (name) {
           // decline destructuring assignment to object {...}
-          if (!(name[0] != '{'))
-            fatal(`destructuring assignment to object ${name} not supported`)
+          // if (!(name[0] != '{'))
+          //   fatal(`destructuring assignment to object ${name} not supported`)
           // allow destructuring assignment to full flat array from sample_array
           if (name[0] == '[') {
             if (name.slice(1, -1).match(/\[|{/))
@@ -3672,7 +3672,10 @@ class _Sampler {
   }
 
   _simulate(s, x, ...args) {
-    if (this.rejected) return x
+    if (this.rejected) return is_function(x) ? {} : x
+    // convert state argument 'x' exactly as in simulate(…)
+    if (is_function(x)) x = x()
+    if (is_plain_object(x)) x = _state(clone_deep(x))
     const {
       sims, // out
       J, // in

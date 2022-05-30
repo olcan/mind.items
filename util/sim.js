@@ -245,9 +245,10 @@ class _State {
   }
 }
 
+// _state(obj)
 // create state from `obj`
 // functions are invoked in [property order](https://stackoverflow.com/a/38218582)
-const state = obj => new _State(obj)
+const _state = obj => new _State(obj)
 
 // is `x` a state object?
 const is_state = x => x instanceof _State
@@ -284,9 +285,15 @@ const weight_state = (x, log_w) => x.weight(log_w)
 // may include events `>t` given option `allow_next`
 // events at same time are invoked in order of `events`
 // can be invoked again to _resume_ simulation w/o resampling
+// `events` can be object of events to be named as `name_events(events)`
+// `x` can be object to be _cloned_ into state as `_state(clone_deep(x))`
+// `x` can be function that returns state or object (to be cloned)
 // cancelled if state is assigned zero weight, i.e. `x._log_w==-inf`
 function simulate(x, t, events, options = undefined) {
+  if (is_function(x)) x = x()
+  if (is_plain_object(x)) x = _state(clone_deep(x))
   if (!is_state(x)) fatal('invalid state object')
+  if (is_plain_object(events)) events = name_events(events)
   if (!is_array(events)) fatal(`invalid events, must be array`)
   x._init() // init state (if needed) for first simulation
   x._t ??= 0 // non-resuming sim starts at x._t=0 (to be advanced to t>x.t>0)
@@ -354,11 +361,15 @@ const name_events = (...fE) =>
     })
   )
 
+// name `event` as `name`
+// attaches `name` string to `event` as `_name`
+const name_event = (name, event) => set(event, '_name', name)
+
 // attach events `eJ` to (nested) state `x`
 // event functions will be invoked on `x` instead of `root(x)`
 const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 
-// _event(fx, [ft=daily(0)], [fc], [x])
+// _event(fx, [ft=daily(0)], [fc], [x], [name])
 // create mutation event `x → fx(x,…)`
 // state `x` _mutates_ to `fx(x)` at time `ft(x)`
 // | `fx`      | _mutator function_ `fx(x)`
