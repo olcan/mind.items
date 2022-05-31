@@ -457,11 +457,15 @@ function _test_mixture() {
 // tuple(...samplers)
 // independent samplers on product domain
 function tuple(...args) {
-  // handle special case of tuple(K, sk) as tuple(...array(K, sk))
+  // handle special case tuple(K, sk) as tuple(...array(K, sk))
   if (args.length == 2 && is_integer(args[0])) return tuple(array(...args))
+  // handle single array argument
   if (args.length == 1 && is_array(args[0])) args = args[0]
   const sK = args
-  if (!sK.every(s => s?._prior)) return array(sK.length)
+  // if any argument is undefined, return undefined array of same size
+  if (!sK.every(defined)) return array(sK.length)
+  // check that all arguments are valid samplers w/ _prior defined
+  if (sK.some(s => !s._prior)) fatal('invalid arguments for tuple')
   sK._prior = f => f(copy(sK, s => s._prior(x => x)))
   sK._log_p = xK => sum(sK, (s, k) => s._log_p(xK[k]))
   sK._posterior = (f, xK, σK) =>
