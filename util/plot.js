@@ -115,6 +115,9 @@ function plot(obj, name = undefined) {
           untagged_plots.join('\n')
       )
     ) {
+      // focus back on plotting item if focused item is to be deleted
+      if (untagged_plots.includes(lower(MindBox.get().trim())))
+        MindBox.set(_this.name)
       each(untagged_plots, label => _item(label).delete(false /*confirm*/))
     }
     // write_log()
