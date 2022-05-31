@@ -440,7 +440,7 @@ function predict(x) {
 // get value `x`
 // can be name string or identifier
 // may refer to sampled or predicted value
-// for static (lexical) names only, use `context.value(…)` for dynamic names
+// for statically determined names only, otherwise use `context.value(…)`
 function value(x) {
   fatal(`unexpected (unparsed) call to value(…)`)
 }
@@ -950,7 +950,13 @@ class _Sampler {
     const parse_array_args = args => {
       let [, size, name] =
         args.match(/^ *([1-9]\d*|[_\p{L}][_\p{L}\d]*)\s*,\s*(\S+?)/su) ?? []
-      return [size > 0 /*=>digit*/ ? size : sizes[size], name]
+      if (size > 0) return [size, name]
+      if (sizes[size]) return [sizes[size], name]
+      // attempt to interpret size, using global_eval to exclude local context
+      try {
+        return [global_eval(size), name]
+      } catch {}
+      return [0, name] // failed to interpret
     }
 
     // parse and replace key function calls
@@ -1026,7 +1032,7 @@ class _Sampler {
         if (sfx_name) name = sfx_name
 
         // check name, parse into array names if possible
-        let array_names
+        let elem_names
         if (name) {
           // decline destructuring assignment to object {...}
           // if (!(name[0] != '{'))
@@ -1043,8 +1049,8 @@ class _Sampler {
               )
             if (method != 'sample_array')
               fatal(`destructuring assignment to array requires sample_array`)
-            array_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
-            if (size != array_names.length)
+            elem_names = name.match(/[_\p{L}][_\p{L}\d]*/gu) ?? []
+            if (size != elem_names.length)
               fatal('destructuring array assignment size mismatch')
           } else {
             if (name.match(/^\d/))
@@ -1052,8 +1058,32 @@ class _Sampler {
           }
         }
 
-        if (!array_names && method == 'sample_array') {
-          // TODO: attempt parsing array_names by evaluating last argument of sample_array to an object.names OR array of strings
+        // split args at commas NOT inside parens (single level)
+        const split_args = args.split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/)
+
+        // attempt interpreting last argument of sample (overrides name)
+        if (method == 'sample') {
+          try {
+            const last_arg = global_eval(last(split_args))
+            if (last_arg) {
+              if (is_string(last_arg)) name = last_arg
+              else if (is_string(last_arg.name)) name = last_arg.name
+            }
+          } catch {}
+        }
+
+        // attempt interpreting last argument of sample_array
+        if (method == 'sample_array' && !elem_names) {
+          try {
+            const last_arg = global_eval(last(split_args))
+            if (last_arg) {
+              if (last_arg.every?.(is_string)) elem_names = last_arg
+              else if (last_arg.names?.every?.(is_string))
+                elem_names = last_arg.names
+              if (size != elem_names.length)
+                fatal('interpreted array names size mismatch')
+            }
+          } catch {}
         }
 
         // if method is 'accumulate', enable global and per-call flags
@@ -1072,11 +1102,10 @@ class _Sampler {
           defined_arg_names = global_eval(method)
             .toString()
             .match(/^(?:[^\(]*\()?(.*?)\)?\s*(?:=>|\{)/s)?.[1]
-            .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/) // commas NOT inside parens (single level), see https://stackoverflow.com/a/41071568
+            .split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/)
             .map(s => s.replace(/=.*$/, '').trim())
-        } catch (e) {} // ignore errors
+        } catch {} // ignore errors
         if (defined_arg_names?.length) {
-          const split_args = args.split(/\,(?![^(]*\)|[^\[]*\]|[^{]*\})/)
           args = ''
           each(split_args, (arg, i) => {
             defined_arg_name =
@@ -1161,7 +1190,8 @@ class _Sampler {
             if (name?.match(/^[`'"].*[`'"]$/s)) name = name.slice(1, -1)
             if (!name) fatal(`count not determine value name in '${m}'`)
             index = this.names.get(name)
-            if (index === undefined) fatal(`unknown value name ${name}`)
+            if (index === undefined)
+              fatal(`unknown value name ${name}; known names:`, str(this.names))
             return m.replace(
               new RegExp(method + ' *\\(.+\\)$', 's'),
               `__sampler.value_at(${index})`
@@ -1175,7 +1205,7 @@ class _Sampler {
             break
           case 'sample_array':
             index = values.length
-            if (!array_names) {
+            if (!elem_names) {
               // process using array name
               const array_name = name || str(index)
               if (names.has(array_name + `[0]`)) array_name += '_' + index // de-duplicate array name
@@ -1186,11 +1216,11 @@ class _Sampler {
                 values.push(lexical_context({ index, sampling: true }))
               })
             } else {
-              // process names from destructuring assignment
-              for (const assigned_name of array_names) {
+              // process element names from destructuring or interpreter
+              for (const elem_name of elem_names) {
                 const index = values.length // element index
                 this._add_name(
-                  (name = this._name_value(assigned_name, index)),
+                  (name = this._name_value(elem_name, index)),
                   index
                 )
                 values.push(lexical_context({ index, sampling: true }))
@@ -3072,7 +3102,8 @@ class _Sampler {
   value(name) {
     const { j, moving, xJK, yJK } = this
     const k = this.names.get(name)
-    if (k === undefined) fatal(`unknown value name ${name}`)
+    if (k === undefined)
+      fatal(`unknown value name ${name}; known names:`, str(this.names))
     return (moving ? yJK : xJK)[j][k]
   }
 
@@ -3228,7 +3259,8 @@ class _Sampler {
         opt &&
         (opt.name ||
           is_string(opt) ||
-          (defined(array_k0) && (opt.names || opt.every?.(is_string))))
+          (defined(array_k0) &&
+            (opt.names?.every?.(is_string) || opt.every?.(is_string))))
       ) {
         let name
         if (defined(array_k0)) {
@@ -3241,9 +3273,11 @@ class _Sampler {
         } else name = opt.name ?? opt
         if (!is_string(name)) fatal(`invalid name '${name}' for sampled value`)
         if (!name) fatal(`blank name for sampled value at index ${k}`)
-        name = this._name_value(name, k)
-        value.name = name
-        this._change_name(name, k)
+        if (name != value.name) {
+          name = this._name_value(name, k)
+          value.name = name
+          this._change_name(name, k)
+        }
       }
 
       const { index, name, args } = value
