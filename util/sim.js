@@ -72,6 +72,8 @@ class _State {
 
   merge(obj, params = false) {
     if (this._sim) fatal(`can't merge after sim`)
+    if (is_nullish(obj)) return // ignore nullish merge
+    if (!is_plain_object(obj)) fatal(`can't merge non-plain-object into state`)
     if (is_array(obj)) define_value(this, 'length', obj.length)
     const base = this._path ? this._path + '.' : ''
     for (let [k, v] of entries(obj)) {
