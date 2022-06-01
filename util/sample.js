@@ -236,10 +236,10 @@ function density(x, domain) {
 // _prior model_ `P(X)` is defined or implied by `domain`
 // can be _conditioned_ as `P(X|c)` using `condition(c)`
 // can be _weighted_ as `∝ P(X) × W(X)` using `weight(…)`
-// sampler function `domain` is passed new _sampler `context`_
-// non-function `domain` requires outer `sample(context=>{ … })`
+// sampler function `domain` is passed `Sampler` instance
+// non-function `domain` requires outer `sample(sampler=>{ … })`
 // _sampler domains_ specify default `domain._prior|_log_p|_posterior`
-// conditions/weights are scoped by outer `sample(context=>{ … })`
+// conditions/weights are scoped by outer `sample(sampler=>{ … })`
 // samples are tied to _lexical context_, e.g. are constant in loops
 // `options` for all domains:
 // | `name`        | name of sampled value
@@ -256,15 +256,15 @@ function density(x, domain) {
 // | `target`      | target cdf, sample, or sampler domain for `tks` metric
 // |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
 // |               | for sampler domain, sample `size` can be specified
-// |               | default `size` is inherited from context (see below)
+// |               | default `size` is inherited from parent sampler (see below)
 // |               | also see `targets` and `max_tks` options below
 // |               | _default_: no target (`tks=0`)
-// `options` for sampler function (_context_) domains `context=>{ … }`:
+// `options` for sampler function domains `sampler=>{ … }`:
 // | `size`        | sample size `J`, _default_: `1000`
-// |               | ≡ _independent_ runs of `context=>{ … }`
+// |               | ≡ _independent_ runs of `sampler=>{ … }`
 // |               | ≡ posterior update chains (dependent runs)
-// | `reweight_if` | reweight predicate `context => …`
-// |               | called once per update step `context.u = 0,1,2,…`
+// | `reweight_if` | reweight predicate `sampler=> …`
+// |               | called once per update step `sampler.u = 0,1,2,…`
 // |               | reduces `ess` to `≥reweight_ess` (see below)
 // |               | predicate ignored when optimizing or accumulating
 // |               | _default_: `({ess,J}) => ess >= .9 * J`
@@ -275,23 +275,23 @@ function density(x, domain) {
 // |                | does not apply when optimizing or accumulating
 // | `max_reweight_tries`| maximum reweight attempts per step, _default_: `100`
 // |               | default is `1` when optimizing or accumulating
-// | `resample_if` | resample predicate `context => …`
-// |               | called once per update step `context.u = 0,1,…`
+// | `resample_if` | resample predicate `sampler=> …`
+// |               | called once per update step `sampler.u = 0,1,…`
 // |               | _default_: `({ess,essu,J}) => ess/essu < clip(essu/J,.5,1)`
 // |               | default allows `ess→essu→J` w/ effective moves for `essu→J`
-// | `move_while`  | move predicate `context => …`
-// |               | called _until false_ every update step `context.u = 0,1,…`
-// |               | `context.p` is proposed moves (current update step)
-// |               | `context.a` is accepted moves (current update step)
-// |               | `context.aK` is accepts per posterior "pivot"
-// |               | `context.uaK` is accepts per prior "jump" value
+// | `move_while`  | move predicate `sampler=> …`
+// |               | called _until false_ every update step `sampler.u = 0,1,…`
+// |               | `sampler.p` is proposed moves (current update step)
+// |               | `sampler.a` is accepted moves (current update step)
+// |               | `sampler.aK` is accepts per posterior "pivot"
+// |               | `sampler.uaK` is accepts per prior "jump" value
 // |               | _default_: `({essu,J,a,awK,uawK}) =>`
 // |               | `(essu<.9*J || a<J || max_in(awK)>0 || max_in(uawK)>0)`
 // |               | see `move_weights` below for `awK` and `uawK`
 // |               | default allows `essu→J` w/ up to `J/10` slow-movers
-// | `move_weights`| move weight function `(context, awK, uawK) => …`
+// | `move_weights`| move weight function `(sampler, awK, uawK) => …`
 // |               | _default_ uses deficiencies in `move_targets` below
-// | `move_targets`| move target function `(context, atK, uatK) => …`
+// | `move_targets`| move target function `(sampler, atK, uatK) => …`
 // |               | _default_ splits accepts uniformly over sampled values
 // | `max_updates` | maximum number of update steps, _default_: `1000`
 // | `min_updates` | minimum number of update steps, _default_: `0`
@@ -340,12 +340,12 @@ function density(x, domain) {
 // |               | can be function to be invoked once for context object
 function sample(domain, options = undefined) {
   // this function can only be invoked for a "root" sampler domain
-  // root sampler domain can be a function or string '(context=>{…})'
+  // root sampler domain can be a function or string '(sampler=>{…})'
   // non-root samplers would have their sample(…) calls parsed & replaced
-  if (!is_function(domain) && !domain.startsWith?.('(context=>{'))
-    fatal(`invalid sample(…) call outside of sample(context=>{ … })`)
+  if (!is_function(domain) && !domain.startsWith?.('(sampler=>{'))
+    fatal(`invalid sample(…) call outside of sample(sampler=>{ … })`)
   // decline target for root sampler since that is no parent to track tks
-  if (options?.target) fatal(`invalid target outside of sample(context=>{ … })`)
+  if (options?.target) fatal(`invalid target outside of sample(sampler=>{ … })`)
   const sampler = new _Sampler(domain, options)
   const sample = sampler.sample(options)
   // if (options?.store) _this.global_store._sample = sample
@@ -375,7 +375,7 @@ function confine_array(J, xJ, domain) {
 
 // condition samples on `cond`
 // `≡ weight(c ? 0 : -inf)`, see below
-// scoped by outer `sample(context=>{ … })`
+// scoped by outer `sample(sampler=>{ … })`
 // conditions models `P(X) → P(X|c)` for all `X` in context
 // corresponds to _indicator weights_ `𝟙(c|X) = (c ? 1 : 0)`
 // requires `O(1/P(c))` samples; ___can fail for rare conditions___
@@ -389,7 +389,7 @@ function condition(cond, log_wr = undefined) {
 }
 
 // weight samples by `log_w`
-// scoped by outer `sample(context=>{ … })`
+// scoped by outer `sample(sampler=>{ … })`
 // normalized weights can be denoted as prob. dist. `W(X)`
 // augments models `P(X) -> ∝ P(X) × W(X)` for all `X` in context
 // _likelihood weights_ `∝ P(c|X)` _fork-condition_ models `P(X) → P(X|c')`
@@ -440,7 +440,7 @@ function predict(x) {
 // get value `x`
 // can be name string or identifier
 // may refer to sampled or predicted value
-// for statically determined names only, otherwise use `context.value(…)`
+// for statically determined names only, otherwise use `sampler.value(…)`
 function value(x) {
   fatal(`unexpected (unparsed) call to value(…)`)
 }
@@ -1180,12 +1180,12 @@ class _Sampler {
         })
 
         // note we force 'default' case for methods invoked on objects
-        // e.g. value(...) is non-default but context.value(...) is default
+        // e.g. value(...) is non-default but sampler.value(...) is default
         // also note javascript allows arbitrary whitespace after period
         switch (prefix.match(/\.\s*$/) ? '' : method) {
           case 'value':
             // value lookup based on static/lexical index
-            // note dynamic names require call to context.value(name)
+            // note dynamic names require call to sampler.value(name)
             name = args.match(/^\s*(\S+)\s*$/su)?.pop()
             if (name?.match(/^[`'"].*[`'"]$/s)) name = name.slice(1, -1)
             if (!name) fatal(`count not determine value name in '${m}'`)
@@ -3770,7 +3770,7 @@ function _run() {
     .filter(s => s.match(/^[^`'"/]/))
   if (calls.length == 0) return null
   print('running inside sample(…) due to sampled or simulated values')
-  js = flat('(context=>{', js, '})').join('\n')
+  js = flat('(sampler=>{', js, '})').join('\n')
   const options = {}
   if (typeof _sample_context !== 'undefined') {
     if (!is_plain_object(_sample_context) && !is_function(_sample_context))
