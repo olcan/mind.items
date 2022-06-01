@@ -692,10 +692,14 @@ const _1h = 1 / 24
 
 // convert `date` to _event time_
 // `date` must be a `Date` or valid argument for `new Date(…)`
-// event times are in _days_ since `_t0_monday_midnight` (see below)
-// _days_ are defined as DST-adjusted _midnights + hours in local time_
-// local times are generally subject to DST (unlike UTC times)
-// returns current time (as event time) if `date` is `undefined` (or omitted)
+// `date` can be omitted (or `undefined`) to use current date/time
+// event times are _days_ since `_t0_monday_midnight` (see below)
+// integer part is _midnights_ since `_t0_monday_midnight`
+// fractional part times 24 is _hours since last midnight_
+// days are assumed 24 hours, ignoring daylight savings
+// one hour (2am in US) is effectively skipped or repeated
+// e.g. Mar 13 2022 (PST->PDT) is 23 hours (2am dropped)
+// e.g. Nov 6 2022 (PDT->PST) is 25 hours (2am repeated)
 const event_time = date => {
   // allow override of current event_time() by sampler (via sampler.__now)
   if (date === undefined && self.__sampler?.__now !== undefined)
@@ -779,6 +783,7 @@ function _test_event_time() {
   }
   check(
     () => [event_time(_t0_monday_midnight), 0],
+    () => array(365, event_date).every(d => d.getHours() == 0),
     () => [event_time(add_days(_t0_monday_midnight, 1)), 1],
     () => [event_time(add_days(_t0_monday_midnight, 7)), 7],
     () => [event_time(add_days(_t0_monday_midnight, 30)), 30],
