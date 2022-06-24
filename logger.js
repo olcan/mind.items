@@ -660,7 +660,11 @@ function _on_change(text, elem = document) {
       suggest.innerHTML = ''
       return
     }
-    const matches = event_log_text({ limit: 5, selector: keyword })
+    let matches
+    try {
+      matches = event_log_text({ limit: 5, selector: keyword })
+    } catch {} // ignore errors, e.g. in keyword regex parsing
+    matches ??= ''
     const prefix = matches
       ? `recent events for keyword '${keyword}': \n`
       : `no events found for keyword '${keyword}'`
