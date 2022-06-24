@@ -100,13 +100,13 @@ function _init_log_highlight() {
           },
           // #tags (regexp copied from util.js in mind.page repo)
           {
-            scope: 'tag.hashtag._highlight',
-            match: /(?:^| |\()(#[^#\s<>&,.;:!"'`(){}\[\]]+)/,
+            begin: [/^| |\(/, /#[^#\s<>&,.;:!"'`(){}\[\]]+/],
+            beginScope: { 2: 'tag.hashtag._highlight' },
           },
           // urls (regexp)
           {
-            scope: 'tag.link._highlight',
-            match: /(?:^| |\()(https?:\/\/[^\s)<]*)/,
+            begin: [/^| |\(/, /https?:\/\/[^\s)<]*/],
+            beginScope: { 2: 'tag.link._highlight' },
           },
           // numbers+units (regexp copied from #values)
           // we exclude name and comparison and allow $ in place of +/-
