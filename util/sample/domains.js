@@ -146,9 +146,9 @@ const integer = (a, b) => uniform_integer(a, b)
 // `x∈{0,1,…,K-1}`,`K≥1` integer
 const index = K => uniform_integer(0, K - 1)
 
-// or(...domains)
+// union(...domains)
 // `x` in union of `domains`
-const or = mixture
+const union = mixture
 
 // `xJ` distributed like `yK`
 // modifies `yK` to sort
