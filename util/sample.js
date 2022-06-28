@@ -1,8 +1,7 @@
 // is `x` from `domain`?
 // | **domain**       | **description**
 // | sampler function | `x` via function `≡{via:func}`
-// | type string      | `x` is of type `≡{is:type}`
-// | number           | `x` `===` number `≡{eqq:number}`
+// | primitive value  | `x` `===` value `≡{eqq:value}`
 // | primitive array  | `x` in array of possible values, `≡{in:array}`
 // | object array     | `x` is array matching per-element constraints
 // | object           | `x` matching constraints
@@ -24,9 +23,8 @@
 function from(x, domain) {
   if (x === undefined) return false
   if (is_nullish(domain)) return false // empty or undefined
+  if (is_primitive(domain)) return x === domain // ≡{eqq:value}
   if (is_function(domain)) return from(x, { via: domain })
-  if (is_string(domain)) return is(x, domain) // ≡{is:type}
-  if (is_number(domain)) return x === domain // ≡{eqq:number}
   if (is_array(domain)) {
     if (is_primitive(domain[0])) return domain.includes(x) // ≡{in:array}
     if (is_object(domain[0])) {
@@ -88,13 +86,12 @@ function from(x, domain) {
 function invert(domain) {
   if (domain === undefined) return domain // maintain undefined
   if (domain === null) return {} // empty -> everything
+  if (is_primitive(domain)) return invert({ eqq: domain })
   if (is_function(domain)) return invert({ via: domain })
-  if (is_string(domain)) return invert({ is: domain })
   if (is_array(domain)) {
     if (is_primitive(domain[0])) return invert({ in: domain })
     if (is_object(domain[0])) return domain.map(invert)
   }
-  if (is_number(domain)) return invert({ eqq: domain })
   if (!is_object(domain)) fatal(`unknown domain ${domain}`)
   if (empty(domain)) return null // everything -> empty
   let domains = keys(domain).map(key => {
@@ -161,9 +158,8 @@ const _distance_to_array = (x, yJ) => {
 function distance(x, domain) {
   if (x === undefined) return undefined
   if (is_nullish(domain)) return undefined // empty or undefined
+  if (is_primitive(domain)) return _distance(x, domain)
   if (is_function(domain)) return distance(x, { via: domain })
-  if (is_string(domain)) return undefined
-  if (is_number(domain)) return _distance(x, domain)
   if (is_array(domain)) {
     if (is_primitive(domain[0])) return _distance_to_array(x, domain)
     if (is_object(domain[0])) {

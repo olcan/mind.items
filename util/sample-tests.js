@@ -1,13 +1,8 @@
 function _test_from() {
   check(
     () => !from(0), // domain undefined/omitted
-    () => !from(0, 'unknown_type'), // unknown type
-    () => from('0', 'string'),
-    () => from(0, 'integer'),
-    () => from(0, 'number'),
-    () => from(true, 'boolean'),
-    () => !from('true', 'boolean'),
     () => from(1, 1),
+    () => from('1', '1'),
     () => !from(1, '1'), // !==
     () => from(1, [0, 1]),
     () => !from(2, [0, 1]),
@@ -18,15 +13,21 @@ function _test_from() {
     () => from([0, 0], [{}, {}]), // 2d array domain
     () => !from([0, 0], [{ gte: 1 }, {}]),
     () => from([1, 0], [{ gte: 1 }, {}]),
-    () => throws(() => from(0, true)), // non-object
+    () => !from(0, true), // primitive value (===)
     () => !from(0, null), // empty domain = nothing
     () => from(0, {}), // no constraints = everything
     () => from(0, { via: () => {} }), // function domain == everything
-    () => from(0, { via: set(() => {}, '_domain', 'integer') }),
-    () => !from(0, { via: set(() => {}, '_domain', 'string') }),
-    () => from('0', { via: set(() => {}, '_domain', 'string') }),
+    () => from(0, { via: set(() => {}, '_domain', { is: 'integer' }) }),
+    () => !from(0, { via: set(() => {}, '_domain', { is: 'string' }) }),
+    () => from('0', { via: set(() => {}, '_domain', { is: 'string' }) }),
     () => throws(() => from(0, { via: [] })), // invalid via domain
     () => from(0, { is: 'integer' }),
+    () => !from(0, { is: 'unknown_type' }), // unknown type
+    () => from('0', { is: 'string' }),
+    () => from(0, { is: 'integer' }),
+    () => from(0, { is: 'number' }),
+    () => from(true, { is: 'boolean' }),
+    () => !from('true', { is: 'boolean' }),
     () => from(0, { eq: false }),
     () => !from(0, { eqq: false }),
     () => !from(0, { equal: false }),
@@ -80,11 +81,11 @@ function _test_invert() {
   const double_inverse_equal = domain => [invert(invert(domain)), domain]
   check(
     () => [invert(invert(undefined)), undefined], // domain undefined/omitted
-    () => [invert(invert('string')), { is: 'string' }],
+    () => [invert(invert('1')), { eqq: '1' }],
     () => [invert(invert(1)), { eqq: 1 }],
+    () => [invert(invert(true)), { eqq: true }],
     () => [invert(invert([0, 1])), { in: [0, 1] }],
     () => double_inverse_equal([{ gt: 0 }, { lt: 0 }]),
-    () => throws(() => invert(true)), // non-object
     () => double_inverse_equal(null),
     () => [invert(null), {}],
     () => double_inverse_equal({}),
@@ -92,7 +93,7 @@ function _test_invert() {
     () => [invert(invert({ via: () => {} })), {}],
     () => [invert({ via: () => {} }), null],
     () => [
-      invert(invert({ via: set(() => {}, '_domain', 'string') })),
+      invert(invert({ via: set(() => {}, '_domain', { is: 'string' }) })),
       { is: 'string' },
     ],
     () => throws(() => invert({ via: [] })), // invalid via domain
@@ -152,7 +153,7 @@ function _test_distance() {
     () => [distance(0, [-1, -2, inf]), undefined], // infinities not allowed
     () => [distance(0, [-1, -2, NaN]), undefined],
     () => [distance(0, []), undefined],
-    () => throws(() => distance(0, true)), // non-object
+    () => [distance(0, true), undefined],
     () => [distance(1, { _distance: x => abs(x - 5) }), 4], // custom _distance
     () => [distance(0, { is: 'number' }), undefined],
     () => [distance(0, { in: [1, 2] }), 1],
