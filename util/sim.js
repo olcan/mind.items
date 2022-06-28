@@ -378,6 +378,7 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // |           | must modify (i.e. _mutate_) state `x`
 // |           | can return `null` to indicate _skipped_ mutation
 // |           | can return mutation parameters to be recorded in `x._events`
+// |           | can be object to be merged into x (w/ functions invoked)
 // | `ft`      | _scheduler function_ `ft(x)`
 // |           | must return future time `t > x.t`, can be `inf` (never)
 // |           | state variables accessed in `ft` are considered _dependencies_
@@ -386,6 +387,7 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // | `fc`      | optional _condition function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
 // |           | state variables accessed in `fc` are also dependencies (see above)
+// |           | can be non-function treated as _domain_ for `x`
 // | `x`       | optional (nested) state object, attached to event as `_x`
 // |           | all functions will be invoked on `x` instead of `root(x)`
 // | `name`    | optional event name string, attached as `_name`
@@ -395,13 +397,43 @@ class _Event {
   constructor(fx, ft = daily(0), fc = undefined, x, name) {
     if (x) this._x = x // pre-attached state
     if (name) this._name = x ? path(x, name) : name
-    this.fx = x => {
-      x._mutator = this // track event as mutator
-      const θ = fx(this._x ?? x)
-      x._mutator = null
-      if (θ === null) return null // event (mutation) skipped
-      x._events?.push({ t: x.t, ...θ, _source: this })
-      x._states?.push(clone_deep(x))
+    if (fx === undefined) {
+      // no-op event
+      this.fx = x => {
+        x._events?.push({ t: x.t, ...θ, _source: this })
+        x._states?.push(clone_deep(x))
+      }
+    } else {
+      // convert object fx into assignment function
+      // convert other non-function fx into assignment to x.v
+      if (is_object(fx)) {
+        const _fx = fx
+        // merge into state, invoke functions w/ (old_value, x)
+        // note _set_obj can be much faster than merge_with, see inc benchmarks
+        // fx = x => merge_with(x, _fx, (a, b) => (is_function(b) ? b(a, x) : b))
+        fx = x => {
+          _set_obj(x, _fx)
+        }
+      } else if (!is_function(fx)) {
+        const _fx = fx
+        fx = x => {
+          x.v = _fx
+        }
+      }
+      this.fx = x => {
+        x._mutator = this // track event as mutator
+        const θ = fx(this._x ?? x)
+        x._mutator = null
+        if (θ === null) return null // event (mutation) skipped
+        x._events?.push({ t: x.t, ...θ, _source: this })
+        x._states?.push(clone_deep(x))
+      }
+    }
+
+    // convert non-function condition fc to domain for x.v
+    if (fc && !is_function(fc)) {
+      const _fc = fc
+      fc = x => from(x.v, _fc)
     }
 
     // wrap ft w/ cache wrapper and optional condition function fc
@@ -423,11 +455,11 @@ class _Event {
 // alias for `_event(…)`, mutator (`fx`) first
 const _do = _event
 
-// _at(ft, fx, [fc], [x], [name])
+// _at(ft, [fx], [fc], [x], [name])
 // alias for `_event(…)`, scheduler (`ft`) first
 const _at = (ft, fx, fc, x, name) => _event(fx, ft, fc, x, name)
 
-// _if(fc, ft, fx, [x], [name])
+// _if(fc, [ft=daily(0)], [fx], [x], [name])
 // alias for `_event(…)`, condition (`fc`) first
 const _if = (fc, ft, fx, x, name) => _event(fx, ft, fc, x, name)
 
@@ -445,7 +477,9 @@ const is_event = e => e instanceof _Event
 // |  string       | increment property or path (e.g. `x.a.b.c`) in `x`
 // |  array        | increment recursively, passing array as args
 // |  object       | increment all properties or paths in object
-// |               | can be nested, e.g. `{a:{b:{c:1}}}`
+// |               | objects can be nested, e.g. `{a:{b:{c:1}}}`
+// |               | functions are invoked as f(old_val,x)
+// |               | non-numbers are set (no coercion)
 // returns last returned value from last function arg, if any
 const inc = (...yJ) => (apply(yJ, _pathify), x => _inc(x, ...yJ))
 const _inc = (x, ...yJ) => {
@@ -505,10 +539,10 @@ const _inc_path = (x, y) => {
 const _inc_obj = (x, y) => {
   for (const k of keys(y)) {
     const v = y[k]
-    if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
-    // non-numbers are _set_ instead of incremented (w/ coercion)
-    else if (is_number(v)) x[k] = (x[k] || 0) + v
-    else x[k] = v
+    if (is_number(v)) x[k] = (x[k] || 0) + v
+    else if (is_object(v)) _inc_obj(x[k] || (x[k] = {}), v)
+    else if (is_function(v)) x[k] = v(x[k], x) // invoke func. as (old_value, x)
+    else x[k] = v // set to new non-number value (no coercion)
   }
 }
 const _get_path = (x, y) => {
@@ -518,6 +552,14 @@ const _get_path = (x, y) => {
 const _set_path = (x, y, z) => {
   if (!y.tail) x[y.head] = z
   else _set_path((x[y.head] ??= {}), y.tail, z)
+}
+const _set_obj = (x, y) => {
+  for (const k of keys(y)) {
+    const v = y[k]
+    if (is_object(v)) _set_obj(x[k] || (x[k] = {}), v)
+    else if (is_function(v)) x[k] = v(x[k], x) // invoke func. as (old_value, x)
+    else x[k] = v // set to new value
+  }
 }
 
 function _benchmark_inc() {
