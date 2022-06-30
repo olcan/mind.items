@@ -469,19 +469,53 @@ const _if = (fc, ft, fx, x, name) => _event(fx, ft, fc, x, name)
 const is_event = e => e instanceof _Event
 
 // logical _and_ conditioner
-const and =
-  (...fJ) =>
-  x =>
-    fJ.every(f => f(x))
+const and = (...fJ) => x => fJ.every(f => f(x)) // prettier-ignore
 
 // logical _or_ conditioner
-const or =
-  (...fJ) =>
-  x =>
-    fJ.some(f => f(x))
+const or = (...fJ) => x => fJ.some(f => f(x)) // prettier-ignore
 
 // logical _not_ conditioner
 const not = f => x => !f(x)
+
+// generic mutator
+// handles args `...yJ` in order, by type:
+// | function `f`  | invoke as `r = f(x,r)`, `r` last returned value
+// |               | if last arg, handle `r` as arg (by type), return `r`
+// |               | else if `r` falsy (excl. `undefined`), cancel, return `null`
+// | `undefined`   | skipped
+// | `p∈[0,1]`     | continue mutations w/ probability `p`
+// |               | otherwise (w/ prob. `1-p`) cancel, return `null`
+// |  primitive    | mutate state identifier primitive (x.id)
+// |  array        | mutate recursively, passing array as args
+// |  object       | merge object into state, invoke functions as f(old_val,x)
+// returns last returned value from last function arg, if any
+const mut = (...yJ) => x => _mut(x, ...yJ) // prettier-ignore
+const _mut = (x, ...yJ) => {
+  let ret // set below if there are function args
+  let J = yJ.length
+  while (!defined(yJ[J - 1])) J-- // drop undefined suffix
+  for (let j = 0; j < J; ++j) {
+    let y = yJ[j]
+    if (is_function(y)) {
+      if (j < J - 1) {
+        ret = y(x, ret)
+        if (defined(ret) && !ret) return null // cancel on defined falsy
+        continue
+      } else ret = y = y(x, ret) // process as mutation below
+    }
+    if (!defined(y)) continue // skip mutation
+    if (is_number(y) && y >= 0 && y <= 1) {
+      // continue mutations with prob. y
+      if (random_boolean(y)) continue
+      return null
+    }
+    if (is_primitive(y)) x.id = y
+    else if (is_array(y)) _mut(x, ...y)
+    else if (is_object(y)) _set_obj(x, y)
+    else throw `invalid argument '${y}' for _mut`
+  }
+  return ret
+}
 
 // increment mutator
 // handles args `...yJ` in order, by type:
@@ -498,7 +532,7 @@ const not = f => x => !f(x)
 // |               | functions are invoked as f(old_val,x)
 // |               | non-numbers are set (no coercion)
 // returns last returned value from last function arg, if any
-const inc = (...yJ) => (apply(yJ, _pathify), x => _inc(x, ...yJ))
+const inc = (...yJ) => x => _inc(x, ...apply(yJ, _pathify)) // prettier-ignore
 const _inc = (x, ...yJ) => {
   let ret // set below if there are function args
   let J = yJ.length
