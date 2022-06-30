@@ -379,6 +379,7 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // |           | can return `null` to indicate _skipped_ mutation
 // |           | can return mutation parameters to be recorded in `x._events`
 // |           | can be object to be merged into x (w/ functions invoked)
+// |           | can be identifier primitive (e.g. integer or string)
 // | `ft`      | _scheduler function_ `ft(x)`
 // |           | must return future time `t > x.t`, can be `inf` (never)
 // |           | state variables accessed in `ft` are considered _dependencies_
@@ -388,6 +389,7 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
 // |           | state variables accessed in `fc` are also dependencies (see above)
 // |           | can be non-function treated as _domain_ for `x`
+// |           | can be identifier primitive (as domain)
 // | `x`       | optional (nested) state object, attached to event as `_x`
 // |           | all functions will be invoked on `x` instead of `root(x)`
 // | `name`    | optional event name string, attached as `_name`
@@ -405,7 +407,7 @@ class _Event {
       }
     } else {
       // convert object fx into assignment function
-      // convert other non-function fx into assignment to x.v
+      // convert other non-function fx into assignment to x.id
       if (is_object(fx)) {
         const _fx = fx
         // merge into state, invoke functions w/ (old_value, x)
@@ -417,7 +419,7 @@ class _Event {
       } else if (!is_function(fx)) {
         const _fx = fx
         fx = x => {
-          x.v = _fx
+          x.id = _fx
         }
       }
       this.fx = x => {
@@ -430,10 +432,10 @@ class _Event {
       }
     }
 
-    // convert non-function condition fc to domain for x.v
+    // convert non-function condition fc to domain for x.id
     if (fc && !is_function(fc)) {
       const _fc = fc
-      fc = x => from(x.v, _fc)
+      fc = x => from(x.id, _fc)
     }
 
     // wrap ft w/ cache wrapper and optional condition function fc
