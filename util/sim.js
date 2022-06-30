@@ -385,7 +385,7 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // |           | state variables accessed in `ft` are considered _dependencies_
 // |           | schedule is considered valid while dependencies are unchanged
 // |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
-// | `fc`      | optional _condition function_ `fc(x)`
+// | `fc`      | optional _conditioner function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
 // |           | state variables accessed in `fc` are also dependencies (see above)
 // |           | can be non-function treated as _domain_ for `x`
@@ -432,13 +432,13 @@ class _Event {
       }
     }
 
-    // convert non-function condition fc to domain for x.id
+    // convert non-function conditioner fc to domain for x.id
     if (fc && !is_function(fc)) {
       const _fc = fc
       fc = x => from(x.id, _fc)
     }
 
-    // wrap ft w/ cache wrapper and optional condition function fc
+    // wrap ft w/ cache wrapper and optional conditioner fc
     // note this._t is set externally, e.g. in simulate(…) or x.enable
     this._t = undefined // cached scheduled time (undefined = event disabled)
     this.ft = x => {
@@ -462,11 +462,26 @@ const _do = _event
 const _at = (ft, fx, fc, x, name) => _event(fx, ft, fc, x, name)
 
 // _if(fc, [ft=daily(0)], [fx], [x], [name])
-// alias for `_event(…)`, condition (`fc`) first
+// alias for `_event(…)`, conditioner (`fc`) first
 const _if = (fc, ft, fx, x, name) => _event(fx, ft, fc, x, name)
 
 // is `e` an event object?
 const is_event = e => e instanceof _Event
+
+// logical _and_ conditioner
+const and =
+  (...fJ) =>
+  x =>
+    fJ.every(f => f(x))
+
+// logical _or_ conditioner
+const or =
+  (...fJ) =>
+  x =>
+    fJ.some(f => f(x))
+
+// logical _not_ conditioner
+const not = f => x => !f(x)
 
 // increment mutator
 // handles args `...yJ` in order, by type:
@@ -685,7 +700,7 @@ const daily = h =>
 // interval scheduler
 // triggers _after_ `h>0` hours (from `x.t`)
 // `h` can be positive number, sampler, or function `x=>…`
-// often used w/ condition `fc` to trigger `h` hours _after_ `fc(x)` state
+// often used w/ conditioner `fc` to trigger `h` hours _after_ `fc(x)` state
 // cancelled by `!fc(x)` states, especially for larger intervals `h`
 // triggers repeatedly _every_ `h` hours unless cancelled
 // _memoryless_ iff exponential, see `randomly` below
@@ -701,7 +716,7 @@ const after = h =>
 // `h` can be positive number, sampler, or function `x=>…`
 // consistent under rescheduling, _memoryless_: `P(T>s+t|T>s) = P(T>t)`
 // corresponds _uniquely_ to transitions of _continuous-time markov chain_
-// can be used w/ condition `fc` to trigger only in `fc(x)` states
+// can be used w/ conditioner `fc` to trigger only in `fc(x)` states
 // `h==r*log(1/(1-p))` triggers within `r` hours w/ prob. `p`
 // `≡ after(exponential(0, h))` (but more efficient)
 const randomly = h =>
