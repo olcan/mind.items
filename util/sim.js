@@ -204,10 +204,12 @@ class _State {
 
   _on_get(k, v) {
     if (!this._sim) return // ignore non-sim access
-    // track scheduler access as a "dependency"
-    // dependency continues until mutation or _cancel
+    // track scheduler access as a "dependency", except for x.t
+    //   x.t is managed by simulation and can not be "mutated" (see _on_set)
+    // dependency continues until mutation (see _on_set below) or _cancel
     // untraced nested dependencies are detected via _on_get for ancestor
     if (this._scheduler) {
+      if (k == 't') return // ignore dependency on x.t
       if (is_object(v) && !is_state(v))
         fatal(`scheduler access to untraced nested state '${k}'`)
       this._dependents ??= {}
@@ -230,7 +232,7 @@ class _State {
       if (k == 't') return // ignore non-mutator changes to x.t
       fatal(`state '${k}' set outside of mutator`)
     }
-    if (k == 't') fatal('x.t set in mutator')
+    if (k == 't') fatal('x.t set in mutator') // disallow mutation on x.t
     // reset and clear any dependent schedulers
     if (this._dependents?.[k]?.size > 0) {
       for (const e of this._dependents[k]) e._t = 0
@@ -376,7 +378,7 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // state `x` _mutates_ to `fx(x)` at time `ft(x)`
 // | `fx`      | _mutator function_ `fx(x)`
 // |           | must modify (i.e. _mutate_) state `x`
-// |           | can return `null` to indicate _skipped_ mutation
+// |           | can return `null` to indicate cancelled (or hidden) mutation
 // |           | can return mutation parameters to be recorded in `x._events`
 // |           | can be object to be merged into x (w/ functions invoked)
 // |           | can be identifier primitive (e.g. integer or string)
@@ -387,7 +389,7 @@ const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 // |           | default scheduler triggers daily at midnight (`t=0,1,2,…`)
 // | `fc`      | optional _conditioner function_ `fc(x)`
 // |           | wraps `ft(x)` to return `inf` for `!fc(x)` state
-// |           | state variables accessed in `fc` are also dependencies (see above)
+// |           | state variables accessed in `fc` are considered _dependencies_
 // |           | can be non-function treated as _domain_ for `x`
 // |           | can be identifier primitive (as domain)
 // | `x`       | optional (nested) state object, attached to event as `_x`
@@ -481,8 +483,9 @@ const not = f => x => !f(x)
 // handles args `...yJ` in order, by type:
 // | function `f`  | invoke as `r = f(x,r)`, `r` last returned value
 // |               | if last arg, handle `r` as arg (by type), return `r`
-// |               | else if `r` falsy (excl. `undefined`), cancel, return `null`
+// |               | else if `r==null`, return `null`, else continue
 // | `undefined`   | skipped
+// | `null`        | returned (cancels event)
 // | `p∈[0,1]`     | continue mutations w/ probability `p`
 // |               | otherwise (w/ prob. `1-p`) cancel, return `null`
 // |  primitive    | mutate state identifier primitive (x.id)
@@ -499,11 +502,12 @@ const _mut = (x, ...yJ) => {
     if (is_function(y)) {
       if (j < J - 1) {
         ret = y(x, ret)
-        if (defined(ret) && !ret) return null // cancel on defined falsy
+        if (ret === null) return null // cancel event
         continue
       } else ret = y = y(x, ret) // process as mutation below
     }
-    if (!defined(y)) continue // skip mutation
+    if (y === undefined) continue // skip mutation
+    if (y === null) return null // cancel event
     if (is_number(y) && y >= 0 && y <= 1) {
       // continue mutations with prob. y
       if (random_boolean(y)) continue
@@ -521,8 +525,9 @@ const _mut = (x, ...yJ) => {
 // handles args `...yJ` in order, by type:
 // | function `f`  | invoke as `r = f(x,r)`, `r` last returned value
 // |               | if last arg, handle `r` as arg (by type), return `r`
-// |               | else if `r` falsy (excl. `undefined`), cancel, return `null`
+// |               | else if `r==null`, return `null`, else continue
 // | `undefined`   | skipped
+// | `null`        | returned (cancels event)
 // | `p∈[0,1]`     | continue increments w/ probability `p`
 // |               | otherwise (w/ prob. `1-p`) cancel, return `null`
 // |  string       | increment property or path (e.g. `x.a.b.c`) in `x`
@@ -542,11 +547,12 @@ const _inc = (x, ...yJ) => {
     if (is_function(y)) {
       if (j < J - 1) {
         ret = y(x, ret)
-        if (defined(ret) && !ret) return null // cancel on defined falsy
+        if (ret === null) return null // cancel event
         continue
       } else ret = y = _pathify(y(x, ret)) // process as increment below
     }
-    if (!defined(y)) continue // skip increment
+    if (y === undefined) continue // skip increment
+    if (y === null) return null // cancel event
     if (is_number(y) && y >= 0 && y <= 1) {
       // continue increments with prob. y
       if (random_boolean(y)) continue
