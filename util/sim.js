@@ -192,29 +192,54 @@ class _State {
     const x = root(this)
     if (e._t === undefined) fatal(`event '${e._name}' already disabled`)
     if (!x._sim_events.delete(e)) fatal(`missing event '${e._name}' to disable`)
-    x._cancel(e) // cancel any dependencies
     e._t = undefined // disable (same as in _Event constructor)
     return this // for chaining
   }
 
-  _cancel(e) {
-    if (this._dependents)
-      for (const deps of values(this._dependents)) deps.delete(e)
+  // _cancel(e) {
+  //   if (!this._dependents) return
+  //   for (const deps of values(this._dependents)) deps.delete(e)
+  // }
+
+  _update_deps(e) {
+    if (!e._deps_tmp && !e._deps) return // no dependencies
+    // add new dependencies
+    if (e._deps_tmp) {
+      this._dependents ??= {}
+      for (const k of e._deps_tmp) {
+        if (e._deps?.has(k)) continue
+        this._dependents[k] ??= new Set()
+        this._dependents[k].add(e)
+      }
+    }
+    // remove old dependencies
+    if (e._deps) {
+      for (const k of e._deps) {
+        if (e._deps_tmp?.has(k)) continue
+        this._dependents[k].delete(e)
+      }
+    }
+    // reuse objects by swap+clear instead of setting _deps_tmp to undefined
+    e._deps_tmp = swap(e._deps, (e._deps = e._deps_tmp))
+    e._deps_tmp?.clear()
   }
 
   _on_get(k, v) {
     if (!this._sim) return // ignore non-sim access
     // track scheduler access as a "dependency", except for x.t
     //   x.t is managed by simulation and can not be "mutated" (see _on_set)
-    // dependency continues until mutation (see _on_set below) or _cancel
+    // scheduler must invoke _update_deps when done accessing state
+    // dependency continues until explicit removal via _update_deps
     // untraced nested dependencies are detected via _on_get for ancestor
     if (this._scheduler) {
       if (k == 't') return // ignore dependency on x.t
       if (is_object(v) && !is_state(v))
         fatal(`scheduler access to untraced nested state '${k}'`)
-      this._dependents ??= {}
-      this._dependents[k] ??= new Set()
-      this._dependents[k].add(this._scheduler)
+      this._scheduler._deps_tmp ??= new Set()
+      this._scheduler._deps_tmp.add(k)
+      // this._dependents ??= {}
+      // this._dependents[k] ??= new Set()
+      // this._dependents[k].add(this._scheduler)
     } else if (!this._mutator) return // ignore non-mutator/scheduler access
     this._trace?.push({
       type: this._mutator ? 'fx_get' : 'ft_get',
@@ -233,11 +258,9 @@ class _State {
       fatal(`state '${k}' set outside of mutator`)
     }
     if (k == 't') fatal('x.t set in mutator') // disallow mutation on x.t
-    // reset and clear any dependent schedulers
-    if (this._dependents?.[k]?.size > 0) {
-      for (const e of this._dependents[k]) e._t = 0
-      this._dependents[k].clear()
-    }
+    // notify dependent schedulers
+    const deps = this._dependents?.[k]
+    if (deps) for (const e of deps) e._on_change(this)
     this._trace?.push({
       type: 'fx_set',
       k,
@@ -319,7 +342,7 @@ function simulate(x, t, events, options = undefined) {
     if (!is_event(e)) fatal('invalid event')
     if (x._t && (!e.t || !defined(e._t)))
       fatal(`invalid events/state for resume`, x._t, e.t, e._t)
-    if (!x._t) e.t = e._t = 0 // reset events since we are not resuming
+    if (!x._t) e._reset() // reset for non-resuming sim
   }
   // schedule and apply events as needed until x._t >= t
   const allow_next = options?.allow_next // allow events >t ?
@@ -434,10 +457,15 @@ class _Event {
       }
     }
 
-    // convert non-function conditioner fc to domain for x.id
-    if (fc && !is_function(fc)) {
-      const _fc = fc
-      fc = x => from(x.id, _fc)
+    if (fc) {
+      // convert non-function fc to domain check for x.id
+      if (!is_function(fc)) {
+        const _fc = fc
+        fc = x => from(x.id, _fc)
+      }
+      // set up custom (faster) _on_change for conditioner dependencies
+      fc._on_change = x => fc(this._x ?? x) == this._c || this._on_change()
+      this.fc = fc // for _reset below
     }
 
     // wrap ft w/ cache wrapper and optional conditioner fc
@@ -445,13 +473,34 @@ class _Event {
     this._t = undefined // cached scheduled time (undefined = event disabled)
     this.ft = x => {
       if (this._t > x.t) return this._t
-      x._cancel(this) // cancel dependencies for any previous _t
-      x._scheduler = this // track event as dependent scheduler
-      const _x = this._x ?? x
-      this._t = fc && !fc(_x) ? inf : ft(_x)
+      if (fc) {
+        x._scheduler = fc // for custom _on_change (see above)
+        // x._cancel(fc)
+        this._c = fc(this._x ?? x)
+        x._scheduler = null
+        x._update_deps(fc)
+      }
+      x._scheduler = this
+      // x._cancel(this)
+      this._t = fc && !this._c ? inf : ft(this._x ?? x)
       x._scheduler = null
+      x._update_deps(this)
       return this._t
     }
+  }
+
+  // handle dependency change in _State._on_set
+  _on_change() {
+    if (!this._t) return // keep undefined if event disabled/reset/unsched
+    this._t = 0
+  }
+
+  // reset event for new state (non-resuming sim)
+  _reset() {
+    this.t = 0
+    this._t = 0
+    this._deps?.clear()
+    this.fc?._deps?.clear()
   }
 }
 
