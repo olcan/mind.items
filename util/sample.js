@@ -3759,11 +3759,11 @@ function _run() {
   if (js.match(/^sample *\(/)) return null
   // if js contains any sample|simulate|sample_array call, then wrap inside sample(...)
   // note we filter out matches inside strings and comments
-  const calls = js
-    .match(
+  let calls =
+    js.match(
       /`.*?`|'[^\n]*?'|"[^\n]*?"|\/\/[^\n]*|\/\*.*?\*\/|\b(?:sample|sample_array|simulate) *\(/gs
-    )
-    .filter(s => s.match(/^[^`'"/]/))
+    ) ?? []
+  calls = calls.filter(s => s.match(/^[^`'"/]/))
   if (calls.length == 0) return null
   print('running inside sample(…) due to sampled or simulated values')
   js = flat('(sampler=>{', js, '})').join('\n')
