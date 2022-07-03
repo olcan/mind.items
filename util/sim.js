@@ -902,12 +902,11 @@ const print_event = e => {
   const tstr = date_time_string(event_date(e.t))
   const name =
     e._name || e._source._name || str(e._source.fx).replace(/\S+\s*=>\s*/g, '')
-  const sfx = e._sfx || e._source?._sfx || e._source?.fx._sfx
-  const omit_props = ['t', '_t', '_source', '_name', '_sfx']
+  const omit_props = ['t', '_t', '_source', '_name']
   const attachments = entries(omit(e, omit_props)).map(
     ([k, v]) => k + ':' + (v?._name || str(v))
   )
-  print(tstr, name, sfx, ...attachments)
+  print(tstr, name, ...attachments)
 }
 
 // print state
