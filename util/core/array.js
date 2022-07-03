@@ -210,8 +210,7 @@ const apply = (xJ, f, js = 0, je = xJ.length) => {
 // `apply+swap` can be faster than `map` or `copy`
 // e.g. `xJ = swap(apply(yJ,y=>y*y), yJ=xJ)`
 function swap(y, y_x) {
-  if (y_x === undefined || y == y_x)
-    fatal('expected usage is x=swap(y,y=x) for distinct x,y')
+  if (y == y_x) fatal('expected usage is x=swap(y,y=x) for distinct x,y')
   return y
 }
 
