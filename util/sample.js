@@ -2894,7 +2894,7 @@ class _Sampler {
     const stdevK = (this.___stdevK ??= array(K))
     return fill(stdevK, k => {
       const value = this.values[k]
-      if (!value.sampled) return // value not sampled
+      if (!defined(value.first)) return // value not sampled/predicted
       // return per-element stdev for arrays of numbers
       if (is_array(value.first) && is_finite(value.first[0])) {
         const R = value.first.length
@@ -3025,6 +3025,7 @@ class _Sampler {
     const { log_p_xJK, rwJ, rwj_sum, stats } = this
     const { mks_tail, mks_period } = this.options
     if (K == 0) return 0 // no sampled values
+    // if (!this.values.some(v => v.sampling)) return 0 // no sampling
 
     // trim mks sample buffer to cover desired tail of updates
     // note last buffered update can be within < mks_period steps
@@ -3063,7 +3064,7 @@ class _Sampler {
 
     const pR2 = fill((this.___mks_pK2 ??= array(K)), k => {
       const value = this.values[k]
-      if (!value.sampled) return // value not sampled
+      if (!defined(value.first)) return // value not sampled/predicted
       if (!is_primitive(value.first)) return // value not primitive
       copy(xJ, xJK, xjK => xjK[k])
       copy(yJ, xBJK[0], yjK => yjK[k])
