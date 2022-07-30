@@ -432,7 +432,7 @@ class _Event {
       }
     } else {
       // convert object fx into assignment function
-      // convert other non-function fx into assignment to x.id
+      // convert other non-function fx into assignment to x.state
       if (is_object(fx)) {
         const _fx = fx
         // merge into state, invoke functions w/ (old_value, x)
@@ -444,7 +444,7 @@ class _Event {
       } else if (!is_function(fx)) {
         const _fx = fx
         fx = x => {
-          x.id = _fx
+          x.state = _fx
         }
       }
       this.fx = x => {
@@ -458,10 +458,10 @@ class _Event {
     }
 
     if (fc) {
-      // convert non-function fc to domain check for x.id
+      // convert non-function fc to domain check for x.state
       if (!is_function(fc)) {
         const _fc = fc
-        fc = x => from(x.id, _fc)
+        fc = x => from(x.state, _fc)
       }
       // set up custom (faster) _on_change for conditioner dependencies
       fc._on_change = x => fc(this._x ?? x) == this._c || this._on_change()
@@ -537,7 +537,7 @@ const not = f => x => !f(x)
 // | `null`        | returned (cancels event)
 // | `p∈[0,1]`     | continue mutations w/ probability `p`
 // |               | otherwise (w/ prob. `1-p`) cancel, return `null`
-// |  primitive    | mutate state identifier primitive (x.id)
+// |  primitive    | mutate state identifier primitive (x.state)
 // |  array        | mutate recursively, passing array as args
 // |  object       | merge object into state, invoke functions as f(old_val,x)
 // returns last returned value from last function arg, if any
@@ -562,7 +562,7 @@ const _mut = (x, ...yJ) => {
       if (random_boolean(y)) continue
       return null
     }
-    if (is_primitive(y)) x.id = y
+    if (is_primitive(y)) x.state = y
     else if (is_array(y)) _mut(x, ...y)
     else if (is_object(y)) _set_obj(x, y)
     else throw `invalid argument '${y}' for _mut`
