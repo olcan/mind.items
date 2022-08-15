@@ -396,6 +396,9 @@ const name_event = (name, event) => set(event, '_name', name)
 // event functions will be invoked on `x` instead of `root(x)`
 const attach_events = (x, ...eJ) => each(flat(eJ), e => (e._x = x))
 
+// convert non-function fc to domain check for x.state
+const _convert_fc = f => (is_function(f) ? f : x => from(x.state, f))
+
 // _event(fx, [ft=daily(0)], [fc], [x], [name])
 // create mutation event `x → fx(x,…)`
 // state `x` _mutates_ to `fx(x)` at time `ft(x)`
@@ -458,11 +461,7 @@ class _Event {
     }
 
     if (fc) {
-      // convert non-function fc to domain check for x.state
-      if (!is_function(fc)) {
-        const _fc = fc
-        fc = x => from(x.state, _fc)
-      }
+      fc = _convert_fc(fc) // convert non-function fc (see above)
       // set up custom (faster) _on_change for conditioner dependencies
       fc._on_change = x => fc(this._x ?? x) == this._c || this._on_change()
       this.fc = fc // for _reset below
@@ -520,13 +519,13 @@ const _if = (fc, ft, fx, x, name) => _event(fx, ft, fc, x, name)
 const is_event = e => e instanceof _Event
 
 // logical _and_ conditioner
-const and = (...fJ) => x => fJ.every(f => f(x)) // prettier-ignore
+const and = (...fJ) => (apply(fJ, _convert_fc), x => fJ.every(f => f(x)))
 
 // logical _or_ conditioner
-const or = (...fJ) => x => fJ.some(f => f(x)) // prettier-ignore
+const or = (...fJ) => (apply(fJ, _convert_fc), x => fJ.some(f => f(x)))
 
 // logical _not_ conditioner
-const not = f => x => !f(x)
+const not = f => ((f = _convert_fc(f)), x => !f(x))
 
 // generic mutator
 // handles args `...yJ` in order, by type:
