@@ -484,7 +484,7 @@ function _invalidate_highlights() {
 }
 
 // detect any changes to daily log items
-// invalidate logger cache & dependent
+// invalidate logger cache & dependents
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
   const relevant = l => l.match(/^#\d\d\d\d\/\d\d\/\d\d$/)
