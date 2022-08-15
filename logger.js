@@ -184,6 +184,8 @@ function _init() {
       source = sourceFromDateTime(text)
     } else if (elem.classList.contains('type_')) {
       // attempt lookup of "source item" for keyword in global store
+      // TODO: this map was populated automatically in elog_keywords
+      // (in #elog/highlight) as it read 'keywords' block from #events/...
       source = _logger._global_store.keyword_items?.[text]
     } else if (elem.classList.contains('hashtag_')) {
       source = text
