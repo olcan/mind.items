@@ -285,7 +285,7 @@ function event_log(selector, mapper, options) {
     event_log_items().forEach(name => {
       const item = _item(name)
       const date = name.substring(1)
-      const events = item.read('e?log')
+      const events = item.read('e?log') // include depracated 'elog' blocks
       if (!events) return // no events in item
       let last_time
       events.split('\n').forEach(line => {
