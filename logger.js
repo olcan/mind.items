@@ -142,7 +142,7 @@ function _init() {
   document.head.insertAdjacentHTML(
     'beforeend',
     '<style>' + _this.read('css') + '</style>'
-  ) // see below
+  ) // see logger.css
 
   // set up _highlight callback to make dates/times, types, tags clickable
   // we set attributes to avoid capturing references
