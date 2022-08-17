@@ -606,13 +606,13 @@ function _extract_template_options(options = {}) {
   style = `height:${height};${style}`
   style = `style="${style}"`
   styles = flat(styles).join('\n')
-  return { style, styles, classes, options }
+  return { style, styles, classes, ...options }
 }
 
 // event log widget macro
 function event_log_widget(options = undefined) {
   // note this macro structure follows that of _plot in #util/plot
-  const { style, styles, classes, widget_options } =
+  const { style, styles, classes, ...widget_options } =
     _extract_template_options(options)
   // pass along options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
