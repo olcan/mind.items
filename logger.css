@@ -13,10 +13,7 @@
   width: fit-content; /* needed for block (vs inline-block) display */
   max-width: 100%;
 }
-.item .log {
-  overflow: hidden; /* improves look of truncated lines */
-}
-.item .hljs-tag {
+.item .log .hljs-line .hljs-tag {
   /* color: #79e; */
   color: #999;
   background: #222;
@@ -24,4 +21,7 @@
   border-radius: 4px;
   text-decoration: none;
   display: inline-block; /* aligns much better around text */
+}
+.item .log {
+  overflow: hidden; /* improves look of truncated lines */
 }
