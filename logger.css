@@ -16,3 +16,12 @@
 .item .log {
   overflow: hidden; /* improves look of truncated lines */
 }
+.item .hljs-tag {
+  /* color: #79e; */
+  color: #999;
+  background: #222;
+  padding: 0 4px;
+  border-radius: 4px;
+  text-decoration: none;
+  display: inline-block; /* aligns much better around text */
+}

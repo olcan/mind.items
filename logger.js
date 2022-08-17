@@ -191,6 +191,10 @@ function _init() {
       source = text
     } else if (elem.classList.contains('link_')) {
       source = text
+      // set url as title (tooltip)
+      elem.title = elem.innerText
+      // trim out any path/query/fragment
+      elem.innerText = elem.innerText.replace(/(:\/\/.+)\/(.+)/, '$1/…')
     } else if (elem.classList.contains('line_')) {
       // look for date/time prefix in log line
       if (text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/))
