@@ -55,7 +55,7 @@ function _render_todoer_widget(selector) {
 
     // lookup storage_key from options, or use "todos" as default
     const storage_key = _this.store[widget.id]?.options?.storage_key || 'todos'
-    console.warn(`rendering list ${selector}.${storage_key} ...`)
+    // console.debug(`rendering list ${selector}.${storage_key} ...`)
 
     // initialize set of todo items in session-lived store
     _this.store._todoer = { items: new Set() }
@@ -204,7 +204,7 @@ function _render_todoer_widget(selector) {
       store: {
         get: () => _this._global_store._todoer?.[storage_key]?.split(',') ?? [],
         set: sortable => {
-          console.warn(`saving list ${selector}.${storage_key} to global store`)
+          // console.debug(`saving list ${selector}.${storage_key} to global store`)
           // we use _global_store and save manually below to avoid cache invalidation
           // otherwise there is flicker to due to re-render w/ async sortable re-init
           // re-render/re-init is unnecessary locally since element controls storage
