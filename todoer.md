@@ -1,4 +1,5 @@
-#todoer handles todo items.
+#todoer helps manage todo items.
+- <<link_eval(_this, 'create_pinned_item()', 'Create pinned item')>> w/ widget.
 #### Commands
 << command_table() >>
 #### Functions
@@ -6,10 +7,6 @@
 
 ```js_removed:todoer.js
 // todoer.js
-```
-
-```css_removed:todoer.css
-// todoer.css
 ```
 
 ```html_widget_removed:todoer-widget.html

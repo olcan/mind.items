@@ -1,0 +1,42 @@
+<div
+  id="todoer-widget-__cid__"
+  class="todoer-widget __classes__"
+  _cache_key="__cid__"
+  __style__
+>
+  <div class="list"></div>
+  <script>
+    _render_todoer_widget('#widget')
+  </script>
+</div>
+
+<style>
+  #widget .list-item {
+    cursor: pointer;
+    margin: 3px 0;
+    padding: 0 7px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #widget .list.dragging .list-item {
+    cursor: grabbing;
+  }
+  #widget .list-item {
+    background: #171717;
+    border-radius: 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 80%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  #widget .sortable-ghost {
+    opacity: 0.25;
+  }
+  #widget .sortable-drag {
+    padding-left: 0.5em; /* for .list-item padding-left:-.5em */
+  }
+
+  /* __styles__ */
+</style>
