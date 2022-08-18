@@ -16,7 +16,7 @@ function _extract_template_options(options = {}) {
   return { style, styles, classes, ...options }
 }
 
-// todo list widget macro
+// drag-and-drop widget macro
 function todoer_widget(options = {}) {
   // note this macro structure follows that of _plot in #util/plot
   const { style, styles, classes, ...widget_options } =
@@ -234,7 +234,6 @@ function _render_todoer_widget(selector) {
 function create_pinned_item() {
   const item = _create()
   item.write_lines(`#_pin/1 `, `\<<todoer_widget()>>`, `#_todoer`)
-  MindBox.create('/todo hello world!')
 }
 
 // => /todo [text]
