@@ -147,7 +147,7 @@ const attach = (...args) => _this.attach(...args)
 // `≡ setTimeout(attach(func), delay)`
 const dispatch = (...args) => _this.dispatch(...args)
 
-// => dispatch_task(name,func, [delay=0], [repeat=0])
+// => dispatch_task(name, func, [delay=0], [repeat=0])
 // dispatches function as _named_ task
 // named tasks are _repeatable_ and _cancellable_
 // if `repeat>0`, repeats task every `repeat` ms
