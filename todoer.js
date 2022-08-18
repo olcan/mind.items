@@ -74,15 +74,27 @@ function __render(widget, widget_item) {
     )
       continue // filtered out based on tags
     if (item.tags.includes('#menu')) continue // skip menu items
-    if (!item.saved_id) continue // skip unsaved, should re-render post-save
-    widget_item.store._todoer.items.add(item.saved_id)
-    widget_item.store._todoer.items.add(item.id) // in case added locally w/ temp id
+    widget_item.store._todoer.items.add(item.id)
     const div = document.createElement('div')
     const parent = document.createElement('div')
     list.appendChild(parent)
     parent.appendChild(div)
-    parent.setAttribute('data-id', item.saved_id) // for sortable state
+    parent.setAttribute('data-id', item.id) // used for saving below
     div.className = 'list-item'
+    if (!item.saved_id) {
+      div.style.opacity = 0.5 // indicate unsaved state
+      dispatch_task(
+        `detect_save.${item.id}`,
+        () => {
+          if (!_exists(item.id)) return null // item deleted
+          if (!item.saved_id) return // still unsaved, try again later
+          div.style.opacity = 1 // indicate saved state
+          return null // finish repeating task
+        },
+        250,
+        250
+      ) // try every 250ms until saved
+    }
 
     // read text from todo item
     let text = item.read()
@@ -167,7 +179,7 @@ function __render(widget, widget_item) {
       e.stopPropagation() // do not propagate click to item
       e.preventDefault()
       list.classList.remove('dragging') // gets stuck otherwise
-      const source = item.saved_id
+      const source = item.id
       MindBox.set('id:' + source)
 
       // edit item w/ snippet selected
@@ -175,7 +187,7 @@ function __render(widget, widget_item) {
       const edit_target = () => {
         const target = document.querySelector('.container.target')
         if (!target) return null
-        if (_item(target.getAttribute('item-id')).saved_id != source) {
+        if (target.getAttribute('item-id') != source) {
           console.error('target id mismatch')
           return null
         }
@@ -212,7 +224,7 @@ function __render(widget, widget_item) {
     }
   }
 
-  const sortable = Sortable.create(list, {
+  Sortable.create(list, {
     animation: 250,
     delay: 250,
     delayOnTouchOnly: true,
@@ -220,16 +232,28 @@ function __render(widget, widget_item) {
       get: () =>
         widget_item._global_store._todoer?.[storage_key]?.split(',') ?? [],
       set: sortable => {
-        // console.debug(`saving list ${widget.id}.${storage_key} to global store`)
-        // we use _global_store and save manually below to avoid cache invalidation
-        // otherwise there is flicker to due to re-render w/ async sortable re-init
-        // re-render/re-init is unnecessary locally since element controls storage
-        _.merge((widget_item._global_store._todoer ??= {}), {
-          [storage_key]: sortable.toArray().join(),
-        })
-        setTimeout(() =>
-          widget_item.save_global_store({ invalidate_elem_cache: false })
-        )
+        // dispatch task to ensure that all items have been saved
+        dispatch_task(
+          `save.${widget.id}.${storage_key}`,
+          () => {
+            // determine saved (permanent) ids for global store
+            const saved_ids = sortable.toArray().map(id => _item(id).saved_id)
+            if (saved_ids.includes(null)) return // try again later
+            // console.debug(`saving list ${widget.id}.${storage_key} ...`)
+            // use _global_store and save manually below to avoid cache invalidation
+            // otherwise there is flicker to due to re-render w/ async sortable re-init
+            // re-render/re-init is unnecessary locally since element controls storage
+            _.merge((widget_item._global_store._todoer ??= {}), {
+              [storage_key]: saved_ids.join(),
+            })
+            setTimeout(() =>
+              widget_item.save_global_store({ invalidate_elem_cache: false })
+            )
+            return null // finish repeating task
+          },
+          0,
+          1000
+        ) // try now and every 1s until saved
       },
     },
     forceFallback: true, // fixes dragging behavior, see https://github.com/SortableJS/Sortable/issues/246#issuecomment-526443179
@@ -267,18 +291,12 @@ const _on_command_todo = text => ({ text: '#todo ' + text, edit: false })
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
   const item = _item(id, false) // can be null if item deleted
-  if (item && !item.saved_id) {
-    // try unsaved item again in 1s ...
-    setTimeout(() => _on_item_change(id), 1000)
-    return
-  }
-  const changed_item_id = item?.saved_id ?? id // use persistent id if possible
   // item must exist and be tagged with #todo (to be added or updated)
   // OR it must listed in a widget on a dependent (to be removed)
   const is_todo_item = item?.tags.includes('#todo')
-  each(_this.dependents, id => {
-    const item = _item(id)
-    if (is_todo_item || item.store._todoer?.items?.has(changed_item_id)) {
+  each(_this.dependents, dep => {
+    const item = _item(dep)
+    if (is_todo_item || item.store._todoer?.items?.has(id)) {
       // item.invalidate_elem_cache(true /* force render */)
       item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
         _render_todoer_widget(widget, item)
