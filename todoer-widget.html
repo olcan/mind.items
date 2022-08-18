@@ -4,9 +4,7 @@
   _cache_key="__cid__"
   _skip_invalidation
   __style__
->
-  <div class="list"></div>
-</div>
+></div>
 <!-- to prevent flicker (and item height change) on cache invalidation, we use _skip_invalidation on widget div and move script outside to ensure re-rendering still happens on cache invalidation -->
 <script _cached>
   _render_todoer_widget(_this.elem.querySelector('#widget'))

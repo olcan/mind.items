@@ -113,13 +113,17 @@ function __render(widget, widget_item) {
       text = (text.length > 200 ? '…' : '') + text.substr(-200)
       // use direction=rtl to truncate (and add ellipsis) on the left
       div.style.direction = 'rtl'
-      div.style.textAlign = 'left'
+      div.style.textAlign = 'right'
+      div.style.marginLeft = '60px'
       // set title on parent to avoid &lrm in title text
       parent.title = _.escape(text) + '#todo'
+
       // clip on Safari since text-overflow:ellipsis truncates wrong end for rtl
       // see webkit bug at https://bugs.webkit.org/show_bug.cgi?id=164999
-      if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
-        div.style.textOverflow = 'clip'
+      // if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
+      //   div.style.textOverflow = 'clip'
+      // NOTE: this started working for unknown reasons
+
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
       div.innerHTML = '&lrm;' + link_urls(mark_tags(_.escape(text + '#todo')))
