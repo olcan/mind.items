@@ -189,6 +189,7 @@ function _init() {
       source = _logger._global_store.keyword_items?.[text]
     } else if (elem.classList.contains('hashtag_')) {
       source = text
+      elem.title = elem.innerText
     } else if (elem.classList.contains('link_')) {
       source = text
       // set url as title (tooltip)
