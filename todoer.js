@@ -82,7 +82,7 @@ function __render(widget, widget_item) {
     list.appendChild(parent)
     parent.appendChild(div)
     parent.setAttribute('data-id', item.saved_id) // for sortable state
-    div.classList.add('list-item')
+    div.className = 'list-item'
 
     // read text from todo item
     let text = item.read()
@@ -122,7 +122,7 @@ function __render(widget, widget_item) {
       // see webkit bug at https://bugs.webkit.org/show_bug.cgi?id=164999
       // if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
       //   div.style.textOverflow = 'clip'
-      // NOTE: this started working for unknown reasons
+      // NOTE: this started working for unknown reasons after switch to todoer item (from ad-hoc item); could be due to subtle changes in list item div construction but could not verify in quick experiments
 
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
