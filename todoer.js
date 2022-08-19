@@ -40,10 +40,22 @@ function todoer_widget(options = {}) {
 // internal helper for _render_todoer_widget, assumes Sortable loaded
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
-  widget.querySelector('.list')?.remove()
+  widget.querySelectorAll(':is(.list,.bin)')?.forEach(col => {
+    col.sortable.destroy()
+    col.remove()
+  })
+
+  const done_bin = document.createElement('div')
+  done_bin.className = 'done bin'
+  widget.appendChild(done_bin)
+
   const list = document.createElement('div')
   list.className = 'list'
   widget.appendChild(list)
+
+  const cancel_bin = document.createElement('div')
+  cancel_bin.className = 'cancel bin'
+  widget.appendChild(cancel_bin)
 
   // parse widget options for required tags & storage key
   let { tags = [], storage_key } = widget_item.store[widget.id]?.options ?? {}
@@ -178,7 +190,8 @@ function __render(widget, widget_item) {
     div.onclick = e => {
       e.stopPropagation() // do not propagate click to item
       e.preventDefault()
-      list.classList.remove('dragging') // gets stuck otherwise
+      widget.classList.remove('dragging') // gets stuck otherwise
+
       const source = item.id
       MindBox.set('id:' + source)
 
@@ -224,8 +237,11 @@ function __render(widget, widget_item) {
     }
   }
 
-  Sortable.create(list, {
-    animation: 250,
+  // note we store the sortable on the element and destroy as elements are removed on re-render
+  // otherwise dragging items on a re-rendered list can cause flickering
+  list.sortable = Sortable.create(list, {
+    group: 'shared',
+    // animation: 150,
     delay: 250,
     delayOnTouchOnly: true,
     store: {
@@ -236,6 +252,7 @@ function __render(widget, widget_item) {
         dispatch_task(
           `save.${widget.id}.${storage_key}`,
           () => {
+            if (list.parentElement != widget) return null // cancel (removed)
             // determine saved (permanent) ids for global store
             const saved_ids = sortable.toArray().map(id => _item(id).saved_id)
             if (saved_ids.includes(null)) return // try again later
@@ -258,14 +275,31 @@ function __render(widget, widget_item) {
     },
     forceFallback: true, // fixes dragging behavior, see https://github.com/SortableJS/Sortable/issues/246#issuecomment-526443179
     onChoose: () => {
-      list.classList.add('dragging')
+      widget.classList.add('dragging')
     },
     onStart: () => {
-      list.classList.add('dragging')
+      widget.classList.add('dragging')
     },
-    onEnd: () => {
-      list.classList.remove('dragging')
+    onEnd: e => {
+      widget.classList.remove('dragging')
+      const id = e.item.getAttribute('data-id')
+      if (e.to == cancel_bin) {
+        cancel_bin.firstChild.remove()
+        _item(id).delete()
+      } else if (e.to == done_bin) {
+        MindBox.create('/log done ' + e.item.textContent.replace(/\s+/g, ' '))
+        done_bin.firstChild.remove()
+        _item(id).delete()
+      }
     },
+  })
+
+  done_bin.sortable = Sortable.create(done_bin, {
+    group: 'shared',
+  })
+
+  cancel_bin.sortable = Sortable.create(cancel_bin, {
+    group: 'shared',
   })
 }
 

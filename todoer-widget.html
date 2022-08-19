@@ -11,6 +11,49 @@
 </script>
 
 <style>
+  #widget {
+    display: flex;
+  }
+  #widget .list {
+    width: 100%;
+    /* transition: width 0.1s ease-out; */
+  }
+  #widget .bin {
+    flex-basis: 0;
+    flex-grow: 1;
+    box-sizing: border-box;
+    padding: 0;
+    opacity: 0;
+    width: 0;
+    /* transition: width 0.1s ease-out; */
+    /* transition: background-color 1s ease-out; */
+  }
+  #widget.dragging .list {
+    width: 80%;
+    margin: 0 10px; /* prevents flickering while dragging across */
+  }
+  #widget.dragging .bin {
+    width: 10%;
+    opacity: 0.75;
+  }
+  #widget.dragging .bin:empty {
+    opacity: 0.25;
+  }
+  #widget .bin.cancel {
+    background: #f66;
+    border-radius: 0 4px 4px 0;
+  }
+  #widget .bin.cancel:not(:empty) {
+    background: #f33;
+  }
+  #widget .bin.done {
+    background: #6f6;
+    border-radius: 4px 0 0 4px;
+  }
+  #widget .bin.done:not(:empty) {
+    background: #3f3;
+  }
+
   #widget .list-item {
     cursor: pointer;
     margin: 3px 0;
@@ -19,7 +62,7 @@
     -webkit-user-select: none;
     user-select: none;
   }
-  #widget .list.dragging .list-item {
+  #widget.dragging .list-item {
     cursor: grabbing;
   }
   #widget .list-item {
@@ -33,6 +76,9 @@
   }
   #widget .sortable-ghost {
     opacity: 0.25;
+  }
+  #widget .bin :is(.sortable-ghost, .list-item) {
+    display: none;
   }
   #widget .sortable-drag {
     padding-left: 0.5em; /* for .list-item padding-left:-.5em */
