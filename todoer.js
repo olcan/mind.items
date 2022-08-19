@@ -129,8 +129,10 @@ function __render(widget, widget_item) {
       // use suffix, truncate on right
       text = text.replace(/.*#todo/s, '')
       text = text.substr(0, 200) + (text.length > 200 ? '…' : '')
-      div.title = '#todo' + _.escape(text)
-      div.innerHTML = link_urls(mark_tags(_.escape('#todo' + text)))
+      div.title = '#todo' + _.escape(text) // original whitespace for title
+      // const html = '#todo' + _.escape(text)
+      const html = '#todo' + _.escape(text.replace(/\s+/g, ' '))
+      div.innerHTML = link_urls(mark_tags(html))
     } else {
       // use prefix, truncate (and align) on left
       text = text.replace(/#todo.*/s, '')
@@ -140,17 +142,19 @@ function __render(widget, widget_item) {
       div.style.textAlign = 'right'
       // div.style.marginLeft = '60px'
       // set title on parent to avoid &lrm in title text
-      parent.title = _.escape(text) + '#todo'
+      parent.title = _.escape(text) + '#todo' // original whitespace for title
 
       // clip on Safari since text-overflow:ellipsis truncates wrong end for rtl
+      // it only ~works if original whitespace is maintained (by dropping lines)
       // see webkit bug at https://bugs.webkit.org/show_bug.cgi?id=164999
-      // if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
-      //   div.style.textOverflow = 'clip'
-      // NOTE: this started working for unknown reasons after switch to todoer item (from ad-hoc item); could be due to subtle changes in list item div construction but could not verify in quick experiments
+      if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
+        div.style.textOverflow = 'clip'
 
+      // const html = _.escape(text) + '#todo'
+      const html = _.escape(text.replace(/\s+/g, ' ')) + '#todo'
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
-      div.innerHTML = '&lrm;' + link_urls(mark_tags(_.escape(text + '#todo')))
+      div.innerHTML = '&lrm;' + link_urls(mark_tags(html))
     }
 
     // handle clicks and modify styling for non-todo tags
@@ -180,7 +184,7 @@ function __render(widget, widget_item) {
     div.onclick = e => {
       e.stopPropagation() // do not propagate click to item
       e.preventDefault()
-      widget.classList.remove('dragging') // gets stuck otherwise
+      // widget.classList.remove('dragging') // gets stuck otherwise
 
       const source = item.id
       MindBox.set('id:' + source)
@@ -225,7 +229,7 @@ function __render(widget, widget_item) {
       widget.onclick = e => {
         e.stopPropagation() // do not propagate click to item
         e.preventDefault()
-        widget.classList.remove('dragging') // gets stuck otherwise
+        // widget.classList.remove('dragging') // gets stuck otherwise
       }
 
       // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on iphones, which we attempt to work around by focusing on the top textarea first
@@ -241,6 +245,7 @@ function __render(widget, widget_item) {
     // animation: 150,
     delay: 250,
     delayOnTouchOnly: true,
+    // touchStartThreshold: 5,
     store: {
       get: () =>
         widget_item._global_store._todoer?.[storage_key]?.split(',') ?? [],
@@ -276,6 +281,9 @@ function __render(widget, widget_item) {
     },
     onStart: () => {
       widget.classList.add('dragging')
+    },
+    onUnchoose: () => {
+      widget.classList.remove('dragging')
     },
     onEnd: e => {
       widget.classList.remove('dragging')
