@@ -12,6 +12,7 @@
   text-overflow: ellipsis;
   width: fit-content; /* needed for block (vs inline-block) display */
   max-width: 100%;
+  box-sizing: border-box;
 }
 .item .log .hljs-line .hljs-tag {
   /* color: #79e; */
