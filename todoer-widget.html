@@ -94,27 +94,34 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-  #widget .list > div:first-child > .list-item {
+  /* #widget .list > div:first-child > .list-item {
     border-radius: 4px 4px 0 0;
   }
   #widget .list > div:last-child > .list-item {
     border-radius: 0 0 4px 4px;
-  }
+  } */
   #widget.dragging .list-item {
     cursor: grabbing;
   }
-  #widget .sortable-ghost {
-    opacity: 0.5;
-  }
   #widget .sortable-ghost .list-item {
-    background: none;
+    opacity: 0.5;
+    border: 1px dashed #666 !important;
   }
   #widget .bin :is(.sortable-ghost, .list-item) {
     display: none;
   }
-  #widget :is(.sortable-drag, .sortable-chosen) {
+  #widget :is(.sortable-drag, .sortable-chosen) .list-item {
     background: #171717;
+    border: 1px solid #666;
+    border-radius: 4px;
   }
-
+  #widget .list-item :is(a, mark) {
+    direction: ltr;
+    cursor: pointer;
+    color: #999;
+    background: #222;
+    font-weight: 300;
+    padding: 2px 4px;
+  }
   /* __styles__ */
 </style>

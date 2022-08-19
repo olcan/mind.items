@@ -155,11 +155,6 @@ function __render(widget, widget_item) {
 
     // handle clicks and modify styling for non-todo tags
     div.querySelectorAll('mark').forEach(elem => {
-      elem.style.direction = 'ltr'
-      elem.style.cursor = 'pointer'
-      elem.style.color = '#999'
-      elem.style.background = '#222'
-      elem.style.fontWeight = 300
       elem.title = elem.innerText
       if (elem.innerText.toLowerCase() == '#todo') return
       elem.onclick = e => {
@@ -171,11 +166,6 @@ function __render(widget, widget_item) {
 
     // handle clicks on urls
     div.querySelectorAll('a').forEach(elem => {
-      elem.style.direction = 'ltr'
-      elem.style.cursor = 'pointer'
-      elem.style.color = '#999'
-      elem.style.background = '#222'
-      elem.style.fontWeight = 300
       elem.title = elem.innerText
       const url = elem.innerText
       elem.innerText = elem.innerText.replace(/(:\/\/.+)\/(.+)/, '$1/…')
