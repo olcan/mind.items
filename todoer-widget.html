@@ -16,6 +16,7 @@
   }
   #widget .list {
     width: 100%;
+    box-sizing: border-box;
     /* transition: width 0.1s ease-out; */
   }
   #widget .bin {
@@ -29,59 +30,90 @@
     /* transition: background-color 1s ease-out; */
   }
   #widget.dragging .list {
-    width: 80%;
-    margin: 0 10px; /* prevents flickering while dragging across */
+    width: 85%;
+    margin: 0 6px; /* >5px prevents flickering while dragging across */
   }
   #widget.dragging .bin {
-    width: 10%;
+    max-width: 100%;
     opacity: 0.75;
   }
   #widget.dragging .bin:empty {
-    opacity: 0.25;
+    opacity: 0.15;
   }
   #widget .bin.cancel {
-    background: #f66;
+    /* background: #f66; */
+    background: repeating-linear-gradient(
+      -45deg,
+      #f66,
+      #f66 10px,
+      #922 10px,
+      #922 20px
+    );
     border-radius: 0 4px 4px 0;
   }
   #widget .bin.cancel:not(:empty) {
-    background: #f33;
+    background: repeating-linear-gradient(
+      -45deg,
+      #f33,
+      #f33 10px,
+      #a22 10px,
+      #a22 20px
+    );
   }
   #widget .bin.done {
-    background: #6f6;
+    background: repeating-linear-gradient(
+      -45deg,
+      #6f6,
+      #6f6 10px,
+      #292 10px,
+      #292 20px
+    );
     border-radius: 4px 0 0 4px;
   }
   #widget .bin.done:not(:empty) {
-    background: #3f3;
+    background: repeating-linear-gradient(
+      -45deg,
+      #3f3,
+      #3f3 10px,
+      #2a2 10px,
+      #2a2 20px
+    );
   }
 
   #widget .list-item {
     cursor: pointer;
-    margin: 3px 0;
-    padding: 0 7px;
+    /* margin-top: 1px; */
+    padding: 0 8px;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
-  }
-  #widget.dragging .list-item {
-    cursor: grabbing;
-  }
-  #widget .list-item {
-    background: #171717;
-    border-radius: 5px;
+    /* background: #171717; */
     font-family: 'JetBrains Mono', monospace;
     font-size: 80%;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
+  #widget .list > div:first-child > .list-item {
+    border-radius: 4px 4px 0 0;
+  }
+  #widget .list > div:last-child > .list-item {
+    border-radius: 0 0 4px 4px;
+  }
+  #widget.dragging .list-item {
+    cursor: grabbing;
+  }
   #widget .sortable-ghost {
-    opacity: 0.25;
+    opacity: 0.5;
+  }
+  #widget .sortable-ghost .list-item {
+    background: none;
   }
   #widget .bin :is(.sortable-ghost, .list-item) {
     display: none;
   }
-  #widget .sortable-drag {
-    padding-left: 0.5em; /* for .list-item padding-left:-.5em */
+  #widget :is(.sortable-drag, .sortable-chosen) {
+    background: #171717;
   }
 
   /* __styles__ */
