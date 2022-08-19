@@ -186,11 +186,6 @@
   white-space: nowrap;
 }
 
-/* override inline-block display (on .item a) to allow ellipsis */
-.core_js_table .desc a {
-  display: inline;
-}
-
 /* force inline p under .desc for nowrap and ellipsis */
 .core_js_table .desc > p {
   display: inline;
@@ -355,7 +350,7 @@
   padding: 0 6px;
   border-radius: 4px;
   text-decoration: none;
-  display: inline-block; /* aligns much better around text */
+  display: inline-block;
   margin-left: 5px; /* space from link (or nothing) on left */
   font-weight: 600;
   background: #555;
