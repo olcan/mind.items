@@ -231,6 +231,13 @@ function __render(widget, widget_item) {
         return target
       }
 
+      // handle onclick on widget
+      widget.onclick = e => {
+        e.stopPropagation() // do not propagate click to item
+        e.preventDefault()
+        widget.classList.remove('dragging') // gets stuck otherwise
+      }
+
       // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on iphones, which we attempt to work around by focusing on the top textarea first
       document.querySelector('textarea').focus()
       setTimeout(edit_target)
