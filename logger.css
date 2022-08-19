@@ -1,6 +1,6 @@
 .item .log .hljs-line {
   display: block;
-  background: #171717;
+  /* background: #171717; */
   padding: 1px 0;
   padding-right: 10px;
   padding-left: 5px; /* standard left padding for pre/code blocks */
@@ -10,7 +10,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  width: fit-content; /* needed for block (vs inline-block) display */
+  /* width: fit-content; */
   max-width: 100%;
   box-sizing: border-box;
 }
