@@ -292,9 +292,11 @@ function __render(widget, widget_item) {
         cancel_bin.firstChild.remove()
         _item(id).delete()
       } else if (e.to == done_bin) {
-        MindBox.create('/log done ' + e.item.textContent.replace(/\s+/g, ' '))
         done_bin.firstChild.remove()
         _item(id).delete()
+        // log if logger exists
+        if (_exists('#logger'))
+          MindBox.create('/log done ' + e.item.textContent.replace(/\s+/g, ' '))
       }
     },
   })
@@ -323,7 +325,12 @@ function create_pinned_item() {
 
 // => /todo [text]
 // create `#todo` item w/ `text`
-const _on_command_todo = text => ({ text: '#todo ' + text, edit: false })
+function _on_command_todo(text) {
+  // log if logger exists
+  // if (_exists('#logger'))
+  //   MindBox.create('/log todo ' + text)
+  return { text: '#todo ' + text, edit: false }
+}
 
 // detect any changes to todo items
 // invalidate element cache & force render
