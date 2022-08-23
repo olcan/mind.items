@@ -14,4 +14,4 @@
 // todoer-widget.html
 ```
 
-#_load #_listen #_util/core
+#_load #_listen #_welcome #_util/core

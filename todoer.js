@@ -266,7 +266,7 @@ function __render(widget, widget_item) {
   // we destroy objects as elements are removed on re-render (see above)
   // otherwise dragging items on a re-rendered list can cause flickering
   list.sortable = Sortable.create(list, {
-    group: storage_key,
+    group: widget.id,
     sort: !snoozed, // no reordering for snoozed list
     // animation: 150,
     delay: 250,
@@ -362,15 +362,15 @@ function __render(widget, widget_item) {
   })
 
   done_bin.sortable = Sortable.create(done_bin, {
-    group: storage_key,
+    group: widget.id,
   })
 
   snooze_bin.sortable = Sortable.create(snooze_bin, {
-    group: storage_key,
+    group: widget.id,
   })
 
   cancel_bin.sortable = Sortable.create(cancel_bin, {
-    group: storage_key,
+    group: widget.id,
   })
 }
 
@@ -418,4 +418,20 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
 function _on_global_store_change(id, remote) {
   const item = _item(id, false) // can be null if item deleted
   if (item?.tags.includes('#todo')) _on_item_change(id)
+}
+
+// start unsnooze task on welcome
+function _on_welcome() {
+  _this.dispatch_task(
+    'unsnooze',
+    () => {
+      each(_items(), item => {
+        const snoozed = item._global_store._todoer?.snoozed
+        if (!snoozed || Date.now() < snoozed) return
+        merge(item.global_store._todoer, { snoozed: 0, unsnoozed: Date.now() })
+      })
+    },
+    0,
+    1000
+  ) // run now and every 1s
 }
