@@ -30,7 +30,7 @@
     /* transition: background-color 1s ease-out; */
   }
   #widget.dragging .list {
-    width: 85%;
+    width: 80%;
     margin: 0 6px; /* >5px prevents flickering while dragging across */
   }
   #widget.dragging .bin {
@@ -79,11 +79,32 @@
       #2a2 20px
     );
   }
+  #widget .bin.snooze {
+    background: repeating-linear-gradient(
+      -45deg,
+      #ff6,
+      #ff6 10px,
+      #992 10px,
+      #992 20px
+    );
+    border-radius: 4px;
+  }
+  #widget .bin.snooze:not(:empty) {
+    background: repeating-linear-gradient(
+      -45deg,
+      #ff3,
+      #ff3 10px,
+      #aa2 10px,
+      #aa2 20px
+    );
+  }
+  #widget.dragging .bin.snooze {
+    margin-left: 6px;
+  }
 
   #widget .list-item {
     cursor: pointer;
-    /* margin-top: 1px; */
-    padding: 0 8px;
+    padding: 0 4px;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
@@ -108,7 +129,7 @@
     border: 1px dashed #666 !important;
   }
   #widget .bin :is(.sortable-ghost, .list-item) {
-    display: none;
+    visibility: hidden;
   }
   #widget :is(.sortable-drag, .sortable-chosen) .list-item {
     background: #171717;

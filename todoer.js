@@ -41,13 +41,17 @@ function todoer_widget(options = {}) {
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
   widget.querySelectorAll(':is(.list,.bin)')?.forEach(col => {
-    col.sortable.destroy()
+    col.sortable.destroy() // important, prevents flickering, see note below
     col.remove()
   })
 
   const done_bin = document.createElement('div')
   done_bin.className = 'done bin'
   widget.appendChild(done_bin)
+
+  const snooze_bin = document.createElement('div')
+  snooze_bin.className = 'snooze bin'
+  widget.appendChild(snooze_bin)
 
   const list = document.createElement('div')
   list.className = 'list'
@@ -58,7 +62,8 @@ function __render(widget, widget_item) {
   widget.appendChild(cancel_bin)
 
   // parse widget options for required tags & storage key
-  let { tags = [], storage_key } = widget_item.store[widget.id]?.options ?? {}
+  const options = widget_item.store[widget.id]?.options ?? {}
+  let { tags = [], snoozed, storage_key } = options
   if (is_string(tags)) tags = tags.split(/[,;\s]+/).filter(t => t)
   tags = tags.map(tag => {
     if (tag.match(/^[^#!-]/)) return '#' + tag // tag w/o # or negation
@@ -69,6 +74,7 @@ function __render(widget, widget_item) {
   if (!tags.every(tag => tag.match(/^[!-]?#[^#\s<>&\?!,.;:"'`(){}\[\]]+$/)))
     fatal(`invalid tags ${tags}`)
   // use comma-separated tags as default storage key
+  // note snoozed flag can be excluded since snooze lists are not saved
   storage_key ??= tags.join(',')
 
   // console.debug(`rendering list ${widget.id}.${storage_key} ...`)
@@ -86,6 +92,9 @@ function __render(widget, widget_item) {
     )
       continue // filtered out based on tags
     if (item.tags.includes('#menu')) continue // skip menu items
+    // skip based on snoozed state (via metadata in item's own global store)
+    if (!!snoozed != !!item._global_store._todoer?.snoozed) continue
+
     widget_item.store._todoer.items.add(item.id)
     const div = document.createElement('div')
     const parent = document.createElement('div')
@@ -238,43 +247,85 @@ function __render(widget, widget_item) {
     }
   }
 
-  // note we store the sortable on the element and destroy as elements are removed on re-render
+  const item_for_elem = e => _item(e.getAttribute('data-id'))
+  if (snoozed) {
+    // reorder snooze list items based on snooze times
+    sort_by(
+      Array.from(list.children),
+      e => item_for_elem(e)._global_store._todoer.snoozed
+    ).forEach(elem => list.appendChild(elem))
+  } else {
+    // reoder unsnoozed items to top based on negative unsnooze time
+    sort_by(
+      Array.from(list.children),
+      e => -(item_for_elem(e)._global_store._todoer?.unsnoozed ?? 0)
+    ).forEach(elem => list.appendChild(elem))
+  }
+
+  // initialize sortable objects attached to list elements
+  // we destroy objects as elements are removed on re-render (see above)
   // otherwise dragging items on a re-rendered list can cause flickering
   list.sortable = Sortable.create(list, {
-    group: 'shared',
+    group: storage_key,
+    sort: !snoozed, // no reordering for snoozed list
     // animation: 150,
     delay: 250,
     delayOnTouchOnly: true,
     // touchStartThreshold: 5,
-    store: {
-      get: () =>
-        widget_item._global_store._todoer?.[storage_key]?.split(',') ?? [],
-      set: sortable => {
-        // dispatch task to ensure that all items have been saved
-        dispatch_task(
-          `save.${widget.id}.${storage_key}`,
-          () => {
-            if (list.parentElement != widget) return null // cancel (removed)
-            // determine saved (permanent) ids for global store
-            const saved_ids = sortable.toArray().map(id => _item(id).saved_id)
-            if (saved_ids.includes(null)) return // try again later
-            // console.debug(`saving list ${widget.id}.${storage_key} ...`)
-            // use _global_store and save manually below to avoid cache invalidation
-            // otherwise there is flicker to due to re-render w/ async sortable re-init
-            // re-render/re-init is unnecessary locally since element controls storage
-            _.merge((widget_item._global_store._todoer ??= {}), {
-              [storage_key]: saved_ids.join(),
-            })
-            setTimeout(() =>
-              widget_item.save_global_store({ invalidate_elem_cache: false })
-            )
-            return null // finish repeating task
+    store: snoozed
+      ? null /* disabled for snooze list */
+      : {
+          get: () => {
+            const ids =
+              widget_item._global_store._todoer?.[storage_key]?.split(',') ?? []
+            if (snoozed)
+              sort_by(ids, id => _item(id)._global_store._todoer?.snoozed)
+            else
+              sort_by(
+                ids,
+                id => -(_item(id)._global_store._todoer?.unsnoozed ?? 0)
+              )
+            return ids
           },
-          0,
-          1000
-        ) // try now and every 1s until saved
-      },
-    },
+          set: sortable => {
+            // dispatch task to ensure that all items have been saved
+            dispatch_task(
+              `save.${widget.id}.${storage_key}`,
+              () => {
+                if (list.parentElement != widget) return null // cancel (removed)
+                // console.debug(`saving list ${widget.id}.${storage_key}`)
+
+                // determine saved (permanent) ids for global store
+                const saved_ids = sortable
+                  .toArray()
+                  .map(id => _item(id).saved_id)
+                if (saved_ids.includes(null)) return // try again later
+
+                // store saved_ids under storage_key & filter all ids using _exists
+                const gs = widget_item._global_store // saved manually below
+                delete gs._todoer[storage_key] // added back after filtering
+                gs._todoer = map_values(gs._todoer, v =>
+                  v.split(',').filter(_exists).join()
+                )
+                gs._todoer[storage_key] = saved_ids.join()
+                gs._todoer = pick_by(gs._todoer, v => v.length > 0) // filter empties
+
+                // clear unsnoozed flags/times to prevent custom order override
+                each(saved_ids, id => {
+                  if (_item(id)._global_store._todoer?.unsnoozed)
+                    delete _item(id).global_store._todoer.unsnoozed
+                })
+
+                // save changes to global store
+                // note invalidation is unnecessary since element controls storage
+                widget_item.save_global_store({ invalidate_elem_cache: false })
+                return null // finish repeating task
+              },
+              0,
+              1000
+            ) // try now and every 1s until saved
+          },
+        },
     forceFallback: true, // fixes dragging behavior, see https://github.com/SortableJS/Sortable/issues/246#issuecomment-526443179
     onChoose: () => {
       widget.classList.add('dragging')
@@ -297,16 +348,29 @@ function __render(widget, widget_item) {
         // log if logger exists
         if (_exists('#logger'))
           MindBox.create('/log done ' + e.item.textContent.replace(/\s+/g, ' '))
+      } else if (e.to == snooze_bin) {
+        snooze_bin.firstChild.remove()
+        _item(id).global_store._todoer ??= {}
+        if (snoozed) {
+          _item(id).global_store._todoer.snoozed = 0 // unsnooze
+          _item(id).global_store._todoer.unsnoozed = Date.now()
+        } else {
+          _item(id).global_store._todoer.snoozed = Date.now() + 5 * 1000
+        }
       }
     },
   })
 
   done_bin.sortable = Sortable.create(done_bin, {
-    group: 'shared',
+    group: storage_key,
+  })
+
+  snooze_bin.sortable = Sortable.create(snooze_bin, {
+    group: storage_key,
   })
 
   cancel_bin.sortable = Sortable.create(cancel_bin, {
-    group: 'shared',
+    group: storage_key,
   })
 }
 
@@ -332,8 +396,7 @@ function _on_command_todo(text) {
   return { text: '#todo ' + text, edit: false }
 }
 
-// detect any changes to todo items
-// invalidate element cache & force render
+// detect any changes to todo items & re-render widgets as needed
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
   const item = _item(id, false) // can be null if item deleted
@@ -349,4 +412,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
       })
     }
   })
+}
+
+// detect any changes to global stores on todo items
+function _on_global_store_change(id, remote) {
+  const item = _item(id, false) // can be null if item deleted
+  if (item?.tags.includes('#todo')) _on_item_change(id)
 }
