@@ -190,7 +190,7 @@ function __render(widget, widget_item) {
     div.querySelectorAll('a').forEach(elem => {
       elem.title = elem.innerText
       const url = elem.innerText
-      elem.innerText = elem.innerText.replace(/(:\/\/.+)\/(.+)/, '$1/…')
+      elem.innerText = elem.innerText.replace(/(:\/\/.+?)\/(.+)/, '$1/…')
       elem.onclick = e => {
         e.stopPropagation()
         e.preventDefault()
