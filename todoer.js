@@ -77,12 +77,13 @@ function __render(widget, widget_item) {
   // note snoozed flag can be excluded since snooze lists are not saved
   storage_key ??= tags.join(',')
 
-  // console.debug(`rendering list ${widget.id}.${storage_key} ...`)
+  // console.debug(`rendering list ${storage_key} in ${widget.id} ...`)
 
   // initialize set of todo items in session-lived store
   widget_item.store._todoer = { items: new Set() }
 
   // insert all todo items into list
+  let have_unsnoozed = false
   for (const item of _items()) {
     if (
       !tags.every(tag => {
@@ -94,6 +95,8 @@ function __render(widget, widget_item) {
     if (item.tags.includes('#menu')) continue // skip menu items
     // skip based on snoozed state (via metadata in item's own global store)
     if (!!snoozed != !!item._global_store._todoer?.snoozed) continue
+    // record if we have unsnoozed items to trigger a sort & save below
+    if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
     widget_item.store._todoer.items.add(item.id)
     const div = document.createElement('div')
@@ -260,12 +263,14 @@ function __render(widget, widget_item) {
       Array.from(list.children),
       e => item_for_elem(e)._global_store._todoer.snoozed
     ).forEach(elem => list.appendChild(elem))
-  } else {
+  } else if (have_unsnoozed) {
     // reoder unsnoozed items to top based on negative unsnooze time
     sort_by(
       Array.from(list.children),
       e => -(item_for_elem(e)._global_store._todoer?.unsnoozed ?? 0)
     ).forEach(elem => list.appendChild(elem))
+    // trigger a save to remove unsnooze times and switch to custom ordering
+    setTimeout(() => list.sortable.save())
   }
 
   // initialize sortable objects attached to list elements
@@ -299,7 +304,7 @@ function __render(widget, widget_item) {
               `save.${widget.id}.${storage_key}`,
               () => {
                 if (list.parentElement != widget) return null // cancel (removed)
-                // console.debug(`saving list ${widget.id}.${storage_key}`)
+                console.debug(`saving list ${storage_key} in ${widget.id}`)
 
                 // determine saved (permanent) ids for global store
                 const saved_ids = sortable
