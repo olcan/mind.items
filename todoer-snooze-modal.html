@@ -1,0 +1,69 @@
+<div class="snooze-modal">
+  <div class="row">
+    <div class="button" onclick="__onclick__">3h</div>
+    <div class="button" onclick="__onclick__">6h</div>
+    <div class="button" onclick="__onclick__">tomorrow</div>
+    <div class="button" onclick="__onclick__">weekend</div>
+    <div class="button" onclick="__onclick__">next week</div>
+  </div>
+  <div class="custom">
+    <input type="datetime-local" onchange="__onchange__" />
+    <div class="button snooze" onclick="__onclick__">snooze</div>
+  </div>
+</div>
+<style>
+  .snooze-modal {
+    text-align: center;
+    white-space: nowrap;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .snooze-modal .custom {
+    margin-top: 15px;
+    display: inline-flex;
+  }
+  .snooze-modal .custom .button {
+    height: 40px;
+    box-sizing: border-box;
+  }
+  .snooze-modal input {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 5px;
+    height: 40px;
+    box-sizing: border-box;
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .snooze-modal .row {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  .snooze-modal .button {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    border-radius: 5px;
+    background: #fff;
+    border: 1px solid #ddd;
+    color: #59f;
+    padding: 10px;
+    margin: 0 5px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .snooze-modal :is(.button:hover, .button:active) {
+    background: #59f;
+    color: white;
+    border-color: white;
+  }
+  .snooze-modal .button.disabled {
+    background: #ddd;
+    border-color: #ddd;
+    color: #999;
+    cursor: not-allowed;
+  }
+</style>

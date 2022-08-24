@@ -138,7 +138,7 @@ function __render(widget, widget_item) {
       // use suffix, truncate on right
       text = text.replace(/.*#todo/s, '')
       text = text.substr(0, 200) + (text.length > 200 ? '…' : '')
-      div.title = '#todo' + _.escape(text) // original whitespace for title
+      parent.title = '#todo' + _.escape(text) // original whitespace for title
       // const html = '#todo' + _.escape(text)
       const html = '#todo' + _.escape(text.replace(/\s+/g, ' '))
       div.innerHTML = link_urls(mark_tags(html))
@@ -165,6 +165,12 @@ function __render(widget, widget_item) {
       // see https://stackoverflow.com/a/27961022
       div.innerHTML = '&lrm;' + link_urls(mark_tags(html))
     }
+
+    if (snoozed)
+      parent.title =
+        new Date(item._global_store._todoer.snoozed).toLocaleString() +
+        '\n' +
+        parent.title
 
     // handle clicks and modify styling for non-todo tags
     div.querySelectorAll('mark').forEach(elem => {
@@ -355,7 +361,43 @@ function __render(widget, widget_item) {
           _item(id).global_store._todoer.snoozed = 0 // unsnooze
           _item(id).global_store._todoer.unsnoozed = Date.now()
         } else {
-          _item(id).global_store._todoer.snoozed = Date.now() + 5 * 1000
+          // _item(id).global_store._todoer.snoozed = Date.now() + 5 * 1000
+          _todoer.store._snooze_modal = _modal(
+            _todoer
+              .read('html_snooze_modal')
+              .replaceAll(
+                '__onclick__',
+                `_item('#todoer').eval('_on_snooze(event)')`
+              )
+              .replaceAll(
+                '__onchange__',
+                `_item('#todoer').eval('_on_snooze_input_change(event)')`
+              ),
+            {
+              canConfirm: () => false, // toggled in _on_snooze_input_change
+              onConfirm: () =>
+                _modal_close(_todoer.store._snooze_modal, _snooze_input()),
+            }
+          )
+          _todoer.store._snooze_modal.then(snooze_time => {
+            if (!is_number(snooze_time))
+              list.insertBefore(e.item, list.children[e.oldIndex])
+            else _item(id).global_store._todoer.snoozed = snooze_time
+          })
+          _update_dom().then(() => {
+            document.querySelector('.snooze-modal input').value =
+              new Date().toInputValue()
+            // force trigger input change call now & every second (for Date.now)
+            _todoer.dispatch_task(
+              'snooze-modal-update',
+              () => {
+                if (!_modal_visible(_todoer.store._snooze_modal)) return null
+                _on_snooze_input_change()
+              },
+              0,
+              1000
+            )
+          })
         }
       }
     },
@@ -372,6 +414,81 @@ function __render(widget, widget_item) {
   cancel_bin.sortable = Sortable.create(cancel_bin, {
     group: widget.id,
   })
+}
+
+Date.prototype.toInputValue = function () {
+  // from https://stackoverflow.com/a/16010247
+  let local = new Date(this)
+  local.setMinutes(this.getMinutes() - this.getTimezoneOffset())
+  return local.toJSON().slice(0, 16)
+}
+
+function _snooze_time(label) {
+  switch (label) {
+    case '3h':
+      return Date.now() + 3 * 60 * 60 * 1000
+    case '6h':
+      return Date.now() + 6 * 60 * 60 * 1000
+    case 'tomorrow':
+      return _snooze_tomorrow().getTime()
+    case 'weekend':
+      return _snooze_weekend().getTime()
+    case 'next week':
+      return _snooze_next_week().getTime()
+    case 'snooze':
+      return _snooze_input()
+    default:
+      fatal('unknown snooze label', label)
+  }
+}
+
+function _on_snooze(e) {
+  const label = e.target.innerText
+  const time = _snooze_time(label)
+  if (time < Date.now()) alert('future date/time required for snooze')
+  else _modal_close(_todoer.store._snooze_modal, time)
+}
+
+function _snooze_input() {
+  const input = document.querySelector('.snooze-modal input')
+  return input.valueAsNumber + new Date().getTimezoneOffset() * 60 * 1000
+}
+
+function _on_snooze_input_change() {
+  const can_confirm = _snooze_input() >= Date.now()
+  _modal_update(_todoer.store._snooze_modal, { canConfirm: () => can_confirm })
+  document
+    .querySelector('.snooze-modal .button.snooze')
+    .classList.toggle('disabled', !can_confirm)
+}
+
+function _snooze_tomorrow() {
+  const date = new Date()
+  date.setDate(date.getDate() + 1)
+  date.setHours(8)
+  date.setMinutes(0)
+  date.setSeconds(0)
+  return date
+}
+function _snooze_weekend() {
+  const date = new Date()
+  do {
+    date.setDate(date.getDate() + 1)
+  } while (date.getDay() != 6)
+  date.setHours(8)
+  date.setMinutes(0)
+  date.setSeconds(0)
+  return date
+}
+function _snooze_next_week() {
+  const date = new Date()
+  do {
+    date.setDate(date.getDate() + 1)
+  } while (date.getDay() != 1)
+  date.setHours(8)
+  date.setMinutes(0)
+  date.setSeconds(0)
+  return date
 }
 
 // render widget in item

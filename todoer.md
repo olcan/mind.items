@@ -14,4 +14,8 @@
 // todoer-widget.html
 ```
 
+```html_snooze_modal_removed:todoer-snooze-modal.html
+// todoer-snooze-modal.html
+```
+
 #_load #_listen #_welcome #_util/core
