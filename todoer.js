@@ -290,11 +290,14 @@ function __render(widget, widget_item) {
             const ids =
               widget_item._global_store._todoer?.[storage_key]?.split(',') ?? []
             if (snoozed)
-              sort_by(ids, id => _item(id)._global_store._todoer?.snoozed)
+              sort_by(
+                ids,
+                id => _item(id, false)?._global_store._todoer?.snoozed
+              )
             else
               sort_by(
                 ids,
-                id => -(_item(id)._global_store._todoer?.unsnoozed ?? 0)
+                id => -(_item(id, false)?._global_store._todoer?.unsnoozed ?? 0)
               )
             return ids
           },
@@ -314,16 +317,15 @@ function __render(widget, widget_item) {
 
                 // store saved_ids under storage_key & filter all ids using _exists
                 const gs = widget_item._global_store // saved manually below
-                delete gs._todoer[storage_key] // added back after filtering
+                gs._todoer[storage_key] = saved_ids.join()
                 gs._todoer = map_values(gs._todoer, v =>
                   v.split(',').filter(_exists).join()
                 )
-                gs._todoer[storage_key] = saved_ids.join()
                 gs._todoer = pick_by(gs._todoer, v => v.length > 0) // filter empties
 
                 // clear unsnoozed flags/times to prevent custom order override
                 each(saved_ids, id => {
-                  if (_item(id)._global_store._todoer?.unsnoozed)
+                  if (_item(id, false)?._global_store._todoer?.unsnoozed)
                     delete _item(id).global_store._todoer.unsnoozed
                 })
 
