@@ -642,7 +642,9 @@ function _benchmark_benchmark() {
 function throws(f, error) {
   if (!is_function(f)) fatal('non-function argument')
   try {
+    window._testing_throws = true // can be used to disable some logging
     f()
+    window._testing_throws = false
   } catch (e) {
     if (error === undefined) return true
     else if (is_function(error)) return error(e) || e instanceof error
@@ -801,19 +803,15 @@ function js_table(regex) {
   let scope_indent = {}
   let names = new Set()
 
-  // NOTE: parsing nested parentheses w/ regex, e.g. for default function arguments, is quite tricky and can be slow or cause infinite loops depending on browser (esp. on android); we use a very specific pattern that allows a single level of nesting for optional arguments only (i.e. only after an equals sign) and can ignore (potentially unmatched) parentheses inside strings, but even this pattern is likely to fail in some cases so we have to keep an eye on it
+  // NOTE: parsing nested parentheses w/ regex (e.g. for default function-valued arguments), while avoiding matching inside strings, is quite tricky and can be slow or even hang in some browsers (esp. on chrome/android); the following pattern avoids the most common issues (e.g. catastrophic backtracking, see https://stackoverflow.com/a/17116720) and (for now) allows only a single level of nesting, and only for optional arguments (requires =[^(){}]*? before \(...\) part), but can be extended as needed in the future; also note that javascript engine should cache compiled regexes (can be benchmarked easily if needed):
   //
-  // key pattern for nested parentheses w/o strings:
-  // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()]*?)*? <-- requires sufficient nesting, can hang on android
-  // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|.*?)*? <-- allows insufficient nesting (w/ imperfect parsing that may require balance checks), does not hang on android
-  // the |=[^(){}]*?\(... prefix restricts pattern to optional arguments and seems to be necessary (including the {} exclusion) for robust parsing
+  // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|[^()])*? <-- key part for nesting is \(...\)
   //
-  // also note javascript engine _should_ cache the compiled regex
   const js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\))/gsu
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|[^()])*?\))/gsu
 
   const js_table_regex_arrow =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|.*?)*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|[^()])*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
 
   const js = _this.read('js', {
     keep_empty_lines: true,
