@@ -560,6 +560,9 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
 
 // auto-pushes item, retrying if item is not saved yet
 function auto_push_item(item) {
+  // skip if auto-push is disabled for item
+  if (item.store._pusher?.auto_push_disabled) return
+
   if (!item.saved_id) {
     // retry in 1s
     setTimeout(() => auto_push_item(item), 1000)
