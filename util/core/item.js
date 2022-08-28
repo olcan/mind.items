@@ -51,6 +51,7 @@ const read_input = (...args) => _this.read_input(...args)
 // default block `type` is `'_output'`
 // writes _whole item_ if `type==''`
 // | `keep_time` | bool | `false` | write w/o updating time
+// | `skip_save` | bool | `false` | write w/o saving
 const write = (...args) => _this.write(...args)
 
 // write_lines(...lines)
@@ -64,14 +65,16 @@ if (_Item) {
   }
 }
 
-// => item.clear(type)
+// => item.clear(type, {…})
 // clears (empties out) `type` blocks
 // invoke on item; _not aliased for `_this`_
+// forwards options (second argument) to `write`
 const __clear = (...args) => _this.clear(...args)
 
-// => item.remove(type)
+// => item.remove(type, {…})
 // removes `type` blocks
 // invoke on item; _not aliased for `_this`_
+// forwards options (second argument) to `write`
 const __remove = (...args) => _this.remove(...args)
 
 // => item.delete()
@@ -92,8 +95,9 @@ const get_log = (...args) => _this.get_log(...args)
 
 // write_log({…})
 // writes log messages into item
+// takes default options from `_this.log_options`
 // | `type` | output block type, default `'_log'`
-// | ...    | same options as `get_log`
+// | ...    | options for `get_log` and `write`
 const write_log = (...args) => _this.write_log(...args)
 
 // write_log_any({…})
