@@ -328,7 +328,7 @@ function push_item(item, manual = false) {
         } catch (e) {} // already logged, just continue
       }
 
-      _this.log(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
+      _this.debug(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
       await _side_push_item(item, manual)
     } catch (e) {
       _this.error(`push failed for ${item.name}: ${e}`)
