@@ -280,8 +280,8 @@ function __render(widget, widget_item) {
     group: widget.id,
     sort: !snoozed, // no reordering for snoozed list
     // animation: 150,
-    delay: 250,
-    delayOnTouchOnly: true,
+    delay: navigator.maxTouchPoints > 0 ? 250 : 150, // faster on non-touch
+    // delayOnTouchOnly: true,
     // touchStartThreshold: 5,
     store: snoozed
       ? null /* disabled for snooze list */
