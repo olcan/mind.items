@@ -139,7 +139,7 @@ function __render(widget, widget_item) {
     // use suffix if looks reasonable, otherwise use prefix truncated on left
     if (text.match(/#todo\s*[\w#]/)) {
       // use suffix, truncate on right
-      text = text.replace(/.*#todo/s, '')
+      text = text.replace(/.*?#todo/s, '')
       text = text.substr(0, 200) + (text.length > 200 ? '…' : '')
       parent.title = '#todo' + _.escape(text) // original whitespace for title
       // const html = '#todo' + _.escape(text)
