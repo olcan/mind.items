@@ -202,7 +202,9 @@ function __render(widget, widget_item) {
     div.onclick = e => {
       e.stopPropagation() // do not propagate click to item
       e.preventDefault()
-      // widget.classList.remove('dragging') // gets stuck otherwise
+
+      // ignore clicks too close to an item being let go
+      if (Date.now() - last_unchoose_time < 250) return
 
       const source = item.id
       MindBox.set('id:' + source)
@@ -247,7 +249,6 @@ function __render(widget, widget_item) {
       widget.onclick = e => {
         e.stopPropagation() // do not propagate click to item
         e.preventDefault()
-        // widget.classList.remove('dragging') // gets stuck otherwise
       }
 
       // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on iphones, which we attempt to work around by focusing on the top textarea first
@@ -273,6 +274,11 @@ function __render(widget, widget_item) {
     setTimeout(() => list.sortable.save())
   }
 
+  // track unchoose (i.e. "ungrab") time to ignore click events too close to it
+  // NOTE: this requires positive "delay" option (including non-touch devices)
+  let last_unchoose_time = 0
+  let chosen = false // also track chosen state to ignore unchoose-only events
+
   // initialize sortable objects attached to list elements
   // we destroy objects as elements are removed on re-render (see above)
   // otherwise dragging items on a re-rendered list can cause flickering
@@ -283,6 +289,7 @@ function __render(widget, widget_item) {
     delay: navigator.maxTouchPoints > 0 ? 250 : 150, // faster on non-touch
     // delayOnTouchOnly: true,
     // touchStartThreshold: 5,
+    emptyInsertThreshold: 5, // min margin between lists to prevent flicker
     store: snoozed
       ? null /* disabled for snooze list */
       : {
@@ -341,16 +348,20 @@ function __render(widget, widget_item) {
         },
     forceFallback: true, // fixes dragging behavior, see https://github.com/SortableJS/Sortable/issues/246#issuecomment-526443179
     onChoose: () => {
+      chosen = true
       widget.classList.add('dragging')
     },
     onStart: () => {
-      widget.classList.add('dragging')
+      // widget.classList.add('dragging')
     },
     onUnchoose: () => {
+      // note on a regular click, onUnchoose is called w/o onChoose (may be bug)
+      if (chosen) last_unchoose_time = Date.now()
+      chosen = false
       widget.classList.remove('dragging')
     },
     onEnd: e => {
-      widget.classList.remove('dragging')
+      // widget.classList.remove('dragging')
       const id = e.item.getAttribute('data-id')
       if (e.to == cancel_bin) {
         cancel_bin.firstChild.remove()
