@@ -40,6 +40,8 @@
             },
           },
           padding: { top: 5, right: 10 }, // help space labels from chart edges
+          // auto-hide points for more than 100 data points on chart
+          point: xZ.length > 100 ? { r: 0, focus: { expand: { r: 5 } } } : {},
           legend: { show: xSJ.length > 1 },
         },
         options

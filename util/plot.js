@@ -2,6 +2,13 @@
 // `name` string can be first argument
 function plot(obj, name = undefined) {
   ;[name, obj] = lookup_types(arguments, ['string', 'object']) // allow reordering of args
+  if (is_array(name)) fatal('invalid arguments w/ multiple strings')
+  let obj_tail // tail of plain-object arguments to be merged into obj
+  if (is_array(obj) && obj.slice(1).every(is_plain_object)) {
+    obj_tail = merge({}, ...obj.slice(1))
+    obj = first(obj)
+  }
+
   if (window.__sampler) fatal('plot(…) not allowed inside sample(…)')
   // wrap array argument as { data: { values: ... } }
   if (is_array(obj)) obj = { data: { values: obj } }
@@ -16,6 +23,7 @@ function plot(obj, name = undefined) {
   name = name.replace(/^#\//, _this.name + '/')
 
   if (!obj.data) obj = { data: obj } // data-only obj
+  if (obj_tail) merge(obj, obj_tail) // merge obj_tail (if any) into obj
   let {
     data, // required
     renderer = 'lines', // string or packable function
