@@ -1,5 +1,7 @@
 // plot `obj` in item `name`
+// `name` string can be first argument
 function plot(obj, name = undefined) {
+  ;[name, obj] = lookup_types(arguments, ['string', 'object']) // allow reordering of args
   if (window.__sampler) fatal('plot(…) not allowed inside sample(…)')
   // wrap array argument as { data: { values: ... } }
   if (is_array(obj)) obj = { data: { values: obj } }
