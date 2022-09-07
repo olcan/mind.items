@@ -740,6 +740,9 @@ let _global_eval_options = {
 // `cells` is 2D array, e.g. `[['a',1],['b',2]]`
 // allows optional header row `options.headers`
 function table(cells, options = {}) {
+  if (is_array(cells.values)) cells = cells.values // fetch .values if given object
+  if (!is_array(cells[0])) cells = [cells] // matrixify if needed
+  if (!is_array(cells)) fatal('invalid non-array argument')
   if (cells.length == 0) return ''
   const { headers } = options
   let lines = []
