@@ -803,15 +803,15 @@ function js_table(regex) {
   let scope_indent = {}
   let names = new Set()
 
-  // NOTE: parsing nested parentheses w/ regex (e.g. for default function-valued arguments), while avoiding matching inside strings, is quite tricky and can be slow or even hang in some browsers (esp. on chrome/android); the following pattern avoids the most common issues (e.g. catastrophic backtracking, see https://stackoverflow.com/a/17116720) and (for now) allows only a single level of nesting, and only for optional arguments (requires =[^(){}]*? before \(...\) part), but can be extended as needed in the future; also note that javascript engine should cache compiled regexes (can be benchmarked easily if needed):
+  // NOTE: parsing nested parentheses w/ regex (e.g. for default function-valued arguments), while avoiding matching inside strings, is quite tricky and can be slow or even hang in some browsers (esp. on chrome/android); the following pattern avoids the most common issues (e.g. catastrophic backtracking, see https://stackoverflow.com/a/17116720) and (for now) allows only a single level of nesting, but can be extended as needed in the future; also note that javascript engine should cache compiled regexes (can be benchmarked easily if needed):
   //
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|[^()])*? <-- key part for nesting is \(...\)
   //
   const js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|[^()])*?\))/gsu
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\))/gsu
 
   const js_table_regex_arrow =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|[^()])*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
 
   const js = _this.read('js', {
     keep_empty_lines: true,
