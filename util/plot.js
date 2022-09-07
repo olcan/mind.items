@@ -1,6 +1,8 @@
 // plot `obj` in item `name`
 function plot(obj, name = undefined) {
   if (window.__sampler) fatal('plot(…) not allowed inside sample(…)')
+  // wrap array argument as { data: { values: ... } }
+  if (is_array(obj)) obj = { data: { values: obj } }
   if (!is_object(obj)) fatal('non-object argument')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
   if (!_this.name.startsWith('#')) fatal('plot called from unnamed item')
@@ -14,7 +16,7 @@ function plot(obj, name = undefined) {
   if (!obj.data) obj = { data: obj } // data-only obj
   let {
     data, // required
-    renderer = 'table', // string or packable function
+    renderer = 'lines', // string or packable function
     renderer_options, // options for renderer, passed via stringify/parse
     encoding = 'json', // used as language for markdown block
     encoder = stringify, // must be function (invoked by plot)
@@ -23,6 +25,9 @@ function plot(obj, name = undefined) {
     caption, // optional caption block (default: _md|markdown_<name> if exists)
     title, // optional title markdown placed immediately after label
   } = obj
+
+  // wrap array data as { values: ... }
+  if (is_array(data)) data = { values: data }
 
   if (!data) fatal('missing data')
   if (!renderer) fatal('missing renderer')
