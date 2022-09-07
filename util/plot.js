@@ -161,7 +161,7 @@ function hist(xSJ, options = {}) {
     precision = 2, // d or [d,s] arguments to bin(xJ,…) or round_to(…)
     labeler = 'mid', // string or function (a,b,k) => label
     label_precision, // for fixed precision (decimal places); default is auto
-    stringifier, // stringifier for numbers
+    stringifier, // stringifier for numbers; default is round_to in string mode
     weights, // optional weights
     weight_precision = 2, // ignored if no weights
     sort_values_by, // non-binned mode only; see default below
@@ -226,11 +226,12 @@ function hist(xSJ, options = {}) {
     lK = () => labels
   } else {
     // bin numeric values
-    const [d, s] = flat(precision)
+    const [d, s] = flat([precision])
     const xB = is_array(bins) ? bins : bin(xZ, max_bins, d, s)
     if (!is_array(xB)) fatal('non-array bins')
     label_precision ??= max_of(xB, _decimal_places)
-    stringifier ??= x => x.toFixed(label_precision) // default numeric stringifier
+    label_precision = label_precision.toString() // for round_to as stringifier
+    stringifier ??= x => round_to(b, label_precision) // default stringifier
     K = xB.length - 1
     cSK = array(S, s => count_bins(xSJ[s], xB, wSJ?.[s]))
 
