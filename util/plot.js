@@ -230,6 +230,8 @@ function hist(xSJ, options = {}) {
     const xB = is_array(bins) ? bins : bin(xZ, max_bins, d, s)
     if (!is_array(xB)) fatal('non-array bins')
     label_precision ??= max_of(xB, _decimal_places)
+    // note round_to is better because it rounds numerically before stringifying
+    // applying toFixed directly can return odd values such as '-0', '-0.0', etc
     label_precision = label_precision.toString() // for round_to as stringifier
     stringifier ??= x => round_to(b, label_precision) // default stringifier
     K = xB.length - 1
