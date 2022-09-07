@@ -92,7 +92,7 @@ function _init_log_highlight() {
           // /* inline (or multi-line) comments */
           // hljs.COMMENT(/\/\*/, /\*\//),
           // single-line suffix (//...) comments
-          { scope: 'comment', match: /\/\/.*?$/ },
+          { begin: [/^|[^:]/, /\/\/.*?$/], beginScope: { 2: 'comment' } },
           // non-date/time-prefixed lines as comments
           {
             scope: 'comment',
