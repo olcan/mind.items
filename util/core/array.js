@@ -100,8 +100,8 @@ function _benchmark_remove() {
 // copy(xJ, [yJ], [f], [g])
 // copies `xJ` into new array
 // can copy `yJ` into existing `xJ`
-// can map copied elements as `f(x,j)`
-// can filter copied elements via `g(x,j)`
+// can map copied elements as `f(x,j,yJ)`
+// can filter copied elements via `g(x,j,yJ)`
 function copy(xJ, yJ, f, g) {
   if (yJ === undefined) return xJ.slice() // single-arg mode
   // single-array mode: shift args and allocate xJ
@@ -112,14 +112,14 @@ function copy(xJ, yJ, f, g) {
     let jx = 0
     if (f) {
       for (let j = 0; j < xJ.length; ++j)
-        if (g(yJ[j], j)) xJ[jx++] = f(yJ[j], j)
+        if (g(yJ[j], j, yJ)) xJ[jx++] = f(yJ[j], j, yJ)
     } else {
-      for (let j = 0; j < xJ.length; ++j) if (g(yJ[j], j)) xJ[jx++] = yJ[j]
+      for (let j = 0; j < xJ.length; ++j) if (g(yJ[j], j, yJ)) xJ[jx++] = yJ[j]
     }
     xJ.length = jx
     return xJ
   }
-  if (f) for (let j = 0; j < xJ.length; ++j) xJ[j] = f(yJ[j], j)
+  if (f) for (let j = 0; j < xJ.length; ++j) xJ[j] = f(yJ[j], j, yJ)
   else for (let j = 0; j < xJ.length; ++j) xJ[j] = yJ[j]
   return xJ
 }
@@ -150,26 +150,26 @@ function _benchmark_copy_at() {
 const _benchmark_copy_at_functions = ['copy_at', 'copy']
 
 // each(xJ, f, [js=0], [je=J])
-// invokes `f(x,j)` for each `x` in `xJ`
+// invokes `f(x,j,xJ)` for each `x` in `xJ`
 function each(xJ, f, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
-  for (let j = js; j < je; ++j) f(xJ[j], j)
+  for (let j = js; j < je; ++j) f(xJ[j], j, xJ)
   return xJ
 }
 
 // scan(xJ, f, [js=0], [je=J])
-// invokes `f(j,x)` for each `x` in `xJ`
+// invokes `f(j,x,xJ)` for each `x` in `xJ`
 function scan(xJ, f, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
-  for (let j = js; j < je; ++j) f(j, xJ[j])
+  for (let j = js; j < je; ++j) f(j, xJ[j], xJ)
   return xJ
 }
 
-// invokes `f(j)` for `j=0,…,J-1`
+// invokes `f(j,J)` for `j=0,…,J-1`
 const repeat = (J, f) => {
-  for (let j = 0; j < J; ++j) f(j)
+  for (let j = 0; j < J; ++j) f(j, J)
 }
 
 function _benchmark_each() {
@@ -189,20 +189,20 @@ function _benchmark_each() {
 const _benchmark_each_functions = ['each', 'scan', 'repeat']
 
 // map2(xJ, yJ, f, [js=0], [je=J])
-// maps `yJ` into `xJ` as `f(x,y,j)`
+// maps `yJ` into `xJ` as `f(x,y,j,xJ,yJ)`
 function map2(xJ, yJ, f, js = 0, je = xJ.length) {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
-  for (let j = js; j < je; ++j) xJ[j] = f(xJ[j], yJ[j], j)
+  for (let j = js; j < je; ++j) xJ[j] = f(xJ[j], yJ[j], j, xJ, yJ)
   return xJ
 }
 
 // apply(xJ, f, [js=0], [je=J])
-// applies `f(x,j)` to `xJ`
+// applies `f(x,j,xJ)` to `xJ`
 const apply = (xJ, f, js = 0, je = xJ.length) => {
   js = Math.max(0, js)
   je = Math.min(je, xJ.length)
-  for (let j = js; j < je; ++j) xJ[j] = f(xJ[j], j)
+  for (let j = js; j < je; ++j) xJ[j] = f(xJ[j], j, xJ)
   return xJ
 }
 
