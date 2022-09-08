@@ -660,11 +660,11 @@ async function _on_command_push(label) {
     }
     update_branch('last_push')
     await _modal_close() // force-close all modals
-    await _modal({
-      content: `Pushed ${items.length} item${s}`,
-      confirm: 'OK',
-      background: 'confirm',
-    })
+    // await _modal({
+    //   content: `Pushed ${items.length} item${s}`,
+    //   confirm: 'OK',
+    //   background: 'confirm',
+    // })
   } finally {
     _modal_close() // force-close all modals
   }
@@ -694,11 +694,11 @@ async function _on_command_pull(label) {
       item.pushable = false // clear warning, resume side-push
     }
     update_branch('last_pull')
-    await _modal_update(modal, {
-      content: `Pulled ${items.length} item${s}`,
-      confirm: 'OK',
-      background: 'confirm',
-    })
+    // await _modal_update(modal, {
+    //   content: `Pulled ${items.length} item${s}`,
+    //   confirm: 'OK',
+    //   background: 'confirm',
+    // })
     modal = null // closed by await
   } finally {
     if (modal) _modal_close(modal) // close if left open
