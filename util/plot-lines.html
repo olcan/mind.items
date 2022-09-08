@@ -5,6 +5,7 @@
     const labels = options.series?.map(s => s.label) ?? []
     const colors = options.series?.map(s => s.color) ?? []
     const axes = options.series?.map(s => s.axis ?? 'y') ?? []
+    if (options.x_transform) apply(x_values, options.x_transform)
     const xSJ = matrixify(values)
     let { precision = 2, label_precision } = options
     const xZ = flat(values).filter(is_finite)
