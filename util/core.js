@@ -285,6 +285,7 @@ const packable = (f, str) => set(f, '__function', str)
 
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
 // all functions must be _packable_ (see `pack` above)
+// does not handle binary strings, unlike `window._stringify`
 function stringify(value) {
   return JSON.stringify(value, function (k, v) {
     if (is_function(v)) return pack(v)
