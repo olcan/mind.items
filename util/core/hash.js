@@ -11,7 +11,7 @@
 // | `_hash_128_murmur3_x86` | 128  | [murmur v3](https://en.wikipedia.org/wiki/MurmurHash) x86
 // | `_hash_128_murmur3_x64` | 128  | [murmur v3](https://en.wikipedia.org/wiki/MurmurHash) x64
 // | `_hash_160_sha1`        | 160  | [secure hash algo 1](https://en.wikipedia.org/wiki/SHA-1)
-function hash(x, hasher = _hash_64_fnv1a, stringifier = str) {
+function hash(x, hasher = _hash_64_fnv1a, stringifier = stringify) {
   return window._hash(x, hasher, stringifier) // see https://github.com/olcan/mind.page/blob/6a1ea818bc11fb72ef5268e5d0ed2c694b33d7c5/src/util.js#L269
 }
 
