@@ -47,6 +47,7 @@ function _benchmark_hash() {
 // `string` is assumed [UTF-16](https://en.wikipedia.org/wiki/UTF-16) (`js` default)
 // | `'utf8'`              | [UTF-8](https://en.wikipedia.org/wiki/UTF-8) string
 // | `'utf8_array'`        | [UTF-8](https://en.wikipedia.org/wiki/UTF-8) array (`Uint8Array`)
+// | `'byte_array'`        | raw byte array (`Uint8Array`) for code points ≤255 only
 // | default ➡ `'base64'`  | [Base64](https://en.wikipedia.org/wiki/Base64) ASCII string
 function encode(string, encoding = 'base64') {
   return window._encode(string, encoding) // see https://github.com/olcan/mind.page/blob/6a1ea818bc11fb72ef5268e5d0ed2c694b33d7c5/src/util.js#L185
@@ -61,6 +62,7 @@ function decode(x, encoding = 'base64') {
 
 function _test_encode_decode() {
   const x = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
+  const y = 'string w/ code points <=255 only!'
   check(
     () => decode(encode(x)) == x,
     () => decode(encode(x), 'base64') == x,
@@ -69,7 +71,9 @@ function _test_encode_decode() {
     () => decode(encode(x, 'utf8'), 'utf8') == x,
     () => decode(encode(x, 'utf8_array'), 'utf8_array') == x,
     // check utf8 equivalent to utf8_array+String.fromCharCode
-    () => encode(x, 'utf8') == String.fromCharCode(...encode(x, 'utf8_array'))
+    () => encode(x, 'utf8') == String.fromCharCode(...encode(x, 'utf8_array')),
+    () => throws(() => encode(x, 'byte_array')), // contains code points >255
+    () => decode(encode(y, 'byte_array'), 'byte_array') == y
   )
 }
 
@@ -78,14 +82,18 @@ const _test_encode_decode_functions = ['encode', 'decode']
 
 function _benchmark_encode_decode() {
   const x = '你好，世界！看看这头牛: 🐄' // hello world! check out this cow: 🐄
+  const y = 'string w/ code points <=255 only!'
   benchmark(
-    () => decode(encode(x, 'base64'), 'base64') == x,
-    () => decode(encode(x, 'utf8'), 'utf8') == x,
-    () => decode(encode(x, 'utf8_array'), 'utf8_array') == x,
+    () => decode(encode(x, 'base64'), 'base64'),
+    () => decode(encode(x, 'utf8'), 'utf8'),
+    () => decode(encode(x, 'utf8_array'), 'utf8_array'),
     // benchmark utf8 vs utf8_array+String.fromCharCode
     () => encode(x, 'utf8'),
     () => String.fromCharCode.apply(null, encode(x, 'utf8_array')),
-    () => String.fromCharCode(...encode(x, 'utf8_array'))
+    () => String.fromCharCode(...encode(x, 'utf8_array')),
+    () => decode(encode(y, 'byte_array'), 'byte_array'),
+    () => encode(y, 'byte_array'), // for comparison to Uint8Array.from
+    () => Uint8Array.from(y, c => c.charCodeAt(0))
   )
 }
 
