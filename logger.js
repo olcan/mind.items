@@ -212,9 +212,10 @@ function _init() {
         window.open(source, '_blank')
         return
       }
-      MindBox.set(source)
-      // edit specific line if clicking on whole line or date/time prefix
-      if (!text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/)) return
+      // edit specific line if clicking on whole line OR date/time prefix
+      const edit = text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/)
+      MindBox.set(source, { scroll: !edit }) // just scroll if not editing
+      if (!edit) return
       const edit_target = () => {
         const target = document.querySelector('.container.target')
         if (!target) return null
@@ -245,8 +246,8 @@ function _init() {
         })
         return target
       }
-      // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on iphones, which we attempt to work around by focusing on the top textarea first
-      document.querySelector('textarea').focus()
+      // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on touch devices (esp. iphones), which we attempt to work around by focusing on the top textarea first
+      if (navigator.maxTouchPoints) document.querySelector('textarea').focus()
       setTimeout(edit_target)
     }
   }

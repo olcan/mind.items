@@ -1459,8 +1459,8 @@ class MindBox {
     if (!wasFocused) MindBox.elem.blur()
     // trigger input event for handling of change
     MindBox.elem.dispatchEvent(new Event('input'))
-    // scroll to new target if requested
-    if (options?.scroll) MindBox.scroll_to_new_target()
+    // scroll to target if requested
+    if (options?.scroll) MindBox.scroll_to_target()
   }
   static clear() {
     MindBox.set('')
@@ -1487,28 +1487,20 @@ class MindBox {
     if (document.body.scrollTop > header.offsetTop)
       document.body.scrollTo(0, header.offsetTop)
   }
-  // scroll to current target if necessary
+  // scroll to target if necessary
+  // waits for dom update in case target is changing, e.g. due to MindBox.set
   static scroll_to_target() {
-    const target = document.querySelector('.super-container.target')
-    const header = document.querySelector('.header')
-    if (
-      target.offsetTop < document.body.scrollTop ||
-      target.offsetTop > document.body.scrollTop + innerHeight - 200
-    )
-      document.body.scrollTo(
-        0,
-        Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
-      )
-  }
-  // scroll to _new_ target if necessary
-  // waits for dom update for new target to be rendered
-  // must be invoked immediately after a target change is triggered
-  static scroll_to_new_target() {
-    const prev_target = document.querySelector('.super-container.target')
     _update_dom().then(() => {
       const target = document.querySelector('.super-container.target')
-      if (target && (!prev_target || !document.isSameNode(target, prev_target)))
-        MindBox.scroll_to_target()
+      const header = document.querySelector('.header')
+      if (
+        target.offsetTop < document.body.scrollTop ||
+        target.offsetTop > document.body.scrollTop + innerHeight - 200
+      )
+        document.body.scrollTo(
+          0,
+          Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
+        )
     })
   }
   // MindBox.elem property
