@@ -6,7 +6,7 @@
 ```
 
 ```html_bars_removed:plot-bars.html
-// plot-bar_chart.html
+// plot-bars.html
 ```
 
 ```html_hbars_removed:plot-hbars.html
@@ -17,4 +17,4 @@
 // plot-lines.html
 ```
 
-<p> #_//core #_//math #_//stat
+<p> #_//core #_//math #_//stat #_//cloud

@@ -1,53 +1,54 @@
-<div id="lines-__cid__" class="c3 __classes__" __style__>
+<div id="__pid__" class="c3 __classes__" __style__>
   <script>
-    const { data, options } = _this.store['lines-__cid__']
-    let { x_values, values } = data
-    const labels = options.series?.map(s => s.label) ?? []
-    const colors = options.series?.map(s => s.color) ?? []
-    const axes = options.series?.map(s => s.axis ?? 'y') ?? []
-    x_values = options.x_transform?.(x_values.slice())
-    const xSJ = matrixify(values)
-    let { precision = 2, label_precision } = options
-    const xZ = flat(values).filter(is_finite)
-    let bins = xZ.length ? bin(xZ, 5, ...flat([precision])) : []
-    if (xZ.length) label_precision ??= max_of(xZ, _decimal_places)
-    label_precision = label_precision.toString() // need string for round_to
-    bins = uniq_by(bins, b => round_to(b, label_precision))
-    c3._chart(
-      '#lines-__cid__',
-      merge(
-        {
-          data: {
-            x: x_values ? '_x_values' : null,
-            columns: [
-              ...(x_values ? [['_x_values', ...x_values]] : []),
-              ...xSJ.map((xsJ, s) => [labels[s] ?? 'series_' + s, ...xsJ]),
-            ],
-            labels: options.bar_values,
-            colors: zip_object(labels, colors),
-            axes: zip_object(labels, axes),
-          },
-          axis: {
-            x: {},
-            y: {
-              tick: {
-                values: bins,
-                format: v => round_to(v, label_precision),
+    _render_plot('__pid__', (data, options) => {
+      let { x_values, values } = data
+      const labels = options.series?.map(s => s.label) ?? []
+      const colors = options.series?.map(s => s.color) ?? []
+      const axes = options.series?.map(s => s.axis ?? 'y') ?? []
+      x_values = options.x_transform?.(x_values.slice())
+      const xSJ = matrixify(values)
+      let { precision = 2, label_precision } = options
+      const xZ = flat(values).filter(is_finite)
+      let bins = xZ.length ? bin(xZ, 5, ...flat([precision])) : []
+      if (xZ.length) label_precision ??= max_of(xZ, _decimal_places)
+      label_precision = label_precision.toString() // need string for round_to
+      bins = uniq_by(bins, b => round_to(b, label_precision))
+      c3._chart(
+        '#__pid__',
+        merge(
+          {
+            data: {
+              x: x_values ? '_x_values' : null,
+              columns: [
+                ...(x_values ? [['_x_values', ...x_values]] : []),
+                ...xSJ.map((xsJ, s) => [labels[s] ?? 'series_' + s, ...xsJ]),
+              ],
+              labels: options.bar_values,
+              colors: zip_object(labels, colors),
+              axes: zip_object(labels, axes),
+            },
+            axis: {
+              x: {},
+              y: {
+                tick: {
+                  values: bins,
+                  format: v => round_to(v, label_precision),
+                },
+                padding: { top: 10, bottom: 10 }, // padding in px _within_ axis
               },
-              padding: { top: 10, bottom: 10 }, // padding in px _within_ axis
+              y2: {
+                show: axes?.includes('y2'),
+              },
             },
-            y2: {
-              show: axes?.includes('y2'),
-            },
+            padding: { top: 5, right: 10 }, // help space labels from chart edges
+            // auto-hide points for more than 100 data points on chart
+            point: xZ.length > 100 ? { r: 0, focus: { expand: { r: 5 } } } : {},
+            legend: { show: xSJ.length > 1 },
           },
-          padding: { top: 5, right: 10 }, // help space labels from chart edges
-          // auto-hide points for more than 100 data points on chart
-          point: xZ.length > 100 ? { r: 0, focus: { expand: { r: 5 } } } : {},
-          legend: { show: xSJ.length > 1 },
-        },
-        options
+          options
+        )
       )
-    )
+    })
   </script>
 </div>
 

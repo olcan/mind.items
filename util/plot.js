@@ -12,7 +12,8 @@ function plot(obj, name = undefined) {
   if (window.__sampler) fatal('plot(…) not allowed inside sample(…)')
   // wrap array argument as { data: { values: ... } }
   if (is_array(obj)) obj = { data: { values: obj } }
-  if (!is_object(obj)) fatal('non-object argument')
+  if (!is_plain_object(obj))
+    fatal('invalid argument to plot, must be plain object or array')
   name ||= obj.name || '#/plot' // default name can also be specified in obj
   if (!_this.name.startsWith('#')) fatal('plot called from unnamed item')
   if (!name.match(/^#?\/?[_\p{L}\d]+$/u))
@@ -40,6 +41,8 @@ function plot(obj, name = undefined) {
   if (is_array(data)) data = { values: data }
 
   if (!data) fatal('missing data')
+  if (!is_plain_object(data) && !is_string(data))
+    fatal('invalid plot data; must be plain object or path string for download')
   if (!renderer) fatal('missing renderer')
   if (!(is_function(renderer) || is_string(renderer))) fatal('invalid renderer')
   if (!(is_function(decoder) || is_string(decoder))) fatal('invalid decoder')
@@ -472,7 +475,19 @@ function _plot(type, data, _options, defaults = {}) {
       .replace(/__style__/g, style)
       .replace(/\/\* *__styles__ *\*\//g, styles)
       .replace(/#plot\b/g, `#${type}-__cid__`)
+      .replace(/__pid__/g, `${type}-$cid`) // plot id w/ type prefix
       .replace(/__cid__/g, '$cid')
+  )
+}
+
+// rendering helper to resolve inputs to html scripts via _this.store
+// also allows data to be specified as path string for download
+function _render_plot(key, render) {
+  const { data, options } = _this.store[key]
+  if (!is_plain_object(data) && !is_string(data)) fatal('invalid data')
+  if (!is_plain_object(options)) fatal('invalid options for plot')
+  resolve(is_string(data) ? download(data) : data).then(data =>
+    render(data, options)
   )
 }
 

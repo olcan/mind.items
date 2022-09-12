@@ -1,52 +1,53 @@
-<div id="hbars-__cid__" class="c3 __classes__" __style__>
+<div id="__pid__" class="c3 __classes__" __style__>
   <script>
-    const { data, options } = _this.store['hbars-__cid__']
-    const { labels, values } = data
-    const xSJ = matrixify(values)
-    const series_labels = options.series?.map(s => s.label) ?? []
-    const series_colors = options.series?.map(s => s.color) ?? []
-    if (options.delta && xSJ.length >= 2) {
-      const S = xSJ.length
-      xSJ.push(sub(copy(xSJ[S - 1]), xSJ[S - 2]))
-      series_labels.push('delta')
-      series_colors.push(options.delta_color)
-    }
-    c3._chart(
-      '#hbars-__cid__',
-      merge(
-        {
-          data: {
-            x: 'x',
-            columns: [
-              ['x', ...labels],
-              ...xSJ.map((xsJ, s) => [
-                series_labels[s] ?? 'series_' + s,
-                ...xsJ,
-              ]),
-            ],
-            labels: options.bar_values,
-            colors: zip_object(series_labels, series_colors),
-            type: 'bar',
-          },
-          bar: { space: 0.25 },
-          axis: {
-            rotated: true, // x vertical, y horizontal
-            x: { type: 'category' },
-            y: {
-              show: options.bar_axis,
-              tick: { format: d3.format(options.value_format) },
+    _render_plot('__pid__', (data, options) => {
+      const { labels, values } = data
+      const xSJ = matrixify(values)
+      const series_labels = options.series?.map(s => s.label) ?? []
+      const series_colors = options.series?.map(s => s.color) ?? []
+      if (options.delta && xSJ.length >= 2) {
+        const S = xSJ.length
+        xSJ.push(sub(copy(xSJ[S - 1]), xSJ[S - 2]))
+        series_labels.push('delta')
+        series_colors.push(options.delta_color)
+      }
+      c3._chart(
+        '#__pid__',
+        merge(
+          {
+            data: {
+              x: 'x',
+              columns: [
+                ['x', ...labels],
+                ...xSJ.map((xsJ, s) => [
+                  series_labels[s] ?? 'series_' + s,
+                  ...xsJ,
+                ]),
+              ],
+              labels: options.bar_values,
+              colors: zip_object(series_labels, series_colors),
+              type: 'bar',
+            },
+            bar: { space: 0.25 },
+            axis: {
+              rotated: true, // x vertical, y horizontal
+              x: { type: 'category' },
+              y: {
+                show: options.bar_axis,
+                tick: { format: d3.format(options.value_format) },
+              },
+            },
+            padding: { bottom: 7 }, // precisely centers rotated bar charts
+            legend: { show: xSJ.length > 1, position: 'right' },
+            title: {
+              text: options.title,
+              position: options.title_position,
             },
           },
-          padding: { bottom: 7 }, // precisely centers rotated bar charts
-          legend: { show: xSJ.length > 1, position: 'right' },
-          title: {
-            text: options.title,
-            position: options.title_position,
-          },
-        },
-        options
+          options
+        )
       )
-    )
+    })
   </script>
 </div>
 
