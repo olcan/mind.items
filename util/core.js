@@ -1450,7 +1450,7 @@ class MindBox {
   static get() {
     return MindBox.elem.value
   }
-  static set(text) {
+  static set(text, options) {
     MindBox.elem.value = text
     // also shift selection to the end
     // on Safari, setting the selection can auto-focus so we have to blur
@@ -1459,6 +1459,8 @@ class MindBox {
     if (!wasFocused) MindBox.elem.blur()
     // trigger input event for handling of change
     MindBox.elem.dispatchEvent(new Event('input'))
+    // scroll to new target if requested
+    if (options?.scroll) MindBox.scroll_to_new_target()
   }
   static clear() {
     MindBox.set('')
@@ -1471,16 +1473,43 @@ class MindBox {
     if (typeof text == 'string') MindBox.set(text)
     MindBox.elem.selectionStart = MindBox.elem.value.length
     MindBox.elem.focus()
-    // scroll up to header if necessary
-    const header = document.getElementsByClassName('header')[0]
-    if (document.body.scrollTop > header.offsetTop)
-      document.body.scrollTo(0, header.offsetTop)
+    MindBox.scroll_to_header()
   }
   // MindBox.create emulates 'create' button
   static create(text, options) {
     text ??= MindBox.get() // default text is from MindBox
     options = merge({ emulate_button: true }, options)
     return window._create(text, options)
+  }
+  // scroll to header if necessary
+  static scroll_to_header() {
+    const header = document.querySelector('.header')
+    if (document.body.scrollTop > header.offsetTop)
+      document.body.scrollTo(0, header.offsetTop)
+  }
+  // scroll to current target if necessary
+  static scroll_to_target() {
+    const target = document.querySelector('.super-container.target')
+    const header = document.querySelector('.header')
+    if (
+      target.offsetTop < document.body.scrollTop ||
+      target.offsetTop > document.body.scrollTop + innerHeight - 200
+    )
+      document.body.scrollTo(
+        0,
+        Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
+      )
+  }
+  // scroll to _new_ target if necessary
+  // waits for dom update for new target to be rendered
+  // must be invoked immediately after a target change is triggered
+  static scroll_to_new_target() {
+    const prev_target = document.querySelector('.super-container.target')
+    _update_dom().then(() => {
+      const target = document.querySelector('.super-container.target')
+      if (target && (!prev_target || !document.isSameNode(target, prev_target)))
+        MindBox.scroll_to_target()
+    })
   }
   // MindBox.elem property
   static get elem() {

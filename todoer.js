@@ -182,7 +182,7 @@ function __render(widget, widget_item) {
       elem.onclick = e => {
         e.stopPropagation()
         e.preventDefault()
-        MindBox.set(elem.innerText.replace(/#_/, '#'))
+        MindBox.set(elem.innerText.replace(/#_/, '#'), { scroll: true })
       }
     })
 
@@ -207,7 +207,7 @@ function __render(widget, widget_item) {
       if (Date.now() - last_unchoose_time < 250) return
 
       const source = item.id
-      MindBox.set('id:' + source)
+      MindBox.set('id:' + source, { scroll: true })
 
       // edit item w/ snippet selected
       // code mirrors that in logger.js in mind.items (see comments there)
@@ -248,11 +248,6 @@ function __render(widget, widget_item) {
       // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on iphones, which we attempt to work around by focusing on the top textarea first
       // document.querySelector('textarea').focus()
       // setTimeout(edit_target)
-      _update_dom().then(() => {
-        const target = document.querySelector('.super-container.target')
-        if (target)
-          document.body.scrollTo(0, target.offsetTop - innerHeight / 4)
-      })
     }
 
     // handle onclick on widget
