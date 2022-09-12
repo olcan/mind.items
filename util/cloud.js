@@ -1,7 +1,7 @@
 const _cloud = _item('$id')
 
 // upload `x`
-// | `path` | upload path | default `hash(…)` of uploaded bytes
+// | `path` | upload path | default is `hash(…)` of uploaded bytes
 // | `type` | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | default inferred from `x`:
 // \
 // | string                | `text/plain` (UTF-8 encoded)
@@ -14,6 +14,7 @@ const _cloud = _item('$id')
 // returns upload path as specified or computed (via hash)
 async function upload(x, options = undefined) {
   let { path, type, force = false, cache = true } = options ?? {}
+  if (!cache) delete _cloud.store.cache?.[path] // disable any existing cache
   let bytes
   if (is_string(x)) {
     bytes = encode(x, 'utf8_array')
@@ -38,8 +39,7 @@ async function upload(x, options = undefined) {
   path ??= hash(bytes) // use hash as path
   if (!force) {
     // check local cache
-    if (!cache) delete _cloud.store.cache?.[path] // disable any existing cache
-    else if (_cloud.store.cache?.[path]?.type == type) {
+    if (_cloud.store.cache?.[path]?.type == type) {
       const cached = _cloud.store.cache[path]
       console.debug(
         `skipping upload for cached ${path} ` +
