@@ -1,15 +1,15 @@
 const _cloud = _item('$id')
 
 // upload `x`
+// | **option**  | | **default**
 // | `path`  | upload path | `hash(…)` of uploaded bytes
-// | `type`  | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x`
+// | `type`  | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x` (see below)
 // | `force` | force upload?  | `false` | `true` replaces remote & cached value
 // | `cache` | cache locally? | `true`  | `false` deletes any cached value
-// \
-// | string                | `text/plain` <font style="font-size:80%">(UTF-8 encoded)</font>
-// | JSON value type       | `application/json` <font style="font-size:80%">(JSON-stringified, UTF-8 encoded)</font>
-// | `ArrayBuffer` or [views](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) | `application/octet-stream`
-// \
+// default `type` is inferred from `x`:
+// | string        | `text/plain` <font style="font-size:80%">(UTF-8 encoded)</font>
+// | JSON value    | `application/json` <font style="font-size:80%">(JSON-stringified, UTF-8 encoded)</font>
+// | `ArrayBuffer` & [views](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) | `application/octet-stream`
 // JSON value types are plain object, array, number, or boolean
 // returns upload path as specified or computed (via hash)
 async function upload(x, options = undefined) {
@@ -81,8 +81,8 @@ async function upload(x, options = undefined) {
 
 // download from `path`
 // return value depends on [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type
-// | `text/plain`               | string (UTF-8 decoded)
-// | `application/json`         | JSON value (UTF-8 decoded, JSON-parsed)
+// | `text/plain`               | string <font style="font-size:80%">(UTF-8 decoded)</font>
+// | `application/json`         | JSON value <font style="font-size:80%">(UTF-8 decoded, JSON-parsed)</font>
 // | other                      | byte array (`Uint8Array`)
 async function download(path) {
   if (!path) fatal('missing path')
