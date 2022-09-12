@@ -248,6 +248,11 @@ function __render(widget, widget_item) {
       // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on iphones, which we attempt to work around by focusing on the top textarea first
       // document.querySelector('textarea').focus()
       // setTimeout(edit_target)
+      _update_dom().then(() => {
+        const target = document.querySelector('.super-container.target')
+        if (target)
+          document.body.scrollTo(0, target.offsetTop - innerHeight / 4)
+      })
     }
 
     // handle onclick on widget
