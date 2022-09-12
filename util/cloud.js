@@ -1,15 +1,15 @@
 const _cloud = _item('$id')
 
 // upload `x`
-// | `path` | upload path | default is `hash(…)` of uploaded bytes
-// | `type` | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | default inferred from `x`:
+// | `path`  | upload path | `hash(…)` of uploaded bytes
+// | `type`  | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x`
+// | `force` | force upload?  | `false` | `true` replaces remote & cached value
+// | `cache` | cache locally? | `true`  | `false` deletes any cached value
 // \
-// | string                | `text/plain` (UTF-8 encoded)
-// | JSON value type       | `application/json` (JSON-stringified, UTF-8 encoded)
+// | string                | `text/plain` <font style="font-size:80%">(UTF-8 encoded)</font>
+// | JSON value type       | `application/json` <font style="font-size:80%">(JSON-stringified, UTF-8 encoded)</font>
 // | `ArrayBuffer` or [views](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) | `application/octet-stream`
 // \
-// | `force` | force upload?  | default `false` | `true` replaces remote & cached value
-// | `cache` | cache locally? | default `true`  | `false` deletes any cached value
 // JSON value types are plain object, array, number, or boolean
 // returns upload path as specified or computed (via hash)
 async function upload(x, options = undefined) {

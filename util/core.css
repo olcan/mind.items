@@ -27,6 +27,7 @@
 .core_js_table table {
   margin: 5px 0;
   width: fit-content; /* shrink to fit (vs spread across item) */
+  display: block; /* needed for fit-content to work in Chrome (not Safari) */
   line-height: 140%;
 }
 /* space out rows w/ non-empty first column */
