@@ -815,7 +815,7 @@ function js_table(regex) {
     /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\))/gsu
 
   const js_table_regex_arrow =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?:async +)?(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
 
   const js = _this.read('js', {
     keep_empty_lines: true,
