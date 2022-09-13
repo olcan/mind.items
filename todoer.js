@@ -134,7 +134,7 @@ function __render(widget, widget_item) {
 
     // helper function to linkify urls
     const link_urls = text =>
-      text.replace(/(^|\s|\()(https?:\/\/[^\s)<]*)/g, '$1<a>$2</a>')
+      text.replace(/(^|\s|\()(https?:\/\/[^\s)<]+)/g, '$1<a>$2</a>')
 
     // use suffix if looks reasonable, otherwise use prefix truncated on left
     if (text.match(/#todo\s*[\w#]/)) {

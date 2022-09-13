@@ -105,7 +105,7 @@ function _init_log_highlight() {
           },
           // urls (regexp)
           {
-            begin: [/^| |\(/, /https?:\/\/[^\s)<]*/],
+            begin: [/^| |\(/, /https?:\/\/[^\s)<]+/],
             beginScope: { 2: 'tag.link._highlight' },
           },
           // numbers+units (regexp copied from #values)
