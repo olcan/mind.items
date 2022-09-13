@@ -285,16 +285,20 @@ const packable = (f, str) => set(f, '__function', str)
 
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
 // all functions must be _packable_ (see `pack` above)
-function stringify(value) {
+function stringify(value, replacer, space) {
   if (value?.constructor.name == 'ArrayBuffer' || ArrayBuffer.isView(value))
     fatal(
       'stringify does not support ArrayBuffer or views ' +
         '(e.g. Uint8Array), use byte_stringify instead'
     )
-  return JSON.stringify(value, function (k, v) {
-    if (is_function(v)) return pack(v)
-    return v
-  })
+  return JSON.stringify(
+    value,
+    function (k, v) {
+      if (replacer) v = replacer(k, v)
+      return is_function(v) ? pack(v) : v
+    },
+    space
+  )
 }
 
 // [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
