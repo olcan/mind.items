@@ -1,5 +1,13 @@
 .core_js_table {
   margin-top: 5px;
+  /* note: styling unready table causes flicker e.g. when expanding functions */
+  /* opacity: 0.5; */
+  cursor: wait;
+}
+
+.core_js_table.ready {
+  /* opacity: 1; */
+  cursor: auto;
 }
 
 /* style marks (tags) like anchors to avoid confusion since search/highlights not supported yet for macros like js_table */
@@ -108,7 +116,6 @@
 .core_js_table .usage {
   display: inline-block;
   vertical-align: middle;
-  cursor: pointer;
   position: relative;
   padding: 5px; /* important for vertical spacing and filling line-height */
   padding-left: 12px;
@@ -127,6 +134,10 @@
 
   /* round on right side in case background is assigned (e.g. for errors) */
   background: #171717;
+}
+
+.core_js_table.ready .usage {
+  cursor: pointer;
 }
 
 /* reduce .usage max-width based on screen size */
@@ -194,7 +205,8 @@
 
 /* change cursor if function should allow toggle */
 /* this selector should match the condition in onclick handler */
-.core_js_table .function:is(.has_more, .has_defaults, .truncated, .expanded) {
+.core_js_table.ready
+  .function:is(.has_more, .has_defaults, .truncated, .expanded) {
   cursor: pointer;
 }
 

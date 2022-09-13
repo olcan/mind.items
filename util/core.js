@@ -1069,7 +1069,11 @@ function js_table(regex) {
   })
 
   return [
-    _div('core_js_table', lines.join('\n')), // style wrapper, see core.css
+    _div(
+      'core_js_table',
+      lines.join('\n'),
+      `onclick='event.stopPropagation()'`
+    ), // style wrapper, see core.css
     // install click handlers at every render (via uncached script)
     '<script _uncached> _js_table_install_click_handlers() </script>',
   ].join('\n')
@@ -1123,12 +1127,12 @@ function _on_item_change() {
 }
 
 // TODO: refactor these into util/html?
-function _div(class_, content = '') {
-  return `<div class="${class_}">${content}</div>`
+function _div(class_, content = '', attrs = '') {
+  return `<div class="${class_}" ${attrs}>${content}</div>`
 }
 
-function _span(class_, content = '') {
-  return `<span class="${class_}">${content}</span>`
+function _span(class_, content = '', attrs = '') {
+  return `<span class="${class_}" ${attrs}>${content}</span>`
 }
 
 function _js_table_install_click_handlers() {
@@ -1168,6 +1172,12 @@ function _js_table_install_click_handlers() {
       e.preventDefault()
       _js_table_show_function(name)
     }
+  })
+  // wait for dom update, then indicate that tables are ready to handle clicks
+  _update_dom().then(() => {
+    _this.elem.querySelectorAll('.core_js_table').forEach(table => {
+      table.classList.add('ready')
+    })
   })
 }
 
