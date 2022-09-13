@@ -371,7 +371,7 @@ function __render(widget, widget_item) {
         _item(id).delete()
         // log if logger exists
         if (_exists('#logger'))
-          MindBox.create('/log done ' + e.item.textContent.replace(/\s+/g, ' '))
+          MindBox.create('/log done ' + e.item.title.replace(/\s+/g, ' '))
       } else if (e.to == snooze_bin) {
         snooze_bin.firstChild.remove()
         _item(id).global_store._todoer ??= {}
