@@ -427,7 +427,12 @@ function _test_str() {
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
   if (is_array(x)) return x.map(xj => round_to(xj, d, s, mode))
   if (is_object(x)) return map_values(x, v => round_to(v, d, s, mode))
-  if (!is_finite(x)) return x // return non-finite (incl. non-number) as is
+  if (is_string(x)) {
+    // attempt to convert string to (finite) number
+    const num = Number(x)
+    if (isNaN(num)) return x // return non-number as is
+    x = num // continue w/ number
+  } else if (!is_finite(x)) return x // return non-finite (incl. non-number) as is
   if (d == 0 && s == inf) return Math[mode](x) // just use Math.*
   if (is_string(d)) return round_to(x, parseInt(d), s, mode).toFixed(d)
   // determine d automatically if s<inf
@@ -510,7 +515,17 @@ function _test_round_to() {
     () => [round_to(1.2345, 5, 3, 'ceil'), 1.24],
     () => [round_to(1.2345, 5, 3, 'floor'), 1.23],
     () => [round_to(-1.2345, 5, 3, 'ceil'), -1.23],
-    () => [round_to(-1.2345, 5, 3, 'floor'), -1.24]
+    () => [round_to(-1.2345, 5, 3, 'floor'), -1.24],
+
+    // basic tests for invalid type handling
+    () => [round_to(inf), inf],
+    () => [round_to(-inf), -inf],
+    () => [round_to('1.2345f'), '1.2345f'],
+    () => [round_to('1.2345'), 1],
+
+    // basic tests for array and object handling
+    () => [round_to([1.2345, '1.2345', inf]), [1, 1, inf]],
+    () => [round_to({ a: 1.2345, b: '1.2345', c: inf }), { a: 1, b: 1, c: inf }]
   )
 }
 
@@ -764,7 +779,7 @@ function table(cells, options = {}) {
   lines.push(
     '|' +
       array(cells[0].length, k =>
-        is_numeric(cells[0][k].replaceAll(',', '')) ? '-:' : '-'
+        is_numeric(cells[0][k].replace(/[,$\s]/g, '')) ? '-:' : ':-'
       ).join('|') +
       '|'
   )
