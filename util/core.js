@@ -654,11 +654,12 @@ function throws(f, error) {
   try {
     window._testing_throws = true // can be used to disable some logging
     f()
-    window._testing_throws = false
   } catch (e) {
     if (error === undefined) return true
     else if (is_function(error)) return error(e) || e instanceof error
     else return equal(e, error)
+  } finally {
+    window._testing_throws = false
   }
   return false
 }
