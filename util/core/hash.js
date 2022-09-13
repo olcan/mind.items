@@ -99,3 +99,52 @@ function _benchmark_encode_decode() {
 
 // associate benchmark w/ documented functions
 const _benchmark_encode_decode_functions = ['encode', 'decode']
+
+// byte_stringify(buffer|view)
+// convert `ArrayBuffer` or [view](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) to _byte string_
+// _byte strings_ (a.k.a. "binary") encode 8-bit binary numbers using [code points](https://en.wikipedia.org/wiki/Code_point) ≤255
+// in contrast, regular strings in `js` encode [unicode characters](https://en.wikipedia.org/wiki/List_of_Unicode_characters) in [UTF-16](https://en.wikipedia.org/wiki/UTF-16)
+const byte_stringify = window._byte_stringify
+
+function _test_byte_stringify() {
+  const x = new Uint8Array([0, 1, 2, 10, 16, 255])
+  check(
+    () => [encode(byte_stringify(x), 'byte_array'), x],
+    () => [byte_stringify(x), String.fromCharCode(...x)]
+  )
+}
+
+function _benchmark_byte_stringify() {
+  const short = new Uint8Array([0, 1, 2, 10, 16, 255])
+  const long = encode(
+    byte_stringify(new Uint8Array([0, 1, 2, 10, 16, 255])).repeat(100),
+    'byte_array'
+  )
+  benchmark(
+    () => byte_stringify(short),
+    () => String.fromCharCode(...short),
+    () => copy(short, c => String.fromCharCode(c)).join(''),
+    () => byte_stringify(long),
+    () => String.fromCharCode(...long),
+    () => copy(long, c => String.fromCharCode(c)).join('')
+  )
+}
+
+// hex_stringify(buffer|view)
+// convert `ArrayBuffer` or [view](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) to _hex string_
+// each byte is 0-padded to 2 digits, e.g. `[0,255]` → `00ff`
+const hex_stringify = x =>
+  copy(new Uint8Array(x), b => b.toString(16).padStart(2, '0')).join('')
+
+function _test_hex_stringify() {
+  const x = new Uint8Array([1, 2, 10, 16, 255])
+  check(
+    () => [hex_stringify(new Uint8Array([])), ''],
+    () => [hex_stringify(new Uint8Array([0])), '00'],
+    () => [
+      hex_stringify(new Uint8Array([0, 1, 2, 10, 16, 255])),
+      '0001020a10ff',
+    ],
+    () => [hex_stringify(new Uint8Array([256, 257])), '0001']
+  )
+}

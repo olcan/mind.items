@@ -297,18 +297,6 @@ function stringify(value) {
   })
 }
 
-// byte_stringify(buffer|view)
-// convert `ArrayBuffer` or [view](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) to _byte string_
-// _byte strings_ (a.k.a. "binary") encode 8-bit binary numbers using [code points](https://en.wikipedia.org/wiki/Code_point) ≤255
-// in contrast, regular strings in `js` encode [unicode characters](https://en.wikipedia.org/wiki/List_of_Unicode_characters) in [UTF-16](https://en.wikipedia.org/wiki/UTF-16)
-const byte_stringify = window._byte_stringify
-
-// hex_stringify(buffer|view)
-// convert `ArrayBuffer` or [view](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) to _hex string_
-// each byte is 0-padded to 2 digits, e.g. `[0,1,2,10,16,255]` → `0001020a10ff`
-const hex_stringify = x =>
-  copy(new Uint8Array(x), b => b.toString(16).padStart(2, '0')).join('')
-
 // [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
 // all functions must be _packable_ (see `pack` above)
 function parse(text) {
