@@ -285,13 +285,16 @@ const packable = (f, str) => set(f, '__function', str)
 
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
 // all functions must be _packable_ (see `pack` above)
-// does not handle binary strings, unlike `window._stringify`
 function stringify(value) {
   return JSON.stringify(value, function (k, v) {
     if (is_function(v)) return pack(v)
     return v
   })
 }
+
+// convert `ArrayBuffer` or [view](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) to _byte string_
+// _byte strings_ (a.k.a. binary strings) are restricted to code points ≤255
+const byte_stringify = window._byte_stringify
 
 // [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
 // all functions must be _packable_ (see `pack` above)
