@@ -1173,11 +1173,19 @@ function _js_table_install_click_handlers() {
       _js_table_show_function(name)
     }
   })
-  // wait for dom update, then indicate that tables are ready to handle clicks
+  // wait for dom update, then indicate that tables are "ready"
+  // use "almost_ready" class to confirm after dispatch
+  _this.elem.querySelectorAll('.core_js_table').forEach(table => {
+    table.classList.add('almost_ready')
+  })
   _update_dom().then(() => {
-    _this.elem.querySelectorAll('.core_js_table').forEach(table => {
-      table.classList.add('ready')
-    })
+    if (!_this.elem) return // element no longer on page, cancel
+    _this.elem
+      .querySelectorAll('.core_js_table.almost_ready')
+      .forEach(table => {
+        table.classList.remove('almost_ready')
+        table.classList.add('ready')
+      })
   })
 }
 
