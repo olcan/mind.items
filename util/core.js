@@ -293,7 +293,8 @@ function stringify(value) {
 }
 
 // convert `ArrayBuffer` or [view](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) to _byte string_
-// _byte strings_ (a.k.a. binary strings) are restricted to code points ≤255
+// _byte strings_ (a.k.a. "binary") encode 8-bit binary numbers using [code points](https://en.wikipedia.org/wiki/Code_point) ≤255
+// in contrast, regular strings in `js` encode [unicode characters](https://en.wikipedia.org/wiki/List_of_Unicode_characters) in [UTF-16](https://en.wikipedia.org/wiki/UTF-16)
 const byte_stringify = window._byte_stringify
 
 // [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
