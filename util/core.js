@@ -1451,6 +1451,8 @@ function _js_table_show_benchmark(name) {
   )
 }
 
+const fetch_json = (...args) => fetch(...args).then(resp => resp.json())
+
 const command_table = () => js_table(/^_on_command_/)
 
 // wrap `content` in block `type`
