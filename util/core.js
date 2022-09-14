@@ -947,8 +947,7 @@ function js_table(regex) {
       if (def.indent && !def.modified) return
 
       if (!def.comment && def.body && !def.body.startsWith('{')) {
-        // take body as comment, escaping ` and trimming parens
-        if (def.body.match(/^\(.*\)$/s)) def.body = def.body.slice(1, -1)
+        // take body as comment
         def.comment = '`` ' + def.body + ' ``'
         // if body is a lodash function, link to docs
         // note docs are only available for certain versions
@@ -1451,6 +1450,8 @@ function _js_table_show_benchmark(name) {
     )
   )
 }
+
+const fetch_json = async (...args) => (await fetch(...args)).json()
 
 const command_table = () => js_table(/^_on_command_/)
 
