@@ -1535,6 +1535,7 @@ class MindBox {
   static scroll_to_target() {
     _update_dom().then(() => {
       const target = document.querySelector('.super-container.target')
+      if (!target) return // no target (missing or modified during dispatch)
       const header = document.querySelector('.header')
       if (
         target.offsetTop < document.body.scrollTop ||
