@@ -206,15 +206,20 @@ function __render(widget, widget_item) {
       // ignore clicks too close to an item being let go
       if (Date.now() - last_unchoose_time < 250) return
 
-      const source = item.id
-      MindBox.set('id:' + source, { scroll: true })
+      // if clicked item is already target, then edit, otherwise we just target & scroll
+      // if we skip edit, then we still select text in case item is clicked directly to edit
+      const target = document.querySelector('.container.target')
+      const edit = target?.getAttribute('item-id') == item.id
+      text = text.replace(/^[\s…]|[\s…]$/g, '') // trim for selection
+      MindBox.set('id:' + item.id, { scroll: !edit, select: edit ? '' : text })
+      if (!edit) return
 
       // edit item w/ snippet selected
       // code mirrors that in logger.js in mind.items (see comments there)
       const edit_target = () => {
         const target = document.querySelector('.container.target')
         if (!target) return null
-        if (target.getAttribute('item-id') != source) {
+        if (target.getAttribute('item-id') != item.id) {
           console.error('target id mismatch')
           return null
         }
@@ -227,7 +232,6 @@ function __render(widget, widget_item) {
             return
           }
           // trim … and whitespace
-          text = text.replace(/^[\s…]|[\s…]$/g, '')
           const pos = textarea.value.indexOf(text)
           if (pos < 0) console.error('could not find text: ' + text)
           else {
@@ -246,8 +250,8 @@ function __render(widget, widget_item) {
       }
 
       // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on touch devices (esp. iphones), which we attempt to work around by focusing on the top textarea first
-      // if (navigator.maxTouchPoints) document.querySelector('textarea').focus()
-      // setTimeout(edit_target)
+      if (navigator.maxTouchPoints) document.querySelector('textarea').focus()
+      setTimeout(edit_target)
     }
 
     // handle onclick on widget

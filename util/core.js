@@ -1505,6 +1505,8 @@ class MindBox {
     MindBox.elem.dispatchEvent(new Event('input'))
     // scroll to target if requested
     if (options?.scroll) MindBox.scroll_to_target()
+    // select text in target if requested
+    if (options?.select) MindBox.select_in_target(options.select)
   }
   static clear() {
     MindBox.set('')
@@ -1546,6 +1548,17 @@ class MindBox {
           0,
           Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
         )
+    })
+  }
+  // select text in target
+  // waits for dom update in case target is changing, e.g. due to MindBox.set
+  static select_in_target(text) {
+    _update_dom().then(() => {
+      const target = document.querySelector('.container.target')
+      if (!target) return // no target (missing or modified during dispatch)
+      const pos = _item(target.getAttribute('item-id')).text.indexOf(text)
+      if (pos < 0) console.error('could not find text: ' + text)
+      else target.setAttribute('data-selection', `${pos},${pos + text.length}`)
     })
   }
   // MindBox.elem property
