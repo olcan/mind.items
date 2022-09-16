@@ -136,11 +136,23 @@ function __render(widget, widget_item) {
     const link_urls = text =>
       text.replace(/(^|\s|\()(https?:\/\/[^\s)<]+)/g, '$1<a>$2</a>')
 
+    const todo_count = text.match(/#todo\b/g)?.length ?? 0
+    if (todo_count > 1)
+      warn(
+        `found multiple (${todo_count}) #todo tags in item '${item.name}'; ` +
+          `using only first occurrence for snippet`
+      )
+
     // use suffix if looks reasonable, otherwise use prefix truncated on left
     if (text.match(/#todo\s*[\w#]/)) {
       // use suffix, truncate on right
       text = text.replace(/.*?#todo/s, '')
-      text = text.substr(0, 200) + (text.length > 200 ? '…' : '')
+      if (text.length > 200) {
+        // truncate on first whitespace in tail (index > 200)
+        // note we only truncate on whitespace to avoid breaking tags or urls
+        const cutoff = text.substr(200).search(/\s/)
+        if (cutoff >= 0) text = text.substr(0, 200 + cutoff) + ' …'
+      }
       parent.title = '#todo' + _.escape(text) // original whitespace for title
       // const html = '#todo' + _.escape(text)
       const html = '#todo' + _.escape(text.replace(/\s+/g, ' '))
@@ -148,7 +160,12 @@ function __render(widget, widget_item) {
     } else {
       // use prefix, truncate (and align) on left
       text = text.replace(/#todo.*/s, '')
-      text = (text.length > 200 ? '…' : '') + text.substr(-200)
+      if (text.length > 200) {
+        // truncate on _last_ whitespace in head (index < end - 200)
+        // note we only truncate on whitespace to avoid breaking tags or urls
+        const cutoff = text.substr(0, text.length - 200).search(/\s[^\s]*$/)
+        if (cutoff >= 0) text = '… ' + text.substr(cutoff + 1)
+      }
       // use direction=rtl to truncate (and add ellipsis) on the left
       div.style.direction = 'rtl'
       div.style.textAlign = 'right'
@@ -177,12 +194,14 @@ function __render(widget, widget_item) {
 
     // handle clicks and modify styling for non-todo tags
     div.querySelectorAll('mark').forEach(elem => {
-      elem.title = elem.innerText
-      if (elem.innerText.toLowerCase() == '#todo') return
+      let tag = elem.innerText.replace(/#_/, '#')
+      if (item.label) [tag] = _resolve_tags(item.label, [tag])
+      elem.title = tag
+      // if (elem.innerText.toLowerCase() == '#todo') return
       elem.onclick = e => {
         e.stopPropagation()
         e.preventDefault()
-        MindBox.set(elem.innerText.replace(/#_/, '#'), { scroll: true })
+        MindBox.set(tag, { scroll: true })
       }
     })
 
@@ -210,7 +229,7 @@ function __render(widget, widget_item) {
       // if we skip edit, then we still select text in case item is clicked directly to edit
       const target = document.querySelector('.container.target')
       const edit = target?.getAttribute('item-id') == item.id
-      text = text.replace(/^[\s…]|[\s…]$/g, '') // trim for selection
+      text = text.replace(/^[\s…]+|[\s…]+$/g, '') // trim for selection
       MindBox.set('id:' + item.id, { scroll: !edit, select: edit ? '' : text })
       if (!edit) return
 
