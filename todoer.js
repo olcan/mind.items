@@ -151,7 +151,10 @@ function __render(widget, widget_item) {
         // truncate on first whitespace in tail (index > 200)
         // note we only truncate on whitespace to avoid breaking tags or urls
         const cutoff = text.substr(200).search(/\s/)
-        if (cutoff >= 0) text = text.substr(0, 200 + cutoff) + ' …'
+        if (cutoff >= 0) {
+          text = text.substr(0, 200 + cutoff) + ' …'
+          parent.setAttribute('data-truncated', true) // used for done/cancel
+        }
       }
       parent.title = '#todo' + _.escape(text) // original whitespace for title
       // const html = '#todo' + _.escape(text)
@@ -164,7 +167,10 @@ function __render(widget, widget_item) {
         // truncate on _last_ whitespace in head (index < end - 200)
         // note we only truncate on whitespace to avoid breaking tags or urls
         const cutoff = text.substr(0, text.length - 200).search(/\s[^\s]*$/)
-        if (cutoff >= 0) text = '… ' + text.substr(cutoff + 1)
+        if (cutoff >= 0) {
+          text = '… ' + text.substr(cutoff + 1)
+          parent.setAttribute('data-truncated', true) // used for done/cancel
+        }
       }
       // use direction=rtl to truncate (and add ellipsis) on the left
       div.style.direction = 'rtl'
@@ -386,23 +392,30 @@ function __render(widget, widget_item) {
     onEnd: e => {
       // widget.classList.remove('dragging')
       const id = e.item.getAttribute('data-id')
+      const truncated = e.item.getAttribute('data-truncated')
+      const item = _item(id)
       if (e.to == cancel_bin) {
         cancel_bin.firstChild.remove()
-        _item(id).delete()
+        if (!truncated) item.delete()
+        else item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
+        // log if logger exists
+        if (_exists('#logger'))
+          MindBox.create('/log cancelled ' + e.item.title.replace(/\s+/g, ' '))
       } else if (e.to == done_bin) {
         done_bin.firstChild.remove()
-        _item(id).delete()
+        if (!truncated) item.delete()
+        else item.write(item.text.replace(/#todo\b/g, '#done'), '')
         // log if logger exists
         if (_exists('#logger'))
           MindBox.create('/log done ' + e.item.title.replace(/\s+/g, ' '))
       } else if (e.to == snooze_bin) {
         snooze_bin.firstChild.remove()
-        _item(id).global_store._todoer ??= {}
+        item.global_store._todoer ??= {}
         if (snoozed) {
-          _item(id).global_store._todoer.snoozed = 0 // unsnooze
-          _item(id).global_store._todoer.unsnoozed = Date.now()
+          item.global_store._todoer.snoozed = 0 // unsnooze
+          item.global_store._todoer.unsnoozed = Date.now()
         } else {
-          // _item(id).global_store._todoer.snoozed = Date.now() + 5 * 1000
+          // item.global_store._todoer.snoozed = Date.now() + 5 * 1000
           _todoer.store._snooze_modal = _modal(
             _todoer
               .read('html_snooze_modal')
@@ -423,7 +436,7 @@ function __render(widget, widget_item) {
           _todoer.store._snooze_modal.then(snooze_time => {
             if (!is_number(snooze_time))
               list.insertBefore(e.item, list.children[e.oldIndex])
-            else _item(id).global_store._todoer.snoozed = snooze_time
+            else item.global_store._todoer.snoozed = snooze_time
           })
           _update_dom().then(() => {
             document.querySelector('.snooze-modal input').value =
