@@ -201,7 +201,7 @@ function __render(widget, widget_item) {
     // handle clicks and modify styling for non-todo tags
     div.querySelectorAll('mark').forEach(elem => {
       let tag = elem.innerText.replace(/#_/, '#')
-      if (item.label) [tag] = _resolve_tags(item.label, [tag])
+      if (item.label) tag = _resolve_tag(item.label, tag) ?? tag
       elem.title = tag
       // if (elem.innerText.toLowerCase() == '#todo') return
       elem.onclick = e => {
