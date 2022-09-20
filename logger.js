@@ -219,7 +219,8 @@ function _init() {
       const edit_target = () => {
         const target = document.querySelector('.container.target')
         if (!target) return null
-        if (_item(target.getAttribute('item-id')).label != source) return null // target mismatch
+        if (_item(target.getAttribute('data-item-id')).label != source)
+          return null // target mismatch
         target.dispatchEvent(new Event('mousedown'))
         target.dispatchEvent(new Event('click'))
         setTimeout(() => {

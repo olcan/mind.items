@@ -1556,7 +1556,7 @@ class MindBox {
     _update_dom().then(() => {
       const target = document.querySelector('.container.target')
       if (!target) return // no target (missing or modified during dispatch)
-      const pos = _item(target.getAttribute('item-id')).text.indexOf(text)
+      const pos = _item(target.getAttribute('data-item-id')).text.indexOf(text)
       if (pos < 0) console.error('could not find text: ' + text)
       else target.setAttribute('data-selection', `${pos},${pos + text.length}`)
     })

@@ -234,7 +234,7 @@ function __render(widget, widget_item) {
       // if clicked item is already target, then edit, otherwise we just target & scroll
       // if we skip edit, then we still select text in case item is clicked directly to edit
       const target = document.querySelector('.container.target')
-      const edit = target?.getAttribute('item-id') == item.id
+      const edit = target?.getAttribute('data-item-id') == item.id
       text = text.replace(/^[\s…]+|[\s…]+$/g, '') // trim for selection
       MindBox.set('id:' + item.id, { scroll: !edit, select: edit ? '' : text })
       if (!edit) return
@@ -244,7 +244,7 @@ function __render(widget, widget_item) {
       const edit_target = () => {
         const target = document.querySelector('.container.target')
         if (!target) return null
-        if (target.getAttribute('item-id') != item.id) {
+        if (target.getAttribute('data-item-id') != item.id) {
           console.error('target id mismatch')
           return null
         }
