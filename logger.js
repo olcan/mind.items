@@ -369,11 +369,11 @@ function event_log_items() {
 // sorted by decreasing length, then alphabetically
 // cached on `#logger` under key `log_keywords`
 const event_log_keywords = () =>
-  _logger.cached('log_keywords', () => _.uniq(_logger._global_store.keywords))
+  _logger.cached('log_keywords', () => uniq(_logger._global_store.keywords))
 
 function _event_log_keywords_for_regex() {
   return _logger.cached('log_keywords_for_regex', () => {
-    const keywords = _.uniq(_logger._global_store.keywords)
+    const keywords = uniq(_logger._global_store.keywords)
     keywords.sort((a, b) => b.length - a.length || b.localeCompare(a))
     return keywords.join('|')
   })
@@ -535,7 +535,7 @@ function parse_numbers(text) {
     /(?:^|[\s;])([a-zA-Z\s\$,'’"“”|]*)\s*([<>]?=?)\s*([+-]?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+)))\s*(p|pts?|points?|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|c|cals?|calories?|lbs?|pounds?|kgs?|kilos?|kilograms?|\$|dollars?|usd)?(?=[\s,;\.:]|$)/g
   let values = Array.from(text.matchAll(regex), m => {
     let [match, name, comparison, number, unit] = m
-    name = _.trim(name, ' ,') // trim spaces|commas around name
+    name = trim(name, ' ,') // trim spaces|commas around name
     if (name.endsWith('$')) {
       // allow $ unit as prefix
       name = name.substring(0, -1)
@@ -576,8 +576,8 @@ function parse_numbers(text) {
   })
   // aggregate values by unit (for unnamed non-comparison values)
   values = values.reduce((a, v) => {
-    if (v.name || v.comparison || v.unit != _.last(a)?.unit) a.push(v)
-    else if (a.length > 0) _.last(a).number += v.number
+    if (v.name || v.comparison || v.unit != last(a)?.unit) a.push(v)
+    else if (a.length > 0) last(a).number += v.number
     return a
   }, [])
   // inherit missing names from prior named value
