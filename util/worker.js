@@ -93,7 +93,6 @@ function _pre_init_js(options) {
             case 'remove':
             case 'delete':
             case 'write_log':
-            case 'write_log_any':
             case 'show_logs':
             case 'touch':
             case 'save':
