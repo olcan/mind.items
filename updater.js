@@ -155,7 +155,7 @@ function _on_global_store_change(id, remote) {
   if (!item.name.startsWith('#')) return // not a named item
   // if item is pending update, check for remote update
   let { modified_ids, pending_updates } = _this.store
-  if (!pending_updates[id]) return // not pending any updates
+  if (!pending_updates?.[id]) return // not pending any updates
   // if last update in global store contains pending update, cancel locally
   const last_update = item.global_store._updater?.last_update
   if (values(last_update).includes(pending_updates[id])) {
