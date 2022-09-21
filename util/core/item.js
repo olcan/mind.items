@@ -85,8 +85,9 @@ const __delete = (...args) => _this.delete(...args)
 
 // get_log({…})
 // log messages for item
-// |`source` | string   | `self*`, `any`, item `#name` or id
+// |`source` | string   | `self`, `any`, item `#name` or id
 // |         |          | append `?` to include unknown (empty stack)
+// |         |          | _default_: `self?` (from self or unknown sources)
 // |`level`  | string   | `debug`, `info*`, `log`, `warn`, `error`
 // |`since`  | string   | `run*`, `eval`, or ms since epoch
 // |`filter` | function | custom predicate, passed object `{time,level,stack,type,text}`
@@ -99,12 +100,6 @@ const get_log = (...args) => _this.get_log(...args)
 // | `type` | output block type, default `'_log'`
 // | ...    | options for `get_log` and `write`
 const write_log = (...args) => _this.write_log(...args)
-
-// write_log_any({…})
-// writes _all_ log messages into item
-// uses `source='any'` by default
-// other options same as `write_log`
-const write_log_any = (...args) => _this.write_log_any(...args)
 
 // show_logs([t=15000])
 // show logs (`_log` block) in item
@@ -123,7 +118,7 @@ const save = (...args) => _this.save(...args)
 // start(async_func)
 // starts [async](https://mindbox.io/#features/_async) evaluation in context of item
 // returns promise that resolves `async_func()`
-// writes logs into item via `write_log_any`
+// writes logs into item via `write_log`
 // takes log options via `_this.log_options`
 // invokes `invalidate_elem_cache` on error
 // updates `_this.running` property
