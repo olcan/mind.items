@@ -89,7 +89,7 @@ const __delete = (...args) => _this.delete(...args)
 // |         |          | append `?` to include unknown (empty stack)
 // |         |          | _default_: `self?` (from self or unknown sources)
 // |`level`  | string   | `debug`, `info*`, `log`, `warn`, `error`
-// |`since`  | string   | `run*`, `eval`, or ms since epoch
+// |`since`  | string   | `eval*`, `run`, or ms since epoch
 // |`filter` | function | custom predicate, passed object `{time,level,stack,type,text}`
 // |         |          | `*` indicates defaults
 const get_log = (...args) => _this.get_log(...args)
