@@ -79,6 +79,7 @@ const pick_by = _.pickBy
 const omit = _.omit
 const omit_by = _.omitBy
 const trim = _.trim
+const truncate = _.truncate
 const size = _.size
 
 const uniq = _.uniq
