@@ -522,9 +522,7 @@ function _on_snooze_input_change() {
 function _snooze_tomorrow() {
   const date = new Date()
   date.setDate(date.getDate() + 1)
-  date.setHours(8)
-  date.setMinutes(0)
-  date.setSeconds(0)
+  date.setHours(8, 0, 0, 0)
   return date
 }
 function _snooze_weekend() {
@@ -532,9 +530,7 @@ function _snooze_weekend() {
   do {
     date.setDate(date.getDate() + 1)
   } while (date.getDay() != 6)
-  date.setHours(8)
-  date.setMinutes(0)
-  date.setSeconds(0)
+  date.setHours(8, 0, 0, 0)
   return date
 }
 function _snooze_next_week() {
@@ -542,9 +538,7 @@ function _snooze_next_week() {
   do {
     date.setDate(date.getDate() + 1)
   } while (date.getDay() != 1)
-  date.setHours(8)
-  date.setMinutes(0)
-  date.setSeconds(0)
+  date.setHours(8, 0, 0, 0)
   return date
 }
 
