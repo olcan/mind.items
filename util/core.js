@@ -101,10 +101,29 @@ const map_values = _.mapValues
 
 // default-numeric in-place sort/rank functions
 
-const sort = (xJ, f = (a, b) => a - b) => xJ.sort(f)
-const sort_by = (xJ, f = x => x) => xJ.sort((a, b) => f(a) - f(b))
-const rank = (xJ, f = (a, b) => a - b) => xJ.sort((a, b) => f(b, a))
-const rank_by = (xJ, f = x => x) => xJ.sort((a, b) => f(b) - f(a))
+const sort = (xJ, ...fJ) => xJ.sort(_f_sort(fJ))
+const sort_by = (xJ, ...fJ) => xJ.sort(_f_sort_by(fJ))
+const rank = (xJ, ...fJ) => xJ.sort(_f_rank(fJ))
+const rank_by = (xJ, ...fJ) => xJ.sort(_f_rank_by(fJ))
+
+function _f_sort(fJ) {
+  if (fJ.length == 0) return (a, b) => a - b
+  if (fJ.length == 1) return fJ[0]
+  return (a, b) => {
+    for (const f of fJ) {
+      const d = f(a, b)
+      if (d) return d
+    }
+    return 0
+  }
+}
+const _f_sort_by = fJ => _f_sort(fJ.map(f => (a, b) => f(a) - f(b)))
+
+function _f_rank(fJ) {
+  const f = _f_sort(fJ)
+  return (a, b) => f(b, a)
+}
+const _f_rank_by = fJ => _f_rank(fJ.map(f => (a, b) => f(a) - f(b)))
 
 // other useful comparator functions
 
