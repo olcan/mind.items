@@ -234,7 +234,8 @@ const save_local_store = (...args) => _this.save_local_store(...args)
 // saves `_this.global_store` to firebase
 const save_global_store = (...args) => _this.save_global_store(...args)
 
-// => invalidate_elem_cache ([force_render=false])
+// => invalidate_elem_cache ([force_render=false],[delay=1000])
 // invalidates element cache for item
 // can force rendering w/o change in `_this.deephash`
+// delayed to prevent accidental tight render ⇄ trigger loops
 const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
