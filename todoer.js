@@ -144,7 +144,7 @@ function __render(widget, widget_item) {
       text // tag regex from util.js in mind.page repo
     ) =>
       text.replace(
-        /(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)(?=\)|\s|$)/g,
+        /(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)/g,
         '$1<mark>$2</mark>'
       )
 
