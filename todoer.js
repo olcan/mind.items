@@ -98,6 +98,25 @@ function __render(widget, widget_item) {
     // record if we have unsnoozed items to trigger a sort & save below
     if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
+    // read text and determine todo tag positions
+    let text = item.read()
+    let todo_offsets = []
+    _replace_tags(text, '(?:^|\\s|\\()#todo(?=\\)|\\s|$)', (m, offset) =>
+      todo_offsets.push(offset)
+    )
+    if (todo_offsets.length == 0) {
+      error(`could not locate #todo tag in todo item '${item.name}'`)
+      continue // skip item w/o #todo tag
+    }
+    if (todo_offsets.length > 1) {
+      warn(
+        `found multiple (${todo_offsets.length}) #todo tags in ` +
+          `item '${item.name}'; using only first occurrence for snippet`
+      )
+    }
+    let todo_offset = todo_offsets[0]
+    while (text[todo_offset] != '#') todo_offset++ // skip leading delimiter
+
     widget_item.store._todoer.items.add(item.id)
     const div = document.createElement('div')
     const parent = document.createElement('div')
@@ -120,33 +139,23 @@ function __render(widget, widget_item) {
       ) // try every 250ms until saved
     }
 
-    // read text from todo item
-    let text = item.read()
-
     // helper function to tagify hashtags
     const mark_tags = (
       text // tag regex from util.js in mind.page repo
     ) =>
       text.replace(
-        /(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)/g,
+        /(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)(?=\)|\s|$)/g,
         '$1<mark>$2</mark>'
       )
 
     // helper function to linkify urls
     const link_urls = text =>
-      text.replace(/(^|\s|\()(https?:\/\/[^\s)<]+)/g, '$1<a>$2</a>')
-
-    const todo_count = text.match(/#todo\b/g)?.length ?? 0
-    if (todo_count > 1)
-      warn(
-        `found multiple (${todo_count}) #todo tags in item '${item.name}'; ` +
-          `using only first occurrence for snippet`
-      )
+      text.replace(/(^|\s|\()(https?:\/\/[^\s)<]+)(?=\)|\s|$)/g, '$1<a>$2</a>')
 
     // use suffix if looks reasonable, otherwise use prefix truncated on left
-    if (text.match(/#todo\s*[\w#]/)) {
+    if (text.substring(todo_offset + 5).match(/^\s*[\w#]/)) {
       // use suffix, truncate on right
-      text = text.replace(/.*?#todo/s, '')
+      text = text.substring(todo_offset + 5)
       if (text.length > 200) {
         // truncate on first whitespace in tail (index > 200)
         // note we only truncate on whitespace to avoid breaking tags or urls
@@ -162,7 +171,7 @@ function __render(widget, widget_item) {
       div.innerHTML = link_urls(mark_tags(html))
     } else {
       // use prefix, truncate (and align) on left
-      text = text.replace(/#todo.*/s, '')
+      text = text.substring(0, todo_offset)
       if (text.length > 200) {
         // truncate on _last_ whitespace in head (index < end - 200)
         // note we only truncate on whitespace to avoid breaking tags or urls
