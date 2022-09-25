@@ -100,12 +100,12 @@ function _init_log_highlight() {
           },
           // #tags (regexp copied from util.js in mind.page repo)
           {
-            begin: [/^|\s|\(/, /#[^#\s<>&,.;:!"'`(){}\[\]]+(?=\)|\s|$)/],
+            begin: [/^|\s|\(/, /#[^#\s<>&,.;:!"'`(){}\[\]]+/],
             beginScope: { 2: 'tag.hashtag._highlight' },
           },
           // urls (regexp)
           {
-            begin: [/^|\s|\(/, /https?:\/\/[^\s)<]+(?=\)|\s|$)/],
+            begin: [/^|\s|\(/, /https?:\/\/[^\s)<]+/],
             beginScope: { 2: 'tag.link._highlight' },
           },
           // numbers+units (regexp copied from #values)

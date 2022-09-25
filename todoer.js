@@ -101,7 +101,7 @@ function __render(widget, widget_item) {
     // read text and determine todo tag positions
     let text = item.read()
     let todo_offsets = []
-    _replace_tags(text, '(?:^|\\s|\\()#todo(?=\\)|\\s|$)', (m, offset) =>
+    _replace_tags(text, '(?:^|\\s|\\()#todo\b', (m, offset) =>
       todo_offsets.push(offset)
     )
     if (todo_offsets.length == 0) {
@@ -150,7 +150,7 @@ function __render(widget, widget_item) {
 
     // helper function to linkify urls
     const link_urls = text =>
-      text.replace(/(^|\s|\()(https?:\/\/[^\s)<]+)(?=\)|\s|$)/g, '$1<a>$2</a>')
+      text.replace(/(^|\s|\()(https?:\/\/[^\s)<]+)/g, '$1<a>$2</a>')
 
     // use suffix if looks reasonable, otherwise use prefix truncated on left
     if (text.substring(todo_offset + 5).match(/^\s*[\w#]/)) {
