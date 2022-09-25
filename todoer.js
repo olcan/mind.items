@@ -101,7 +101,7 @@ function __render(widget, widget_item) {
     // read text and determine todo tag positions
     let text = item.read()
     let todo_offsets = []
-    _replace_tags(text, '(?:^|\\s|\\()#todo\b', (m, offset) =>
+    _replace_tags(text, '(?:^|\\s|\\()#todo\\b', (m, offset) =>
       todo_offsets.push(offset)
     )
     if (todo_offsets.length == 0) {
