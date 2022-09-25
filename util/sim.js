@@ -884,16 +884,22 @@ const event_date = (t = event_time()) => {
 const _02d = x => (~~x).toString().padStart(2, '0')
 
 // event date string `YYYY/MM/DD`
-const date_string = (d = new Date()) =>
-  d.getFullYear() + '/' + _02d(d.getMonth() + 1) + '/' + _02d(d.getDate())
+// | `drop_year` | drop year prefix `YYYY/`
+// | `drop_current_year` | drop year prefix if current year
+const date_string = (d = new Date(), options = undefined) =>
+  options?.drop_year ||
+  (options?.drop_current_year && d.getFullYear() == new Date().getFullYear())
+    ? _02d(d.getMonth() + 1) + '/' + _02d(d.getDate())
+    : d.getFullYear() + '/' + _02d(d.getMonth() + 1) + '/' + _02d(d.getDate())
 
 // event time string `HH:MM`
 const time_string = (d = new Date()) =>
   _02d(d.getHours()) + ':' + _02d(d.getMinutes())
 
 // event date-time string `YYYY/MM/DD HH:MM`
-const date_time_string = (d = new Date()) =>
-  date_string(d) + ' ' + time_string(d)
+// `options` same as `date_string` (see above)
+const date_time_string = (d = new Date(), options = undefined) =>
+  date_string(d, options) + ' ' + time_string(d)
 
 // parse event date-time `YYYY/MM/DD HH:MM`
 // returns `Date`
