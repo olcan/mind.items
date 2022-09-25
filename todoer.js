@@ -249,47 +249,7 @@ function __render(widget, widget_item) {
       const target = document.querySelector('.container.target')
       const edit = target?.getAttribute('data-item-id') == item.id
       text = text.replace(/^[\s…]+|[\s…]+$/g, '') // trim for selection
-      MindBox.set('id:' + item.id, { scroll: !edit, select: edit ? '' : text })
-      if (!edit) return
-
-      // edit item w/ snippet selected
-      // code mirrors that in logger.js in mind.items (see comments there)
-      const edit_target = () => {
-        const target = document.querySelector('.container.target')
-        if (!target) return null
-        if (target.getAttribute('data-item-id') != item.id) {
-          console.error('target id mismatch')
-          return null
-        }
-        target.dispatchEvent(new Event('mousedown'))
-        target.dispatchEvent(new Event('click'))
-        setTimeout(() => {
-          const textarea = target.querySelector('textarea')
-          if (!textarea) {
-            console.warn('missing textarea in target')
-            return
-          }
-          // trim … and whitespace
-          const pos = textarea.value.indexOf(text)
-          if (pos < 0) console.error('could not find text: ' + text)
-          else {
-            // NOTE: dispatched refocus after blur is more robust on ios
-            textarea.setSelectionRange(0, 0)
-            textarea.blur()
-            textarea.focus()
-            textarea.setSelectionRange(pos, pos + text.length)
-            setTimeout(() => {
-              textarea.focus()
-              textarea.setSelectionRange(pos, pos + text.length)
-            })
-          }
-        })
-        return target
-      }
-
-      // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on touch devices (esp. iphones), which we attempt to work around by focusing on the top textarea first
-      if (navigator.maxTouchPoints) document.querySelector('textarea').focus()
-      setTimeout(edit_target)
+      MindBox.set('id:' + item.id, { scroll: !edit, select: text, edit })
     }
 
     // handle onclick on widget

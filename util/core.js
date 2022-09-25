@@ -1527,6 +1527,8 @@ class MindBox {
     if (options?.scroll) MindBox.scroll_to_target()
     // select text in target if requested
     if (options?.select) MindBox.select_in_target(options.select)
+    // edit target if requested
+    if (options?.edit) MindBox.edit_target()
   }
   static clear() {
     MindBox.set('')
@@ -1579,6 +1581,20 @@ class MindBox {
       const pos = _item(target.getAttribute('data-item-id')).text.indexOf(text)
       if (pos < 0) console.error('could not find text: ' + text)
       else target.setAttribute('data-selection', `${pos},${pos + text.length}`)
+    })
+  }
+  // edit target
+  // waits for dom update in case target is changing, e.g. due to MindBox.set
+  // should also trigger a scroll as needed (so no need to scroll_to_target)
+  static edit_target() {
+    // NOTE: dispatched edit can fail to focus (i.e. bring up keyboard) on touch devices (esp. iphones) without a preceding user interaction, which we can usually work around by focusing on another textarea (mindbox) now (presumably after a user interaction), and using setTimeout (vs _update_dom) to reduce the delay between user interaction and edit
+    if (navigator.maxTouchPoints) MindBox.elem.focus()
+    // _update_dom().then(() => {
+    setTimeout(() => {
+      const target = document.querySelector('.container.target')
+      if (!target) return // no target (missing or modified during dispatch)
+      target.dispatchEvent(new Event('mousedown'))
+      target.dispatchEvent(new Event('click'))
     })
   }
   // MindBox.elem property
