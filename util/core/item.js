@@ -152,6 +152,7 @@ const dispatch = (...args) => _this.dispatch(...args)
 // if `repeat>0`, repeats task every `repeat` ms
 // cancels any existing task under `name`!
 // cancels if `func` throws error or returns `null`
+// cancels (w/o invoking function) if item is deleted
 // function `func` can be async or return promise
 const dispatch_task = (...args) => _this.dispatch_task(...args)
 
