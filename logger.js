@@ -609,7 +609,7 @@ function create_menu_item() {
   item.write_lines(
     `#_menu #_pin/0 [#log](#log) \\`,
     `\<<link_js('MindBox.focus("/log ")','/log')>> \\`,
-    `\<<event_log_widget({style:'margin-left:7px;margin-top:3px'})>>`,
+    `\<<event_log_widget({style:'margin-left:7px;margin-top:5px'})>>`,
     `#_logger`
   )
   MindBox.create('/log hello world!')
