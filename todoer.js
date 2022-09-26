@@ -166,7 +166,7 @@ function __render(widget, widget_item) {
           parent.setAttribute('data-truncated', true) // used for done/cancel
         }
       }
-      parent.title = '#todo' + _.escape(text) // original whitespace for title
+      parent.title = '#todo' + text // original whitespace for title
       // const html = '#todo' + _.escape(text)
       const html = '#todo' + _.escape(text.replace(/\s+/g, ' '))
       div.innerHTML = link_urls(mark_tags(html))
@@ -187,7 +187,7 @@ function __render(widget, widget_item) {
       div.style.textAlign = 'right'
       // div.style.marginLeft = '60px'
       // set title on parent to avoid &lrm in title text
-      parent.title = _.escape(text) + '#todo' // original whitespace for title
+      parent.title = text + '#todo' // original whitespace for title
 
       // clip on Safari since text-overflow:ellipsis truncates wrong end for rtl
       // it only ~works if original whitespace is maintained (by dropping lines)
