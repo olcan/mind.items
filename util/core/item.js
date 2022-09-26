@@ -239,3 +239,9 @@ const save_global_store = (...args) => _this.save_global_store(...args)
 // can force rendering w/o change in `_this.deephash`
 // delayed to prevent accidental tight render ⇄ trigger loops
 const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
+
+// elem([selector])
+const elem = s => (!s ? _this.elem : _this.elem?.querySelector(s))
+
+// elems(selector)
+const elems = s => _this.elem?.querySelectorAll(s)
