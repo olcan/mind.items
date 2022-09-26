@@ -254,12 +254,6 @@ function __render(widget, widget_item) {
         edit ? { edit: text } : { scroll: true, select: text }
       )
     }
-
-    // block clicks on widget (i.e. do not edit item)
-    widget.onclick = e => {
-      e.stopPropagation()
-      e.preventDefault()
-    }
   }
 
   const item_for_elem = e => _item(e.getAttribute('data-id'))

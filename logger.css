@@ -1,5 +1,5 @@
 .item .log .hljs-line {
-  display: inline-block;
+  display: block;
   /* background: #171717; */
   padding: 3px 0;
   padding-right: 10px;
@@ -9,7 +9,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  /* width: fit-content; */
+  width: fit-content;
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -23,15 +23,9 @@
 }
 .item .log {
   overflow: hidden; /* improves look of truncated lines */
-  line-height: 17px;
 }
 .item pre {
-  margin-top: 0;
-}
-/* adjust log padding to equalize apparent padding given font rendering */
-.item pre > .log {
-  padding-bottom: 0;
-  padding-top: 3px;
+  margin-top: 0; /* move margin to inner code.log, which can be hidden */
 }
 .item .log.suggest {
   margin-top: 5px;
