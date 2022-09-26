@@ -1528,7 +1528,8 @@ class MindBox {
     // select text in target if requested
     if (options?.select) MindBox.select_in_target(options.select)
     // edit target if requested
-    if (options?.edit) MindBox.edit_target()
+    if (options?.edit)
+      MindBox.edit_target(typeof options.edit == 'string' ? options.edit : '')
   }
   static clear() {
     MindBox.set('')
@@ -1552,8 +1553,7 @@ class MindBox {
   // scroll to header if necessary
   static scroll_to_header() {
     const header = document.querySelector('.header')
-    if (document.body.scrollTop > header.offsetTop)
-      document.body.scrollTo(0, header.offsetTop)
+    if (document.body.scrollTop > header.offsetTop) _scroll_to(header.offsetTop)
   }
   // scroll to target if necessary
   // waits for dom update in case target is changing, e.g. due to MindBox.set
@@ -1566,8 +1566,7 @@ class MindBox {
         target.offsetTop < document.body.scrollTop ||
         target.offsetTop > document.body.scrollTop + innerHeight - 200
       )
-        document.body.scrollTo(
-          0,
+        _scroll_to(
           Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
         )
     })
@@ -1583,18 +1582,47 @@ class MindBox {
       else target.setAttribute('data-selection', `${pos},${pos + text.length}`)
     })
   }
-  // edit target
+  // edit target & select text (if any given)
   // waits for dom update in case target is changing, e.g. due to MindBox.set
   // should also trigger a scroll as needed (so no need to scroll_to_target)
-  static edit_target() {
-    // NOTE: dispatched edit can fail to focus (i.e. bring up keyboard) on touch devices (esp. iphones) without a preceding user interaction, which we can usually work around by focusing on another textarea (mindbox) now (presumably after a user interaction), and using setTimeout (vs _update_dom) to reduce the delay between user interaction and edit
+  static edit_target(text) {
+    // NOTE: dispatched edit can fail to focus (i.e. bring up keyboard) on touch devices (esp. iphones) without a preceding user interaction, which we can usually work around by focusing on another textarea (mindbox) now (presumably after a user interaction), even if another item is already in focus
     if (navigator.maxTouchPoints) MindBox.elem.focus()
-    // _update_dom().then(() => {
-    setTimeout(() => {
-      const target = document.querySelector('.container.target')
+    _update_dom().then(() => {
+      let target = document.querySelector('.container.target')
       if (!target) return // no target (missing or modified during dispatch)
-      target.dispatchEvent(new Event('mousedown'))
-      target.dispatchEvent(new Event('click'))
+      const textarea = target.querySelector('textarea') // already editing?
+      if (text) {
+        const pos = _item(target.getAttribute('data-item-id')).text.indexOf(
+          text
+        )
+        if (pos < 0) console.error('could not find text: ' + text)
+        else {
+          if (textarea) {
+            textarea.focus()
+            textarea.setSelectionRange(pos, pos + text.length)
+          } else
+            target.setAttribute('data-selection', `${pos},${pos + text.length}`)
+        }
+      }
+      if (textarea) {
+        // already editing, just scroll, but dispatch to allow time to focus (just in case)
+        setTimeout(() => {
+          const header = document.querySelector('.header')
+          target = target.closest('.super-container') // for correct offsetTop
+          if (
+            target.offsetTop < document.body.scrollTop ||
+            target.offsetTop > document.body.scrollTop + innerHeight - 200
+          )
+            _scroll_to(
+              Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
+            )
+        }, 100)
+      } else {
+        // dispatch click to edit
+        target.dispatchEvent(new Event('mousedown'))
+        target.dispatchEvent(new Event('click'))
+      }
     })
   }
   // MindBox.elem property

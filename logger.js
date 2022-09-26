@@ -206,7 +206,8 @@ function _init() {
     }
     if (!source) return // could not determine source
     elem.style.cursor = 'pointer'
-    elem.onclick = e => {
+    // we use onmousedown to prevent change/loss of keyboard focus
+    elem.onmousedown = e => {
       e.stopPropagation()
       e.preventDefault()
       if (source.match(/^http/)) {
@@ -216,42 +217,8 @@ function _init() {
       }
       // edit specific line if clicking on whole line OR date/time prefix
       const edit = text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/)
-      MindBox.set(source, { scroll: !edit }) // just scroll if not editing
-      if (!edit) return
-      const edit_target = () => {
-        const target = document.querySelector('.container.target')
-        if (!target) return null
-        if (_item(target.getAttribute('data-item-id')).label != source)
-          return null // target mismatch
-        target.dispatchEvent(new Event('mousedown'))
-        target.dispatchEvent(new Event('click'))
-        setTimeout(() => {
-          const textarea = target.querySelector('textarea')
-          if (!textarea) {
-            console.warn('missing textarea in target')
-            return
-          }
-          // drop any date prefix from text before searching
-          text = text.replace(/^(?:\d\d\d\d\/)?\d\d\/\d\d /, '')
-          const pos = textarea.value.indexOf(text)
-          if (pos < 0) console.error('could not find text: ' + text)
-          else {
-            // NOTE: dispatched refocus after blur is more robust on ios
-            textarea.setSelectionRange(0, 0)
-            textarea.blur()
-            textarea.focus()
-            textarea.setSelectionRange(pos, pos + text.length)
-            setTimeout(() => {
-              textarea.focus()
-              textarea.setSelectionRange(pos, pos + text.length)
-            })
-          }
-        })
-        return target
-      }
-      // NOTE: immediate edit can fail during/after init and can focus on wrong target, and dispatched edit can fail to focus on touch devices (esp. iphones), which we attempt to work around by focusing on the top textarea first
-      if (navigator.maxTouchPoints) document.querySelector('textarea').focus()
-      setTimeout(edit_target)
+      text = text.replace(/^(?:\d\d\d\d\/)?\d\d\/\d\d /, '') // drop date for selection
+      MindBox.set(source, edit ? { edit: text } : { scroll: true })
     }
   }
 }
