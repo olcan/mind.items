@@ -214,7 +214,7 @@ function __render(widget, widget_item) {
       if (item.label) tag = _resolve_tag(item.label, tag) ?? tag
       elem.title = tag
       // if (elem.innerText.toLowerCase() == '#todo') return
-      elem.onmousedown = e => {
+      elem.onclick = e => {
         e.stopPropagation()
         e.preventDefault()
         MindBox.set(tag, { scroll: true })
@@ -229,7 +229,7 @@ function __render(widget, widget_item) {
       elem.innerText = elem.innerText
         .replace(/(:\/\/.+?)\/(.+)/, '$1/…')
         .replace(/^.*:\/\//, '')
-      elem.onmousedown = e => {
+      elem.onclick = e => {
         e.stopPropagation()
         e.preventDefault()
         window.open(url, '_blank')
@@ -237,7 +237,7 @@ function __render(widget, widget_item) {
     })
 
     // handle click on list item
-    div.onmousedown = e => {
+    div.onclick = e => {
       e.stopPropagation() // do not propagate click to item
       e.preventDefault()
 
@@ -249,11 +249,14 @@ function __render(widget, widget_item) {
       const target = document.querySelector('.container.target')
       const edit = target?.getAttribute('data-item-id') == item.id
       text = text.replace(/^[\s…]+|[\s…]+$/g, '') // trim for selection
-      MindBox.set('id:' + item.id, edit ? { edit: text } : { scroll: true })
+      MindBox.set(
+        'id:' + item.id,
+        edit ? { edit: text } : { scroll: true, select: text }
+      )
     }
 
     // block clicks on widget (i.e. do not edit item)
-    widget.onmousedown = e => {
+    widget.onclick = e => {
       e.stopPropagation()
       e.preventDefault()
     }

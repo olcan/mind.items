@@ -181,8 +181,10 @@ function _init() {
       }
     }
     if (elem.classList.contains('date_time_')) {
+      // NOTE: this is disabled, see .date_time._highlight suffix commented out
       source = sourceFromDateTime(text)
     } else if (elem.classList.contains('type_')) {
+      // NOTE: this is disabled, see .type._highlight suffix commented out
       // attempt lookup of "source item" for keyword in global store
       // TODO: this map was populated automatically in elog_keywords
       // (in #elog/highlight) as it read 'keywords' block from #events/...
@@ -206,8 +208,7 @@ function _init() {
     }
     if (!source) return // could not determine source
     elem.style.cursor = 'pointer'
-    // we use onmousedown to prevent change/loss of keyboard focus
-    elem.onmousedown = e => {
+    elem.onclick = e => {
       e.stopPropagation()
       e.preventDefault()
       if (source.match(/^http/)) {

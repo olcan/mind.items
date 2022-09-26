@@ -1578,8 +1578,15 @@ class MindBox {
       const target = document.querySelector('.container.target')
       if (!target) return // no target (missing or modified during dispatch)
       const pos = _item(target.getAttribute('data-item-id')).text.indexOf(text)
+      const textarea = target.querySelector('textarea') // already editing?
       if (pos < 0) console.error('could not find text: ' + text)
-      else target.setAttribute('data-selection', `${pos},${pos + text.length}`)
+      else {
+        if (textarea) {
+          textarea.focus()
+          textarea.setSelectionRange(pos, pos + text.length)
+        } else
+          target.setAttribute('data-selection', `${pos},${pos + text.length}`)
+      }
     })
   }
   // edit target & select text (if any given)
