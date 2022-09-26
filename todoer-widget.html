@@ -24,7 +24,7 @@
     max-width: 100%;
     min-width: 300px;
     box-sizing: border-box;
-    border: 1px solid transparent;
+    border: 1px dashed transparent;
   }
   #widget .bin {
     flex-basis: 0;
@@ -125,16 +125,16 @@
   #widget.dragging .list-item {
     cursor: grabbing;
   }
-  #widget .sortable-ghost {
+  #widget .list > div.sortable-ghost {
     opacity: 0.5;
     border: 1px dashed #666 !important;
   }
   #widget .bin :is(.sortable-ghost, .list-item) {
     visibility: hidden;
   }
-  #widget :is(.sortable-drag, .sortable-chosen) {
+  #widget .list > div:is(.sortable-drag, .sortable-chosen) {
     background: #171717;
-    border: 1px solid #666 !important;
+    border: 1px solid #666;
     border-radius: 4px;
   }
   #widget.dragging .list > div {
