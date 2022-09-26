@@ -184,7 +184,7 @@ function __render(widget, widget_item) {
       }
       // use direction=rtl to truncate (and add ellipsis) on the left
       div.style.direction = 'rtl'
-      div.style.textAlign = 'right'
+      div.style.textAlign = 'left'
       // div.style.marginLeft = '60px'
       // set title on parent to avoid &lrm in title text
       parent.title = text + '#todo' // original whitespace for title

@@ -22,9 +22,10 @@
   #widget .list > div {
     width: fit-content;
     max-width: 100%;
-    min-width: 300px;
+    min-width: 260px;
     box-sizing: border-box;
     border: 1px dashed transparent;
+    margin-left: -3px;
   }
   #widget .bin {
     flex-basis: 0;
@@ -138,7 +139,7 @@
     border-radius: 4px;
   }
   #widget.dragging .list > div {
-    margin-left: -6px; /* eliminates horizontal shifting of dragged item */
+    margin-left: -9px; /* eliminates horizontal shifting of dragged item */
   }
   #widget .list-item :is(a, mark) {
     direction: ltr;
