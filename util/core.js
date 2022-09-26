@@ -1106,8 +1106,8 @@ function js_table(regex) {
   return [
     _div(
       'core_js_table',
-      lines.join('\n'),
-      `onclick='event.stopPropagation()'`
+      lines.join('\n')
+      // `onclick='event.stopPropagation()'`
     ), // style wrapper, see core.css
     // install click handlers at every render (via uncached script)
     '<script _uncached> _js_table_install_click_handlers() </script>',
