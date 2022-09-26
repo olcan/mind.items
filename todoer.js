@@ -45,6 +45,10 @@ function __render(widget, widget_item) {
     col.remove()
   })
 
+  const list = document.createElement('div')
+  list.className = 'list'
+  widget.appendChild(list)
+
   const done_bin = document.createElement('div')
   done_bin.className = 'done bin'
   widget.appendChild(done_bin)
@@ -52,10 +56,6 @@ function __render(widget, widget_item) {
   const snooze_bin = document.createElement('div')
   snooze_bin.className = 'snooze bin'
   widget.appendChild(snooze_bin)
-
-  const list = document.createElement('div')
-  list.className = 'list'
-  widget.appendChild(list)
 
   const cancel_bin = document.createElement('div')
   cancel_bin.className = 'cancel bin'
