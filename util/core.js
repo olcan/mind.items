@@ -1472,7 +1472,11 @@ function _js_table_show_benchmark(name) {
   )
 }
 
-const fetch_json = (...args) => fetch(...args).then(resp => resp.json())
+const fetch_text = (...args) => fetch(...args).then(r => r.text())
+const fetch_json = (...args) => fetch(...args).then(r => r.json())
+const fetch_blob = (...args) => fetch(...args).then(r => r.blob())
+const fetch_form = (...args) => fetch(...args).then(r => r.formData())
+const fetch_buffer = (...args) => fetch(...args).then(r => r.arrayBuffer())
 
 const command_table = () => js_table(/^_on_command_/)
 
