@@ -118,13 +118,18 @@ function _f_sort(fJ) {
     return 0
   }
 }
-const _f_sort_by = fJ => _f_sort(fJ.map(f => (a, b) => f(a) - f(b)))
-
 function _f_rank(fJ) {
   const f = _f_sort(fJ)
   return (a, b) => f(b, a)
 }
-const _f_rank_by = fJ => _f_rank(fJ.map(f => (a, b) => f(a) - f(b)))
+function _f_sort_by(fJ) {
+  apply(fJ, f => (is_string(f) ? x => x[f] : f))
+  return _f_sort(fJ.map(f => (a, b) => f(a) - f(b)))
+}
+function _f_rank_by(fJ) {
+  apply(fJ, f => (is_string(f) ? x => x[f] : f))
+  return _f_rank(fJ.map(f => (a, b) => f(a) - f(b)))
+}
 
 // other useful comparator functions
 
