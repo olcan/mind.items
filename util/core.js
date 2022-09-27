@@ -99,7 +99,8 @@ const map = _.map
 const map_keys = _.mapKeys
 const map_values = _.mapValues
 
-// default-numeric in-place sort/rank functions
+// numeric in-place sort/rank functions
+// use _.sort or _.sortBy for alphanumeric sort
 
 const sort = (xJ, ...fJ) => xJ.sort(_f_sort(fJ))
 const sort_by = (xJ, ...fJ) => xJ.sort(_f_sort_by(fJ))
