@@ -1483,6 +1483,16 @@ const fetch_json = (...args) => fetch(...args).then(r => r.json())
 const fetch_blob = (...args) => fetch(...args).then(r => r.blob())
 const fetch_form = (...args) => fetch(...args).then(r => r.formData())
 const fetch_buffer = (...args) => fetch(...args).then(r => r.arrayBuffer())
+const fetch_auto = (...args) =>
+  fetch(...args).then(r => {
+    const type = r.headers.get('content-type')
+    if (type.startsWith('application/json')) return r.json()
+    if (type.startsWith('text/')) return r.text()
+    if (type.startsWith('image/')) return r.blob()
+    if (type.startsWith('application/x-www-form-urlencoded'))
+      return r.formData()
+    return r.arrayBuffer()
+  })
 
 const command_table = () => js_table(/^_on_command_/)
 
