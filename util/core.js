@@ -1486,6 +1486,7 @@ const fetch_buffer = (...args) => fetch(...args).then(r => r.arrayBuffer())
 const fetch_auto = (...args) =>
   fetch(...args).then(r => {
     const type = r.headers.get('content-type')
+    if (!type) return r.arrayBuffer()
     if (type.startsWith('application/json')) return r.json()
     if (type.startsWith('text/')) return r.text()
     if (type.startsWith('image/')) return r.blob()
