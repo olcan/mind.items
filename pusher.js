@@ -3,6 +3,8 @@ function _on_welcome() {
 }
 
 async function init_pusher() {
+  _this.store.items = {} // init first, in case there are errors below
+
   // look up push destination from global store, or from user prompt
   // if destination is missing, cancel init (i.e. disable) with warning
   const dest =
@@ -88,9 +90,8 @@ async function init_pusher() {
     `retrieved tree (${path_sha.size} nodes) in ${Date.now() - start}ms`
   )
 
-  // initialize store.items
+  // init (fill) store.items
   start = Date.now()
-  _this.store.items = {}
   let pushed_items_found = false
   for (let item of _items()) {
     if (!item.saved_id) {
@@ -209,7 +210,6 @@ function decodeBase64(str) {
 // pushes item to github
 function push_item(item, manual = false) {
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
-  if (!_this.store.items) throw new Error('can not push yet')
   if (!_this.store.github) throw new Error('missing github client')
   if (!_this.global_store.dest) throw new Error('missing destination')
   if (!_this.global_store.commit_sha) throw new Error('missing commit')
