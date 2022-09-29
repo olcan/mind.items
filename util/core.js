@@ -1504,10 +1504,10 @@ const block = (type, content) => '```' + type + '\n' + content + '\n```'
 // sets up `js` as `onmousedown` handler
 const link_js = (js, text = js, classes = '', style = '', title = js) =>
   `<a href="#" onmousedown="` +
-  js.replace(/"/g, "'") +
+  _.escape(js) +
   `;event.preventDefault();event.stopPropagation()" ` +
   `onclick="event.preventDefault();event.stopPropagation()" ` +
-  `class="${classes}" style="${style}" title="${title}">${text}</a>`
+  `class="${classes}" style="${style}" title="${_.escape(title)}">${text}</a>`
 // NOTE: using onmousedown + cancelled onclick maintains keyboard focus and is generally more robust, especially on mobile devices w/ virtual keyboards
 
 // link to eval `js` in context of `item`
