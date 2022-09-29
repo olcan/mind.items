@@ -234,10 +234,11 @@ const save_local_store = (...args) => _this.save_local_store(...args)
 // saves `_this.global_store` to firebase
 const save_global_store = (...args) => _this.save_global_store(...args)
 
-// => invalidate_elem_cache ([force_render=false],[delay=1000])
+// invalidate_elem_cache({…})
 // invalidates element cache for item
-// can force rendering w/o change in `_this.deephash`
-// delayed to prevent accidental tight render ⇄ trigger loops
+// can force rendering, delayed to help avoid tight render ⇄ trigger loops
+// | `force_render` | `false` | force rendering of item
+// | `render_delay` | `1000`  | render delay (ms)
 const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
 
 // elem([selector])

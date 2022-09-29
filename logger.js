@@ -456,7 +456,7 @@ function _invalidate_highlights() {
       log.closest('.logger-widget')
     )
     if (widget_only) _render_logger_widget(item)
-    else item.invalidate_elem_cache(true)
+    else item.invalidate_elem_cache({ force_render: true })
   })
 }
 

@@ -541,7 +541,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   each(_this.dependents, dep => {
     const item = _item(dep)
     if (is_todo_item || item.store._todoer?.items?.has(id)) {
-      // item.invalidate_elem_cache(true /* force render */)
+      // item.invalidate_elem_cache({ force_render:true })
       item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
         _render_todoer_widget(widget, item)
       })
