@@ -1593,10 +1593,13 @@ class MindBox {
       const header = document.querySelector('.header')
       if (
         target.offsetTop < document.body.scrollTop ||
-        target.offsetTop > document.body.scrollTop + innerHeight - 200
+        target.offsetTop > document.body.scrollTop + visualViewport.height - 200
       )
         _scroll_to(
-          Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
+          Math.max(
+            header.offsetTop,
+            target.offsetTop - visualViewport.height / 4
+          )
         )
     })
   }
@@ -1648,10 +1651,14 @@ class MindBox {
           target = target.closest('.super-container') // for correct offsetTop
           if (
             target.offsetTop < document.body.scrollTop ||
-            target.offsetTop > document.body.scrollTop + innerHeight - 200
+            target.offsetTop >
+              document.body.scrollTop + visualViewport.height - 200
           )
             _scroll_to(
-              Math.max(header.offsetTop, target.offsetTop - innerHeight / 4)
+              Math.max(
+                header.offsetTop,
+                target.offsetTop - visualViewport.height / 4
+              )
             )
         }, 100)
       } else {
