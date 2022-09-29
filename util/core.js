@@ -1502,21 +1502,22 @@ const block = (type, content) => '```' + type + '\n' + content + '\n```'
 
 // link html (`<a>…</a>`) to eval `js`
 // sets up `js` as `onmousedown` handler
-const link_js = (js, text = js, classes = '', style = '') =>
+const link_js = (js, text = js, classes = '', style = '', title = js) =>
   `<a href="#" onmousedown="` +
   js.replace(/"/g, "'") +
   `;event.preventDefault();event.stopPropagation()" ` +
   `onclick="event.preventDefault();event.stopPropagation()" ` +
-  `class="${classes}" style="${style}">${text}</a>`
+  `class="${classes}" style="${style}" title="${title}">${text}</a>`
 // NOTE: using onmousedown + cancelled onclick maintains keyboard focus and is generally more robust, especially on mobile devices w/ virtual keyboards
 
 // link to eval `js` in context of `item`
-const link_eval = (item, js, text = js, classes = '', style = '') =>
+const link_eval = (item, js, text = js, classes = '', style = '', title = js) =>
   link_js(
     `_item('${item.id}')` + '.eval(`' + js.replace(/([`\\$])/g, '\\$1') + '`)',
     text,
     classes,
-    style
+    style,
+    title
   )
 // NOTE: mouse 'event' is still available in context of eval
 
@@ -1526,9 +1527,16 @@ const link_command = (
   text = cmd,
   options = '',
   classes = '',
-  style = ''
+  style = '',
+  title = cmd
 ) =>
-  link_js(`MindBox.create(\`${command}\`,{${options}})`, text, classes, style)
+  link_js(
+    `MindBox.create(\`${command}\`,{${options}})`,
+    text,
+    classes,
+    style,
+    title
+  )
 
 // MindBox static class/object
 class MindBox {
