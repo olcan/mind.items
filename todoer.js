@@ -242,7 +242,12 @@ function __render(widget, widget_item) {
       e.preventDefault()
 
       // ignore clicks too close to an item being let go
-      if (Date.now() - last_unchoose_time < 250) return
+      // except when the item was also just grabbed, in which case the click should be handled
+      if (
+        Date.now() - last_unchoose_time < 250 &&
+        Date.now() - last_choose_time > 250
+      )
+        return
 
       // if clicked item is already target, then edit, otherwise we just target & scroll
       // if we skip edit, then we still select text in case item is clicked directly to edit
@@ -275,6 +280,7 @@ function __render(widget, widget_item) {
 
   // track unchoose (i.e. "ungrab") time to ignore click events too close to it
   // NOTE: this requires positive "delay" option (including non-touch devices)
+  let last_choose_time = 0
   let last_unchoose_time = 0
   let chosen = false // also track chosen state to ignore unchoose-only events
 
@@ -284,9 +290,10 @@ function __render(widget, widget_item) {
   list.sortable = Sortable.create(list, {
     group: widget.id,
     sort: !snoozed, // no reordering for snoozed list
-    // animation: 150,
-    delay: navigator.maxTouchPoints > 0 ? 250 : 150, // faster on non-touch
-    // delayOnTouchOnly: true,
+    animation: 150,
+    delay: 250,
+    // delay: navigator.maxTouchPoints > 0 ? 250 : 150, // faster on non-touch
+    delayOnTouchOnly: true,
     // touchStartThreshold: 5,
     emptyInsertThreshold: 5, // min margin between lists to prevent flicker
     store: snoozed
@@ -348,6 +355,7 @@ function __render(widget, widget_item) {
     forceFallback: true, // fixes dragging behavior, see https://github.com/SortableJS/Sortable/issues/246#issuecomment-526443179
     onChoose: () => {
       chosen = true
+      last_choose_time = Date.now()
       widget.classList.add('dragging')
     },
     onStart: () => {
