@@ -99,7 +99,7 @@ function __render(widget, widget_item) {
     if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
     // read text and determine todo tag positions
-    let text = item.read()
+    let text = item.read('', { keep_empty_lines: true })
     let todo_offsets = []
     // note trailing delimiter is added automatically by _replace_tags
     _replace_tags(text, '(?:^|\\s|\\()#todo', (m, offset) =>
@@ -245,7 +245,7 @@ function __render(widget, widget_item) {
       // except when the item was also just grabbed, in which case the click should be handled
       if (
         Date.now() - last_unchoose_time < 250 &&
-        Date.now() - last_choose_time > 250
+        Date.now() - last_choose_time > 500
       )
         return
 
