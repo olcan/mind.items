@@ -156,7 +156,7 @@ function __render(widget, widget_item) {
     // use suffix if looks reasonable, otherwise use prefix truncated on left
     if (text.substring(todo_offset + 5).match(/^\s*[\w#]/)) {
       // use suffix, truncate on right
-      text = text.substring(todo_offset + 5)
+      text = text.substring(todo_offset)
       if (text.length > 200) {
         // truncate on first whitespace in tail (index > 200)
         // note we only truncate on whitespace to avoid breaking tags or urls
@@ -166,13 +166,12 @@ function __render(widget, widget_item) {
           parent.setAttribute('data-truncated', true) // used for done/cancel
         }
       }
-      parent.title = '#todo' + text // original whitespace for title
-      // const html = '#todo' + _.escape(text)
-      const html = '#todo' + _.escape(text.replace(/\s+/g, ' '))
+      parent.title = text // original whitespace for title
+      const html = _.escape(text.replace(/\s+/g, ' '))
       div.innerHTML = link_urls(mark_tags(html))
     } else {
       // use prefix, truncate (and align) on left
-      text = text.substring(0, todo_offset)
+      text = text.substring(0, todo_offset + 5)
       if (text.length > 200) {
         // truncate on _last_ whitespace in head (index < end - 200)
         // note we only truncate on whitespace to avoid breaking tags or urls
@@ -187,7 +186,7 @@ function __render(widget, widget_item) {
       div.style.textAlign = 'left'
       // div.style.marginLeft = '60px'
       // set title on parent to avoid &lrm in title text
-      parent.title = text + '#todo' // original whitespace for title
+      parent.title = text // original whitespace for title
 
       // clip on Safari since text-overflow:ellipsis truncates wrong end for rtl
       // it only ~works if original whitespace is maintained (by dropping lines)
@@ -195,8 +194,7 @@ function __render(widget, widget_item) {
       if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
         div.style.textOverflow = 'clip'
 
-      // const html = _.escape(text) + '#todo'
-      const html = _.escape(text.replace(/\s+/g, ' ')) + '#todo'
+      const html = _.escape(text.replace(/\s+/g, ' '))
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
       div.innerHTML = '&lrm;' + link_urls(mark_tags(html))
@@ -446,6 +444,14 @@ function __render(widget, widget_item) {
   cancel_bin.sortable = Sortable.create(cancel_bin, {
     group: widget.id,
   })
+
+  widget.onclick = e => {
+    // ignore clicks on background (widget) too close to an item being let go
+    if (Date.now() - last_unchoose_time < 250) {
+      e.stopPropagation()
+      e.preventDefault()
+    }
+  }
 }
 
 Date.prototype.toInputValue = function () {
