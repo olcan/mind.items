@@ -39,7 +39,7 @@
   }
   #widget.dragging .list {
     width: 70%;
-    margin: 0 6px; /* >5px prevents flickering while dragging across */
+    margin-right: 5px; /* >= 5px prevents flickering while dragging across */
   }
   #widget.dragging .bin {
     max-width: 100%;
@@ -107,7 +107,7 @@
     );
   }
   #widget.dragging .bin.snooze {
-    margin: 0 6px; /* >5px prevents flickering while dragging across */
+    margin: 0 10px; /* >= 10px prevents flickering while dragging across */
   }
 
   #widget .list-item {
@@ -139,7 +139,7 @@
     border-radius: 4px;
   }
   #widget.dragging .list > div {
-    margin-left: -9px; /* eliminates horizontal shifting of dragged item */
+    margin-left: -3px; /* eliminates horizontal shifting of dragged item */
   }
   #widget .list-item :is(a, mark) {
     direction: ltr;

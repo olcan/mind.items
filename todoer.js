@@ -293,7 +293,6 @@ function __render(widget, widget_item) {
     // delay: navigator.maxTouchPoints > 0 ? 250 : 150, // faster on non-touch
     delayOnTouchOnly: true,
     // touchStartThreshold: 5,
-    emptyInsertThreshold: 5, // min margin between lists to prevent flicker
     store: snoozed
       ? null /* disabled for snooze list */
       : {
