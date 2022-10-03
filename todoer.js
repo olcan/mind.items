@@ -583,6 +583,12 @@ function _on_welcome() {
     1000
   ) // run now and every 1s
 
+  import_twitter()
+  import_gmail()
+}
+
+function import_twitter() {
+  // TODO: set up periodic (60s) import task, allowing fast-track via webhooks!
   // TODO: track last update time globally? would require periodic reads/writes on firestore and does not solve sync issue
   // TODO: track focus state? problem is, multiple windows can be focused, and defocus may not always be detected
   // TODO: we could do #updater's auto-updating prompt method, but it can get annoying and is complicated to implement
@@ -593,4 +599,9 @@ function _on_welcome() {
   //       cancel if lock time changed, i.e. lock acquired by another instance
   //       cancel if still saving global store (confirm saving after write)
   //       cancel if has been >30s since lock (unexpected delay)
+  // TODO: also need mechanism to store/extract keys, which can be in a `json` block in a nested #/twitter item, and import should be disabled if this item does not exist or if the json block is missing or invalid
+}
+
+function import_gmail() {
+  // TODO: set up periodic (60s) import task, allowing fast-track via webhooks!
 }
