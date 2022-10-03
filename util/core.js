@@ -314,10 +314,7 @@ const packable = (f, str) => set(f, '__function', str)
 // all functions must be _packable_ (see `pack` above)
 function stringify(value, replacer, space) {
   if (value?.constructor.name == 'ArrayBuffer' || ArrayBuffer.isView(value))
-    fatal(
-      'stringify does not support ArrayBuffer or views ' +
-        '(e.g. Uint8Array), use byte_stringify instead'
-    )
+    return str(value) + ` (${value.byteLength} bytes)`
   return JSON.stringify(
     value,
     function (k, v) {
@@ -400,17 +397,18 @@ function str(x) {
 }
 
 function _str_object(x) {
-  // _.entries uses .entries() for maps
-  return (
-    (x.constructor.name != 'Object'
-      ? `[${typeof x} ${x.constructor.name}] `
-      : '') +
-    '{ ' +
+  return [
+    x.constructor.name != 'Object' ? `[${typeof x} ${x.constructor.name}]` : '',
+    '{',
+    // _.entries uses .entries() for maps
     _.entries(x)
       .map(([k, v]) => `${k}:${str(v)}`)
-      .join(' ') +
-    ' }'
-  )
+      .join(' '),
+    '}',
+  ]
+    .join(' ')
+    .replace('{  }', '')
+    .trim()
 }
 
 function _test_str() {
