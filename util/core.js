@@ -1485,8 +1485,10 @@ const fetch_form = (...args) => fetch(...args).then(r => r.formData())
 const fetch_buffer = (...args) => fetch(...args).then(r => r.arrayBuffer())
 const fetch_auto = (...args) =>
   fetch(...args).then(r => {
+    const length = r.headers.get('content-length')
+    if (!length) return undefined // empty or missing body
     const type = r.headers.get('content-type')
-    if (!type) return r.arrayBuffer()
+    if (!type) return `(${length} bytes of unknown type in response)`
     if (type.startsWith('application/json')) return r.json()
     if (type.startsWith('text/')) return r.text()
     if (type.startsWith('image/')) return r.blob()
