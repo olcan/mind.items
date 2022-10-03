@@ -138,10 +138,19 @@ const compare_locale = (a, b, ...args) => a.localeCompare(b, ...args)
 
 const sorted_index = _.sortedIndex
 const sorted_index_by = _.sortedIndexBy
+const sorted_index_of = _.sortedIndexOf
 const sorted_last_index = _.sortedLastIndex
 const sorted_last_index_by = _.sortedLastIndexBy
+const sorted_last_index_of = _.sortedLastIndexOf
+const index_of = _.indexOf
+const last_index_of = _.lastIndexOf
+const includes = _.includes
+const find = _.find
+const find_last = _.findLast
 const find_index = _.findIndex
 const find_last_index = _.findLastIndex
+const find_key = _.findKey
+const find_last_key = _.findLastKey
 
 const lower = x => x.toLowerCase()
 const upper = x => x.toUpperCase()
