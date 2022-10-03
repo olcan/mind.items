@@ -582,4 +582,15 @@ function _on_welcome() {
     0,
     1000
   ) // run now and every 1s
+
+  // TODO: track last update time globally? would require periodic reads/writes on firestore and does not solve sync issue
+  // TODO: track focus state? problem is, multiple windows can be focused, and defocus may not always be detected
+  // TODO: we could do #updater's auto-updating prompt method, but it can get annoying and is complicated to implement
+  // TODO: a time-based "lock" seems relatively simple ...
+  //       check lock (time)
+  //       consider still locked if has been <60s since lock (can be by self)
+  //       acquire lock by writing time to global store, then confirm after 15s:
+  //       cancel if lock time changed, i.e. lock acquired by another instance
+  //       cancel if still saving global store (confirm saving after write)
+  //       cancel if has been >30s since lock (unexpected delay)
 }
