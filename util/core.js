@@ -1486,7 +1486,7 @@ const fetch_auto = (...args) =>
     const length = r.headers.get('content-length')
     if (!length) return undefined // empty or missing body
     const type = r.headers.get('content-type')
-    if (!type) return `(${length} bytes of unknown type in response)`
+    if (!type) return r.arrayBuffer() // unknown type, return as buffer
     if (type.startsWith('application/json')) return r.json()
     if (type.startsWith('text/')) return r.text()
     if (type.startsWith('image/')) return r.blob()
