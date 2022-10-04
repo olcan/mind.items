@@ -151,6 +151,7 @@ const find_index = _.findIndex
 const find_last_index = _.findLastIndex
 const find_key = _.findKey
 const find_last_key = _.findLastKey
+const filter = _.filter
 
 const lower = x => x.toLowerCase()
 const upper = x => x.toUpperCase()
