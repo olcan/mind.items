@@ -487,6 +487,12 @@ function _snooze_time(label) {
       return Date.now() + 3 * 60 * 60 * 1000
     case '6h':
       return Date.now() + 6 * 60 * 60 * 1000
+    case '1d':
+      return Date.now() + 24 * 60 * 60 * 1000
+    case '7d':
+      return Date.now() + 7 * 24 * 60 * 60 * 1000
+    case '28d':
+      return Date.now() + 28 * 24 * 60 * 60 * 1000
     case 'tomorrow':
       return _snooze_tomorrow().getTime()
     case 'weekend':
