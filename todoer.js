@@ -150,8 +150,21 @@ function __render(widget, widget_item) {
       )
 
     // helper function to linkify urls
+    // we use _replace_tags to exclude code blocks, html tags, etc
+    // we apply after link_markdown_links so they are excluded (as html tags)
     const link_urls = text =>
-      text.replace(/(^|\s|\()(https?:\/\/[^\s)<]+)/g, '$1<a>$2</a>')
+      _replace_tags(
+        text,
+        /(^|\s|\()(https?:\/\/[^\s)<:]*[^\s)<:;,.])/g,
+        (m, pfx, url) => `${pfx}<a>${url}</a>`
+      )
+
+    // helper function to linkify markdown links
+    const link_markdown_links = text =>
+      text.replace(
+        /\[\s*(.*?)\s*\]\(\s*(.*?)\s*\)/g,
+        (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`
+      )
 
     // use suffix if looks reasonable, otherwise use prefix truncated on left
     if (text.substring(todo_offset + 5).match(/^\s*[\w#]/)) {
@@ -168,7 +181,7 @@ function __render(widget, widget_item) {
       }
       parent.title = text // original whitespace for title
       const html = _.escape(text.replace(/\s+/g, ' '))
-      div.innerHTML = link_urls(mark_tags(html))
+      div.innerHTML = link_urls(link_markdown_links(mark_tags(html)))
     } else {
       // use prefix, truncate (and align) on left
       text = text.substring(0, todo_offset + 5)
@@ -197,7 +210,7 @@ function __render(widget, widget_item) {
       const html = _.escape(text.replace(/\s+/g, ' '))
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
-      div.innerHTML = '&lrm;' + link_urls(mark_tags(html))
+      div.innerHTML = '&lrm;' + link_urls(link_markdown_links(mark_tags(html)))
     }
 
     if (snoozed)
@@ -221,12 +234,14 @@ function __render(widget, widget_item) {
 
     // handle clicks on urls
     div.querySelectorAll('a').forEach(elem => {
-      elem.title = elem.innerText
-      const url = elem.innerText
-      // trim out protocol & path/query/fragment
-      elem.innerText = elem.innerText
-        .replace(/(:\/\/.+?)\/(.+)/, '$1/…')
-        .replace(/^.*:\/\//, '')
+      const url = _.unescape(elem.href) || elem.innerText
+      elem.title ||= url // default title is url
+      elem.removeAttribute('href') // will handle via onclick
+      // simplify naked url links by trimming out protocol & path/query/fragment
+      if (elem.innerText == url)
+        elem.innerText = url
+          .replace(/(:\/\/.+?)\/(.+)/, '$1/…')
+          .replace(/^.*:\/\//, '')
       elem.onclick = e => {
         e.stopPropagation()
         e.preventDefault()
