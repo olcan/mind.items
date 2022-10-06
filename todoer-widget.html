@@ -19,12 +19,13 @@
     box-sizing: border-box;
     /* transition: width 0.1s ease-out; */
   }
-  #widget .list > div {
+  #widget .list > .list-item-container {
     width: fit-content;
     max-width: 100%;
     min-width: 260px;
     box-sizing: border-box;
     border: 1px dashed transparent;
+    border-radius: 4px;
     margin-left: -3px;
   }
   #widget .bin {
@@ -126,19 +127,21 @@
   #widget.dragging .list-item {
     cursor: grabbing;
   }
-  #widget .list > div.sortable-ghost {
+  #widget .list > .list-item-container.sortable-ghost {
     opacity: 0.5;
     border: 1px dashed #666 !important;
   }
   #widget .bin :is(.sortable-ghost, .list-item) {
     visibility: hidden;
   }
-  #widget .list > div:is(.sortable-drag, .sortable-chosen) {
+  #widget .list > .list-item-container:is(.sortable-drag, .sortable-chosen) {
     background: #171717;
     border: 1px solid #666;
-    border-radius: 4px;
   }
-  #widget.dragging .list > div {
+  #widget .list > .list-item-container.selected {
+    border: 1px solid #242;
+  }
+  #widget.dragging .list > .list-item-container {
     margin-left: -3px; /* eliminates horizontal shifting of dragged item */
   }
   #widget .list-item :is(a, mark) {

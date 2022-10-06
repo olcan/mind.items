@@ -120,11 +120,14 @@ function __render(widget, widget_item) {
 
     widget_item.store._todoer.items.add(item.id)
     const div = document.createElement('div')
-    const parent = document.createElement('div')
-    list.appendChild(parent)
-    parent.appendChild(div)
-    parent.setAttribute('data-id', item.id) // used for saving below
     div.className = 'list-item'
+    const container = document.createElement('div')
+    container.className = 'list-item-container'
+    if (MindBox.get().trim() == 'id:' + item.id)
+      container.classList.add('selected')
+    list.appendChild(container)
+    container.appendChild(div)
+    container.setAttribute('data-id', item.id) // used for saving below
     if (!item.saved_id) {
       div.style.opacity = 0.5 // indicate unsaved state
       dispatch_task(
@@ -176,10 +179,10 @@ function __render(widget, widget_item) {
         const cutoff = text.substr(200).search(/\s/)
         if (cutoff >= 0) {
           text = text.substr(0, 200 + cutoff) + ' …'
-          parent.setAttribute('data-truncated', true) // used for done/cancel
+          container.setAttribute('data-truncated', true) // used for done/cancel
         }
       }
-      parent.title = text // original whitespace for title
+      container.title = text // original whitespace for title
       const html = _.escape(text.replace(/\s+/g, ' '))
       div.innerHTML = link_urls(link_markdown_links(mark_tags(html)))
     } else {
@@ -191,15 +194,15 @@ function __render(widget, widget_item) {
         const cutoff = text.substr(0, text.length - 200).search(/\s[^\s]*$/)
         if (cutoff >= 0) {
           text = '… ' + text.substr(cutoff + 1)
-          parent.setAttribute('data-truncated', true) // used for done/cancel
+          container.setAttribute('data-truncated', true) // used for done/cancel
         }
       }
       // use direction=rtl to truncate (and add ellipsis) on the left
       div.style.direction = 'rtl'
       div.style.textAlign = 'left'
       // div.style.marginLeft = '60px'
-      // set title on parent to avoid &lrm in title text
-      parent.title = text // original whitespace for title
+      // set title on container to avoid &lrm in title text
+      container.title = text // original whitespace for title
 
       // clip on Safari since text-overflow:ellipsis truncates wrong end for rtl
       // it only ~works if original whitespace is maintained (by dropping lines)
@@ -214,10 +217,10 @@ function __render(widget, widget_item) {
     }
 
     if (snoozed)
-      parent.title =
+      container.title =
         new Date(item._global_store._todoer.snoozed).toLocaleString() +
         '\n' +
-        parent.title
+        container.title
 
     // handle clicks and modify styling for non-todo tags
     div.querySelectorAll('mark').forEach(elem => {
@@ -570,7 +573,6 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   each(_this.dependents, dep => {
     const item = _item(dep)
     if (is_todo_item || item.store._todoer?.items?.has(id)) {
-      // item.invalidate_elem_cache({ force_render:true })
       item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
         _render_todoer_widget(widget, item)
       })
@@ -582,6 +584,28 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
 function _on_global_store_change(id, remote) {
   const item = _item(id, false) // can be null if item deleted
   if (item?.tags.includes('#todo')) _on_item_change(id)
+}
+
+// detect changes to search query, specifically for id:<todo_item_id>
+function _on_search(text) {
+  const target_item = _item(text.trim(), false) // null if text does not match item
+  const is_todo_item = target_item?.tags.includes('#todo')
+  if (
+    !is_todo_item &&
+    !document.querySelector('.todoer-widget .list-item-container.selected')
+  )
+    return
+  each(_this.dependents, dep => {
+    const item = _item(dep)
+    if (
+      item.store._todoer?.items?.has(target_item?.id) ||
+      item.elem?.querySelector('.list-item-container.selected')
+    ) {
+      item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
+        _render_todoer_widget(widget, item)
+      })
+    }
+  })
 }
 
 // start unsnooze task on welcome
