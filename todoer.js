@@ -559,7 +559,7 @@ function _render_todoer_widget(widget, item = _this) {
 // create pinned item w/ widget
 function create_pinned_item() {
   const item = _create()
-  item.write_lines(`#_pin/1 `, `\<<todoer_widget()>>`, `#_todoer`)
+  item.write_lines(`#_pin `, `\<<todoer_widget()>>`, `#_todoer`)
 }
 
 // => /todo [text]

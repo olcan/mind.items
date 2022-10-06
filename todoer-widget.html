@@ -19,6 +19,10 @@
     box-sizing: border-box;
     /* transition: width 0.1s ease-out; */
   }
+  #widget .list:empty:before {
+    content: 'All done for now. Enjoy your day!';
+    color: #444;
+  }
   #widget .list > .list-item-container {
     width: fit-content;
     max-width: 100%;
