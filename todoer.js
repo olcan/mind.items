@@ -368,10 +368,10 @@ function __render(widget, widget_item) {
     onChoose: () => {
       chosen = true
       last_choose_time = Date.now()
-      widget.classList.add('dragging')
+      // widget.classList.add('dragging')
     },
     onStart: () => {
-      // widget.classList.add('dragging')
+      widget.classList.add('dragging')
     },
     onUnchoose: () => {
       // note on a regular click, onUnchoose is called w/o onChoose (may be bug)
@@ -459,13 +459,14 @@ function __render(widget, widget_item) {
     group: widget.id,
   })
 
-  widget.onclick = e => {
-    // ignore clicks on background (widget) too close to an item being let go
-    if (Date.now() - last_unchoose_time < 250) {
-      e.stopPropagation()
-      e.preventDefault()
-    }
-  }
+  // NOTE: this is no longer needed w/ 'dragging' class moved to onStart instead of onChoose, preventing the list item div from being shrunk under the cursor prematurely, sending clicks to the widget instead
+  // widget.onclick = e => {
+  //   // ignore clicks on background (widget) too close to an item being let go
+  //   if (Date.now() - last_unchoose_time < 250) {
+  //     e.stopPropagation()
+  //     e.preventDefault()
+  //   }
+  // }
 }
 
 Date.prototype.toInputValue = function () {
