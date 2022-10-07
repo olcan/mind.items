@@ -214,7 +214,7 @@ function _init() {
     elem.onclick = e => {
       e.stopPropagation()
       e.preventDefault()
-      if (source.match(/^http/)) {
+      if (elem.classList.contains('link_')) {
         // open link in new tab
         window.open(source, '_blank')
         return
