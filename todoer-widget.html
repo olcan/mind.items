@@ -20,8 +20,13 @@
     /* transition: width 0.1s ease-out; */
   }
   #widget .list:empty:before {
-    content: 'Nothing #todo for now. Enjoy your day!';
+    content: 'Enjoy zero #todo for now!';
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 80%;
     color: #444;
+  }
+  #widget .list:empty {
+    text-align: center;
   }
   #widget .list > .list-item-container {
     width: fit-content;
