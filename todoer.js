@@ -152,13 +152,13 @@ function __render(widget, widget_item) {
         '$1<mark>$2</mark>'
       )
 
-    // helper function to linkify urls
+    // helper function to linkify urls (regex from util.js in mind.page repo)
     // we use _replace_tags to exclude code blocks, html tags, etc
     // we apply after link_markdown_links so they are excluded (as html tags)
     const link_urls = text =>
       _replace_tags(
         text,
-        /(^|\s|\()(https?:\/\/[^\s)<:]*[^\s)<:;,.])/g,
+        /(^|\s|\()([a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)</]+\/?[^\s)<:]*[^\s)<:;,.])/g,
         (m, pfx, url) => `${pfx}<a>${url}</a>`
       )
 
