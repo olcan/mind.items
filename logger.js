@@ -104,10 +104,11 @@ function _init_log_highlight() {
             beginScope: { 2: 'tag.hashtag._highlight' },
           },
           // urls (regexp from util.js in mind.page repo)
+          // note we allow < in the url because we do not expect html or html-escaped entities in log blocks
           {
             begin: [
               /^|\s|\(/,
-              /[a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)</]+\/?[^\s)<:]*[^\s)<:;,.]/,
+              /[a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)/]+\/?[^\s):]*[^\s):;,.]/,
             ],
             beginScope: { 2: 'tag.link._highlight' },
           },
@@ -216,7 +217,7 @@ function _init() {
       e.preventDefault()
       if (elem.classList.contains('link_')) {
         // open link in new tab
-        window.open(source, '_blank')
+        window.open(encodeURI(source), '_blank')
         return
       }
       // edit specific line if clicking on whole line OR date/time prefix

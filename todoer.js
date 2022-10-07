@@ -158,7 +158,7 @@ function __render(widget, widget_item) {
     const link_urls = text =>
       _replace_tags(
         text,
-        /(^|\s|\()([a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)</]+\/?[^\s)<:]*[^\s)<:;,.])/g,
+        /(^|\s|\()([a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)</]+\/?[^\s)<:]*[^\s)<:,.])/g,
         (m, pfx, url) => `${pfx}<a>${url}</a>`
       )
 
