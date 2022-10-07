@@ -24,6 +24,10 @@
 .item .log {
   overflow: hidden; /* improves look of truncated lines */
 }
+.item .log a {
+  font-size: 100%;
+  font-weight: 300;
+}
 .item pre {
   margin-top: 0; /* move margin to inner code.log, which can be hidden */
 }

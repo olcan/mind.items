@@ -212,14 +212,22 @@ function _init() {
     }
     if (!source) return // could not determine source
     elem.style.cursor = 'pointer'
+    if (elem.classList.contains('link_')) {
+      // note setting href/target on <a> ausually works better than window.open
+      // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
+      const link = document.createElement('a')
+      Object.assign(link, {
+        href: source,
+        target: '_blank',
+        ..._.pick(elem, ['className', 'title', 'innerHTML']),
+      })
+      elem.replaceWith(link)
+      link.onclick = e => e.stopPropagation()
+      return
+    }
     elem.onclick = e => {
       e.stopPropagation()
       e.preventDefault()
-      if (elem.classList.contains('link_')) {
-        // open link in new tab
-        window.open(encodeURI(source), '_blank')
-        return
-      }
       // edit specific line if clicking on whole line OR date/time prefix
       const edit = text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/)
       text = text.replace(/^(?:\d\d\d\d\/)?\d\d\/\d\d /, '') // drop date for selection

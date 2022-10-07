@@ -237,21 +237,18 @@ function __render(widget, widget_item) {
 
     // handle clicks on urls
     div.querySelectorAll('a').forEach(elem => {
-      // note safari (unlike chrome) requires an extra decode/encode for certain characters, e.g. <> around message id for message:// urls
-      const url =
-        encodeURI(_.unescape(decodeURIComponent(elem.href))) || elem.innerText
+      const url = elem.href || elem.innerText
       elem.title ||= url // default title is url
-      elem.removeAttribute('href') // will handle via onclick
       // simplify naked url links by trimming out protocol & path/query/fragment
       if (elem.innerText == url)
         elem.innerText = url
           .replace(/(:\/\/.+?)\/(.+)/, '$1/…')
           .replace(/^.*:\/\//, '')
-      elem.onclick = e => {
-        e.stopPropagation()
-        e.preventDefault()
-        window.open(url, '_blank')
-      }
+      // note setting href/target on <a> ausually works better than window.open
+      // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
+      elem.href = url
+      elem.target = '_blank'
+      elem.onclick = e => e.stopPropagation()
     })
 
     // handle click on list item
