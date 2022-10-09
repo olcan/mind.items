@@ -344,6 +344,7 @@ function __render(widget, widget_item) {
 
                 // store saved_ids under storage_key & filter all ids using _exists
                 const gs = widget_item._global_store // saved manually below
+                gs._todoer ??= {}
                 gs._todoer[storage_key] = saved_ids.join()
                 gs._todoer = map_values(gs._todoer, v =>
                   v.split(',').filter(_exists).join()
@@ -404,8 +405,7 @@ function __render(widget, widget_item) {
         snooze_bin.firstChild.remove()
         item.global_store._todoer ??= {}
         if (snoozed) {
-          item.global_store._todoer.snoozed = 0 // unsnooze
-          item.global_store._todoer.unsnoozed = Date.now()
+          _unsnooze(item)
         } else {
           // item.global_store._todoer.snoozed = Date.now() + 5 * 1000
           _todoer.store._snooze_modal = _modal(
@@ -546,6 +546,14 @@ function _snooze_next_week() {
   return date
 }
 
+// unsnooze todo item
+function _unsnooze(item) {
+  merge(item.global_store._todoer, { snoozed: 0, unsnoozed: Date.now() })
+  // invoke unsnooze listeners for each unsnoozed todo item
+  // listeners must register on object item('#todoer').store.on_unsnooze
+  each(values(_todoer.store.on_unsnooze), f => f(item))
+}
+
 // render widget in item
 function _render_todoer_widget(widget, item = _this) {
   const url = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js'
@@ -621,7 +629,7 @@ function _on_welcome() {
       each(_items(), item => {
         const snoozed = item._global_store._todoer?.snoozed
         if (!snoozed || Date.now() < snoozed) return
-        merge(item.global_store._todoer, { snoozed: 0, unsnoozed: Date.now() })
+        _unsnooze(item)
       })
     },
     0,
