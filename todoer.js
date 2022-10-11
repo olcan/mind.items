@@ -629,6 +629,7 @@ function _on_welcome() {
   _this.dispatch_task(
     'unsnooze',
     () => {
+      if (!_primary) return
       each(_items(), item => {
         const snoozed = item._global_store._todoer?.snoozed
         if (snoozed && Date.now() >= snoozed) _unsnooze(item)
