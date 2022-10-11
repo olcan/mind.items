@@ -104,13 +104,19 @@ function _init_log_highlight() {
             beginScope: { 2: 'tag.hashtag._highlight' },
           },
           // urls (regexp from util.js in mind.page repo)
-          // note we allow < in the url because we do not expect html or html-escaped entities in log blocks
+          // note we allow < in the url because we do not expect html
+          // we also disallow ; as we do not expect html-escaped/encoded entities
           {
             begin: [
               /^|\s|\(/,
               /[a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)/]+\/?[^\s):]*[^\s):;,.]/,
             ],
-            beginScope: { 2: 'tag.link._highlight' },
+            beginScope: { 2: 'tag.url._highlight' },
+          },
+          // links (regexp from Editor.svelte in mind.page repo)
+          {
+            scope: 'tag.link._highlight',
+            match: /\[(?:[^\]]|\\\])*[^\\]\]\((?:[^\)]|\\\))*[^\\)]\)/,
           },
           // numbers+units (regexp copied from #values)
           // we exclude name and comparison and allow $ in place of +/-
@@ -194,16 +200,20 @@ function _init() {
       // (in #elog/highlight) as it read 'keywords' block from #events/...
       source = _logger._global_store.keyword_items?.[text]
     } else if (elem.classList.contains('hashtag_')) {
-      source = text
-      elem.title = elem.innerText
-    } else if (elem.classList.contains('link_')) {
-      source = text
-      // set url as title (tooltip)
-      elem.title = elem.innerText
+      source = elem.title = text
+    } else if (elem.classList.contains('url_')) {
+      source = elem.title = text
       // trim out protocol & path/query/fragment
-      elem.innerText = elem.innerText
+      elem.textContent = text
         .replace(/(:\/\/.+?)\/(.+)/, '$1/…')
         .replace(/^.*:\/\//, '')
+    } else if (elem.classList.contains('link_')) {
+      // parse markdown link, note text_source could be hashtag or url or other
+      const [_, label, text_source] = text.match(
+        /^\[((?:[^\]]|\\\])*[^\\])\]\(((?:[^\)]|\\\))*[^\\)])\)$/
+      )
+      source = elem.title = text_source.trim()
+      elem.textContent = label
     } else if (elem.classList.contains('line_')) {
       // look for date/time prefix in log line
       if (text.match(/^(?:\d\d\d\d\/)?(?:\d\d\/\d\d )?\d\d:\d\d/))
@@ -212,9 +222,10 @@ function _init() {
     }
     if (!source) return // could not determine source
     elem.style.cursor = 'pointer'
-    if (elem.classList.contains('link_')) {
-      // note setting href/target on <a> ausually works better than window.open
-      // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
+    // handle url sources by transforming span into an anchor element
+    // note href/target on anchor ausually works better than window.open
+    // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
+    if (source.match(/^[a-z](?:[-a-z0-9\+\.])*:\/\//i)) {
       const link = document.createElement('a')
       Object.assign(link, {
         href: source,
