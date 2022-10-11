@@ -426,7 +426,10 @@ function __render(widget, widget_item) {
             }
           )
           _todoer.store._snooze_modal.then(snooze_time => {
-            if (!is_number(snooze_time))
+            if (
+              !is_number(snooze_time)
+              // || !confirm(`Snooze to ${new Date(snooze_time)}?`)
+            )
               list.insertBefore(e.item, list.children[e.oldIndex])
             else item.global_store._todoer.snoozed = snooze_time
           })
@@ -628,11 +631,10 @@ function _on_welcome() {
     () => {
       each(_items(), item => {
         const snoozed = item._global_store._todoer?.snoozed
-        if (!snoozed || Date.now() < snoozed) return
-        _unsnooze(item)
+        if (snoozed && Date.now() >= snoozed) _unsnooze(item)
       })
     },
     0,
-    1000
-  ) // run now and every 1s
+    60 * 1000
+  ) // run now and every minute
 }
