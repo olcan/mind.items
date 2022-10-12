@@ -230,8 +230,11 @@ function _init() {
       Object.assign(link, {
         href: source,
         target: '_blank',
-        ..._.pick(elem, ['className', 'title', 'innerHTML']),
+        ..._.pick(elem, ['title', 'innerHTML']),
       })
+      link.className = Array.from(elem.classList)
+        .filter(c => !c.startsWith('_highlight'))
+        .join(' ') // drop _highlight_* classes
       elem.replaceWith(link)
       link.onclick = e => e.stopPropagation()
       return
