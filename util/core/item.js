@@ -31,10 +31,11 @@ const __eval = (...args) => _this.eval(...args)
 // | `include_deps`         | `false` | include dependencies
 // | `exclude_async_deps`   | `false` | exclude async dependencies
 // | `exclude_async`        | `false` | also exclude self if async
+// | `eval_macros`          | `false` | evaluate `\<<macros>>`
+// | `replace_ids`          | `false` | replace `$id` (w/ item.id)
 // | `remove_empty_lines`   | `false` | remove empty lines
 // | `remove_comment_lines` | `false` | remove comment lines (`js` only)
 // | `remove_tests_and_benchmarks` | `false` | remove tests & benchmarks (`js` only)
-// | `replace_ids`          | `false` | replace `$id` w/ item ids
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,{…})
