@@ -99,7 +99,7 @@ function __render(widget, widget_item) {
     if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
     // read text and determine todo tag positions
-    let text = item.read('', { keep_empty_lines: true })
+    let text = item.read()
     let todo_offsets = []
     // note trailing delimiter is added automatically by _replace_tags
     _replace_tags(text, '(?:^|\\s|\\()#todo', (m, offset) =>

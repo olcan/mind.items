@@ -8,14 +8,19 @@ const _Item = typeof _this != 'undefined' ? _this.constructor : null
 // => item.eval(code,{…})
 // evaluates `code` in context of `item`
 // _invoke on item; can't be aliased for `_this`_
-// forwards options to `read` for prefix code
-// | `code`  | string  | | code to evaluate
-// | `type`  | string  | `js` | prefix code block type
-// | `async` | bool | `false` | async mode
+// | `code`           | string  | | code to evaluate
+// | `type`           | string  | `js` | prefix code block type
+// | `async`          | bool | `false` | async mode
 // | `async_simple`   | bool | `false` | async w/o `start(…)` wrapper
 // | `debug`          | bool | `false` | eval w/o any wrappers
 // | `exclude_prefix` | bool | `false` | eval w/o prefix code
 // | `trigger`        | string  | `other` | eval trigger name
+// forwards options to `read` for code prefix w/ modified defaults:
+// | `exclude_async_deps`          | `!async`,
+// | `replace_ids`                 | `true`
+// | `remove_empty_lines`          | `true`
+// | `remove_comment_lines`        | `true`
+// | `remove_tests_and_benchmarks` | `true`
 const __eval = (...args) => _this.eval(...args)
 
 // read([type],{…})
@@ -23,14 +28,13 @@ const __eval = (...args) => _this.eval(...args)
 // `type` can indicate block(s) to read, e.g. `js`
 // `type` can be regex, e.g. `js|js_tests?`
 //  blocks matching `type` are concentenated
-// | `include_deps`       | bool | include dependencies
-// | `exclude_async_deps` | bool | exclude async dependencies
-// | `exclude_async`      | bool | also exclude self if async
-// | `keep_empty_lines`   | bool | keep empty lines
-// | `keep_comment_lines` | bool | keep comment lines (`js` only)
-// | <code style="white-space:pre-wrap;word-break:break-all">exclude_tests_and_benchmarks</code> | bool | exclude tests & benchmarks
-// | `replace_ids`        | bool | replace `$id` w/ item ids
-// all options default to `false`
+// | `include_deps`         | `false` | include dependencies
+// | `exclude_async_deps`   | `false` | exclude async dependencies
+// | `exclude_async`        | `false` | also exclude self if async
+// | `remove_empty_lines`   | `false` | remove empty lines
+// | `remove_comment_lines` | `false` | remove comment lines (`js` only)
+// | `remove_tests_and_benchmarks` | `false` | remove tests & benchmarks (`js` only)
+// | `replace_ids`          | `false` | replace `$id` w/ item ids
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,{…})
@@ -42,8 +46,11 @@ const read_deep = (...args) => _this.read_deep(...args)
 // read_input(type,{…})
 // reads _input_ for `type` from item _& dependencies_
 // reads `<type>_input` from item, `type` from deps
-// uses `replace_ids=true` by default
-// other options same as `read`
+// options are same as `read` w/ defaults modified as follows:
+// | `replace_ids`                 | `true`
+// | `remove_empty_lines`          | `true`
+// | `remove_comment_lines`        | `true`
+// | `remove_tests_and_benchmarks` | `true`
 const read_input = (...args) => _this.read_input(...args)
 
 // write(text,[type],{…})

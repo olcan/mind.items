@@ -153,7 +153,7 @@ function _sync_caption(
   dependency
 ) {
   if (remote || dependency || deleted) return
-  const text = read(caption, { keep_empty_lines: true })
+  const text = read(caption)
   const parent_name = _this.name.replace(/\/[^\/]*$/, '')
   const parent = _item(parent_name)
   if (caption != parent.read(caption)) parent.write(text, caption + '_removed')

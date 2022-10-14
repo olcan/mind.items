@@ -876,10 +876,7 @@ function js_table(regex) {
   const js_table_regex_arrow =
     /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?:async +)?(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
 
-  const js = _this.read('js', {
-    keep_empty_lines: true,
-    keep_comment_lines: true,
-  })
+  const js = _this.read('js', { remove_tests_and_benchmarks: true })
   const matches = [
     ...js.matchAll(js_table_regex),
     ...js.matchAll(js_table_regex_arrow),
@@ -1279,8 +1276,8 @@ function _js_table_show_function(name) {
   }
   const eval_options = {
     trigger: 'js_table',
-    keep_empty_lines: true,
-    keep_comment_lines: true,
+    remove_empty_lines: false,
+    remove_comment_lines: false,
   }
   try {
     // try custom _function_<name>() first
@@ -1344,7 +1341,7 @@ function _js_table_show_test(name) {
   const def_link = link_eval(
     _this,
     `_js_table_show_function('${name}', event)`,
-    '<-',
+    '⬅︎',
     'function'
   )
   const func = _this.elem.querySelector(`.function.name_${name}`)
@@ -1374,10 +1371,10 @@ function _js_table_show_test(name) {
           'js',
           _this.eval(test.test || `_test_${name}`, {
             trigger: 'js_table',
-            exclude_tests_and_benchmarks: false,
+            remove_tests_and_benchmarks: false,
             type: 'js|js_tests?',
-            keep_empty_lines: true,
-            keep_comment_lines: true,
+            remove_empty_lines: false,
+            remove_comment_lines: false,
           })
         ),
         '\n',
@@ -1443,7 +1440,7 @@ function _js_table_show_benchmark(name) {
   const def_link = link_eval(
     _this,
     `_js_table_show_function('${name}', event)`,
-    '<-',
+    '⬅︎',
     'function'
   )
   const func = _this.elem.querySelector(`.function.name_${name}`)
@@ -1474,10 +1471,10 @@ function _js_table_show_benchmark(name) {
           'js',
           _this.eval(benchmark.benchmark || `_benchmark_${name}`, {
             trigger: 'js_table',
-            exclude_tests_and_benchmarks: false,
+            remove_tests_and_benchmarks: false,
             type: 'js|js_benchmarks?',
-            keep_empty_lines: true,
-            keep_comment_lines: true,
+            remove_empty_lines: false,
+            remove_comment_lines: false,
           })
         ),
         '\n',

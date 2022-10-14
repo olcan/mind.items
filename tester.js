@@ -31,7 +31,7 @@ function test_item(item, selector) {
             trigger: 'test',
             async: item.deepasync,
             async_simple: true,
-            exclude_tests_and_benchmarks: false,
+            remove_tests_and_benchmarks: false,
             type: 'js|js_tests?',
           }
         )
@@ -54,7 +54,7 @@ function test_item(item, selector) {
           names = await item.eval(
             `typeof ${test}_functions == 'object' ? ` +
               `${test}_functions : null`,
-            { exclude_tests_and_benchmarks: false, type: 'js|js_tests?' }
+            { remove_tests_and_benchmarks: false, type: 'js|js_tests?' }
           )
         } catch (e) {}
         if (is_array(names) && names.every(is_string)) {
