@@ -23,11 +23,12 @@ const _Item = typeof _this != 'undefined' ? _this.constructor : null
 // | `remove_tests_and_benchmarks` | `true`
 const __eval = (...args) => _this.eval(...args)
 
-// read([type],{…})
+// read([type=''],{…})
 // reads text from item
+// reads _whole item_ if `type==''` (default)
 // `type` can indicate block(s) to read, e.g. `js`
 // `type` can be regex, e.g. `js|js_tests?`
-//  blocks matching `type` are concentenated
+// blocks matching `type` are concentenated
 // | `include_deps`         | `false` | include dependencies
 // | `exclude_async_deps`   | `false` | exclude async dependencies
 // | `exclude_async`        | `false` | also exclude self if async
@@ -36,6 +37,7 @@ const __eval = (...args) => _this.eval(...args)
 // | `remove_empty_lines`   | `false` | remove empty lines
 // | `remove_comment_lines` | `false` | remove comment lines (`js` only)
 // | `remove_tests_and_benchmarks` | `false` | remove tests & benchmarks (`js` only)
+// | `remove_hidden_blocks` | `false` | remove hidden blocks (whole item only)
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,{…})
