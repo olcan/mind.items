@@ -58,6 +58,7 @@
 
 .core_js_table .function {
   width: fit-content;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
