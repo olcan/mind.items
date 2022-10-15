@@ -37,7 +37,7 @@ const __eval = (...args) => _this.eval(...args)
 // | `remove_empty_lines`   | `false` | remove empty lines
 // | `remove_comment_lines` | `false` | remove comment lines (`js` only)
 // | `remove_tests_and_benchmarks` | `false` | remove tests & benchmarks (`js` only)
-// | `remove_hidden_blocks` | `false` | remove hidden blocks (whole item only)
+// | `remove_hidden_parts`  | `false` | remove hidden parts (whole item only)
 const read = (...args) => _this.read(...args)
 
 // read_deep(type,{…})
