@@ -247,6 +247,7 @@
 }
 .core_js_table .function.expanded:not(:last-child) .desc {
   margin-bottom: 10px;
+  padding-bottom: 10px;
 }
 /* enable wrapping on expanded .usage */
 .core_js_table .function.expanded .usage {

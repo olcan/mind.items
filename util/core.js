@@ -1028,7 +1028,7 @@ function js_table(regex) {
       })
     // add final table w/ new line (unlike inner tables)
     if (comment_table_cells.length)
-      comment_lines.push(table(comment_table_cells) + '\n')
+      comment_lines.push(table(comment_table_cells))
 
     // trim blank lines
     while (comment_lines[0]?.length == 0) comment_lines.shift()
