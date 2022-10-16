@@ -4,6 +4,7 @@
 // extendable as `_Item.prototype.method = function(…) { … }`
 // can be `null` in non-window contexts, e.g. web workers
 const _Item = typeof _this != 'undefined' ? _this.constructor : null
+const is_item = x => x instanceof _Item
 
 // => item.eval(code,{…})
 // evaluates `code` in context of `item`
