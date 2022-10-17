@@ -806,19 +806,35 @@ function table(cells, options = {}) {
   if (cells.length == 0) return ''
   const { headers } = options
   let lines = []
+  const cols = _.maxBy(cells, 'length').length
+  const reps = array(cols, k => cells.find(r => r[k])) // first value in each col
   if (headers) {
     apply(headers, h => (is_string(h) ? h : str(h)))
     lines.push('|' + headers.join('|') + '|')
-  } else lines.push(array(cells[0].length + 1, k => '|').join(''))
+  } else lines.push(array(cols + 1, k => '|').join(''))
   apply(cells, r => apply(r, c => (is_string(c) ? c : str(c))))
   lines.push(
     '|' +
-      array(cells[0].length, k =>
-        is_numeric(cells[0][k].replace(/[,$\s]/g, '')) ? '-:' : ':-'
+      array(cols, k =>
+        is_numeric(reps[k].replace?.(/[,$\s]/g, '')) ? '-:' : ':-'
       ).join('|') +
       '|'
   )
-  lines = lines.concat(cells.map(row => '|' + row.join('|')))
+  lines = lines.concat(
+    cells.map(row => {
+      // if any row is short, extend last column
+      if (row.length < cols) {
+        const last_col_span = 1 + cols - row.length
+        return (
+          (row.length > 1 ? '|' : '') +
+          row.slice(0, -1).join('|') +
+          `<td colspan=${last_col_span}>` +
+          last(row)
+        )
+      }
+      return '|' + row.join('|')
+    })
+  )
   return lines.join('\n')
 }
 
