@@ -804,22 +804,23 @@ function table(cells, options = {}) {
   if (!is_array(cells[0])) cells = [cells] // matrixify if needed
   if (!is_array(cells)) fatal('invalid non-array argument')
   if (cells.length == 0) return ''
-  const { headers } = options
+  let { headers, alignments = '' } = options
+  if (!is_string(alignments)) fatal('invalid alignments, must be string')
+  if (!alignments.match(/^[lcr]*$/)) fatal(`invalid alignments '${alignments}'`)
   let lines = []
   const cols = _.maxBy(cells, 'length').length
-  const reps = array(cols, k => cells.find(r => r[k])) // first value in each col
+  const reps = array(cols, k => cells.find(r => r[k])[k]) // first value in each col
+  alignments = array(
+    cols,
+    k => alignments[k] ?? (is_numeric(reps[k][0]) ? 'r' : 'l')
+  )
+  apply(alignments, a => (a == 'l' ? ':-' : a == 'r' ? '-:' : ':-:'))
   if (headers) {
     apply(headers, h => (is_string(h) ? h : str(h)))
     lines.push('|' + headers.join('|') + '|')
   } else lines.push(array(cols + 1, k => '|').join(''))
   apply(cells, r => apply(r, c => (is_string(c) ? c : str(c))))
-  lines.push(
-    '|' +
-      array(cols, k =>
-        is_numeric(reps[k].replace?.(/[,$\s]/g, '')) ? '-:' : ':-'
-      ).join('|') +
-      '|'
-  )
+  lines.push('|' + alignments.join('|') + '|')
   lines = lines.concat(
     cells.map(row => {
       // if any row is short, extend last column
