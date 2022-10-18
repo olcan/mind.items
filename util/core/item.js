@@ -16,6 +16,7 @@ const is_item = x => x instanceof _Item
 // | `debug`          | bool | `false` | eval w/o any wrappers
 // | `exclude_prefix` | bool | `false` | eval w/o prefix code
 // | `trigger`        | string  | `other` | eval trigger name
+// | `skip_eval`      | bool  | `false` | skip eval, just return code
 // forwards options to `read` for code prefix w/ modified defaults:
 // | `exclude_async_deps`          | `!async`,
 // | `replace_ids`                 | `true`
