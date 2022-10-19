@@ -83,7 +83,7 @@ async function upload(x, options = undefined) {
     encrypt_time = Date.now() - start
   }
   const start_upload = Date.now()
-  const full_path = _user.uid + '/uploads/' + path.trimStart('/')
+  const full_path = abs_path(path)
   const { ref, getStorage, uploadBytes } = firebase.storage
   await uploadBytes(ref(getStorage(firebase), full_path), cipher, {
     contentType: type,
@@ -144,7 +144,7 @@ async function download(path, options = undefined) {
   const download_start = Date.now()
   let cipher
   if (!use_url) {
-    const full_path = _user.uid + '/uploads/' + path.trimStart('/')
+    const full_path = abs_path(path)
     const { ref, getStorage, getBytes } = firebase.storage
     const buffer = await getBytes(ref(getStorage(firebase), full_path))
     cipher = new Uint8Array(buffer)
@@ -188,7 +188,7 @@ async function download(path, options = undefined) {
 // delete upload at `path`
 async function delete_upload(path) {
   if (!path) fatal('missing path')
-  path = _user.uid + '/uploads/' + path.trimStart('/')
+  path = abs_path(path)
   const { ref, getStorage, deleteObject } = firebase.storage
   return await deleteObject(ref(getStorage(firebase), path))
 }
@@ -198,7 +198,7 @@ async function delete_upload(path) {
 // logs any other errors
 async function get_metadata(path) {
   if (!path) fatal('missing path')
-  path = _user.uid + '/uploads/' + path.trimStart('/')
+  path = abs_path(path)
   const { ref, getStorage, getMetadata } = firebase.storage
   try {
     return await getMetadata(ref(getStorage(firebase), path))
@@ -216,7 +216,7 @@ async function get_metadata(path) {
 // url (token) can be revoked by deleting or re-uploading path
 async function get_url(path) {
   if (!path) fatal('missing path')
-  path = _user.uid + '/uploads/' + path.trimStart('/')
+  path = abs_path(path)
   const { ref, getStorage, getDownloadURL } = firebase.storage
   try {
     return await getDownloadURL(ref(getStorage(firebase), path))
@@ -224,6 +224,12 @@ async function get_url(path) {
     if (e.code != 'storage/object-not-found') console.error(e)
     return null
   }
+}
+
+// absolute upload path for `path`
+async function abs_path(path) {
+  if (!path) fatal('missing path')
+  return _user.uid + '/uploads/' + path.trimStart('/')
 }
 
 // does upload exist at `path`?
