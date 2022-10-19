@@ -227,7 +227,7 @@ async function get_url(path) {
 }
 
 // absolute upload path for `path`
-async function abs_path(path) {
+function abs_path(path) {
   if (!path) fatal('missing path')
   return _user.uid + '/uploads/' + path.trimStart('/')
 }
