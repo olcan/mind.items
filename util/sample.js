@@ -2523,7 +2523,7 @@ class _Sampler {
       flat(
         '<style>',
         `#item table { font-size:80%; line-height:140%; white-space:nowrap; color:#aaa; font-family:'jetbrains mono', monospace }`,
-        `#item table { display: inline-block; vertical-align:top; background:#171717; padding:10px; margin-right:5px; margin-bottom: 5px; border-radius:4px }`,
+        `#item table { display: inline-block; vertical-align:top; background:#171717; padding:5px; margin-bottom: 5px; border-radius:4px }`,
         `#item table > thead { display: none }`,
         '</style>'
       ).join('\n'),
