@@ -817,23 +817,19 @@ function table(cells, options = {}) {
   apply(alignments, a => (a == 'l' ? ':-' : a == 'r' ? '-:' : ':-:'))
   if (headers) {
     apply(headers, h => (is_string(h) ? h : str(h)))
-    lines.push('|' + headers.join('|') + '|')
-  } else lines.push(array(cols + 1, k => '|').join(''))
+    // if header row is short, extend last column using repeated pipes
+    // see https://github.com/calculuschild/marked-extended-tables#readme
+    lines.push(
+      '| ' + headers.join(' | ') + ' |' + '|'.repeat(cols - headers.length)
+    )
+  } else lines.push('| '.repeat(cols + 1))
   apply(cells, r => apply(r, c => (is_string(c) ? c : str(c))))
-  lines.push('|' + alignments.join('|') + '|')
+  lines.push('| ' + alignments.join(' | ') + ' |')
   lines = lines.concat(
     cells.map(row => {
-      // if any row is short, extend last column
-      if (row.length < cols) {
-        const last_col_span = 1 + cols - row.length
-        return (
-          (row.length > 1 ? '|' : '') +
-          row.slice(0, -1).join('|') +
-          `<td colspan=${last_col_span}>` +
-          last(row)
-        )
-      }
-      return '|' + row.join('|')
+      // if any row is short, extend last column using repeated pipes
+      // see https://github.com/calculuschild/marked-extended-tables#readme
+      return '| ' + row.join(' | ') + ' |' + '|'.repeat(cols - row.length)
     })
   )
   return lines.join('\n')
