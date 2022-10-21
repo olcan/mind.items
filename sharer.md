@@ -1,4 +1,4 @@
-#todoer helps manage shared items.  
+#sharer helps manage shared items.  
 << command_table() >>
 
 ```js_removed:sharer.js
