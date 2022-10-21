@@ -5,5 +5,5 @@ function _on_welcome() {
   // keep track of all sharing keys for all items (including dependencies)
   // remove keys not backed by any tags (on self or dependent)
   // TODO: test sharing keys that are too long, or other errors
-  debug('hey there')
+  debug('hey there sup')
 }
