@@ -151,7 +151,7 @@ async function init_updater() {
 function _on_global_store_change(id, remote) {
   if (!remote) return // not a remote change
   const item = _item(id)
-  if (!item.attr) return // not an installed item
+  if (!item.attr?.source) return // not an installed item
   if (!item.name.startsWith('#')) return // not a named item
   // if item is pending update, check for remote update
   let { modified_ids, pending_updates } = _this.store
@@ -187,7 +187,7 @@ function _on_global_store_change(id, remote) {
 const installed_named_items = () =>
   _labels((_, ids) => ids.length == 1)
     .map(label => _item(label))
-    .filter(item => item.attr)
+    .filter(item => item.attr?.source)
 
 // decodes base64 w/ unicode character support (unlike plain atob)
 // from https://stackoverflow.com/a/30106551
@@ -680,7 +680,7 @@ async function _on_command_edit(args, name, editor = 'github') {
     alert(`/edit: ${name} missing or ambiguous`)
     return `/edit ${args}`
   }
-  if (!item.attr) {
+  if (!item.attr?.source) {
     alert(`/edit: ${name} not an installed item`)
     return `/edit ${args}`
   }

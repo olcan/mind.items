@@ -366,7 +366,7 @@ async function _side_push_item(item, manual = false) {
 
   let found_changes = false
   let attr_modified = false
-  const attr = item.attr // null if not installed
+  const attr = item.attr?.source ? item.attr : null // null if not installed
   try {
     let dests = compact(flat(item.global_store._pusher?.sidepush))
     const source_dest = pick(attr, ['owner', 'repo', 'path', 'branch'])
