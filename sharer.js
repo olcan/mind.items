@@ -16,7 +16,10 @@ function update_sharing(item) {
   each(share_tags, tag => {
     const [m, key, index] = tag.match(/^#share\/([\w-]+)(?:\/(\d+))?$/)
     // debug(tag, item.name)
-    if (!item.attr?.shared?.keys.includes(key)) {
+    if (
+      !item.attr?.shared?.keys.includes(key) ||
+      item.attr.shared.indices?.[key] != index
+    ) {
       const index_str = defined(index) ? ` at index ${index}` : ''
       warn(`sharing ${item.name} on '${key}'${index_str} (tag ${tag})`)
       try {
