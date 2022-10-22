@@ -45,6 +45,9 @@ function update_sharing(item) {
 // detect any changes to todo items & re-render widgets as needed
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
+  // note ignoring remote changes is important to avoid feedback loops
+  // (i.e. due to syncing of changes via attr in _both_ directions)
+  if (remote) return // remote changes should be handled locally
   const item = _item(id, false) // can be null if item deleted
   if (item) update_sharing(item)
 }
