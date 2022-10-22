@@ -1,9 +1,50 @@
+// define #share/<key>(/<index>) tags as special
+// must return list of aliases to use for dependencies & navigation
+// must return array of tags for matching tags, falsy for non-matching tags
+const _share_tag_regex = /^#share\/[\w-]+(?:\/\d+)?$/
+const _special_tag_aliases = tag =>
+  tag?.match(_share_tag_regex) ? ['#features/_share'] : null
+
 function _on_welcome() {
-  // find all items w/ tags #_shared/[\w-]+(?:\/\d+)
-  // ensure consistency of tags w/ attr, including deps ...
-  // share based on tag (w/ optional index), including all dependents (no index)
-  // keep track of all sharing keys for all items (including dependencies)
-  // remove keys not backed by any tags (on self or dependent)
-  // TODO: test sharing keys that are too long, or other errors
-  debug('hey there sup')
+  each(_items(), update_sharing)
+}
+
+function update_sharing(item) {
+  const share_tags = item.tags.filter(t => t.match(_share_tag_regex))
+  if (!item.attr?.shared && empty(share_tags)) return // nothing to do
+
+  each(share_tags, tag => {
+    const [m, key, index] = tag.match(/^#share\/([\w-]+)(?:\/(\d+))?$/)
+    // debug(tag, item.name)
+    if (!item.attr?.shared?.keys.includes(key)) {
+      const index_str = defined(index) ? ` at index ${index}` : ''
+      warn(`sharing ${item.name} on '${key}'${index_str} (tag ${tag})`)
+      try {
+        item.share(key, defined(index) ? parseInt(index) : undefined)
+      } catch (e) {
+        error(`failed to share ${item.name} on '${key}'${index_str}; ${e}`)
+      }
+    }
+  })
+
+  each(item.attr?.shared?.keys ?? [], key => {
+    const index = item.attr.shared.indices?.[key]
+    const tag = '#share/' + key + (defined(index) ? '/' + index : '')
+    // debug('attr', tag, item.name)
+    if (!share_tags.includes(tag)) {
+      warn(`unsharing ${item.name} on '${key}' (missing tag ${tag})`)
+      try {
+        item.unshare(key)
+      } catch (e) {
+        error(`failed to unshare ${item.name} on '${key}'; ${e}`)
+      }
+    }
+  })
+}
+
+// detect any changes to todo items & re-render widgets as needed
+function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  if (dependency) return // ignore dependency changes
+  const item = _item(id, false) // can be null if item deleted
+  if (item) update_sharing(item)
 }
