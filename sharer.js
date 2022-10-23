@@ -87,6 +87,7 @@ function share_deps(item) {
 // note incremental updates are possible but likely not worth complexity
 // e.g. requires redundant tracking of sharing attributes in case items deleted
 function update_shared_deps() {
+  const start = Date.now()
   // unshare existing dependencies (silently since changes are expected)
   let deps_prev = []
   each(_items(), item => {
@@ -106,6 +107,7 @@ function update_shared_deps() {
   const adds = diff(deps, deps_prev)
   if (dels.length) print(`unshared ${dels.length} deps: ${dels.join(' ')}`)
   if (adds.length) print(`shared ${adds.length} deps: ${adds.join(' ')}`)
+  debug(`updated shared deps in ${Date.now() - start}ms`)
 }
 
 // detect any changes to todo items & re-render widgets as needed
