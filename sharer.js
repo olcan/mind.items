@@ -6,22 +6,29 @@ const _special_tag_aliases = tag =>
   tag?.match(_share_tag_regex) ? ['#features/_share'] : null
 
 function _on_welcome() {
-  each(_items(), update_sharing)
+  each(_items(), item => update_shared(item))
+  update_shared_deps()
 }
 
-function update_sharing(item) {
+// updates item's 'shared' attribs to sync w/ its #share/... tags
+// always removes any sharing keys added to dependencies (w/o tags)
+// can auto-update dependencies if item is/was shared, and/or run silently
+// returns array of share tags (if any) on item
+function update_shared(item, { update_deps = false, silent = false } = {}) {
   const share_tags = item.tags.filter(t => t.match(_share_tag_regex))
-  if (!item.attr?.shared && empty(share_tags)) return // nothing to do
+  // return immediately if item is not shared by attributes or tags
+  if (!item.shared && empty(share_tags)) return // nothing to do
 
   each(share_tags, tag => {
     const [m, key, index] = tag.match(/^#share\/([\w-]+)(?:\/(\d+))?$/)
     // debug(tag, item.name)
     if (
-      !item.attr?.shared?.keys.includes(key) ||
-      item.attr.shared.indices?.[key] != index
+      !item.shared?.keys.includes(key) ||
+      item.shared.indices?.[key] != index
     ) {
       const index_str = defined(index) ? ` at index ${index}` : ''
-      warn(`sharing ${item.name} on '${key}'${index_str} (tag ${tag})`)
+      if (!silent)
+        print(`sharing ${item.name} on '${key}'${index_str} (tag ${tag})`)
       try {
         item.share(key, defined(index) ? parseInt(index) : undefined)
       } catch (e) {
@@ -30,12 +37,13 @@ function update_sharing(item) {
     }
   })
 
-  each(item.attr?.shared?.keys ?? [], key => {
-    const index = item.attr.shared.indices?.[key]
+  each(item.shared?.keys ?? [], key => {
+    const index = item.shared.indices?.[key]
     const tag = '#share/' + key + (defined(index) ? '/' + index : '')
     // debug('attr', tag, item.name)
     if (!share_tags.includes(tag)) {
-      warn(`unsharing ${item.name} on '${key}' (missing tag ${tag})`)
+      if (!silent)
+        print(`unsharing ${item.name} on '${key}' (missing tag ${tag})`)
       try {
         item.unshare(key)
       } catch (e) {
@@ -43,6 +51,61 @@ function update_sharing(item) {
       }
     }
   })
+
+  // update dependencies if requested (and only for shared items)
+  if (update_deps) update_shared_deps()
+
+  return share_tags
+}
+
+// shares dependencies recursively
+// attributes are used to avoid dependency cycles (as already-shared keys)
+// returns names of all shared deps, including indirect deps, across all keys
+function share_deps(item) {
+  const deps = []
+  each(item.shared.keys, key => {
+    each(
+      item.dependencies,
+      // _resolve_tags(
+      //   item.label,
+      //   item.tags.filter(t => t != item.label && !_special_tag(t))
+      // ),
+      id => {
+        const dep = _item(id, { silent: true })
+        if (!dep) return // skip missing dependency
+        if (dep.shared?.keys.includes(key)) return // already shared under key
+        dep.share(key)
+        deps.push(dep.name, ...share_deps(dep, key))
+      }
+    )
+  })
+  return uniq(deps)
+}
+
+// updates items that should be shared as dependencies
+// requires two full passes over all shared items (by attribute)
+// note incremental updates are possible but likely not worth complexity
+// e.g. requires redundant tracking of sharing attributes in case items deleted
+function update_shared_deps() {
+  // unshare existing dependencies (silently since changes are expected)
+  let deps_prev = []
+  each(_items(), item => {
+    if (!item.shared) return
+    const tags = update_shared(item, { silent: true })
+    if (!tags.length) deps_prev.push(item.name)
+  })
+  // share dependencies (recursively) for all shared items
+  let deps = []
+  each(_items(), item => {
+    if (!item.shared) return
+    deps.push(...share_deps(item))
+  })
+  deps = uniq(deps)
+  deps_prev = uniq(deps_prev)
+  const dels = diff(deps_prev, deps)
+  const adds = diff(deps, deps_prev)
+  if (dels.length) print(`unshared ${dels.length} deps: ${dels.join(' ')}`)
+  if (adds.length) print(`shared ${adds.length} deps: ${adds.join(' ')}`)
 }
 
 // detect any changes to todo items & re-render widgets as needed
@@ -51,6 +114,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // note ignoring remote changes is important to avoid feedback loops
   // (i.e. due to syncing of changes via attr in _both_ directions)
   if (remote) return // remote changes should be handled locally
-  const item = _item(id, false) // can be null if item deleted
-  if (item) update_sharing(item)
+  const item = _item(id, { silent: true }) // can be null if item deleted
+  if (item) update_shared(item, { update_deps: true })
+  else update_shared_deps() // can be affected by deletions
 }
