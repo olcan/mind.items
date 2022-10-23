@@ -612,7 +612,7 @@ function _on_global_store_change(id, remote) {
 
 // detect changes to search query, specifically for id:<todo_item_id>
 function _on_search(text) {
-  const target_item = _item(text.trim(), false) // null if text does not match item
+  const target_item = _item(text.trim(), { silent: true }) // null if text does not match item
   const is_todo_item = target_item?.tags.includes('#todo')
   if (
     !is_todo_item &&
