@@ -65,11 +65,11 @@ function share_deps(item) {
   const deps = []
   each(item.shared.keys, key => {
     each(
-      item.dependencies,
-      // _resolve_tags(
-      //   item.label,
-      //   item.tags.filter(t => t != item.label && !_special_tag(t))
-      // ),
+      // item.dependencies,
+      _resolve_tags(
+        item.label,
+        item.tags.filter(t => t != item.label && !_special_tag(t))
+      ),
       id => {
         const dep = _item(id, { silent: true })
         if (!dep) return // skip missing dependency
