@@ -319,12 +319,17 @@ function __render(widget, widget_item) {
             if (snoozed)
               sort_by(
                 ids,
-                id => _item(id, false)?._global_store._todoer?.snoozed
+                id =>
+                  _item(id, { silent: true })?._global_store._todoer?.snoozed
               )
             else
               sort_by(
                 ids,
-                id => -(_item(id, false)?._global_store._todoer?.unsnoozed ?? 0)
+                id =>
+                  -(
+                    _item(id, { silent: true })?._global_store._todoer
+                      ?.unsnoozed ?? 0
+                  )
               )
             return ids
           },
@@ -353,7 +358,10 @@ function __render(widget, widget_item) {
 
                 // clear unsnoozed flags/times to prevent custom order override
                 each(saved_ids, id => {
-                  if (_item(id, false)?._global_store._todoer?.unsnoozed)
+                  if (
+                    _item(id, { silent: true })?._global_store._todoer
+                      ?.unsnoozed
+                  )
                     delete _item(id).global_store._todoer.unsnoozed
                 })
 
@@ -582,7 +590,7 @@ function _on_command_todo(text) {
 // detect any changes to todo items & re-render widgets as needed
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
-  const item = _item(id, false) // can be null if item deleted
+  const item = _item(id, { silent: true }) // can be null if item deleted
   // item must exist and be tagged with #todo (to be added or updated)
   // OR it must listed in a widget on a dependent (to be removed)
   const is_todo_item = item?.tags.includes('#todo')
@@ -598,7 +606,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
 
 // detect any changes to global stores on todo items
 function _on_global_store_change(id, remote) {
-  const item = _item(id, false) // can be null if item deleted
+  const item = _item(id, { silent: true }) // can be null if item deleted
   if (item?.tags.includes('#todo')) _on_item_change(id)
 }
 

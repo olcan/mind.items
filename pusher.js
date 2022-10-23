@@ -223,7 +223,7 @@ function push_item(item, manual = false) {
   // helps reduce conflict errors and rate-limit violations
   return (_this.store._push = Promise.allSettled([
     _this.store._push,
-    _item('#updater', false)?.store._update,
+    _item('#updater', { silent: true })?.store._update,
   ]).then(async () => {
     let start = Date.now()
     const state = _this.store.items[item.saved_id]

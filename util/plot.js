@@ -82,7 +82,7 @@ function plot(obj, name = undefined) {
   }
 
   // look up item, create if missing
-  let item = _item(name, false /* do not log errors */)
+  let item = _item(name, { silent: true } /* do not log errors */)
   item ??= _create(name)
 
   // tag item if not tagged already

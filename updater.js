@@ -100,7 +100,7 @@ async function init_updater() {
       // confirmation dialog further serializes updates across tabs/devices
       _this.store._update = Promise.allSettled([
         _this.store._update,
-        _item('#pusher', false)?.store._push,
+        _item('#pusher', { silent: true })?.store._push,
       ]).then(async () => {
         if (modified_ids.length == 0) return // nothing to do
         const modified_names = modified_ids.map(id => _item(id).name)
@@ -214,7 +214,7 @@ async function github_token(item) {
   let token = item.attr.token
   if (!token) token = localStorage.getItem('mindpage_github_token')
   if (!token) token = _this.global_store.token
-  if (!token) token = _item('#pusher', false)?.global_store.token
+  if (!token) token = _item('#pusher', { silent: true })?.global_store.token
   // if still missing, prompt user for token and store in local storage
   if (!token) {
     token = await _modal({
@@ -724,7 +724,7 @@ async function _on_command_update(label) {
     })
     await (_this.store._update = Promise.allSettled([
       _this.store._update,
-      _item('#pusher', false)?.store._push,
+      _item('#pusher', { silent: true })?.store._push,
     ]).then(async () => {
       for (const [i, item] of items.entries()) {
         _modal_update(modal, {
