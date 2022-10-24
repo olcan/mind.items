@@ -65,25 +65,26 @@ function update_shared(
 }
 
 // shares dependencies recursively
-// dependencies include visible tags + #sharer (for handling share tags)
+// dependencies may include visible tags + #sharer (for handling share tags)
 // attributes are used to avoid dependency cycles (as already-shared keys)
 // returns names of all shared deps, including indirect deps, across all keys
 function share_deps(item) {
   const deps = []
   each(item.shared.keys, key => {
-    each(
-      _resolve_tags(
-        item.label,
-        item.tags.filter(t => t != item.label && !_special_tag(t))
-      ).concat('#sharer'),
-      tag => {
-        const dep = _item(tag, { silent: true }) // null if missing or ambiguous
-        if (!dep) return // skip missing dependency
-        if (dep.shared?.keys.includes(key)) return // already shared under key
-        dep.share(key)
-        deps.push(dep.name, ...share_deps(dep, key))
-      }
-    )
+    // include visible tags + #sharer if item is visible, exclude otherwise
+    const names = item.shared.indices
+      ? _resolve_tags(
+          item.label,
+          item.tags.filter(t => t != item.label && !_special_tag(t))
+        ).concat('#sharer')
+      : item.dependencies
+    each(names, name => {
+      const dep = _item(name, { silent: true }) // null if missing or ambiguous
+      if (!dep) return // skip missing dependency
+      if (dep.shared?.keys.includes(key)) return // already shared under key
+      dep.share(key)
+      deps.push(dep.name, ...share_deps(dep, key))
+    })
   })
   return uniq(deps)
 }
@@ -95,7 +96,6 @@ function share_deps(item) {
 // note item.attr updates are async, allowing unshares/shares to cancel out
 function update_shared_deps() {
   const start = Date.now()
-
   // unshare existing dependencies (silently since changes are expected)
   let deps_prev = []
   each(_items(), item => {
@@ -103,7 +103,6 @@ function update_shared_deps() {
     const tags = update_shared(item, { silent: true })
     if (!tags.length) deps_prev.push(item.name)
   })
-
   // share dependencies (recursively) for all shared items
   let deps = []
   each(_items(), item => {
