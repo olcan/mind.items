@@ -6,15 +6,19 @@ const _special_tag_aliases = tag =>
   tag?.match(_share_tag_regex) ? ['#features/_share'] : null
 
 function _on_welcome() {
-  each(_items(), item => update_shared(item))
+  // note we can skip unshares since update_shared_deps handles them
+  each(_items(), item => update_shared(item, { skip_unshares: true }))
   update_shared_deps()
 }
 
 // updates item's 'shared' attribs to sync w/ its #share/... tags
 // always removes any sharing keys added to dependencies (w/o tags)
-// can auto-update dependencies if item is/was shared, and/or run silently
+// can auto-update dependencies if item is/was shared
 // returns array of share tags (if any) on item
-function update_shared(item, { update_deps = false, silent = false } = {}) {
+function update_shared(
+  item,
+  { skip_unshares = false, update_deps = false, silent = false } = {}
+) {
   const share_tags = item.tags.filter(t => t.match(_share_tag_regex))
   // return immediately if item is not shared by attributes or tags
   if (!item.shared && empty(share_tags)) return // nothing to do
@@ -37,20 +41,22 @@ function update_shared(item, { update_deps = false, silent = false } = {}) {
     }
   })
 
-  each(item.shared?.keys ?? [], key => {
-    const index = item.shared.indices?.[key]
-    const tag = '#share/' + key + (defined(index) ? '/' + index : '')
-    // debug('attr', tag, item.name)
-    if (!share_tags.includes(tag)) {
-      if (!silent)
-        print(`unsharing ${item.name} on '${key}' (missing tag ${tag})`)
-      try {
-        item.unshare(key)
-      } catch (e) {
-        error(`failed to unshare ${item.name} on '${key}'; ${e}`)
+  if (!skip_unshares) {
+    each(item.shared?.keys ?? [], key => {
+      const index = item.shared.indices?.[key]
+      const tag = '#share/' + key + (defined(index) ? '/' + index : '')
+      // debug('attr', tag, item.name)
+      if (!share_tags.includes(tag)) {
+        if (!silent)
+          print(`unsharing ${item.name} on '${key}' (missing tag ${tag})`)
+        try {
+          item.unshare(key)
+        } catch (e) {
+          error(`failed to unshare ${item.name} on '${key}'; ${e}`)
+        }
       }
-    }
-  })
+    })
+  }
 
   // update dependencies if requested (and only for shared items)
   if (update_deps) update_shared_deps()
@@ -59,19 +65,19 @@ function update_shared(item, { update_deps = false, silent = false } = {}) {
 }
 
 // shares dependencies recursively
+// dependencies include visible tags + #sharer (for handling share tags)
 // attributes are used to avoid dependency cycles (as already-shared keys)
 // returns names of all shared deps, including indirect deps, across all keys
 function share_deps(item) {
   const deps = []
   each(item.shared.keys, key => {
     each(
-      // item.dependencies,
       _resolve_tags(
         item.label,
         item.tags.filter(t => t != item.label && !_special_tag(t))
-      ),
-      id => {
-        const dep = _item(id, { silent: true })
+      ).concat('#sharer'),
+      tag => {
+        const dep = _item(tag, { silent: true }) // null if missing or ambiguous
         if (!dep) return // skip missing dependency
         if (dep.shared?.keys.includes(key)) return // already shared under key
         dep.share(key)
@@ -86,8 +92,10 @@ function share_deps(item) {
 // requires two full passes over all shared items (by attribute)
 // note incremental updates are possible but likely not worth complexity
 // e.g. requires redundant tracking of sharing attributes in case items deleted
+// note item.attr updates are async, allowing unshares/shares to cancel out
 function update_shared_deps() {
   const start = Date.now()
+
   // unshare existing dependencies (silently since changes are expected)
   let deps_prev = []
   each(_items(), item => {
@@ -95,6 +103,7 @@ function update_shared_deps() {
     const tags = update_shared(item, { silent: true })
     if (!tags.length) deps_prev.push(item.name)
   })
+
   // share dependencies (recursively) for all shared items
   let deps = []
   each(_items(), item => {
