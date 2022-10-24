@@ -1,6 +1,7 @@
 // define #share/<key>(/<index>) tags as special
 // must return list of aliases to use for dependencies & navigation
 // must return array of tags for matching tags, falsy for non-matching tags
+// containing file can not perform item lookup or other ops in global scope
 const _share_tag_regex = /^#share\/[\w-]+(?:\/\d+)?$/
 const _special_tag_aliases = tag =>
   tag?.match(_share_tag_regex) ? ['#features/_share'] : null
@@ -127,4 +128,45 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   const item = _item(id, { silent: true }) // can be null if item deleted
   if (item) update_shared(item, { update_deps: true })
   else update_shared_deps() // can be affected by deletions
+}
+
+function _extract_template_options(options = {}) {
+  const props = ['height', 'style', 'styles', 'classes']
+  let {
+    height = 'auto',
+    style = '',
+    styles = '',
+    classes = '',
+  } = pick(options, props)
+  options = omit(options, props) // remove props from options
+  if (is_number(height)) height += 'px'
+  style = `height:${height};${style}`
+  style = `style="${style}"`
+  styles = flat(styles).join('\n')
+  return { style, styles, classes, ...options }
+}
+
+// drag-and-drop widget macro
+function sharer_widget(options = {}) {
+  // note this macro structure follows that of _plot in #util/plot
+  const { style, styles, classes, ...widget_options } =
+    _extract_template_options(options)
+  // pass along options via item store keyed by macro cid
+  // macro cid is also passed to html via template string __cid__
+  // macro cid is preferred to html script cid for consistency
+  _this.store['sharer-widget-$cid'] = { options: widget_options }
+  return block(
+    '_html',
+    _item('$id')
+      .read('html_widget')
+      .replace(/__classes__/g, classes)
+      .replace(/__style__/g, style)
+      .replace(/\/\* *__styles__ *\*\//g, styles)
+      .replace(/#widget\b/g, `#sharer-widget-__cid__`)
+      .replace(/__cid__/g, '$cid')
+  )
+}
+
+function _render_sharer_widget(widget, item = _this) {
+  widget.innerHTML = 'hello world'
 }
