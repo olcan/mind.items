@@ -20,7 +20,7 @@ function update_shared(
   item,
   { skip_unshares = false, update_deps = false, silent = false } = {}
 ) {
-  const share_tags = item.tags.filter(t => t.match(_share_tag_regex))
+  const share_tags = item.tags.filter(t => _share_tag_regex.test(t))
   // return immediately if item is not shared by attributes or tags
   if (!item.shared && empty(share_tags)) return // nothing to do
 
@@ -130,43 +130,21 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   else update_shared_deps() // can be affected by deletions
 }
 
-function _extract_template_options(options = {}) {
-  const props = ['height', 'style', 'styles', 'classes']
-  let {
-    height = 'auto',
-    style = '',
-    styles = '',
-    classes = '',
-  } = pick(options, props)
-  options = omit(options, props) // remove props from options
-  if (is_number(height)) height += 'px'
-  style = `height:${height};${style}`
-  style = `style="${style}"`
-  styles = flat(styles).join('\n')
-  return { style, styles, classes, ...options }
-}
-
-// drag-and-drop widget macro
+// sharer widget macro for listing shared items
 function sharer_widget(options = {}) {
-  // note this macro structure follows that of _plot in #util/plot
-  const { style, styles, classes, ...widget_options } =
-    _extract_template_options(options)
-  // pass along options via item store keyed by macro cid
-  // macro cid is also passed to html via template string __cid__
-  // macro cid is preferred to html script cid for consistency
-  _this.store['sharer-widget-$cid'] = { options: widget_options }
-  return block(
-    '_html',
-    _item('$id')
-      .read('html_widget')
-      .replace(/__classes__/g, classes)
-      .replace(/__style__/g, style)
-      .replace(/\/\* *__styles__ *\*\//g, styles)
-      .replace(/#widget\b/g, `#sharer-widget-__cid__`)
-      .replace(/__cid__/g, '$cid')
-  )
-}
-
-function _render_sharer_widget(widget, item = _this) {
-  widget.innerHTML = 'hello world'
+  const pages = {}
+  each(_items(), item => {
+    if (!item.shared) return
+    each(item.shared.keys, key => (pages[key] ??= []).push(item))
+  })
+  let text = ''
+  each(entries(pages), ([key, items]) => {
+    sort_by(
+      items,
+      item => item.shared.indices?.[key] ?? Infinity,
+      item => -sum_by(item.tags, t => (_share_tag_regex.test(t) ? 1 : 0))
+    )
+    text += key + ' ' + items.map(item => item.name).join(' ') + '\n'
+  })
+  return text
 }
