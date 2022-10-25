@@ -252,6 +252,7 @@ const save_global_store = (...args) => _this.save_global_store(...args)
 // invalidate_elem_cache({…})
 // invalidates element cache for item
 // can force rendering, delayed to help avoid tight render ⇄ trigger loops
+// forced rendering also forces re-eval of any macros in item
 // | `force_render` | `false` | force rendering of item
 // | `render_delay` | `1000`  | render delay (ms)
 const invalidate_elem_cache = (...args) => _this.invalidate_elem_cache(...args)
