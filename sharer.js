@@ -137,14 +137,27 @@ function sharer_widget(options = {}) {
     if (!item.shared) return
     each(item.shared.keys, key => (pages[key] ??= []).push(item))
   })
-  let text = ''
+  const lines = []
   each(entries(pages), ([key, items]) => {
     sort_by(
       items,
       item => item.shared.indices?.[key] ?? Infinity,
       item => -sum_by(item.tags, t => (_share_tag_regex.test(t) ? 1 : 0))
     )
-    text += key + ' ' + items.map(item => item.name).join(' ') + '\n'
+    const line = [`[${key}](https://${location.host}?shared=${key})`]
+    for (const [j, item] of items.entries()) {
+      const index = item.shared.indices?.[key]
+      const tagged = item.tags.some(t => _share_tag_regex.test(t))
+      if (index != undefined) line.push(item.name /* + `[${index}]`*/)
+      else if (tagged) line.push(item.name)
+      else {
+        line.push(
+          `<span style="font-size:80%">+${items.length - j} dependencies</span>`
+        )
+        break
+      }
+    }
+    lines.push(line.join(' '))
   })
-  return text
+  return lines.join('\n')
 }
