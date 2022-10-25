@@ -8,15 +8,15 @@ const _special_tag_aliases = tag =>
 
 function _on_welcome() {
   // note we can skip unshares since update_shared_deps handles them
-  each(_items(), item => update_shared(item, { skip_unshares: true }))
-  update_shared_deps()
+  each(_items(), item => _update_shared(item, { skip_unshares: true }))
+  _update_shared_deps()
 }
 
 // updates item's 'shared' attribs to sync w/ its #share/... tags
 // always removes any sharing keys added to dependencies (w/o tags)
 // can auto-update dependencies if item is/was shared
 // returns array of share tags (if any) on item
-function update_shared(
+function _update_shared(
   item,
   { skip_unshares = false, update_deps = false, silent = false } = {}
 ) {
@@ -60,7 +60,7 @@ function update_shared(
   }
 
   // update dependencies if requested (and only for shared items)
-  if (update_deps) update_shared_deps()
+  if (update_deps) _update_shared_deps()
 
   return share_tags
 }
@@ -69,7 +69,7 @@ function update_shared(
 // dependencies may include visible tags + #sharer (for handling share tags)
 // attributes are used to avoid dependency cycles (as already-shared keys)
 // returns names of all shared deps, including indirect deps, across all keys
-function share_deps(item) {
+function _share_deps(item) {
   const deps = []
   each(item.shared.keys, key => {
     // include visible tags + #sharer if item is visible, exclude otherwise
@@ -84,7 +84,7 @@ function share_deps(item) {
       if (!dep) return // skip missing dependency
       if (dep.shared?.keys.includes(key)) return // already shared under key
       dep.share(key)
-      deps.push(dep.name, ...share_deps(dep, key))
+      deps.push(dep.name, ..._share_deps(dep, key))
     })
   })
   return uniq(deps)
@@ -95,20 +95,20 @@ function share_deps(item) {
 // note incremental updates are possible but likely not worth complexity
 // e.g. requires redundant tracking of sharing attributes in case items deleted
 // note item.attr updates are async, allowing unshares/shares to cancel out
-function update_shared_deps() {
+function _update_shared_deps() {
   const start = Date.now()
   // unshare existing dependencies (silently since changes are expected)
   let deps_prev = []
   each(_items(), item => {
     if (!item.shared) return
-    const tags = update_shared(item, { silent: true })
+    const tags = _update_shared(item, { silent: true })
     if (!tags.length) deps_prev.push(item.name)
   })
   // share dependencies (recursively) for all shared items
   let deps = []
   each(_items(), item => {
     if (!item.shared) return
-    deps.push(...share_deps(item))
+    deps.push(..._share_deps(item))
   })
   deps = uniq(deps)
   deps_prev = uniq(deps_prev)
@@ -126,12 +126,12 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // (i.e. due to syncing of changes via attr in _both_ directions)
   if (remote) return // remote changes should be handled locally
   const item = _item(id, { silent: true }) // can be null if item deleted
-  if (item) update_shared(item, { update_deps: true })
-  else update_shared_deps() // can be affected by deletions
+  if (item) _update_shared(item, { update_deps: true })
+  else _update_shared_deps() // can be affected by deletions
 }
 
-// sharer widget macro for listing shared items
-function sharer_widget(options = {}) {
+// widget macro
+function sharer_widget() {
   const pages = {}
   each(_items(), item => {
     if (!item.shared) return
