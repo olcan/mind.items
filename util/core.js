@@ -1526,22 +1526,32 @@ const block = (type, content) => '```' + type + '\n' + content + '\n```'
 // link html (`<a>…</a>`) to eval `js`
 // sets up `js` as `onmousedown` handler
 const link_js = (js, text = js, classes = '', style = '', title = js) =>
-  `<a href="#" onmousedown="` +
-  _.escape(js) +
-  `;event.preventDefault();event.stopPropagation()" ` +
-  `onclick="event.preventDefault();event.stopPropagation()" ` +
-  `class="${classes}" style="${style}" title="${_.escape(title)}">${text}</a>`
+  is_object(text)
+    ? link_js(js, text.text, text.classes, text.style, text.title)
+    : `<a href="#" onmousedown="` +
+      _.escape(js).replace(/\n/g, '&#010;') +
+      `;event.preventDefault();event.stopPropagation()" ` +
+      `onclick="event.preventDefault();event.stopPropagation()" ` +
+      `class="${classes}" style="${style}" title="${_.escape(title).replace(
+        /\n/g,
+        '&#010;'
+      )}">${text}</a>`
 // NOTE: using onmousedown + cancelled onclick maintains keyboard focus and is generally more robust, especially on mobile devices w/ virtual keyboards
 
 // link to eval `js` in context of `item`
 const link_eval = (item, js, text = js, classes = '', style = '', title = js) =>
-  link_js(
-    `_item('${item.id}')` + '.eval(`' + js.replace(/([`\\$])/g, '\\$1') + '`)',
-    text,
-    classes,
-    style,
-    title
-  )
+  is_object(js)
+    ? link_eval(item, js.js, js.text, js.classes, js.style, js.title)
+    : link_js(
+        `_item('${item.id}')` +
+          '.eval(`' +
+          js.replace(/([`\\$])/g, '\\$1') +
+          '`)',
+        text,
+        classes,
+        style,
+        title
+      )
 // NOTE: mouse 'event' is still available in context of eval
 
 // link to run `command`
@@ -1553,13 +1563,22 @@ const link_command = (
   style = '',
   title = cmd
 ) =>
-  link_js(
-    `MindBox.create(\`${command}\`,{${options}})`,
-    text,
-    classes,
-    style,
-    title
-  )
+  is_object(text)
+    ? link_command(
+        command,
+        text.text,
+        text.options,
+        text.classes,
+        text.style,
+        text.title
+      )
+    : link_js(
+        `MindBox.create(\`${command}\`,{${options}})`,
+        text,
+        classes,
+        style,
+        title
+      )
 
 // MindBox static class/object
 class MindBox {

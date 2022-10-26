@@ -128,6 +128,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   const item = _item(id, { silent: true }) // can be null if item deleted
   if (item) _update_shared(item, { update_deps: true })
   else _update_shared_deps() // can be affected by deletions
+  // invalidate dependents w/ force-render and small delay as debounce
+  each(_this.dependents, dep =>
+    _item(dep).invalidate_elem_cache({ force_render: true, render_delay: 250 })
+  )
 }
 
 // widget macro
@@ -148,11 +152,19 @@ function sharer_widget() {
     for (const [j, item] of items.entries()) {
       const index = item.shared.indices?.[key]
       const tagged = item.tags.some(t => _share_tag_regex.test(t))
-      if (index != undefined) line.push(item.name /* + `[${index}]`*/)
-      else if (tagged) line.push(item.name)
+      if (index != undefined) line.push(item.name)
       else {
+        const deps = items.slice(j)
+        const names = [
+          `+${deps.length} hidden:`,
+          ...deps.map(item => item.name),
+        ].join('\n')
         line.push(
-          `<span style="font-size:80%">+${items.length - j} dependencies</span>`
+          link_js(`_modal_alert('${names.replace(/\n/g, '<br>')}')`, {
+            text: `+${deps.length} hidden`,
+            style: 'font-size:80%',
+            title: names,
+          })
         )
         break
       }
