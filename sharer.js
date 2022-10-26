@@ -33,27 +33,27 @@ function _update_shared(
     ) {
       const index_str = defined(index) ? ` at index ${index}` : ''
       if (!silent)
-        print(`sharing ${item.name} on '${key}'${index_str} (tag ${tag})`)
+        print(`sharing ${item.name} on page '${key}'${index_str} (tag ${tag})`)
       try {
         item.share(key, defined(index) ? parseInt(index) : undefined)
       } catch (e) {
-        error(`failed to share ${item.name} on '${key}'${index_str}; ${e}`)
+        error(`failed to share ${item.name} on page '${key}'${index_str}; ${e}`)
       }
     }
   })
 
   if (!skip_unshares) {
-    each(item.shared?.keys ?? [], key => {
+    each(item.shared?.keys.slice() ?? [], key => {
       const index = item.shared.indices?.[key]
       const tag = '#share/' + key + (defined(index) ? '/' + index : '')
       // debug('attr', tag, item.name)
       if (!share_tags.includes(tag)) {
         if (!silent)
-          print(`unsharing ${item.name} on '${key}' (missing tag ${tag})`)
+          print(`unsharing ${item.name} on page '${key}' (missing tag ${tag})`)
         try {
           item.unshare(key)
         } catch (e) {
-          error(`failed to unshare ${item.name} on '${key}'; ${e}`)
+          error(`failed to unshare ${item.name} on page '${key}'; ${e}`)
         }
       }
     })
