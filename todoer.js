@@ -169,8 +169,17 @@ function __render(widget, widget_item) {
         (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`
       )
 
-    // use suffix if looks reasonable, otherwise use prefix truncated on left
-    if (text.substring(todo_offset + 5).match(/^\s*[\w#]/)) {
+    // determine if we should use suffix or prefix
+    // we prefer suffix, but will switch to prefix if it looks "cleaner"
+    // clean means alphanumeric for suffix, alphanumeric+punctuation for prefix
+    let use_suffix = true
+    if (
+      !text.substring(todo_offset + 5).match(/^\s*[\p{L}\d]/u) &&
+      text.substring(0, todo_offset).match(/[\p{P}\p{L}\d]\s*$/u)
+    )
+      use_suffix = false
+
+    if (use_suffix) {
       // use suffix, truncate on right
       text = text.substring(todo_offset)
       if (text.length > 200) {
