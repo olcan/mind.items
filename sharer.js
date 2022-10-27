@@ -122,12 +122,14 @@ function _update_shared_deps() {
 // detect any changes to todo items & re-render widgets as needed
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
-  // note ignoring remote changes is important to avoid feedback loops
-  // (i.e. due to syncing of changes via attr in _both_ directions)
-  if (remote) return // remote changes should be handled locally
-  const item = _item(id, { silent: true }) // can be null if item deleted
-  if (item) _update_shared(item, { update_deps: true })
-  else _update_shared_deps() // can be affected by deletions
+  // update shared state for local changes only to avoid feedback loops
+  // (i.e. since resulting changes to attr also also synced separately)
+  // note we still need to invalidate dependents on remote changes
+  if (!remote) {
+    const item = _item(id, { silent: true }) // can be null if item deleted
+    if (item) _update_shared(item, { update_deps: true })
+    else _update_shared_deps() // can be affected by deletions
+  }
   // invalidate dependents w/ force-render and small delay as debounce
   each(_this.dependents, dep =>
     _item(dep).invalidate_elem_cache({ force_render: true, render_delay: 250 })
