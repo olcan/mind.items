@@ -72,13 +72,14 @@ function _update_shared(
 function _share_deps(item) {
   const deps = []
   each(item.shared.keys, key => {
-    // include visible tags + #sharer if item is visible, exclude otherwise
+    // include visible tags if visible, exclude otherwise
+    // include #sharer in both cases
     const names = item.shared.indices
       ? _resolve_tags(
           item.label,
           item.tags.filter(t => t != item.label && !_special_tag(t))
         ).concat('#sharer')
-      : item.dependencies
+      : item.dependencies.concat('#sharer')
     each(names, name => {
       const dep = _item(name, { silent: true }) // null if missing or ambiguous
       if (!dep) return // skip missing dependency
@@ -122,18 +123,26 @@ function _update_shared_deps() {
 // detect any changes to todo items & re-render widgets as needed
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
+  const item = _item(id, { silent: true }) // can be null if item deleted
   // update shared state for local changes only to avoid feedback loops
-  // (i.e. since resulting changes to attr also also synced separately)
+  // (i.e. since resulting changes to attr are also synced separately)
   // note we still need to invalidate dependents on remote changes
   if (!remote) {
-    const item = _item(id, { silent: true }) // can be null if item deleted
     if (item) _update_shared(item, { update_deps: true })
     else _update_shared_deps() // can be affected by deletions
   }
   // invalidate dependents w/ force-render and small delay as debounce
-  each(_this.dependents, dep =>
+  // note we need to do this for remote changes or deletions (!item) as well
+  each(_this.dependents, dep => {
     _item(dep).invalidate_elem_cache({ force_render: true, render_delay: 250 })
-  )
+  })
+}
+function _on_attr_change(id, remote) {
+  // invalidate dependents w/ force-render and small delay as debounce
+  // note we need to do this for remote changes or deletions (!item) as well
+  each(_this.dependents, dep => {
+    _item(dep).invalidate_elem_cache({ force_render: true, render_delay: 250 })
+  })
 }
 
 // widget macro
