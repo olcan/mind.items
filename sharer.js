@@ -117,7 +117,7 @@ function _update_shared_deps() {
   const adds = diff(deps, deps_prev)
   if (dels.length) print(`unshared ${dels.length} deps: ${dels.join(' ')}`)
   if (adds.length) print(`shared ${adds.length} deps: ${adds.join(' ')}`)
-  debug(`updated shared deps in ${Date.now() - start}ms`)
+  // debug(`updated shared deps in ${Date.now() - start}ms`)
 }
 
 // detect any changes to todo items & re-render widgets as needed
