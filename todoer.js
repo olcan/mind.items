@@ -406,11 +406,12 @@ function __render(widget, widget_item) {
       const item = _item(id)
       if (e.to == cancel_bin) {
         cancel_bin.firstChild.remove()
-        if (!truncated) item.delete()
-        else item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
-        // log if logger exists
-        if (_exists('#logger'))
-          MindBox.create('/log cancelled ' + e.item.title.replace(/\s+/g, ' '))
+        item.delete()
+        // if (!truncated) item.delete()
+        // else item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
+        // // log if logger exists
+        // if (_exists('#logger'))
+        //   MindBox.create('/log cancelled ' + e.item.title.replace(/\s+/g, ' '))
       } else if (e.to == done_bin) {
         done_bin.firstChild.remove()
         if (!truncated) item.delete()
