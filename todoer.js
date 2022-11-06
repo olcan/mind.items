@@ -507,6 +507,8 @@ function _snooze_time(label) {
       return Date.now() + 6 * 60 * 60 * 1000
     case '1d':
       return Date.now() + 24 * 60 * 60 * 1000
+    case '3d':
+      return Date.now() + 3 * 24 * 60 * 60 * 1000
     case '7d':
       return Date.now() + 7 * 24 * 60 * 60 * 1000
     case '28d':
