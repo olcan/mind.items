@@ -247,4 +247,23 @@ function abs_path(path) {
 }
 
 // does upload exist at `path`?
-const exists = async path => !!get_metadata(path)
+// uses local cache if `options.cache` is `true` (default `false`)
+// deletes any existing cache entry if `path` is missing
+async function exists(path, options = undefined) {
+  if (cache && _cloud.store.cache?.[path]) return true // exists in cache
+  const remote = await get_metadata(path)
+  if (remote) {
+    // store existence (& type/size) in cache to avoid repeated remote checks
+    if (cache) {
+      _cloud.store.cache ??= {}
+      // note cache entry was missing (see above) so this is not a replacement
+      _cloud.store.cache[path] = {
+        type: remote.contentType,
+        size: remote.size,
+      }
+    }
+    return true // exists
+  }
+  delete _cloud.store.cache?.[path] // delete any existing cache entry
+  return false // missing
+}
