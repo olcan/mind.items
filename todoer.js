@@ -291,16 +291,20 @@ function __render(widget, widget_item) {
     sort_by(
       Array.from(list.children),
       e => item_for_elem(e)._global_store._todoer.snoozed
-    ).forEach(elem => list.appendChild(elem))
+    ).forEach(e => list.appendChild(e))
   } else if (have_unsnoozed) {
     // reoder unsnoozed items to top based on negative unsnooze time
     sort_by(
       Array.from(list.children),
       e => -(item_for_elem(e)._global_store._todoer?.unsnoozed ?? 0)
-    ).forEach(elem => list.appendChild(elem))
+    ).forEach(e => list.appendChild(e))
     // trigger a save to remove unsnooze times and switch to custom ordering
-    setTimeout(() => list.sortable.save())
+    // setTimeout(() => list.sortable.save())
   }
+
+  // trigger save in each render in case new items/ordering have changed
+  // also removes unsnooze times & switches snoozed items to custom ordering
+  setTimeout(() => list.sortable.save())
 
   // track unchoose (i.e. "ungrab") time to ignore click events too close to it
   // NOTE: this requires positive "delay" option (including non-touch devices)
@@ -340,6 +344,8 @@ function __render(widget, widget_item) {
                       ?.unsnoozed ?? 0
                   )
               )
+            // convert back to temp ids (if any) as used in list elem attribs
+            apply(ids, id => _item(id, { silent: true })?.id ?? id)
             return ids
           },
           set: sortable => {
@@ -348,7 +354,7 @@ function __render(widget, widget_item) {
               `save.${widget.id}.${storage_key}`,
               () => {
                 if (list.parentElement != widget) return null // cancel (removed)
-                console.debug(`saving list ${storage_key} in ${widget.id}`)
+                // console.debug(`saving list ${storage_key} in ${widget.id}`)
 
                 // determine saved (permanent) ids for global store
                 const saved_ids = sortable
@@ -359,6 +365,7 @@ function __render(widget, widget_item) {
                 // store saved_ids under storage_key & filter all ids using _exists
                 const gs = widget_item._global_store // saved manually below
                 gs._todoer ??= {}
+                const prev_state = clone_deep(gs._todoer) // to detect changes
                 gs._todoer[storage_key] = saved_ids.join()
                 gs._todoer = map_values(gs._todoer, v =>
                   v.split(',').filter(_exists).join()
@@ -374,9 +381,14 @@ function __render(widget, widget_item) {
                     delete _item(id).global_store._todoer.unsnoozed
                 })
 
-                // save changes to global store
+                // save changes (if any) to global store
                 // note invalidation is unnecessary since element controls storage
-                widget_item.save_global_store({ invalidate_elem_cache: false })
+                if (!equal(prev_state, gs._todoer)) {
+                  console.debug(`saving list ${storage_key} in ${widget.id}`)
+                  widget_item.save_global_store({
+                    invalidate_elem_cache: false,
+                  })
+                }
                 return null // finish repeating task
               },
               0,
