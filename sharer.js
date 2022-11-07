@@ -41,9 +41,28 @@ function _update_shared(
       } catch (e) {
         error(`failed to share ${item.name} on page '${key}'${index_str}; ${e}`)
       }
-      // TODO: re-upload private images as public files, see export command for tips
-      // TODO: remember private images can be <hex> or <uid>/images/<hex>, so you can normalize first as in item.images()
-      // TODO: once you get the images, just need to modify the file name to prefix w/ public
+      // re-upload private images in item
+      const srcs = item.images() // private img srcs
+      if (srcs.length > 0) {
+        if (!silent)
+          print(`reuploading ${srcs.length} private images in ${item.name}`)
+        item.images({ output: 'blob' }).then(blobs => {
+          Promise.all(
+            blobs.map((blob, i) => {
+              const src = srcs[i]
+              const pfx = _user.uid + '/images/'
+              const fname = src.startsWith(pfx) ? src : pfx + src
+              const public_fname = fname.replace(pfx, 'public/images/')
+              return upload(blob, { path: public_fname, public: true })
+            })
+          ).then(() => {
+            if (!silent)
+              print(
+                `reuploaded ${srcs.length} now-public images in ${item.name}`
+              )
+          })
+        })
+      }
     }
   })
 
