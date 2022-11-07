@@ -2,7 +2,7 @@ const _cloud = _item('$id')
 
 // upload `x`
 // | **option**  | | **default**
-// | `path`   | upload path | `hash(…)` of uploaded
+// | `path`   | upload path | `hash(…)` of uploaded bytes + type
 // |          |             | paths `public/…` are special (see below)
 // | `type`   | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x` (see below)
 // | `force`  | force upload?  | `false` | `true` replaces any remote or cached value for `path`
@@ -51,7 +51,7 @@ async function upload(x, options = undefined) {
   } else {
     fatal(`upload not supported for value '${x}'`)
   }
-  path ??= hash(bytes) // use hash as path
+  path ??= hash({ bytes: hash(bytes), type }) // use bytes + type hash as path
   if (options?.public) {
     if (!path.startsWith('public/')) path = 'public/' + path
   } else if (path.startsWith('public/'))
@@ -59,8 +59,8 @@ async function upload(x, options = undefined) {
 
   if (!force) {
     // check local cache for existence
-    // note type or size can be different from attempted upload
-    // note also that value need not exist in cache (can be type/size only)
+    // note cached value/type/size can differ unless path includes hash
+    // note also that value need not exist in cache (can be for existence only)
     const cached = _cloud.store.cache?.[path]
     if (cached) {
       console.debug(
@@ -70,14 +70,14 @@ async function upload(x, options = undefined) {
       return path
     }
     // check remote metadata for existence
-    // note type or size can be different from attempted upload
+    // cache existence (& type/size) if enabled
+    // delete cache entry if path is missing remotely
     const remote = await get_metadata(path)
     if (remote) {
       console.debug(
         `skipping upload for existing ${path} ` +
           `(${remote.contentType}, ${remote.size} bytes)`
       )
-      // store existence (& type/size) in cache to avoid repeated remote checks
       if (cache) {
         _cloud.store.cache ??= {}
         // note cache entry was missing (see above) so this is not a replacement
@@ -87,7 +87,7 @@ async function upload(x, options = undefined) {
         }
       }
       return path
-    }
+    } else delete _cloud.store.cache?.[path] // delete any existing cache entry
   }
   const start = Date.now()
   const encrypt = !path.startsWith('public/')
