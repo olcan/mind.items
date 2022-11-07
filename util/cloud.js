@@ -2,12 +2,12 @@ const _cloud = _item('$id')
 
 // upload `x`
 // | **option**  | | **default**
-// | `path`  | upload path | `hash(…)` of uploaded
-// |         |             | paths `public/…` are special (see below)
-// | `type`  | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x` (see below)
-// | `force` | force upload?  | `false` | `true` replaces remote & cached value
-// | `cache` | cache locally? | `true`  | `false` deletes any cached value
-// | `make_public` | make public?  | `false` | ` true` uploads to path `public/…`
+// | `path`   | upload path | `hash(…)` of uploaded
+// |          |             | paths `public/…` are special (see below)
+// | `type`   | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x` (see below)
+// | `force`  | force upload?  | `false` | `true` replaces remote & cached value
+// | `cache`  | cache locally? | `true`  | `false` deletes any cached value
+// | `public` | make public?   | `false` | ` true` uploads to path `public/…`
 // all uploads are encrypted & private, _except under path_ `public/…`
 // authentication _does not apply_ to downloads via url (see `get_url`)
 // encryption ensures privacy even if download url is leaked
@@ -20,13 +20,7 @@ const _cloud = _item('$id')
 // JSON value types are plain object, array, number, or boolean
 // returns upload path as specified or computed (via hash)
 async function upload(x, options = undefined) {
-  let {
-    path,
-    type,
-    force = false,
-    cache = true,
-    make_public = false,
-  } = options ?? {}
+  let { path, type, force = false, cache = true } = options ?? {}
   if (!cache) delete _cloud.store.cache?.[path] // disable any existing cache
   let bytes
   // convert blob to ArrayBuffer & use blob type as default type
@@ -55,10 +49,10 @@ async function upload(x, options = undefined) {
     fatal(`can not upload unknown value '${x}'`)
   }
   path ??= hash(bytes) // use hash as path
-  if (make_public) {
+  if (options?.public) {
     if (!path.startsWith('public/')) path = 'public/' + path
   } else if (path.startsWith('public/'))
-    fatal(`upload to path '${path}' requires option make_public:true`)
+    fatal(`upload to path '${path}' requires option public:true`)
 
   if (!force) {
     // check local cache
@@ -139,20 +133,14 @@ async function download(path, options = undefined) {
     }
   }
   const start = Date.now()
-  let metadata_time = 0
-  // if type is not specified and not using url, we need metadata for type
-  // note get_metadata cost is about same as that of get_url
-  if (!type && !use_url) {
-    const metadata = await get_metadata(path)
-    metadata_time = Date.now() - start
-    type = metadata.contentType
-  }
   const download_start = Date.now()
   let cipher
   if (!use_url) {
     const full_path = abs_path(path)
-    const { ref, getStorage, getBytes } = firebase.storage
-    const buffer = await getBytes(ref(getStorage(firebase), full_path))
+    const { ref, getStorage, getBlob } = firebase.storage
+    const blob = await getBlob(ref(getStorage(firebase), full_path))
+    const buffer = await blob.arrayBuffer()
+    type ??= blob.type
     cipher = new Uint8Array(buffer)
   } else {
     const url = await get_url(path)
@@ -174,13 +162,13 @@ async function download(path, options = undefined) {
     console.debug(
       `downloaded ${path} (${type}, ` +
         `${bytes.length} bytes, unencrypted) ` +
-        `in ${time}ms (download ${download_time}ms, metadata ${metadata_time}ms)`
+        `in ${time}ms (download ${download_time}ms)`
     )
   } else {
     console.debug(
       `downloaded ${path} (${type}, ` +
         `${bytes.length} bytes, ${cipher.length} encrypted) ` +
-        `in ${time}ms (download ${download_time}ms, decrypt ${decrypt_time}ms, metadata ${metadata_time}ms)`
+        `in ${time}ms (download ${download_time}ms, decrypt ${decrypt_time}ms)`
     )
   }
   let x = bytes
