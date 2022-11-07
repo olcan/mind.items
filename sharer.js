@@ -7,7 +7,9 @@ const _special_tag_aliases = tag =>
   tag?.match(_share_tag_regex) ? ['#features/_share'] : null
 
 function _on_welcome() {
+  // perform full update pass to ensure share tags are reflected in attribs
   // note we can skip unshares since update_shared_deps handles them
+  // we also skip dependencies (default) since we handle those here
   each(_items(), item => _update_shared(item, { skip_unshares: true }))
   _update_shared_deps()
 }
@@ -39,6 +41,9 @@ function _update_shared(
       } catch (e) {
         error(`failed to share ${item.name} on page '${key}'${index_str}; ${e}`)
       }
+      // TODO: re-upload private images as public files, see export command for tips
+      // TODO: remember private images can be <hex> or <uid>/images/<hex>, so you can normalize first as in item.images()
+      // TODO: once you get the images, just need to modify the file name to prefix w/ public
     }
   })
 
