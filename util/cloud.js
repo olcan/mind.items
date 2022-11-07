@@ -80,6 +80,7 @@ async function upload(x, options = undefined) {
       // store existence (& type/size) in cache to avoid repeated remote checks
       if (cache) {
         _cloud.store.cache ??= {}
+        // note cache entry was missing (see above) so this is not a replacement
         _cloud.store.cache[path] = {
           type: remote.contentType,
           size: remote.size,
