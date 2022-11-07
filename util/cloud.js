@@ -5,9 +5,10 @@ const _cloud = _item('$id')
 // | `path`   | upload path | `hash(…)` of uploaded
 // |          |             | paths `public/…` are special (see below)
 // | `type`   | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x` (see below)
-// | `force`  | force upload?  | `false` | `true` replaces remote & cached value
-// | `cache`  | cache locally? | `true`  | `false` deletes any cached value
+// | `force`  | force upload?  | `false` | `true` replaces any remote or cached value for `path`
+// | `cache`  | cache locally? | `true`  | `false` deletes any cache entry for `path`
 // | `public` | make public?   | `false` | ` true` uploads to path `public/…`
+// does not replace any existing value at `path` unless `force` is `true`
 // all uploads are encrypted & private, _except under path_ `public/…`
 // authentication _does not apply_ to downloads via url (see `get_url`)
 // encryption ensures privacy even if download url is leaked
@@ -17,11 +18,12 @@ const _cloud = _item('$id')
 // | JSON value    | `application/json` <font style="font-size:80%">(JSON-stringified, UTF-8 encoded)</font>
 // | Blob          | `Blob.type` <font style="font-size:80%">(treated as `ArrayBuffer`)</font>
 // | `ArrayBuffer` & [views](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) | `application/octet-stream`
-// JSON value types are plain object, array, number, or boolean
+// JSON value types are plain object, array, number, boolean, or null
 // returns upload path as specified or computed (via hash)
 async function upload(x, options = undefined) {
+  if (x === undefined) fatal('missing (or undefined) value for upload')
   let { path, type, force = false, cache = true } = options ?? {}
-  if (!cache) delete _cloud.store.cache?.[path] // disable any existing cache
+  if (!cache) delete _cloud.store.cache?.[path] // delete existing cache entry
   let bytes
   // convert blob to ArrayBuffer & use blob type as default type
   if (x instanceof Blob) {
@@ -35,7 +37,8 @@ async function upload(x, options = undefined) {
     is_array(x) ||
     is_plain_object(x) ||
     is_number(x) ||
-    is_boolean(x)
+    is_boolean(x) ||
+    x === null
   ) {
     bytes = encode(stringify(x), 'utf8_array')
     type ??= 'application/json'
@@ -46,7 +49,7 @@ async function upload(x, options = undefined) {
     bytes = new Uint8Array(x.buffer ?? x)
     type ??= 'application/octet-stream'
   } else {
-    fatal(`can not upload unknown value '${x}'`)
+    fatal(`upload not supported for value '${x}'`)
   }
   path ??= hash(bytes) // use hash as path
   if (options?.public) {
@@ -55,22 +58,33 @@ async function upload(x, options = undefined) {
     fatal(`upload to path '${path}' requires option public:true`)
 
   if (!force) {
-    // check local cache
-    if (_cloud.store.cache?.[path]?.type == type) {
-      const cached = _cloud.store.cache[path]
+    // check local cache for existence
+    // note type or size can be different from attempted upload
+    // note also that value need not exist in cache (can be type/size only)
+    const cached = _cloud.store.cache?.[path]
+    if (cached) {
       console.debug(
         `skipping upload for cached ${path} ` +
           `(${cached.type}, ${cached.size} bytes)`
       )
       return path
     }
-    // check remote metadata
-    const metadata = await get_metadata(path)
-    if (metadata?.contentType == type) {
+    // check remote metadata for existence
+    // note type or size can be different from attempted upload
+    const remote = await get_metadata(path)
+    if (remote) {
       console.debug(
         `skipping upload for existing ${path} ` +
-          `(${metadata.contentType}, ${metadata.size} bytes)`
+          `(${remote.contentType}, ${remote.size} bytes)`
       )
+      // store existence (& type/size) in cache to avoid repeated remote checks
+      if (cache) {
+        _cloud.store.cache ??= {}
+        _cloud.store.cache[path] = {
+          type: remote.contentType,
+          size: remote.size,
+        }
+      }
       return path
     }
   }
@@ -103,16 +117,18 @@ async function upload(x, options = undefined) {
         `in ${time}ms (upload ${upload_time}ms, encrypt ${encrypt_time}ms)`
     )
   }
-  _cloud.store.cache ??= {}
-  if (cache) _cloud.store.cache[path] = { value: x, type, size: cipher.length }
-  else delete _cloud.store.cache[path]
+  if (cache) {
+    _cloud.store.cache ??= {}
+    _cloud.store.cache[path] = { value: x, type, size: cipher.length }
+  }
   return path
 }
 
 // download from `path`
 // | **option**  | | **default**
-// | `type`  | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | specified on upload
-// | `force`   | force download?   | `false` | `true` replaces any cached value
+// | `type`    | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | specified on upload
+// | `force`   | force download?   | `false` | `true` replaces any cached value for `path`
+// | `cache`   | cache locally?    | `true`  | `false` deletes any cache entry for `path`
 // | `use_url` | use download url? | `false` | `true` uses download url
 // return value depends on [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type:
 // | `text/*`                   | string <font style="font-size:80%">(UTF-8 decoded)</font>
@@ -120,11 +136,12 @@ async function upload(x, options = undefined) {
 // | other                      | byte array (`Uint8Array`)
 async function download(path, options = undefined) {
   if (!path) fatal('missing path')
-  let { type, force = false, use_url = false } = options ?? {}
+  let { type, force = false, cache = true, use_url = false } = options ?? {}
+  if (!cache) delete _cloud.store.cache?.[path] // delete existing cache entry
   if (!force) {
-    // skip download if path exists in local cache
-    if (_cloud.store.cache?.[path]) {
-      const cached = _cloud.store.cache[path]
+    // skip download & return cached value if value exists in local cache
+    const cached = _cloud.store.cache?.[path]
+    if (cached?.value !== undefined) {
       console.debug(
         `skipping download for cached ${path} ` +
           `(${cached.type}, ${cached.size} bytes)`
@@ -174,8 +191,10 @@ async function download(path, options = undefined) {
   let x = bytes
   if (type.startsWith('text/')) x = decode(bytes, 'utf8_array')
   else if (type == 'application/json') x = parse(decode(bytes, 'utf8_array'))
-  _cloud.store.cache ??= {}
-  _cloud.store.cache[path] = { value: x, type, size: cipher.length }
+  if (cache) {
+    _cloud.store.cache ??= {}
+    _cloud.store.cache[path] = { value: x, type, size: cipher.length }
+  }
   return x
 }
 
