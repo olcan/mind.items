@@ -15,6 +15,7 @@ const _cloud = _item('$id')
 // default `type` is inferred from `x`:
 // | string        | `text/plain` <font style="font-size:80%">(UTF-8 encoded)</font>
 // | JSON value    | `application/json` <font style="font-size:80%">(JSON-stringified, UTF-8 encoded)</font>
+// | Blob          | `Blob.type` <font style="font-size:80%">(treated as `ArrayBuffer`)</font>
 // | `ArrayBuffer` & [views](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) | `application/octet-stream`
 // JSON value types are plain object, array, number, or boolean
 // returns upload path as specified or computed (via hash)
@@ -28,6 +29,11 @@ async function upload(x, options = undefined) {
   } = options ?? {}
   if (!cache) delete _cloud.store.cache?.[path] // disable any existing cache
   let bytes
+  // convert blob to ArrayBuffer & use blob type as default type
+  if (x instanceof Blob) {
+    type ??= x.type
+    x = await x.arrayBuffer()
+  }
   if (is_string(x)) {
     bytes = encode(x, 'utf8_array')
     type ??= 'text/plain'
