@@ -9,19 +9,14 @@ const _special_tag_aliases = tag =>
 function _on_welcome() {
   // perform full update pass to ensure share tags are reflected in attribs
   // note we can skip unshares since update_shared_deps handles them
-  // we also skip dependencies (default) since we handle those here
   each(_items(), item => _update_shared(item, { skip_unshares: true }))
   _update_shared_deps()
 }
 
 // updates item's 'shared' attribs to sync w/ its #share/... tags
 // always removes any sharing keys added to dependencies (w/o tags)
-// can auto-update dependencies if item is/was shared
 // returns array of share tags (if any) on item
-function _update_shared(
-  item,
-  { skip_unshares = false, update_deps = false, silent = false } = {}
-) {
+function _update_shared(item, { skip_unshares = false, silent = false } = {}) {
   const share_tags = item.tags.filter(t => _share_tag_regex.test(t))
   // return immediately if item is not shared by attributes or tags
   if (!item.shared && empty(share_tags)) return // nothing to do
@@ -40,28 +35,6 @@ function _update_shared(
         item.share(key, defined(index) ? parseInt(index) : undefined)
       } catch (e) {
         error(`failed to share ${item.name} on page '${key}'${index_str}; ${e}`)
-      }
-      // re-upload private images in item
-      const srcs = item.images() // private img srcs
-      if (srcs.length > 0) {
-        if (!silent)
-          print(`reuploading ${srcs.length} private images in ${item.name}`)
-        item.images({ output: 'blob' }).then(blobs => {
-          Promise.all(
-            blobs.map((blob, i) => {
-              const src = srcs[i]
-              const pfx = _user.uid + '/images/'
-              const fname = src.startsWith(pfx) ? src : pfx + src
-              const public_fname = fname.replace(pfx, 'public/images/')
-              return upload(blob, { path: public_fname, public: true })
-            })
-          ).then(() => {
-            if (!silent)
-              print(
-                `reuploaded ${srcs.length} now-public images in ${item.name}`
-              )
-          })
-        })
       }
     }
   })
@@ -83,13 +56,65 @@ function _update_shared(
     })
   }
 
-  // update dependencies if requested (and only for shared items)
-  if (update_deps) _update_shared_deps()
+  // skip sharing/unsharing images in read-only mode
+  if (_readonly) return share_tags
+
+  // share/unshare private images by uploading/deleting in public uploads
+  // uses same file name (hash of unencrypted bytes) for public upload path
+  // considers images removed if item is unshared or hidden (w/o indices)
+  // note both uploads & deletions depend on global store being accurate
+  // global stores could be fixed via periodic (or init-time) cleanups
+  // fix uploads by removing paths that return false for exists(path)
+  // fix deletions by adding paths that exist under public/images/...
+  const srcs = item.shared?.indices ? item.images() : []
+
+  // convert private image src attribs to public upload paths
+  apply(srcs, src => {
+    const pfx = _user.uid + '/images/'
+    const fname = src.startsWith(pfx) ? src : pfx + src
+    return fname.replace(pfx, 'public/images/')
+  })
+
+  // share/upload added images
+  const known = _.keys(item._global_store._sharer?.images)
+  const added = diff(srcs, known)
+  if (added.length) {
+    if (!silent) print(`sharing ${added.length} new images in ${item.name}`)
+    each(added, async path => {
+      merge(item.global_store, { _sharer: { images: { [path]: Date.now() } } })
+      try {
+        const src = path.replace(/^public/, _user.uid) // recover private src
+        const blob = (await item.images({ srcs: [src], output: 'blob' }))[0]
+        await upload(blob, { path, public: true })
+        if (!silent) print(`shared new image ${path} in ${item.name}`)
+      } catch (e) {
+        delete item.global_store._sharer?.images?.[path] // failed, remove
+        error(`failed to share new image ${path} in ${item.name}; ${e}`)
+      }
+    })
+  }
+
+  // unshare/delete removed (or unshared/hidden) images
+  const removed = diff(known, srcs)
+  if (removed.length) {
+    if (!silent) print(`unsharing ${removed.length} images in ${item.name}`)
+    each(removed, async (path, i) => {
+      delete item.global_store._sharer?.images?.[path]
+      try {
+        await delete_upload(path)
+        if (!silent) print(`unshared image ${path} in ${item.name}`)
+      } catch (e) {
+        // delete failed, add back to global store w/ 0 timestamp
+        merge(item.global_store, { _sharer: { images: { [path]: 0 } } })
+        error(`failed to unshare image ${path} in ${item.name}; ${e}`)
+      }
+    })
+  }
 
   return share_tags
 }
 
-// shares dependencies recursively
+// shares dependencies recursively as hidden (non-index) items
 // dependencies may include visible tags + #sharer (for handling share tags)
 // attributes are used to avoid dependency cycles (as already-shared keys)
 // returns names of all shared deps, including indirect deps, across all keys
@@ -108,7 +133,7 @@ function _share_deps(item) {
       const dep = _item(name, { silent: true }) // null if missing or ambiguous
       if (!dep) return // skip missing dependency
       if (dep.shared?.keys.includes(key)) return // already shared under key
-      dep.share(key)
+      dep.share(key) // share dependency as hidden item
       deps.push(dep.name, ..._share_deps(dep, key))
     })
   })
@@ -152,8 +177,8 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // (i.e. since resulting changes to attr are also synced separately)
   // note we still need to invalidate dependents on remote changes
   if (!remote) {
-    if (item) _update_shared(item, { update_deps: true })
-    else _update_shared_deps() // can be affected by deletions
+    if (item) _update_shared(item)
+    _update_shared_deps() // can be affected by deletions
   }
   // invalidate dependents w/ force-render and small delay as debounce
   // note we need to do this for remote changes or deletions (!item) as well
