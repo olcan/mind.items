@@ -1,4 +1,4 @@
-#todoer helps manage todo items. 
+#todoer helps manage todo items.  
 - Try <<link_eval(_this, 'create_pinned_item()', 'creating a pinned item')>> with a drag-and-drop widget.
 - Try using the `/todo [text]` command to quickly create new items.
 #### Commands
