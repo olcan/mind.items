@@ -123,7 +123,7 @@ function __render(widget, widget_item) {
       slideBy: 1,
       loop: false,
       nav: (options.items ?? 1) < slides.children.length,
-      navPosition: 'top',
+      navPosition: 'bottom',
       mouseDrag: true,
       swipeAngle: false,
       controls: true,
@@ -186,10 +186,10 @@ function __render(widget, widget_item) {
             ? options.autoplayText[0]
             : options.autoplayText[1]
         }
-        // const nav = widget.querySelector('.tns-nav')
+        const nav = widget.querySelector('.tns-nav')
         const controls = widget.querySelector('.tns-controls')
         const outer = widget.querySelector('.tns-outer')
-        outer.insertBefore(button, controls.nextSibling)
+        outer.insertBefore(button, nav ?? controls.nextSibling)
       }
       _render_images(_this) // for copied images, esp. in looping carousel mode
       options.onInit?.(carousel)

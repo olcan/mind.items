@@ -84,13 +84,14 @@
     border: 0;
     background: none;
     color: #aaa;
-    font-family: monospace;
+    font-family: 'JetBrains Mono', monospace;
     font-size: 16px;
-    line-height: 30px; /* =height to center text vertically */
+    white-space: nowrap;
+    line-height: 0; /* improves vertical centering */
+    padding-bottom: 4px; /* improves vertical centering */
     vertical-align: middle;
-    padding: 0;
-    margin: 0 10px;
-    height: 30px;
+    margin: 5px 10px;
+    height: 32px;
     width: 50px;
     background: rgba(255, 255, 255, 0.05); /* same as prev/next */
     border-radius: 4px;
@@ -98,6 +99,7 @@
   #widget .tns-nav {
     display: inline-block;
     height: 30px;
+    margin: 5px 0;
   }
   #widget .tns-nav button {
     width: 8px;
