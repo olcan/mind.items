@@ -123,10 +123,10 @@ function __render(widget, widget_item) {
       slideBy: 1,
       loop: false,
       nav: (options.items ?? 1) < slides.children.length,
-      navPosition: 'bottom',
+      navPosition: 'top',
       mouseDrag: true,
       swipeAngle: false,
-      controls: true,
+      controls: false,
       controlsText: ['◀︎', '▶︎'],
       autoplay: false, // also see override below
       autoplayTimeout: 3000,
@@ -141,7 +141,6 @@ function __render(widget, widget_item) {
   let dragStartTime = 0
   let dragStartIndex
   let dragStartX
-  let dragEndTime = 0
   let autoplayPaused = false
   let autoplayResetTime = 0
 
@@ -189,7 +188,7 @@ function __render(widget, widget_item) {
         const nav = widget.querySelector('.tns-nav')
         const controls = widget.querySelector('.tns-controls')
         const outer = widget.querySelector('.tns-outer')
-        outer.insertBefore(button, nav ?? controls.nextSibling)
+        outer.insertBefore(button, nav ?? controls?.nextSibling)
       }
       _render_images(_this) // for copied images, esp. in looping carousel mode
       options.onInit?.(carousel)
@@ -233,7 +232,7 @@ function __render(widget, widget_item) {
         // delay autoplay if autoplayResetTime was set within autoplayTimeout
         if (Date.now() - autoplayResetTime < options.autoplayTimeout)
           return options.autoplayTimeout - (Date.now() - autoplayResetTime)
-        if (slider.getInfo().nextButton.hasAttribute('disabled'))
+        if (slider.getInfo().index == slider.getInfo().slideCount - 1)
           slider.goTo('first')
         else slider.goTo('next')
       },
