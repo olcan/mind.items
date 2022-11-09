@@ -36,7 +36,7 @@ function slider(options = {}) {
 // slide container macro
 // `slides` must be array of `html | img_src | [html|img_src, caption]`
 // `attrs` can contain shared attributes for generated img tags
-function slides(slides, attrs = undefined) {
+function slides(slides, attrs = '') {
   if (!is_array(slides)) throw new Error('invalid slides')
   return [
     `<div class="slides">`,
@@ -48,7 +48,11 @@ function slides(slides, attrs = undefined) {
         ;[slide, caption] = slide
       }
       if (!is_string(slide)) throw new Error('invalid slide')
-      if (!slide.match(/^\s*</)) slide = `<img src="${slide}" ${attrs ?? ''}>` // interpret as img src
+      // copy caption to title attribute
+      // if (caption)
+      //   attrs =
+      //     'title="' + _.escape(caption).replace(/\n/g, '&#010;') + '" ' + attrs
+      if (!slide.match(/^\s*</)) slide = `<img src="${slide}" ${attrs}>` // interpret as img src
       return [
         '<div>',
         slide,
