@@ -1,1 +1,108 @@
-<!-- TODO -->
+<div
+  id="slider-widget-__cid__"
+  class="slider-widget macro __classes__"
+  _cache_key="__cid__"
+  _skip_invalidation
+  __style__
+></div>
+
+<!-- to prevent flicker (and item height change) on cache invalidation, we use _skip_invalidation on widget div and move script outside to ensure re-rendering still happens on cache invalidation -->
+<script _cached>
+  _render_slider_widget(elem('#widget'))
+</script>
+
+<style>
+  #widget {
+    text-align: center;
+    margin-top: 10px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* hide slides until moved inside widget */
+  #item #slides {
+    display: none;
+    padding: 10px 0;
+    /* background: #171717; */
+  }
+  #widget #slides {
+    display: flex;
+    gap: 5px;
+    perspective: 1000;
+    backface-visibility: hidden;
+    transform: translate3d(0, 0, 0);
+    -webkit-perspective: 1000;
+    -webkit-backface-visibility: hidden;
+    -webkit-transform: translate3d(0, 0, 0);
+  }
+  #widget #slides.draggable .tns-item > * {
+    cursor: grab;
+  }
+  #widget #slides.dragging .tns-item > * {
+    cursor: grabbing;
+  }
+  #widget .tns-outer {
+    position: relative;
+  }
+  #widget .tns-outer > .tns-controls {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  #widget .tns-outer > .tns-controls > button {
+    position: absolute;
+    height: 100%;
+    width: 60px;
+    pointer-events: all;
+    padding: 10px;
+    margin: 0;
+    border: 0;
+    background: rgba(255, 255, 255, 0.05);
+    font-family: monospace;
+    color: #666;
+    font-size: 30px;
+    line-height: 0; /* improves vertical centering */
+  }
+  #widget .tns-outer > .tns-controls > button[disabled] {
+    display: none;
+  }
+  #widget .tns-outer > .tns-controls > button:first-child {
+    left: 0;
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+  }
+  #widget .tns-outer > .tns-controls > button:last-child {
+    right: 0;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+  }
+  #widget .tns-outer > button {
+    border: 0;
+    background: none;
+    color: #aaa;
+    font-size: 24px;
+    vertical-align: middle;
+    margin-right: 10px;
+    height: 30px;
+  }
+  #widget .tns-nav {
+    /* display: inline-block; */
+    height: 30px;
+    margin-top: -10px;
+  }
+  #widget .tns-nav button {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin: 0 5px;
+    padding: 0;
+    border: 0;
+    background: #333;
+  }
+  #widget .tns-nav > .tns-nav-active {
+    background: #aaa;
+  }
+  /* __styles__ */
+</style>
