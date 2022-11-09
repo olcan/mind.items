@@ -33,6 +33,35 @@ function slider(options = {}) {
   )
 }
 
+// slide container macro
+// `slides` must be array of `html | img_src | [html|img_src, caption]`
+// `attrs` can contain shared attributes for generated img tags
+function slides(slides, attrs = undefined) {
+  if (!is_array(slides)) throw new Error('invalid slides')
+  return [
+    `<div class="slides">`,
+    ...slides.map(slide => {
+      let caption
+      if (is_array(slide)) {
+        if (slide.length != 2 || !slide.every(is_string))
+          throw new Error('invalid slide')
+        ;[slide, caption] = slide
+      }
+      if (!is_string(slide)) throw new Error('invalid slide')
+      if (!slide.match(/^\s*</)) slide = `<img src="${slide}" ${attrs ?? ''}>` // interpret as img src
+      return [
+        '<div>',
+        slide,
+        ...(caption ? ['<p>', caption, '</p>'] : []),
+        '</div>',
+      ]
+    }),
+    `</div>`,
+  ]
+    .flat()
+    .join('\n')
+}
+
 // internal helper for slider widget macro
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
@@ -74,7 +103,7 @@ function _render_slider_widget(widget, item = _this) {
 // internal helper for _render_slider_widget, assumes tiny-slider loaded
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
-  const options = widget_item.store[widget.id]?.options ?? {}
+  let options = widget_item.store[widget.id]?.options ?? {}
   const selector = options.slides || '.slides'
   if (!is_string(selector) || !widget_item.elem.querySelector(selector))
     fatal(`invalid/missing slides using selector '${selector}'`)
@@ -83,30 +112,41 @@ function __render(widget, widget_item) {
   slides.remove()
   widget.replaceChildren(slides)
 
-  options.mouseDrag ??= true
+  options = merge(
+    {
+      container: slides,
+      items: 1,
+      slideBy: 1,
+      loop: false,
+      nav: (options.items ?? 1) < slides.children.length,
+      navPosition: 'top',
+      mouseDrag: true,
+      swipeAngle: false,
+      controls: true,
+      controlsText: ['◀︎', '▶︎'],
+      autoplay: false, // also see override below
+      autoplayTimeout: 3000,
+      autoplayText: ['▶', '❚❚'],
+      // autoplayHoverPause: false,
+      // autoplayResetOnVisibility: false,
+      // autoplayPosition: 'bottom',
+      // autoplayButtonOutput: true,
+    },
+    options
+  )
   let dragStartTime = 0
   let dragStartIndex
   let dragStartX
+  let dragEndTime = 0
+  let autoplayPaused = false
+  let autoplayResetTime = 0
 
   const slider = tns({
-    container: slides,
-    items: 1,
-    slideBy: 1,
-    loop: false,
-    nav: true,
-    navPosition: 'bottom',
-    mouseDrag: true,
-    swipeAngle: false,
-    controls: true,
-    controlsText: ['◀︎', '▶︎'],
     ...options,
 
-    // note built-in autoplay is quite buggy, e.g. dragging and page visibility events can trigger erratic autoplay behavior, so we disable this until it is really needed, at which point we may try the latest version or implement our own autoplay
+    // forced option overrides (w/o modifying user-specified options object)
+    // built-in autoplay is quite buggy, e.g. dragging and page visibility events can trigger erratic autoplay behavior, so we disable built-in autoplay for now and implement our own basic version below
     autoplay: false,
-    autoplayHoverPause: false,
-    autoplayResetOnVisibility: false,
-    autoplayPosition: 'bottom',
-    autoplayText: ['▶', '❚❚'],
 
     onInit: carousel => {
       if (options.mouseDrag) {
@@ -132,10 +172,27 @@ function __render(widget, widget_item) {
           }
         })
       }
+      if (options.autoplay) {
+        const button = document.createElement('button')
+        button.className = 'autoplay'
+        button.innerText = options.autoplayText[1]
+        button.onclick = () => {
+          autoplayPaused = !autoplayPaused
+          button.innerText = autoplayPaused
+            ? options.autoplayText[0]
+            : options.autoplayText[1]
+        }
+        // const nav = widget.querySelector('.tns-nav')
+        const controls = widget.querySelector('.tns-controls')
+        const outer = widget.querySelector('.tns-outer')
+        outer.insertBefore(button, controls.nextSibling)
+      }
       _render_images(_this) // for copied images, esp. in looping carousel mode
       options.onInit?.(carousel)
     },
   })
+  if (!slider) return // can happen e.g. if there are no slides
+
   // set up dragging-related classes
   if (options.mouseDrag) {
     slides.classList.add('draggable')
@@ -148,11 +205,36 @@ function __render(widget, widget_item) {
       // slider.pause()
     })
     slider.events.on('dragEnd', info => {
+      autoplayResetTime = Date.now()
       slides.classList.remove('dragging')
       // cancel drag if haven't dragged enough
       if (Math.abs(info.event.screenX - dragStartX) < 50)
         slider.goTo(dragStartIndex)
       // slider.pause()
     })
+  }
+  // set up autoplay if enabled
+  if (options.autoplay) {
+    slider.events.on('indexChanged', info => {
+      autoplayResetTime = Date.now()
+    })
+    widget_item.dispatch_task(
+      'slider-widget-autoplay-' + widget.id,
+      () => {
+        if (!widget_item.elem) return // widget not on page, skip
+        if (autoplayPaused) return // autoplay paused, skip
+        if (slides.classList.contains('dragging')) return // dragging, skip
+        if (_modal_visible()) return // modal visible, skip
+        if (!_focused) return // window not focused, skip
+        // delay autoplay if autoplayResetTime was set within autoplayTimeout
+        if (Date.now() - autoplayResetTime < options.autoplayTimeout)
+          return options.autoplayTimeout - (Date.now() - autoplayResetTime)
+        if (slider.getInfo().nextButton.hasAttribute('disabled'))
+          slider.goTo('first')
+        else slider.goTo('next')
+      },
+      options.autoplayTimeout,
+      options.autoplayTimeout
+    )
   }
 }
