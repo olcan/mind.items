@@ -66,7 +66,8 @@ function _update_shared(item, { skip_unshares = false, silent = false } = {}) {
   // global stores could be fixed via periodic (or init-time) cleanups
   // fix uploads by removing paths that return false for exists(path)
   // fix deletions by adding paths that exist under public/images/...
-  const srcs = item.shared?.indices ? item.images() : []
+  // note we eval_macros to include macro-generated images
+  const srcs = item.shared?.indices ? item.images({ eval_macros: true }) : []
 
   // convert private image src attribs to public upload paths
   apply(srcs, src => {
@@ -84,7 +85,13 @@ function _update_shared(item, { skip_unshares = false, silent = false } = {}) {
       merge(item.global_store, { _sharer: { images: { [path]: Date.now() } } })
       try {
         const src = path.replace(/^public/, _user.uid) // recover private src
-        const blob = (await item.images({ srcs: [src], output: 'blob' }))[0]
+        const blob = (
+          await item.images({
+            srcs: [src],
+            output: 'blob',
+            eval_macros: true,
+          })
+        )[0]
         await upload(blob, { path, public: true })
         if (!silent) print(`shared new image ${path} in ${item.name}`)
       } catch (e) {
