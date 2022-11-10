@@ -54,8 +54,8 @@
   }
   #widget .tns-outer > .tns-controls > button {
     position: absolute;
-    height: 50px;
-    width: 40px;
+    height: 47px;
+    width: 47px;
     pointer-events: all;
     font-family: 'JetBrains Mono', monospace;
     font-size: 30px;
@@ -68,14 +68,26 @@
     background: rgba(255, 255, 255, 0.05);
     color: #999; /* same as item toggles */
   }
+  #widget.nav-bottom .tns-outer > .tns-controls > button {
+    top: auto;
+    bottom: 0;
+  }
   #widget .tns-outer > .tns-controls > button[disabled] {
     display: none;
   }
   #widget .tns-outer > .tns-controls > button:first-child {
     left: 0;
   }
+  #widget.nav-none .tns-outer > .tns-controls > button:first-child {
+    border-bottom-left-radius: 0;
+    border-top-right-radius: 0;
+  }
   #widget .tns-outer > .tns-controls > button:last-child {
     right: 0;
+  }
+  #widget.nav-none .tns-outer > .tns-controls > button:last-child {
+    border-top-left-radius: 0;
+    border-bottom-right-radius: 0;
   }
   /* note this applies to both built-in and custom button (button.autoplay) */
   #widget .tns-outer > button {

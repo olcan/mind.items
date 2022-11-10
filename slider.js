@@ -84,7 +84,7 @@ function __render(widget, widget_item) {
       slideBy: 1,
       loop: false,
       nav: (options.items ?? 1) < slides.children.length,
-      navPosition: 'top',
+      navPosition: 'top', // controls autoplay button even if nav:false
       mouseDrag: true,
       swipeAngle: false,
       controls: false,
@@ -104,6 +104,14 @@ function __render(widget, widget_item) {
   let dragStartX
   let autoplayPaused = false
   let autoplayResetTime = 0
+
+  widget.classList.add(
+    options.nav || options.autoplay // note autoplay also uses navPosition
+      ? options.navPosition == 'top'
+        ? 'nav-top'
+        : 'nav-bottom'
+      : 'nav-none'
+  )
 
   const slider = tns({
     ...options,
@@ -147,9 +155,11 @@ function __render(widget, widget_item) {
             : options.autoplayText[1]
         }
         const nav = widget.querySelector('.tns-nav')
-        const controls = widget.querySelector('.tns-controls')
         const outer = widget.querySelector('.tns-outer')
-        outer.insertBefore(button, nav ?? controls?.nextSibling)
+        if (nav) outer.insertBefore(button, nav)
+        else if (options.navPosition == 'top')
+          outer.insertBefore(button, outer.firstChild)
+        else if (options.navPosition == 'bottom') outer.appendChild(button)
       }
       _render_images(_this) // for copied images, esp. in looping carousel mode
       options.onInit?.(carousel)
