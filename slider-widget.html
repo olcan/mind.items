@@ -28,6 +28,14 @@
     background: #171717;
     border-radius: 4px;
     padding: 10px;
+    /* TODO: investigate slow animation issues on iPhone once modal is triggered */
+    /* see https://github.com/ganlanyuan/tiny-slider/issues/683#issuecomment-806831575 */
+    perspective: 1000;
+    backface-visibility: hidden;
+    transform: translate3d(0, 0, 0);
+    -webkit-perspective: 1000;
+    -webkit-backface-visibility: hidden;
+    -webkit-transform: translate3d(0, 0, 0);
   }
   #widget .slide > p {
     width: fit-content;

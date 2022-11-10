@@ -85,6 +85,7 @@ function __render(widget, widget_item) {
       loop: false,
       nav: (options.items ?? 1) < slides.children.length,
       navPosition: 'top', // controls autoplay button even if nav:false
+      touch: true,
       mouseDrag: true,
       swipeAngle: false,
       controls: false,
@@ -113,6 +114,9 @@ function __render(widget, widget_item) {
       : 'nav-none'
   )
 
+  try {
+    widget._slider?.destroy() // destroy previous slider if any
+  } catch {} // ignore any errors in destruction of previous slider
   const slider = tns({
     ...options,
 
@@ -166,26 +170,43 @@ function __render(widget, widget_item) {
     },
   })
   if (!slider) return // can happen e.g. if there are no slides
+  widget._slider = slider // for destruction in re-render
+
+  function dragStart(info) {
+    // console.debug('dragStart')
+    dragStartTime = Date.now()
+    dragStartIndex = info.index
+    dragStartX = info.event.screenX
+    autoplayResetTime = Date.now()
+    slides.classList.add('dragging')
+  }
+
+  function dragEnd(info) {
+    // console.debug('dragEnd')
+    autoplayResetTime = Date.now()
+    slides.classList.remove('dragging')
+    // cancel drag if haven't dragged enough
+    if (Math.abs(info.event.screenX - dragStartX) < 50)
+      slider.goTo(dragStartIndex)
+  }
+
+  function dragMove(info) {
+    // console.debug('dragMove')
+    autoplayResetTime = Date.now()
+  }
+
+  // treat touch events as drag events
+  slider.events.on('touchStart', dragStart)
+  slider.events.on('touchEnd', dragEnd)
+  slider.events.on('touchMove', dragMove)
 
   // set up dragging-related classes
   if (options.mouseDrag) {
     slides.classList.add('draggable')
     // show dragging cursors
-    slider.events.on('dragStart', info => {
-      dragStartTime = Date.now()
-      dragStartIndex = info.index
-      dragStartX = info.event.screenX
-      slides.classList.add('dragging')
-      // slider.pause()
-    })
-    slider.events.on('dragEnd', info => {
-      autoplayResetTime = Date.now()
-      slides.classList.remove('dragging')
-      // cancel drag if haven't dragged enough
-      if (Math.abs(info.event.screenX - dragStartX) < 50)
-        slider.goTo(dragStartIndex)
-      // slider.pause()
-    })
+    slider.events.on('dragStart', dragStart)
+    slider.events.on('dragEnd', dragEnd)
+    slider.events.on('dragMove', dragMove)
   }
   // set up autoplay if enabled
   if (options.autoplay) {
@@ -195,7 +216,8 @@ function __render(widget, widget_item) {
     widget_item.dispatch_task(
       'slider-widget-autoplay-' + widget.id,
       () => {
-        if (!widget_item.elem) return // widget not on page, skip
+        if (!widget_item.elem) return // item not on page, skip
+        if (!widget_item.elem.contains(widget)) return // widget not on item, skip
         if (autoplayPaused) return // autoplay paused, skip
         if (slides.classList.contains('dragging')) return // dragging, skip
         if (_modal_visible()) return // modal visible, skip
