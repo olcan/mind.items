@@ -11,7 +11,7 @@ function slider(options = {}) {
   // apply transition-duration to slides to fix animations in Safari
   options.speed ??= 300
   const duration = round_to(options.speed / 1000, 2)
-  styles += `\n #item #widget #slides { transition-duration: ${duration}s }`
+  styles += `\n #item #widget .slides { transition-duration: ${duration}s }`
 
   // pass along options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
@@ -101,6 +101,7 @@ function __render(widget, widget_item) {
     options
   )
   let dragStartTime = 0
+  let dragEndTime = 0
   let dragStartIndex
   let dragStartX
   let autoplayPaused = false
@@ -113,6 +114,16 @@ function __render(widget, widget_item) {
         : 'nav-bottom'
       : 'nav-none'
   )
+
+  function pauseAutoplay() {
+    if (autoplayPaused) return // already paused
+    widget.querySelector('button.autoplay')?.dispatchEvent(new Event('click'))
+  }
+
+  // NOTE: having an invisible input element to "focus" on can dramatically improve animation performance on iOS (at least on iPhone Safari on iOS 16), so we do that on all user interaction events using an invisible button added into .tns-outer in onInit (see below)
+  function ensureFocus() {
+    document.querySelector('.tns-outer button.focus').focus() // ensure focus
+  }
 
   try {
     widget._slider?.destroy() // destroy previous slider if any
@@ -129,10 +140,14 @@ function __render(widget, widget_item) {
         slides.querySelectorAll('.slide').forEach(slide => {
           slide.setAttribute('_clickable', '')
           slide.onclick = e => {
+            ensureFocus()
+            // console.debug('onclick', e, Math.abs(e.pageX - dragStartX))
             e.stopPropagation()
             slides.classList.remove('dragging')
+            if (Date.now() - dragEndTime < 250) return // can prevent unintentional clicks on touch devices
             if (Date.now() - dragStartTime > 250) return
-            if (Math.abs(e.screenX - dragStartX) > 5) return
+            if (Math.abs(e.pageX - dragStartX) > 5) return
+            // pauseAutoplay()
             _modal(
               [
                 // drop indentations that can be misinterpreted as markdown blocks
@@ -148,6 +163,14 @@ function __render(widget, widget_item) {
           }
         })
       }
+
+      // create invisible "focus" button (see note for ensureFocus() above)
+      const button = document.createElement('button')
+      button.className = 'focus'
+      button.style.position = 'absolute'
+      button.style.opacity = 0
+      widget.querySelector('.tns-outer').appendChild(button)
+
       if (options.autoplay) {
         const button = document.createElement('button')
         button.className = 'autoplay'
@@ -173,25 +196,34 @@ function __render(widget, widget_item) {
   widget._slider = slider // for destruction in re-render
 
   function dragStart(info) {
-    // console.debug('dragStart')
+    // console.debug('dragStart', info.event)
+    ensureFocus()
     dragStartTime = Date.now()
     dragStartIndex = info.index
-    dragStartX = info.event.screenX
+    dragStartX = info.event.pageX // pageX also works for touch events
     autoplayResetTime = Date.now()
     slides.classList.add('dragging')
+    // pauseAutoplay()
   }
 
   function dragEnd(info) {
-    // console.debug('dragEnd')
+    // console.debug(
+    //   'dragEnd',
+    //   Math.abs(info.event.pageX - dragStartX),
+    //   info.event
+    // )
+    ensureFocus()
+    dragEndTime = Date.now()
     autoplayResetTime = Date.now()
     slides.classList.remove('dragging')
     // cancel drag if haven't dragged enough
-    if (Math.abs(info.event.screenX - dragStartX) < 50)
+    if (Math.abs(info.event.pageX - dragStartX) < 50)
       slider.goTo(dragStartIndex)
   }
 
   function dragMove(info) {
     // console.debug('dragMove')
+    ensureFocus()
     autoplayResetTime = Date.now()
   }
 
