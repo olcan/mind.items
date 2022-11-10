@@ -14,31 +14,32 @@
 <style>
   #widget {
     text-align: center;
-    margin-top: 10px;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
   }
   /* hide slides until moved inside widget */
-  #item #slides {
+  #item .slide {
     display: none;
-    padding: 10px 0;
-    /* background: #171717; */
+    text-align: center;
   }
-  #widget #slides {
+  #widget .slide {
+    display: block;
+    background: #171717;
+    border-radius: 4px;
+    padding: 10px;
+  }
+  #widget .slide > p {
+    width: fit-content;
+    margin: auto;
+  }
+  #widget .slides {
     display: flex;
-    gap: 5px;
-    /* perspective: 1000;
-    backface-visibility: hidden;
-    transform: translate3d(0, 0, 0);
-    -webkit-perspective: 1000;
-    -webkit-backface-visibility: hidden;
-    -webkit-transform: translate3d(0, 0, 0); */
   }
-  #widget #slides.draggable .tns-item > * {
+  #widget .slides.draggable .slide {
     cursor: grab;
   }
-  #widget #slides.dragging .tns-item > * {
+  #widget .slides.dragging .slide {
     cursor: grabbing;
   }
   #widget .tns-outer {
@@ -53,30 +54,28 @@
   }
   #widget .tns-outer > .tns-controls > button {
     position: absolute;
-    height: 100%;
+    height: 47px;
     width: 40px;
     pointer-events: all;
-    padding: 10px;
-    margin: 0;
-    border: 0;
-    background: rgba(255, 255, 255, 0.05);
-    font-family: monospace;
-    color: #999; /* same as item toggles */
+    font-family: 'JetBrains Mono', monospace;
     font-size: 30px;
     line-height: 0; /* improves vertical centering */
+    padding: 0;
+    padding-bottom: 5px; /* improves vertical centering */
+    margin: 0;
+    border: 0;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #999; /* same as item toggles */
   }
   #widget .tns-outer > .tns-controls > button[disabled] {
     display: none;
   }
   #widget .tns-outer > .tns-controls > button:first-child {
     left: 0;
-    border-top-left-radius: 4px;
-    border-bottom-left-radius: 4px;
   }
   #widget .tns-outer > .tns-controls > button:last-child {
     right: 0;
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
   }
   /* note this applies to both built-in and custom button (button.autoplay) */
   #widget .tns-outer > button {
@@ -90,7 +89,7 @@
     line-height: 0; /* improves vertical centering */
     padding-bottom: 4px; /* improves vertical centering */
     vertical-align: middle;
-    margin: 5px 10px;
+    margin: 10px 10px;
     height: 32px;
     width: 50px;
     background: rgba(255, 255, 255, 0.05); /* same as prev/next */
@@ -99,7 +98,7 @@
   #widget .tns-nav {
     display: inline-block;
     height: 30px;
-    margin: 5px 0;
+    margin: 10px 0;
   }
   #widget .tns-nav button {
     width: 8px;

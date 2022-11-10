@@ -1,9 +1,8 @@
 const _slider = _item('$id')
 
 // slider widget macro
-// | **option** | |  **default**
-// | `slides` | selector for element containing slides | `.slides`
-// other `options` are as listed for [tiny-slider](https://github.com/ganlanyuan/tiny-slider#options)
+// slides must be in top-level html elements w/ `class="slide"`
+// `options` are documented at https://github.com/ganlanyuan/tiny-slider#options
 function slider(options = {}) {
   // note this macro structure follows that of _plot in #util/plot
   let { style, styles, classes, ...widget_options } =
@@ -13,8 +12,6 @@ function slider(options = {}) {
   options.speed ??= 300
   const duration = round_to(options.speed / 1000, 2)
   styles += `\n #item #widget #slides { transition-duration: ${duration}s }`
-
-  widget_options.slides ||= '.slides'
 
   // pass along options via item store keyed by macro cid
   // macro cid is also passed to html via template string __cid__
@@ -28,42 +25,8 @@ function slider(options = {}) {
       .replace(/__style__/g, style)
       .replace(/\/\* *__styles__ *\*\//g, styles)
       .replace(/#widget\b/g, `#slider-widget-__cid__`)
-      .replace(/#slides\b/g, widget_options.slides)
       .replace(/__cid__/g, '$cid')
   )
-}
-
-// slide container macro
-// `slides` must be array of `html | img_src | [html|img_src, caption]`
-// `attrs` can contain shared attributes for generated img tags
-function slides(slides, attrs = '') {
-  if (!is_array(slides)) throw new Error('invalid slides')
-  return [
-    `<div class="slides">`,
-    ...slides.map(slide => {
-      let caption
-      if (is_array(slide)) {
-        if (slide.length != 2 || !slide.every(is_string))
-          throw new Error('invalid slide')
-        ;[slide, caption] = slide
-      }
-      if (!is_string(slide)) throw new Error('invalid slide')
-      // copy caption to title attribute
-      // if (caption)
-      //   attrs =
-      //     'title="' + _.escape(caption).replace(/\n/g, '&#010;') + '" ' + attrs
-      if (!slide.match(/^\s*</)) slide = `<img src="${slide}" ${attrs}>` // interpret as img src
-      return [
-        '<div>',
-        slide,
-        ...(caption ? ['<p>', caption, '</p>'] : []),
-        '</div>',
-      ]
-    }),
-    `</div>`,
-  ]
-    .flat()
-    .join('\n')
 }
 
 // internal helper for slider widget macro
@@ -108,14 +71,12 @@ function _render_slider_widget(widget, item = _this) {
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
   let options = widget_item.store[widget.id]?.options ?? {}
-  const selector = options.slides || '.slides'
-  if (!is_string(selector) || !widget_item.elem.querySelector(selector))
-    fatal(`invalid/missing slides using selector '${selector}'`)
-  // find slide elements, excluding those already moved inside widget
-  const slides = widget_item.elem.querySelector(selector)
-  slides.remove()
+  const slides = document.createElement('div')
+  slides.className = 'slides'
+  slides.replaceChildren(
+    ...widget_item.elem?.querySelectorAll('.content > .slide')
+  )
   widget.replaceChildren(slides)
-
   options = merge(
     {
       container: slides,
@@ -153,7 +114,7 @@ function __render(widget, widget_item) {
 
     onInit: carousel => {
       if (options.mouseDrag) {
-        slides.querySelectorAll('.tns-item > *').forEach(slide => {
+        slides.querySelectorAll('.slide').forEach(slide => {
           slide.setAttribute('_clickable', '')
           slide.onclick = e => {
             e.stopPropagation()
@@ -163,7 +124,7 @@ function __render(widget, widget_item) {
             _modal(
               [
                 // drop indentations that can be misinterpreted as markdown blocks
-                slide.parentElement.innerHTML.replace(/(^|\n)\s*/g, '$1'),
+                slide.innerHTML.replace(/(^|\n)\s*/g, '$1'),
                 // add styling for image and captions
                 `<style>`,
                 `.modal { background: #171717 !important; }`,
