@@ -148,8 +148,8 @@ function __render(widget, widget_item) {
             if (Date.now() - dragStartTime > 250) return
             if (Math.abs(e.pageX - dragStartX) > 5) return
             // pauseAutoplay()
-            _modal(
-              [
+            _modal({
+              content: [
                 // drop indentations that can be misinterpreted as markdown blocks
                 slide.innerHTML.replace(/(^|\n)\s*/g, '$1'),
                 // add styling for image and captions
@@ -158,8 +158,9 @@ function __render(widget, widget_item) {
                 `.modal img { width: 100%; }`,
                 `.modal p { text-align: center; color: #aaa }`,
                 `</style>`,
-              ].join('\n')
-            )
+              ].join('\n'),
+              passthrough: true, // tap anywhere to close
+            })
           }
         })
       }
@@ -167,7 +168,9 @@ function __render(widget, widget_item) {
       // create invisible "focus" button (see note for ensureFocus() above)
       const button = document.createElement('button')
       button.className = 'focus'
-      button.style.position = 'absolute'
+      button.style.position = 'absolute' // relative to .tns-outer
+      button.style.top = '50%' // ~middle of widget
+      button.style.left = '50%' // ~middle of widget
       button.style.opacity = 0
       widget.querySelector('.tns-outer').appendChild(button)
 
