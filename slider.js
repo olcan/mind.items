@@ -115,6 +115,11 @@ function __render(widget, widget_item) {
       : 'nav-none'
   )
 
+  // resets autoplay timer
+  function resetAutoplayTimer() {
+    autoplayResetTime = Date.now()
+  }
+
   function pauseAutoplay() {
     if (autoplayPaused) return // already paused
     widget.querySelector('button.autoplay')?.dispatchEvent(new Event('click'))
@@ -141,6 +146,7 @@ function __render(widget, widget_item) {
           slide.setAttribute('_clickable', '')
           slide.onclick = e => {
             ensureFocus()
+            resetAutoplayTimer()
             // console.debug('onclick', e, Math.abs(e.pageX - dragStartX))
             e.stopPropagation()
             slides.classList.remove('dragging')
@@ -160,7 +166,7 @@ function __render(widget, widget_item) {
                 `</style>`,
               ].join('\n'),
               passthrough: true, // tap anywhere to close
-            })
+            }).then(resetAutoplayTimer)
           }
         })
       }
@@ -179,6 +185,7 @@ function __render(widget, widget_item) {
         button.className = 'autoplay'
         button.innerText = options.autoplayText[1]
         button.onclick = () => {
+          resetAutoplayTimer()
           autoplayPaused = !autoplayPaused
           button.innerText = autoplayPaused
             ? options.autoplayText[0]
@@ -204,7 +211,7 @@ function __render(widget, widget_item) {
     dragStartTime = Date.now()
     dragStartIndex = info.index
     dragStartX = info.event.pageX // pageX also works for touch events
-    autoplayResetTime = Date.now()
+    resetAutoplayTimer()
     slides.classList.add('dragging')
     // pauseAutoplay()
   }
@@ -217,7 +224,7 @@ function __render(widget, widget_item) {
     // )
     ensureFocus()
     dragEndTime = Date.now()
-    autoplayResetTime = Date.now()
+    resetAutoplayTimer()
     slides.classList.remove('dragging')
     // cancel drag if haven't dragged enough
     if (Math.abs(info.event.pageX - dragStartX) < 50)
@@ -227,7 +234,7 @@ function __render(widget, widget_item) {
   function dragMove(info) {
     // console.debug('dragMove')
     ensureFocus()
-    autoplayResetTime = Date.now()
+    resetAutoplayTimer()
   }
 
   // treat touch events as drag events
@@ -243,11 +250,14 @@ function __render(widget, widget_item) {
     slider.events.on('dragEnd', dragEnd)
     slider.events.on('dragMove', dragMove)
   }
-  // set up autoplay if enabled
+
+  // reset autoplay timer on any index change (e.g. via buttons vs drag/touch)
+  slider.events.on('indexChanged', info => {
+    resetAutoplayTimer()
+  })
+
   if (options.autoplay) {
-    slider.events.on('indexChanged', info => {
-      autoplayResetTime = Date.now()
-    })
+    // set up periodic autoplay task
     widget_item.dispatch_task(
       'slider-widget-autoplay-' + widget.id,
       () => {
