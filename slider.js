@@ -70,11 +70,14 @@ function _render_slider_widget(widget, item = _this) {
 // internal helper for _render_slider_widget, assumes tiny-slider loaded
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
+  if (!widget_item.elem) return // widget item not on page yet, should re-render later
   let options = widget_item.store[widget.id]?.options ?? {}
   const slides = document.createElement('div')
   slides.className = 'slides'
   slides.replaceChildren(
-    ...widget_item.elem?.querySelectorAll('.content > .slide')
+    ...array(widget_item.elem.querySelectorAll('.slide')).filter(
+      slide => !widget.contains(slide)
+    )
   )
   widget.replaceChildren(slides)
   options = merge(
@@ -132,6 +135,10 @@ function __render(widget, widget_item) {
     widget.querySelector('button.autoplay')?.dispatchEvent(new Event('click'))
   }
 
+  // pageX (vs screenX) works for both mouse and touch
+  // android chrome requires digging into changedTouches array
+  const pageX = e => e.pageX ?? e.changedTouches?.[0]?.pageX
+
   // NOTE: having an invisible input element to "focus" on can dramatically improve animation performance on iOS (at least on iPhone Safari on iOS 16), so we do that on all user interaction events using an invisible button added into .tns-outer in onInit (see below)
   function ensureFocus() {
     document.querySelector('.tns-outer button.focus').focus() // ensure focus
@@ -157,12 +164,12 @@ function __render(widget, widget_item) {
           slide.onclick = e => {
             ensureFocus()
             resetAutoplayTimer()
-            // console.debug('onclick', e, Math.abs(e.pageX - dragStartX))
+            // console.debug('onclick', e, Math.abs(pageX(e) - dragStartX))
             e.stopPropagation()
             slides.classList.remove('dragging')
             if (Date.now() - dragEndTime < 250) return // can prevent unintentional clicks on touch devices
             if (Date.now() - dragStartTime > 250) return
-            if (Math.abs(e.pageX - dragStartX) > 5) return
+            if (Math.abs(pageX(e) - dragStartX) > 5) return
             // pauseAutoplay()
             _modal({
               content: [
@@ -216,11 +223,13 @@ function __render(widget, widget_item) {
   widget._slider = slider // for destruction in re-render
 
   function dragStart(info) {
-    // console.debug('dragStart', info.event)
+    // console.debug('dragStart', info.event, info)
     ensureFocus()
     dragStartTime = Date.now()
-    dragStartIndex = info.index
-    dragStartX = info.event.pageX // pageX also works for touch events
+    dragStartIndex =
+      info.index -
+      (options.loop ? 1 : 0) /* index off by 1 when looping for some reason */
+    dragStartX = pageX(info.event)
     resetAutoplayTimer()
     slides.classList.add('dragging')
     // pauseAutoplay()
@@ -229,15 +238,16 @@ function __render(widget, widget_item) {
   function dragEnd(info) {
     // console.debug(
     //   'dragEnd',
-    //   Math.abs(info.event.pageX - dragStartX),
-    //   info.event
+    //   Math.abs(pageX(info.event) - dragStartX),
+    //   info.event,
+    //   info
     // )
     ensureFocus()
     dragEndTime = Date.now()
     resetAutoplayTimer()
     slides.classList.remove('dragging')
     // cancel drag if haven't dragged enough
-    if (Math.abs(info.event.pageX - dragStartX) < 50)
+    if (Math.abs(pageX(info.event) - dragStartX) < 50)
       slider.goTo(dragStartIndex)
   }
 
@@ -266,7 +276,7 @@ function __render(widget, widget_item) {
     resetAutoplayTimer()
   })
 
-  console.debug(slider.getInfo())
+  // console.debug(slider.getInfo())
 
   if (options.autoplay) {
     // set up periodic autoplay task
@@ -282,8 +292,12 @@ function __render(widget, widget_item) {
         // delay autoplay if autoplayResetTime was set within autoplayTimeout
         if (Date.now() - autoplayResetTime < options.autoplayTimeout)
           return options.autoplayTimeout - (Date.now() - autoplayResetTime)
+        // console.debug(slider.getInfo())
         if (options.loop) slider.goTo('next')
-        else if (slider.getInfo().index == slider.getInfo().slideCount - 1)
+        else if (
+          slider.getInfo().displayIndex ==
+          slider.getInfo().slideCount - 1
+        )
           slider.goTo('first')
         else slider.goTo('next')
       },
