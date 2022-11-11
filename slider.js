@@ -83,6 +83,7 @@ function __render(widget, widget_item) {
       items: 1,
       slideBy: 1,
       loop: false,
+      autoHeight: true,
       nav: (options.items ?? 1) < slides.children.length,
       navPosition: 'top', // controls autoplay button even if nav:false
       touch: true,
@@ -114,6 +115,8 @@ function __render(widget, widget_item) {
         : 'nav-bottom'
       : 'nav-none'
   )
+
+  if (options.autoHeight) widget.classList.add('auto-height')
 
   // resets autoplay timer
   function resetAutoplayTimer() {
