@@ -84,6 +84,7 @@ function __render(widget, widget_item) {
       slideBy: 1,
       loop: false,
       autoHeight: true,
+      gutter: 0,
       nav: (options.items ?? 1) < slides.children.length,
       navPosition: 'top', // controls autoplay button even if nav:false
       touch: true,
@@ -118,6 +119,9 @@ function __render(widget, widget_item) {
 
   if (options.autoHeight) widget.classList.add('auto-height')
 
+  // note we handle gutter using flex gap, which works better than the default behavior, with a minor potential issue that edges of items (assuming multi-item view) may not align w/ edges of the widget
+  if (options.gutter) slides.style.gap = options.gutter + 'px'
+
   // resets autoplay timer
   function resetAutoplayTimer() {
     autoplayResetTime = Date.now()
@@ -142,6 +146,9 @@ function __render(widget, widget_item) {
     // forced option overrides (w/o modifying user-specified options object)
     // built-in autoplay is quite buggy, e.g. dragging and page visibility events can trigger erratic autoplay behavior, so we disable built-in autoplay for now and implement our own basic version below
     autoplay: false,
+
+    // disable gutter, handled using flex gap above
+    gutter: 0,
 
     onInit: carousel => {
       if (options.mouseDrag) {
@@ -259,6 +266,8 @@ function __render(widget, widget_item) {
     resetAutoplayTimer()
   })
 
+  console.debug(slider.getInfo())
+
   if (options.autoplay) {
     // set up periodic autoplay task
     widget_item.dispatch_task(
@@ -273,7 +282,8 @@ function __render(widget, widget_item) {
         // delay autoplay if autoplayResetTime was set within autoplayTimeout
         if (Date.now() - autoplayResetTime < options.autoplayTimeout)
           return options.autoplayTimeout - (Date.now() - autoplayResetTime)
-        if (slider.getInfo().index == slider.getInfo().slideCount - 1)
+        if (options.loop) slider.goTo('next')
+        else if (slider.getInfo().index == slider.getInfo().slideCount - 1)
           slider.goTo('first')
         else slider.goTo('next')
       },
