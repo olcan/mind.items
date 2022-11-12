@@ -153,7 +153,7 @@ function __render(widget, widget_item) {
 
   // NOTE: having an invisible input element to "focus" on can dramatically improve animation performance on iOS (at least on iPhone Safari on iOS 16), so we do that on all user interaction events using an invisible button added into .tns-outer in onInit (see below)
   function ensureFocus() {
-    document.querySelector('.tns-outer button.focus').focus() // ensure focus
+    widget.querySelector('.tns-outer button.focus').focus() // ensure focus
   }
 
   try {
