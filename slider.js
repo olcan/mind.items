@@ -98,7 +98,7 @@ function __render(widget, widget_item) {
       items: 1,
       slideBy: 1,
       loop: false,
-      autoHeight: true,
+      autoHeight: false,
       gutter: 0,
       nav: (options.items ?? 1) < slides.children.length,
       navPosition: 'top', // controls autoplay button even if nav:false
