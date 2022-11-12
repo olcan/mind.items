@@ -2,7 +2,8 @@ const _slider = _item('$id')
 
 // slider widget macro
 // slides must be in top-level html elements w/ `class="slide"`
-// alternatively, slides can be defined in an `html_slides_removed` block
+// elements can be part of markdown or in a separate `_html` block
+// alternatively, slides can be defined in a separate `html_slides` block
 // `options` are documented at https://github.com/ganlanyuan/tiny-slider#options
 function slider(options = {}) {
   // note this macro structure follows that of _plot in #util/plot
