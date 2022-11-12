@@ -2,6 +2,7 @@ const _slider = _item('$id')
 
 // slider widget macro
 // slides must be in top-level html elements w/ `class="slide"`
+// alternatively, slides can be defined in an `html_slides_removed` block
 // `options` are documented at https://github.com/ganlanyuan/tiny-slider#options
 function slider(options = {}) {
   // note this macro structure follows that of _plot in #util/plot
@@ -74,11 +75,21 @@ function __render(widget, widget_item) {
   let options = widget_item.store[widget.id]?.options ?? {}
   const slides = document.createElement('div')
   slides.className = 'slides'
-  slides.replaceChildren(
-    ...array(widget_item.elem.querySelectorAll('.slide')).filter(
-      slide => !widget.contains(slide)
-    )
-  )
+  // try to read html_slides, and if missing look for .slide elements
+  const html_slides = read('html_slides')
+  if (html_slides) {
+    slides.innerHTML = html_slides
+  } else {
+    const slide_elems = array(
+      widget_item.elem.querySelectorAll('.slide')
+    ).filter(slide => !widget.contains(slide))
+    slides.replaceChildren(...slide_elems)
+  }
+  // set up _resize handlers to update slider height as images are rendered
+  // note we could also add _cache_key but widget itself should be cached
+  slides.querySelectorAll('img').forEach(img => {
+    img._resize = () => widget._slider?.updateSliderHeight()
+  })
   widget.replaceChildren(slides)
   options = merge(
     {
