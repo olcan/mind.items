@@ -83,24 +83,19 @@
   #widget .tns-outer > .tns-controls > button:first-child {
     left: 0;
   }
-  #widget.nav-none .tns-outer > .tns-controls > button:first-child {
-    border-bottom-left-radius: 0;
-    border-top-right-radius: 0;
-  }
   #widget .tns-outer > .tns-controls > button:last-child {
     right: 0;
   }
-  #widget.nav-none .tns-outer > .tns-controls > button:last-child {
-    border-top-left-radius: 0;
-    border-bottom-right-radius: 0;
-  }
   #widget.overlay-controls .tns-outer > .tns-controls > button {
-    top: 50%;
+    top: calc(50% + 25px); /* shift down (50px * .5) for nav bar */
     transform: translateY(-50%);
     margin: 0 20px;
     background: rgba(0, 0, 0, 0.75);
     border-radius: 50%;
     border: 1px solid #666;
+  }
+  #widget.overlay-controls.nav-none .tns-outer > .tns-controls > button {
+    top: 50%;
   }
 
   /* note this applies to both built-in and custom button (button.autoplay) */

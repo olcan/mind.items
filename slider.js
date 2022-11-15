@@ -142,6 +142,8 @@ function __render(widget, widget_item) {
       `unsupported value '${options.controlsPosition}' for option ` +
         `controlsPosition; supported values are 'nav' and 'overlay'`
     )
+  // force 'overlay' if there is no nav bar
+  if (!options.nav && !options.autoplay) options.controlsPosition = 'overlay'
   if (options.controlsPosition == 'overlay')
     widget.classList.add('overlay-controls')
 
@@ -237,7 +239,7 @@ function __render(widget, widget_item) {
         const outer = widget.querySelector('.tns-outer')
         if (nav) outer.insertBefore(button, nav)
         else if (options.navPosition == 'top')
-          outer.insertBefore(button, outer.firstChild)
+          outer.insertBefore(button, outer.firstChild.nextSibling)
         else if (options.navPosition == 'bottom') outer.appendChild(button)
       }
       _render_images(_this) // for copied images, esp. in looping carousel mode
