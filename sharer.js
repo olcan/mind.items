@@ -111,9 +111,11 @@ function _update_shared(item, { skip_unshares = false, silent = false } = {}) {
         await delete_upload(path)
         if (!silent) print(`unshared image ${path} in ${item.name}`)
       } catch (e) {
-        // delete failed, add back to global store w/ 0 timestamp
-        merge(item.global_store, { _sharer: { images: { [path]: 0 } } })
-        error(`failed to unshare image ${path} in ${item.name}; ${e}`)
+        if (e.code != 'storage/object-not-found') {
+          // delete failed, add back to global store w/ 0 timestamp
+          merge(item.global_store, { _sharer: { images: { [path]: 0 } } })
+          error(`failed to unshare image ${path} in ${item.name}; ${e}`)
+        }
       }
     })
   }
