@@ -189,9 +189,8 @@ function __render(widget, widget_item) {
                 slide.innerHTML.replace(/(^|\n)\s*/g, '$1'),
                 // add styling for image and captions
                 `<style>`,
-                `.modal { background: #171717 !important; }`,
-                `.modal img { width: 100%; }`,
-                `.modal p { text-align: center; color: #aaa }`,
+                `.modal { width:auto; display: flex; justify-content: center; align-items: center; background: #171717 !important; color: #aaa !important; }`,
+                `.modal img { display: block; width: 100%; }`,
                 `</style>`,
               ].join('\n'),
               passthrough: true, // tap anywhere to close
@@ -304,14 +303,11 @@ function __render(widget, widget_item) {
         // delay autoplay if autoplayResetTime was set within autoplayTimeout
         if (Date.now() - autoplayResetTime < options.autoplayTimeout)
           return options.autoplayTimeout - (Date.now() - autoplayResetTime)
-        // console.debug(slider.getInfo())
-        if (options.loop) slider.goTo('next')
-        else if (
-          slider.getInfo().displayIndex ==
-          slider.getInfo().slideCount - 1
-        )
-          slider.goTo('first')
-        else slider.goTo('next')
+        // try goto(next), then goto(first) if index is unchanged
+        // this seems to be the only robust method in all cases (items:>1,center:true,nav:false,etc)
+        const prev_index = slider.getInfo().index
+        slider.goTo('next')
+        if (slider.getInfo().index == prev_index) slider.goTo('first')
       },
       options.autoplayTimeout,
       options.autoplayTimeout
