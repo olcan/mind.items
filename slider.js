@@ -107,6 +107,7 @@ function __render(widget, widget_item) {
       swipeAngle: false,
       controls: false,
       controlsText: ['◀︎', '▶︎'],
+      controlsPosition: 'overlay',
       autoplay: false, // also see override below
       autoplayTimeout: 3000,
       autoplayText: ['▶', '❚❚'],
@@ -132,7 +133,17 @@ function __render(widget, widget_item) {
       : 'nav-none'
   )
 
+  // support auto-height using class
   if (options.autoHeight) widget.classList.add('auto-height')
+
+  // check controlsPosition, noting that 'bottom' is not supported
+  if (!['nav', 'overlay'].includes(options.controlsPosition))
+    console.warn(
+      `unsupported value '${options.controlsPosition}' for option ` +
+        `controlsPosition; supported values are 'nav' and 'overlay'`
+    )
+  if (options.controlsPosition == 'overlay')
+    widget.classList.add('overlay-controls')
 
   // note we handle gutter using flex gap, which works better than the default behavior, with a minor potential issue that edges of items (assuming multi-item view) may not align w/ edges of the widget
   if (options.gutter) slides.style.gap = options.gutter + 'px'
@@ -168,6 +179,9 @@ function __render(widget, widget_item) {
 
     // disable gutter, handled using flex gap above
     gutter: 0,
+
+    // force controlsPosition 'top', with other values handleda above
+    controlsPosition: 'top',
 
     onInit: carousel => {
       if (options.mouseDrag) {
