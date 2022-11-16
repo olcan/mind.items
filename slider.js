@@ -205,7 +205,7 @@ function __render(widget, widget_item) {
                 slide.innerHTML.replace(/(^|\n)\s*/g, '$1'),
                 // add styling for image and captions
                 `<style>`,
-                `.modal { width:auto !important; display: flex; justify-content: center; align-items: center; background: #171717 !important; color: #aaa !important; }`,
+                `.modal { width:auto !important; display: flex; flex-direction:vertical; justify-content: center; align-items: center; background: #171717 !important; color: #aaa !important; }`,
                 `.modal img { display: block; width: 100%; }`,
                 `</style>`,
               ].join('\n'),
