@@ -84,9 +84,11 @@
   }
   #widget .tns-outer > .tns-controls > button:first-child {
     left: 0;
+    padding-right: 3px; /* improves horizontal centering */
   }
   #widget .tns-outer > .tns-controls > button:last-child {
     right: 0;
+    padding-left: 3px; /* improves horizontal centering */
   }
   #widget.overlay-controls .tns-outer > .tns-controls > button {
     top: calc(50% + 25px); /* shift down (50px * .5) for nav bar */
@@ -94,7 +96,7 @@
     margin: 0 20px;
     background: rgba(0, 0, 0, 0.75);
     border-radius: 50%;
-    border: 1px solid #666;
+    border: 2px solid #666;
   }
   #widget.overlay-controls.nav-none .tns-outer > .tns-controls > button {
     top: 50%;
