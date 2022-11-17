@@ -40,6 +40,12 @@ function todoer_widget(options = {}) {
 // internal helper for _render_todoer_widget, assumes Sortable loaded
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
+  // if dragging, set flag and return to avoid breaking drag
+  if (widget.classList.contains('dragging')) {
+    debug('delaying render due to dragging')
+    widget._renderPendingDragging = true
+    return
+  }
   widget.querySelectorAll(':is(.list,.bin)')?.forEach(col => {
     col.sortable.destroy() // important, prevents flickering, see note below
     col.remove()
@@ -410,6 +416,11 @@ function __render(widget, widget_item) {
       if (chosen) last_unchoose_time = Date.now()
       chosen = false
       widget.classList.remove('dragging')
+      // trigger pending render if any
+      if (widget._renderPendingDragging) {
+        delete widget._renderPendingDragging
+        setTimeout(() => __render(widget, widget_item))
+      }
     },
     onEnd: e => {
       // widget.classList.remove('dragging')
