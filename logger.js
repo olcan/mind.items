@@ -682,8 +682,8 @@ function _on_change(text, elem = document) {
 function _render_logger_widget(item = _this) {
   if (!item.elem) return // item not visible, e.g. being edited
   item.elem.querySelectorAll('.logger-widget .recent').forEach(recent => {
-    // const options = item.store[recent.id].options
-    _highlight_log(recent, event_log_text({ limit: 3, summary: false }))
+    const options = item.store[recent.closest('.logger-widget').id].options
+    _highlight_log(recent, event_log_text(options))
   })
   // update .suggest via _on_change
   _on_change(MindBox.get(), item.elem)
