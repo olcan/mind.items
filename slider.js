@@ -199,13 +199,14 @@ function __render(widget, widget_item) {
             if (Date.now() - dragStartTime > 250) return
             if (Math.abs(pageX(e) - dragStartX) > 5) return
             // pauseAutoplay()
+            const style = getComputedStyle(slide)
             _modal({
               content: [
                 // drop indentations that can be misinterpreted as markdown blocks
                 slide.innerHTML.replace(/(^|\n)\s*/g, '$1'),
                 // add styling for image and captions
                 `<style>`,
-                `.modal { width:auto !important; display: flex; gap:10px; flex-direction:column; justify-content: center; align-items: center; background: #171717 !important; color: #aaa !important; }`,
+                `.modal { width:auto !important; display: flex; gap:10px; flex-direction:column; justify-content: center; align-items: center; background: black !important; color: #aaa !important; line-height: ${style.lineHeight} !important; text-align: center }`,
                 `.modal img { display: block; width: 100%; }`,
                 `</style>`,
               ].join('\n'),
