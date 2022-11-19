@@ -244,7 +244,7 @@ function hist(xSJ, options = {}) {
     // note round_to is better because it rounds numerically before stringifying
     // applying toFixed directly can return odd values such as '-0', '-0.0', etc
     label_precision = label_precision.toString() // for round_to as stringifier
-    stringifier ??= x => round_to(b, label_precision) // default stringifier
+    stringifier ??= x => round_to(x, label_precision) // default stringifier
     K = xB.length - 1
     cSK = array(S, s => count_bins(xSJ[s], xB, wSJ?.[s]))
 
