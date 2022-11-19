@@ -2689,6 +2689,11 @@ class _Sampler {
             },
           },
           axis: {
+            x: {
+              tick: {
+                values: _.range(0, this.u + 1, this.u <= 10 ? 1 : 10),
+              },
+            },
             y: {
               show: series.some(s => s.axis === 'y'),
               min: 0,
