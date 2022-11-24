@@ -231,6 +231,9 @@ function __render(widget, widget_item) {
       div.innerHTML = '&lrm;' + link_urls(link_markdown_links(mark_tags(html)))
     }
 
+    // copy title (summary w/ whitespace preserved) to item store
+    _.set(item.store, '_todoer.todo_text', text)
+
     if (snoozed)
       container.title =
         new Date(item._global_store._todoer.snoozed).toLocaleString() +
@@ -597,7 +600,9 @@ function _unsnooze(item) {
   merge(item.global_store._todoer, { snoozed: 0, unsnoozed: Date.now() })
   // invoke unsnooze listeners for each unsnoozed todo item
   // listeners must register on object item('#todoer').store.on_unsnooze
-  each(values(_todoer.store.on_unsnooze), f => f(item))
+  each(values(_todoer.store.on_unsnooze), f =>
+    f(item, item.store._todoer.todo_text)
+  )
 }
 
 // render widget in item
