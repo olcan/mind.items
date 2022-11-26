@@ -607,9 +607,13 @@ function _unsnooze(item) {
 
 // render widget in item
 function _render_todoer_widget(widget, item = _this) {
+  if (window.Sortable) return __render(widget, item)
   const url = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js'
-  if (window.Sortable) __render(widget, item)
-  else _load(url).then(() => __render(widget, item))
+  return (_todoer.store.loading ??= _load(url)).then(() => {
+    if (!window.Sortable) fatal('failed to load sortable')
+    delete _todoer.store.loading
+    return __render(widget, item)
+  })
 }
 
 // create pinned item w/ widget

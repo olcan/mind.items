@@ -63,10 +63,14 @@ function _render_slider_widget(widget, item = _this) {
     link.href = url_base + '/tiny-slider.css'
     document.head.appendChild(link)
   }
-  // dynamically load tiny-slider js
-  return _load(url_base + '/min/tiny-slider.js').then(() =>
-    __render(widget, item)
-  )
+  // dynamically load tiny-slider js, using store to prevent multiple loads
+  return (_slider.store.loading ??= _load(
+    url_base + '/min/tiny-slider.js'
+  )).then(() => {
+    if (!window.tns) fatal('failed to load tiny-slider')
+    delete _slider.store.loading
+    return __render(widget, item)
+  })
 }
 
 // internal helper for _render_slider_widget, assumes tiny-slider loaded
