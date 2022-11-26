@@ -197,7 +197,7 @@
 /* disable wrapping on .desc (and override .item code) for ellipsis */
 .core_js_table .desc,
 .core_js_table .desc code {
-  white-space: nowrap;
+  white-space: nowrap !important;
 }
 
 /* force inline p under .desc for nowrap and ellipsis */
