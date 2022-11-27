@@ -135,6 +135,8 @@ async function upload(x, options = undefined) {
 // | `text/*`                   | string <font style="font-size:80%">(UTF-8 decoded)</font>
 // | `application/json`         | JSON value <font style="font-size:80%">(UTF-8 decoded, JSON-parsed)</font>
 // | other                      | byte array (`Uint8Array`)
+// returns `undefined` if missing
+// throws any other errors
 async function download(path, options = undefined) {
   if (!path) fatal('missing path')
   let { type, force = false, cache = true, use_url = false } = options ?? {}
@@ -156,12 +158,18 @@ async function download(path, options = undefined) {
   if (!use_url) {
     const full_path = abs_path(path)
     const { ref, getStorage, getBlob } = firebase.storage
-    const blob = await getBlob(ref(getStorage(firebase), full_path))
-    const buffer = await blob.arrayBuffer()
-    type ??= blob.type
-    cipher = new Uint8Array(buffer)
+    try {
+      const blob = await getBlob(ref(getStorage(firebase), full_path))
+      const buffer = await blob.arrayBuffer()
+      type ??= blob.type
+      cipher = new Uint8Array(buffer)
+    } catch (e) {
+      if (e.code != 'storage/object-not-found') throw e
+      return undefined // missing
+    }
   } else {
     const url = await get_url(path)
+    if (!url) return undefined // missing
     const response = await fetch(url)
     cipher = new Uint8Array(await response.arrayBuffer())
     type ??= response.headers.get('content-type')
