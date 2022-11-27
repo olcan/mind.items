@@ -208,11 +208,17 @@ async function download(path, options = undefined) {
 }
 
 // delete upload at `path`
+// does nothing if missing
+// throws other errors
 async function delete_upload(path) {
   if (!path) fatal('missing path')
   path = abs_path(path)
   const { ref, getStorage, deleteObject } = firebase.storage
-  return await deleteObject(ref(getStorage(firebase), path))
+  try {
+    return await deleteObject(ref(getStorage(firebase), path))
+  } catch (e) {
+    if (e.code != 'storage/object-not-found') throw e
+  }
 }
 
 // get metadata for `path`
