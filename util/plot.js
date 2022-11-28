@@ -483,12 +483,12 @@ function _plot(type, data, _options, defaults = {}) {
 // rendering helper to resolve inputs to html scripts via _this.store
 // also allows data to be specified as path string for download
 function _render_plot(key, render) {
-  const { data, options } = _this.store[key]
-  if (!is_plain_object(data) && !is_string(data)) fatal('invalid data')
+  let { data, options } = _this.store[key]
   if (!is_plain_object(options)) fatal('invalid options for plot')
-  resolve(is_string(data) ? download(data) : data).then(data =>
-    render(data, options)
-  )
+  if (!is_plain_object(data) && !is_string(data)) fatal('invalid data')
+  if (is_string(data)) data = download(data)
+  if (data instanceof Promise) resolve(data).then(data => render(data, options))
+  else render(data, options)
 }
 
 // bars(data, {…})
