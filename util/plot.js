@@ -284,6 +284,7 @@ function hist(xSJ, options = {}) {
         return plot({
           ...obj,
           data: lK(labeler).map((lk, k) => [lk, ...cKS[k]]),
+          renderer: 'table',
         })
       case 'bars': {
         labeler = options?.labeler ?? _options.labeler ?? 'mid'
