@@ -281,3 +281,19 @@ async function exists(path, options = undefined) {
   delete _cloud.store.cache?.[path] // delete any existing cache entry
   return false // missing
 }
+
+// upload `item.store`
+// default upload path is `item.saved_id`
+// default upload is forced since path is fixed as contents change
+function upload_store(item = _this, options = undefined) {
+  if (!item.saved_id) fatal('unsaved item', item.name)
+  return upload(item.store, { path: item.saved_id, force: true, ...options })
+}
+
+// download `item.store`
+// default download path is `item.saved_id`
+async function download_store(item = _this, options = undefined) {
+  if (!item.saved_id) fatal('unsaved item', item.name)
+  const path = options?.path ?? item.saved_id
+  return assign((item.store = {}), await download(path, options))
+}
