@@ -457,7 +457,8 @@ function _test_str() {
 // round `x` to `d` decimal places
 // `d` can be negative for digits _before_ decimal point
 // `d` can be restricted to at most `s` significant (non-zero) digits
-// `d` can be a string (e.g. `'3'`) to fix digits after decimal point
+// `d` can be string (e.g. `'3'`) to _fix_ decimal places (returns string)
+// `s` can be string to specify _minimum_ significant digits
 // `mode` string can be `round`, `floor`, or `ceil`
 // rounds arrays recursively by copying
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
@@ -469,13 +470,16 @@ const round_to = (x, d = 0, s = inf, mode = 'round') => {
     if (isNaN(num)) return x // return non-number as is
     x = num // continue w/ number
   } else if (!is_finite(x)) return x // return non-finite (incl. non-number) as is
-  if (d == 0 && s == inf) return Math[mode](x) // just use Math.*
+  if (d === 0 && s === inf) return Math[mode](x) // just use Math.*
+  // if d is string, treat it as _fixed_ digits after decimal point
   if (is_string(d)) return round_to(x, parseInt(d), s, mode).toFixed(d)
   // determine d automatically if s<inf
   if (s < inf) {
     if (!(s > 0)) fatal(`invalid significant digits ${s}`)
     const sd = _significant_digits(x)
-    if (s < sd) d = Math.min(d, _decimal_places(x) - (sd - s))
+    // if s is string, treat it as _minimum_ significant digits
+    if (is_string(s)) d = Math.max(d, _decimal_places(x) - Math.max(0, sd - s))
+    else if (s < sd) d = Math.min(d, _decimal_places(x) - (sd - s))
   }
   // from https://stackoverflow.com/a/19794305
   if (d === undefined || +d === 0) return Math[mode](x)
@@ -546,6 +550,13 @@ function _test_round_to() {
     () => [round_to(1.2345, 309, 1000), NaN],
     () => [round_to(1.2345, 309, 5), NaN],
     () => [round_to(1.2345, 309, 4), 1.235], // s only kicks in if < sig. digits
+
+    // basic tests for string d (fixed digits) and s (min. sig. digits)
+    () => [round_to(1.2345, 5, 2), 1.2],
+    () => [round_to(1.2345, '5', 2), '1.20000'],
+    () => [round_to(0.0001, 3), 0],
+    () => [round_to(0.0001, 3, 1), 0],
+    () => [round_to(0.0001, 3, '1'), 0.0001],
 
     // basic tests for floor/ceil modes
     () => [round_to(1.2345, 5, 3, 'ceil'), 1.24],
