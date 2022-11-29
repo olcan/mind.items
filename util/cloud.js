@@ -34,7 +34,7 @@ async function upload(x, options = undefined) {
     bytes = encode(x, 'utf8_array')
     type ??= 'text/plain'
   } else if (
-    is_array(x) ||
+    is_untyped_array(x) ||
     is_plain_object(x) ||
     is_number(x) ||
     is_boolean(x) ||
