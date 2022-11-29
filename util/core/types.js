@@ -84,6 +84,10 @@ function is(x, type) {
       return x instanceof Map
     case 'array':
       return Array.isArray(x) || x instanceof TypedArray // defined below
+    case 'untyped_array':
+      return Array.isArray(x)
+    case 'typed_array':
+      return x instanceof TypedArray // defined below
     case 'indexed':
       return is_indexed(x)
     default:
@@ -123,6 +127,10 @@ function _test_is() {
     () => is(new Map(), 'map'),
     () => is([], 'array'),
     () => is(new Int32Array(), 'array'),
+    () => is([], 'untyped_array'),
+    () => !is(new Int32Array(), 'untyped_array'),
+    () => !is([], 'typed_array'),
+    () => is(new Int32Array(), 'typed_array'),
     () => is({ 0: '0' }, 'indexed')
   )
 }
@@ -217,6 +225,8 @@ const is_map = x => x instanceof Map
 // can also be detected as: ArrayBuffer.isView(x) && !(x instanceof DataView)
 const TypedArray = Int32Array.prototype.__proto__.constructor
 const is_array = x => Array.isArray(x) || x instanceof TypedArray
+const is_untyped_array = Array.isArray
+const is_typed_array = x => x instanceof TypedArray
 
 // is `x` array or object w/ keys `0,1,2...`?
 function is_indexed(x) {
