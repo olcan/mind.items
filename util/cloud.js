@@ -183,23 +183,26 @@ async function download(path, options = undefined) {
     bytes = await _decrypt_bytes(cipher)
     decrypt_time = Date.now() - decrypt_start
   }
+  const decode_start = Date.now()
+  let x = bytes
+  if (type.startsWith('text/')) x = decode(bytes, 'utf8_array')
+  else if (type == 'application/json') x = parse(decode(bytes, 'utf8_array'))
+  const decode_time = Date.now() - decode_start
+
   const time = Date.now() - start
   if (decrypt_time < 0) {
     console.debug(
       `downloaded ${path} (${type}, ` +
         `${bytes.length} bytes, unencrypted) ` +
-        `in ${time}ms (download ${download_time}ms)`
+        `in ${time}ms (download ${download_time}ms, decode ${decode_time}ms)`
     )
   } else {
     console.debug(
       `downloaded ${path} (${type}, ` +
         `${bytes.length} bytes, ${cipher.length} encrypted) ` +
-        `in ${time}ms (download ${download_time}ms, decrypt ${decrypt_time}ms)`
+        `in ${time}ms (download ${download_time}ms, decrypt ${decrypt_time}ms, decode ${decode_time}ms)`
     )
   }
-  let x = bytes
-  if (type.startsWith('text/')) x = decode(bytes, 'utf8_array')
-  else if (type == 'application/json') x = parse(decode(bytes, 'utf8_array'))
   if (cache) {
     _cloud.store.cache ??= {}
     _cloud.store.cache[path] = { value: x, type, size: cipher.length }
