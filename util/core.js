@@ -86,6 +86,7 @@ const uniq = _.uniq
 const uniq_by = _.uniqBy
 const diff = _.difference
 const chunk = _.chunk
+const concat = _.concat
 const compact = _.compact
 const without = _.without
 const flatten = _.flattenDepth
