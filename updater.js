@@ -490,7 +490,7 @@ async function update_item(item, updates) {
               token || ''
             } <- ${label}`
             const install = MindBox.create(command) // trigger install
-            if (!(install instanceof Promise))
+            if (!is_promise(install))
               throw new Error(`invalid return from /_install command`)
             const item = await install
             if (!item)

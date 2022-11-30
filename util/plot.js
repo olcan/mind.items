@@ -488,7 +488,7 @@ function _render_plot(key, render) {
   if (!is_plain_object(options)) fatal('invalid options for plot')
   if (!is_plain_object(data) && !is_string(data)) fatal('invalid data')
   if (is_string(data)) data = download(data)
-  if (data instanceof Promise) resolve(data).then(data => render(data, options))
+  if (is_promise(data)) resolve(data).then(data => render(data, options))
   else render(data, options)
 }
 
