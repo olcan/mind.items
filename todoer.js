@@ -105,24 +105,8 @@ function __render(widget, widget_item) {
     if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
     // read text and determine todo tag positions
-    let text = item.read()
-    let todo_offsets = []
-    // note trailing delimiter is added automatically by _replace_tags
-    _replace_tags(text, '(?:^|\\s|\\()#todo', (m, offset) =>
-      todo_offsets.push(offset)
-    )
-    if (todo_offsets.length == 0) {
-      error(`could not locate #todo tag in todo item '${item.name}'`)
-      continue // skip item w/o #todo tag
-    }
-    if (todo_offsets.length > 1) {
-      warn(
-        `found multiple (${todo_offsets.length}) #todo tags in ` +
-          `item '${item.name}'; using only first occurrence for snippet`
-      )
-    }
-    let todo_offset = todo_offsets[0]
-    while (text[todo_offset] != '#') todo_offset++ // skip leading delimiter
+    let text = _extract_todo_snippet(item)
+    if (!text) continue // no #todo tag found (should have logged error)
 
     widget_item.store._todoer.items.add(item.id)
     const div = document.createElement('div')
@@ -175,49 +159,21 @@ function __render(widget, widget_item) {
         (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`
       )
 
-    // determine if we should use suffix or prefix
-    // we prefer suffix, but will switch to prefix if it looks "cleaner"
-    // clean means alphanumeric for suffix, alphanumeric+punctuation for prefix
-    let use_suffix = true
-    if (
-      !text.substring(todo_offset + 5).match(/^\s*[\p{L}\d]/u) &&
-      text.substring(0, todo_offset).match(/[\p{P}\p{L}\d]\s*$/u)
-    )
-      use_suffix = false
+    container.title = text // original whitespace for title
 
-    if (use_suffix) {
-      // use suffix, truncate on right
-      text = text.substring(todo_offset)
-      if (text.length > 200) {
-        // truncate on first whitespace in tail (index > 200)
-        // note we only truncate on whitespace to avoid breaking tags or urls
-        const cutoff = text.substr(200).search(/\s/)
-        if (cutoff >= 0) {
-          text = text.substr(0, 200 + cutoff) + ' …'
-          container.setAttribute('data-truncated', true) // used for done/cancel
-        }
-      }
-      container.title = text // original whitespace for title
+    // determine suffix vs prefix snippet based on #todo suffix match
+    if (!text.match(/(?:^|\s|\()#todo$/)) {
+      if (!text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
+      if (text.endsWith(' …')) container.setAttribute('data-truncated', true) // used for done/cancel
       const html = _.escape(text.replace(/\s+/g, ' '))
       div.innerHTML = link_urls(link_markdown_links(mark_tags(html)))
     } else {
-      // use prefix, truncate (and align) on left
-      text = text.substring(0, todo_offset + 5)
-      if (text.length > 200) {
-        // truncate on _last_ whitespace in head (index < end - 200)
-        // note we only truncate on whitespace to avoid breaking tags or urls
-        const cutoff = text.substr(0, text.length - 200).search(/\s[^\s]*$/)
-        if (cutoff >= 0) {
-          text = '… ' + text.substr(cutoff + 1)
-          container.setAttribute('data-truncated', true) // used for done/cancel
-        }
-      }
+      if (text.startsWith('… ')) container.setAttribute('data-truncated', true) // used for done/cancel
       // use direction=rtl to truncate (and add ellipsis) on the left
       div.style.direction = 'rtl'
       div.style.textAlign = 'left'
       // div.style.marginLeft = '60px'
       // set title on container to avoid &lrm in title text
-      container.title = text // original whitespace for title
 
       // clip on Safari since text-overflow:ellipsis truncates wrong end for rtl
       // it only ~works if original whitespace is maintained (by dropping lines)
@@ -230,9 +186,6 @@ function __render(widget, widget_item) {
       // see https://stackoverflow.com/a/27961022
       div.innerHTML = '&lrm;' + link_urls(link_markdown_links(mark_tags(html)))
     }
-
-    // copy title (summary w/ whitespace preserved) to item store
-    _.set(item.store, '_todoer.todo_text', text)
 
     if (snoozed)
       container.title =
@@ -601,8 +554,64 @@ function _unsnooze(item) {
   // invoke unsnooze listeners for each unsnoozed todo item
   // listeners must register on object item('#todoer').store.on_unsnooze
   each(values(_todoer.store.on_unsnooze), f =>
-    f(item, item.store._todoer.todo_text)
+    f(item, _extract_todo_snippet(item))
   )
+}
+
+// extract todo snippet from item
+function _extract_todo_snippet(item) {
+  // read text and determine todo tag positions
+  let text = item.read()
+  let todo_offsets = []
+
+  // note trailing delimiter is added automatically by _replace_tags
+  _replace_tags(text, '(?:^|\\s|\\()#todo', (m, offset) =>
+    todo_offsets.push(offset)
+  )
+  if (todo_offsets.length == 0) {
+    error(`could not locate #todo tag in todo item '${item.name}'`)
+    return // falsy return can be detected by caller
+  }
+  if (todo_offsets.length > 1) {
+    warn(
+      `found multiple (${todo_offsets.length}) #todo tags in ` +
+        `item '${item.name}'; using only first occurrence for snippet`
+    )
+  }
+  let todo_offset = todo_offsets[0]
+  while (text[todo_offset] != '#') todo_offset++ // skip leading delimiter
+
+  // determine if we should use suffix or prefix
+  // we prefer suffix, but will switch to prefix if it looks "cleaner"
+  // clean means alphanumeric for suffix, alphanumeric+punctuation for prefix
+  let use_suffix = true
+  if (
+    !text.substring(todo_offset + 5).match(/^\s*[\p{L}\d]/u) &&
+    text.substring(0, todo_offset).match(/[\p{P}\p{L}\d]\s*$/u)
+  )
+    use_suffix = false
+
+  if (use_suffix) {
+    // use suffix, truncate on right
+    text = text.substring(todo_offset)
+    if (text.length > 200) {
+      // truncate on first whitespace in tail (index > 200)
+      // note we only truncate on whitespace to avoid breaking tags or urls
+      const cutoff = text.substr(200).search(/\s/)
+      if (cutoff >= 0) text = text.substr(0, 200 + cutoff) + ' …'
+    }
+  } else {
+    // use prefix, truncate (and align) on left
+    text = text.substring(0, todo_offset + 5)
+    if (text.length > 200) {
+      // truncate on _last_ whitespace in head (index < end - 200)
+      // note we only truncate on whitespace to avoid breaking tags or urls
+      const cutoff = text.substr(0, text.length - 200).search(/\s[^\s]*$/)
+      if (cutoff >= 0) text = '… ' + text.substr(cutoff + 1)
+    }
+  }
+
+  return text
 }
 
 // render widget in item
