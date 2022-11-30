@@ -82,6 +82,8 @@ function is(x, type) {
       return x instanceof Set
     case 'map':
       return x instanceof Map
+    case 'promise':
+      return x instanceof Promise
     case 'array':
       return Array.isArray(x) || x instanceof TypedArray // defined below
     case 'untyped_array':
@@ -125,6 +127,7 @@ function _test_is() {
     () => !is(new Date(), 'plain_object'),
     () => is(new Set(), 'set'),
     () => is(new Map(), 'map'),
+    () => is(Promise.resolve(), 'promise'),
     () => is([], 'array'),
     () => is(new Int32Array(), 'array'),
     () => is([], 'untyped_array'),
@@ -221,6 +224,7 @@ const _benchmark_is_object_functions = ['is_object', 'is_primitive']
 
 const is_set = x => x instanceof Set
 const is_map = x => x instanceof Map
+const is_promise = x => x instanceof Promise
 // NOTE: is_array allows typed arrays, e.g. Int32Array
 // can also be detected as: ArrayBuffer.isView(x) && !(x instanceof DataView)
 const TypedArray = Int32Array.prototype.__proto__.constructor
