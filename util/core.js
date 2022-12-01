@@ -8,6 +8,7 @@ const to_pairs = _.toPairs
 const define = Object.defineProperty
 const seal = Object.seal
 const freeze = Object.freeze
+const all = Promise.all
 
 // invoke `f` on all objects in `obj`
 const invoke_deep = (obj, f) => {
