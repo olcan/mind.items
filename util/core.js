@@ -8,6 +8,7 @@ const to_pairs = _.toPairs
 const define = Object.defineProperty
 const seal = Object.seal
 const freeze = Object.freeze
+
 const all = Promise.all
 const all_settled = Promise.allSettled
 const any = Promise.any
