@@ -476,9 +476,9 @@ function _test_str() {
 // round `x` to `d` decimal places
 // `d` can be negative for digits _before_ decimal point
 // `d` can be restricted to at most `s` significant (non-zero) digits
-// `d` can be string to specify fixed decimal places (returns string)
+// `d` can be string to specify _fixed_ decimal places (returns string)
 // `s` can be string to specify _minimum_ significant digits
-// for finite `s`, string `d` is treated as minimum (vs fixed)
+// for finite `s`, string `d` is treated as a _minimum_ (vs fixed)
 // `mode` string can be `round`, `floor`, or `ceil`
 // rounds arrays recursively by copying
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
