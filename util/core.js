@@ -9,6 +9,9 @@ const define = Object.defineProperty
 const seal = Object.seal
 const freeze = Object.freeze
 const all = Promise.all
+const all_settled = Promise.allSettled
+const any = Promise.any
+const race = Promise.race
 
 // invoke `f` on all objects in `obj`
 const invoke_deep = (obj, f) => {
