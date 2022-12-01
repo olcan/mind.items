@@ -1,12 +1,11 @@
 <div id="__pid__" class="c3 __classes__" __style__ _skip_invalidation>
   <script>
     _render_plot('__pid__', (data, options) => {
-      print('rendering plot')
       let { x_values, values } = data
       const labels = options.series?.map(s => s.label) ?? []
       const colors = options.series?.map(s => s.color) ?? []
       const axes = options.series?.map(s => s.axis ?? 'y') ?? []
-      x_values = options.x_transform?.(x_values.slice())
+      x_values = options.x_transform?.(clone(x_values))
       const xSJ = matrixify(values)
       let { precision = 2, label_precision } = options
       const xZ = flat(values).filter(is_finite)

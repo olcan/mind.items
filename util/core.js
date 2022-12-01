@@ -91,7 +91,9 @@ const compact = _.compact
 const without = _.without
 const flatten = _.flattenDepth
 const flatten_deep = _.flattenDeep
-const flat = (...args) => _.flattenDeep(args)
+const flat = (...args) => _.flattenDeep(untyped_array(args))
+const untyped_array = x =>
+  !is_array(x) ? x : is_untyped_array(x) ? x.map(untyped_array) : array(x)
 
 const range = _.range
 const group = _.groupBy
@@ -463,7 +465,12 @@ function _test_str() {
 // `mode` string can be `round`, `floor`, or `ceil`
 // rounds arrays recursively by copying
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
-  if (is_array(x)) return x.map(xj => round_to(xj, d, s, mode))
+  if (is_array(x)) {
+    // upgrade 32-bit float array to 64-bit to match native representation
+    // note we could also convert to untyped using untyped_array
+    if (x.constructor.name == 'Float32Array') x = new Float64Array(x)
+    return x.map(xj => round_to(xj, d, s, mode))
+  }
   if (is_object(x)) return map_values(x, v => round_to(v, d, s, mode))
   if (is_string(x)) {
     // attempt to convert string to (finite) number
