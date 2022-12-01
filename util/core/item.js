@@ -188,7 +188,7 @@ const cancel_task = (...args) => _this.cancel_task(...args)
 const promise = (...args) => _this.promise(...args)
 
 // resolve(thing)
-// resolving promise _attached_ to item
+// resolves promise _attached_ to item
 // `≡ attach(Promise.resolve(thing))`
 const resolve = (...args) => _this.resolve(...args)
 
