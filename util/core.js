@@ -324,8 +324,9 @@ const capture = (f, context) => set(f, '__context', context)
 // can be used to `pack` global functions by reference
 const packable = (f, str) => set(f, '__function', str)
 
-// [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ function support
-// all functions must be _packable_ (see `pack` above)
+// [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ extensions
+// supports functions & typed arrays
+// functions must be _packable_ (see `pack` above)
 function stringify(value, replacer, space) {
   if (value?.constructor.name == 'ArrayBuffer' || ArrayBuffer.isView(value))
     return str(value) + ` (${value.byteLength} bytes)`
@@ -333,7 +334,13 @@ function stringify(value, replacer, space) {
     value,
     function (k, v) {
       if (replacer) v = replacer(k, v)
-      return is_function(v) ? pack(v) : v
+      if (is_function(v)) return pack(v)
+      if (is_typed_array(v))
+        return {
+          __constructor: v.constructor.name,
+          __args: [array(v)],
+        }
+      return v
     },
     space
   )
@@ -343,7 +350,11 @@ function stringify(value, replacer, space) {
 // all functions must be _packable_ (see `pack` above)
 function parse(text) {
   return JSON.parse(text, function (k, v) {
-    if (is_object(v) && is_string(v.__function)) return unpack(v)
+    if (is_object(v)) {
+      if (is_string(v.__function)) return unpack(v)
+      if (is_string(v.__constructor))
+        return new globalThis[v.__constructor](...v.__args)
+    }
     return v
   })
 }
