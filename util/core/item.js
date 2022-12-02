@@ -120,7 +120,7 @@ const write_log = (...args) => _this.write_log(...args)
 // autohide after `t` ms or never if `t<0`
 const show_logs = (...args) => _this.show_logs(...args)
 
-// show_status(status, [progress], [percent_decimals=2])
+// show_status([status], [progress])
 // show `status` on running item
 // item must be running (`item.running==true`)
 // can also indicate `progress∈[0,1]` in background
