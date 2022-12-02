@@ -102,8 +102,9 @@ const untyped_array = x =>
 
 const range = _.range
 const group = _.groupBy
-const count = _.countBy
 const sum_by = _.sumBy
+const count_by = _.countBy
+const count = (xJ, f) => sum_by(xJ, x => (f(x) ? 1 : 0))
 const map = _.map
 const map_keys = _.mapKeys
 const map_values = _.mapValues
