@@ -9,10 +9,10 @@ const define = Object.defineProperty
 const seal = Object.seal
 const freeze = Object.freeze
 
-const all = Promise.all
-const all_settled = Promise.allSettled
-const any = Promise.any
-const race = Promise.race
+const all = (...args) => Promise.all(...args)
+const all_settled = (...args) => Promise.allSettled(...args)
+const any = (...args) => Promise.any(...args)
+const race = (...args) => Promise.race(...args)
 
 // invoke `f` on all objects in `obj`
 const invoke_deep = (obj, f) => {
