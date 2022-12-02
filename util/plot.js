@@ -194,13 +194,15 @@ function hist(xSJ, options = {}) {
   const wZ = wSJ ? flat(wSJ) : undefined
 
   // automatically disable binning if:
+  // - bins option (integer or array) is not defined
   // - values option (integer or array) is defined
   // - xZ contains any non-numbers
   // - xZ has too few distinct numbers: < max(K+1, J*min_distinct_ratio))
   if (
-    defined(values) ||
-    !xZ.every(is_number) ||
-    uniq(xZ).length < max(max_bins + 1, xZ.length * min_distinct_ratio)
+    !defined(bins) &&
+    (defined(values) ||
+      !xZ.every(is_number) ||
+      uniq(xZ).length < max(max_bins + 1, xZ.length * min_distinct_ratio))
   ) {
     // rank non-numeric values
     values ??= 10 // 10 values by default
