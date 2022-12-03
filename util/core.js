@@ -773,11 +773,12 @@ function _test_throws() {
 }
 
 // `[output, elapsed_ms]`
-function timing(f) {
+function timing(f, label, logf = print) {
   if (!is_function(f)) fatal('non-function argument')
   const start = Date.now()
   const output = f()
   const elapsed = Date.now() - start
+  if (label) logf(`${label} took ${elapsed}ms`)
   return [output, elapsed]
 }
 
