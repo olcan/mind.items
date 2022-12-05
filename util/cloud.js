@@ -6,7 +6,7 @@ const _cloud = _item('$id')
 // |          |             | paths `public/…` are special (see below)
 // | `type`   | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | inferred from `x` (see below)
 // | `force`  | force upload?  | `false` | `true` replaces any remote or cached value for `path`
-// | `cache`  | cache locally? | `true`  | `false` deletes any cache entry for `path`
+// | `cache`  | cache in memory? | `true`  | `false` deletes any memory-based cache entry for `path`
 // | `public` | make public?   | `false` | ` true` uploads to path `public/…`
 // does not replace any existing value at `path` unless `force` is `true`
 // all uploads are encrypted & private, _except under path_ `public/…`
@@ -129,7 +129,8 @@ async function upload(x, options = undefined) {
 // | **option**  | | **default**
 // | `type`    | [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type | specified on upload
 // | `force`   | force download?   | `false` | `true` replaces any cached value for `path`
-// | `cache`   | cache locally?    | `true`  | `false` deletes any cache entry for `path`
+// | `cache`   | cache in memory?  | `true`  | `false` deletes any memory-based cache entry for `path`
+// | `cache2`  | cache on disk?    | `true`  | `false` deletes any disk-based cache entry for `path`
 // | `use_url` | use download url? | `false` | `true` uses download url
 // return value depends on [MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) type:
 // | `text/*`                   | string <font style="font-size:80%">(UTF-8 decoded)</font>
@@ -139,7 +140,13 @@ async function upload(x, options = undefined) {
 // throws any other errors
 async function download(path, options = undefined) {
   if (!path) fatal('missing path')
-  let { type, force = false, cache = true, use_url = false } = options ?? {}
+  let {
+    type,
+    force = false,
+    cache = true,
+    cache2 = true,
+    use_url = false,
+  } = options ?? {}
   if (!cache) delete _cloud.store.cache?.[path] // delete existing cache entry
   if (!force) {
     // skip download & return cached value if value exists in local cache
@@ -154,25 +161,51 @@ async function download(path, options = undefined) {
   }
   const start = Date.now()
   const download_start = Date.now()
-  let cipher
-  if (!use_url) {
-    const full_path = abs_path(path)
-    const { ref, getStorage, getBlob } = firebase.storage
-    try {
-      const blob = await getBlob(ref(getStorage(firebase), full_path))
-      const buffer = await blob.arrayBuffer()
-      type ??= blob.type
-      cipher = new Uint8Array(buffer)
-    } catch (e) {
-      if (e.code != 'storage/object-not-found') throw e
-      return undefined // missing
+  const full_path = abs_path(path)
+  let cipher = null // null==missing until loaded below
+  // load localforage for disk-based cache (cache2)
+  // see https://github.com/localForage/localForage
+  await _load(
+    window.localforage ||
+      'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js'
+  )
+  if (!cache2) await localforage.removeItem(full_path)
+  if (!force) {
+    cipher = await localforage.getItem(full_path) // =null if missing
+    if (cipher !== null) {
+      type = await localforage.getItem('type@' + full_path)
+      if (!type) fatal(`missing type for disk-cached ${path}`)
+      console.debug(
+        `loaded ${path} from disk-based cache ` +
+          `(${cipher.length} bytes, ${Date.now() - download_start}ms)`
+      )
     }
-  } else {
-    const url = await get_url(path)
-    if (!url) return undefined // missing
-    const response = await fetch(url)
-    cipher = new Uint8Array(await response.arrayBuffer())
-    type ??= response.headers.get('content-type')
+  }
+  if (cipher === null) {
+    let stored_type
+    if (!use_url) {
+      const { ref, getStorage, getBlob } = firebase.storage
+      try {
+        const blob = await getBlob(ref(getStorage(firebase), full_path))
+        const buffer = await blob.arrayBuffer()
+        type ??= stored_type = blob.type
+        cipher = new Uint8Array(buffer)
+      } catch (e) {
+        if (e.code != 'storage/object-not-found') throw e
+        return undefined // missing
+      }
+    } else {
+      const url = await get_url(path)
+      if (!url) return undefined // missing
+      const response = await fetch(url)
+      cipher = new Uint8Array(await response.arrayBuffer())
+      type ??= stored_type = response.headers.get('content-type')
+    }
+    if (cache2) {
+      // note localforage supports typed arrays
+      await localforage.setItem(full_path, cipher)
+      await localforage.setItem('type@' + full_path, stored_type)
+    }
   }
   const download_time = Date.now() - download_start
   const decrypt = !path.startsWith('public/')
