@@ -773,13 +773,30 @@ function _test_throws() {
 }
 
 // `[output, elapsed_ms]`
-function timing(f, label, logf = print) {
-  if (!is_function(f)) fatal('non-function argument')
+// argument can be function (invoked) or promise (resolved)
+// returns promise if `f` is a promise or returns a promise
+function timing(f, label = undefined, logf = print) {
+  if (!is_function(f) && !is_promise(f))
+    fatal('invalid argument for timing; must be function or promise')
   const start = Date.now()
-  const output = f()
+  let output = is_function(f) ? f() : f // resolved promise is the output
+  if (is_promise(output)) {
+    return output.then(output => {
+      const elapsed = Date.now() - start
+      if (label) logf(`[${elapsed}ms] ${label}`)
+      return [output, elapsed]
+    })
+  }
   const elapsed = Date.now() - start
-  if (label) logf(`${label} took ${elapsed}ms`)
+  if (label) logf(`[${elapsed}ms] ${label}`)
   return [output, elapsed]
+}
+
+// `timing(...)[0]`
+const timed = (f, label = 'timed', logf = print) => {
+  const pair = timing(f, label, logf)
+  if (is_promise(pair)) return pair.then(pair => pair[0])
+  else return pair[0]
 }
 
 // cache property `prop` on object `obj`
