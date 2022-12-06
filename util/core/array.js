@@ -169,8 +169,9 @@ function scan(xJ, f, js = 0, je = xJ.length) {
 }
 
 // invokes `f(j,J)` for `j=0,…,J-1`
+// stops early if `f` returns `null`
 const repeat = (J, f) => {
-  for (let j = 0; j < J; ++j) f(j, J)
+  for (let j = 0; j < J; ++j) if (f(j, J) === null) break
 }
 
 function _benchmark_each() {
