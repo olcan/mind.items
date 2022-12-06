@@ -169,7 +169,10 @@ async function download(path, options = undefined) {
     window.localforage ||
       'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js'
   )
-  if (!cache2) await localforage.removeItem(full_path)
+  if (!cache2) {
+    await localforage.removeItem(full_path)
+    await localforage.removeItem('type@' + full_path)
+  }
   if (!force) {
     cipher = await localforage.getItem(full_path) // =null if missing
     if (cipher !== null) {
