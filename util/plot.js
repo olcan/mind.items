@@ -124,7 +124,11 @@ function plot(obj, name = undefined) {
     const untagged_plots = diff(
       _sublabels(_this.label).map(s => _this.label + '/' + s),
       _this.tags_visible
-    ).filter(label => _item(label)?.tags_hidden.includes('#util/plot'))
+    ).filter(
+      label =>
+        label.indexOf('/', _this.label.length + 1) == -1 && // immediate children only
+        _item(label)?.tags_hidden.includes('#util/plot')
+    )
     const s = untagged_plots.length > 1 ? 's' : ''
     if (
       untagged_plots.length &&
