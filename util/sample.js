@@ -5,6 +5,7 @@
 // | primitive array  | `x` in array of possible values, `≡{in:array}`
 // | object array     | `x` is array matching per-element constraints
 // | object           | `x` matching constraints
+// |                  | `≡ domain._from(x)` if defined
 // | `{}`             | everything (no constraints)
 // | `via:func`       | `func._domain || {}`
 // | `is:type`        | `≡ is(x,type)` see [types](#util/core/types)
@@ -33,6 +34,7 @@ function from(x, domain) {
     }
   }
   if (!is_object(domain)) fatal(`unknown domain ${domain}`)
+  if (domain._from) return domain._from(x)
   return keys(domain).every(key => {
     switch (key) {
       case 'via':
