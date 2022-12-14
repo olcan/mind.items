@@ -3815,7 +3815,7 @@ function _run() {
   if (typeof _sample_done !== 'undefined') {
     if (!is_function(_sample_done)) fatal('invalid _sample_done')
     if (is_promise(out)) out = out.then(out => _sample_done(out, js, options))
-    else _sample_done(out, js, options)
+    else out = _sample_done(out, js, options)
   }
 
   return out // promise if async
