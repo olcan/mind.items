@@ -481,7 +481,7 @@ function _test_str() {
 // `s` can be string to specify _minimum_ significant digits
 // for finite `s`, string `d` is treated as a _minimum_ (vs fixed)
 // `mode` string can be `round`, `floor`, or `ceil`
-// rounds arrays recursively by copying
+// rounds arrays & plain objects recursively by copying
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
   if (is_array(x)) {
     // upgrade 32-bit float array to 64-bit to match native representation
@@ -489,7 +489,7 @@ const round_to = (x, d = 0, s = inf, mode = 'round') => {
     if (x.constructor.name == 'Float32Array') x = new Float64Array(x)
     return x.map(xj => round_to(xj, d, s, mode))
   }
-  if (is_object(x)) return map_values(x, v => round_to(v, d, s, mode))
+  if (is_plain_object(x)) return map_values(x, v => round_to(v, d, s, mode))
   if (is_string(x)) {
     // attempt to convert string to (finite) number
     const num = Number(x)
