@@ -1424,10 +1424,8 @@ class _Sampler {
               if (debug) print(`moving ${path(v, k, obj)}`)
               return v
             }
-            if (debug && v.__key === undefined) {
-              define_value(v, '__key', k)
-              define_value(v, '__parent', obj)
-            }
+            if (debug && v.__key === undefined)
+              define_values(v, { __key: k, __parent: obj })
           }
 
           // log all cloned values (except nested primitives) in debug mode
@@ -1466,10 +1464,8 @@ class _Sampler {
       }
       if (debug) {
         // set up __key/__parent for logging nested properties in debug mode
-        if (is_object(x) && x.__key === undefined) {
-          define_value(x, '__key', k)
-          define_value(x, '__parent', obj)
-        }
+        if (is_object(x) && x.__key === undefined)
+          define_values(x, { __key: k, __parent: obj })
         // log all merged values (except nested primitives) in debug mode
         if (!is_primitive(v) || obj == this)
           print(`merging ${path(v, k, obj)} (${typeof v})`)
@@ -3806,5 +3802,21 @@ function _run() {
   }
   // fix __now for sampling (via options to apply to workers also)
   options.__now ??= event_time()
-  return sample(js, options)
+
+  // invoke _sample_init if defined
+  if (typeof _sample_init !== 'undefined') {
+    if (!is_function(_sample_init)) fatal('invalid _sample_init')
+    _sample_init(js, options)
+  }
+
+  let out = sample(js, options) // promise if async
+
+  // invoke _sample_done if defined (after promise if async)
+  if (typeof _sample_done !== 'undefined') {
+    if (!is_function(_sample_done)) fatal('invalid _sample_done')
+    if (is_promise(out)) out = out.then(out => _sample_done(out, js, options))
+    else _sample_done(out, js, options)
+  }
+
+  return out // promise if async
 }

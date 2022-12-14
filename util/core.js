@@ -5,7 +5,6 @@ const assign = Object.assign
 const from_entries = Object.fromEntries
 const from_pairs = _.fromPairs
 const to_pairs = _.toPairs
-const define = Object.defineProperty
 const seal = Object.seal
 const freeze = Object.freeze
 
@@ -39,12 +38,35 @@ const values_deep = obj => {
 
 const args = values_deep
 
-// define `value` for property
-// does not modify existing properties
-// returns defined value (vs object as in `define`)
-const define_value = (obj, prop, value, options = undefined) => (
-  define(obj, prop, { value, ...options }), value
-)
+// define(obj, prop, [options])
+// define properties on object
+// `prop` must be name string or object of `name:options` pairs
+// `options` (if any) applies to all properties if multiple are defined
+const define = (obj, prop, options = undefined) => {
+  if (is_string(prop)) return Object.defineProperty(obj, prop, options)
+  else if (is_plain_object(prop)) {
+    if (!options) return Object.defineProperties(obj, prop)
+    if (!is_plain_object(options))
+      fatal('invalid options; must be plain object')
+    return Object.defineProperties(
+      obj,
+      map_values(prop, opt => ({ ...opt, ...options }))
+    )
+  } else fatal('invalid prop; must be string or plain object')
+}
+
+// define `value` for `prop` on `obj`
+const define_value = (obj, prop, value, options = undefined) =>
+  define(obj, prop, { value, ...options })
+
+// define `values` on `obj`
+// `values` must be object of `name:value` pairs
+// `options` (if any) applies to all values (properties)
+const define_values = (obj, values, options = undefined) =>
+  define(
+    obj,
+    map_values(values, value => ({ value, ...options }))
+  )
 
 const get = _.get
 const set = _.set

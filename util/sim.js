@@ -299,7 +299,7 @@ const root = x => x._root ?? x
 // enable tracing for nested state
 // enables access (dependency) from schedulers
 // certain nested state (e.g. plain objects) are traced by default
-const trace = obj => (define_value(obj, '_traced', true), obj)
+const trace = obj => define_value(obj, '_traced', true)
 
 // weight state `x` as `log_w`
 // `log_w` can be a function `x=>…`

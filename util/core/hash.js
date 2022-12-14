@@ -104,7 +104,7 @@ const _benchmark_encode_decode_functions = ['encode', 'decode']
 // convert `ArrayBuffer` or [view](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView) to _byte string_
 // _byte strings_ (a.k.a. "binary") encode 8-bit binary numbers using [code points](https://en.wikipedia.org/wiki/Code_point) ≤255
 // in contrast, regular strings in `js` encode [unicode characters](https://en.wikipedia.org/wiki/List_of_Unicode_characters) in [UTF-16](https://en.wikipedia.org/wiki/UTF-16)
-const byte_stringify = window._byte_stringify
+const byte_stringify = (...args) => window._byte_stringify(...args)
 
 function _test_byte_stringify() {
   const x = new Uint8Array([0, 1, 2, 10, 16, 255])

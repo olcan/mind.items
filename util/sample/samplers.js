@@ -44,7 +44,7 @@ class Uniform {
     // note _log_p can assume x inside domain, sampled via _prior or _posterior
     // density(x, domain) can be used to ensure -inf outside domain
     // otherwise we need x => (x <= a || x >= b ? -inf : log_z)
-    return this.__log_p ?? define_value(this, '__log_p', -log(b - a))
+    return this.__log_p ?? define_value(this, '__log_p', -log(b - a)).__log_p
   }
   _prior(f) {
     const a = this.gt
