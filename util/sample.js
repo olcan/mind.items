@@ -1390,9 +1390,14 @@ class _Sampler {
           // posterior stdevK calculation must be triggered via this.stdevK
           if (k[0] == '_' && k != '_stdevK') return null
           // drop target state (value.target*) and cached_args from values
+          // also drop any underscore keys (e.g. value._xR, _domain, etc)
           if (k == 'values')
             v = v.map(v =>
-              omit_by(v, (_, k) => k == 'cached_args' || k.startsWith('target'))
+              omit_by(
+                v,
+                (_, k) =>
+                  k[0] == '_' || k == 'cached_args' || k.startsWith('target')
+              )
             )
 
           // slice J-indexed arrays down to specified range [js,je)
@@ -2786,8 +2791,15 @@ class _Sampler {
       // if (!is_primitive(value.first)) return // value not primitive
 
       // get prior w/ weights
+      const stringify_nonprimitives = xJ =>
+        apply(xJ, x =>
+          is_primitive(x)
+            ? x
+            : value._domain?._str?.(x) ??
+              truncate(str(round_to(x, 2)), { length: 50, omission: '…' })
+        )
       const pxJ = array(J, j => pxJK[j][k])
-      apply(pxJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
+      stringify_nonprimitives(pxJ)
       const pwJ = copy(this.pwJ)
       // we remove undefined and rescale weights to J for all samples
       _remove_undefined(pxJ, pwJ)
@@ -2796,7 +2808,7 @@ class _Sampler {
 
       // get posterior w/ weights
       const xJ = array(J, j => xJK[j][k])
-      apply(xJ, x => (is_primitive(x) ? x : str(round_to(x, 2))))
+      stringify_nonprimitives(xJ)
       const wJ = copy(rwJ)
       _remove_undefined(xJ, wJ)
       if (wJ.length == 0) warn('missing posterior samples to plot ' + name)
@@ -2908,8 +2920,8 @@ class _Sampler {
         if (!(stdevR.length == R))
           fatal('variable-length arrays not supported yet')
         let w = 0
-        let sR = value._sR ?? array(R)
-        let ssR = value._ssR ?? array(R)
+        let sR = (value._sR ??= array(R))
+        let ssR = (value._ssR ??= array(R))
         fill(sR, 0)
         fill(ssR, 0)
         for (let j = 0; j < J; ++j) {
@@ -3349,7 +3361,11 @@ class _Sampler {
       return prior((x, log_pw = 0) => {
         log_pwJ[j] += log_pw
         log_p_xJK[j][k] = log_p(x)
-        value.first ??= x // save first defined value
+        // save first defined value & domain
+        if (value.first === undefined) {
+          value.first = x
+          value._domain = domain
+        }
         return (xJK[j][k] = x)
       })
     }
@@ -3398,7 +3414,11 @@ class _Sampler {
         // sampling from prior is equivalent to weighting by prior likelihood
         // log_mpJ[j] += log_p_yjK[k] - log_p_xjk
         // if (log_mpJ[j] == -inf) this.rejected = true
-        value.first ??= y // save first defined value (in case xjk was undefined)
+        // save first defined value & domain (in case xjk was undefined)
+        if (value.first === undefined) {
+          value.first = y
+          value._domain = domain
+        }
         return (yjK[k] = y)
       })
     }
