@@ -1756,7 +1756,10 @@ class _Sampler {
         update[`pp.${n}`] = round(
           this.u == 0 ? 100 / this.K : 100 * (this.pK[k] / this.p)
         )
-      if (spec[`mean.${n}`] || spec[`median.${n}`]) {
+      if (
+        (spec[`mean.${n}`] || spec[`median.${n}`]) &&
+        is_number(this.values[k].first)
+      ) {
         const { J, xJK, rwJ } = this
         const xJ = array(J, j => xJK[j][k])
         const wJ = copy(rwJ)
@@ -2471,75 +2474,84 @@ class _Sampler {
 
       value_table.push(row)
     })
-    const stats = this.stats
     if (this.values.length) _this.write(table(value_table), '_md_values')
 
-    const r = round_to(this.r, 3, inf, 'floor')
-    const ess = round(this.ess)
-    const lwr = round_to(this.lwr, 1)
-    const lpx = round_to(this.lpx, 1)
-    const mks = round_to(this.mks, 3)
-    _this.write(
-      table(
-        entries({
-          // always display r, ess, lwr, and mks at the top
-          r,
-          ess,
-          lwr,
-          lpx,
-          mks,
-          // also omit t since redundant and confusable w/ x.t
-          ...omit(last(stats.updates), ['t', 'r', 'ess', 'lwr', 'lpx', 'mks']),
-        })
-      ).replace(/Infinity/g, '∞'),
-      '_md_last_update'
-    )
-    _this.write(
-      table(
-        entries({
-          updates: stats.updates ? stats.updates.length - 1 : 0,
-          ...pick_by(stats, is_number),
-          workers: this.workers?.length ?? 0,
-        })
-      ),
-      '_md_stats'
-    )
-    _this.write(table(entries(stats.time.updates)), '_md_time_updates')
-    _this.write(
-      table(
-        entries({
-          time: this.t + this.init_time + this.pending_time,
-          running: this.t,
-          pending: this.pending_time,
-          init: this.init_time,
-          ...pick_by(stats.time, is_number),
-        })
-      ),
-      '_md_time'
-    )
-    const move_secs = max(1, stats.time.updates.move) / 1000
-    _this.write(
-      table(
-        entries({
-          pps: round(stats.proposals / move_secs),
-          aps: round(stats.accepts / move_secs),
-          tpsa: round(stats.time.sample / stats.samples),
-          ...(this.workers && stats.samples
-            ? {
-                ctpsa: round_to(stats.time.clone / stats.samples, '2'),
-                mtpsa: round_to(stats.time.merge / stats.samples, '2'),
-                ttpsa: round_to(stats.time.transfer / stats.samples, '2'),
-                prlism: stats.time.parallelism,
-              }
-            : {}),
-        })
-      ),
-      '_md_perf'
-    )
+    if (this.stats) {
+      const stats = this.stats
+      const r = round_to(this.r, 3, inf, 'floor')
+      const ess = round(this.ess)
+      const lwr = round_to(this.lwr, 1)
+      const lpx = round_to(this.lpx, 1)
+      const mks = round_to(this.mks, 3)
+      _this.write(
+        table(
+          entries({
+            // always display r, ess, lwr, and mks at the top
+            r,
+            ess,
+            lwr,
+            lpx,
+            mks,
+            // also omit t since redundant and confusable w/ x.t
+            ...omit(last(stats.updates), [
+              't',
+              'r',
+              'ess',
+              'lwr',
+              'lpx',
+              'mks',
+            ]),
+          })
+        ).replace(/Infinity/g, '∞'),
+        '_md_last_update'
+      )
+      _this.write(
+        table(
+          entries({
+            updates: stats.updates ? stats.updates.length - 1 : 0,
+            ...pick_by(stats, is_number),
+            workers: this.workers?.length ?? 0,
+          })
+        ),
+        '_md_stats'
+      )
+      _this.write(table(entries(stats.time.updates)), '_md_time_updates')
+      _this.write(
+        table(
+          entries({
+            time: this.t + this.init_time + this.pending_time,
+            running: this.t,
+            pending: this.pending_time,
+            init: this.init_time,
+            ...pick_by(stats.time, is_number),
+          })
+        ),
+        '_md_time'
+      )
+      const move_secs = max(1, stats.time.updates.move) / 1000
+      _this.write(
+        table(
+          entries({
+            pps: round(stats.proposals / move_secs),
+            aps: round(stats.accepts / move_secs),
+            tpsa: round(stats.time.sample / stats.samples),
+            ...(this.workers && stats.samples
+              ? {
+                  ctpsa: round_to(stats.time.clone / stats.samples, '2'),
+                  mtpsa: round_to(stats.time.merge / stats.samples, '2'),
+                  ttpsa: round_to(stats.time.transfer / stats.samples, '2'),
+                  prlism: stats.time.parallelism,
+                }
+              : {}),
+          })
+        ),
+        '_md_perf'
+      )
+    }
     const prior_best = this.sample({ values: true, index: 'best', prior: true })
     const best = this.sample({ values: true, index: 'best' })
     const combined = transpose_objects(round_to([prior_best, best], 2))
-    _this.write(table(entries(combined).map(row => flat(row))), '_md_best')
+    _this.write(table(entries(combined).map(row => flatten(row))), '_md_best')
     _this.write(
       flat(
         '<style>',
@@ -2712,7 +2724,11 @@ class _Sampler {
           axis: {
             x: {
               tick: {
-                values: _.range(0, this.u + 1, this.u <= 10 ? 1 : 10),
+                values: range(
+                  0,
+                  this.u + 1,
+                  this.u <= 10 ? 1 : this.u <= 100 ? 10 : 100
+                ),
               },
             },
             y: {
