@@ -1534,7 +1534,7 @@ class _Sampler {
         'log_cwrJ', // owned by main thread
         'log_rwJ', // owned by main thread
         'log_wrJ', // owned by main thread
-        '_stdevK', // owner by main thread
+        '_stdevK', // owned by main thread
         'uaJK', // input to _sample
         'uawK', // input to _sample
         ...(moving
@@ -2945,6 +2945,8 @@ class _Sampler {
     return fill(stdevK, k => {
       const value = this.values[k]
       if (!defined(value.first)) return // value not sampled/predicted
+      // TODO: allow domain-defined stdev(xJ, wJ)
+
       // return per-element stdev for arrays of numbers
       if (is_array(value.first) && is_finite(value.first[0])) {
         const R = value.first.length
