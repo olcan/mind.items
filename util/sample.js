@@ -850,7 +850,7 @@ class _Sampler {
       fatal('expected/parsed calls to weight(…) never invoked in prior runs')
 
     // treat J==1 as "debug mode"
-    // print sampled values or simulations and skip posterior (see _init)
+    // print sampled values/sims & skip updates/posterior/output (see _init)
     if (J == 1) {
       options.on_done?.(this) // invoke optional handler
       print('values:', str(this.sample_values()))
