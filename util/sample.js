@@ -879,6 +879,8 @@ class _Sampler {
     if (options.table) this._table()
     if (options.quantiles) this._quantiles()
     if (options.plot) this._plot()
+
+    options.output_done?.(this)
   }
 
   _name_value(name, index) {
@@ -1793,7 +1795,7 @@ class _Sampler {
     this.lpx = null // since log_p_xJK changed
     fill(jJ, j => j) // init sample indices
     this._sort() // since rwJ_agg changed
-    // copy prior samples for sample_prior()
+    // copy prior samples (xJK->pxJK, xJ->pxJ) for sample_prior()
     each(pxJK, (pxjK, j) => copy(pxjK, xJK[j]))
     copy(pxJ, xJ)
     if (stats) stats.time.updates.sample += timer.t
@@ -2147,6 +2149,8 @@ class _Sampler {
       stats.accepts += accepts
       stats.time.updates.move += timer.t
     }
+
+    options.move_done?.(this)
   }
 
   async _update() {
