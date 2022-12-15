@@ -2276,13 +2276,15 @@ class _Sampler {
     // buffer samples at u=0 and then every mks_period updates
     if (this.u % mks_period == 0) {
       this.uB.push(this.u)
-      this.xBJK.push(clone_deep(this.xJK))
-      this.log_p_xBJK.push(clone_deep(this.log_p_xJK))
+      // we use clone instead of clone_deep for efficiency given known depth
+      // we simply copy references to non-primitives ignored in __mks
+      this.xBJK.push(this.xJK.map(clone))
+      this.log_p_xBJK.push(this.log_p_xJK.map(clone))
       if (this.rwj_uniform) {
         this.rwBJ.push(undefined)
         this.rwBj_sum.push(undefined)
       } else {
-        this.rwBJ.push(clone_deep(this.rwJ))
+        this.rwBJ.push(clone(this.rwJ))
         this.rwBj_sum.push(this.rwj_sum)
       }
     }
@@ -3072,8 +3074,10 @@ class _Sampler {
     const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK, uaJK } = this
     const { log_p_xJK, rwJ, rwj_sum, stats } = this
     const { mks_tail, mks_period } = this.options
-    if (K == 0) return 0 // no sampled values
+    if (K == 0) return 0 // no values
     // if (!this.values.some(v => v.sampling)) return 0 // no sampling
+    if (!this.values.some(v => defined(v.first) && is_primitive(v.first)))
+      return 0 // no primitive values suitable for mks computation
 
     // trim mks sample buffer to cover desired tail of updates
     // note last buffered update can be within < mks_period steps
