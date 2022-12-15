@@ -699,7 +699,7 @@ class _Sampler {
           error(e)
           return // stop, do not update or output
         }
-        if (this.J == 1) return // skip updates/posterior in debug mode
+        if (this.J == 1) return // skip updates/posterior/output in debug mode
 
         // skip updates if unweighted && no targets specified
         // note unweighted means weight(…) never invoked during prior run
@@ -724,7 +724,9 @@ class _Sampler {
             await _update_dom()
             this.pending_time += timer.t
           }
+          options.on_posterior?.(this) // invoke optional handler
         }
+        options.on_done?.(this) // invoke optional handler
         this._output()
       })).finally(() => {
         if (this.workers) each(this.workers, close_worker) // close workers
@@ -732,7 +734,7 @@ class _Sampler {
     }
 
     this._init_prior() // not async in sync mode
-    if (this.J == 1) return // skip updates/posterior in debug mode
+    if (this.J == 1) return // skip updates/posterior/output in debug mode
 
     // skip updates if unnecessary (see comments above)
     if (this.weighted || this.values.some(v => v.target)) {
@@ -743,7 +745,9 @@ class _Sampler {
         options.on_quantum?.(this) // invoke optional handler
       }
       if (stats) stats.time.update = timer.t
+      options.on_posterior?.(this) // invoke optional handler
     }
+    options.on_done?.(this) // invoke optional handler
     this._output()
   }
 
@@ -848,6 +852,7 @@ class _Sampler {
     // treat J==1 as "debug mode"
     // print sampled values or simulations and skip posterior (see _init)
     if (J == 1) {
+      options.on_done?.(this) // invoke optional handler
       print('values:', str(this.sample_values()))
       const printed_histories = new Set()
       each(this.sims, s => {
