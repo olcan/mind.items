@@ -2197,7 +2197,6 @@ class _Sampler {
     // continue based on min_time/updates
     // minimums supersede maximum and target settings
     // targets override default maximums (see constructor)
-    // actual stopping is below, after reweight and update_stats
     if (this.t >= min_time && this.u >= min_updates) {
       // check target updates
       if (this.u >= updates) {
