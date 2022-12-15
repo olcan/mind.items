@@ -84,7 +84,9 @@ const unzip = _.unzip
 
 // benchmark to illustrate clone/clone_deep overhead
 // structuredClone is slightly faster in Safari, slower in Chrome
+// clone is much faster for known flat objects (e.g. array of numbers)
 function _benchmark_clone() {
+  const range100 = range(100)
   benchmark(
     () => ({}),
     () => clone({}),
@@ -93,7 +95,10 @@ function _benchmark_clone() {
     () => structuredClone({ a: 1, b: 1, c: 1 }),
     () => ({ a: 1, b: [1, 2, 3], c: { a: 1, b: 1, c: 1 } }),
     () => clone_deep({ a: 1, b: [1, 2, 3], c: { a: 1, b: 1, c: 1 } }),
-    () => structuredClone({ a: 1, b: [1, 2, 3], c: { a: 1, b: 1, c: 1 } })
+    () => structuredClone({ a: 1, b: [1, 2, 3], c: { a: 1, b: 1, c: 1 } }),
+    () => clone(range100),
+    () => clone_deep(range100),
+    () => structuredClone(range100)
   )
 }
 
