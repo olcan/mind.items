@@ -313,12 +313,12 @@ function density(x, domain) {
 // | `time`        | target time (ms) for sampling, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // |               | changes default `max_time` to `inf`
-// | `async`       | run updates/moves in async _quanta_, _default_: `false`
+// | `async`       | run updates/moves asynchronously, _default_: `false`
 // |               | allows dom updates & main-thread tasks between quanta
-// | `quantum`     | maximum time (ms) per async update/move, _default_: `100`
-// |               | shorter quanta = more responsive of dom & main-thread
-// |               | longer quanta = less dispatch delay (`await` time)
-// |               | does not apply in sync mode (`async:false`)
+// | `quantum`     | maximum time (ms) per update/move, _default_: `100`
+// |               | shorter quanta = more responsive main thread in async mode
+// |               | longer quanta = less dispatch/await delay in async mode
+// |               | affects only number of quanta in sync mode (`async:false`)
 // | `opt_time`    | optimization time, should be `<max_time`
 // |               | _default_: `(time || max_time) / 2`
 // | `opt_penalty` | optimization penalty, should be `<0`, _default_: `-5`
@@ -713,6 +713,7 @@ class _Sampler {
                   stats.time.update += timer.t
                   stats.quanta++
                 }
+                options.on_quantum?.(this) // invoke optional handler
               })
             } catch (e) {
               this.done = true // stop updates on error
@@ -736,7 +737,11 @@ class _Sampler {
     // skip updates if unnecessary (see comments above)
     if (this.weighted || this.values.some(v => v.target)) {
       const timer = _timer_if(stats)
-      while (!this.done) this._update() // not async in sync mode
+      while (!this.done) {
+        this._update() // not async in sync mode
+        if (stats) stats.quanta++
+        options.on_quantum?.(this) // invoke optional handler
+      }
       if (stats) stats.time.update = timer.t
     }
     this._output()
@@ -827,6 +832,7 @@ class _Sampler {
     let timer = _timer_if(options.log || stats)
     await this._sample_prior()
     if (stats) stats.time.prior = timer.t
+    options.on_prior?.(this) // invoke optional handler
     if (options.log) {
       print(
         `sampled ${J} prior runs (ess ${this.pwj_ess}, ` +
@@ -880,7 +886,7 @@ class _Sampler {
     if (options.quantiles) this._quantiles()
     if (options.plot) this._plot()
 
-    options.output_done?.(this)
+    options.on_output?.(this) // invoke optional handler
   }
 
   _name_value(name, index) {
@@ -1674,7 +1680,7 @@ class _Sampler {
       moves: 0,
       proposals: 0,
       accepts: 0,
-      quanta: 0, // remains 0 for sync mode
+      quanta: 0,
       samples: 0,
       time: {
         prior: 0,
@@ -2150,7 +2156,7 @@ class _Sampler {
       stats.time.updates.move += timer.t
     }
 
-    options.move_done?.(this)
+    this.options.on_move?.(this) // invoke optional handler
   }
 
   async _update() {
@@ -2194,8 +2200,9 @@ class _Sampler {
     if (this.optimizing || this.accumulating || reweight_if(this))
       await this._reweight()
 
-    // update stats
+    // update stats to complete update step this.u
     this._update_stats()
+    this.options.on_update?.(this) // invoke optional handler
 
     // check for termination
     // continue based on min_time/updates
