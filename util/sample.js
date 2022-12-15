@@ -314,11 +314,11 @@ function density(x, domain) {
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // |               | changes default `max_time` to `inf`
 // | `async`       | run updates/moves asynchronously, _default_: `false`
-// |               | allows dom updates & main-thread tasks between quanta
-// | `quantum`     | maximum time (ms) per update/move, _default_: `100`
-// |               | shorter quanta = more responsive main thread in async mode
-// |               | longer quanta = less dispatch/await delay in async mode
-// |               | affects only number of quanta in sync mode (`async:false`)
+// |               | allows document updates & main thread tasks between _quanta_
+// | `quantum`     | maximum time (ms) per _partial_ update, _default_: `100`
+// |               | shorter = more responsive document & main thread in async mode
+// |               | longer = less dispatch/await delay in async mode
+// |               | affects only number of quanta in sync mode
 // | `opt_time`    | optimization time, should be `<max_time`
 // |               | _default_: `(time || max_time) / 2`
 // | `opt_penalty` | optimization penalty, should be `<0`, _default_: `-5`
