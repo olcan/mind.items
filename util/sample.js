@@ -1962,6 +1962,8 @@ class _Sampler {
       stats.reweight_tries += tries
       stats.time.updates.reweight += timer.t
     }
+
+    this.options.on_reweight?.(this) // invoke optional handler
   }
 
   // swap arrays w/ temporary buffers prefixed w/ _
@@ -1999,6 +2001,7 @@ class _Sampler {
       stats.resamples++
       stats.time.updates.resample += timer.t
     }
+    this.options.on_resample?.(this) // invoke optional handler
   }
 
   // (re)sort by decreasing aggregate weight (rwJ_agg)
