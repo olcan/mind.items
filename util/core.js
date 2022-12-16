@@ -43,11 +43,11 @@ const freeze_deep = obj => invoke_deep(obj, freeze)
 // extract all values in `obj` that satisfy `pred(…)`
 // default predicate `is_primitive` returns all primitives
 const values_deep = (obj, pred = is_primitive) => {
-  const base = pred(obj) ? [obj] : []
-  if (is_array(obj)) return concat(base, ...obj.map(o => values_deep(o, pred)))
-  if (is_object(obj))
-    return concat(base, ...values(obj).map(o => values_deep(o, pred)))
-  return base
+  const vJ = pred(obj) ? [obj] : []
+  if (is_array(obj)) for (const o of obj) vJ.push(...values_deep(o, pred))
+  else if (is_object(obj))
+    for (const o of values(obj)) vJ.push(...values_deep(o, pred))
+  return vJ
 }
 
 // define(obj, prop, [options])
