@@ -1,17 +1,19 @@
 // posterior sampler that samples uniformly in (x-r,x+r) w/ r=stdev
 // can be used for any bounded domain or prior sampler
-const _uniform_posterior = (a, b, prior) => (f, x, stdev) => {
-  if (!stdev) return prior(f) // degenerate sample
-  const r = min((b - a) / 2, stdev) // chosen based on aps in examples
-  const xa = max(x - r, a)
-  const xb = min(x + r, b)
-  const y = xa + (xb - xa) * random()
-  const ya = max(y - r, a)
-  const yb = min(y + r, b)
-  // log(q(x|y)) - log(q(y|x))
-  const log_mw = -log(yb - ya) - -log(xb - xa)
-  return f(y, log_mw)
-}
+const _uniform_posterior =
+  (a, b, prior) =>
+  (f, x, { stdev }) => {
+    if (!stdev) return prior(f) // degenerate sample
+    const r = min((b - a) / 2, stdev) // chosen based on aps in examples
+    const xa = max(x - r, a)
+    const xb = min(x + r, b)
+    const y = xa + (xb - xa) * random()
+    const ya = max(y - r, a)
+    const yb = min(y + r, b)
+    // log(q(x|y)) - log(q(y|x))
+    const log_mw = -log(yb - ya) - -log(xb - xa)
+    return f(y, log_mw)
+  }
 
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `(a,b)`
 // `undefined` if `a` or `b` non-finite
@@ -51,7 +53,7 @@ class Uniform {
     const b = this.lt
     return f(a + (b - a) * random())
   }
-  _posterior(f, x, stdev) {
+  _posterior(f, x, { stdev }) {
     if (!stdev) return this._prior(f) // degenerate sample
     const a = this.gt
     const b = this.lt
@@ -213,7 +215,7 @@ function normal(μ, σ) {
   // note constant factors are optimized away by js interpreter
   dom._log_p = x => -0.5 * inv_σ2 * (x - μ) ** 2 + log_z
   // TODO: see #random/normal if this is too slow for prior far from data
-  dom._posterior = (f, x, stdev) => f(x + (stdev || σ) * random_normal())
+  dom._posterior = (f, x, { stdev }) => f(x + (stdev || σ) * random_normal())
   return dom
 }
 
@@ -232,7 +234,7 @@ class Normal {
   _prior(f) {
     return f(this._μ + this._σ * random_normal())
   }
-  _posterior(f, x, stdev) {
+  _posterior(f, x, { stdev }) {
     return f(x + (stdev || this._σ) * random_normal())
   }
 }
@@ -276,7 +278,7 @@ function gamma(a, μ, σ) {
   dom._log_p = x => _gamma_log_p(abs(x - a), α, abs(s))
 
   // posterior sampler has forced asymmetry due to half-bounded domain
-  dom._posterior = (f, x, stdev) => {
+  dom._posterior = (f, x, { stdev }) => {
     const σx = stdev ?? σ // posterior stdev, falling back to prior stdev
     const mx = x - a // signed mean x relative to base a
     const sx = (σx * σx) / mx // signed scale for mean mx, stdev σx

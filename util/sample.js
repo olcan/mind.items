@@ -248,8 +248,10 @@ function density(x, domain) {
 // |               | _default_: `domain._prior`
 // | `log_p`       | prior density function `x => …`
 // |               | _default_: `domain._log_p`
-// | `posterior`   | posterior (chain) sampler `(f,x,…) => f(y,[log_mw=0])`
+// | `posterior`   | posterior (chain) sampler `(f,x,stats) => f(y,[log_mw=0])`
 // |               | `y~Q(Y|x), log_mw=log(∝q(x|y)/q(y|x))`
+// |               | `stats` is `{stdev:number|array}` for relevant domains
+// |               | `domain` can define own `domain._stats(k, value, sampler)`
 // |               | _default_: `domain._posterior`
 // | `target`      | target cdf, sample, or sampler domain for `tks` metric
 // |               | `tks` is _target KS_ `-log2(ks1|2_test(sample, target))`
@@ -659,7 +661,7 @@ class _Sampler {
     cache(this, 'elw', ['rwJ'])
     cache(this, 'elp', ['rwJ'])
     cache(this, 'tks', ['rwJ'])
-    cache(this, 'stdevK', ['rwJ'])
+    cache(this, 'statsK', ['rwJ'])
     cache(this, 'mks', ['rwJ'])
 
     // note "best" point is chosen based on "density" (log_p_xJK, log_wrJ) only
@@ -1399,9 +1401,9 @@ class _Sampler {
           if (obj == this && exclusions.has(k)) return null // drop exclusions
           if (k.includes?.('B')) return null // drop buffered sample state
           // drop all buffers, caches, etc
-          // only exception is _stdevK owned by main thread for global stdev
-          // posterior stdevK calculation must be triggered via this.stdevK
-          if (k[0] == '_' && k != '_stdevK') return null
+          // only exception is _statsK owned by main thread for global stdev
+          // posterior statsK calculation must be triggered via this.statsK
+          if (k[0] == '_' && k != '_statsK') return null
           // drop target state (value.target*) and cached_args from values
           // also drop any underscore keys (e.g. value._xR, _domain, etc)
           if (k == 'values')
@@ -1534,7 +1536,7 @@ class _Sampler {
         'log_cwrJ', // owned by main thread
         'log_rwJ', // owned by main thread
         'log_wrJ', // owned by main thread
-        '_stdevK', // owned by main thread
+        '_statsK', // owned by main thread
         'uaJK', // input to _sample
         'uawK', // input to _sample
         ...(moving
@@ -1560,7 +1562,7 @@ class _Sampler {
         // note new properties (e.g. weight.init_log_wr) can be defined during sampling so it is insufficient to debug first sampling step s=0, although it should suffice to debug first worker (w=0)
         const debug = false // s == 1 && w == 0
         const timer = _timer()
-        if (s > 0) this.stdevK // trigger caching of global posterior stdevK
+        if (s > 0) this.statsK // trigger caching of global posterior statsK
         const input = this._clone(
           transferables,
           input_exclusions,
@@ -2940,18 +2942,20 @@ class _Sampler {
     return rwX
   }
 
-  __stdevK() {
+  __statsK() {
     const { J, K, xJK, rwJ } = this
-    const stdevK = (this.___stdevK ??= array(K))
-    return fill(stdevK, k => {
+    const statsK = (this.___statsK ??= array(K))
+    return fill(statsK, k => {
       const value = this.values[k]
       if (!defined(value.first)) return // value not sampled/predicted
-      // TODO: allow domain-defined stdev(xJ, wJ)
+
+      // return domain-defined _stats(k, value, sampler) if defined
+      if (value._domain._stats) return value._domain._stats(k, value, this)
 
       // return per-element stdev for arrays of numbers
       if (is_array(value.first) && is_finite(value.first[0])) {
         const R = value.first.length
-        const stdevR = (stdevK[k] ??= array(R))
+        const stdevR = (statsK[k] ??= array(R))
         if (!(stdevR.length == R))
           fatal('variable-length arrays not supported yet')
         let w = 0
@@ -2974,7 +2978,7 @@ class _Sampler {
         if (!(vR.every(is_finite) && min_of(vR) >= -1e-6))
           fatal('bad variance', vR)
         apply(vR, v => (v < 1e-12 ? 0 : v)) // chop small stdev to 0
-        return apply(vR, sqrt)
+        return { stdev: apply(vR, sqrt) }
       }
       if (!is_number(value.first)) return // value not number
       let w = 0
@@ -2993,9 +2997,9 @@ class _Sampler {
       const m = s / w
       const v = ss / w - m * m
       if (!(is_finite(v) && v >= -1e-6)) fatal('bad variance', v)
-      if (v < 1e-12) return 0 // stdev too small, return 0 to be dealt with
-      return sqrt(v)
-    })
+      if (v < 1e-12) return { stdev: 0 } // stdev too small, chop to 0
+      return { stdev: sqrt(v) }
+    }).map(s => s ?? {}) // replace nullish w/ empty object
   }
 
   __ess() {
@@ -3488,7 +3492,7 @@ class _Sampler {
         return (yjK[k] = y)
       },
       xjk,
-      this.stdevK[k]
+      this.statsK[k]
     )
   }
 
