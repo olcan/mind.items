@@ -577,6 +577,7 @@ const round_to = (x, d = 0, s = inf, mode = 'round') => {
   }
   x = x.toString().split('e')
   x = Math[mode](+(x[0] + 'e' + (x[1] ? +x[1] - d : -d)))
+  // note x can overflow to +Infinity here and become NaN below
   x = x.toString().split('e')
   x = +(x[0] + 'e' + (x[1] ? +x[1] + d : d))
   return negate ? -x : x
@@ -596,6 +597,8 @@ function _test_round_to() {
     () => [round_to(1.2345, 100), 1.2345],
     () => [round_to(1.2345, 308), 1.2345],
     () => [round_to(1.2345, 309), NaN], // > Number.MAX_VALUE
+    () => [round_to(1.2345e307, 1), 1.2345e307],
+    () => [round_to(1.2345e308, 1), NaN], // > Number.MAX_VALUE
 
     () => [round_to(1.2345e4), 12345],
     () => [round_to(1.2345e4, -1), round_to(1.2345e4, 0, 4), 12350],
