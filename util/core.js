@@ -514,6 +514,9 @@ const round_to = (x, d = 0, s = inf, mode = 'round') => {
     // upgrade 32-bit float array to 64-bit to match native representation
     // note we could also convert to untyped using untyped_array
     if (x.constructor.name == 'Float32Array') x = new Float64Array(x)
+    // convert to typed array via x.toTypedArray if defined
+    // note this can be a nested array of typed arrays
+    if (x.toTypedArray) x = x.toTypedArray()
     return x.map(xj => round_to(xj, d, s, mode))
   }
   if (is_plain_object(x)) return map_values(x, v => round_to(v, d, s, mode))
