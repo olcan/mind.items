@@ -13,13 +13,24 @@ const all_settled = (...args) => Promise.allSettled(...args)
 const any = (...args) => Promise.any(...args)
 const race = (...args) => Promise.race(...args)
 
-// invoke `f` on all objects in `obj`
-const invoke_deep = (obj, f) => {
-  if (is_object(obj)) {
-    if (is_array(obj)) each(obj, o => invoke_deep(o, f))
-    else each(values(obj), o => invoke_deep(o, f))
-    f(obj)
-  }
+// invoke `f` on all values in `obj` that satisfy `pred(…)`
+// default predicate `is_object` invokes `f` on all objects
+// function `f` is invoked on deepest values first
+const invoke_deep = (obj, f, pred = is_object) => {
+  if (is_array(obj)) each(obj, o => invoke_deep(o, f, pred))
+  else if (is_object(obj)) each(values(obj), o => invoke_deep(o, f, pred))
+  if (pred(obj)) f(obj)
+  return obj
+}
+
+// apply `f` on all values in `obj` that satisfy `pred(…)`
+// default predicate `is_object` applies `f` to all objects
+// function `f` is applied to deepest values first
+const apply_deep = (obj, f, pred = is_object) => {
+  if (is_array(obj)) apply(obj, o => apply_deep(o, f, pred))
+  else if (is_object(obj))
+    for (const k in obj) obj[k] = apply_deep(obj[k], f, pred)
+  if (pred(obj)) obj = f(obj)
   return obj
 }
 
@@ -29,14 +40,15 @@ const seal_deep = obj => invoke_deep(obj, seal)
 // freeze all objects in `obj`
 const freeze_deep = obj => invoke_deep(obj, freeze)
 
-// extract all non-object values in `obj`
-const values_deep = obj => {
-  if (!is_object(obj)) return [obj]
-  if (is_array(obj)) return flatten(obj.map(values_deep))
-  return flatten(values(obj).map(values_deep))
+// extract all values in `obj` that satisfy `pred(…)`
+// default predicate `is_primitive` returns all primitives
+const values_deep = (obj, pred = is_primitive) => {
+  const base = pred(obj) ? [obj] : []
+  if (is_array(obj)) return concat(base, ...obj.map(o => values_deep(o, pred)))
+  if (is_object(obj))
+    return concat(base, ...values(obj).map(o => values_deep(o, pred)))
+  return base
 }
-
-const args = values_deep
 
 // define(obj, prop, [options])
 // define properties on object
