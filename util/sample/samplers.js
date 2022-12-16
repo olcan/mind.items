@@ -210,6 +210,7 @@ function normal(μ, σ) {
   dom._prior = f => f(μ + σ * random_normal())
   const inv_σ2 = 1 / (σ * σ)
   const log_z = -log(σ) - log(sqrt(2 * pi)) // z ⊥ x
+  // note constant factors are optimized away by js interpreter
   dom._log_p = x => -0.5 * inv_σ2 * (x - μ) ** 2 + log_z
   // TODO: see #random/normal if this is too slow for prior far from data
   dom._posterior = (f, x, stdev) => f(x + (stdev || σ) * random_normal())
