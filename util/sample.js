@@ -656,7 +656,8 @@ class _Sampler {
 
     cache(this, 'ess', ['rwj_ess'])
     // note sum(log_wrJ) is not interesting since it is dominated by -inf log_wr
-    cache(this, 'lwr', [], () => log(mean(this.log_wrJ, exp)))
+    // so instead we report sum-exp(log_wrJ) as lwr metric
+    cache(this, 'lwr', [], () => sum(this.log_wrJ, exp))
     cache(this, 'lpx', [], () => sum(this.log_p_xJK, lpK => sum(lpK)))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
