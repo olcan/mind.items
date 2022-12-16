@@ -2469,6 +2469,8 @@ class _Sampler {
         const w_post = wJ[j_best]
         const w_prior = pwX.get(x_post) ?? 0
         const delta = w_post - w_prior
+        // note round_to can convert objects to typed arrays via toTypedArray
+        // other objects can define a custom _str function (see str in core.js)
         row.push(str(round_to(x_post, 2)))
         row.push(`${nstr(w_prior)} → ${nstr(w_post)}`)
         row.push((delta > 0 ? '+' : '') + nstr(delta))
@@ -2827,8 +2829,7 @@ class _Sampler {
         apply(xJ, x =>
           is_primitive(x)
             ? x
-            : value._domain?._str?.(x) ??
-              truncate(str(round_to(x, 2)), { length: 50, omission: '…' })
+            : truncate(str(round_to(x, 2)), { length: 50, omission: '…' })
         )
       const pxJ = array(J, j => pxJK[j][k])
       stringify_nonprimitives(pxJ)

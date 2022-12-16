@@ -427,10 +427,13 @@ function _test_parse() {
 // | array    | `[...]`, elements stringified recursively
 // | object   | `{...}`, values stringified recursively
 // |          | `x.toString()` if overloaded (e.g. Date)
+// returns `x._str()` if defined, regardless of type
 function str(x) {
   if (x === undefined) return 'undefined'
   if (x === null) return 'null'
-  // string as is
+  // return x._str() if defined
+  if (is_function(x._str)) return x._str()
+  // string wrapped in single quotes
   if (is_string(x)) return `'${x}'`
   // boolean toString
   if (is_boolean(x)) return x.toString()
@@ -510,13 +513,14 @@ function _test_str() {
 // `mode` string can be `round`, `floor`, or `ceil`
 // rounds arrays & plain objects recursively by copying
 const round_to = (x, d = 0, s = inf, mode = 'round') => {
+  if (is_nullish(x)) return x
+  // convert to typed array via x.toTypedArray if defined
+  // note this can be a nested array of typed arrays
+  if (x.toTypedArray) x = x.toTypedArray()
   if (is_array(x)) {
     // upgrade 32-bit float array to 64-bit to match native representation
     // note we could also convert to untyped using untyped_array
     if (x.constructor.name == 'Float32Array') x = new Float64Array(x)
-    // convert to typed array via x.toTypedArray if defined
-    // note this can be a nested array of typed arrays
-    if (x.toTypedArray) x = x.toTypedArray()
     return x.map(xj => round_to(xj, d, s, mode))
   }
   if (is_plain_object(x)) return map_values(x, v => round_to(v, d, s, mode))
