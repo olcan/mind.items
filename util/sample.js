@@ -2560,11 +2560,12 @@ class _Sampler {
     const best = this.sample({ values: true, index: 'best' })
     const combined = transpose_objects(round_to([prior_best, best], 2))
     _this.write(table(entries(combined).map(row => flatten(row))), '_md_best')
+    _this.remove('_html') // to ensure _html block is the last block and does not introduce additional spacing between inline-block tables
     _this.write(
       flat(
         '<style>',
         `#item table { font-size:80%; line-height:140%; white-space:nowrap; color:#aaa; font-family:'jetbrains mono', monospace }`,
-        `#item table { display: inline-block; vertical-align:top; background:#171717; padding:5px; margin-bottom: 5px; border-radius:4px }`,
+        `#item table { display: inline-block; vertical-align:top; background:#171717; padding:5px; margin-bottom: 5px; margin-right:5px; border-radius:4px }`,
         `#item table > thead { display: none }`,
         '</style>'
       ).join('\n'),
