@@ -2560,7 +2560,7 @@ class _Sampler {
     const best = this.sample({ values: true, index: 'best' })
     const combined = transpose_objects(round_to([prior_best, best], 2))
     _this.write(table(entries(combined).map(row => flatten(row))), '_md_best')
-    _this.remove('_html') // to ensure _html block is the last block and does not introduce additional spacing between inline-block tables
+    _this.remove('_html') // move _html block to bottom to prevent extra spacing in between old/new tables (this can separate old/new plot tags but that seems relatively ok)
     _this.write(
       flat(
         '<style>',
@@ -2824,10 +2824,9 @@ class _Sampler {
       // filter by plot name if names are specified
       if (plot_names && !plot_names.has(name)) return
 
-      // skip non-primitive values
-      // note we now convert to string below instead
-      // sample_array can be used to treat elements as values
-      // if (!is_primitive(value.first)) return // value not primitive
+      // skip non-primitive values if names are not specified explicitly
+      // otherwise non-primitives are stringified below
+      if (!plot_names && !is_primitive(value.first)) return
 
       // get prior w/ weights
       const stringify_nonprimitives = xJ =>
