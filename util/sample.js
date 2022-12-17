@@ -2556,8 +2556,17 @@ class _Sampler {
         '_md_perf'
       )
     }
-    const prior_best = this.sample({ values: true, index: 'best', prior: true })
-    const best = this.sample({ values: true, index: 'best' })
+    const prior_best = this.sample({
+      ...pick(this.options, 'details'),
+      values: true,
+      index: 'best',
+      prior: true,
+    })
+    const best = this.sample({
+      ...pick(this.options, 'details'),
+      values: true,
+      index: 'best',
+    })
     const combined = transpose_objects(round_to([prior_best, best], 2))
     _this.write(table(entries(combined).map(row => flatten(row))), '_md_best')
     _this.remove('_html') // move _html block to bottom to prevent extra spacing in between old/new tables (this can separate old/new plot tags but that seems relatively ok)
