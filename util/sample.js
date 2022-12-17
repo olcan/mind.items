@@ -2953,7 +2953,8 @@ class _Sampler {
       if (!defined(value.first)) return // value not sampled/predicted
 
       // return domain-defined _stats(k, value, sampler) if defined
-      if (value._domain._stats) return value._domain._stats(k, value, this)
+      // note domain can be missing for predicted or optimized values
+      if (value._domain?._stats) return value._domain._stats(k, value, this)
 
       // return per-element stdev for arrays of numbers
       if (is_array(value.first) && is_finite(value.first[0])) {
