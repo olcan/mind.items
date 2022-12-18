@@ -2440,9 +2440,27 @@ class _Sampler {
   }
 
   _table() {
-    const { J, rwJ, xJK, pxJK } = this
+    const { J, rwJ, xJK, pxJK, options } = this
+
+    // if table is specified as string or array, use it to filter values by name
+    let table_names
+    if (is_string(options.table))
+      table_names = new Set(options.table.split(/\W+/))
+    else if (is_array(options.table)) {
+      if (!options.table.every(is_string)) fatal('invalid option table')
+      table_names = new Set(options.table)
+    }
+
+    // list values w/ basic stats
     let value_table = []
     each(this.values, (value, k) => {
+      // filter by value name if names are specified
+      if (table_names && !table_names.has(value.name)) return
+
+      // skip non-primitive values if names are not specified explicitly
+      // otherwise non-primitives are stringified below
+      if (!table_names && !is_primitive(value.first)) return
+
       let row = [value.name]
       const number = is_number(value.first)
       const nstr = x => round_to(x, '2')
@@ -2482,8 +2500,36 @@ class _Sampler {
 
       value_table.push(row)
     })
-    if (this.values.length) _this.write(table(value_table), '_md_values')
+    if (value_table.length) _this.write(table(value_table), '_md_values')
+    else _this.remove('_md_values')
 
+    // list 'best' sample/values in prior vs posterior
+    if (value_table.length) {
+      const prior_best = this.sample({
+        ...pick(options, 'details'),
+        values: true,
+        index: 'best',
+        prior: true,
+      })
+      const best = this.sample({
+        ...pick(options, 'details'),
+        values: true,
+        index: 'best',
+      })
+      // drop values not listed in value table
+      each(this.values, value => {
+        if (!value_table.some(row => row[0] == value.name)) {
+          delete prior_best[value.name]
+          delete best[value.name]
+        }
+      })
+      const combined = transpose_objects(round_to([prior_best, best], 2))
+      _this.write(table(entries(combined).map(row => flatten(row))), '_md_best')
+    } else {
+      _this.remove('_md_best')
+    }
+
+    // summarize stats in table
     if (this.stats) {
       const stats = this.stats
       const r = round_to(this.r, 3, inf, 'floor')
@@ -2556,19 +2602,7 @@ class _Sampler {
         '_md_perf'
       )
     }
-    const prior_best = this.sample({
-      ...pick(this.options, 'details'),
-      values: true,
-      index: 'best',
-      prior: true,
-    })
-    const best = this.sample({
-      ...pick(this.options, 'details'),
-      values: true,
-      index: 'best',
-    })
-    const combined = transpose_objects(round_to([prior_best, best], 2))
-    _this.write(table(entries(combined).map(row => flatten(row))), '_md_best')
+    // append style html
     _this.remove('_html') // move _html block to bottom to prevent extra spacing in between old/new tables (this can separate old/new plot tags but that seems relatively ok)
     _this.write(
       flat(
@@ -2830,7 +2864,7 @@ class _Sampler {
         .replace(/[^\p{L}\d]/gu, '_')
         .replace(/^_+|_+$/g, '')
 
-      // filter by plot name if names are specified
+      // filter by value name if names are specified
       if (plot_names && !plot_names.has(name)) return
 
       // skip non-primitive values if names are not specified explicitly
