@@ -3175,45 +3175,46 @@ class _Sampler {
     if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
     const wj_uniform = _uniform(wJ, wj_sum)
 
-    const pR2 = fill((this.___mks_pK2 ??= array(K)), k => {
+    // first compute ks for prior densities, which apply to all value types
+    const pRpx = fill((this.___mks_pKpx ??= array(K)), k => {
       const value = this.values[k]
       if (!defined(value.first)) return // value not sampled/predicted
-      let ks = []
       // first compute ks for prior densities, which apply to all value types
       copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
       copy(log_p_yJ, log_p_xBJK[0], log_p_yjK => log_p_yjK[k])
-      ks.push(
-        ks2_test(log_p_xJ, log_p_yJ, {
-          wJ: wj_uniform ? undefined : copy(wJk, wJ),
-          wj_sum: wj_uniform ? undefined : wj_sum,
-          wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
-          wk_sum: rwBj_sum[0],
-        })
-      )
-      // next compute ks for actual values, but only for pritive values
-      if (is_primitive(value.first)) {
-        copy(xJ, xJK, xjK => xjK[k])
-        copy(yJ, xBJK[0], yjK => yjK[k])
-        ks.push(
-          ks2_test(xJ, yJ, {
-            wJ: wj_uniform ? undefined : copy(wJk, wJ),
-            wj_sum: wj_uniform ? undefined : wj_sum,
-            wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
-            wk_sum: rwBj_sum[0],
-            filter: true, // filter undefined
-            numberize: !is_number(value.first), // map to random numbers
-          })
-        )
-      }
-      return ks
+      return ks2_test(log_p_xJ, log_p_yJ, {
+        wJ: wj_uniform ? undefined : copy(wJk, wJ),
+        wj_sum: wj_uniform ? undefined : wj_sum,
+        wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
+        wk_sum: rwBj_sum[0],
+      })
     }).filter(defined)
-    // print('mks_pK:', str(zip_object(this.nK, round_to(this.___mks_pK2, 3))))
+    // print('mks_pKpx:', str(zip_object(this.nK, round_to(this.___mks_pKpx, 3))))
+
+    const pRx = fill((this.___mks_pKx ??= array(K)), k => {
+      const value = this.values[k]
+      if (!defined(value.first)) return // value not sampled/predicted
+      if (!is_primitive(value.first)) return // value not primitive
+      copy(xJ, xJK, xjK => xjK[k])
+      copy(yJ, xBJK[0], yjK => yjK[k])
+      return ks2_test(xJ, yJ, {
+        wJ: wj_uniform ? undefined : copy(wJk, wJ),
+        wj_sum: wj_uniform ? undefined : wj_sum,
+        wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
+        wk_sum: rwBj_sum[0],
+        filter: true, // filter undefined
+        numberize: !is_number(value.first), // map to random numbers
+      })
+    }).filter(defined)
+    // print('mks_pKx:', str(zip_object(this.nK, round_to(this.___mks_pKx, 3))))
 
     if (stats) stats.time.updates.mks += timer.t
-    const R = pR2.length
-    if (R == 0) return inf
-    // note there are many dependencies in the statistics, especially between x and log_p for same value (k), so we take min across post-beta adjustment
-    return -log2(min_in(transpose(pR2).map(pR => beta_cdf(min_in(pR), 1, R))))
+
+    // minimum p-value ~ Beta(1,R) so we transform as beta_cdf(p,1,R)
+    // xk and log_pk are obviously highly correlated, so we take min across
+    const ppx = pRpx.length == 0 ? inf : beta_cdf(min_in(pRpx), 1, pRpx.length)
+    const px = pRx.length == 0 ? inf : beta_cdf(min_in(pRx), 1, pRx.length)
+    return -log2(min(ppx, px))
   }
 
   value(name) {
