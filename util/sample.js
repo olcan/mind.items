@@ -2779,7 +2779,15 @@ class _Sampler {
                 values: range(
                   0,
                   this.u + 1,
-                  this.u <= 10 ? 1 : this.u <= 100 ? 10 : 100
+                  this.u <= 10
+                    ? 1
+                    : this.u <= 50
+                    ? 5
+                    : this.u <= 100
+                    ? 10
+                    : this.u <= 500
+                    ? 50
+                    : 100
                 ),
               },
             },
