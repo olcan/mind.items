@@ -728,9 +728,7 @@ class _Sampler {
             await _update_dom()
             this.pending_time += timer.t
           }
-          options.on_posterior?.(this) // invoke optional handler
         }
-        options.on_done?.(this) // invoke optional handler
         this._output()
       })).finally(() => {
         if (this.workers) each(this.workers, close_worker) // close workers
@@ -749,9 +747,7 @@ class _Sampler {
         options.on_quantum?.(this) // invoke optional handler
       }
       if (stats) stats.time.update = timer.t
-      options.on_posterior?.(this) // invoke optional handler
     }
-    options.on_done?.(this) // invoke optional handler
     this._output()
   }
 
@@ -856,7 +852,12 @@ class _Sampler {
     // treat J==1 as "debug mode"
     // print sampled values/sims & skip updates/posterior/output (see _init)
     if (J == 1) {
-      options.on_done?.(this) // invoke optional handler
+      // invoke optional on_done handler
+      if (options.on_done) {
+        const timer = _timer_if(stats)
+        options.on_done(this)
+        if (stats) stats.time.on_done += timer.t
+      }
       print('values:', str(this.sample_values()))
       const printed_histories = new Set()
       each(this.sims, s => {
@@ -884,6 +885,20 @@ class _Sampler {
 
   _output() {
     const { stats, options } = this
+
+    // invoke optional on_posterior handler
+    if (options.on_posterior) {
+      const timer = _timer_if(stats)
+      options.on_posterior(this)
+      if (stats) stats.time.on_posterior += timer.t
+    }
+
+    // invoke optional on_done handler (also invoked in debug mode, see above)
+    if (options.on_done) {
+      const timer = _timer_if(stats)
+      options.on_done(this)
+      if (stats) stats.time.on_done += timer.t
+    }
 
     if (options.log) {
       print(`applied ${this.u} updates in ${this.t - this.init_time}ms`)
@@ -1695,6 +1710,9 @@ class _Sampler {
         prior: 0,
         update: 0,
         sample: 0,
+        stats: 0,
+        ...(options.on_done ? { on_done: 0 } : {}),
+        ...(options.on_posterior ? { on_posterior: 0 } : {}),
         ...(options.workers
           ? {
               overhead: 0,
@@ -2441,6 +2459,7 @@ class _Sampler {
 
   _table() {
     const { J, rwJ, xJK, pxJK, options } = this
+    const table_start = this.t
 
     // if table is specified as string or array, use it to filter values by name
     let table_names
@@ -2578,6 +2597,14 @@ class _Sampler {
             pending: this.pending_time,
             init: this.init_time,
             ...pick_by(stats.time, is_number),
+            table: this.t - table_start,
+            // also compute any unknown/unaccounted time
+            unknown:
+              table_start -
+              stats.time.prior -
+              stats.time.update -
+              (stats.time.on_done ?? 0) -
+              (stats.time.on_posterior ?? 0),
           })
         ),
         '_md_time'
@@ -2996,9 +3023,10 @@ class _Sampler {
   }
 
   __statsK() {
+    const timer = _timer_if(this.stats)
     const { J, K, xJK, rwJ } = this
     const statsK = (this.___statsK ??= array(K))
-    return fill(statsK, k => {
+    fill(statsK, k => {
       const value = this.values[k]
       if (!defined(value.first)) return // value not sampled/predicted
 
@@ -3054,6 +3082,8 @@ class _Sampler {
       if (v < 1e-12) return { stdev: 0 } // stdev too small, chop to 0
       return { stdev: sqrt(v) }
     }).map(s => s ?? {}) // replace nullish w/ empty object
+    if (this.stats) this.stats.time.stats += timer.t
+    return statsK
   }
 
   __ess() {
