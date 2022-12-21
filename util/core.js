@@ -398,7 +398,7 @@ function parse(text) {
     if (is_object(v)) {
       if (is_string(v.__function)) return unpack(v)
       if (is_string(v.__constructor))
-        return new globalThis[v.__constructor](...v.__args)
+        return new self[v.__constructor](...v.__args)
     }
     return v
   })
