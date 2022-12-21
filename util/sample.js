@@ -767,7 +767,11 @@ class _Sampler {
       j = je = min(J, j + max(2, ceil(J / W))) // at least 2 per worker
       if (je == J - 1) j = je = J // avoid J=1 (debug mode) on last worker
       const worker = init_worker({
-        imports: ['/lodash.min.js', ...this.options.worker_imports, _this.name],
+        imports: [
+          '/lodash.min.js',
+          ...(this.options.worker_imports ?? []),
+          _this.name,
+        ],
         silent: true /* logged here */,
       })
       assign(worker, { index: this.workers.length, js, je })
