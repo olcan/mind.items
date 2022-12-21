@@ -842,7 +842,7 @@ function timing(f, label = undefined, logf = print) {
 }
 
 // `timing(...)[0]`
-const timed = (f, label = 'timed', logf = print) => {
+const timed = (f, label = str(f), logf = print) => {
   const pair = timing(f, label, logf)
   if (is_promise(pair)) return pair.then(pair => pair[0])
   else return pair[0]
