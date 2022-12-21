@@ -9,8 +9,10 @@ function init_worker(options = {}) {
   // const worker = new Worker('worker.js')
   const host = location.protocol + '//' + location.host
   const js = [
-    imports.filter(s => s[0] == '/').map(s => `import '${host}/lodash.min.js'`),
-    '(() => {', // wrapper, prevents silent (hard to debug) init failures
+    imports
+      .filter(s => s[0] != '#')
+      .map(s => `import '${(s[0] == '/' ? host : '') + s}'`),
+    'await (async () => {', // wrapper, helps reduce silent init failures
     _pre_init_js(options),
     imports
       .filter(s => s[0] == '#')
@@ -24,7 +26,7 @@ function init_worker(options = {}) {
   const blob = URL.createObjectURL(
     new Blob([js], { type: 'application/javascript' })
   )
-  // console.log(blob)
+  // console.debug('worker js:', blob)
   const worker = new Worker(blob, { type: 'module' }) // module workers support import keyword
   worker.id = _hash(Date.now()) // unique id based on init time
   worker.item = _this // creator item
