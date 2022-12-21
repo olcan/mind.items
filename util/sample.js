@@ -696,6 +696,8 @@ class _Sampler {
 
     if (options.async) {
       return (this._init_promise = invoke(async () => {
+        // invoke optional on_init handler (can be async)
+        if (options.on_init) await options.on_init(this)
         if (options.workers > 0) await this._init_workers() // init workers
         try {
           await this._init_prior()
@@ -729,12 +731,13 @@ class _Sampler {
             this.pending_time += timer.t
           }
         }
-        this._output()
+        await this._output()
       })).finally(() => {
         if (this.workers) each(this.workers, close_worker) // close workers
       })
     }
 
+    options.on_init?.(this) // invoke optional handler
     this._init_prior() // not async in sync mode
     if (this.J == 1) return // skip updates/posterior/output in debug mode
 
@@ -883,20 +886,22 @@ class _Sampler {
     }
   }
 
-  _output() {
+  async _output() {
     const { stats, options } = this
 
-    // invoke optional on_posterior handler
+    // invoke optional on_posterior handler (can be async)
+    // invoked only if prior is updated to posterior (and _output invoked)
     if (options.on_posterior) {
       const timer = _timer_if(stats)
-      options.on_posterior(this)
+      await options.on_posterior(this)
       if (stats) stats.time.on_posterior += timer.t
     }
 
-    // invoke optional on_done handler (also invoked in debug mode, see above)
+    // invoke optional on_done handler (can be async)
+    // invoked always, including in debug/J==1 mode (see above)
     if (options.on_done) {
       const timer = _timer_if(stats)
-      options.on_done(this)
+      await options.on_done(this)
       if (stats) stats.time.on_done += timer.t
     }
 
@@ -910,7 +915,7 @@ class _Sampler {
     if (options.quantiles) this._quantiles()
     if (options.plot) this._plot()
 
-    options.on_output?.(this) // invoke optional handler
+    await options.on_output?.(this) // invoke optional handler (can be async)
   }
 
   _name_value(name, index) {
@@ -3937,8 +3942,29 @@ function _run() {
     if (!is_plain_object(_sample_options)) fatal('invalid _sample_options')
     merge(options, _sample_options)
   }
+
   // fix __now for sampling (via options to apply to workers also)
   options.__now ??= event_time()
+
+  // handle async mode, where _sample_init and _sample_done can also be async
+  if (options.async) {
+    return (async () => {
+      // invoke _sample_init if defined
+      if (typeof _sample_init !== 'undefined') {
+        if (!is_function(_sample_init)) fatal('invalid _sample_init')
+        await _sample_init(js, options)
+      }
+      let out = await sample(js, options)
+      // invoke _sample_done if defined (after promise if async)
+      if (typeof _sample_done !== 'undefined') {
+        if (!is_function(_sample_done)) fatal('invalid _sample_done')
+        if (is_promise(out))
+          out = out.then(out => _sample_done(out, js, options))
+        else out = await _sample_done(out, js, options)
+      }
+      return out
+    })() // return promise
+  }
 
   // invoke _sample_init if defined
   if (typeof _sample_init !== 'undefined') {
@@ -3946,7 +3972,7 @@ function _run() {
     _sample_init(js, options)
   }
 
-  let out = sample(js, options) // promise if async
+  let out = sample(js, options)
 
   // invoke _sample_done if defined (after promise if async)
   if (typeof _sample_done !== 'undefined') {
@@ -3955,5 +3981,5 @@ function _run() {
     else out = _sample_done(out, js, options)
   }
 
-  return out // promise if async
+  return out
 }
