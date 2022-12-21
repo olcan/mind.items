@@ -1,4 +1,6 @@
-const _cloud = _item('$id')
+// note for worker support #util/... items cannot use _item in global scope
+// we define _cloud alias as needed in functions below
+// const _cloud = _item('$id')
 
 // upload `x`
 // | **option**  | | **default**
@@ -23,6 +25,7 @@ const _cloud = _item('$id')
 async function upload(x, options = undefined) {
   if (x === undefined) fatal('missing (or undefined) value for upload')
   let { path, type, force = false, cache = true } = options ?? {}
+  const _cloud = _item('$id')
   if (!cache) delete _cloud.store.cache?.[path] // delete existing cache entry
   let bytes
   // convert blob to ArrayBuffer & use blob type as default type
@@ -147,6 +150,7 @@ async function download(path, options = undefined) {
     cache2 = true,
     use_url = false,
   } = options ?? {}
+  const _cloud = _item('$id')
   if (!cache) delete _cloud.store.cache?.[path] // delete existing cache entry
   if (!force) {
     // skip download & return cached value if value exists in local cache
@@ -303,6 +307,7 @@ function abs_path(path) {
 // uses local cache if `options.cache` is `true` (default `false`)
 // deletes any existing cache entry if `path` is missing
 async function exists(path, options = undefined) {
+  const _cloud = _item('$id')
   if (cache && _cloud.store.cache?.[path]) return true // exists in cache
   const remote = await get_metadata(path)
   if (remote) {
