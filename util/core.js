@@ -34,6 +34,19 @@ const apply_deep = (obj, f, pred = is_object) => {
   return obj
 }
 
+// map `f` over all values in `obj` that satisfy `pred(…)`
+// default predicate `is_object` applies `f` to all objects
+// function `f` is mapped over deepest values first
+// can not map over values inside non-plain objects
+const map_deep = (obj, f, pred = is_object) => {
+  if (is_array(obj)) obj = obj.map(o => map_deep(o, f, pred))
+  // note map_values can only apply to plain objects
+  else if (is_plain_object(obj))
+    obj = map_values(obj, v => map_deep(v, f, pred))
+  if (pred(obj)) obj = f(obj)
+  return obj
+}
+
 // seal all objects in `obj`
 const seal_deep = obj => invoke_deep(obj, seal)
 
@@ -48,6 +61,14 @@ const values_deep = (obj, pred = is_primitive) => {
   else if (is_object(obj))
     for (const o of values(obj)) vJ.push(...values_deep(o, pred))
   return vJ
+}
+
+// returns true if any value in `obj` satisfies `pred(…)`
+const contains_deep = (obj, pred) => {
+  if (pred(obj)) return true
+  if (is_array(obj)) return obj.some(o => contains_deep(o, pred))
+  else if (is_object(obj)) return values(obj).some(o => contains_deep(o, pred))
+  return false
 }
 
 // define(obj, prop, [options])
@@ -459,6 +480,9 @@ function str(x) {
       x.toString().replace(/^\(\)\s*=>\s*/, '') +
       (keys(x).length ? ' ' + _str_object(x) : '')
     )
+  // typed array, type + elements stringified recursively
+  if (is_typed_array(x))
+    return x.constructor.name + '[ ' + x.map(str).join(' ') + ' ]'
   // array elements stringified recursively
   if (is_array(x)) return '[ ' + x.map(str).join(' ') + ' ]'
   // at this point
