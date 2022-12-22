@@ -583,10 +583,10 @@ class _Sampler {
     this.xJK = matrix(J, K) // samples per run/value
     this.pxJK = matrix(J, K) // prior samples per run/value
     this.yJK = matrix(J, K) // posterior samples per run/value
-    this.log_p_xJK = matrix(J, K) // sample (prior) log-densities
-    this.log_p_yJK = matrix(J, K) // posterior sample (prior) log-densities
-    // this.log_p_xJK = array(J, () => new Float32Array(K)) // sample (prior) log-densities
-    // this.log_p_yJK = array(J, () => new Float32Array(K)) // posterior sample (prior) log-densities
+    // this.log_p_xJK = matrix(J, K) // sample (prior) log-densities
+    // this.log_p_yJK = matrix(J, K) // posterior sample (prior) log-densities
+    this.log_p_xJK = array(J, () => new Float32Array(K)) // sample (prior) log-densities
+    this.log_p_yJK = array(J, () => new Float32Array(K)) // posterior sample (prior) log-densities
     // this.domJK = matrix(J, K) // sampler domains per run/value
 
     this.kJ = array(J) // array of (posterior) pivot values in _move
@@ -609,16 +609,16 @@ class _Sampler {
     this.uaK = array(K) // move accepts per jump value
     this.log_wrfJN = matrix(J, N) // posterior log-weight relaxation functions
     this.rN = array(N) // relaxation parameters
-    this.log_pwJ = array(J) // prior log-weights per run
-    this.log_wrJ = array(J) // posterior relaxed log-weights
-    this.log_rwJ = array(J) // posterior/sample ratio log-weights
-    this.log_mwJ = array(J) // posterior move log-weights
-    this.log_mpJ = array(J) // posterior move log-densities
-    // this.log_pwJ = new Float32Array(J) // prior log-weights per run
-    // this.log_wrJ = new Float32Array(J) // posterior relaxed log-weights
-    // this.log_rwJ = new Float32Array(J) // posterior/sample ratio log-weights
-    // this.log_mwJ = new Float32Array(J) // posterior move log-weights
-    // this.log_mpJ = new Float32Array(J) // posterior move log-densities
+    // this.log_pwJ = array(J) // prior log-weights per run
+    // this.log_wrJ = array(J) // posterior relaxed log-weights
+    // this.log_rwJ = array(J) // posterior/sample ratio log-weights
+    // this.log_mwJ = array(J) // posterior move log-weights
+    // this.log_mpJ = array(J) // posterior move log-densities
+    this.log_pwJ = new Float32Array(J) // prior log-weights per run
+    this.log_wrJ = new Float32Array(J) // posterior relaxed log-weights
+    this.log_rwJ = new Float32Array(J) // posterior/sample ratio log-weights
+    this.log_mwJ = new Float32Array(J) // posterior move log-weights
+    this.log_mpJ = new Float32Array(J) // posterior move log-densities
     this.log_cwrJ = array(J) // posterior candidate relaxed log-weights
     this.log_cwrfJN = matrix(J, N) // posterior candidate log-weight relaxations
     this.xJ = array(J) // return values
@@ -1376,7 +1376,7 @@ class _Sampler {
     }
   }
 
-  _clone(transferables, exclusions, js = 0, je = this.J, debug = false) {
+  _clone(exclusions, js = 0, je = this.J, verbose = false) {
     const path = (v, k, obj) => {
       if (v == this) return 'this'
       if (obj != this && obj.__key === undefined) return 'this.….' + k
@@ -1398,18 +1398,6 @@ class _Sampler {
         ? v.some(has_function)
         : is_object(v) && values(v).some(has_function))
 
-    // clones typed arrays and adds their buffers to transferables array
-    const clone_transferables = v => {
-      return v // disabled for now because does not appear to be a bottleneck
-      if (is_array(v)) {
-        if (v instanceof TypedArray) transferables.push((v = v.slice()).buffer)
-        else if (is_primitive(v[0])) return v // just move for efficiency
-        else return apply(v, clone_transferables)
-      } else if (is_object(v))
-        for (const k in v) v[k] = clone_transferables(v[k])
-      return v
-    }
-
     // deletes any null-valued properties in non-array objects
     const delete_nulls = obj => {
       if (is_object(obj) && !is_array(obj)) {
@@ -1421,66 +1409,109 @@ class _Sampler {
       return obj
     }
 
-    return clone_transferables(
-      delete_nulls(
-        clone_deep_with(this, (v, k, obj) => {
-          if (v == this) return // ignore first call at top level
-          if (v === null) return null // keep null value (to be dropped)
-          if (v === undefined) return null // drop undefined
-          if (obj == this && exclusions.has(k)) return null // drop exclusions
-          if (k.includes?.('B')) return null // drop buffered sample state
-          // drop all buffers, caches, etc
-          // only exception is _statsK owned by main thread for global stdev
-          // posterior statsK calculation must be triggered via this.statsK
-          if (k[0] == '_' && k != '_statsK') return null
-          // drop target state (value.target*) and cached_args from values
-          // also drop any underscore keys (e.g. value._xR, _domain, etc)
-          if (k == 'values')
-            v = v.map(v =>
-              omit_by(
-                v,
-                (_, k) =>
-                  k[0] == '_' || k == 'cached_args' || k.startsWith('target')
-              )
+    return delete_nulls(
+      clone_deep_with(this, (v, k, obj) => {
+        if (v == this) return // ignore first call at top level
+        if (v === null) return null // keep null value (to be dropped)
+        if (v === undefined) return null // drop undefined
+        if (obj == this && exclusions.has(k)) return null // drop exclusions
+        if (k.includes?.('B')) return null // drop buffered sample state
+        // drop all buffers, caches, etc
+        // only exception is _statsK owned by main thread for global stdev
+        // posterior statsK calculation must be triggered via this.statsK
+        if (k[0] == '_' && k != '_statsK') return null
+        // drop target state (value.target*) and cached_args from values
+        // also drop any underscore keys (e.g. value._xR, _domain, etc)
+        // also pack any tensors, specifically in value.first
+        if (k == 'values') {
+          v = v.map(v =>
+            omit_by(
+              v,
+              (_, k) =>
+                k[0] == '_' || k == 'cached_args' || k.startsWith('target')
             )
+          )
+          // TODO: move these tensor extensions to options!
+          if (typeof tf != 'undefined') {
+            v = map_deep(
+              v,
+              t => ({
+                __tensor: true,
+                __data: t.dataSync(),
+                __shape: t.shape,
+              }),
+              t => t instanceof tf.Tensor
+            )
+          }
+        }
 
-          // slice J-indexed arrays down to specified range [js,je)
-          // pack functions inside function arrays, e.g. log_wrfJN
-          if (is_array(v) && k.includes?.('J')) {
-            if (js > 0 || je < this.J) v = v.slice(js, je)
-            if (k.includes('fJ')) {
-              if (debug) print(`packing ${path(v, k, obj)}[${js},${je})`)
-              v = pack(v)
-            } else if (debug) print(`slicing ${path(v, k, obj)}[${js},${je})`)
+        // slice J-indexed arrays down to specified range [js,je)
+        // pack functions inside function arrays, e.g. log_wrfJN
+        // also pack any tensors inside non-function arrays
+        if (is_array(v) && k.includes?.('J')) {
+          if (js > 0 || je < this.J) v = v.slice(js, je)
+          if (k.includes('fJ')) {
+            if (verbose) print(`packing ${path(v, k, obj)}[${js},${je})`)
+            v = pack(v)
+          } else {
+            if (verbose) print(`slicing ${path(v, k, obj)}[${js},${je})`)
+            // TODO: contains_deep could be faster w/ uniformity assumption
+            if (typeof tf != 'undefined') {
+              if (contains_deep(v, t => t instanceof tf.Tensor)) {
+                if (verbose)
+                  print(`packing tensors in ${path(v, k, obj)}[${js},${je})`)
+                v = map_deep(
+                  v,
+                  t => ({
+                    __tensor: true,
+                    __data: t.dataSync(),
+                    __shape: t.shape,
+                  }),
+                  t => t instanceof tf.Tensor
+                )
+              }
+            }
+          }
+          return v
+        }
+
+        // pack functions
+        if (is_function(v)) {
+          if (verbose) print(`packing ${path(v, k, obj)}`)
+          return pack(v)
+        }
+
+        // sanity check that no more unexpected non-plain objects
+        // note arrays and maps (e.g. names) are expected
+        // note also functions are packed recursively
+        const is_unexpected_object = x =>
+          is_object(x) && !is_plain_object(x) && !is_array(x) && !is_map(x)
+        if (contains_deep(v, is_unexpected_object))
+          fatal(
+            `cloning value ${path(v, k, obj)} w/ unexpected objects`,
+            values_deep(v, is_unexpected_object)
+          )
+
+        // move function-free objects by reference
+        // set up __key/__parent for logging nested properties in verbose mode
+        if (is_object(v)) {
+          if (!has_function(v)) {
+            if (verbose) print(`moving ${path(v, k, obj)}`)
             return v
           }
+          if (k == 'values') fatal('unable to move values (contains functions)')
+          if (verbose && v.__key === undefined)
+            define_values(v, { __key: k, __parent: obj })
+        }
 
-          // transform function into cloneable object
-          if (is_function(v)) {
-            if (debug) print(`packing ${path(v, k, obj)}`)
-            return pack(v)
-          }
-
-          // move function-free objects by reference
-          // set up __key/__parent for logging nested properties in debug mode
-          if (is_object(v)) {
-            if (!has_function(v)) {
-              if (debug) print(`moving ${path(v, k, obj)}`)
-              return v
-            }
-            if (debug && v.__key === undefined)
-              define_values(v, { __key: k, __parent: obj })
-          }
-
-          // log all cloned values (except nested primitives) in debug mode
-          if (debug && (!is_primitive(v) || obj == this))
-            print(`cloning ${path(v, k, obj)} (${typeof v})`)
-        })
-      )
+        // log all cloned values (except nested primitives) in verbose mode
+        if (verbose && (!is_primitive(v) || obj == this))
+          print(`cloning ${path(v, k, obj)} (${typeof v})`)
+      })
     )
   }
 
-  _merge(from, js = 0, debug = false) {
+  _merge(from, js = 0, verbose = false) {
     const path = (v, k, obj) => {
       if (v == this) return 'this'
       if (obj != this && obj.__key === undefined) return 'this.….' + k
@@ -1493,24 +1524,49 @@ class _Sampler {
     }
 
     merge_with(this, from, (x, v, k, obj) => {
+      // debug(`merging ${path(v, k, obj)} (${typeof v})`, str(x), str(v))
+
+      // unpack functions
       if (is_object(v) && is_string(v.__function)) {
-        if (debug) print(`unpacking ${path(v, k, obj)}`)
+        if (verbose) print(`unpacking ${path(v, k, obj)}`)
         return unpack(v)
       }
+      if (typeof tf != 'undefined') {
+        // unpack tensors
+        if (is_object(v) && v.__tensor) {
+          if (!v.__shape) fatal('missing __shape in packed tensor')
+          return set(tf.tensor(v.__data, v.__shape), '__data', v.__data)
+        }
+      }
+
       // copy J-indexed slices, unpacking functions in function arrays
+      // also unpack any tensors inside non-function arrays
       if (is_array(x) && k.includes?.('J')) {
         const je = js + v.length
         if (k.includes('fJ')) {
-          if (debug) print(`unpacking ${path(v, k, obj)}[${js},${je})`)
+          if (verbose) print(`unpacking ${path(v, k, obj)}[${js},${je})`)
           v = unpack(v)
-        } else if (debug) print(`merging ${path(v, k, obj)}[${js},${je})`)
+        } else {
+          if (verbose) print(`merging ${path(v, k, obj)}[${js},${je})`)
+          if (typeof tf != 'undefined') {
+            if (contains_deep(v, t => t?.__tensor)) {
+              if (verbose)
+                print(`unpacking tensors in ${path(v, k, obj)}[${js},${je})`)
+              v = map_deep(
+                v,
+                t => set(tf.tensor(t.__data, t.__shape), '__data', t.__data),
+                t => t?.__tensor
+              )
+            }
+          }
+        }
         return copy_at(x, v, js)
       }
-      if (debug) {
-        // set up __key/__parent for logging nested properties in debug mode
+      if (verbose) {
+        // set up __key/__parent for logging nested properties in verbose mode
         if (is_object(x) && x.__key === undefined)
           define_values(x, { __key: k, __parent: obj })
-        // log all merged values (except nested primitives) in debug mode
+        // log all merged values (except nested primitives) in verbose mode
         if (!is_primitive(v) || obj == this)
           print(`merging ${path(v, k, obj)} (${typeof v})`)
       }
@@ -1571,6 +1627,7 @@ class _Sampler {
         ...(moving
           ? [
               'xJK', // unchanged in sample when moving
+              'xJ', // unchanged in sample when moving
               'log_p_xJK', // unchanged in sample when moving
             ]
           : []),
@@ -1587,18 +1644,15 @@ class _Sampler {
       let worker_merge_times = array(W)
       const evals = workers.map((worker, w) => {
         const { js, je } = worker
-        const transferables = []
         // note new properties (e.g. weight.init_log_wr) can be defined during sampling so it is insufficient to debug first sampling step s=0, although it should suffice to debug first worker (w=0)
-        const debug = false // s == 1 && w == 0
+        const verbose = false // s == 1 && w == 0
         const timer = _timer()
         if (s > 0) this.statsK // trigger caching of global posterior statsK
-        const input = this._clone(
-          transferables,
-          input_exclusions,
-          js,
-          je,
-          debug
-        )
+        const input = this._clone(input_exclusions, js, je, verbose)
+        let buffers = []
+        // note we do NOT transfer buffers to workers since it requires cloning unless the buffers are never used again until returned back from worker, which seems rather problematic to ensure, and cloning defeats the purpose of buffer transfer; note we can still transfer buffers _out_ of workers to save transfer time
+        // apply_deep(input, clone_deep, is_typed_array)
+        // buffers = map(values_deep(input, is_typed_array), 'buffer')
         clone_time += timer.t
         return eval_on_worker(
           worker,
@@ -1607,10 +1661,10 @@ class _Sampler {
               const input_time = Date.now() - eval_time
               const [, merge_time] = timing(() => sampler._merge(input))
               const [, sample_time] = timing(() => sampler._sample_func())
-              const transferables = []
               const [output, clone_time] = timing(() =>
-                sampler._clone(transferables, output_exclusions)
+                sampler._clone(output_exclusions)
               )
+              const buffers = map(values_deep(output, is_typed_array), 'buffer')
               postMessage({
                 done: true,
                 output,
@@ -1618,21 +1672,23 @@ class _Sampler {
                 sample_time,
                 clone_time,
                 input_time,
-                transfer: transferables,
+                transfer: buffers,
                 done_time: Date.now(),
               })
             } catch (error) {
               postMessage({ error }) // report error
-              // throw error // on worker (can be redundant)
+              throw error // on worker (can be redundant)
             }
           },
           {
             context: { s, input, output_exclusions, eval_time: Date.now() },
-            transfer: transferables,
+            transfer: buffers,
             done: e => {
               const output_time = Date.now() - e.data.done_time
               // note this merge should advance this.s
-              const [, t] = timing(() => this._merge(e.data.output, js, debug))
+              const [, t] = timing(() =>
+                this._merge(e.data.output, js, verbose)
+              )
               merge_time += t
               worker_sample_times[w] = e.data.sample_time
               worker_clone_times[w] = e.data.clone_time
@@ -3697,7 +3753,7 @@ class _Sampler {
       weight.log_pJ[j] = log_wr._log_p
       if (log_wr._stats) weight.stats ??= log_wr._stats(r, n, weight, sampler)
     }
-    // console.debug(str(weight.stats))
+    // debug(str(weight.stats))
   }, '_Sampler._confine_init_log_wr')
 
   static _confine_log_wr_wrapper = packable(
@@ -3784,7 +3840,7 @@ class _Sampler {
       weight.xJ[j] = log_wr._x
       if (log_wr._stats) weight.stats ??= log_wr._stats(r, n, weight, sampler)
     }
-    // console.debug(str(weight.stats))
+    // debug(str(weight.stats))
   }, '_Sampler._maximize_init_log_wr')
 
   static _maximize_log_wr_wrapper = packable(
