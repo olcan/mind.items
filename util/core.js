@@ -8,6 +8,31 @@ const to_pairs = _.toPairs
 const seal = Object.seal
 const freeze = Object.freeze
 
+// benchmark to figure out fastest way to enumerate values of object
+// enumerating by key (& looking up values) if fastest on both chrome & safari
+// safari is generally slower & _.values is significantly slower on chrome
+function _benchmark_values() {
+  const obj = from_entries(range(100).map(v => ['k' + v, v]))
+  benchmark(
+    () => {
+      let sum = 0
+      for (const k in obj) sum += obj[k]
+    },
+    () => {
+      let sum = 0
+      for (const v of values(obj)) sum += v
+    },
+    () => {
+      let sum = 0
+      for (const v of _.values(obj)) sum += v
+    },
+    () => {
+      let sum = 0
+      for (const [k, v] of entries(obj)) sum += v
+    }
+  )
+}
+
 const all = (...args) => Promise.all(...args)
 const all_settled = (...args) => Promise.allSettled(...args)
 const any = (...args) => Promise.any(...args)
