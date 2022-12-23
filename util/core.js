@@ -29,6 +29,11 @@ function _benchmark_values() {
     () => {
       let sum = 0
       for (const [k, v] of entries(obj)) sum += v
+    },
+    () => map_values(obj, v => 2 * v),
+    () => {
+      let doubled = {}
+      for (const k in obj) doubled[k] = obj[k] * 2
     }
   )
 }
@@ -38,37 +43,47 @@ const all_settled = (...args) => Promise.allSettled(...args)
 const any = (...args) => Promise.any(...args)
 const race = (...args) => Promise.race(...args)
 
-// invoke `f` on all values in `obj` that satisfy `pred(…)`
+// invoke `f` on all values in `obj` that satisfy `accept(…)`
 // default predicate `is_object` invokes `f` on all objects
-// function `f` is invoked on deepest values first
-const invoke_deep = (obj, f, pred = is_object) => {
-  if (is_array(obj)) each(obj, o => invoke_deep(o, f, pred))
-  else if (is_object(obj)) each(values(obj), o => invoke_deep(o, f, pred))
-  if (pred(obj)) f(obj)
-  return obj
-}
-
-// apply `f` on all values in `obj` that satisfy `pred(…)`
-// default predicate `is_object` applies `f` to all objects
-// function `f` is applied to deepest values first
-const apply_deep = (obj, f, pred = is_object) => {
-  if (is_array(obj)) apply(obj, o => apply_deep(o, f, pred))
+// `reject` function can be used to skip values (w/ contents)
+// function `f` is invoked on deepest (accepted) values first
+const invoke_deep = (obj, f, accept = is_object, reject = undefined) => {
+  if (reject?.(obj)) return obj
+  if (is_array(obj)) each(obj, o => invoke_deep(o, f, accept, reject))
   else if (is_object(obj))
-    for (const k in obj) obj[k] = apply_deep(obj[k], f, pred)
-  if (pred(obj)) obj = f(obj)
+    for (const k in obj) invoke_deep(obj[k], f, accept, reject)
+  if (accept(obj)) f(obj)
   return obj
 }
 
-// map `f` over all values in `obj` that satisfy `pred(…)`
+// apply `f` on all values in `obj` that satisfy `accept(…)`
 // default predicate `is_object` applies `f` to all objects
-// function `f` is mapped over deepest values first
+// `reject` function can be used to skip values (w/ contents)
+// function `f` is applied to deepest (accepted) values first
+const apply_deep = (obj, f, accept = is_object, reject = undefined) => {
+  if (reject?.(obj)) return obj
+  if (is_array(obj)) apply(obj, o => apply_deep(o, f, accept, reject))
+  else if (is_object(obj))
+    for (const k in obj) obj[k] = apply_deep(obj[k], f, accept, reject)
+  if (accept(obj)) obj = f(obj)
+  return obj
+}
+
+// map `f` over all values in `obj` that satisfy `accept(…)`
+// default predicate `is_object` applies `f` to all objects
+// `reject` function can be used to skip values via `clone_deep`
+// function `f` is mapped over deepest (accepted) values first
 // can not map over values inside non-plain objects
-const map_deep = (obj, f, pred = is_object) => {
-  if (is_array(obj)) obj = obj.map(o => map_deep(o, f, pred))
+const map_deep = (obj, f, accept = is_object, reject = undefined) => {
+  if (reject?.(obj)) return clone_deep(obj)
+  if (is_array(obj)) obj = obj.map(o => map_deep(o, f, accept, reject))
   // note map_values can only apply to plain objects
-  else if (is_plain_object(obj))
-    obj = map_values(obj, v => map_deep(v, f, pred))
-  if (pred(obj)) obj = f(obj)
+  else if (is_plain_object(obj)) {
+    let mapped = {}
+    for (const k in obj) mapped[k] = map_deep(obj[k], f, accept, reject)
+    obj = mapped
+  }
+  if (accept(obj)) obj = f(obj)
   return obj
 }
 
@@ -78,21 +93,27 @@ const seal_deep = obj => invoke_deep(obj, seal)
 // freeze all objects in `obj`
 const freeze_deep = obj => invoke_deep(obj, freeze)
 
-// extract all values in `obj` that satisfy `pred(…)`
+// extract all values in `obj` that satisfy `accept(…)`
 // default predicate `is_primitive` returns all primitives
-const values_deep = (obj, pred = is_primitive) => {
-  const vJ = pred(obj) ? [obj] : []
-  if (is_array(obj)) for (const o of obj) vJ.push(...values_deep(o, pred))
+// `reject` function can be used to skip values (w/ contents)
+const values_deep = (obj, accept = is_primitive, reject = undefined) => {
+  if (reject?.(obj)) return []
+  const vJ = accept(obj) ? [obj] : []
+  if (is_array(obj))
+    for (const o of obj) vJ.push(...values_deep(o, accept, reject))
   else if (is_object(obj))
-    for (const o of values(obj)) vJ.push(...values_deep(o, pred))
+    for (const o of values(obj)) vJ.push(...values_deep(o, accept, reject))
   return vJ
 }
 
-// returns true if any value in `obj` satisfies `pred(…)`
-const contains_deep = (obj, pred) => {
-  if (pred(obj)) return true
-  if (is_array(obj)) return obj.some(o => contains_deep(o, pred))
-  else if (is_object(obj)) return values(obj).some(o => contains_deep(o, pred))
+// returns true if any value in `obj` satisfies `accept(…)`
+// `reject` function can be used to skip values (w/ contents)
+const contains_deep = (obj, accept, reject = undefined) => {
+  if (reject?.(obj)) return false
+  if (accept(obj)) return true
+  if (is_array(obj)) return obj.some(o => contains_deep(o, accept, reject))
+  else if (is_object(obj))
+    return values(obj).some(o => contains_deep(o, accept, reject))
   return false
 }
 
