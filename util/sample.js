@@ -520,6 +520,7 @@ class _Sampler {
 
     this.options = options
     this.domain = func // save sampler function as domain
+    this.worker = options._worker // save worker id (if any) passed via options
     this.start_time = Date.now()
     this.init_time = 0 // any init time excluded from this.t
     this.pending_time = 0 // any delays (e.g. dom updates) excluded from this.t
@@ -803,7 +804,7 @@ class _Sampler {
                 ]),
                 {
                   size: je - js, // restrict size to range [js,je)
-                  _worker: true, // internal to skip init, targets (in _sample)
+                  _worker: worker.id, // internal to skip init, targets (in _sample)
                 }
               )
             ), // same omits as in _targets, w/ functions stringified
@@ -1309,13 +1310,13 @@ class _Sampler {
             index = values.length
             // cache args if possible (no dependencies on local context)
             // we use global_eval to ensure no dependencies on local context
-            let cached_args
+            let __args
             try {
-              cached_args = global_eval(`[${args}]`)
-              args = `...__sampler.values[${index}].cached_args`
+              __args = global_eval(`[${args}]`)
+              args = `...__sampler.values[${index}].__args`
             } catch (e) {}
             this._add_name((name = this._name_value(name, index)), index)
-            values.push(lexical_context({ sampling: true, cached_args }))
+            values.push(lexical_context({ sampling: true, __args }))
             break
           default:
             // unknown method, replace args only
@@ -1420,34 +1421,29 @@ class _Sampler {
         // only exception is _statsK owned by main thread for global stdev
         // posterior statsK calculation must be triggered via this.statsK
         if (k[0] == '_' && k != '_statsK') return null
-        // drop target state (value.target*) and cached_args from values
-        // also drop any underscore keys (e.g. value._xR, _domain, etc)
-        // also pack any tensors, specifically in value.first
+
+        // handle values
+        // drop underscore keys (e.g. _domain, __args) & target state (value.target*)
+        // ensure function-free & move (vs clone)
         if (k == 'values') {
-          v = v.map(v =>
-            omit_by(
-              v,
-              (_, k) =>
-                k[0] == '_' || k == 'cached_args' || k.startsWith('target')
-            )
+          v = v.map(value =>
+            omit_by(value, (_, k) => k[0] == '_' || k.startsWith('target'))
           )
-          // TODO: move these tensor extensions to options!
-          if (typeof tf != 'undefined') {
-            v = map_deep(
-              v,
-              t => ({
-                __tensor: true,
-                __data: t.dataSync(),
-                __shape: t.shape,
-              }),
-              t => t instanceof tf.Tensor
-            )
-          }
+          apply_deep(
+            v,
+            x => x.__pack(),
+            x => x?.__pack,
+            is_typed_array // reject typed arrays
+          )
+          if (has_function(v))
+            fatal(`unexpected functions in ${path(v, k, obj)}`)
+          if (verbose) print(`moving ${path(v, k, obj)}`)
+          return v // move
         }
 
         // slice J-indexed arrays down to specified range [js,je)
         // pack functions inside function arrays, e.g. log_wrfJN
-        // also pack any tensors inside non-function arrays
+        // also pack any packable objects in non-function arrays
         if (is_array(v) && k.includes?.('J')) {
           if (js > 0 || je < this.J) v = v.slice(js, je)
           if (k.includes('fJ')) {
@@ -1455,21 +1451,15 @@ class _Sampler {
             v = pack(v)
           } else {
             if (verbose) print(`slicing ${path(v, k, obj)}[${js},${je})`)
-            // TODO: contains_deep could be faster w/ uniformity assumption
-            if (typeof tf != 'undefined') {
-              if (contains_deep(v, t => t instanceof tf.Tensor)) {
-                if (verbose)
-                  print(`packing tensors in ${path(v, k, obj)}[${js},${je})`)
-                v = map_deep(
-                  v,
-                  t => ({
-                    __tensor: true,
-                    __data: t.dataSync(),
-                    __shape: t.shape,
-                  }),
-                  t => t instanceof tf.Tensor
-                )
-              }
+            // if array has any packable objects, we have to clone (map) whole thing
+            if (contains_deep(v, x => x?.__pack, is_typed_array)) {
+              v = map_deep(
+                v,
+                x => x.__pack(),
+                x => x?.__pack,
+                is_typed_array, // reject typed arrays
+                x => x // move typed arrays
+              )
             }
           }
           return v
@@ -1481,25 +1471,24 @@ class _Sampler {
           return pack(v)
         }
 
-        // sanity check that no more unexpected non-plain objects
-        // note arrays and maps (e.g. names) are expected
-        // note also functions are packed recursively
-        const is_unexpected_object = x =>
-          is_object(x) && !is_plain_object(x) && !is_array(x) && !is_map(x)
-        if (contains_deep(v, is_unexpected_object))
-          fatal(
-            `cloning value ${path(v, k, obj)} w/ unexpected objects`,
-            values_deep(v, is_unexpected_object)
-          )
-
-        // move function-free objects by reference
+        // handle objects
         // set up __key/__parent for logging nested properties in verbose mode
         if (is_object(v)) {
+          // pack packable objects
+          if (v.__pack) return v.__pack()
+
+          // sanity check no unexpected non-plain objects
+          // note arrays & maps (e.g. names) are expected
+          if (!is_plain_object(v) && !is_array(v) && !is_map(v))
+            fatal(
+              `unexpected object ${path(v, k, obj)} (${v.constructor.name})`
+            )
+
+          // move function-free objects by reference
           if (!has_function(v)) {
             if (verbose) print(`moving ${path(v, k, obj)}`)
             return v
           }
-          if (k == 'values') fatal('unable to move values (contains functions)')
           if (verbose && v.__key === undefined)
             define_values(v, { __key: k, __parent: obj })
         }
@@ -1531,16 +1520,12 @@ class _Sampler {
         if (verbose) print(`unpacking ${path(v, k, obj)}`)
         return unpack(v)
       }
-      if (typeof tf != 'undefined') {
-        // unpack tensors
-        if (is_object(v) && v.__tensor) {
-          if (!v.__shape) fatal('missing __shape in packed tensor')
-          return set(tf.tensor(v.__data, v.__shape), '__data', v.__data)
-        }
-      }
+
+      // unpack packed objects
+      if (v?.__constructor) return new get(self, v.__constructor)(...v.__args)
 
       // copy J-indexed slices, unpacking functions in function arrays
-      // also unpack any tensors inside non-function arrays
+      // also unpack any packed objects in non-function arrays
       if (is_array(x) && k.includes?.('J')) {
         const je = js + v.length
         if (k.includes('fJ')) {
@@ -1548,17 +1533,12 @@ class _Sampler {
           v = unpack(v)
         } else {
           if (verbose) print(`merging ${path(v, k, obj)}[${js},${je})`)
-          if (typeof tf != 'undefined') {
-            if (contains_deep(v, t => t?.__tensor)) {
-              if (verbose)
-                print(`unpacking tensors in ${path(v, k, obj)}[${js},${je})`)
-              v = map_deep(
-                v,
-                t => set(tf.tensor(t.__data, t.__shape), '__data', t.__data),
-                t => t?.__tensor
-              )
-            }
-          }
+          apply_deep(
+            v,
+            x => new get(self, x.__constructor)(...x.__args),
+            x => x?.__constructor,
+            is_typed_array // reject typed arrays
+          )
         }
         return copy_at(x, v, js)
       }
@@ -1690,6 +1670,7 @@ class _Sampler {
               const [, t] = timing(() =>
                 this._merge(e.data.output, js, verbose)
               )
+              // const t = timed(() => this._merge(e.data.output, js, verbose), 0)
               merge_time += t
               worker_sample_times[w] = e.data.sample_time
               worker_clone_times[w] = e.data.clone_time
