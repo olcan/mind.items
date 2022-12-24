@@ -1605,6 +1605,7 @@ class _Sampler {
         'yJ', // owned by worker
         ...(!moving
           ? [
+              'yJK', // unused in _sample unless moving
               'uaJK', // unused in _sample unless moving
               'uawK', // unused in _sample unless moving
             ]
@@ -1626,9 +1627,9 @@ class _Sampler {
         'uawK', // input to _sample
         ...(moving
           ? [
-              'xJK', // unchanged in sample when moving
-              'xJ', // unchanged in sample when moving
-              'log_p_xJK', // unchanged in sample when moving
+              'xJK', // unchanged in _sample when moving
+              'xJ', // unchanged in _sample when moving
+              'log_p_xJK', // unchanged in _sample when moving
             ]
           : []),
       ])
