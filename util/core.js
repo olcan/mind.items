@@ -437,8 +437,8 @@ const capture = (f, context) => set(f, '__context', context)
 const packable = (f, str) => set(f, '__function', str)
 
 // [JSON.stringify](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify) w/ extensions
-// supports functions & typed arrays
-// functions must be _packable_ (see `pack` above)
+// supports _packable_ functions (see `pack` above), objects, and typed arrays
+// packable objects must implement `__pack()` to return `{ __constructor:'…', __args:[…] }`
 function stringify(value, replacer, space) {
   if (value?.constructor.name == 'ArrayBuffer' || ArrayBuffer.isView(value))
     return str(value) + ` (${value.byteLength} bytes)`
@@ -452,20 +452,22 @@ function stringify(value, replacer, space) {
           __constructor: v.constructor.name,
           __args: [array(v)],
         }
+      if (v?.__pack) return v.__pack()
       return v
     },
     space
   )
 }
 
-// [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ function support
-// all functions must be _packable_ (see `pack` above)
+// [JSON.parse](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse) w/ extensions
+// supports _packable_ functions, objects, and typed arrays
+// see `stringify` above for details
 function parse(text) {
   return JSON.parse(text, function (k, v) {
     if (is_object(v)) {
       if (is_string(v.__function)) return unpack(v)
       if (is_string(v.__constructor))
-        return new self[v.__constructor](...v.__args)
+        return new get(self, v.__constructor)(...v.__args)
     }
     return v
   })
@@ -902,7 +904,7 @@ function timing(f, label = undefined, logf = print) {
   if (is_promise(output)) {
     return output.then(output => {
       const elapsed = Date.now() - start
-      if (label) logf(`[${elapsed}ms] ${label}`)
+      if (label && logf) logf(`[${elapsed}ms] ${label}`)
       return [output, elapsed]
     })
   }
@@ -911,11 +913,12 @@ function timing(f, label = undefined, logf = print) {
   return [output, elapsed]
 }
 
-// `timing(...)[0]`
+// like `timing` but returns only `output`
+// can return only `elapsed` if `label` is falsy
 const timed = (f, label = str(f), logf = print) => {
   const pair = timing(f, label, logf)
-  if (is_promise(pair)) return pair.then(pair => pair[0])
-  else return pair[0]
+  if (is_promise(pair)) return pair.then(pair => pair[label ? 0 : 1])
+  else return pair[label ? 0 : 1]
 }
 
 // cache property `prop` on object `obj`
