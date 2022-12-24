@@ -104,7 +104,14 @@ function _pre_init_js(options) {
             case 'info':
             case 'warn':
             case 'error':
-              return (...args) => postMessage({ item, method, args })
+              return (...args) =>
+                postMessage({
+                  item,
+                  method,
+                  args: clone_deep_with(args, v =>
+                    is_function(v) ? null : undefined
+                  ),
+                })
             case 'fatal':
               return (...args) => {
                 postMessage({ item, method, args })
