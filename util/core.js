@@ -45,7 +45,7 @@ const race = (...args) => Promise.race(...args)
 
 // invoke `f` on all values in `obj` that satisfy `accept(…)`
 // default predicate `is_object` invokes `f` on all objects
-// `reject` function can be used to skip values (w/ contents)
+// `reject` predicate can be used to skip values (w/ contents)
 // function `f` is invoked on deepest (accepted) values first
 const invoke_deep = (obj, f, accept = is_object, reject = undefined) => {
   if (reject?.(obj)) return obj
@@ -58,7 +58,7 @@ const invoke_deep = (obj, f, accept = is_object, reject = undefined) => {
 
 // apply `f` on all values in `obj` that satisfy `accept(…)`
 // default predicate `is_object` applies `f` to all objects
-// `reject` function can be used to skip values (w/ contents)
+// `reject` predicate can be used to skip values (w/ contents)
 // function `f` is applied to deepest (accepted) values first
 const apply_deep = (obj, f, accept = is_object, reject = undefined) => {
   if (reject?.(obj)) return obj
@@ -71,11 +71,17 @@ const apply_deep = (obj, f, accept = is_object, reject = undefined) => {
 
 // map `f` over all values in `obj` that satisfy `accept(…)`
 // default predicate `is_object` applies `f` to all objects
-// `reject` function can be used to skip values via `clone_deep`
+// `reject` predicate can be used to skip values, mapped via `g`
 // function `f` is mapped over deepest (accepted) values first
 // can not map over values inside non-plain objects
-const map_deep = (obj, f, accept = is_object, reject = undefined) => {
-  if (reject?.(obj)) return clone_deep(obj)
+const map_deep = (
+  obj,
+  f,
+  accept = is_object,
+  reject = undefined,
+  g = clone_deep
+) => {
+  if (reject?.(obj)) return g(obj)
   if (is_array(obj)) obj = obj.map(o => map_deep(o, f, accept, reject))
   // note map_values can only apply to plain objects
   else if (is_plain_object(obj)) {
@@ -95,7 +101,7 @@ const freeze_deep = obj => invoke_deep(obj, freeze)
 
 // extract all values in `obj` that satisfy `accept(…)`
 // default predicate `is_primitive` returns all primitives
-// `reject` function can be used to skip values (w/ contents)
+// `reject` predicate can be used to skip values (w/ contents)
 const values_deep = (obj, accept = is_primitive, reject = undefined) => {
   if (reject?.(obj)) return []
   const vJ = accept(obj) ? [obj] : []
@@ -107,7 +113,7 @@ const values_deep = (obj, accept = is_primitive, reject = undefined) => {
 }
 
 // returns true if any value in `obj` satisfies `accept(…)`
-// `reject` function can be used to skip values (w/ contents)
+// `reject` predicate can be used to skip values (w/ contents)
 const contains_deep = (obj, accept, reject = undefined) => {
   if (reject?.(obj)) return false
   if (accept(obj)) return true
