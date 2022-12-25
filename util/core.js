@@ -29,11 +29,6 @@ function _benchmark_values() {
     () => {
       let sum = 0
       for (const [k, v] of entries(obj)) sum += v
-    },
-    () => map_values(obj, v => 2 * v),
-    () => {
-      let doubled = {}
-      for (const k in obj) doubled[k] = obj[k] * 2
     }
   )
 }
@@ -84,11 +79,8 @@ const map_deep = (
   if (reject?.(obj)) return g(obj)
   if (is_array(obj)) obj = obj.map(o => map_deep(o, f, accept, reject))
   // note map_values can only apply to plain objects
-  else if (is_plain_object(obj)) {
-    let mapped = {}
-    for (const k in obj) mapped[k] = map_deep(obj[k], f, accept, reject)
-    obj = mapped
-  }
+  else if (is_plain_object(obj))
+    obj = map_values(obj, o => map_deep(o, f, accept, reject))
   if (accept(obj)) obj = f(obj)
   return obj
 }
