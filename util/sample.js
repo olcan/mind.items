@@ -1561,6 +1561,8 @@ class _Sampler {
     if (workers && s > 0) {
       const exclusions = new Set([
         'options', // separate on worker (see _init_workers)
+        'domain', // separate on worker
+        'worker', // separate on worker
         'stats', // no stats on worker
         'func', // same on worker
         'domain', // same on worker
