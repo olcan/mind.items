@@ -1638,9 +1638,10 @@ class _Sampler {
         if (s > 0) this.statsK // trigger caching of global posterior statsK
         const input = this._clone(input_exclusions, js, je, verbose)
 
-        // note transfer of input buffers is difficult due to sample duplication and other shared references to typed arrays or underlying buffers
+        // note transfer of input buffers is impractical due to sample duplication (which shares references be design for single-context efficiency) and other shared references to typed arrays or underlying buffers; cloning works but is simply too expensive compared to posting/copying from shared references to underlying arrays/buffers; using SharedArrayBuffers works, but requires cross-origin isolation headers (which forces all external urls to be proxied via /proxy) and does not provide as much benefit as expected (only ~50% reduction in transfer time)
         const buffers = []
-        // const buffers = values_deep(input.xJK, is_typed_array, 'buffer')
+        // apply_deep(input.xJK, clone_deep, is_typed_array)
+        // const buffers = map(values_deep(input.xJK, is_typed_array), 'buffer')
         // buffers = map(values_deep(input, is_typed_array), 'buffer')
 
         clone_time += timer.t
@@ -1654,8 +1655,9 @@ class _Sampler {
               const [output, clone_time] = timing(() =>
                 sampler._clone(output_exclusions)
               )
+              // const buffers = []
               const buffers = map(values_deep(output, is_typed_array), 'buffer')
-              buffers.push(...input_buffers) // return any input buffers
+              // buffers.push(...input_buffers) // return any input buffers
               postMessage({
                 done: true,
                 output,
