@@ -1448,12 +1448,18 @@ class _Sampler {
           if (js > 0 || je < this.J) v = v.slice(js, je)
           if (k.includes('fJ')) {
             if (verbose) print(`packing ${path(v, k, obj)}[${js},${je})`)
-            v = pack(v) // clone while packing functions
+            return pack(v) // clone while packing functions
           } else {
             if (verbose) print(`slicing ${path(v, k, obj)}[${js},${je})`)
-            // if array has any packable objects, we have to clone (map) whole thing
+            // if array has packable objects, we have to map/clone while packing
             if (contains_deep(v, x => x?.__pack, is_typed_array)) {
-              v = map_deep(
+              // return apply_deep(
+              //   depth(v) == 1 ? clone(v) : v.map(clone),
+              //   x => x.__pack(),
+              //   x => x?.__pack,
+              //   is_typed_array // reject typed arrays (no objects)
+              // )
+              return map_deep(
                 v,
                 x => x.__pack(),
                 x => x?.__pack,
@@ -1462,7 +1468,6 @@ class _Sampler {
               )
             }
           }
-          return v
         }
 
         // pack functions
@@ -1632,10 +1637,12 @@ class _Sampler {
         const timer = _timer()
         if (s > 0) this.statsK // trigger caching of global posterior statsK
         const input = this._clone(input_exclusions, js, je, verbose)
-        let buffers = []
-        // note we do NOT transfer buffers to workers since it requires cloning unless the buffers are never used again until returned back from worker, which seems rather problematic to ensure, and cloning defeats the purpose of buffer transfer; note we can still transfer buffers _out_ of workers to save transfer time
-        // apply_deep(input, clone_deep, is_typed_array)
+
+        // note transfer of input buffers is difficult due to sample duplication and other shared references to typed arrays or underlying buffers
+        const buffers = []
+        // const buffers = values_deep(input.xJK, is_typed_array, 'buffer')
         // buffers = map(values_deep(input, is_typed_array), 'buffer')
+
         clone_time += timer.t
         return eval_on_worker(
           worker,
@@ -1648,6 +1655,7 @@ class _Sampler {
                 sampler._clone(output_exclusions)
               )
               const buffers = map(values_deep(output, is_typed_array), 'buffer')
+              buffers.push(...input_buffers) // return any input buffers
               postMessage({
                 done: true,
                 output,
@@ -1664,7 +1672,13 @@ class _Sampler {
             }
           },
           {
-            context: { s, input, output_exclusions, eval_time: Date.now() },
+            context: {
+              s,
+              input,
+              input_buffers: buffers,
+              output_exclusions,
+              eval_time: Date.now(),
+            },
             transfer: buffers,
             done: e => {
               const output_time = Date.now() - e.data.done_time
