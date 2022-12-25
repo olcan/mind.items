@@ -1433,7 +1433,7 @@ class _Sampler {
             v,
             x => x.__pack(),
             x => x?.__pack,
-            is_typed_array // reject typed arrays
+            is_typed_array // reject typed arrays (no objects)
           )
           if (has_function(v))
             fatal(`unexpected functions in ${path(v, k, obj)}`)
@@ -1448,7 +1448,7 @@ class _Sampler {
           if (js > 0 || je < this.J) v = v.slice(js, je)
           if (k.includes('fJ')) {
             if (verbose) print(`packing ${path(v, k, obj)}[${js},${je})`)
-            v = pack(v)
+            v = pack(v) // clone while packing functions
           } else {
             if (verbose) print(`slicing ${path(v, k, obj)}[${js},${je})`)
             // if array has any packable objects, we have to clone (map) whole thing
@@ -1457,7 +1457,7 @@ class _Sampler {
                 v,
                 x => x.__pack(),
                 x => x?.__pack,
-                is_typed_array, // reject typed arrays
+                is_typed_array, // reject typed arrays (no objects)
                 x => x // move typed arrays
               )
             }
