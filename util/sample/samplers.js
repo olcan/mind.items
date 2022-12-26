@@ -471,7 +471,7 @@ function tuple(...args) {
   if (sK.some(s => !s._prior)) fatal('invalid arguments for tuple')
   sK._prior = f => f(copy(sK, s => s._prior(x => x)))
   sK._log_p = xK => sum(sK, (s, k) => s._log_p(xK[k]))
-  sK._posterior = (f, xK, σK) =>
-    f(copy(sK, (s, k) => s._posterior(y => y, xK[k], σK[k])))
+  sK._posterior = (f, xK, { stdev }) =>
+    f(copy(sK, (s, k) => s._posterior(y => y, xK[k], { stdev: stdev[k] })))
   return sK
 }
