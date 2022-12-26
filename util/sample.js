@@ -3102,25 +3102,28 @@ class _Sampler {
       // note domain can be missing for predicted or optimized values
       if (value._domain?._stats) return value._domain._stats(k, value, this)
 
+      let specimen = value.first
+      // note _data can store a flat (typed) array for tensors or other objects
+      if (specimen._data) specimen = specimen._data // grab optional _data array
+
       // return per-element stdev for arrays of numbers
-      if (is_array(value.first) && is_finite(value.first[0])) {
-        const R = value.first.length
-        const stdevR = (statsK[k] ??= array(R))
-        if (!(stdevR.length == R))
-          fatal('variable-length arrays not supported yet')
+      // see 'tuple' sampler (in samplers.js) for example use
+      if (is_array(specimen) && is_finite(specimen[0])) {
+        const R = specimen.length
         let w = 0
-        let sR = (value._sR ??= array(R))
-        let ssR = (value._ssR ??= array(R))
-        fill(sR, 0)
-        fill(ssR, 0)
+        let sR = fill(set((value._sR ??= array(R)), 'length', R), 0)
+        let ssR = fill(set((value._ssR ??= array(R)), 'length', R), 0)
         for (let j = 0; j < J; ++j) {
           const wj = rwJ[j]
           if (wj == 0) continue // skip run
-          const xjkR = xJK[j][k]
+          let xjkR = xJK[j][k]
           if (xjkR === undefined) continue // skip run
+          if (xjkR._data) xjkR = xjkR._data // grab optional _data array
           w += wj
-          addf(sR, xjkR, x => wj * x)
-          addf(ssR, xjkR, x => wj * x * x)
+          for (let r = 0; r < R; ++r) {
+            sR[r] += wj * xjkR[r]
+            ssR[r] += wj * xjkR[r] * xjkR[r]
+          }
         }
         if (w == 0) return // not enough samples/weight
         const mR = scale(sR, 1 / w)
@@ -3130,7 +3133,8 @@ class _Sampler {
         apply(vR, v => (v < 1e-12 ? 0 : v)) // chop small stdev to 0
         return { stdev: apply(vR, sqrt) }
       }
-      if (!is_number(value.first)) return // value not number
+
+      if (!is_number(specimen)) return // value not number
       let w = 0
       let s = 0
       let ss = 0
