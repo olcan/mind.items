@@ -913,7 +913,8 @@ function timing(f, label = undefined, logf = print) {
 
 // like `timing` but returns only `output`
 // can return only `elapsed` if `label` is falsy
-const timed = (f, label = str(f), logf = print) => {
+// default label is `str(f)` for functions, `timed` for other
+const timed = (f, label = is_function(f) ? str(f) : 'timed', logf = print) => {
   const pair = timing(f, label, logf)
   if (is_promise(pair)) return pair.then(pair => pair[label ? 0 : 1])
   else return pair[label ? 0 : 1]
