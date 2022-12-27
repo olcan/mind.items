@@ -3999,54 +3999,63 @@ function _run() {
   if (calls.length == 0) return null
   print('running inside sample(…) due to sampled or simulated values')
   js = flat('(sampler=>{', js, '})').join('\n')
+
   const options = {}
-  if (typeof _sample_context !== 'undefined') {
-    if (!is_plain_object(_sample_context) && !is_function(_sample_context))
-      fatal('invalid _sample_context')
-    options.context = _sample_context
-  }
   if (typeof _sample_options !== 'undefined') {
     if (!is_plain_object(_sample_options)) fatal('invalid _sample_options')
     merge(options, _sample_options)
   }
 
+  if (typeof _sample_context !== 'undefined') {
+    if (!is_plain_object(_sample_context) && !is_function(_sample_context))
+      fatal('invalid _sample_context')
+    options.context = _sample_context
+  }
+
   // fix __now for sampling (via options to apply to workers also)
   options.__now ??= event_time()
 
-  // handle async mode, where _sample_init and _sample_done can also be async
-  if (options.async) {
-    return (async () => {
-      // invoke _sample_init if defined
-      if (typeof _sample_init !== 'undefined') {
-        if (!is_function(_sample_init)) fatal('invalid _sample_init')
-        await _sample_init(js, options)
-      }
-      let out = await sample(js, options)
-      // invoke _sample_done if defined (after promise if async)
-      if (typeof _sample_done !== 'undefined') {
-        if (!is_function(_sample_done)) fatal('invalid _sample_done')
-        if (is_promise(out))
-          out = out.then(out => _sample_done(out, js, options))
-        else out = await _sample_done(out, js, options)
-      }
-      return out
-    })() // return promise
+  // async wrapper
+  // allows async _sample_{init, context, done} iff options.async is true
+  const sample_async = async () => {
+    // invoke _sample_init if defined
+    if (typeof _sample_init !== 'undefined') {
+      if (!is_function(_sample_init)) fatal('invalid _sample_init')
+      if (is_async_function(_sample_init) && !options.async)
+        fatal('invalid _sample_init: async_function requires options.async')
+      await _sample_init(js, options)
+    }
+
+    // handle _sample_context if defined
+    // if function, it can be async and is converted to object here
+    if (typeof _sample_context !== 'undefined') {
+      if (!is_plain_object(_sample_context) && !is_function(_sample_context))
+        fatal('invalid _sample_context')
+      if (is_async_function(_sample_context) && !options.async)
+        fatal('invalid _sample_context: async_function requires options.async')
+      if (is_function(_sample_context))
+        options.context = await _sample_context(js, options)
+      else options.context = _sample_context
+    }
+
+    let out = await sample(js, options)
+
+    // invoke _sample_done if defined (after promise if async)
+    if (typeof _sample_done !== 'undefined') {
+      if (!is_function(_sample_done)) fatal('invalid _sample_done')
+      if (is_async_function(_sample_done) && !options.async)
+        fatal('invalid _sample_done: async_function requires options.async')
+      if (is_promise(out)) out = out.then(out => _sample_done(out, js, options))
+      else out = await _sample_done(out, js, options)
+    }
+    return out
   }
 
-  // invoke _sample_init if defined
-  if (typeof _sample_init !== 'undefined') {
-    if (!is_function(_sample_init)) fatal('invalid _sample_init')
-    _sample_init(js, options)
-  }
+  // sync wrapper derived from async wrapper by dropping async/await keywords
+  const sample_sync = eval(
+    sample_async.toString().replace(/(?:async|await)\s+/g, '')
+  )
 
-  let out = sample(js, options)
-
-  // invoke _sample_done if defined (after promise if async)
-  if (typeof _sample_done !== 'undefined') {
-    if (!is_function(_sample_done)) fatal('invalid _sample_done')
-    if (is_promise(out)) out = out.then(out => _sample_done(out, js, options))
-    else out = _sample_done(out, js, options)
-  }
-
-  return out
+  if (options.async) return sample_async() // promise
+  else return sample_sync() // value
 }
