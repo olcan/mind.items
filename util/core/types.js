@@ -72,6 +72,8 @@ function is(x, type) {
       return typeof x == 'string'
     case 'function':
       return typeof x == 'function'
+    case 'async_function':
+      return x instanceof AsyncFunction
     case 'object':
       return typeof x == 'object' && x !== null
     case 'plain_object':
@@ -116,6 +118,9 @@ function _test_is() {
     () => is(1, 'binary'),
     () => is('true', 'string'),
     () => is(() => 0, 'function'),
+    () => !is(() => 0, 'async_function'),
+    () => is(async () => 0, 'async_function'),
+    () => is(async () => 0, 'function'),
     () => is({}, 'object'),
     () => is({}, 'plain_object'),
     () => is(0, 'primitive'),
@@ -188,6 +193,8 @@ const is_boolean = x => typeof x == 'boolean'
 const is_binary = x => x === 0 || x === 1
 const is_string = x => typeof x == 'string'
 const is_function = x => typeof x == 'function'
+const AsyncFunction = (async () => {}).__proto__.constructor
+const is_async_function = x => x instanceof AsyncFunction
 
 const is_object = x => typeof x == 'object' && x !== null
 // NOTE: is_object is not same as POJO
