@@ -260,11 +260,12 @@ function transpose(xJK) {
   xJK = matrixify(xJK)
   const J = xJK.length
   const K = xJK[0].length
+  const Row = xJK[0].constructor // could be Array, Float32Array, etc
   // NOTE: function overhead can be significant for smaller inputs
   // return array(K, k=> array(J, j=> xJK[j][k]))
   const xKJ = new Array(K)
   for (let k = 0; k < K; ++k) {
-    const xk = (xKJ[k] = new Array(J))
+    const xk = (xKJ[k] = new Row(J))
     for (let j = 0; j < J; ++j) xk[j] = xJK[j][k]
   }
   return xKJ
