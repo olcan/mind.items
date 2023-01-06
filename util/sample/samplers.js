@@ -573,8 +573,7 @@ function normal_tensor(shape = [], μ = 0, σ = 1, sorted = false) {
 
   const inv_σ2 = 1 / (σ * σ)
   const log_z = -log(σ) - log(sqrt(2 * pi)) // z ⊥ x
-  dom._log_p = x =>
-    -0.5 * inv_σ2 * sum(x._data, x => (x - μ) * (x - μ)) + log_z * D
+  dom._log_p = x => -0.5 * inv_σ2 * sum(x._data, x => (x - μ) ** 2) + log_z * D
 
   // custom _stats that can be faster as it can assume all values are defined
   // it can also precompute "scaled" stdev for random walk in R dimensions
