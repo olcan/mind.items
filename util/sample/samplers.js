@@ -202,8 +202,7 @@ function _test_beta() {
 }
 
 // [normal](https://en.wikipedia.org/wiki/Normal_distribution) on `(-∞,∞)` w/ mean `μ`, stdev `σ`
-// `undefined` if `μ` non-finite
-// `undefined` if `σ` non-finite or `σ≤0`
+// `undefined` if `μ` or `σ` non-finite, or `σ≤0`
 function normal(μ, σ) {
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
@@ -260,9 +259,7 @@ function _gamma_mean_from_mode(c, σ) {
 // [gamma](https://en.wikipedia.org/wiki/Gamma_distribution) on `(a,∞)` or `(-∞,a)` w/ mean `μ`, stdev `σ`
 // domain is `(a,∞)` if `μ>a`, `(-∞,a)` if `μ<a`
 // [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) iff `σ==abs(μ-a)`
-// `undefined` if `a` non-finite
-// `undefined` if `μ` non-finite or `μ==a`
-// `undefined` if `σ` non-finite or `σ≤0`
+// `undefined` if `a` or `μ` or `σ` non-finite, `μ==a`, or `σ≤0`
 function gamma(a, μ, σ) {
   if (!is_finite(a)) return undefined
   if (!is_finite(μ) || μ == a) return undefined
@@ -303,8 +300,7 @@ function _test_gamma() {
 
 // [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) on `(a,∞)` or `(-∞,a)` w/ mean `μ`
 // domain is `(a,∞)` if `μ>a`, `(-∞,a)` if `μ<a`
-// `undefined` if `a` non-finite
-// `undefined` if `μ` non-finite or `μ==a`
+// `undefined` if `a` or `μ` non-finite, or `μ==a`
 const exponential = (a, μ) => gamma(a, μ, abs(μ - a))
 
 // [constant](https://en.wikipedia.org/wiki/Degenerate_distribution#Constant_random_variable) at `x`
@@ -474,4 +470,155 @@ function tuple(...args) {
   sK._posterior = (f, xK, { stdev }) =>
     f(copy(sK, (s, k) => s._posterior(y => y, xK[k], { stdev: stdev[k] })))
   return sK
+}
+
+// create tensor of `shape` from `data`
+// can be `Number` (scalar), `TypedArray` (1d), or `Array` (2d+)
+// has properties `_tensor`, `_data`, `_shape`, `_sorted`, `_blocks`
+function tensor(
+  shape,
+  data,
+  sorted = false,
+  blocks = null,
+  level = 0,
+  offset = 0
+) {
+  let obj
+  if (shape.length == 0) {
+    if (data.length != 1) throw new Error('tensor (scalar) data/shape mismatch')
+    obj = new Number(data[0]) // scalar
+  } else if (level == shape.length - 1) {
+    if (shape.length == 1 && shape[0] != data.length)
+      throw new Error('tensor (1d) data/shape mismatch')
+    obj = data.subarray(offset, offset + _.last(shape)) // 1d array
+  } else {
+    // 2+ dimensional tensor
+    obj = new Array(shape[level])
+    if (!blocks) {
+      blocks = shape.slice(1) // top-level block is implicit as data.length
+      for (let d = blocks.length - 2; d >= 0; --d) blocks[d] *= blocks[d + 1]
+      if (shape[0] * blocks[0] != data.length)
+        throw new Error(`tensor (${shape.length}d) data/shape mismatch`)
+    }
+    for (let i = 0; i < shape[level]; ++i)
+      obj[i] = tensor(
+        shape,
+        data,
+        sorted,
+        blocks,
+        level + 1,
+        offset + i * blocks[level]
+      )
+  }
+  if (level == 0) {
+    assign(obj, {
+      _tensor: true,
+      _shape: shape,
+      _data: data,
+      _sorted: sorted,
+      _blocks: blocks,
+    })
+    if (!is_boolean(sorted) && !(is_array(sorted) && sorted.every(is_integer)))
+      throw new Error('invalid sort spec, must be boolean or array of integers')
+    if (sorted) _sort_tensor(obj, is_array(sorted) ? sorted : [0])
+  }
+  return obj
+}
+
+const is_tensor = x => x?._tensor
+
+// sorts tensor at specified levels, comparing from left to right (to break ties)
+function _sort_tensor(tensor, levels = [0], level = 0) {
+  if (!is_array(tensor)) return tensor // can not sort scalar
+  each(tensor, child => _sort_tensor(child, levels, level + 1))
+  if (!levels.includes(level)) return tensor // skip this level
+  return sort(tensor, _compare_tensors)
+}
+
+// comparator function for _sort_tensor
+function _compare_tensors(a, b) {
+  if (is_typed_array(a)) {
+    // typed array, compare elements numerically
+    for (let i = 0; i < a.length; ++i) {
+      const d = a[i] - b[i]
+      if (d) return d
+    }
+  } else {
+    // untyped array, compare elements using _compare_tensors
+    for (let i = 0; i < a.length; ++i) {
+      const d = _compare_tensors(a[i], b[i])
+      if (d) return d
+    }
+  }
+  return 0
+}
+
+// [normal](https://en.wikipedia.org/wiki/Normal_distribution) tensor
+// independent scalars on `(-∞,∞)` w/ mean `μ`, stdev `σ`
+// `undefined` if `shape` is invalid, `μ` or `σ` non-finite, or `σ≤0`
+// can be `sorted` to force deterministic ordering at top level (`0`)
+// `sorted` can be an array of integers to sort multiple levels (`0,1,2,…`)
+// sorting avoids pitfalls due to non-identifiable orderings or (index) assignments
+// non-identifiable orderings/assignments are indistinguishable wrt observed weights
+// see #//examples/15 for detailed discussion & other solutions (e.g. conditioning)
+function normal_tensor(shape = [], μ = 0, σ = 1, sorted = false) {
+  if (!shape.every?.(is_integer)) return undefined
+  if (!is_finite(μ)) return undefined
+  if (!is_finite(σ) || σ <= 0) return undefined
+  const dom = {}
+  dom._from = x => is_tensor(x) && equal(x._shape, shape)
+  const D = shape.reduce((a, b) => a * b, 1) // size from shape
+  const prior_transform = μ == 0 && σ == 1 ? null : x => μ + x * σ
+  dom._prior = f => f(_random_normal_tensor(shape, D, prior_transform, sorted))
+
+  const inv_σ2 = 1 / (σ * σ)
+  const log_z = -log(σ) - log(sqrt(2 * pi)) // z ⊥ x
+  dom._log_p = x =>
+    -0.5 * inv_σ2 * sum(x._data, x => (x - μ) * (x - μ)) + log_z * D
+
+  // custom _stats that can be faster as it can assume all values are defined
+  // it can also precompute "scaled" stdev for random walk in R dimensions
+  // prevents prob. jump towards mode (point) tending to zero for large R
+  // cancels out R in exponent ∝ R * (x-μ)^2 for spherical normal jumps
+  // see https://www.wolframcloud.com/env/olcans/HypersphereIntersection.nb
+  dom._stats = (k, value, { xJK, rwJ }) => {
+    const J = rwJ.length
+    const W_inv = 1 / sum(rwJ)
+    const sD = new Float32Array(D)
+    const ssD = new Float32Array(D)
+    for (let j = 0; j < J; ++j) {
+      const xD = xJK[j][k]._data
+      const w = rwJ[j] * W_inv
+      for (let d = 0; d < D; ++d) {
+        sD[d] += xD[d] * w
+        ssD[d] += xD[d] * xD[d] * w
+      }
+    }
+    const stdevD = apply(sub(ssD, mul(sD, sD)), v => (v >= 1e-12 ? sqrt(v) : σ))
+    return { scaled_stdev: scale(stdevD, 1 / sqrt(D)) }
+  }
+
+  dom._posterior = (f, x, { scaled_stdev }) =>
+    f(
+      _random_normal_tensor(
+        shape,
+        D,
+        (y, d) => x._data[d] + y * scaled_stdev[d],
+        sorted
+      )
+    )
+  return dom
+}
+
+let __random_normal_data
+const _random_normal_tensor = (shape, size, f, sorted) => {
+  // const data = random_array(new Float32Array(size), random_normal)
+  if (!__random_normal_data || __random_normal_data.length < size * 2)
+    __random_normal_data = random_array(
+      new Float32Array(size * 10),
+      random_normal
+    )
+  const offset = random_discrete_uniform(__random_normal_data.length - size)
+  const data = __random_normal_data.subarray(offset, offset + size)
+  return tensor(shape, f ? data.map(f) : data, sorted)
 }
