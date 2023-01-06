@@ -26,6 +26,18 @@ function _benchmark_log1p() {
 const _benchmark_log1p_functions = ['log1p', 'expm1', 'log', 'exp']
 
 const pow = Math.pow
+
+function _benchmark_pow() {
+  benchmark(
+    () => pow(2, 2),
+    () => pow(2, 3),
+    () => 2 * 2,
+    () => 3 * 3,
+    () => 2 ** 2,
+    () => 2 ** 3
+  )
+}
+
 const sqrt = Math.sqrt
 const cbrt = Math.cbrt
 const abs = Math.abs
