@@ -16,8 +16,7 @@ const _uniform_posterior =
   }
 
 // [uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) on `(a,b)`
-// `undefined` if `a` or `b` non-finite
-// `null` (empty) if `a>=b`
+// `undefined` if `a` or `b` non-finite, `null` (empty) if `a>=b`
 function uniform(a, b) {
   // undefined if a or b non-finite
   if (!is_finite(a) || !is_finite(b)) return undefined
@@ -214,6 +213,7 @@ function normal(μ, σ) {
   // note constant factors are optimized away by js interpreter
   dom._log_p = x => -0.5 * inv_σ2 * (x - μ) ** 2 + log_z
   // TODO: see #random/normal if this is too slow for prior far from data
+  // TODO: should we do something else using custom _stats for multimodal samples?
   dom._posterior = (f, x, { stdev }) => f(x + (stdev || σ) * random_normal())
   return dom
 }
@@ -340,7 +340,7 @@ function _test_uniform_discrete() {
 
 // [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) on integers `{a,…,b}`
 // `undefined` if `a` or `b` non-integer
-// `null` (empty) if `a>b`
+// `null` (empty) if `a>=b`
 function uniform_integer(a, b) {
   if (!is_integer(a) || !is_integer(b)) return undefined
   if (a > b) return null // empty (null) if a > b
@@ -553,7 +553,7 @@ function _compare_tensors(a, b) {
   return 0
 }
 
-// [normal](https://en.wikipedia.org/wiki/Normal_distribution) tensor
+// [normal](https://en.wikipedia.org/wiki/Normal_distribution) tensor on `(-∞,∞)^…^…`
 // independent scalars on `(-∞,∞)` w/ mean `μ`, stdev `σ`
 // `undefined` if `shape` is invalid, `μ` or `σ` non-finite, or `σ≤0`
 // can be `sorted` to force deterministic ordering at top level (`0`)
@@ -565,21 +565,24 @@ function normal_tensor(shape = [], μ = 0, σ = 1, sorted = false) {
   if (!shape.every?.(is_integer)) return undefined
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
+
   const dom = {}
-  dom._from = x => is_tensor(x) && equal(x._shape, shape)
+  dom._from = x =>
+    is_tensor(x) && equal(x._shape, shape) && x._data instanceof Float32Array
   const D = shape.reduce((a, b) => a * b, 1) // size from shape
   const prior_transform = μ == 0 && σ == 1 ? null : x => μ + x * σ
   dom._prior = f => f(_random_normal_tensor(shape, D, prior_transform, sorted))
 
   const inv_σ2 = 1 / (σ * σ)
-  const log_z = -log(σ) - log(sqrt(2 * pi)) // z ⊥ x
-  dom._log_p = x => -0.5 * inv_σ2 * sum(x._data, x => (x - μ) ** 2) + log_z * D
+  const log_z = (-log(σ) - log(sqrt(2 * pi))) * D // z ⊥ x
+  dom._log_p = x => -0.5 * inv_σ2 * sum(x._data, x => (x - μ) ** 2) + log_z
 
   // custom _stats that can be faster as it can assume all values are defined
   // it can also precompute "scaled" stdev for random walk in R dimensions
   // prevents prob. jump towards mode (point) tending to zero for large R
   // cancels out R in exponent ∝ R * (x-μ)^2 for spherical normal jumps
   // see https://www.wolframcloud.com/env/olcans/HypersphereIntersection.nb
+  // TODO: should we do something else here to handle multimodal samples?
   dom._stats = (k, value, { xJK, rwJ }) => {
     const J = rwJ.length
     const W_inv = 1 / sum(rwJ)
@@ -620,4 +623,81 @@ const _random_normal_tensor = (shape, size, f, sorted) => {
   const offset = random_discrete_uniform(__random_normal_data.length - size)
   const data = __random_normal_data.subarray(offset, offset + size)
   return tensor(shape, f ? data.map(f) : data, sorted)
+}
+
+// [uniform](https://en.wikipedia.org/wiki/Discrete_uniform_distribution) tensor on `{a,…,b}^…^…`
+// `undefined` if `shape` is invalid or `a` or `b` non-integer, `null` (empty) if `a>=b`
+// can be `sorted` to force deterministic ordering at top level (`0`)
+// `sorted` can be an array of integers to sort multiple levels (`0,1,2,…`)
+function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
+  if (!shape.every?.(is_integer)) return undefined
+  if (!is_finite(a) || !is_finite(b)) return undefined
+  if (a >= b) return null
+
+  const dom = {}
+  // TODO: do you want to allow Float32Array if it is more efficient to work with?
+  //       (if so, you should make type an argument for all tensor samplers)
+  const Type = a >= 0 ? Uint32Array : Int32Array
+  dom._from = x =>
+    is_tensor(x) &&
+    equal(x._shape, shape) &&
+    x._data instanceof Type &&
+    x.every(v => v >= a && v <= b)
+
+  const D = shape.reduce((a, b) => a * b, 1) // size from shape
+  const I = b - a + 1 // to be multiplied into continuous uniform on [0,1)
+  dom._prior = f =>
+    f(_random_uniform_tensor(shape, D, u => a + ~~(u * I), Type, sorted))
+
+  const log_z = -log(I) * D // z ⊥ x
+  dom._log_p = x => log_z
+
+  // custom _stats that can be faster as it can assume all values are defined
+  const wi_base = 1 / I // uniform base weight for posterior sampler
+  dom._stats = (k, value, { xJK, rwJ, rwj_sum }) => {
+    const J = rwJ.length
+    const wDI = array(D, () => new Float32Array(I).fill(wi_base))
+    for (let j = 0; j < J; ++j) {
+      const xD = xJK[j][k]._data
+      const w = rwJ[j]
+      for (let d = 0; d < D; ++d) wDI[d][xD[d] - a] += w
+    }
+    return { wDI, wi_sum: rwj_sum }
+  }
+
+  const p_stay = 0.5 // p(stay)
+  dom._posterior = (f, x, { wDI, wi_sum }) =>
+    f(
+      _random_uniform_tensor(
+        shape,
+        D,
+        (u, d) => {
+          if (random_boolean(p_stay)) return x._data[d]
+          // logic from random_discrete in #util/stat
+          // return random_discrete(wDI[d], wi_sum)
+          const wI = wDI[d]
+          let i = 0
+          let w = 0
+          let wt = u * wi_sum
+          do {
+            w += wI[i++]
+          } while (w < wt && i < I)
+          return i - 1
+        },
+        Type,
+        sorted
+      )
+    )
+  return dom
+}
+
+let __random_uniform_data
+const _random_uniform_tensor = (shape, size, transform, Type, sorted) => {
+  if (!__random_uniform_data || __random_uniform_data.length < size * 2)
+    __random_uniform_data = random_array(new Float32Array(size * 10))
+  const offset = random_discrete_uniform(__random_uniform_data.length - size)
+  let data = __random_uniform_data.subarray(offset, offset + size)
+  if (transform || !(data instanceof Type))
+    data = copy(new Type(size), data, transform)
+  return tensor(shape, data, sorted)
 }
