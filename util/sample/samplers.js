@@ -642,7 +642,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
     is_tensor(x) &&
     equal(x._shape, shape) &&
     x._data instanceof Type &&
-    x.every(v => v >= a && v <= b)
+    x._data.every(v => v >= a && v <= b)
 
   const D = shape.reduce((a, b) => a * b, 1) // size from shape
   const I = b - a + 1 // to be multiplied into continuous uniform on [0,1)
@@ -662,7 +662,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
       const w = rwJ[j]
       for (let d = 0; d < D; ++d) wDI[d][xD[d] - a] += w
     }
-    return { wDI, wi_sum: rwj_sum }
+    return { wDI, wi_sum: I * wi_base + rwj_sum }
   }
 
   const p_stay = 0.5 // p(stay)
@@ -672,6 +672,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
         shape,
         D,
         (u, d) => {
+          // note sampling boolean(p_stay) is equivalent to adjusting wI[x-a] by (p_stay/(1-p_stay)) * wi_sum
           if (random_boolean(p_stay)) return x._data[d]
           // logic from random_discrete in #util/stat
           // return random_discrete(wDI[d], wi_sum)
@@ -682,7 +683,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
           do {
             w += wI[i++]
           } while (w < wt && i < I)
-          return i - 1
+          return a + (i - 1)
         },
         Type,
         sorted
