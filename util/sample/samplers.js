@@ -517,6 +517,7 @@ function tensor(
       _data: data,
       _sorted: sorted,
       _blocks: blocks,
+      // __pack: () => ({ __constructor: 'tensor', __args: arguments }),
     })
     if (!is_boolean(sorted) && !(is_array(sorted) && sorted.every(is_integer)))
       throw new Error('invalid sort spec, must be boolean or array of integers')
@@ -556,15 +557,16 @@ function _compare_tensors(a, b) {
 // [normal](https://en.wikipedia.org/wiki/Normal_distribution) tensor on `(-∞,∞)^…^…`
 // independent scalars on `(-∞,∞)` w/ mean `μ`, stdev `σ`
 // `undefined` if `shape` is invalid, `μ` or `σ` non-finite, or `σ≤0`
-// can be `sorted` to force deterministic ordering at top level (`0`)
-// `sorted` can be an array of integers to sort multiple levels (`0,1,2,…`)
+// `options.sorted == true` forces deterministic ordering at top level (`0`)
+// `options.sorted` can be array of integers to sort multiple levels (`0,1,2,…`)
 // sorting avoids pitfalls due to non-identifiable orderings or (index) assignments
 // non-identifiable orderings/assignments are indistinguishable wrt observed weights
 // see #//examples/15 for detailed discussion & other solutions (e.g. conditioning)
-function normal_tensor(shape = [], μ = 0, σ = 1, sorted = false) {
+function normal_tensor(shape = [], μ = 0, σ = 1, options) {
   if (!shape.every?.(is_integer)) return undefined
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
+  const sorted = options?.sorted ?? false
 
   const dom = {}
   dom._from = x =>
@@ -629,25 +631,24 @@ const _random_normal_tensor = (shape, size, f, sorted) => {
 // `undefined` if `shape` is invalid or `a` or `b` non-integer, `null` (empty) if `a>=b`
 // can be `sorted` to force deterministic ordering at top level (`0`)
 // `sorted` can be an array of integers to sort multiple levels (`0,1,2,…`)
-function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
+function uniform_integer_tensor(shape = [], a = 0, b = 1, options) {
   if (!shape.every?.(is_integer)) return undefined
   if (!is_finite(a) || !is_finite(b)) return undefined
   if (a >= b) return null
+  const sorted = options?.sorted ?? false
+  const type = options?.type ?? Int32Array
 
   const dom = {}
-  // TODO: do you want to allow Float32Array if it is more efficient to work with?
-  //       (if so, you should make type an argument for all tensor samplers)
-  const Type = a >= 0 ? Uint32Array : Int32Array
   dom._from = x =>
     is_tensor(x) &&
     equal(x._shape, shape) &&
-    x._data instanceof Type &&
+    x._data instanceof type &&
     x._data.every(v => v >= a && v <= b)
 
   const D = shape.reduce((a, b) => a * b, 1) // size from shape
   const I = b - a + 1 // to be multiplied into continuous uniform on [0,1)
   dom._prior = f =>
-    f(_random_uniform_tensor(shape, D, u => a + ~~(u * I), Type, sorted))
+    f(_random_uniform_tensor(shape, D, u => a + ~~(u * I), type, sorted))
 
   const log_z = -log(I) * D // z ⊥ x
   dom._log_p = x => log_z
@@ -685,7 +686,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
           } while (w < wt && i < I)
           return a + (i - 1)
         },
-        Type,
+        type,
         sorted
       )
     )
@@ -693,12 +694,12 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, sorted = false) {
 }
 
 let __random_uniform_data
-const _random_uniform_tensor = (shape, size, transform, Type, sorted) => {
+const _random_uniform_tensor = (shape, size, transform, type, sorted) => {
   if (!__random_uniform_data || __random_uniform_data.length < size * 2)
     __random_uniform_data = random_array(new Float32Array(size * 10))
   const offset = random_discrete_uniform(__random_uniform_data.length - size)
   let data = __random_uniform_data.subarray(offset, offset + size)
-  if (transform || !(data instanceof Type))
-    data = copy(new Type(size), data, transform)
+  if (transform || !(data instanceof type))
+    data = copy(new type(size), data, transform)
   return tensor(shape, data, sorted)
 }
