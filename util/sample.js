@@ -1527,7 +1527,7 @@ class _Sampler {
       }
 
       // unpack packed objects
-      if (v?.__constructor) return new get(self, v.__constructor)(...v.__args)
+      if (v?.__constructor) return new (get(self, v.__constructor))(...v.__args)
 
       // copy J-indexed slices, unpacking functions in function arrays
       // also unpack any packed objects in non-function arrays
@@ -1540,7 +1540,7 @@ class _Sampler {
           if (verbose) print(`merging ${path(v, k, obj)}[${js},${je})`)
           apply_deep(
             v,
-            x => new get(self, x.__constructor)(...x.__args),
+            x => new (get(self, x.__constructor))(...x.__args),
             x => x?.__constructor,
             is_typed_array // reject typed arrays
           )
@@ -1870,6 +1870,21 @@ class _Sampler {
         update[`r.${weight.name}`] = round_to(this.rN[n], 3, inf, 'floor')
     })
 
+    if (this.options.status) {
+      const r = round_to(this.r, 3, inf, 'floor')
+      const ess = round(this.ess)
+      const lwr = round_to(this.lwr, 1)
+      const lpx = round_to(this.lpx, 1)
+      const mks = round_to(this.mks, 3)
+      _this.show_status(
+        `u:${this.u}, r:${r}, ess:${ess}, lwr:${lwr}, lpx:${lpx}, mks:${mks}`.replace(
+          /Infinity/g,
+          '∞'
+        ),
+        r
+      )
+    }
+
     if (this.u == 0) stats.updates = [update]
     else stats.updates.push(update)
   }
@@ -1949,7 +1964,7 @@ class _Sampler {
     let tries = 0
     copy(_rN, rN)
     copy(_log_rwJ, log_rwJ)
-    // NOTE: we store _last and _base on log_wr functions to avoid having to shuffle around additional buffers in _resample (and _sort); note a downside is that base is lost on _fork, so we couldn't subtract base for optimization or accumulation even if we wanted to
+    // NOTE: we store _last and _base on log_wr functions to avoid having to shuffle around additional buffers in _resample (and _sort); note a downside is that base is lost on _fork, so we couldn't subtract base for optimization or accumulation even if we wanted to; we also need to make sure to copy over _last in _move to maintain invariance of log_rwJ (see comment in _move)
     if (weights.some(w => !w.optimizing && !w.cumulative))
       each(log_wrfJN, fjN =>
         each(fjN, fjn => !fjn || (fjn._base = fjn._last ?? 0))
@@ -1988,6 +2003,7 @@ class _Sampler {
             // increment by 1/min_reweights, then backtrack as needed
             if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
             else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
+            // debug('r', r)
           }
         }
         weight.init_log_wr?.(r, n, this)
@@ -2018,7 +2034,7 @@ class _Sampler {
               log_rwJ[j] += log_w
               // }
             } else {
-              log_rwJ[j] += log_w // -log_wr._base
+              log_rwJ[j] += log_w // -log_wr._base (below)
               _log_rwJ_base[j] += log_wr._base
               log_wr._last = log_w // becomes _base in next reweight
             }
@@ -2031,6 +2047,7 @@ class _Sampler {
       sub(log_rwJ, _log_rwJ_base) // subtract _base for non-optimizing weights
       this.lwr = null // since log_wrJ changed
       this.rwJ = null // since log_rwJ changed
+      // debug('ess', this.ess, this.essu, take(rank(copy(this.log_rwJ)), 10))
     } while (++tries < max_reweight_tries && this.ess < reweight_ess)
 
     if (this.ess < reweight_ess)
@@ -2210,7 +2227,10 @@ class _Sampler {
         yJK[j] = array(K) // replace array since moved into xJK
         log_p_xJK[j] = log_p_yJK[j]
         log_p_yJK[j] = array(K)
-        log_wrfJN[j] = log_cwrfJN[j]
+        // maintain _last on log_wrfJN for log_rwJ (see comment in _reweight)
+        log_wrfJN[j] = apply(log_cwrfJN[j], (log_cwr, n) =>
+          set(log_cwr, '_last', log_wrfJN[j][n]._last)
+        )
         log_cwrfJN[j] = array(N)
         log_wrJ[j] = log_cwrJ[j]
         // log_dwj and any other factors in p(accept) are already reflected in
