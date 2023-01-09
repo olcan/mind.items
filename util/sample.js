@@ -720,6 +720,7 @@ class _Sampler {
                   stats.time.update += timer.t
                   stats.quanta++
                 }
+                this._update_status()
                 options.on_quantum?.(this) // invoke optional handler
               })
             } catch (e) {
@@ -748,6 +749,7 @@ class _Sampler {
       while (!this.done) {
         this._update() // not async in sync mode
         if (stats) stats.quanta++
+        this._update_status()
         options.on_quantum?.(this) // invoke optional handler
       }
       if (stats) stats.time.update = timer.t
@@ -1870,23 +1872,23 @@ class _Sampler {
         update[`r.${weight.name}`] = round_to(this.rN[n], 3, inf, 'floor')
     })
 
-    if (this.options.status) {
-      const r = round_to(this.r, 3, inf, 'floor')
-      const ess = round(this.ess)
-      const lwr = round_to(this.lwr, 1)
-      const lpx = round_to(this.lpx, 1)
-      const mks = round_to(this.mks, 3)
-      _this.show_status(
-        `u:${this.u}, r:${r}, ess:${ess}, lwr:${lwr}, lpx:${lpx}, mks:${mks}`.replace(
-          /Infinity/g,
-          '∞'
-        ),
-        r
-      )
-    }
-
     if (this.u == 0) stats.updates = [update]
     else stats.updates.push(update)
+  }
+
+  _update_status() {
+    if (!this.options.status) return
+    const t = round(this.t / 1000)
+    const r = round_to(this.r, 3, inf, 'floor')
+    const ess = round(this.ess)
+    const mks = round_to(this.mks, 3)
+    _this.show_status(
+      `t:${this.t} u:${this.u}, r:${r}, ess:${ess}, p:${this.p}, a:${this.a}, mks:${mks}`.replace(
+        /Infinity/g,
+        '∞'
+      ),
+      r
+    )
   }
 
   async _sample_prior() {
@@ -1964,15 +1966,10 @@ class _Sampler {
     let tries = 0
     copy(_rN, rN)
     copy(_log_rwJ, log_rwJ)
-    // NOTE: we store _last and _base on log_wr functions to avoid having to shuffle around additional buffers in _resample (and _sort); note a downside is that base is lost on _fork, so we couldn't subtract base for optimization or accumulation even if we wanted to; we also need to make sure to copy over _last in _move to maintain invariance of log_rwJ (see comment in _move)
-    if (weights.some(w => !w.optimizing && !w.cumulative))
-      each(log_wrfJN, fjN =>
-        each(fjN, fjn => !fjn || (fjn._base = fjn._last ?? 0))
-      )
 
     do {
       fill(log_wrJ, 0)
-      fill(_log_rwJ_base, 0) // for _base
+      fill(_log_rwJ_base, 0)
       if (tries > 0) copy(log_rwJ, _log_rwJ)
       each(rN, (r, n) => {
         const weight = weights[n]
@@ -2000,10 +1997,9 @@ class _Sampler {
             const acc_time = (this.options.time || this.options.max_time) / 2
             r = rN[n] = min(1, this.t / acc_time)
           } else {
-            // increment by 1/min_reweights, then backtrack as needed
+            // increment by 1/min_reweights, then backtrack by 1/2 as needed
             if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
             else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
-            // debug('r', r)
           }
         }
         weight.init_log_wr?.(r, n, this)
@@ -2034,9 +2030,8 @@ class _Sampler {
               log_rwJ[j] += log_w
               // }
             } else {
-              log_rwJ[j] += log_w // -log_wr._base (below)
-              _log_rwJ_base[j] += log_wr._base
-              log_wr._last = log_w // becomes _base in next reweight
+              log_rwJ[j] += log_w // -base computed & subtracted below
+              if (_rN[n]) _log_rwJ_base[j] += log_wr(_rN[n], n, weight, this)
             }
           }
         }
@@ -2227,10 +2222,6 @@ class _Sampler {
         yJK[j] = array(K) // replace array since moved into xJK
         log_p_xJK[j] = log_p_yJK[j]
         log_p_yJK[j] = array(K)
-        // maintain _last on log_wrfJN for log_rwJ (see comment in _reweight)
-        log_wrfJN[j] = apply(log_cwrfJN[j], (log_cwr, n) =>
-          set(log_cwr, '_last', log_wrfJN[j][n]._last)
-        )
         log_cwrfJN[j] = array(N)
         log_wrJ[j] = log_cwrJ[j]
         // log_dwj and any other factors in p(accept) are already reflected in
@@ -2431,13 +2422,13 @@ class _Sampler {
       await this._move()
       this.mlw += this.move_log_w
       this.mlp += this.move_log_p
-      if (timer.t >= quantum) return // continue (will resume move)
       if (this.t >= max_time) {
         if (this.options.warn)
           warn(`last move step (u=${this.u}) cut short due to max_time`)
         this.resume_move = false
         return // continue (will terminate updates on next call)
       }
+      if (timer.t >= quantum) return // continue (will resume move)
     }
     this.resume_move = false
     return // continue
@@ -3179,11 +3170,12 @@ class _Sampler {
   }
 
   __ess() {
-    const ε = 1e-6
-    // for official ess, we require unscaled_rwj_sum to be >=ε
-    // in particular this means ess=0 if all weights go to 0 (or -inf)
-    const unscaled_rwj_sum = sum(this.log_rwJ, exp)
-    return unscaled_rwj_sum < ε ? 0 : this.rwj_ess
+    // const ε = 1e-6
+    // // for official ess, we require unscaled_rwj_sum to be >=ε
+    // // in particular this means ess=0 if ALL weights are -inf
+    // const unscaled_rwj_sum = sum(this.log_rwJ, exp)
+    // return unscaled_rwj_sum < ε ? 0 : this.rwj_ess
+    return this.rwj_sum > 0 ? this.rwj_ess : 0
   }
 
   __elw() {
@@ -3733,7 +3725,7 @@ class _Sampler {
       j, // in
       r, // in
       // out, contains functions log_wr w/ properties
-      //   _d, _log_p, _stats(r), _x, _base, _last
+      //   _d, _log_p, _stats(r), _x
       log_wrfJN,
     } = this
 
