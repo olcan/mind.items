@@ -268,6 +268,7 @@ function _test_matrixify() {
 
 // transposes matrix `xJK → xKJ`
 // matrixifies scalar/vector argument as needed
+// row type matches that of argument
 function transpose(xJK) {
   xJK = matrixify(xJK)
   const J = xJK.length
@@ -340,6 +341,7 @@ function _benchmark_transpose() {
 // dot product `xJZ.transpose(yKZ)`
 // multiplies _rows into rows_ (not rows into columns)
 // matrixifies scalar/vector arguments as needed
+// row type matches that of first argument
 function dot(xJZ, yKZ) {
   // NOTE: rows into rows, NOT rows into cols
   xJZ = matrixify(xJZ)
@@ -354,8 +356,9 @@ function dot(xJZ, yKZ) {
     Z = xJZ[0].length
   if (yKZ[0].length != Z) fatal('incompatible arguments')
   let zJK = new Array(J)
+  const Row = xJZ[0].constructor // could be Array, Float32Array, etc
   for (let j = 0; j < J; ++j) {
-    const zjK = (zJK[j] = new Array(K))
+    const zjK = (zJK[j] = new Row(K))
     const xjZ = xJZ[j]
     for (let k = 0; k < K; ++k) {
       const ykZ = yKZ[k]
