@@ -96,11 +96,11 @@ const freeze_deep = obj => invoke_deep(obj, freeze)
 // `reject` predicate can be used to skip values (w/ contents)
 const values_deep = (obj, accept = is_primitive, reject = undefined) => {
   if (reject?.(obj)) return []
-  const vJ = accept(obj) ? [obj] : []
+  let vJ = accept(obj) ? [obj] : []
   if (is_array(obj))
-    for (const o of obj) vJ.push(...values_deep(o, accept, reject))
+    for (const o of obj) vJ = vJ.concat(values_deep(o, accept, reject))
   else if (is_object(obj))
-    for (const o of values(obj)) vJ.push(...values_deep(o, accept, reject))
+    for (const o of values(obj)) vJ = vJ.concat(values_deep(o, accept, reject))
   return vJ
 }
 
@@ -465,7 +465,7 @@ function parse(text) {
     if (is_object(v)) {
       if (is_string(v.__function)) return unpack(v)
       if (is_string(v.__constructor))
-        return new get(self, v.__constructor)(...v.__args)
+        return new (get(self, v.__constructor))(...v.__args)
     }
     return v
   })
