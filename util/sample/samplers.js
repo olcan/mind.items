@@ -567,6 +567,7 @@ function normal_tensor(shape = [], μ = 0, σ = 1, options) {
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
   const sorted = options?.sorted ?? false
+  const jump_scale = options?.jump_scale ?? 1
 
   const dom = {}
   dom._from = x =>
@@ -599,7 +600,7 @@ function normal_tensor(shape = [], μ = 0, σ = 1, options) {
       }
     }
     const stdevD = apply(sub(ssD, mul(sD, sD)), v => (v >= 1e-12 ? sqrt(v) : σ))
-    return { scaled_stdev: scale(stdevD, 1 / sqrt(D)) }
+    return { scaled_stdev: scale(stdevD, jump_scale / sqrt(D)) }
   }
 
   dom._posterior = (f, x, { scaled_stdev }) =>
@@ -637,6 +638,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, options) {
   if (a >= b) return null
   const sorted = options?.sorted ?? false
   const type = options?.type ?? Int32Array
+  const p_stay = options?.p_stay ?? 0.5
 
   const dom = {}
   dom._from = x =>
@@ -654,7 +656,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, options) {
   dom._log_p = x => log_z
 
   // custom _stats that can be faster as it can assume all values are defined
-  const wi_base = 1 / I // uniform base weight for posterior sampler
+  const wi_base = 1 // uniform base weight for posterior sampler
   dom._stats = (k, value, { xJK, rwJ, rwj_sum }) => {
     const J = rwJ.length
     const wDI = array(D, () => new Float32Array(I).fill(wi_base))
@@ -666,7 +668,6 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, options) {
     return { wDI, wi_sum: I * wi_base + rwj_sum }
   }
 
-  const p_stay = 0.5 // p(stay)
   dom._posterior = (f, x, { wDI, wi_sum }) =>
     f(
       _random_uniform_tensor(
@@ -674,7 +675,10 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, options) {
         D,
         (u, d) => {
           // note sampling boolean(p_stay) is equivalent to adjusting wI[x-a] by (p_stay/(1-p_stay)) * wi_sum
-          if (random_boolean(p_stay)) return x._data[d]
+          if (u < p_stay) return x._data[d]
+          u = (u - p_stay) / (1 - p_stay)
+          // return a + ~~(u * I)
+
           // logic from random_discrete in #util/stat
           // return random_discrete(wDI[d], wi_sum)
           const wI = wDI[d]
