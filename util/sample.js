@@ -1883,6 +1883,7 @@ class _Sampler {
     const ess = round(this.ess)
     const essu = round(this.essu)
     const mks = round_to(this.mks, 3)
+    // note ess/essu here can be identical if there is resampling before move
     _this.show_status(
       `t:${this.t} u:${this.u}, r:${r}, ess:${ess}/${essu}, a:${this.a}/${this.p}, mks:${mks}`.replace(
         /Infinity/g,
@@ -2320,6 +2321,8 @@ class _Sampler {
     // NOTE: not forced on final step, so ess can be unrealistic (and r low) if updates are terminated early, e.g. due to max_time
     if (this.optimizing || this.accumulating || reweight_if(this))
       await this._reweight()
+
+    // debug('ess', this.ess, 'essu', this.essu)
 
     // update stats to complete update step this.u
     this._update_stats()
