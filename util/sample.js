@@ -286,7 +286,7 @@ function density(x, domain) {
 // |               | `sampler.aK` is accepts per posterior "pivot"
 // |               | `sampler.uaK` is accepts per prior "jump" value
 // |               | _default_: `({essu,J,a,awK,uawK}) =>`
-// |               | `(essu<.9*J || a<J || max_in(awK)>0 || max_in(uawK)>0)`
+// |               | `(essu<.5*J || a<J || max_in(awK)>0 || max_in(uawK)>0)`
 // |               | see `move_weights` below for `awK` and `uawK`
 // |               | default allows `essu→J` while tolerating some slow-movers
 // | `move_weights`| move weight function `(sampler, awK, uawK) => …`
@@ -549,7 +549,7 @@ class _Sampler {
         max_reweight_tries: this.optimizing || this.accumulating ? 1 : 100,
         resample_if: ({ ess, essu, J }) => ess / essu < clip(essu / J, 0.5, 1),
         move_while: ({ essu, J, a, awK, uawK }) =>
-          essu < 0.9 * J || a < J || max_in(awK) > 0 || max_in(uawK) > 0,
+          essu < 0.5 * J || a < J || max_in(awK) > 0 || max_in(uawK) > 0,
         move_weights: ({ aK, uaK, atK, uatK }, awK, uawK) => {
           fill(awK, k => max(0, atK[k] - aK[k]))
           fill(uawK, k => max(0, uatK[k] - uaK[k]))
@@ -631,7 +631,7 @@ class _Sampler {
     this._jJ = array(J)
     this._xJ = array(J)
     this._xJK = array(J)
-    this._uaJK = array(J)
+    this._uaJK = array(J) // rows are copied-on-write in _move
     this._log_p_xJK = array(J)
     this._log_wrfJN = array(J)
     this._log_wrJ = array(J)
@@ -1883,8 +1883,12 @@ class _Sampler {
     const essu = round(this.essu)
     const mks = round_to(this.mks, 3)
     // note ess/essu here can be identical if there is resampling before move
+    // Ju<J or aw>0 can indicate slow-moving samples or pivot/jump points
+    const Ju = count(this.uaJK, uajK => max_in(uajK) == this.u)
+    if (Ju > this.a) fatal('uaJK updated w/o accepts', Ju, this.a, this.uaJK)
+    const aw = min(...this.awK, ...this.uawK)
     _this.show_status(
-      `t:${this.t} u:${this.u}, r:${r}, ess:${ess}/${essu}, a:${this.a}/${this.p}, mks:${mks}`.replace(
+      `t:${this.t} u:${this.u}, r:${r}, ess:${ess}/${essu}, Ju:${Ju}/${this.J}, aw:${aw}, a:${this.a}/${this.p}, mks:${mks}`.replace(
         /Infinity/g,
         '∞'
       ),
@@ -1893,10 +1897,12 @@ class _Sampler {
     // debug({
     //   p: this.p,
     //   a: this.a,
-    //   awK: str(this.awK),
-    //   uawk: str(this.uawK),
     //   ess: this.ess,
     //   essu: this.essu,
+    //   Ju,
+    //   aw,
+    //   awK: str(this.awK),
+    //   uawk: str(this.uawK),
     // })
   }
 
@@ -2241,6 +2247,7 @@ class _Sampler {
         jJ[j] = J + j // new index remapped below
         this.move_log_w += log_dwj
         this.move_log_p += log_mpJ[j]
+        uaJK[j] = copy(uaJK[j]) // copy-on-write
         each(upJK[j], (u, k) => {
           if (u != this.u) return
           uaJK[j][k] = u // accepted jump
