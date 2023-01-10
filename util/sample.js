@@ -656,10 +656,10 @@ class _Sampler {
     cache(this, 'rwj_uniform', ['rwJ'], () => _uniform(this.rwJ, this.rwj_sum))
 
     cache(this, 'ess', ['rwj_ess'])
-    // note sum(log_wrJ) is not interesting since it is dominated by -inf log_wr
-    // so instead we report sum-exp(log_wrJ) as lwr metric
-    cache(this, 'lwr', [], () => sum(this.log_wrJ, exp))
-    cache(this, 'lpx', [], () => sum(this.log_p_xJK, lpK => sum(lpK)))
+    // note mean(log_wrJ) is not interesting since it is dominated by -inf log_wr
+    // so instead we report mean-exp(log_wrJ) as lwr metric
+    cache(this, 'lwr', [], () => mean(this.log_wrJ, exp))
+    cache(this, 'lpx', [], () => mean(this.log_p_xJK, lpK => mean(lpK)))
     cache(this, 'rwX', ['rwJ_agg'])
     cache(this, 'elw', ['rwJ'])
     cache(this, 'elp', ['rwJ'])
