@@ -1873,6 +1873,7 @@ class _Sampler {
 
     if (this.u == 0) stats.updates = [update]
     else stats.updates.push(update)
+    // debug('_update_stats', this.u, update)
   }
 
   _update_status() {
@@ -1881,6 +1882,7 @@ class _Sampler {
     const r = round_to(this.r, 3, inf, 'floor')
     const ess = round(this.ess)
     const essu = round(this.essu)
+    const lwr = round_to(this.lwr, 1)
     const mks = round_to(this.mks, 3)
     // note ess/essu here can be identical if there is resampling before move
     // Ju<J or aw>0 can indicate slow-moving samples or pivot/jump points
@@ -1888,7 +1890,7 @@ class _Sampler {
     if (Ju > this.a) fatal('uaJK updated w/o accepts', Ju, this.a, this.uaJK)
     const aw = min(...this.awK, ...this.uawK)
     _this.show_status(
-      `t:${this.t} u:${this.u}, r:${r}, ess:${ess}/${essu}, Ju:${Ju}/${this.J}, aw:${aw}, a:${this.a}/${this.p}, mks:${mks}`.replace(
+      `t:${this.t} u:${this.u} r:${r} lwr:${lwr} ess:${ess}/${essu} Ju:${Ju}/${this.J} aw:${aw} a:${this.a}/${this.p} mks:${mks}`.replace(
         /Infinity/g,
         '∞'
       ),
@@ -2231,6 +2233,7 @@ class _Sampler {
       })
       const log_dwj = log_cwrJ[j] - log_wrJ[j]
       if (random() < exp(log_mwJ[j] + log_mpJ[j] + log_dwj)) {
+        // if (log_dwj < -3) debug('rare accept', this.u, j, log_dwj, log_cwrJ[j])
         // update state to reflect move
         xJ[j] = yJ[j]
         xJK[j] = yJK[j] // can't copy since rows can share arrays
