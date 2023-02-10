@@ -2014,7 +2014,7 @@ class _Sampler {
             const acc_time = (this.options.time || this.options.max_time) / 2
             r = rN[n] = min(1, this.t / acc_time)
           } else {
-            // increment by 1/min_reweights, then backtrack by 1/2 as needed
+            // increment by 1/min_reweights, then backtrack as needed
             if (tries == 0) r = rN[n] = min(1, _rN[n] + 1 / min_reweights)
             else r = rN[n] = _rN[n] + (rN[n] - _rN[n]) * random()
           }
