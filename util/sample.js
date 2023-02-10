@@ -290,6 +290,7 @@ function density(x, domain) {
 // |               | see `move_weights` below for `awK` and `uawK`
 // |               | default allows `essu→J` while tolerating some slow-movers
 // | `move_weights`| move weight function `(sampler, awK, uawK) => …`
+// |               | `awK` and `awK` must be filled w/ weights `∊[0,1]`
 // |               | _default_ uses deficiencies in `move_targets` below
 // | `move_targets`| move target function `(sampler, atK, uatK) => …`
 // |               | _default_ splits accepts uniformly over sampled values
@@ -321,9 +322,9 @@ function density(x, domain) {
 // |               | shorter = more responsive document & main thread in async mode
 // |               | longer = less dispatch/await delay in async mode
 // |               | affects only number of quanta in sync mode
-// | `opt_time`    | optimization time, should be `<max_time`
+// | `opt_time`    | optimization time, must be `<max_time`
 // |               | _default_: `(time || max_time) / 2`
-// | `opt_penalty` | optimization penalty, should be `<0`, _default_: `-5`
+// | `opt_penalty` | optimization penalty, must be `<0`, _default_: `-5`
 // |               | used as default `log_w` for sub-optimal samples
 // |               | must be finite to allow non-opt. weights/conditions
 // |               | must be small for ess to be close to expected for quantile
@@ -551,15 +552,15 @@ class _Sampler {
         move_while: ({ essu, J, a, awK, uawK }) =>
           essu < 0.5 * J || a < J || max_in(awK) > 0 || max_in(uawK) > 0,
         move_weights: ({ aK, uaK, atK, uatK }, awK, uawK) => {
-          fill(awK, k => max(0, atK[k] - aK[k]))
-          fill(uawK, k => max(0, uatK[k] - uaK[k]))
+          sum_normalize(fill(awK, k => max(0, atK[k] - aK[k])))
+          sum_normalize(fill(uawK, k => max(0, uatK[k] - uaK[k])))
         },
         move_targets: ({ J /*, r, accumulating*/ }, atK, uatK) => {
           // split J or .1*J, excluding non-sampled (e.g. "predicted") values
           fill(atK, k => (this.values[k].sampling ? 1 : 0))
           fill(uatK, k => (this.values[k].sampling ? 1 : 0))
-          if (sum(atK) > 0) scale(atK, J / sum(atK))
-          if (sum(uatK) > 0) scale(uatK, (0.1 * J) / sum(uatK))
+          scale(sum_normalize(atK), J)
+          scale(sum_normalize(uatK), 0.1 * J)
           // if (optimizing && r == 1) scale(uatK, 0)
           // if (accumulating && r == 1) scale(uatK, 0)
           // if (accumulating && r == 1) scale(atK, 0)
@@ -2197,13 +2198,14 @@ class _Sampler {
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
 
-    // choose random pivot based on uaJK, awK, and uawK
+    // choose random pivot based on awK and uawK
     // note exploration matters for optimization also
     // random_discrete_uniform_array(kJ, K)
     const wK = (this._move_wK ??= array(K))
     each(uaJK, (uajK, j) => {
-      fill(wK, k => this.u - uajK[k] || awK[k] || uawK[k])
-      fill(wK, k => awK[k] || uawK[k])
+      // NOTE: this significantly hurt performance on example 3
+      // fill(wK, k => this.u - uajK[k] + awK[k] + uawK[k])
+      fill(wK, k => awK[k] + uawK[k])
       kJ[j] = random_discrete(wK)
     })
 
@@ -2240,6 +2242,7 @@ class _Sampler {
         yJK[j] = array(K) // replace array since moved into xJK
         log_p_xJK[j] = log_p_yJK[j]
         log_p_yJK[j] = array(K)
+        log_wrfJN[j] = log_cwrfJN[j]
         log_cwrfJN[j] = array(N)
         log_wrJ[j] = log_cwrJ[j]
         // log_dwj and any other factors in p(accept) are already reflected in
@@ -2601,9 +2604,9 @@ class _Sampler {
         row.push(`${nstr(prior)} → ${nstr(post)}`)
         row.push((delta > 0 ? '+' : '') + nstr(delta))
       } else {
-        scale(wJ, 1 / sum(wJ))
+        sum_normalize(wJ)
         _rank_aggregated(xJ, wJ)
-        scale(pwJ, 1 / sum(pwJ))
+        sum_normalize(pwJ)
         const pwX = _rank_aggregated(pxJ, pwJ)
         const j_best = _max_index_by(xJ.length, j => wJ[j])
         const x_post = xJ[j_best]
@@ -3303,9 +3306,11 @@ class _Sampler {
     const rwbJk = (this.___mks_rwbJk ??= array(J))
 
     // unless optimizing, use only samples fully updated since buffered update
+    // NOTE: otherwise mks will be biased low and may cause early stopping
     // cancel if updated samples do not have at least 1/2 weight
     if (this.optimizing) copy(wJ, rwJ)
     else copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
+    // else copy(wJ, rwJ, (w, j) => (max_in(uaJK[j]) > uB[0] ? w : 0))
     const wj_sum = sum(wJ)
     if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
     const wj_uniform = _uniform(wJ, wj_sum)
@@ -3627,15 +3632,15 @@ class _Sampler {
       return (yjK[k] = xjk)
     }
 
-    // if at pivot, compute jump weights for unsampled values based on uaJK
+    // if at pivot, compute jump weights for unsampled values based on uawK
     // unsampled values are pivot + past-pivot values
     if (k == k_pivot) {
-      // copy(upwK, uawK, (w, k) => (yjK[k] === undefined ? w : 0))
-      copy(upwK, uaJK[j], (u, k) =>
-        yjK[k] === undefined ? this.u - u || uawK[k] : 0
-      )
-      const s = sum(upwK)
-      if (s) scale(upwK, 1 / s)
+      // NOTE: this significantly hurt performance on example 3
+      // copy(upwK, uaJK[j], (u, k) =>
+      //   yjK[k] === undefined ? this.u - u + uawK[k] : 0
+      // )
+      copy(upwK, uawK, (w, k) => (yjK[k] === undefined ? w : 0))
+      sum_normalize(upwK)
     }
 
     // if at or past pivot, resample "jump" value from prior

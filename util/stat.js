@@ -894,6 +894,13 @@ const sum_of = sum
 const mean = (xJ, f = undefined) => sum(xJ, f) / xJ.length
 const mean_of = mean
 
+// `≡ scale(xJ, 1/sum(xJ))`
+// `≡ xJ` if `sum(xJ) ≤ 0`
+function sum_normalize(xJ) {
+  const s = sum(xJ)
+  return s > 0 ? scale(xJ, 1 / s) : xJ
+}
+
 // variance of sample `xJ`
 function variance(xJ) {
   let z = 0
