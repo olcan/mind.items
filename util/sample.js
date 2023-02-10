@@ -708,9 +708,9 @@ class _Sampler {
         }
         if (this.J == 1) return // skip updates/posterior/output in debug mode
 
-        // skip updates if unweighted && no targets specified
+        // skip updates if unweighted
         // note unweighted means weight(…) never invoked during prior run
-        if (this.weighted || this.values.some(v => v.target)) {
+        if (this.weighted) {
           while (!this.done) {
             try {
               await invoke(async () => {
@@ -732,7 +732,7 @@ class _Sampler {
             await _update_dom()
             this.pending_time += timer.t
           }
-        }
+        } else this._done() // skip updates
         await this._output()
       })).finally(() => {
         if (this.workers) each(this.workers, close_worker) // close workers
@@ -744,7 +744,7 @@ class _Sampler {
     if (this.J == 1) return // skip updates/posterior/output in debug mode
 
     // skip updates if unnecessary (see comments above)
-    if (this.weighted || this.values.some(v => v.target)) {
+    if (this.weighted) {
       const timer = _timer_if(stats)
       while (!this.done) {
         this._update() // not async in sync mode
@@ -753,7 +753,7 @@ class _Sampler {
         options.on_quantum?.(this) // invoke optional handler
       }
       if (stats) stats.time.update = timer.t
-    }
+    } else this._done() // skip updates
     this._output()
   }
 
@@ -2659,6 +2659,7 @@ class _Sampler {
       const lwr = round_to(this.lwr, 1)
       const lpx = round_to(this.lpx, 1)
       const mks = round_to(this.mks, 3)
+      const tks = round_to(this.tks, 1)
       _this.write(
         table(
           entries({
@@ -2668,6 +2669,7 @@ class _Sampler {
             lwr,
             lpx,
             mks,
+            ...(options.targets ? { tks } : {}),
             // also omit t since redundant and confusable w/ x.t
             ...omit(last(stats.updates), [
               't',
@@ -2676,6 +2678,7 @@ class _Sampler {
               'lwr',
               'lpx',
               'mks',
+              'tks',
             ]),
           })
         ).replace(/Infinity/g, '∞'),
