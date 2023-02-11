@@ -310,6 +310,7 @@ function density(x, domain) {
 // |               | integer values `≥1` are interpreted as _mks periods_
 // |               | default is `1` when optimizing or accumulating
 // | `mks_period`  | minimum update steps for `mks`, _default_: `1`
+// | `mks_bias`    | bias in `mks` toward updated/moved values, _default_: `2`
 // | `updates`     | target number of update steps, _default_: auto
 // |               | _warning_: can cause pre-posterior sampling w/o warning
 // |               | changes default `max_updates` to `inf`
@@ -575,6 +576,7 @@ class _Sampler {
         max_mks: 1,
         mks_tail: this.optimizing || this.accumulating ? 1 : 0.5,
         mks_period: 1,
+        mks_bias: 2,
         max_tks: 5,
         quantum: 100,
       },
@@ -3276,7 +3278,7 @@ class _Sampler {
     const timer = _timer_if(this.stats)
     const { u, J, K, uB, xBJK, log_p_xBJK, rwBJ, rwBj_sum, xJK, uaJK } = this
     const { log_p_xJK, rwJ, rwj_sum, stats } = this
-    const { mks_tail, mks_period } = this.options
+    const { mks_tail, mks_period, mks_bias } = this.options
     if (K == 0) return 0 // no values
     // if (!this.values.some(v => v.sampling)) return 0 // no sampling
     // if (!this.values.some(v => defined(v.first) && is_primitive(v.first)))
@@ -3304,20 +3306,9 @@ class _Sampler {
     const yJ = (this.___mks_yJ ??= array(J))
     const log_p_xJ = (this.___mks_log_p_xJ ??= array(J))
     const log_p_yJ = (this.___mks_log_p_yJ ??= array(J))
-    const wJ = (this.___mks_wJ ??= array(J))
-    // buffers to copy wJ and rwBJ[0] inside loop since ks2 can modify
+    // buffers to copy rwJ and rwBJ[0] inside loop since ks2 can modify
     const wJk = (this.___mks_wJk ??= array(J))
     const rwbJk = (this.___mks_rwbJk ??= array(J))
-
-    // unless optimizing, use only samples fully updated since buffered update
-    // NOTE: otherwise mks will be biased low and may cause early stopping
-    // cancel if updated samples do not have at least 1/2 weight
-    if (this.optimizing) copy(wJ, rwJ)
-    else copy(wJ, rwJ, (w, j) => (min_in(uaJK[j]) > uB[0] ? w : 0))
-    // else copy(wJ, rwJ, (w, j) => (max_in(uaJK[j]) > uB[0] ? w : 0))
-    const wj_sum = sum(wJ)
-    if (wj_sum < 0.5 * rwj_sum) return inf // not enough samples/weight
-    const wj_uniform = _uniform(wJ, wj_sum)
 
     // first compute ks for prior densities, which apply to all value types
     const pRpx = fill((this.___mks_pKpx ??= array(K)), k => {
@@ -3326,9 +3317,15 @@ class _Sampler {
       // first compute ks for prior densities, which apply to all value types
       copy(log_p_xJ, log_p_xJK, log_p_xjK => log_p_xjK[k])
       copy(log_p_yJ, log_p_xBJK[0], log_p_yjK => log_p_yjK[k])
+      // NOTE: we bias weights toward values updated/moved since last buffer
+      //       (taking only updated values has proven too strict empirically)
+      copy(wJk, rwJ, (w, j) => w * (uaJK[j][k] > uB[0] ? mks_bias : 1))
+      const wjk_sum = sum(wJk)
+      if (wjk_sum == 0) return // value (effectively) not sampled/predicted
+      const wjk_uniform = _uniform(wJk, wjk_sum)
       return ks2_test(log_p_xJ, log_p_yJ, {
-        wJ: wj_uniform ? undefined : copy(wJk, wJ),
-        wj_sum: wj_uniform ? undefined : wj_sum,
+        wJ: wjk_uniform ? undefined : wJk,
+        wj_sum: wjk_uniform ? undefined : wjk_sum,
         wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
         wk_sum: rwBj_sum[0],
       })
@@ -3341,9 +3338,13 @@ class _Sampler {
       if (!is_primitive(value.first)) return // value not primitive
       copy(xJ, xJK, xjK => xjK[k])
       copy(yJ, xBJK[0], yjK => yjK[k])
+      copy(wJk, rwJ, (w, j) => w * (uaJK[j][k] > uB[0] ? mks_bias : 1))
+      const wjk_sum = sum(wJk)
+      if (wjk_sum == 0) return // value (effectively) not sampled/predicted
+      const wjk_uniform = _uniform(wJk, wjk_sum)
       return ks2_test(xJ, yJ, {
-        wJ: wj_uniform ? undefined : copy(wJk, wJ),
-        wj_sum: wj_uniform ? undefined : wj_sum,
+        wJ: wjk_uniform ? undefined : wJk,
+        wj_sum: wjk_uniform ? undefined : wjk_sum,
         wK: rwBJ[0] ? copy(rwbJk, rwBJ[0]) : undefined,
         wk_sum: rwBj_sum[0],
         filter: true, // filter undefined
