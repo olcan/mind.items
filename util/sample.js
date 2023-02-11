@@ -2463,7 +2463,8 @@ class _Sampler {
     this.done = true // no more updates
     // warn about r<1 and tks>max_tks if warnings enabled
     if (options.warn) {
-      if (r < 1) warn(`pre-posterior sample w/ r=${round_to(r, 3)}<1`)
+      if (this.weighted && r < 1)
+        warn(`pre-posterior sample w/ r=${round_to(r, 3)}<1`)
       if (tks > options.max_tks) {
         warn(`failed to achieve target tks=${tks}≤${options.max_tks}`)
         print('tks_pK:', str(zip_object(this.nK, round_to(this.___tks_pK, 3))))
