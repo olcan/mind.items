@@ -1882,21 +1882,24 @@ class _Sampler {
   _update_status() {
     if (!this.options.status) return
     const t = round(this.t / 1000)
-    const r = round_to(this.r, 3, inf, 'floor')
+    const r = round_to(this.r, '3', inf, 'floor')
     const ess = round(this.ess)
     const essu = round(this.essu)
-    const lwr = round_to(this.lwr, 1)
-    const mks = round_to(this.mks, 3)
+    const lwr = round_to(this.lwr, '1')
+    const mks = round_to(this.mks, '3')
     // note ess/essu here can be identical if there is resampling before move
-    // Ju<J or aw>0 can indicate slow-moving samples or pivot/jump points
+    // Ju<J, aw>0, or uaw>0 can indicate slow-moving samples or pivot/jump points
     const Ju = count(this.uaJK, uajK => max_in(uajK) == this.u)
     if (Ju > this.a) fatal('uaJK updated w/o accepts', Ju, this.a, this.uaJK)
-    const aw = min(...this.awK, ...this.uawK)
+    const aw = round_to(max_in(this.awK), '1')
+    const uaw = round_to(max_in(this.uawK), '1')
+    const n_aw = this.nK[this.awK.indexOf(max_in(this.awK))]
+    const n_uaw = this.nK[this.uawK.indexOf(max_in(this.uawK))]
     _this.show_status(
-      `t:${this.t} u:${this.u} r:${r} lwr:${lwr} ess:${ess}/${essu} Ju:${Ju}/${this.J} aw:${aw} a:${this.a}/${this.p} mks:${mks}`.replace(
-        /Infinity/g,
-        '∞'
-      ),
+      (
+        `t:${this.t} u:${this.u} r:${r} lwr:${lwr} ess:${ess}/${essu} mks:${mks} <br>` +
+        `a:${this.a}/${this.p} Ju:${Ju}/${this.J} aw:${aw}(${n_aw}) uaw:${uaw}(${n_uaw})`
+      ).replace(/Infinity/g, '∞'),
       r
     )
     // debug({
@@ -2200,7 +2203,7 @@ class _Sampler {
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
 
-    // choose random pivot based on awK and uawK
+    // choose random pivot based on awK
     // note exploration matters for optimization also
     // random_discrete_uniform_array(kJ, K)
     const wK = (this._move_wK ??= array(K))
@@ -2208,7 +2211,8 @@ class _Sampler {
       // NOTE: this significantly hurt performance on example 3
       // fill(wK, k => this.u - uajK[k] + awK[k] + uawK[k])
       fill(wK, k => awK[k] + uawK[k])
-      kJ[j] = random_discrete(wK)
+      // fill(wK, k => awK[k])
+      kJ[j] = random_discrete(wK) // uniform if all zeroes
     })
 
     this.moving = true // enable posterior chain sampling into yJK in _sample
