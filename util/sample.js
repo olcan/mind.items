@@ -290,7 +290,7 @@ function density(x, domain) {
 // |               | see `move_weights` below for `awK` and `uawK`
 // |               | default allows `essu→J` while tolerating some slow-movers
 // | `move_weights`| move weight function `(sampler, awK, uawK) => …`
-// |               | `awK` and `awK` must be filled w/ weights `∊[0,1]`
+// |               | `awK` and `uawK` must be filled w/ weights `≥0`
 // |               | _default_ uses deficiencies in `move_targets` below
 // | `move_targets`| move target function `(sampler, atK, uatK) => …`
 // |               | _default_ splits accepts uniformly over sampled values
@@ -553,8 +553,8 @@ class _Sampler {
         move_while: ({ essu, J, a, awK, uawK }) =>
           essu < 0.5 * J || a < J || max_in(awK) > 0 || max_in(uawK) > 0,
         move_weights: ({ aK, uaK, atK, uatK }, awK, uawK) => {
-          sum_normalize(fill(awK, k => max(0, atK[k] - aK[k])))
-          sum_normalize(fill(uawK, k => max(0, uatK[k] - uaK[k])))
+          fill(awK, k => max(0, atK[k] - aK[k]))
+          fill(uawK, k => max(0, uatK[k] - uaK[k]))
         },
         move_targets: ({ J /*, r, accumulating*/ }, atK, uatK) => {
           // split J or .1*J, excluding non-sampled (e.g. "predicted") values
@@ -1891,8 +1891,8 @@ class _Sampler {
     // Ju<J, aw>0, or uaw>0 can indicate slow-moving samples or pivot/jump points
     const Ju = count(this.uaJK, uajK => max_in(uajK) == this.u)
     if (Ju > this.a) fatal('uaJK updated w/o accepts', Ju, this.a, this.uaJK)
-    const aw = round_to(max_in(this.awK), '1')
-    const uaw = round_to(max_in(this.uawK), '1')
+    const aw = round_to(max_in(this.awK), 1)
+    const uaw = round_to(max_in(this.uawK), 1)
     const n_aw = this.nK[this.awK.indexOf(max_in(this.awK))]
     const n_uaw = this.nK[this.uawK.indexOf(max_in(this.uawK))]
     _this.show_status(
@@ -2203,17 +2203,10 @@ class _Sampler {
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
 
-    // choose random pivot based on awK, uawK
+    // choose random pivot based on awK
     // note exploration matters for optimization also
     // random_discrete_uniform_array(kJ, K)
-    const wK = (this._move_wK ??= array(K))
-    each(uaJK, (uajK, j) => {
-      // NOTE: this significantly hurt performance on example 3
-      // fill(wK, k => this.u - uajK[k] + awK[k] + uawK[k])
-      fill(wK, k => awK[k] + uawK[k]) // balance both until one side is zeroes
-      // fill(wK, k => awK[k])
-      kJ[j] = random_discrete(wK) // uniform if all zeroes
-    })
+    each(uaJK, (uajK, j) => (kJ[j] = random_discrete(awK)))
 
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wrfJN = log_wrfJN // to be restored below
@@ -3643,14 +3636,8 @@ class _Sampler {
 
     // if at pivot, compute jump weights for unsampled values based on uawK
     // unsampled values are pivot + past-pivot values
-    if (k == k_pivot) {
-      // NOTE: this significantly hurt performance on example 3
-      // copy(upwK, uaJK[j], (u, k) =>
-      //   yjK[k] === undefined ? this.u - u + uawK[k] : 0
-      // )
-      copy(upwK, uawK, (w, k) => (yjK[k] === undefined ? w : 0))
-      sum_normalize(upwK)
-    }
+    if (k == k_pivot)
+      sum_normalize(copy(upwK, uawK, (w, k) => (yjK[k] === undefined ? w : 0)))
 
     // if at or past pivot, resample "jump" value from prior
     // always resample if xjk is missing (can only happen past pivot)

@@ -609,7 +609,8 @@ function normal_tensor(shape = [], μ = 0, σ = 1, options) {
       _random_normal_tensor(
         shape,
         D,
-        (y, d) => x._data[d] + (y > jump_threshold ? y : 0) * scaled_stdev[d],
+        (y, d) =>
+          x._data[d] + (abs(y) > jump_threshold ? y : 0) * scaled_stdev[d],
         sorted
       )
     )
