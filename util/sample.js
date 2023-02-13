@@ -1893,9 +1893,8 @@ class _Sampler {
     if (Ju > this.a) fatal('uaJK updated w/o accepts', Ju, this.a, this.uaJK)
     const aw = round_to(max_in(this.awK), 1)
     const uaw = round_to(max_in(this.uawK), 1)
-    const n_aw = aw == 0 ? 'n/a' : this.nK[this.awK.indexOf(max_in(this.awK))]
-    const n_uaw =
-      uaw == 0 ? 'n/a' : this.nK[this.uawK.indexOf(max_in(this.uawK))]
+    const n_aw = aw == 0 ? '·' : this.nK[this.awK.indexOf(max_in(this.awK))]
+    const n_uaw = uaw == 0 ? '·' : this.nK[this.uawK.indexOf(max_in(this.uawK))]
     _this.show_status(
       (
         `t:${this.t} u:${this.u} r:${r} lwr:${lwr} ess:${ess}/${essu} mks:${mks} <br>` +
