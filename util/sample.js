@@ -2203,14 +2203,14 @@ class _Sampler {
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
 
-    // choose random pivot based on awK
+    // choose random pivot based on awK, uawK
     // note exploration matters for optimization also
     // random_discrete_uniform_array(kJ, K)
     const wK = (this._move_wK ??= array(K))
     each(uaJK, (uajK, j) => {
       // NOTE: this significantly hurt performance on example 3
       // fill(wK, k => this.u - uajK[k] + awK[k] + uawK[k])
-      fill(wK, k => awK[k] + uawK[k])
+      fill(wK, k => awK[k] + uawK[k]) // balance both until one side is zeroes
       // fill(wK, k => awK[k])
       kJ[j] = random_discrete(wK) // uniform if all zeroes
     })
