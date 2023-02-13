@@ -1882,7 +1882,7 @@ class _Sampler {
   _update_status() {
     if (!this.options.status) return
     const t = round(this.t / 1000)
-    const r = round_to(this.r, '3', inf, 'floor')
+    const r = round_to(this.r, 3, inf, 'floor')
     const ess = round(this.ess)
     const essu = round(this.essu)
     const lwr = round_to(this.lwr, '1')
