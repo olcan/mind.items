@@ -2205,10 +2205,18 @@ class _Sampler {
     each(log_p_yJK, log_p_yjK => fill(log_p_yjK, 0))
     each(upJK, upjK => fill(upjK, 0))
 
-    // choose random pivot based on awK
+    // choose random pivot based on awK, uawK (mixing helps avoid local minima)
     // note exploration matters for optimization also
     // random_discrete_uniform_array(kJ, K)
-    each(uaJK, (uajK, j) => (kJ[j] = random_discrete(awK)))
+    const wK = (this._move_wK ??= array(K))
+    const awK_norm = sum_normalize(copy((this._move_awK ??= array(K)), awK))
+    const uawK_norm = sum_normalize(copy((this._move_uawK ??= array(K)), uawK))
+    each(uaJK, (uajK, j) => {
+      // NOTE: this significantly hurt performance on example 3
+      // fill(wK, k => (this.u - uajK[k]) + awK_norm[k] + uawK_norm[k])
+      fill(wK, k => awK_norm[k] + uawK_norm[k]) // balance until one side all 0s
+      kJ[j] = random_discrete(wK) // uniform if all 0s
+    })
 
     this.moving = true // enable posterior chain sampling into yJK in _sample
     const tmp_log_wrfJN = log_wrfJN // to be restored below
