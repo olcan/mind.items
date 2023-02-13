@@ -568,6 +568,7 @@ function normal_tensor(shape = [], μ = 0, σ = 1, options) {
   if (!is_finite(σ) || σ <= 0) return undefined
   const sorted = options?.sorted ?? false
   const jump_scale = options?.jump_scale ?? 1
+  const jump_threshold = options?.jump_threshold ?? 0
 
   const dom = {}
   dom._from = x =>
@@ -608,7 +609,7 @@ function normal_tensor(shape = [], μ = 0, σ = 1, options) {
       _random_normal_tensor(
         shape,
         D,
-        (y, d) => x._data[d] + y * scaled_stdev[d],
+        (y, d) => x._data[d] + (y > jump_threshold ? y : 0) * scaled_stdev[d],
         sorted
       )
     )
