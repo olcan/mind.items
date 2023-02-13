@@ -1893,12 +1893,14 @@ class _Sampler {
     if (Ju > this.a) fatal('uaJK updated w/o accepts', Ju, this.a, this.uaJK)
     const aw = round_to(max_in(this.awK), 1)
     const uaw = round_to(max_in(this.uawK), 1)
-    const n_aw = aw == 0 ? '·' : this.nK[this.awK.indexOf(max_in(this.awK))]
-    const n_uaw = uaw == 0 ? '·' : this.nK[this.uawK.indexOf(max_in(this.uawK))]
+    const n_aw =
+      aw == 0 ? '' : '@' + this.nK[this.awK.indexOf(max_in(this.awK))]
+    const n_uaw =
+      uaw == 0 ? '' : '@' + this.nK[this.uawK.indexOf(max_in(this.uawK))]
     _this.show_status(
       (
         `t:${this.t} u:${this.u} r:${r} lwr:${lwr} ess:${ess}/${essu} mks:${mks} <br>` +
-        `a:${this.a}/${this.p} Ju:${Ju}/${this.J} aw:${aw}(${n_aw}) uaw:${uaw}(${n_uaw})`
+        `a:${this.a}/${this.p} Ju:${Ju}/${this.J} aw:${aw}${n_aw} uaw:${uaw}${n_uaw}`
       ).replace(/Infinity/g, '∞'),
       r
     )
