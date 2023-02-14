@@ -3702,7 +3702,8 @@ class _Sampler {
         return (yjK[k] = y)
       },
       xjk,
-      this.statsK[k]
+      this.statsK[k],
+      this
     )
   }
 
