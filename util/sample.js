@@ -2988,7 +2988,7 @@ class _Sampler {
             `#plot .c3-ygrid-line.strong line { opacity: .25 !important }`,
             `#plot .c3-ygrid-line.weak line { opacity: .05 !important }`,
             `#plot .c3-target path { stroke-width:2px }`,
-            `#plot .c3-target { opacity:1 !important }`,
+            // `#plot .c3-target { opacity:1 !important }`,
             // dashed line, grid line legend, and tooltip for mlw/mlp
             `#plot :is(.c3-target-mlw,.c3-target-mlp) path { stroke-dasharray:5,3; }`,
             `#plot :is(.c3-ygrid-line.mlw,.c3-ygrid-line.mlp) line { opacity: 1 !important; stroke-dasharray:5,3;}`,
