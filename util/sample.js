@@ -1897,10 +1897,11 @@ class _Sampler {
       aw == 0 ? '' : '@' + this.nK[this.awK.indexOf(max_in(this.awK))]
     const n_uaw =
       uaw == 0 ? '' : '@' + this.nK[this.uawK.indexOf(max_in(this.uawK))]
+    const ar = round_to((100 * this.a) / max(1, this.p), '2')
     _this.show_status(
       (
         `t:${this.t} u:${this.u} r:${r} lwr:${lwr} ess:${ess}/${essu} mks:${mks} <br>` +
-        `a:${this.a}/${this.p} Ju:${Ju}/${this.J} aw:${aw}${n_aw} uaw:${uaw}${n_uaw}`
+        `a:${this.a}/${this.p} (${ar}%) Ju:${Ju}/${this.J} aw:${aw}${n_aw} uaw:${uaw}${n_uaw}`
       ).replace(/Infinity/g, '∞'),
       r
     )
@@ -2288,6 +2289,7 @@ class _Sampler {
       this.lwr = null // since log_wrJ changed
       this.elw = null // since log_wrfJN changed (though rwJ did not)
       this.lpx = null // since log_p_xJK changed
+      this.statsK = null // since xJK changed
       // note this can be commented out if _sort is based on non-aggregate weight
       this._sort() // since rwJ_agg changed (despite invariant log_rwJ)
     }
