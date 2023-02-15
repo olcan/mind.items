@@ -601,7 +601,7 @@ function normal_tensor(shape = [], μ = 0, σ = 1, options) {
       }
     }
     const stdevD = apply(sub(ssD, mul(sD, sD)), v => (v >= 1e-12 ? sqrt(v) : σ))
-    return { scaled_stdev: scale(stdevD, jump_scale / sqrt(D)) }
+    return { scaled_stdev: scale(stdevD, 1 / sqrt(D)) }
   }
 
   dom._posterior = (f, x, { scaled_stdev }) =>
@@ -610,7 +610,8 @@ function normal_tensor(shape = [], μ = 0, σ = 1, options) {
         shape,
         D,
         (y, d) =>
-          x._data[d] + (abs(y) > jump_threshold ? y : 0) * scaled_stdev[d],
+          x._data[d] +
+          (abs(y) > jump_threshold ? y : 0) * scaled_stdev[d] * jump_scale,
         sorted
       )
     )
@@ -641,6 +642,7 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, options) {
   const sorted = options?.sorted ?? false
   const type = options?.type ?? Int32Array
   const p_stay = options?.p_stay ?? 0.5
+  const p_uniform = options?.p_uniform ?? 0.5
 
   const dom = {}
   dom._from = x =>
@@ -679,7 +681,8 @@ function uniform_integer_tensor(shape = [], a = 0, b = 1, options) {
           // note sampling boolean(p_stay) is equivalent to adjusting wI[x-a] by (p_stay/(1-p_stay)) * wi_sum
           if (u < p_stay) return x._data[d]
           u = (u - p_stay) / (1 - p_stay)
-          // return a + ~~(u * I)
+          if (u < p_uniform) return a + ~~(u * I)
+          u = (u - p_uniform) / (1 - p_uniform)
 
           // logic from random_discrete in #util/stat
           // return random_discrete(wDI[d], wi_sum)
