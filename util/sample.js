@@ -293,7 +293,9 @@ function density(x, domain) {
 // |               | `awK` and `uawK` must be filled w/ weights `≥0`
 // |               | _default_ uses deficiencies in `move_targets` below
 // | `move_targets`| move target function `(sampler, atK, uatK) => …`
-// |               | _default_ splits accepts uniformly over sampled values
+// |               | _default_ splits `J` for `atK` and `jump_rate*J` for `uatK`
+// | `jump_rate`   | target jump rate for default `move_targets`, _default_: `.1`
+// |               | refers to _prior_ jumps (vs _posterior_ "pivots")
 // | `max_updates` | maximum number of update steps, _default_: `1000`
 // | `min_updates` | minimum number of update steps, _default_: `0`
 // | `min_stable_updates` | minimum stable update steps, _default_: `1`
@@ -556,12 +558,15 @@ class _Sampler {
           fill(awK, k => max(0, atK[k] - aK[k]))
           fill(uawK, k => max(0, uatK[k] - uaK[k]))
         },
+        jump_rate: 0.1,
         move_targets: ({ J /*, r, accumulating*/ }, atK, uatK) => {
-          // split J or .1*J, excluding non-sampled (e.g. "predicted") values
+          const jr = options.jump_rate ?? 0.1
+          // split J or jr*J, excluding non-sampled (e.g. "predicted") values
+          // note prior jumps (vs posterior pivots) are generally more expensive
           fill(atK, k => (this.values[k].sampling ? 1 : 0))
           fill(uatK, k => (this.values[k].sampling ? 1 : 0))
           scale(sum_normalize(atK), J)
-          scale(sum_normalize(uatK), 0.1 * J)
+          scale(sum_normalize(uatK), jr * J)
           // if (optimizing && r == 1) scale(uatK, 0)
           // if (accumulating && r == 1) scale(uatK, 0)
           // if (accumulating && r == 1) scale(atK, 0)
@@ -642,6 +647,9 @@ class _Sampler {
     this._rN = array(N)
     this._log_rwJ = array(J) // also used in sort
     this._log_rwJ_base = array(J)
+    // accept_rate checkpoint buffers
+    this._pK = array(K)
+    this._aK = array(K)
 
     // define cached properties
     cache(this, 'pwJ', [])
@@ -2441,6 +2449,8 @@ class _Sampler {
     fill(this.aK, 0) // accepted moves by pivot value
     fill(this.upK, 0) // proposed moves by jump value
     fill(this.uaK, 0) // accepted moves by jump value
+    fill(this._pK, 0) // accept_rate checkpoint
+    fill(this._aK, 0) // accept_rate checkpoint
     this.mlw = 0 // log_w improvement
     this.mlp = 0 // log_p improvement
     move_targets(this, this.atK, this.uatK)
@@ -3382,6 +3392,35 @@ class _Sampler {
   value_at(k) {
     const { j, moving, xJK, yJK } = this
     return (moving ? yJK : xJK)[j][k]
+  }
+
+  accept_rate(name, options) {
+    const {
+      prior_weight = 10, // relative to proposal counts
+      prior_mean = 0.3, // should be inside target_range
+      target_range = [0.2, 0.4], // should be around prior_mean
+      on_high, // invoked if estimate > target_range[1]
+      on_low, // invoked if estimate < target_range[0]
+    } = options ?? {}
+    if (!(prior_mean > target_range[0] && prior_mean < target_range[1]))
+      fatal(`invalid prior_mean ${prior_mean} or target_range ${target_range}`)
+    const { pK, aK, _pK, _aK } = this
+    const k = this.names.get(name)
+    if (k === undefined)
+      fatal(`unknown value name ${name}; known names:`, str(this.names))
+    const _p = prior_weight
+    const _a = prior_mean * prior_weight
+    const r = (_a + aK[k] - _aK[k]) / (_p + pK[k] - _pK[k])
+    // check target_range and invoke on_low/high and checkpoint stats as needed
+    if ((on_low && r < target_range[0]) || (on_high && r > target_range[1])) {
+      if (r < target_range[0]) on_low(r)
+      else on_high(r)
+      // checkpoint stats for subsequent calls/estimates in same update step
+      // note these are subtracted above and reset back to zero in update()
+      _pK[k] = pK[k]
+      _aK[k] = aK[k]
+    }
+    return r
   }
 
   sample_index(options) {
