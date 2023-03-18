@@ -125,7 +125,7 @@ async function init_pusher() {
   // (getTree is more scalable but can take time to reflect recent commits)
   for (let id of pushables) {
     const item = _item(id)
-    const entry = _this.store.items[id]
+    const state = _this.store.items[id]
     // recompute remote_sha using latest commit for path
     const start = Date.now()
     let remote_sha
@@ -140,13 +140,20 @@ async function init_pusher() {
       } = await github.repos.getCommit({ ...dest, ref: commit.sha })
       remote_sha = files.find(f => f.filename == dest.path)?.sha
     }
-    _this.log(`fetched latest sha for ${item.name} in ${Date.now() - start} ms`)
+    const sha = github_sha(item.text)
+    _this.log(`fetched remote_sha for ${item.name} in ${Date.now() - start} ms`)
     // fix stored remote_sha if inconsistent
-    if (entry.remote_sha != remote_sha) {
-      entry.remote_sha = remote_sha
+    if (state.remote_sha != remote_sha) {
+      state.remote_sha = remote_sha
       _this.warn(`fixed inconsistent remote_sha for ${item.name}`)
     }
-    if (entry.sha != remote_sha) item.pushable = true
+    if (state.sha != remote_sha) {
+      item.pushable = true
+      _this.warn(
+        `marked ${item.name} pushable as sha ` +
+          `${state.sha} != remote_sha ${remote_sha}`
+      )
+    } else _.pull(names, item.name)
   }
   if (count)
     _this.warn(
@@ -263,6 +270,10 @@ function push_item(item, manual = false) {
       if (manual) await _side_push_item(item, manual)
       return
     }
+    // _this.log(
+    //   `pushing item ${item.name} (sha ${github_sha(item.text)}) ...`
+    //   // item.text
+    // )
     try {
       const path = `items/${item.saved_id}.md`
       const commit_sha = _this.global_store.commit_sha
@@ -598,14 +609,11 @@ function auto_push_item(item) {
   // skip if auto-push is disabled for item
   if (item.store._pusher?.auto_push_disabled) return
 
-  if (!item.saved_id) {
-    // retry in 1s
-    setTimeout(() => auto_push_item(item), 1000)
-    return
-  }
+  // retry in 1s if item is not saved yet
+  if (!item.saved_id) return setTimeout(() => auto_push_item(item), 1000)
+
   // if state is missing, create it w/ sha==remote_sha==undefined
-  const state =
-    _this.store.items[item.saved_id] || (_this.store.items[item.saved_id] = {})
+  const state = (_this.store.items[item.saved_id] ??= {})
 
   // cancel auto-push w/ warning if item is inconsistent/missing in dest
   if (state.sha != state.remote_sha) {
@@ -620,7 +628,20 @@ function auto_push_item(item) {
   // skip auto-push if state.sha is same as current sha of item; this means auto-push was triggered without a change OR due to a change that was pulled from github (see pull_item)
   if (state.sha == github_sha(item.text)) return
 
+  // _this.log(
+  //   `auto-pushing item ${item.name} (sha ${github_sha(item.text)}) ...`,
+  //   item.text
+  // )
   push_item(item).catch(e => {}) // errors already logged
+}
+
+function suspend_auto_push(item) {
+  item.store._pusher = merge(item.store._pusher, { auto_push_disabled: true })
+}
+
+function resume_auto_push(item) {
+  item.store._pusher.auto_push_disabled = false
+  auto_push_item(item)
 }
 
 async function pull_item(item) {
