@@ -109,15 +109,43 @@ async function init_pusher() {
   // mark inconsistent items pushable
   // also mark missing items pushable, unless ALL are missing
   // NOTE: side-push inconsistencies for installed items are checked by #updater
-  let count = 0,
-    names = []
+  let count = 0
+  let names = []
+  let pushables = []
   for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
-    // mark pushable if inconsistent or missing (and not all missing)
-    if (remote_sha || pushed_items_found) item.pushable = true
+    // mark "pushable" if inconsistent or missing (and not all missing)
+    if (remote_sha || pushed_items_found) pushables.push(id)
     if (names.length < 10) names.push(item.name)
     count++
+  }
+  // mark pushable items
+  // fetch latest remote_sha using list/getCommit before marking
+  // (getTree is more scalable but can take time to reflect recent commits)
+  for (let id of pushables) {
+    const item = _item(id)
+    const entry = _this.store.items[id]
+    // recompute remote_sha using latest commit for path
+    const start = Date.now()
+    let remote_sha
+    const dest = { owner, repo, path: `items/${id}.md`, branch: 'master' }
+    const {
+      data: [commit],
+    } = await github.repos.listCommits({ ...dest, per_page: 1 })
+    if (commit) {
+      const {
+        data: { files },
+      } = await github.repos.getCommit({ ...dest, ref: commit.sha })
+      remote_sha = files.find(f => f.filename == dest.path)?.sha
+    }
+    _this.log(`fetched latest sha for ${item.name} in ${Date.now() - start} ms`)
+    // fix stored remote_sha if inconsistent
+    if (entry.remote_sha != remote_sha) {
+      entry.remote_sha = remote_sha
+      _this.warn(`fixed inconsistent remote_sha for ${item.name}`)
+    }
+    if (entry.sha != remote_sha) item.pushable = true
   }
   if (count)
     _this.warn(
