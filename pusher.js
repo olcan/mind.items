@@ -134,6 +134,7 @@ async function init_pusher() {
       data: [commit],
     } = await github.repos.listCommits({ ...dest, per_page: 1 })
     if (commit) {
+      _this.log(`latest commit for ${item.name} is ${commit.sha}`)
       const {
         data: { files },
       } = await github.repos.getCommit({ ...dest, ref: commit.sha })
@@ -356,7 +357,11 @@ function push_item(item, manual = false) {
         } catch (e) {} // already logged, just continue
       }
 
-      _this.debug(`pushed ${item.name} to ${dest} in ${Date.now() - start}ms`)
+      _this.debug(
+        `pushed ${item.name} to ${dest} in ${Date.now() - start}ms (commit ${
+          commit.sha
+        })`
+      )
       await _side_push_item(item, manual)
     } catch (e) {
       _this.error(`push failed for ${item.name}: ${e}`)
