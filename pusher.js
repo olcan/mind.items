@@ -111,12 +111,12 @@ async function init_pusher() {
   // NOTE: side-push inconsistencies for installed items are checked by #updater
   let count = 0
   let names = []
-  let pushables = []
+  let pushables = new Set()
   for (let [id, { sha, remote_sha }] of Object.entries(_this.store.items)) {
     const item = _item(id)
     if (sha == remote_sha) continue // item good for auto-push
     // mark "pushable" if inconsistent or missing (and not all missing)
-    if (remote_sha || pushed_items_found) pushables.push(id)
+    if (remote_sha || pushed_items_found) pushables.add(id)
     if (names.length < 10) names.push(item.name)
     count++
   }
@@ -154,6 +154,10 @@ async function init_pusher() {
           `${state.sha} != remote_sha ${remote_sha}`
       )
     } else _.pull(names, item.name)
+  }
+  // clear any unnecessary pushable flags
+  for (let item of _items()) {
+    if (item.pushable && !pushables.has(item.saved_id)) item.pushable = false
   }
   if (count)
     _this.warn(
