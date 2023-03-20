@@ -615,7 +615,10 @@ function auto_push_item(item) {
   // skip if item is deleted
   if (!_exists(item.id)) return
   // skip if auto-push is disabled for item
-  if (item.store._pusher?.auto_push_disabled) return
+  if (item.store._pusher?.auto_push_disabled) {
+    // _this.debug(`skipping auto-push (disabled) for item ${item.name}`)
+    return
+  }
 
   // retry in 1s if item is not saved yet
   if (!item.saved_id) return setTimeout(() => auto_push_item(item), 1000)
@@ -632,9 +635,6 @@ function auto_push_item(item) {
     item.pushable = true // mark pushable again (if not already)
     return
   }
-
-  // skip auto-push if state.sha is same as current sha of item; this means auto-push was triggered without a change OR due to a change that was pulled from github (see pull_item)
-  if (state.sha == github_sha(item.text)) return
 
   // _this.log(
   //   `auto-pushing item ${item.name} (sha ${github_sha(item.text)}) ...`,
