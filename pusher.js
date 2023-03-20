@@ -154,6 +154,7 @@ async function init_pusher() {
           `${state.sha} != remote_sha ${remote_sha}`
       )
     } else {
+      item.pushable = false
       _.pull(names, item.name)
       count--
     }
