@@ -153,7 +153,10 @@ async function init_pusher() {
         `marked ${item.name} pushable as sha ` +
           `${state.sha} != remote_sha ${remote_sha}`
       )
-    } else _.pull(names, item.name)
+    } else {
+      _.pull(names, item.name)
+      count--
+    }
   }
   // clear any unnecessary pushable flags
   for (let item of _items()) {
