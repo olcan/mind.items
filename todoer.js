@@ -372,7 +372,8 @@ function __render(widget, widget_item) {
       if (chosen) last_unchoose_time = Date.now()
       chosen = false
       widget.classList.remove('dragging')
-      widget_item.touch()
+      // _update_dom().then(() => widget_item.touch())
+      // _delay(1000).then(_update_dom).then(() => widget_item.touch())
       // trigger pending render if any
       if (widget._renderPendingDragging) {
         delete widget._renderPendingDragging
