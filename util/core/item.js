@@ -182,6 +182,11 @@ const dispatch_task = (...args) => _this.dispatch_task(...args)
 // cancels named task
 const cancel_task = (...args) => _this.cancel_task(...args)
 
+// pending_task(name)
+// is named task pending completion? (can be waiting or running)
+// can be used to avoid re-dispatch, e.g. for throttling (vs debouncing) runs
+const pending_task = (...args) => _this.pending_task(...args)
+
 // promise(func)
 // new promise _attached_ to item
 // `func` is _executor_ w/ args `(resolve[,reject])`
