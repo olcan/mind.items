@@ -105,6 +105,7 @@ const __delete = (...args) => _this.delete(...args)
 // |`level`  | string   | `debug`, `info*`, `log`, `warn`, `error`
 // |`since`  | string   | `eval*`, `run`, or ms since epoch
 // |`filter` | function | custom predicate, passed object `{time,level,stack,type,text}`
+// |`last`   | bool     | last matching entry pre-filter? (_additive_ w/ `filter`)
 // |         |          | `*` indicates defaults
 const get_log = (...args) => _this.get_log(...args)
 
