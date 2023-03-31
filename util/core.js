@@ -193,6 +193,8 @@ const size = _.size
 
 const uniq = _.uniq
 const uniq_by = _.uniqBy
+const union = _.union
+const intersection = _.intersection
 const diff = _.difference
 const chunk = _.chunk
 const concat = _.concat
