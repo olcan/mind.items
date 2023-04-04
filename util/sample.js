@@ -4086,6 +4086,7 @@ function _run() {
   print('running inside sample(…) due to sampled or simulated values')
   js = flat('(sampler=>{', js, '})').join('\n')
 
+  // merge _sample_options if defined (must be in a `js` block, not `js_input`)
   const options = {}
   if (typeof _sample_options !== 'undefined') {
     if (!is_plain_object(_sample_options)) fatal('invalid _sample_options')
