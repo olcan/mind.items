@@ -9,7 +9,6 @@ const is_item = x => x instanceof _Item
 // => item.eval(code,{…})
 // evaluates `code` in context of `item`
 // _invoke on item; can't be aliased for `_this`_
-// | `code`           | string  | | code to evaluate
 // | `type`           | string  | `js` | prefix code block type
 // | `async`          | bool | `false` | async mode
 // | `async_simple`   | bool | `false` | async w/o `start(…)` wrapper

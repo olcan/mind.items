@@ -1696,6 +1696,7 @@ const fetch_form = (...args) => fetch(...args).then(r => r.formData())
 const fetch_buffer = (...args) => fetch(...args).then(r => r.arrayBuffer())
 const fetch_auto = (...args) =>
   fetch(...args).then(r => {
+    acc
     const length = r.headers.get('content-length')
     if (!length) return undefined // empty or missing body
     const type = r.headers.get('content-type')
