@@ -224,6 +224,7 @@ function __render(widget, widget_item) {
 
     // handle click on list item
     div.onclick = e => {
+      // debug('onclick')
       e.stopPropagation() // do not propagate click to item
       e.preventDefault()
 
@@ -282,9 +283,10 @@ function __render(widget, widget_item) {
     sort: !snoozed, // no reordering for snoozed list
     animation: 150,
     delay: 250,
-    // delay: navigator.maxTouchPoints > 0 ? 250 : 150, // faster on non-touch
     delayOnTouchOnly: true,
-    // touchStartThreshold: 5,
+    // delay: navigator.maxTouchPoints > 0 ? 250 : 150, // faster on non-touch
+    fallbackTolerance: 5, // fixes undesired drag during click on short-delay settings, see doc
+    // touchStartThreshold: 5, // for touch devices only, see docs
     store: snoozed
       ? null /* disabled for snooze list */
       : {
@@ -359,15 +361,18 @@ function __render(widget, widget_item) {
           },
         },
     forceFallback: true, // fixes dragging behavior, see https://github.com/SortableJS/Sortable/issues/246#issuecomment-526443179
-    onChoose: () => {
+    onChoose: e => {
+      // debug('onChoose', e.originalEvent.clientX, e.originalEvent.clientY)
       chosen = true
       last_choose_time = Date.now()
       // widget.classList.add('dragging')
     },
-    onStart: () => {
+    onStart: e => {
+      // debug('onStart', e.originalEvent.clientX, e.originalEvent.clientY)
       widget.classList.add('dragging')
     },
-    onUnchoose: () => {
+    onUnchoose: e => {
+      // debug('onUnchoose')
       // note on a regular click, onUnchoose is called w/o onChoose (may be bug)
       if (chosen) last_unchoose_time = Date.now()
       chosen = false
@@ -381,6 +386,7 @@ function __render(widget, widget_item) {
       }
     },
     onEnd: e => {
+      // debug('onEnd')
       // widget.classList.remove('dragging')
       const id = e.item.getAttribute('data-id')
       const truncated = e.item.getAttribute('data-truncated')
