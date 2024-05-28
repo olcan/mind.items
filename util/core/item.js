@@ -120,11 +120,17 @@ const write_log = (...args) => _this.write_log(...args)
 // autohide after `t` ms or never if `t<0`
 const show_logs = (...args) => _this.show_logs(...args)
 
+// hide logs (`_log` block) in item
+const hide_logs = () => _this.hide_logs()
+
 // show_status([status], [progress])
 // show `status` on running item
 // item must be running (`item.running==true`)
 // can also indicate `progress∈[0,1]` in background
 const show_status = (...args) => _this.show_status(...args)
+
+// clear (and hide) status on item
+const clear_status = () => _this.clear_status()
 
 // touch([save=false])
 // _touches_ item by updating its time
