@@ -336,8 +336,12 @@ function upload_store(item = _this, options = undefined) {
 
 // download `item.store`
 // default download path is `item.saved_id`
+// default download is forced since path is fixed as contents change
 async function download_store(item = _this, options = undefined) {
   if (!item.saved_id) fatal('unsaved item', item.name)
   const path = options?.path ?? item.saved_id
-  return assign((item.store = {}), await download(path, options))
+  return assign(
+    (item.store = {}),
+    await download(path, { force: true, ...options })
+  )
 }
