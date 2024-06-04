@@ -33,6 +33,8 @@ const __eval = (...args) => _this.eval(...args)
 // | `include_deps`         | `false` | include dependencies
 // | `exclude_async_deps`   | `false` | exclude async dependencies
 // | `exclude_async`        | `false` | also exclude self if async
+// | `comment_deps`         | `false` | include delimiter comments
+// | `replace_items`        | `false` | replace items for this read
 // | `eval_macros`          | `false` | evaluate `\<<macros>>`
 // | `replace_ids`          | `false` | replace `$id` (w/ item.id)
 // | `remove_empty_lines`   | `false` | remove empty lines
