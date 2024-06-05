@@ -6,8 +6,8 @@
 const _Item = typeof _this != 'undefined' ? _this.constructor : null
 const is_item = x => x instanceof _Item
 
-// => item.eval(code,{…})
-// evaluates `code` in context of `item`
+// => item.eval(js,{…})
+// evaluates `js` in context of `item`
 // _invoke on item; can't be aliased for `_this`_
 // | `type`           | string  | `js` | prefix code block type
 // | `async`          | bool | `false` | async mode
@@ -15,7 +15,7 @@ const is_item = x => x instanceof _Item
 // | `debug`          | bool | `false` | eval w/o any wrappers
 // | `exclude_prefix` | bool | `false` | eval w/o prefix code
 // | `trigger`        | string  | `other` | eval trigger name
-// | `skip_eval`      | bool  | `false` | skip eval, just return code
+// | `skip_eval`      | bool  | `false` | skip eval, just return (expanded) code
 // forwards options to `read` for code prefix w/ modified defaults:
 // | `exclude_async_deps`          | `!async`,
 // | `replace_ids`                 | `true`
