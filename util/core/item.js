@@ -183,6 +183,9 @@ const dispatch = (...args) => _this.dispatch(...args)
 // cancels (w/o invoking function) if item is deleted
 // modifies `repeat` (once) if `func` returns number ≥ 0
 // function `func` can be async or return promise
+// returns task object (dispatched wrapper function)
+// `_on_cancel`, `_on_error(e)`, `_on_done(out)` can be set on task object
+// exactly one of these will always get invoked for every dispatched task
 const dispatch_task = (...args) => _this.dispatch_task(...args)
 
 // cancel_task(name)
