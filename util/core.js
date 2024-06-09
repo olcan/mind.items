@@ -1101,15 +1101,20 @@ function js_table(regex) {
       def.type = def.type.trim()
 
       // clear args if getter/setter
-      if (def.type.match(/(?:get|set)$/)) def.args = ''
+      if (def.type == 'get' || def.type == 'set') def.args = ''
+
       // process arrow args
       if (def.arrow_args) {
         def.args = def.arrow_args.replace(/\s*=>$/, '')
         if (!def.args.startsWith('(')) def.args = '(' + def.args + ')'
       }
 
-      // args or body are required unless class
-      if (def.type != 'class' && !def.args && !def.body) return
+      // args or body are required unless class|getter|setter
+      if (
+        !(def.args || def.body) &&
+        !(def.type == 'class' || def.type != 'get' || def.type != 'set')
+      )
+        return
 
       // remove whitespace in args
       def.args = def.args.replace(/\s+/g, '')
