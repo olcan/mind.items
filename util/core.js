@@ -1506,6 +1506,7 @@ function _js_table_show_function(name) {
       // assume class member name has double-underscore in middle
       if (name.match(/^\w+__\w+$/)) {
         // assume function if has args, otherwise property
+        // note this is based on the displayed args, which can be modified
         if (display_args) {
           const instance_ref = name.replace('__', '.prototype.')
           const static_ref = name.replace('__', '.')
