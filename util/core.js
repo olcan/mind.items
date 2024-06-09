@@ -1500,7 +1500,7 @@ function _js_table_show_function(name) {
       if (typeof def == 'function') def = unindent(def.toString())
       else if (typeof def == 'object' && (def.get || def.set))
         // assume property descriptor
-        def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
+        def = compact([unindent(def.get), unindent(def.set)]).join('\n')
       else throw new Error(`invalid return '${def}' from _function_${name}()`)
     } else {
       // assume class member name has double-underscore in middle
@@ -1516,7 +1516,8 @@ function _js_table_show_function(name) {
           const [class_name, prop] = name.split('__')
           ref = `Object.getOwnPropertyDescriptor(${class_name}.prototype, '${prop}') ?? Object.getOwnPropertyDescriptor(${class_name}, '${prop}')`
           def = _this.eval(ref, eval_options)
-          if (def) def = `get: ${unindent(def.get)}\nset: ${unindent(def.set)}`
+          if (def)
+            def = compact([unindent(def.get), unindent(def.set)]).join('\n')
         }
       } else {
         ref = name
