@@ -5,6 +5,7 @@ const assign = Object.assign
 const from_entries = Object.fromEntries
 const from_pairs = _.fromPairs
 const to_pairs = _.toPairs
+const to_plain_object = _.toPlainObject
 const seal = Object.seal
 const freeze = Object.freeze
 
