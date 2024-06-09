@@ -1074,8 +1074,9 @@ function js_table(regex) {
   // (?:`.*?`|'[^\n]*?'|"[^\n]*?"|=[^(){}]*?\([^()]*?\)|[^()])*? <-- key part for nesting is \(...\)
   //
   const js_table_regex =
-    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\))/gsu
+    /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:(?:async|static) +)?(?:(?:function|class| *get| *set| +) +))(?<name>[_\p{L}][_\p{L}\d]*) *(?<args>\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\))?/gsu
 
+  // note this also matches assignments w/o arrow_args () => ... (just body)
   const js_table_regex_arrow =
     /(?:^|\n)(?<comment>( *\/\/[^\n]*\n)*)(?<type>(?:const|let|var) +)(?<name>[_\p{L}][_\p{L}\d]*) *(?:= *(?:async +)?(?<arrow_args>(?:\((?:`.*?`|'[^\n]*?'|"[^\n]*?"|\([^()]*?\)|[^()])*?\)|[^()\n]*?) *=>)?\s*(?<body>[^\n]+))/gsu
 

@@ -21,7 +21,7 @@ function uniform(a, b) {
   // undefined if a or b non-finite
   if (!is_finite(a) || !is_finite(b)) return undefined
   if (a >= b) return null // empty (null) if a >= b
-  // return new Uniform(a, b)
+  // return new _Uniform(a, b)
   const dom = { gt: a, lt: b }
   dom._prior = f => f(a + (b - a) * random())
   const log_z = -log(b - a) // z ⊥ x
@@ -34,7 +34,7 @@ function uniform(a, b) {
 }
 
 // Uniform class for testing alternate implementation for domains/samplers
-class Uniform {
+class _Uniform {
   constructor(a, b) {
     this.gt = a
     this.lt = b
@@ -205,7 +205,7 @@ function _test_beta() {
 function normal(μ, σ) {
   if (!is_finite(μ)) return undefined
   if (!is_finite(σ) || σ <= 0) return undefined
-  // return new Normal(μ, σ)
+  // return new _Normal(μ, σ)
   const dom = { is: 'finite' } // all finite numbers
   dom._prior = f => f(μ + σ * random_normal())
   const inv_σ2 = 1 / (σ * σ)
@@ -219,7 +219,7 @@ function normal(μ, σ) {
 }
 
 // Normal class for testing alternate implementation for domains/samplers
-class Normal {
+class _Normal {
   constructor(μ, σ) {
     this.is = 'finite'
     this._μ = μ
