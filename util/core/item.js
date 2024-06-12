@@ -15,6 +15,7 @@ const is_item = x => x instanceof _Item
 // | `debug`          | bool | `false` | eval w/o any wrappers
 // | `exclude_prefix` | bool | `false` | eval w/o prefix code
 // | `trigger`        | string  | `other` | eval trigger name
+// | `context`        | any  |  | optional context
 // | `skip_eval`      | bool  | `false` | skip eval, just return (expanded) code
 // forwards options to `read` for code prefix w/ modified defaults:
 // | `exclude_async_deps`          | `!async`,
@@ -23,6 +24,11 @@ const is_item = x => x instanceof _Item
 // | `remove_comment_lines`        | `true`
 // | `remove_tests_and_benchmarks` | `true`
 const __eval = (...args) => _this.eval(...args)
+
+// eval_macros(text,{…})
+// evaluates `\<<macros>>` in `text`
+// options are same as `item.eval` (see above)
+const eval_macros = (...args) => _this.eval_macros(...args)
 
 // read([type=''],{…})
 // reads text from item
