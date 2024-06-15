@@ -1479,7 +1479,7 @@ function _js_table_show_function(name) {
   let ref, def
   const unindent = fstr => {
     if (!fstr) return fstr
-    fstr = fstr.toString()
+    fstr = fstr.toString().replace(/\t/g, '  ') // replace tabs w/ 2 spaces
     const indent = fstr.match(/\n( +)\} *$/)?.pop()
     if (indent) fstr = fstr.replace(new RegExp(`^${indent}`, 'gm'), '')
     return fstr
@@ -1489,6 +1489,7 @@ function _js_table_show_function(name) {
     remove_empty_lines: false,
     remove_comment_lines: false,
   }
+  let use_pre = false // see comment below where this is set
   try {
     // try custom _function_<name>() first
     // should return either a function or a property descriptor object (w/ .get or .set or both)
@@ -1497,7 +1498,7 @@ function _js_table_show_function(name) {
       eval_options
     )
     if (def) {
-      if (typeof def == 'function') def = unindent(def.toString())
+      if (typeof def == 'function') def = unindent(def)
       else if (typeof def == 'object' && (def.get || def.set))
         // assume property descriptor
         def = compact([unindent(def.get), unindent(def.set)]).join('\n')
@@ -1507,6 +1508,7 @@ function _js_table_show_function(name) {
       if (name.match(/^\w+__\w+$/)) {
         // assume function if has args, otherwise property
         // note this is based on the displayed args, which can be modified
+        // also note non-static class fields and handled below
         if (display_args) {
           const instance_ref = name.replace('__', '.prototype.')
           const static_ref = name.replace('__', '.')
@@ -1519,9 +1521,19 @@ function _js_table_show_function(name) {
           if (def)
             def = compact([unindent(def.get), unindent(def.set)]).join('\n')
         }
+        // if we still don't have a def, this may be non-static class field
+        // in that case we just display the class definition for simplicity
+        // see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/Public_class_fields
+        if (!def) {
+          const [class_name, prop] = name.split('__')
+          def = unindent(_this.eval(class_name, eval_options))
+        }
       } else {
         ref = name
         def = _this.eval(ref, eval_options)
+        // if def is a string, then it could be anything, e.g. it could be markdown with multi-line blocks (```) that would break the wrapping markdown js block. so in that case we switch to using <pre><code> with escaped contents
+        if (is_string(def)) use_pre = true // use pre (vs js block)
+        def = unindent(def)
       }
     }
   } catch (e) {
@@ -1535,7 +1547,9 @@ function _js_table_show_function(name) {
       (status ? _div('buttons', status) : '') +
         _div('title', `<code>${display_name}</code>` + _span('args', args)) +
         '\n\n' +
-        block('js', def) +
+        (use_pre
+          ? `<pre><code>${_.escape(def)}</code></pre>`
+          : block('js', def)) +
         '\n'
     )
   )
