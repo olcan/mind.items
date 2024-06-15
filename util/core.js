@@ -1551,7 +1551,8 @@ function _js_table_show_function(name) {
           ? `<pre><code>${_.escape(def)}</code></pre>`
           : block('js', def)) +
         '\n'
-    )
+    ),
+    { style: 'width:90%; max-width:800px; min-width:min(100%, 600px)' }
   )
 }
 
@@ -1605,7 +1606,8 @@ function _js_table_show_test(name) {
         ),
         '\n',
       ].join('\n')
-    )
+    ),
+    { style: 'width:90%; max-width:800px; min-width:min(100%, 600px)' }
   )
 }
 
@@ -1708,7 +1710,8 @@ function _js_table_show_benchmark(name) {
         ),
         '\n',
       ].join('\n')
-    )
+    ),
+    { style: 'width:90%; max-width:800px; min-width:min(100%, 600px)' }
   )
 }
 
