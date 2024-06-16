@@ -72,7 +72,7 @@ const read_input = (...args) => _this.read_input(...args)
 // default block `type` is `'_output'`
 // writes _whole item_ if `type==''`
 // | `keep_time` | bool | `false` | write w/o updating time
-// | `skip_save` | bool | `false` | write w/o saving
+// | `skip_save` | bool | `item.editing` | write w/o saving
 const write = (...args) => _this.write(...args)
 
 // write_lines(...lines)
