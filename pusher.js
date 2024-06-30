@@ -620,8 +620,8 @@ function auto_push_item(item) {
     return
   }
 
-  // retry in 1s if item is not saved yet or if is being edited
-  if (!item.saved_id || item.editing)
+  // retry in 1s if item is not saved yet or is editing or saving
+  if (!item.saved_id || item.editing || item.saving)
     return setTimeout(() => auto_push_item(item), 1000)
 
   // if state is missing, create it w/ sha==remote_sha==undefined
