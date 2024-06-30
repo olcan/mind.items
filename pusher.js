@@ -610,7 +610,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   auto_push_item(item)
 }
 
-// auto-pushes item, retrying if item is not saved yet
+// auto-pushes item, retrying if item is not saved yet or is being edited
 function auto_push_item(item) {
   // skip if item is deleted
   if (!_exists(item.id)) return
@@ -620,8 +620,9 @@ function auto_push_item(item) {
     return
   }
 
-  // retry in 1s if item is not saved yet
-  if (!item.saved_id) return setTimeout(() => auto_push_item(item), 1000)
+  // retry in 1s if item is not saved yet or if is being edited
+  if (!item.saved_id || item.editing)
+    return setTimeout(() => auto_push_item(item), 1000)
 
   // if state is missing, create it w/ sha==remote_sha==undefined
   const state = (_this.store.items[item.saved_id] ??= {})
