@@ -1269,7 +1269,7 @@ function js_table(regex) {
           // for object destructuring, just recursively parse inside braces
           if (s.match(/^\{.*\}$/))
             return '{' + wrap_defaults(s.slice(1, -1)) + '}'
-          // avoid initial [ since thatcan be used to wrap/indicate defaults in hand-typed comments, but unfortunately this also prohibits array destructuring syntax (e.g. [a=1,b=2]=[]) for now
+          // avoid initial [ since that can be used to wrap/indicate defaults in hand-typed comments, but unfortunately this also prohibits array destructuring syntax (e.g. [a=1,b=2]=[]) for now
           if (s[0] != '[' && s.match(/=(?!>|[^{]*\})/)) s = '[' + s + ']'
           // drop =undefined as that can be used to indicate optionals
           return s.replace(/=undefined]$/, ']')
@@ -1283,7 +1283,7 @@ function js_table(regex) {
       .replace(/=(?!>)/g, ' = ')
     const has_defaults = args.match(/\[(.+?)=.+?\]/) ? 'has_defaults' : ''
     // NOTE: this simple regex does not work for {arg=default} but does for arg={}
-    args = args.replace(/\[(.+?)=(?!>)[^=]+\]/g, '[$1]') // hide defaults unless expanded
+    args = args.replace(/\[(.+?)=(?!>)[^=]+?\]/g, '[$1]') // hide defaults unless expanded
     args = args.replace(/[(\[{}\])]/g, p => _span('parens', p))
     args_expanded = args_expanded.replace(/[(\[{}\])]/g, p =>
       _span('parens', p)
