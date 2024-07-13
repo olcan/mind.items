@@ -184,6 +184,7 @@ const first = _.first
 const last = _.last
 const take = _.take
 const take_while = _.takeWhile
+const take_right = _.takeRight
 const pick = _.pick
 const pick_by = _.pickBy
 const omit = _.omit
