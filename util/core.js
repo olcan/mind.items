@@ -1775,11 +1775,11 @@ const link_eval = (item, js, text = js, classes = '', style = '', title = js) =>
 // link to run `command`
 const link_command = (
   command,
-  text = cmd,
+  text = command,
   options = '',
   classes = '',
   style = '',
-  title = cmd
+  title = command
 ) =>
   is_object(text)
     ? link_command(
