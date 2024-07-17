@@ -102,7 +102,7 @@ async function run_on_chat_item(item = _this, msg = undefined) {
       if (textarea) {
         textarea.focus()
         textarea.selectionStart = textarea.value.length
-        document.execCommand('insertText', false, '\n<<user>> ')
+        document.execCommand('insertText', false, '\n\<<user>> ')
         textarea.selectionStart = textarea.value.length - 10
       }
     }
