@@ -1371,6 +1371,7 @@ function _init() {
   // importing #util/core also ensures _this refers to invoking item
   // _this shold generally be avoided in global macros to avoid this ambiguity
   window.block = block
+  window.html = html
   window.link_js = link_js
   window.link_eval = link_eval
   window.link_command = link_command
@@ -1740,6 +1741,10 @@ const command_table = () => js_table(/^_on_command_/)
 
 // wrap `content` in block `type`
 const block = (type, content) => '```' + type + '\n' + content + '\n```'
+
+// wrap `content` in `_html` type
+// `_html` blocks are rendered verbatim in item
+const html = content => block('_html', content)
 
 // link html (`<a>…</a>`) to eval `js`
 // sets up `js` as `onmousedown` handler
