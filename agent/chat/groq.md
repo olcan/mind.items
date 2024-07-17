@@ -1,4 +1,4 @@
-#agent/chat/groq responds using [Groq Chat API](https://console.groq.com/docs/api-reference#chat). #todo add/test new groq tool use model support
+#agent/chat/groq responds using [Groq Chat API](https://console.groq.com/docs/api-reference#chat).
 
 ```js_input_removed
 run_on_dependents()
