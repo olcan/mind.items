@@ -15,7 +15,7 @@ dispatch_task('update', update_status, 1000, 1000) // update every second
 #item table td { padding: 2px 10px }
 #item table td:first-child { border-radius: 4px 0 0 4px }
 #item table td:last-child {  border-radius: 0 4px 4px 0 }
-</style> 
+</style>
 ```
 ```js_removed
 function update_status() {
@@ -29,7 +29,7 @@ const device_name = x => [
 
 function list_instances() {
   const devices = group(_instances, device_name)
-  return [ 
+  return [
     `${_instances.length} instances live on ~${size(devices)} devices:`,
     entries(devices).map(([device, instances])=>
       table(instances.map((x,j)=>{
@@ -51,7 +51,7 @@ function list_instances() {
           [fage+'s', uage+'s'].join('<br>'),
           [res, ua.os.name].join('<br>'),
           [ua.browser.name, cpu, /*bits,*/ gpu].join('<br>'),
-          [ip, '&nbsp;&nbsp;↳ '+x.server_domain].join('<br>'), 
+          [ip, '&nbsp;&nbsp;↳ '+x.server_domain].join('<br>'),
         ]
       }), {headers:[device], alignments:'rrll'})
     ).join('\n\n')
