@@ -1,0 +1,124 @@
+.dep_chat .message {
+  display: flex;
+  align-items: center;
+  line-height: 125%;
+  gap: 0;
+}
+.dep_chat .message hr {
+  border-top: 1px solid #222;
+  padding: 0;
+  margin-top: 12px !important;
+  margin-bottom: 10px !important;
+} /* note top/bottom margin compete with default styling on first/last children of item */
+.dep_chat .message hr.left {
+  margin-left: -10px;
+  margin-right: 0;
+  flex: 30;
+}
+.dep_chat .message hr.right {
+  margin-right: -10px;
+  margin-left: 0;
+  flex: 1;
+}
+.dep_chat .message .label {
+  margin: 0 5px;
+  color: #333;
+  cursor: pointer;
+  padding-bottom: 2px /* centers text vertically even as hr border grows */;
+  display: inline-block;
+  max-width: 50%;
+  text-wrap: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  direction: rtl;
+}
+.dep_chat .message .state {
+  margin-left: 5px;
+  font-size: 80%;
+  opacity: 0.5;
+  display: none;
+}
+.dep_chat .message.user hr {
+  border-top: 3px solid #333;
+}
+.dep_chat .message.user .label {
+  color: #555;
+  padding-bottom: 3px;
+}
+/* .dep_chat .message.tool {
+  display: none
+} */
+.dep_chat .message.agent hr {
+  border-top: 1px solid #333;
+}
+.dep_chat .message.agent .label {
+  color: #444;
+}
+.dep_chat .message:last-of-type.agent .label {
+  color: #469;
+}
+.dep_chat .message:last-of-type.agent hr {
+  border-top: 1px solid #246;
+}
+.dep_chat .message:last-of-type.agent.stale .label {
+  color: #f55;
+}
+.dep_chat .message:last-of-type.agent.stale hr {
+  border-color: #a44;
+}
+.dep_chat .message:last-of-type.agent.stale .state:before {
+  content: '(stale)';
+}
+.dep_chat .message:last-of-type.agent.stale .state {
+  display: inline;
+}
+.dep_chat .message:last-of-type.agent.edited .label {
+  color: #cc5;
+}
+.dep_chat .message:last-of-type.agent.edited .state:before {
+  content: '(edited)';
+}
+.dep_chat .message:last-of-type.agent.edited .state {
+  display: inline;
+}
+.dep_chat .message:last-of-type.agent.edited hr {
+  border-color: #884;
+}
+.dep_chat .content > pre > code:is(.msg, .message) {
+  margin: 0;
+  border: none;
+  background: #222;
+  max-height: 50px;
+  overflow: scroll;
+  font-size: 10px;
+  line-height: 17px;
+  opacity: 1;
+}
+.dep_chat .content > pre > code:is(.msg, .message) {
+  display: none;
+}
+.dep_chat pre {
+  margin: 5px 0;
+}
+/* float label if header if minimal for a tighter look */
+/* .dep_chat.headerMinimal > .content:has(> p:first-child + div:.message) > p:first-child { float:left; margin-right: 10px } */
+.dep_chat.headerMinimal
+  > .content:has(> p:first-child + div:is(.message, .core_js_table))
+  > p:first-child {
+  float: left;
+  margin-right: 10px;
+}
+.dep_chat.headerMinimal > .content > p:first-child + div.message {
+  padding-top: 2px;
+  padding-bottom: 0;
+}
+.dep_chat.headerMinimal > .content > p:first-child + div.message + * {
+  clear: both;
+}
+.dep_chat.headerMinimal > .content > p:first-child + div.message hr.left {
+  margin-left: 0;
+}
+.dep_chat.headerMinimal > .content > p:first-child + div.message hr.right {
+  margin-right: -19px;
+  visibility: hidden;
+}

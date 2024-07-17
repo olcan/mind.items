@@ -1,0 +1,10 @@
+<div class="message %role %state">
+  <!-- whitespace between these (esp. spans) can cause jitter in post-edit render -->
+  <hr class="left" />
+  <span
+    class="label"
+    onclick="event.stopPropagation();_item('$id').eval('_delete_agent_messages_below(event)');"
+    ><span class="name" title="%name">%name</span><span class="state"></span
+  ></span>
+  <hr class="right" />
+</div>
