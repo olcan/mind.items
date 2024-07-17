@@ -182,3 +182,15 @@ const tool = (...args) => _delimiter('tool', ...args)
 
 // internal macro for intermediate agent messages for tool use
 const _agent = (name = 'tools', ...args) => _delimiter('_agent', name, ...args)
+
+// common logic for chat commands, e.g. /gpt hello
+function _chat_command(msg) {
+  let suffix = 0
+  while (_exists(_name + '/' + suffix)) suffix++
+  const name = _name + '/' + suffix
+  return {
+    text: [name, `\<<user>> ` + msg].join('\n'),
+    mindbox_text: name, // select new item
+    save: false, // can interfere with agent saving response
+  }
+}
