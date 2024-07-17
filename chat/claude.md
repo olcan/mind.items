@@ -17,7 +17,7 @@ function _on_command_claude(msg) {
 #_listen #_template/system
 <<system>> <<toggle(template('/system'), '⋮ #template/system')>>
 ---
-```agent
+```js:agent
 { // https://docs.anthropic.com/en/api/messages
   model: 'claude-3-5-sonnet-20240620',
   temperature: 1

@@ -1,4 +1,4 @@
-#chat defines utilities for _chat items_ that represent chat histories using _delimiter macros_. See #/gpt #/gemini #/claude #/groq #/ollama #/gemma for agent-specific chat items. #todo improve block parsing to allow types etc.   
+#chat defines utilities for _chat items_ that represent chat histories using _delimiter macros_. See #/gpt #/gemini #/claude #/groq #/ollama #/gemma for agent-specific chat items.  
 
 <<js_table()>>
 

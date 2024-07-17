@@ -17,7 +17,7 @@ function _on_command_gemini(msg) {
 #_listen #_template/system
 <<system>> <<toggle(template('/system'), '⋮ #template/system')>>
 ---
-```agent
+```js:agent
 { // https://ai.google.dev/api/rest/v1beta/models/generateContent
   model: 'gemini-1.5-flash', // https://ai.google.dev/gemini-api/docs/models/gemini
   generationConfig: { // https://ai.google.dev/api/rest/v1beta/GenerationConfig

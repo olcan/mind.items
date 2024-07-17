@@ -19,7 +19,7 @@ function _on_command_groq(msg) {
 <!-- groq gemma2 is very inconsistent about if/when to use tools, so we try ... -->
 - Make sure to use tools (e.g. eval tool) when helpful to the user.
 ---
-```agent
+```js:agent
 { // https://console.groq.com/docs/api-reference#chat-create
   model: 'gemma2-9b-it', // https://console.groq.com/docs/models
   temperature: 1,

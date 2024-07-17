@@ -47,7 +47,7 @@ function parse_messages(arg = _this) {
       // if content ends with a 'message|msg' block, parse as JSON, ignore prefix
       // used for _agent|tool but can also be used for testing/debugging
       let regex =
-        /^.*```(?:message|msg)(?:_removed|_hidden)? *\n( *|.*?\n *)```\s*$/is
+        /^.*```(?:json:)?(?:message|msg)(?:_removed|_hidden)? *\n( *|.*?\n *)```\s*$/is
       if (content.match(regex)) {
         // remove block wrapper, trim, take '' as '{}', parse as JSON
         const msg = JSON.parse(content.replace(regex, '$1').trim() || '{}')
@@ -60,7 +60,7 @@ function parse_messages(arg = _this) {
       }
       // if content ends with a 'agent' block, eval as js and store as 'agent'
       regex =
-        /(^.*?)\s*(?:---+\s*)?```agent(?:_removed|_hidden)? *\n( *|.*?\n *)```\s*$/is
+        /(^.*?)\s*(?:---+\s*)?```(?:js:)?agent(?:_removed|_hidden)? *\n( *|.*?\n *)```\s*$/is
       let agent
       if (content.match(regex)) {
         try {
