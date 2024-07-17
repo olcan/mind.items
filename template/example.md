@@ -11,3 +11,5 @@ let var_1 = placeholder('var_1') // use let to allow override in template()
 let func = suffix => placeholder('func_' + suffix)
 let usage = true
 ```
+
+<!--removed--> #usage <!--/removed-->
