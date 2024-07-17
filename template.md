@@ -17,4 +17,3 @@ function _init() {
 ```
 
 #_util/core #_autodep #_init
-#_/example #_/example/usage <!-- dependents for /_install -->
