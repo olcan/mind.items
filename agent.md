@@ -3,7 +3,7 @@
 <<command_table()>>
 ---
 #### Active Agents
-<< table(zip(active_agents(), active_agents().map(a=>evallink(_this,`stop_agent('${a}')`,'stop')), active_agents().map(a=>evallink(_this,`start_agent('${a}',_item('${a}').store.agent?.id)`,'run')))) || '_none_' >>
+<< table(zip(active_agents(), active_agents().map(a=>link_eval(_this,`stop_agent('${a}')`,'stop')), active_agents().map(a=>link_eval(_this,`start_agent('${a}',_item('${a}').store.agent?.id)`,'run')))) || '_none_' >>
 ---
 <<js_table()>>
 
