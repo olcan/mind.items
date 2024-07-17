@@ -58,4 +58,4 @@ function list_instances() {
   ].join('\n')
 }
 ```
-#_util
+#_util/core
