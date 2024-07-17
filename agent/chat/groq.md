@@ -87,20 +87,22 @@ const create_request = (messages, config) => ({
     // model: https://platform.openai.com/docs/models
     messages,
     // https://console.groq.com/docs/tool-use
-    // as of 7/10/24, groq's tool use on gemma2 was problematic: used eval tool on every request and simply to console.log or print the response, ignoring system instructions against that behavior; so we do custom tool use as in ollama for now
+    // as of 7/10/24, groq's tool use on gemma2 was problematic: used eval tool on every request and simply to console.log or print the response, ignoring system instructions against that behavior; so we do custom tool use as in ollama for now, but we allow switching based on config.tool_choice being defined (can be 'auto' or 'none')
     // example 'eval' tool
-    // tools: [{
-      // type: 'function',
-      // function: {
-        // name: 'eval',
-        // description: 'evaluate js code in browser on user device',
-        // parameters: {
-          // type: 'object',
-          // properties: { js: { type: 'string', description: 'js code to evaluate' } },
-          // required: ['js']
-        // }
-      // }
-    // }]
+    ...(defined(config.tool_choice) ? {
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'eval',
+          description: 'evaluate js code in browser on user device',
+          parameters: {
+            type: 'object',
+            properties: { js: { type: 'string', description: 'js code to evaluate' } },
+            required: ['js']
+          }
+        }
+      }]
+    } : {})
   })
 })
 ```
