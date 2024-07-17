@@ -20,18 +20,18 @@ const start_agent = (name, id = undefined) => {
 // stop agent on item `name`
 // cancels `agent` task on all instances
 const stop_agent = name => {
-  const agent_id = __agent._global_store[name]
+  const agent_id = __agent._global_store.agents?.[name]
   // note this ordering matters to prevent infinite recursion via task._on_cancel
-  if (agent_id) delete __agent.global_store[name] // stop globally
+  if (agent_id) delete __agent.global_store.agents[fname] // stop globally
   _item(name)?.cancel_task('agent') // stop locally
   debug(`stopped agent ${name} (${agent_id})`)
 }
 
 // is agent active on item `name`?
-const agent_active = name => !!__agent._global_store[name]
+const agent_active = name => !!__agent._global_store.agents?.[name]
 
 // array of item names for active agents
-const active_agents = () => keys(__agent._global_store)
+const active_agents = () => keys(__agent._global_store.agents)
 
 // is `item` an agent item?
 // agent items have `#agent` as their first dependency
@@ -119,7 +119,7 @@ class Agent {
   // via `stop_agent(name)`, `agent_item.cancel_task('agent')`, or `agent.cancel()`
   // agents can be stopped locally (same instance) or remotely (via `global_store`)
   get stopped() {
-    return __agent._global_store[_name] != this.#id
+    return __agent._global_store.agents?.[_name] != this.#id
   }
 
   // paused
@@ -200,7 +200,8 @@ async function _run(agent_id) {
   // note we may reuse existing agent object when "continuing" agent w/ new task
   if (!agent_id) {
     if (agent_active(_name)) stop_agent(_name)
-    agent_id = __agent.global_store[_name] = hash(Math.random())
+    __agent.global_store.agents ??= {}
+    agent_id = __agent.global_store.agents[_name] = hash(Math.random())
     debug(`starting agent ${_name} (${agent_id}) ...`)
     _this.store.agent = new Agent(agent_id)
   } else if (agent_id != _this.store.agent?.id) {
@@ -219,7 +220,7 @@ async function _run(agent_id) {
     const task = dispatch_task('agent', async () => {
       if (!_primary) return 1000 // agent paused (non-primary instance)
       if (!navigator.onLine) return 1000 // agent paused (browser offline)
-      if (__agent._global_store[_name] != agent_id) return null // agent stopped, cancel task
+      if (__agent._global_store.agents[_name] != agent_id) return null // agent stopped, cancel task
       const agent = _this.store.agent // for convenience below
 
       // note we generally catch/retry any exceptions outside of js_input block
@@ -287,8 +288,8 @@ async function _run(agent_id) {
     task._on_cancel = () => {
       agent.on_cancel?.()
       if (!task._continue) {
-        if (__agent._global_store[_name] == agent_id) {
-          delete __agent.global_store[_name]
+        if (__agent._global_store.agents[_name] == agent_id) {
+          delete __agent.global_store.agents[_name]
           console.warn(
             `stopped agent ${_name} (${agent_id}) due to cancelled task`
           )
@@ -298,8 +299,8 @@ async function _run(agent_id) {
     }
     task._on_error = e => {
       agent.on_error?.(e)
-      if (__agent._global_store[_name] == agent_id) {
-        delete __agent.global_store[_name]
+      if (__agent._global_store.agents[_name] == agent_id) {
+        delete __agent.global_store.agents[_name]
         console.warn(
           `stopped agent ${_name} (${agent_id}) due to task error: ${e}`
         )
@@ -308,8 +309,8 @@ async function _run(agent_id) {
     }
     task._on_done = () => {
       agent.on_done?.()
-      if (__agent._global_store[_name] == agent_id) {
-        delete __agent.global_store[_name]
+      if (__agent._global_store.agents[_name] == agent_id) {
+        delete __agent.global_store.agents[_name]
         console.debug(`stopped agent ${_name} (${agent_id}) due to task done`)
       }
       resolve()
@@ -323,7 +324,7 @@ async function _run(agent_id) {
 // note this has been a useful sanity check in the past!
 function _check_agents() {
   // check missing tasks for active agents
-  for (const name of keys(__agent._global_store))
+  for (const name of keys(__agent._global_store.agents))
     if (!__item(_item(name)?.id)?.tasks?.agent)
       warn(`missing task (or item) for active agent ${name}`)
   // check rogue tasks for inactive agents
@@ -335,7 +336,8 @@ function _check_agents() {
 
 // start active agents on welcome, then check_agents every 10s
 function _on_welcome() {
-  for (const [name, id] of entries(__agent._global_store)) start_agent(name, id)
+  for (const [name, id] of entries(__agent._global_store.agents))
+    start_agent(name, id)
   dispatch_task('check_agents', _check_agents, 0, 10000)
 }
 
@@ -344,7 +346,7 @@ function _on_global_store_change(id, remote) {
   if (id != __agent.id) return // ignore changes to other items
   if (!remote) return // ignore local change
   // start missing tasks for active agents
-  for (const [name, id] of entries(__agent._global_store))
+  for (const [name, id] of entries(__agent._global_store.agents))
     if (!__item(_item(name)?.id).tasks?.agent) {
       debug(`agent ${name} (${id}) started remotely`)
       start_agent(name, id)
@@ -409,8 +411,8 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // also return if there is no associated agent task/state (incl. pre-rename)
   if (
     !__item(item?.id)?.tasks?.agent &&
-    !__agent._global_store[item?.name] &&
-    !__agent._global_store[prev_label]
+    !__agent._global_store.agents?.[item?.name] &&
+    !__agent._global_store.agents?.[prev_label]
   )
     return
 
