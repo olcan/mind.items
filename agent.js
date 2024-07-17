@@ -31,7 +31,7 @@ const stop_agent = name => {
 const agent_active = name => !!__agent._global_store.agents?.[name]
 
 // array of item names for active agents
-const active_agents = () => keys(__agent._global_store.agents)
+const active_agents = () => keys(__agent._global_store.agents ?? {})
 
 // is `item` an agent item?
 // agent items have `#agent` as their first dependency
@@ -324,7 +324,7 @@ async function _run(agent_id) {
 // note this has been a useful sanity check in the past!
 function _check_agents() {
   // check missing tasks for active agents
-  for (const name of keys(__agent._global_store.agents))
+  for (const name of keys(__agent._global_store.agents ?? {}))
     if (!__item(_item(name)?.id)?.tasks?.agent)
       warn(`missing task (or item) for active agent ${name}`)
   // check rogue tasks for inactive agents
@@ -336,7 +336,7 @@ function _check_agents() {
 
 // start active agents on welcome, then check_agents every 10s
 function _on_welcome() {
-  for (const [name, id] of entries(__agent._global_store.agents))
+  for (const [name, id] of entries(__agent._global_store.agents ?? {}))
     start_agent(name, id)
   dispatch_task('check_agents', _check_agents, 0, 10000)
 }
@@ -346,7 +346,7 @@ function _on_global_store_change(id, remote) {
   if (id != __agent.id) return // ignore changes to other items
   if (!remote) return // ignore local change
   // start missing tasks for active agents
-  for (const [name, id] of entries(__agent._global_store.agents))
+  for (const [name, id] of entries(__agent._global_store.agents ?? {}))
     if (!__item(_item(name)?.id).tasks?.agent) {
       debug(`agent ${name} (${id}) started remotely`)
       start_agent(name, id)
