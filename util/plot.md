@@ -17,4 +17,4 @@
 // plot-lines.html
 ```
 
-<p> #_//core #_//math #_//stat #_//cloud
+<p> #_//core #_//math #_//stat #_//cloud #_c3
