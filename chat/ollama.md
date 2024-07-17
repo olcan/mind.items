@@ -3,16 +3,7 @@
 ```js:js_removed
 // => /ollama [msg]
 // send `msg` to [ollama agent](#agent/chat/ollama)
-function _on_command_ollama(msg) {
-  let suffix = 0
-  while (_exists('#chat/ollama/' + suffix)) suffix++
-  const name = '#chat/ollama/' + suffix
-  return {
-    text: [name, '\<<user>> ' + msg].join('\n'),
-    mindbox_text: name, // select new item
-    save: false // can interfere with agent saving response
-  }
-}
+const _on_command_ollama = msg => _chat_command(msg)
 ```
 #_listen #_template/system
 <<system>> <<toggle(template('/system'), '⋮ #template/system')>>

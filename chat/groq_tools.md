@@ -3,7 +3,7 @@
 ```js:js_removed
 // => /groq_tools [msg]
 // send `msg` to [groq agent](#agent/chat/groq)
-const _on_command_groq_tools = _chat_command
+const _on_command_groq_tools = msg => _chat_command(msg)
 ```
 #_listen
 <<system>>

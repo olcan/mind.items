@@ -3,16 +3,7 @@
 ```js:js_removed
 // => /groq [msg]
 // send `msg` to [groq agent](#agent/chat/groq)
-function _on_command_groq(msg) {
-  let suffix = 0
-  while (_exists('#chat/groq/' + suffix)) suffix++
-  const name = '#chat/groq/' + suffix
-  return {
-    text: [name, '\<<user>> ' + msg].join('\n'),
-    mindbox_text: name, // select new item
-    save: false // can interfere with agent saving response
-  }
-}
+const _on_command_groq = msg => _chat_command(msg)
 ```
 #_listen #_template/tool_use
 <<system>> <<toggle(template('/tool_use'), '⋮ #template/tool_use')>>

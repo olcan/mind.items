@@ -3,16 +3,7 @@
 ```js:js_removed
 // => /gpt [msg]
 // send `msg` to [gpt agent](#agent/chat/gpt)
-function _on_command_gpt(msg) {
-  let suffix = 0
-  while (_exists('#chat/gpt/' + suffix)) suffix++
-  const name = '#chat/gpt/' + suffix
-  return {
-    text: [name, '\<<user>> ' + msg].join('\n'),
-    mindbox_text: name, // select new item
-    save: false // can interfere with agent saving response
-  }
-}
+const _on_command_gpt = msg => _chat_command(msg)
 ```
 #_listen #_template/system
 <<system>> <<toggle(template('/system'), '⋮ #template/system')>>
