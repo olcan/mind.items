@@ -54,7 +54,7 @@ async function run_chat_agent(messages, config) {
     debug('ollama request', request)
     // proxy requires launchctl setenv OLLAMA_ORIGINS "https://local.dev"
     // see https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-allow-additional-web-origins-to-access-ollama
-    const url = '/proxy/http://localhost:11434/api/chat'
+    const url = config.url || '/proxy/http://localhost:11434/api/chat'
     const response = await fetch_json(url, request)
     debug('ollama response', response)
     if (response.error) fatal(response.error.message)
