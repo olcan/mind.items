@@ -6,8 +6,13 @@ run_on_dependents()
 
 ```js:js_removed
 async function run_chat_agent(messages, config) {
-  if (!location.host.match(/^localhost(?:\..+)?$/))
-    fatal('ollama requires localhost')
+  let host = config.host || 'localhost'
+  let port = config.port || 11434
+  let url = config.url || `http://${host}:${port}/api/chat`
+  ({ host, port } = new URL(url))
+  if (_is_local(host) && !_is_local(location.host))
+    fatal('ollama server is local but client is not')
+  if (url.startsWith('http://')) url = '/proxy/' + url // proxy http
 
   // note default model requires 'ollama pull <name>'
   config.model ||= 'gemma2' // https://ollama.com/library
@@ -54,7 +59,6 @@ async function run_chat_agent(messages, config) {
     debug('ollama request', request)
     // proxy requires launchctl setenv OLLAMA_ORIGINS "https://local.dev"
     // see https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-allow-additional-web-origins-to-access-ollama
-    const url = config.url || '/proxy/http://localhost:11434/api/chat'
     const response = await fetch_json(url, request)
     debug('ollama response', response)
     if (response.error) fatal(response.error.message)
