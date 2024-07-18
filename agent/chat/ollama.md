@@ -9,7 +9,7 @@ async function run_chat_agent(messages, config) {
   let host = config.host || 'localhost'
   let port = config.port || 11434
   let url = config.url || `http://${host}:${port}/api/chat`
-  ({ host, port } = new URL(url))
+  ;({ host, port } = new URL(url))
   if (_is_local(host) && !_is_local(location.host))
     fatal('ollama server is local but client is not')
   if (url.startsWith('http://')) url = '/proxy/' + url // proxy http
