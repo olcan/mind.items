@@ -10,7 +10,7 @@ const _on_command_gemma = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion
-  url: '/proxy/http://tiny0.duckdns.org:11434/api/chat', // via duckdns.org
+  host: 'tiny0.duckdns.org', // via duckdns.org
   model: 'gemma2:27b', // via ssh tiny@tiny0.duckdns.org ollama list|pull
   options: { // https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
     temperature: 1
