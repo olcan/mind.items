@@ -3,7 +3,7 @@
 ```js:js_removed
 // => /tiny [msg]
 // send `msg` to [ollama agent](#agent/chat/ollama)
-const _on_command_ollama_tiny = msg => _chat_command(msg)
+const _on_command_tiny = msg => _chat_command(msg)
 ```
 #_listen #_template/system
 <<system>> <<toggle(template('/system'), '⋮ #template/system')>>
