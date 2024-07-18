@@ -58,7 +58,10 @@ async function run_chat_agent(messages, config) {
     }
     const request = create_request(messages, config)
     console.debug('claude request', request)
+    // anthropic (unlike others) disallows CORS, so we are forced to use proxy
+    // see https://github.com/anthropics/anthropic-sdk-typescript/issues/219
     // note we avoid '://' in proxy url that can cause a body-dropping redirect
+    // TODO: unfortunately this redirect _still_ fails on non-localhost
     const url = '/proxy/https:/api.anthropic.com/v1/messages'
     const response = await fetch_json(url, request)
     console.debug('claude response', response)
