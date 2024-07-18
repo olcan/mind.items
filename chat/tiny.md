@@ -1,7 +1,7 @@
-#chat/ollama_tiny #_agent/chat/ollama
+#chat/tiny #_agent/chat/ollama
 <<command_table()>>
 ```js:js_removed
-// => /ollama [msg]
+// => /tiny [msg]
 // send `msg` to [ollama agent](#agent/chat/ollama)
 const _on_command_ollama_tiny = msg => _chat_command(msg)
 ```
