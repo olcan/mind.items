@@ -1,4 +1,4 @@
-#chat/gemma #_agent/chat/ollama is #//ollama using `gemma2` with custom tool use.
+#chat/gemma #_agent/chat/ollama is #//tiny using `gemma2:27b` and custom tool use.
 <<command_table()>>
 ```js:js_removed
 // => /gemma [msg]
@@ -10,8 +10,8 @@ const _on_command_gemma = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion
-  url: '/proxy/http://olcans.duckdns.org:11434/api/chat', // via duckdns.org
-  model: 'gemma2:27b', // via ssh tiny@olcans.duckdns.org ollama list|pull
+  url: '/proxy/http://tiny0.duckdns.org:11434/api/chat', // via duckdns.org
+  model: 'gemma2:27b', // via ssh tiny@tiny0.duckdns.org ollama list|pull
   options: { // https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
     temperature: 1
   },
