@@ -13,7 +13,7 @@ const _on_command_ollama_home = msg => _chat_command(msg)
   // url: '/proxy/http://192.168.86.54:11434/api/chat',
   // url: '/proxy/http://24.4.198.129:11434/api/chat', // via curl ifconfig.me
   url: '/proxy/http://olcans.duckdns.org:11434/api/chat', // via duckdns.org
-  model: 'gemma2:27b',
+  model: 'gemma2:27b', // via ssh tiny@olcans.duckdns.org ollama list|pull
   options: { // https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
     temperature: 1
   }
