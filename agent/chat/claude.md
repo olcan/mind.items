@@ -58,7 +58,8 @@ async function run_chat_agent(messages, config) {
     }
     const request = create_request(messages, config)
     console.debug('claude request', request)
-    const url = '/proxy/https://api.anthropic.com/v1/messages'
+    // note we avoid '://' in proxy url that can cause a body-dropping redirect
+    const url = '/proxy/https:/api.anthropic.com/v1/messages'
     const response = await fetch_json(url, request)
     console.debug('claude response', response)
     if (response.error) fatal(response.error.message)

@@ -12,10 +12,9 @@ async function run_chat_agent(messages, config) {
   ;({ host, port } = new URL(url))
   if (_is_local(host) && !_is_local(location.host))
     fatal('ollama server is local but client is not')
-  if (url.startsWith('http://')) {
-    url = '/proxy/' + url // proxy http
-    url = url.replace('//','/') // avoid possible redirect that can drop body
-  }
+  if (url.startsWith('http://')) url = '/proxy/' + url // proxy http
+  // if proxying, avoid '://' that can cause a body-dropping redirect
+  if (url.startsWith('/proxy/')) url = url.replace('://',':/')
 
   // note default model requires 'ollama pull <name>'
   config.model ||= 'gemma2' // https://ollama.com/library
