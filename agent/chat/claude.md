@@ -62,6 +62,21 @@ async function run_chat_agent(messages, config) {
     // see https://github.com/anthropics/anthropic-sdk-typescript/issues/219
     // note we avoid '://' in proxy url that can cause a body-dropping redirect
     // TODO: unfortunately this redirect _still_ fails on non-localhost
+    // For debugging, here is an offending fetch that you can run in console
+    // fetch('/proxy/https:/api.anthropic.com/v1/messages', {
+    // 	method: 'POST',
+    // 	redirect: 'error',
+    // 	headers: {
+    // 	    'x-api-key': 'API_KEY_HERE',
+    // 	    'anthropic-version': '2023-06-01',
+    // 	    'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
+    // 	    'content-type': 'application/json'
+    // 	},
+    //   	body: JSON.stringify({"max_tokens":4096,"model":"claude-3-5-sonnet-20240620","temperature":1,"system":" ","messages":[{"role":"user","content":" hello"}],"tools":[{"name":"eval","description":"evaluate js code in browser on user device","input_schema":{"type":"object","properties":{"js":{"type":"string","description":"js code to evaluate"}},"required":["js"]}}]})
+    // }).then(response => {
+    // 	console.log(response)
+    // }).then(text=>console.log(text))
+
     const url = '/proxy/https:/api.anthropic.com/v1/messages'
     const response = await fetch_json(url, request)
     console.debug('claude response', response)
