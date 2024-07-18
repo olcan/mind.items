@@ -61,7 +61,13 @@ async function run_chat_agent(messages, config) {
     // anthropic (unlike others) disallows CORS, so we are forced to use proxy
     // see https://github.com/anthropics/anthropic-sdk-typescript/issues/219
     // note we avoid '://' in proxy url that can cause a body-dropping redirect
-    // TODO: unfortunately this redirect _still_ fails on non-localhost
+    //
+    // TODO: unfortunately this redirect _still_ fails on non-localhost,
+    // causing a cryptic 400 error with just "cloudflare" in the body.
+    //
+    // Main difference: non-local requests seem to use HTTP 2.0 pseudo-headers
+    // like :authority: instead of host, but not clear how this is a problem.
+    //
     // For debugging, here is an offending fetch that you can run in console
     // fetch('/proxy/https:/api.anthropic.com/v1/messages', {
     // 	method: 'POST',
