@@ -1,9 +1,9 @@
-#chat/ollama_home #_agent/chat/ollama
+#chat/ollama_tiny #_agent/chat/ollama
 <<command_table()>>
 ```js:js_removed
 // => /ollama [msg]
 // send `msg` to [ollama agent](#agent/chat/ollama)
-const _on_command_ollama_home = msg => _chat_command(msg)
+const _on_command_ollama_tiny = msg => _chat_command(msg)
 ```
 #_listen #_template/system
 <<system>> <<toggle(template('/system'), '⋮ #template/system')>>
