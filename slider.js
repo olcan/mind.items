@@ -3,7 +3,7 @@ const _slider = _item('$id')
 // slider widget macro
 // slides must be in top-level html elements w/ `class="slide"`
 // elements can be part of markdown or in a separate `_html` block
-// alternatively, slides can be defined in a separate `html_slides` block
+// slides (w/o `class="slide"`) can also be defined in an `html_slides` block
 // `options` are documented at https://github.com/ganlanyuan/tiny-slider#options
 function slider(options = {}) {
   // note this macro structure follows that of _plot in #util/plot
@@ -84,12 +84,22 @@ function __render(widget, widget_item) {
   const html_slides = read('html_slides')
   if (html_slides) {
     slides.innerHTML = html_slides
+    // await _update_dom()
+    array(slides.children).forEach(slide => {
+      if (slide.classList.contains('slide')) return // already designed .slide
+      // wrap in a new div just case, as some elements (e.g. img w/ css zoom) need a wrapper for the slide's reported offsetHeight to be correct
+      const wrapper = document.createElement('div')
+      wrapper.className = 'slide'
+      slide.replaceWith(wrapper)
+      wrapper.appendChild(slide)
+    })
   } else {
     const slide_elems = array(
       widget_item.elem.querySelectorAll('.slide')
     ).filter(slide => !widget.contains(slide))
     slides.replaceChildren(...slide_elems)
   }
+
   // set up _resize handlers to update slider height as images are rendered
   // note we could also add _cache_key but widget itself should be cached
   slides.querySelectorAll('img').forEach(img => {
