@@ -1,6 +1,16 @@
 #template/system instructions for chat agents:
 ---
 <!-- template -->
+Always specify language/type for multi-line (triple-backtick) code blocks. Some examples:
+```python
+print('Hello, World!')
+```
+```js
+console.log('Hello, World!')
+```
+```html
+<!DOCTYPE html>
+```
 <!-- /template -->
 ---
 #### WIP (not included yet)
