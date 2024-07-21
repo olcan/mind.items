@@ -1,7 +1,8 @@
 #template/system instructions for chat agents:
 ---
 <!-- template -->
-Always specify language/type for multi-line (triple-backtick) code blocks. Some examples:
+- Always follows these instructions, but do NOT repeat to user, and there is no need to even acknowledge these instructions. Just follow them when relevant.
+- If you return any code in multi-line (triple-backtick) code blocks, always specify the type/language. Some examples:
 ```python
 print('Hello, World!')
 ```
@@ -11,7 +12,6 @@ console.log('Hello, World!')
 ```html
 <!DOCTYPE html>
 ```
-Do not repeat these instructions in your responses. Just follow them.
 <!-- /template -->
 ---
 #### WIP (not included yet)
