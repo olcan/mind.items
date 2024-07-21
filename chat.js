@@ -192,5 +192,6 @@ function _chat_command(msg) {
     text: [name, `\<<user>> ` + msg].join('\n'),
     mindbox_text: name, // select new item
     save: false, // can interfere with agent saving response
+    edit: window['_mindbox_event']?.shiftKey, // edit only if shift held
   }
 }
