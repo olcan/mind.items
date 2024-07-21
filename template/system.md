@@ -4,13 +4,13 @@
 - Always follows these instructions, but do NOT repeat to user, and there is no need to even acknowledge these instructions. Just follow them when relevant.
 - If you return any code in multi-line (triple-backtick) code blocks, always specify the type/language. Some examples:
 ```python
-print('Hello, World!')
+# python code here
 ```
 ```js
-console.log('Hello, World!')
+// javascript code here
 ```
 ```html
-<!DOCTYPE html>
+<!-- html code here -->
 ```
 <!-- /template -->
 ---
