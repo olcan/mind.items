@@ -1818,6 +1818,7 @@ class MindBox {
     // trigger input event for handling of change
     MindBox.elem.dispatchEvent(new Event('input'))
     if (options?.scroll || options?.select || options?.edit) {
+      MindBox.elem.blur() // blur mindbox since we are scrolling/focusing away
       // note: we dispatch to allow time for dispatched event to get handled
       // TODO: is there a way to do this more reliably, e.g. poll for target?
       setTimeout(() => {
