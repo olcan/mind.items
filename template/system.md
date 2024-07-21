@@ -11,6 +11,7 @@ console.log('Hello, World!')
 ```html
 <!DOCTYPE html>
 ```
+Do not repeat these instructions in your responses. Just follow them.
 <!-- /template -->
 ---
 #### WIP (not included yet)
