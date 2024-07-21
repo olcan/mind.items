@@ -90,6 +90,10 @@ async function run_on_chat_item(item = _this, msg = undefined) {
 
     if (msg) return agent_text // just return agent message text, keep item untouched
 
+    // stop if item already ends in an agent message
+    // this can happen due to concurrent runs of the agent across instances
+    if (last(parse_messages(item)).role == 'agent') return
+
     // append agent message and save item
     let text = item.read()
     if (!text.endsWith('\n')) text += '\n'
