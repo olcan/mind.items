@@ -190,8 +190,8 @@ function _chat_command(msg) {
   const name = _name + '/' + suffix
   return {
     text: [name, `\<<user>> ` + msg].join('\n'),
-    mindbox_text: name, // select new item
     save: false, // can interfere with agent saving response
     edit: window['_mindbox_event']?.shiftKey, // edit only if shift held
+    init: item => MindBox.set(item.name, { scroll: true }),
   }
 }
