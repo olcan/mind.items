@@ -90,14 +90,14 @@ async function run_on_chat_item(item = _this, msg = undefined) {
 
     if (msg) return agent_text // just return agent message text, keep item untouched
 
-    // append agent message
+    // append agent message and save item
     let text = item.read()
     if (!text.endsWith('\n')) text += '\n'
     item.write(text + agent_text, '')
+    await item.save()
 
-    // if item is being edited, save, then append \<<user>> w/o saving
+    // if item is being edited, append \<<user>> w/o saving again
     if (item.editing) {
-      await item.save()
       await _update_dom()
       // __item(item.id).text += '\n\<<user>> '
       const textarea = item.elem?.querySelector('textarea')
