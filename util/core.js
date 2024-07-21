@@ -1817,13 +1817,21 @@ class MindBox {
     if (!wasFocused) MindBox.elem.blur()
     // trigger input event for handling of change
     MindBox.elem.dispatchEvent(new Event('input'))
-    // scroll to target if requested
-    if (options?.scroll) MindBox.scroll_to_target()
-    // select text in target if requested
-    if (options?.select) MindBox.select_in_target(options.select)
-    // edit target if requested
-    if (options?.edit)
-      MindBox.edit_target(typeof options.edit == 'string' ? options.edit : '')
+    if (options?.scroll || options?.select || options?.edit) {
+      // note: we dispatch to allow time for dispatched event to get handled
+      // TODO: is there a way to do this more reliably, e.g. poll for target?
+      setTimeout(() => {
+        // scroll to target if requested
+        if (options?.scroll) MindBox.scroll_to_target()
+        // select text in target if requested
+        if (options?.select) MindBox.select_in_target(options.select)
+        // edit target if requested
+        if (options?.edit)
+          MindBox.edit_target(
+            typeof options.edit == 'string' ? options.edit : ''
+          )
+      }, 100)
+    }
   }
   static clear() {
     MindBox.set('')
@@ -1854,7 +1862,10 @@ class MindBox {
   static scroll_to_target() {
     _update_dom().then(() => {
       const target = document.querySelector('.super-container.target')
-      if (!target) return // no target (missing or modified during dispatch)
+      if (!target) {
+        console.warn('scroll_to_target: target missing!')
+        return // no target (missing or modified during dispatch)
+      }
       const header = document.querySelector('.header')
       if (
         target.offsetTop < document.body.scrollTop ||
@@ -1873,7 +1884,10 @@ class MindBox {
   static select_in_target(text) {
     _update_dom().then(() => {
       const target = document.querySelector('.container.target')
-      if (!target) return // no target (missing or modified during dispatch)
+      if (!target) {
+        console.warn('select_in_target: target missing!')
+        return // no target (missing or modified during dispatch)
+      }
       const pos = _item(target.getAttribute('data-item-id')).text.indexOf(text)
       const textarea = target.querySelector('textarea') // already editing?
       if (pos < 0) console.error('could not find text: ' + text)
@@ -1894,7 +1908,10 @@ class MindBox {
     if (navigator.maxTouchPoints) MindBox.elem.focus()
     _update_dom().then(() => {
       let target = document.querySelector('.container.target')
-      if (!target) return // no target (missing or modified during dispatch)
+      if (!target) {
+        console.warn('edit_target: target missing!')
+        return // no target (missing or modified during dispatch)
+      }
       const textarea = target.querySelector('textarea') // already editing?
       if (text) {
         const pos = _item(target.getAttribute('data-item-id')).text.indexOf(
