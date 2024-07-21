@@ -26,6 +26,7 @@ async function run_chat_agent(messages, config = {}) {
 // if item is _editing_, saves changes, then appends `\<<user>>` section w/o saving
 // if custom last `msg` is given, just returns agent message text w/o touching `item`
 // `msg` can be user message text (string) or custom message object (role required)
+// custom `msg` can have any role, including `agent` or `system`
 async function run_on_chat_item(item = _this, msg = undefined) {
   if (is_string(item)) item = _item(item) // look up item by name
   if (!is_chat_item(item)) fatal(`non-chat item ${item.name}`)
@@ -41,14 +42,19 @@ async function run_on_chat_item(item = _this, msg = undefined) {
     let messages = parse_messages(item)
     if (msg) messages.push(msg) // append custom last msg if given
 
-    if (empty(messages)) return // no messages
-    if (!last(messages).content.trim()) return // last message is empty/whitespace
-    if (last(messages).role == 'agent') return // last message is agent
-    if (last(messages).role == 'system') return // last message is system
-
-    // note we update running state & status only after doing all checks to avoid unnecessary item state/ranking changes, e.g. on dependents where there is nothing to do
+    // check last message to see if agent should reply
+    // skip checks if using custom last msg
     if (!msg) {
-      // otherwise keep item untouched
+      if (empty(messages)) return // no messages
+      if (!last(messages).content.trim()) return // last message is empty/whitespace
+      if (last(messages).role == 'agent') return // last message is agent
+      if (last(messages).role == 'system') return // last message is system
+    }
+
+    // update item running/status, skip if using custom last msg
+    // note this is after all checks to avoid unnecessary changes
+    //   since these changes can trigger re-ranking/rendering of items
+    if (!msg) {
       item.running = true
       item.status = `waiting for ${_name} ...`
     }
