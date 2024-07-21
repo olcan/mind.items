@@ -37,11 +37,6 @@ async function run_on_chat_item(item = _this, msg = undefined) {
   if (is_string(msg)) msg = { role: 'user', content: msg }
   if (msg && !msg.role) fatal(`invalid msg w/ missing role`)
 
-  if (!msg) {
-    // otherwise keep item untouched
-    item.running = true
-    item.status = `waiting for ${_name} ...`
-  }
   try {
     let messages = parse_messages(item)
     if (msg) messages.push(msg) // append custom last msg if given
@@ -50,6 +45,13 @@ async function run_on_chat_item(item = _this, msg = undefined) {
     if (!last(messages).content.trim()) return // last message is empty/whitespace
     if (last(messages).role == 'agent') return // last message is agent
     if (last(messages).role == 'system') return // last message is system
+
+    // note we update running state & status only after doing all checks to avoid unnecessary item state/ranking changes, e.g. on dependents where there is nothing to do
+    if (!msg) {
+      // otherwise keep item untouched
+      item.running = true
+      item.status = `waiting for ${_name} ...`
+    }
 
     // extract (merge & delete) 'agent' field into 'config'
     const config = {}
