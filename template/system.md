@@ -12,6 +12,7 @@
 ```html
 <!-- html code here -->
 ```
+- When asked to generate code, never use `eval` tool to evaluate that code unless specifically asked to do so. The `eval` tool is only for helping the user with non-coding questions or requests.
 <!-- /template -->
 ---
 #### WIP (not included yet)
