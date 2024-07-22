@@ -187,8 +187,8 @@ const _run_options = { async_simple: true }
 // ___must be robust to concurrent runs___ due to unstopped runs on pause/stop
 // functions `_paused` and `_stopped` can help manage concurrent runs
 async function _run(agent_id) {
+  if (!is_agent_item(_this)) return null // skip non-agent item
   if (agent instanceof Agent) fatal('_run() called by agent')
-  if (!is_agent_item(_this)) fatal('non-agent item')
   if (!_this.name.startsWith('#')) fatal('unlabeled agent item') // label required
   if (!_this.saved_id) fatal('unsaved item', _name) // needed for cloud store
   const js = read('js_input').trim()
