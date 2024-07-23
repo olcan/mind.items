@@ -10,7 +10,8 @@ const _on_command_groq = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://console.groq.com/docs/api-reference#chat-create
-  model: 'llama3-70b-8192', // https://console.groq.com/docs/models
+  // model: 'llama3-70b-8192', // https://console.groq.com/docs/models
+  model: 'llama-3.1-70b-versatile',
   temperature: 1,
   // tool_choice: 'none', // uncomment if using groq tools
   // converter: js_eval_converter // from #template/tool_use
