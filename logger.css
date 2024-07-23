@@ -20,6 +20,7 @@
   padding: 1px 4px;
   border-radius: 4px;
   text-decoration: none;
+  font-weight: 300;
 }
 .item .log {
   overflow: hidden; /* improves look of truncated lines */

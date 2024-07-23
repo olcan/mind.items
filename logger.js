@@ -109,7 +109,7 @@ function _init_log_highlight() {
           {
             begin: [
               /^|\s|\(/,
-              /[a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)/]+\/?[^\s):]*[^\s):;,.]/,
+              /(?:go\/|[a-z][-a-z0-9\+\.]*:\/\/[^\s)/]+\/?)[^\s):]*[^\s):;,.]/,
             ],
             beginScope: { 2: 'tag.url._highlight' },
           },
@@ -225,10 +225,10 @@ function _init() {
     // handle url sources by transforming span into an anchor element
     // note href/target on anchor ausually works better than window.open
     // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
-    if (source.match(/^[a-z](?:[-a-z0-9\+\.])*:\/\//i)) {
+    if (source.match(/^go\/|[a-z][-a-z0-9\+\.]*:\/\//i)) {
       const link = document.createElement('a')
       Object.assign(link, {
-        href: source,
+        href: (source.startsWith('go/') ? 'http://' : '') + source,
         target: '_blank',
         ..._.pick(elem, ['title', 'innerHTML']),
       })
