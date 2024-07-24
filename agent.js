@@ -190,7 +190,6 @@ async function _run(agent_id) {
   if (!is_agent_item(_this)) return null // skip non-agent item
   if (agent instanceof Agent) fatal('_run() called by agent')
   if (!_this.name.startsWith('#')) fatal('unlabeled agent item') // label required
-  if (!_this.saved_id) fatal('unsaved item', _name) // needed for cloud store
   const js = read('js_input').trim()
   if (!js) fatal('agent item missing js_input block')
   _this.log_options.source = 'self' // restrict logging to item
@@ -220,6 +219,8 @@ async function _run(agent_id) {
     const task = dispatch_task('agent', async () => {
       if (!_primary) return 1000 // agent paused (non-primary instance)
       if (!navigator.onLine) return 1000 // agent paused (browser offline)
+      if (!_this.saved_id) return 1000 // agent not saved yet (e.g. new install)
+
       if (__agent._global_store.agents[_name] != agent_id) return null // agent stopped, cancel task
       const agent = _this.store.agent // for convenience below
 
