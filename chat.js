@@ -68,7 +68,10 @@ function parse_messages(arg = _this) {
           let js = content.replace(regex, '$2').trim() || '{}'
           // trim comments in the tail (assume trimmed and trim again)
           // note this allows comments _outside_ object scope {…}
-          js = js.replace(/(?:\/\/[^\n]*|\/\*.*?\*\/)$/s, '').trim() || '{}'
+          js =
+            js
+              .replace(/(^|\s|[})\]])(?:\/\/[^\n]*|\/\*.*?\*\/)$/s, '$1')
+              .trim() || '{}'
           agent = (item ?? _this).eval('(' + js + ')') // wrap in (…) to return object
           if (!is_plain_object(agent))
             fatal('invalid return from agent block:', agent)
