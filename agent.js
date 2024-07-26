@@ -22,7 +22,7 @@ const start_agent = (name, id = undefined) => {
 const stop_agent = name => {
   const agent_id = __agent._global_store.agents?.[name]
   // note this ordering matters to prevent infinite recursion via task._on_cancel
-  if (agent_id) delete __agent.global_store.agents[fname] // stop globally
+  if (agent_id) delete __agent.global_store.agents[name] // stop globally
   _item(name)?.cancel_task('agent') // stop locally
   debug(`stopped agent ${name} (${agent_id})`)
 }
