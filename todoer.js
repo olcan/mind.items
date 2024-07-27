@@ -561,7 +561,7 @@ function _unsnooze(item) {
   merge(item.global_store._todoer, { snoozed: 0, unsnoozed: Date.now() })
   // invoke unsnooze listeners for each unsnoozed todo item
   // listeners must register on object item('#todoer').store.on_unsnooze
-  each(values(_todoer.store.on_unsnooze), f =>
+  each(values(_todoer.store.on_unsnooze ?? {}), f =>
     f(item, _extract_todo_snippet(item))
   )
 }
