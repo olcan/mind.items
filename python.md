@@ -1,12 +1,11 @@
 #python enables running native (transpiled) `python_input` via [Brython](https://github.com/brython-dev/brython). See #/example.
 ```js
 if (!window.$B) {
-  const _brython = 'https://cdn.jsdelivr.net/npm/brython@3.12.4'
-  await _load(_brython + '/brython.min.js',
-              _brython + '/brython_stdlib.js')
+  const url = 'https://cdn.jsdelivr.net/npm/brython@3.12.4'
+  await _load(url + '/brython.min.js', url + '/brython_stdlib.js')
 }
 ```
-```js_removed
+```js:js_removed
 // enable 'run' for python_input blocks
 async function _run() {
   try {
@@ -19,7 +18,7 @@ async function _run() {
     const filename = $B.script_path + '#' + script_id // see https://github.com/brython-dev/brython/blob/c1e60afe5baedfbf57d30904315ea12963a1de8a/www/src/brython_builtins.js#L400
     // note we use read() vs read_input() as the latter drops empty/comment lines
     const python = _this.read('python_input')
-    console.debug(python)
+    // console.debug(python)
     $B.file_cache[$B.script_path + '#' + script_id] = python
     const js = $B.python_to_js(python, script_id)
     // console.debug(js)
