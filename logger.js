@@ -65,6 +65,12 @@ function _init_log_highlight() {
   const keywords = _event_log_keywords_for_regex()
   const keyword_regex = new RegExp(' (?:(?:' + keywords + ')(?=\\W|$))|(?= )')
 
+  const shortcut_hosts = window._shortcut_hosts ?? []
+  let shortcut_host_alts = shortcut_hosts
+    .map(h => _.escapeRegExp(h + '/'))
+    .join('|')
+  if (shortcut_host_alts) shortcut_host_alts += '|'
+
   // register highlighting language for 'log' blocks
   // https://highlightjs.readthedocs.io/en/latest/language-guide.html
   // https://highlightjs.readthedocs.io/en/latest/mode-reference.html
@@ -109,7 +115,9 @@ function _init_log_highlight() {
           {
             begin: [
               /^|\s|\(/,
-              /(?:go\/|[a-z][-a-z0-9\+\.]*:\/\/[^\s)/]+\/?)[^\s):]*[^\s):;,.]/,
+              new RegExp(
+                `(?:${shortcut_host_alts}|[a-z][-a-z0-9\\+\\.]*://[^\\s)/]+/?)[^\\s):]*[^\\s):;,.]`
+              ),
             ],
             beginScope: { 2: 'tag.url._highlight' },
           },
@@ -225,10 +233,22 @@ function _init() {
     // handle url sources by transforming span into an anchor element
     // note href/target on anchor ausually works better than window.open
     // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
-    if (source.match(/^go\/|[a-z][-a-z0-9\+\.]*:\/\//i)) {
+    const shortcut_hosts = window._shortcut_hosts ?? []
+    let shortcut_host_alts = shortcut_hosts
+      .map(h => _.escapeRegExp(h + '/'))
+      .join('|')
+    if (shortcut_host_alts) shortcut_host_alts += '|'
+    if (
+      source.match(
+        new RegExp(`^(?:${shortcut_host_alts}[a-z][-a-z0-9\\+\\.]*://)`, 'i')
+      )
+    ) {
       const link = document.createElement('a')
       Object.assign(link, {
-        href: (source.startsWith('go/') ? 'http://' : '') + source,
+        href:
+          (window['_shortcut_hosts']?.some(h => source.startsWith(h + '/'))
+            ? 'http://'
+            : '') + source,
         target: '_blank',
         ..._.pick(elem, ['title', 'innerHTML']),
       })
