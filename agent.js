@@ -188,7 +188,8 @@ const _run_options = { async_simple: true }
 // functions `_paused` and `_stopped` can help manage concurrent runs
 async function _run(agent_id) {
   if (!is_agent_item(_this)) return null // skip non-agent item
-  if (_this.store.agent) fatal('_run() called by agent')
+  if (typeof agent !== 'undefined' && agent == _this.store.agent)
+    fatal('_run() called by agent')
   if (!_this.name.startsWith('#')) fatal('unlabeled agent item') // label required
   const js = read('js_input').trim()
   if (!js) fatal('agent item missing js_input block')
