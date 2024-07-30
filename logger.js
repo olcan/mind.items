@@ -116,7 +116,7 @@ function _init_log_highlight() {
             begin: [
               /^|\s|\(/,
               new RegExp(
-                `(?:${shortcut_host_alts}|[a-z][-a-z0-9\\+\\.]*://[^\\s)/]+/?)[^\\s):]*[^\\s):;,.]`
+                `(?:${shortcut_host_alts}[a-z][-a-z0-9\\+\\.]*://[^\\s)/]+/?)[^\\s):]*[^\\s):;,.]`
               ),
             ],
             beginScope: { 2: 'tag.url._highlight' },
