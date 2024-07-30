@@ -19,7 +19,8 @@ async function _run() {
     const filename = $B.script_path + '#' + script_id // see https://github.com/brython-dev/brython/blob/c1e60afe5baedfbf57d30904315ea12963a1de8a/www/src/brython_builtins.js#L400
     // note we use read() vs read_input() as the latter drops empty/comment lines
     const python = _this.read('(?:python|py)_input')
-    if (!python) throw new Error('missing or empty python|py_input block')
+    // if (!python) throw new Error('missing or empty python|py_input block')
+    if (!python.trim()) return // silent return, consistent w/ js_input behavior
     // console.debug(python)
     $B.file_cache[$B.script_path + '#' + script_id] = python
     const js = $B.python_to_js(python, script_id)
