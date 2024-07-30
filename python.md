@@ -1,8 +1,9 @@
 #python enables running native (transpiled) `python_input` via [Brython](https://github.com/brython-dev/brython). See #/example.
 ```js
 if (!window.$B) {
-  const url = 'https://cdn.jsdelivr.net/npm/brython@3.12.4'
-  await _load(url + '/brython.min.js', url + '/brython_stdlib.js')
+  const base = 'https://cdn.jsdelivr.net/npm/brython@3.12.4'
+  await _load(base + '/brython.min.js')
+  await _load(base + '/brython_stdlib.js') // assumes brython.js already loaded
 }
 ```
 ```js:js_removed
