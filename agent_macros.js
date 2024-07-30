@@ -1,6 +1,8 @@
 // macro for agent controls
 function agent_controls(styles) {
   const byte_length = x => (x ? encode(stringify(x), 'utf8_array').length : 0)
+  // TODO: make this state-sensitive
+  // TODO: handle .../run items created for installed agent items
   return _div(
     '',
     [

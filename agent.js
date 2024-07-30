@@ -188,7 +188,7 @@ const _run_options = { async_simple: true }
 // functions `_paused` and `_stopped` can help manage concurrent runs
 async function _run(agent_id) {
   if (!is_agent_item(_this)) return null // skip non-agent item
-  if (agent instanceof Agent) fatal('_run() called by agent')
+  if (typeof agent !== 'undefined') fatal('_run() called by agent')
   if (!_this.name.startsWith('#')) fatal('unlabeled agent item') // label required
   const js = read('js_input').trim()
   if (!js) fatal('agent item missing js_input block')
@@ -287,7 +287,7 @@ async function _run(agent_id) {
     // stop agent if not already stopped (e.g. on rerun)
     // resolve/reject _run promise to finish running item
     task._on_cancel = () => {
-      agent.on_cancel?.()
+      __agent.on_cancel?.()
       if (!task._continue) {
         if (__agent._global_store.agents[_name] == agent_id) {
           delete __agent.global_store.agents[_name]
@@ -299,7 +299,7 @@ async function _run(agent_id) {
       resolve() // we resolve on cancellation, e.g. due to explicit stop_agent
     }
     task._on_error = e => {
-      agent.on_error?.(e)
+      __agent.on_error?.(e)
       if (__agent._global_store.agents[_name] == agent_id) {
         delete __agent.global_store.agents[_name]
         console.warn(
@@ -309,7 +309,7 @@ async function _run(agent_id) {
       reject(e)
     }
     task._on_done = () => {
-      agent.on_done?.()
+      __agent.on_done?.()
       if (__agent._global_store.agents[_name] == agent_id) {
         delete __agent.global_store.agents[_name]
         console.debug(`stopped agent ${_name} (${agent_id}) due to task done`)
