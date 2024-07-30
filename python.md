@@ -18,23 +18,24 @@ async function _run() {
     const script_id = '_run'
     const filename = $B.script_path + '#' + script_id // see https://github.com/brython-dev/brython/blob/c1e60afe5baedfbf57d30904315ea12963a1de8a/www/src/brython_builtins.js#L400
     // note we use read() vs read_input() as the latter drops empty/comment lines
-    const python = _this.read('python_input')
+    const python = _this.read('(?:python|py)_input')
+    if (!python) throw new Error('missing or empty python|py_input block')
     // console.debug(python)
     $B.file_cache[$B.script_path + '#' + script_id] = python
     const js = $B.python_to_js(python, script_id)
     // console.debug(js)
     let globals = await _this.eval(js, {async:true, async_simple:true})
-    // console.debug(ret)
+    // console.debug(globals)
     globals = _.pickBy(globals, (v,k)=>!k.startsWith('__'))
     _this.log('globals:', JSON.stringify(globals))
     // return JSON.stringify(globals)
   } catch (e) {
-    if (!e.args) console.error('js error', e) // assume js error
+    if (!e.args) console.error('[js]', e) // assume js error
     // note there is a lot more info in compiler_error exceptions
     // see https://github.com/brython-dev/brython/blob/c1e60afe5baedfbf57d30904315ea12963a1de8a/www/src/ast_to_js.js#L90
     // note some (most?) exceptions use $linenums
     // see https://github.com/brython-dev/brython/blob/3521d3b67cbb6029d8d25a00460eef6a83adb229/www/src/py_exceptions.js#L454
-    else console.error(`#python error: ${e.args[0]} (line:${e.lineno||e.$linenums})`)
+    else console.error(`[python] ${e.args[0]} (line:${e.lineno||e.$linenums})`)
   }
 }
 ```
