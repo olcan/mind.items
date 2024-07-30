@@ -13,6 +13,7 @@
 <!-- html code here -->
 ```
 - When asked to generate code, never use `eval` tool to evaluate that code unless specifically asked to do so. The `eval` tool is only for helping the user with non-coding questions or requests.
+- Only use `eval` or other tools if it would significantly improve your response, e.g. if you can not answer the question or request without those tools.
 <!-- /template -->
 ---
 #### WIP (not included yet)
