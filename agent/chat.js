@@ -51,71 +51,80 @@ async function run_on_chat_item(item = _this, msg = undefined) {
       if (last(messages).role == 'system') return // last message is system
     }
 
-    // update item running/status, skip if using custom last msg
-    // note this is after all checks to avoid unnecessary changes
-    //   since these changes can trigger re-ranking/rendering of items
-    if (!msg) {
-      item.running = true
-      item.status = `waiting for ${_name} ...`
-    }
+    // try block to ensure running/status is cleared
+    try {
+      // update item running/status, skip if using custom last msg
+      // note this is after all checks to avoid unnecessary changes
+      //   since these changes can trigger re-ranking/rendering of items
+      if (!msg) {
+        item.running = true
+        item.status = `waiting for ${_name} ...`
+      }
 
-    // extract (merge & delete) 'agent' field into 'config'
-    const config = {}
-    each(messages, msg => {
-      merge(config, msg.agent)
-      delete msg.agent
-    })
+      // extract (merge & delete) 'agent' field into 'config'
+      const config = {}
+      each(messages, msg => {
+        merge(config, msg.agent)
+        delete msg.agent
+      })
 
-    // drop user|system messages w/o content (presumably used for config only)
-    remove(
-      messages,
-      msg => ['user', 'system'].includes(msg.role) && !msg.content
-    )
-    if (empty(messages)) return // no messages left, nothing to do
+      // drop user|system messages w/o content (presumably used for config only)
+      remove(
+        messages,
+        msg => ['user', 'system'].includes(msg.role) && !msg.content
+      )
+      if (empty(messages)) return // no messages left, nothing to do
 
-    // eval macros in user messages w/ string content
-    // include placeholder macros in template items via 'expanded' context
-    // drop <!--comments--> (and preceding whitespace) from message contents
-    each(messages, msg => {
-      if (!is_string(msg.content)) return // can be e.g. array for claude
-      msg.content = msg.content.replace(/\s*<!--.*?-->/gs, '')
-      msg.content = item.eval_macros(msg.content, { context: 'expanded' })
-    })
+      // eval macros in user messages w/ string content
+      // include placeholder macros in template items via 'expanded' context
+      // drop <!--comments--> (and preceding whitespace) from message contents
+      each(messages, msg => {
+        if (!is_string(msg.content)) return // can be e.g. array for claude
+        msg.content = msg.content.replace(/\s*<!--.*?-->/gs, '')
+        msg.content = item.eval_macros(msg.content, { context: 'expanded' })
+      })
 
-    // run chat agent to get agent message text
-    // note we get `run_chat_agent` by evaluating (async) on chat item
-    const run_chat_agent = await item.eval('run_chat_agent', {
-      async: true,
-      async_simple: true,
-    })
-    let agent_text = await run_chat_agent(messages, config)
+      // run chat agent to get agent message text
+      // note we get `run_chat_agent` by evaluating (async) on chat item
+      const run_chat_agent = await item.eval('run_chat_agent', {
+        async: true,
+        async_simple: true,
+      })
+      let agent_text = await run_chat_agent(messages, config)
 
-    // prepend delimiter macro if missing, use config.name if specified
-    if (!agent_text.startsWith('<<'))
-      agent_text = `\<<agent('${config.name || _name}')>> ` + agent_text
+      // prepend delimiter macro if missing, use config.name if specified
+      if (!agent_text.startsWith('<<'))
+        agent_text = `\<<agent('${config.name || _name}')>> ` + agent_text
 
-    if (msg) return agent_text // just return agent message text, keep item untouched
+      if (msg) return agent_text // just return agent message text, keep item untouched
 
-    // stop if item already ends in an agent message
-    // this can happen due to concurrent runs of the agent across instances
-    if (last(parse_messages(item)).role == 'agent') return
+      // stop if item already ends in an agent message
+      // this can happen due to concurrent runs of the agent across instances
+      if (last(parse_messages(item)).role == 'agent') return
 
-    // append agent message and save item
-    let text = item.read()
-    if (!text.endsWith('\n')) text += '\n'
-    item.write(text + agent_text, '')
-    await item.save()
+      // append agent message and save item
+      let text = item.read()
+      if (!text.endsWith('\n')) text += '\n'
+      item.write(text + agent_text, '')
+      await item.save()
 
-    // if item is being edited, append \<<user>> w/o saving again
-    if (item.editing) {
-      await _update_dom()
-      // __item(item.id).text += '\n\<<user>> '
-      const textarea = item.elem?.querySelector('textarea')
-      if (textarea) {
-        textarea.focus()
-        textarea.selectionStart = textarea.value.length
-        document.execCommand('insertText', false, `\n\<<user>> `)
-        textarea.selectionStart = textarea.value.length - 10
+      // if item is being edited, append \<<user>> w/o saving again
+      if (item.editing) {
+        await _update_dom()
+        // __item(item.id).text += '\n\<<user>> '
+        const textarea = item.elem?.querySelector('textarea')
+        if (textarea) {
+          textarea.focus()
+          textarea.selectionStart = textarea.value.length
+          document.execCommand('insertText', false, `\n\<<user>> `)
+          textarea.selectionStart = textarea.value.length - 10
+        }
+      }
+    } finally {
+      // ensure running/status is cleared
+      if (!msg) {
+        item.running = false
+        item.status = ''
       }
     }
   } catch (e) {
@@ -123,12 +132,6 @@ async function run_on_chat_item(item = _this, msg = undefined) {
       item.error(e)
       item.write_log()
     } else throw e // just rethrow
-  } finally {
-    if (!msg) {
-      // otherwise keep item untouched
-      item.running = false
-      item.status = ''
-    }
   }
 }
 
