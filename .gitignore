@@ -1,1 +1,4 @@
 .DS_Store
+
+# dot/git symlinked from .git by init.py
+dot/git
