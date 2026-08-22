@@ -55,7 +55,10 @@ async function init_pusher() {
   // initialize pusher
   // mask token in logs (which may end up in screenshots); show only its prefix and last 4 chars
   _this.log(`initializing for repo ${dest}, token ${token.slice(0, 4)}…${token.slice(-4)} ...`)
-  const github = (_this.store.github = new Octokit({ auth: token }))
+  const github = (_this.store.github = new Octokit({
+    auth: token,
+    request: { fetch: octokit_fetch },
+  }))
 
   // retrieve repo tree (not limited to 1000 files unlike getContent)
   // we store commit_sha and tree_sha in global_store for efficiency
@@ -178,9 +181,24 @@ async function init_pusher() {
   )
 
   // create branch last_init for comparisons
-  update_branch('last_init')
+  update_branch('last_init').catch(e => _this.warn(`could not update branch last_init: ${e.message}`))
 
   _this.log(`initialized`)
+}
+
+// fetch for octokit that restores non-OK responses, which are thrown as errors (w/ resp and
+// body) by window.fetch in mind.page (since 2022-09), so that octokit can handle status codes
+// and api messages as usual (e.g. for errors checked below); otherwise all api errors appear as
+// generic "fetch failed ..." errors with status 500
+async function octokit_fetch(...args) {
+  try {
+    return await fetch(...args)
+  } catch (e) {
+    if (!e.resp) throw e // not a non-OK response, e.g. network error
+    const { status, statusText, headers } = e.resp
+    const null_body = [101, 204, 205, 304].includes(status) // body not allowed
+    return new Response(null_body ? null : e.body, { status, statusText, headers })
+  }
 }
 
 // updates/creates non-master branch to coincide with master branch
@@ -206,7 +224,7 @@ async function update_branch(name) {
     return 'updated'
   } catch (e) {
     // rethrow anything other than a 'does not exist' error
-    if (e.message != 'Reference does not exist') throw e
+    if (!String(e.message).includes('Reference does not exist')) throw e
     await github.git.createRef({ owner, repo, ref: 'refs/heads/' + name, sha })
     return 'created'
   }
@@ -346,7 +364,7 @@ function push_item(item, manual = false) {
           sha: commit.sha,
         })
       } catch (e) {
-        if (e.message == 'Update is not a fast forward') {
+        if (String(e.message).includes('Update is not a fast forward')) {
           if (!manual) {
             _this.warn(
               `push failed for ${item.name} due to unknown (external) ` +
@@ -458,7 +476,7 @@ function delete_paths(paths, message) {
         )
         return commit.sha
       } catch (e) {
-        if (retry > 0 || e.message != 'Update is not a fast forward') {
+        if (retry > 0 || !String(e.message).includes('Update is not a fast forward')) {
           _this.error(`delete failed for ${paths.length} paths in ${dest}: ${e}`)
           throw e
         }
@@ -827,7 +845,7 @@ async function _on_command_push(label) {
       // perform "manual" push allowing full push and side-push
       await push_item(item, true /*manual*/)
     }
-    update_branch('last_push')
+    update_branch('last_push').catch(e => _this.warn(`could not update branch last_push: ${e.message}`))
     await _modal_close() // force-close all modals
     // await _modal({
     //   content: `Pushed ${items.length} item${s}`,
@@ -862,7 +880,7 @@ async function _on_command_pull(label) {
       await pull_item(item)
       item.pushable = false // clear warning, resume side-push
     }
-    update_branch('last_pull')
+    update_branch('last_pull').catch(e => _this.warn(`could not update branch last_pull: ${e.message}`))
     // await _modal_update(modal, {
     //   content: `Pulled ${items.length} item${s}`,
     //   confirm: 'OK',
@@ -1009,7 +1027,7 @@ async function _on_command_prune() {
       _modal_update(modal, { content: `Pruning ${i + chunk.length}/${paths.length} paths ...` })
       await delete_paths(chunk, `prune ${chunk.length} paths`)
     }
-    update_branch('last_prune')
+    update_branch('last_prune').catch(e => _this.warn(`could not update branch last_prune: ${e.message}`))
     _this.log(
       `pruned ${stale_files.length} item files and ${stale_symlinks.length} symlinks from ${dest}`
     )
