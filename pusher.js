@@ -102,7 +102,9 @@ async function init_pusher() {
     const path = `items/${item.saved_id}.md`
     const remote_sha = path_sha.get(path)
     const sha = github_sha(item.text)
-    _this.store.items[item.saved_id] = { sha, remote_sha }
+    // also record session id (for deletions, see _on_item_change) and pushed name (for renames)
+    const name = path_sha.has(symlink_path(item.name)) ? item.name : undefined
+    _this.store.items[item.saved_id] = { id: item.id, sha, remote_sha, name }
     if (remote_sha) pushed_items_found = true
   }
 
@@ -291,27 +293,41 @@ function push_item(item, manual = false) {
       // create tree based off the tree of the latest commit
       // tree contains item file and symlink iff item is named
       // NOTE: drop base_tree for root commit on empty repo
-      const { data: { ...tree } = {} } = await github.git.createTree({
-        owner,
-        repo,
-        base_tree: tree_sha,
-        tree: [
-          { path, mode: '100644', type: 'blob', content: item.text },
-          ...(() => {
-            if (!item.name.startsWith('#')) return []
-            const name = item.name.slice(1)
-            const symlink = name.replace(/[^/]+/g, '..') + '/' + path
-            return [
-              {
-                path: `names/${name}.md`,
-                mode: '120000' /*symlink*/,
-                type: 'blob',
-                content: symlink,
-              },
-            ]
-          })(),
-        ],
-      })
+      const entries = [{ path, mode: '100644', type: 'blob', content: item.text }]
+      if (item.name.startsWith('#')) {
+        const name = item.name.slice(1)
+        const symlink = name.replace(/[^/]+/g, '..') + '/' + path
+        entries.push({
+          path: `names/${name}.md`,
+          mode: '120000' /*symlink*/,
+          type: 'blob',
+          content: symlink,
+        })
+      }
+      // also delete symlink left behind by previous name (if any), see state.name
+      const prev_symlink = state.name != item.name ? symlink_path(state.name) : undefined
+      if (prev_symlink)
+        entries.push({ path: prev_symlink, mode: '120000', type: 'blob', sha: null })
+      let tree
+      try {
+        ;({ data: tree } = await github.git.createTree({
+          owner,
+          repo,
+          base_tree: tree_sha,
+          tree: entries,
+        }))
+      } catch (e) {
+        if (!prev_symlink) throw e
+        // retry w/o deleting previous symlink, which may no longer exist (e.g. pruned)
+        _this.warn(`could not delete previous symlink ${prev_symlink}: ${e.message}`)
+        delete state.name
+        ;({ data: tree } = await github.git.createTree({
+          owner,
+          repo,
+          base_tree: tree_sha,
+          tree: entries.filter(e => e.sha !== null),
+        }))
+      }
       // create commit for this tree based off the last commit
       // NOTE: drop parents for root commit on empty repo
       const { data: { ...commit } = {} } = await github.git.createCommit({
@@ -363,6 +379,8 @@ function push_item(item, manual = false) {
       _this.global_store.commit_sha = commit.sha
       _this.global_store.tree_sha = tree.sha
       state.sha = state.remote_sha = text_sha // resume auto-push
+      state.name = item.name.startsWith('#') ? item.name : undefined // pushed name
+      state.id = item.id // session id, see _on_item_change
 
       // invoke _on_push() on item if defined as function
       // _on_push is invoked on both internal and external updates
@@ -386,6 +404,72 @@ function push_item(item, manual = false) {
     } catch (e) {
       _this.error(`push failed for ${item.name}: ${e}`)
       throw e
+    }
+  }))
+}
+
+// returns symlink path (under names/) for item name, or undefined if unnamed
+function symlink_path(name) {
+  if (!name?.startsWith('#')) return undefined
+  return `names/${name.slice(1)}.md`
+}
+
+// deletes paths from repo in a single commit, serialized w/ pushes (see push_item)
+// retries once after fetching latest commit if master has moved (e.g. external commits)
+// deleted files remain in repo history (see /history)
+function delete_paths(paths, message) {
+  if (!paths.length) return Promise.resolve()
+  if (!_this.store.github) throw new Error('missing github client')
+  if (!_this.global_store.dest) throw new Error('missing destination')
+  const dest = _this.global_store.dest
+  const [owner, repo] = dest.split('/')
+  const github = _this.store.github
+  return (_this.store._push = Promise.allSettled([
+    _this.store._push,
+    _item('#updater', { silent: true })?.store._update,
+  ]).then(async () => {
+    const start = Date.now()
+    const entries = paths.map(path => ({
+      path,
+      mode: path.startsWith('names/') ? '120000' /*symlink*/ : '100644',
+      type: 'blob',
+      sha: null, // delete
+    }))
+    for (let retry = 0; ; retry++) {
+      try {
+        const { data: tree } = await github.git.createTree({
+          owner,
+          repo,
+          base_tree: _this.global_store.tree_sha,
+          tree: entries,
+        })
+        const { data: commit } = await github.git.createCommit({
+          owner,
+          repo,
+          message,
+          parents: [_this.global_store.commit_sha],
+          tree: tree.sha,
+        })
+        await github.git.updateRef({ owner, repo, ref: 'heads/master', sha: commit.sha })
+        _this.global_store.commit_sha = commit.sha
+        _this.global_store.tree_sha = tree.sha
+        _this.debug(
+          `deleted ${paths.length} paths in ${dest} in ${Date.now() - start}ms (commit ${commit.sha})`
+        )
+        return commit.sha
+      } catch (e) {
+        if (retry > 0 || e.message != 'Update is not a fast forward') {
+          _this.error(`delete failed for ${paths.length} paths in ${dest}: ${e}`)
+          throw e
+        }
+        _this.warn(
+          `delete failed due to unknown (external) commits in ${dest}; ` +
+            `retrying after fetching latest commit ...`
+        )
+        const resp = await github.repos.getBranch({ owner, repo, branch: 'master' })
+        _this.global_store.commit_sha = resp.data.commit?.sha
+        _this.global_store.tree_sha = resp.data.commit?.commit?.tree?.sha
+      }
     }
   }))
 }
@@ -600,7 +684,11 @@ async function _side_push_item(item, manual = false) {
 // auto-push consistent items on change
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency change (item text unchanged)
-  if (deleted) return // ignore deletion (keep on github under deleted id)
+  if (deleted) {
+    // delete files for local deletions; remote deletions are handled at their source
+    if (!remote) delete_item_files(id).catch(e => {}) // errors already logged
+    return
+  }
   const item = _item(id)
   if (remote) {
     // update local state assuming remote auto-push
@@ -609,6 +697,21 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
     return
   }
   auto_push_item(item)
+}
+
+// deletes item file and symlink (if any) in repo for locally deleted item
+// id can be session id or saved id (see _on_item_change), looked up in store
+async function delete_item_files(id) {
+  const [saved_id, state] =
+    Object.entries(_this.store.items ?? {}).find(([sid, s]) => sid == id || s.id == id) ?? []
+  if (!state) return // unknown item, e.g. never pushed or pusher not initialized
+  delete _this.store.items[saved_id]
+  if (!state.remote_sha) return // never pushed (or lost track), nothing to delete
+  const paths = [`items/${saved_id}.md`]
+  const symlink = symlink_path(state.name)
+  if (symlink) paths.push(symlink)
+  await delete_paths(paths, `delete ${state.name || saved_id}`)
+  _this.log(`deleted ${state.name || saved_id} from ${_this.global_store.dest}`)
 }
 
 // auto-pushes item, retrying if item is not saved yet or is being edited
@@ -831,4 +934,86 @@ async function _on_command_compare(base) {
   }
   const [owner, repo] = _this.global_store.dest.split('/')
   window.open(`https://github.com/${owner}/${repo}/compare/${base}...master`)
+}
+
+// => /prune
+// deletes files in your repo for items that no longer exist
+// also deletes `names/` symlinks left behind by deleted or renamed items
+// deleted files remain in repo history, see /history
+async function _on_command_prune() {
+  if (!_this.store.github || !_this.global_store.dest) {
+    alert(`/prune not available due to disabled ${_this.name}`)
+    return '/prune'
+  }
+  const dest = _this.global_store.dest
+  const [owner, repo] = dest.split('/')
+  const github = _this.store.github
+  const live = _items().filter(item => item.saved_id)
+  if (!live.length) {
+    alert(`/prune: no saved items found`)
+    return '/prune'
+  }
+  let modal // modal promise if open
+  try {
+    modal = _modal({ content: `Scanning ${dest} ...`, background: 'block' })
+    const resp = await github.repos.getBranch({ owner, repo, branch: 'master' })
+    const commit_sha = resp.data.commit?.sha
+    const tree_sha = resp.data.commit?.commit?.tree?.sha
+    if (!commit_sha || !tree_sha) throw new Error(`can not prune empty repo ${dest}`)
+    const {
+      data: { tree },
+    } = await github.git.getTree({ owner, repo, tree_sha, recursive: true })
+    const live_ids = new Set(live.map(item => item.saved_id))
+    const live_symlinks = new Set(live.map(item => symlink_path(item.name)))
+    const item_files = tree.filter(n => n.type == 'blob' && /^items\/[^/]+\.md$/.test(n.path))
+    const stale_files = item_files.filter(n => !live_ids.has(n.path.slice(6, -3)))
+    const stale_symlinks = tree.filter(
+      n => n.mode == '120000' && n.path.startsWith('names/') && !live_symlinks.has(n.path)
+    )
+    const paths = [...stale_files, ...stale_symlinks].map(n => n.path)
+    await _modal_close(modal)
+    modal = null
+    if (!paths.length) {
+      alert(`/prune: nothing to prune in ${dest}`)
+      return
+    }
+    // refuse if almost all item files look stale, which suggests items are not fully loaded
+    if (stale_files.length > 0.95 * item_files.length) {
+      alert(
+        `/prune: refusing to delete ${stale_files.length} of ${item_files.length} ` +
+          `item files; are items fully loaded?`
+      )
+      return '/prune'
+    }
+    const sample = stale_symlinks.slice(0, 10).map(n => '#' + n.path.slice(6, -3))
+    const confirmed = await _modal({
+      content:
+        `Delete ${stale_files.length} item files and ${stale_symlinks.length} symlinks ` +
+        `from ${dest}? ${item_files.length - stale_files.length} live items are kept, ` +
+        `and deleted files remain in repo history.` +
+        (sample.length
+          ? `\n\nSymlinks include ${sample.join(' ')}` +
+            (stale_symlinks.length > sample.length ? ' ...' : '')
+          : ''),
+      confirm: 'Prune',
+      cancel: 'Cancel',
+    })
+    if (!confirmed) return '/prune'
+    // base deletions on latest commit (delete_paths also retries if master moves)
+    _this.global_store.commit_sha = commit_sha
+    _this.global_store.tree_sha = tree_sha
+    modal = _modal({ content: `Pruning ${paths.length} paths ...`, background: 'block' })
+    const chunk_size = 500 // paths per commit
+    for (let i = 0; i < paths.length; i += chunk_size) {
+      const chunk = paths.slice(i, i + chunk_size)
+      _modal_update(modal, { content: `Pruning ${i + chunk.length}/${paths.length} paths ...` })
+      await delete_paths(chunk, `prune ${chunk.length} paths`)
+    }
+    update_branch('last_prune')
+    _this.log(
+      `pruned ${stale_files.length} item files and ${stale_symlinks.length} symlinks from ${dest}`
+    )
+  } finally {
+    if (modal) _modal_close(modal) // close if left open
+  }
 }
