@@ -53,7 +53,8 @@ async function init_pusher() {
   }
 
   // initialize pusher
-  _this.log(`initializing for repo ${dest}, token ${token} ...`)
+  // mask token in logs (which may end up in screenshots); show only its prefix and last 4 chars
+  _this.log(`initializing for repo ${dest}, token ${token.slice(0, 4)}…${token.slice(-4)} ...`)
   const github = (_this.store.github = new Octokit({ auth: token }))
 
   // retrieve repo tree (not limited to 1000 files unlike getContent)
