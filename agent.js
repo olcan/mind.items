@@ -236,7 +236,7 @@ async function _run(agent_id) {
           agent.state = await download(_this.saved_id + '/agent', {
             force: true,
           })
-        } catch {
+        } catch (e) {
           console.error('download failed:', e)
           return 1000
         }
