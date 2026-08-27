@@ -13,9 +13,16 @@ async function init_updater() {
   store.update_modal = null // visible update modal (if any)
 
   // check for updates on page init
-  for (let item of installed_named_items()) {
-    const updates = await check_updates(item, true /* mark_pushables */)
-    if (updates) await update_item(item, updates)
+  // stop on errors fatal to all items (rate limit / auth / network), which
+  // would otherwise fail (and log an error for) every remaining item;
+  // the next page load retries
+  try {
+    for (let item of installed_named_items()) {
+      const updates = await check_updates(item, true /* mark_pushables */)
+      if (updates) await update_item(item, updates)
+    }
+  } catch (e) {
+    _this.warn(`stopped update checks: ${e}`)
   }
 
   // listen for updates through firebase
@@ -131,16 +138,22 @@ async function init_updater() {
             return
           }
         }
-        while (modified_ids.length) {
-          const item = _item(modified_ids.shift())
-          const update = pending_updates[item.id]
-          delete pending_updates[item.id] // no longer pending
-          const updates = await check_updates(item)
-          if (updates) {
-            // record _init_time for app instance that can skip confirmation
-            _this.global_store.auto_updater_init_time = window._init_time
-            await update_item(item, updates)
-          } else _this.log(`update no longer needed for ${item.name}`)
+        try {
+          while (modified_ids.length) {
+            const item = _item(modified_ids.shift())
+            const update = pending_updates[item.id]
+            delete pending_updates[item.id] // no longer pending
+            const updates = await check_updates(item)
+            if (updates) {
+              // record _init_time for app instance that can skip confirmation
+              _this.global_store.auto_updater_init_time = window._init_time
+              await update_item(item, updates)
+            } else _this.log(`update no longer needed for ${item.name}`)
+          }
+        } catch (e) {
+          // stop on errors fatal to all items; remaining items update on
+          // the next webhook, /update command, or page load
+          _this.error(`stopped update batch: ${e}`)
         }
       })
     }
@@ -203,6 +216,30 @@ function decodeBase64(str) {
   )
 }
 
+// single github client, reused while the token is unchanged
+let _github_client, _github_client_token
+function github_client(token) {
+  if (token != _github_client_token) {
+    _github_client_token = token
+    _github_client = token ? new Octokit({ auth: token }) : new Octokit()
+  }
+  return _github_client
+}
+
+// spacing between github api calls to stay under secondary (burst) rate limits;
+// exceeding them fails calls with opaque network/CORS errors in browsers, since
+// the error responses can lack CORS headers, hiding status and Retry-After
+let _last_github_call_time = 0
+async function pace_github_call() {
+  const wait = _last_github_call_time + 400 + 200 * Math.random() - Date.now()
+  if (wait > 0) await _delay(wait)
+  _last_github_call_time = Date.now()
+}
+
+// is error fatal to all subsequent github calls (vs specific to an item)?
+// missing status means a network/CORS failure, usually a secondary rate limit
+const is_infra_error = e => !e?.status || [401, 403, 429].includes(e.status)
+
 // return auth token for updating item from github source
 // returns null if no token is available
 async function github_token(item) {
@@ -258,10 +295,11 @@ async function check_updates(item, mark_pushables = false) {
     )
     return false
   }
-  const github = token ? new Octokit({ auth: token }) : new Octokit()
+  const github = github_client(token)
   const updates = {} // path->hash object of available updates
   try {
     // check for change to item
+    await pace_github_call()
     const {
       data: [{ sha }],
     } = await github.repos.listCommits({
@@ -273,6 +311,7 @@ async function check_updates(item, mark_pushables = false) {
     if (sha != attr.sha) updates[path] = sha
     if (mark_pushables) {
       // compare item text sha to last update/install
+      await pace_github_call()
       const {
         data: { files },
       } = await github.repos.getCommit({ ...attr, ref: attr.sha })
@@ -317,6 +356,7 @@ async function check_updates(item, mark_pushables = false) {
 
       for (const embed of attr.embeds) {
         // NOTE: there may be no commit/sha for new embeds
+        await pace_github_call()
         const sha = (
           await github.repos.listCommits({
             ...attr,
@@ -334,6 +374,7 @@ async function check_updates(item, mark_pushables = false) {
             item.pushable = true // mark pushable until pushed to source
           } else {
             // compare embed text sha to last update/install
+            await pace_github_call()
             const {
               data: { files },
             } = await github.repos.getCommit({ ...attr, ref: embed.sha })
@@ -351,6 +392,9 @@ async function check_updates(item, mark_pushables = false) {
       }
     }
   } catch (e) {
+    // rethrow errors fatal to all items so callers can stop instead of
+    // failing (and logging an error for) every remaining item
+    if (is_infra_error(e)) throw e
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
   if (empty(updates)) {
@@ -395,7 +439,7 @@ async function update_item(item, updates) {
     )
     return false
   }
-  const github = token ? new Octokit({ auth: token }) : new Octokit()
+  const github = github_client(token)
   _this.log(`updating ${item.name} from ${source}/${path} ...`)
   try {
     // compute updated text, reusing existing text if no updates
@@ -403,6 +447,7 @@ async function update_item(item, updates) {
     let sha, text
     if (updates[path]) {
       sha = updates[path]
+      await pace_github_call()
       text = decodeBase64(
         (
           await github.repos.getContent({
@@ -558,6 +603,7 @@ async function update_item(item, updates) {
         let sha = prev_embeds?.find(e => e.path == path)?.sha
         if (!sha /* new embed*/ || updates[path] /* updated */) {
           sha = updates[path]
+          await pace_github_call()
           embed_text[path] = decodeBase64(
             (
               await github.repos.getContent({
@@ -571,7 +617,9 @@ async function update_item(item, updates) {
         }
         attr.embeds = (attr.embeds ?? []).concat({ path, sha })
       } catch (e) {
-        throw new Error(`failed to embed '${path}': ${e}`)
+        const error = new Error(`failed to embed '${path}': ${e}`)
+        error.status = e?.status // preserve for is_infra_error classification
+        throw error
       }
     }
 
@@ -660,8 +708,11 @@ async function update_item(item, updates) {
     )
     return true
   } catch (e) {
-    _this.error(`update failed for ${item.name} from ${source}/${path}: ${e}`)
     item.global_store._updater = prev_updater_state
+    // rethrow errors fatal to all items so callers can stop instead of
+    // failing (and logging an error for) every remaining item
+    if (is_infra_error(e)) throw e
+    _this.error(`update failed for ${item.name} from ${source}/${path}: ${e}`)
     return false
   }
 }
@@ -709,8 +760,12 @@ async function _on_command_edit(args, name, editor = 'github') {
 // => /update [items]
 // update items
 // `items` can be specific `#label` or id
+// paced against github (secondary) rate limits
+// stops (w/ report) on errors fatal to all items, e.g. rate limits
+// can be cancelled via progress modal
 async function _on_command_update(label) {
   let modal // modal promise if open
+  let cancelled = false // set on cancel via progress modal button
   try {
     const items = _items(label)
     const s = items.length > 1 ? 's' : ''
@@ -720,21 +775,52 @@ async function _on_command_update(label) {
     }
     modal = _modal({
       content: `Updating ${items.length} item${s} ...`,
+      cancel: 'Cancel',
       background: 'block',
     })
+    // modal resolves early only via its cancel button (see final confirm below)
+    modal.then(() => (cancelled = true))
     await (_this.store._update = Promise.allSettled([
       _this.store._update,
       _item('#pusher', { silent: true })?.store._push,
     ]).then(async () => {
+      let updated = 0
       for (const [i, item] of items.entries()) {
+        if (cancelled) {
+          // modal already closed by cancel button
+          modal = null
+          _this.warn(`/update cancelled at ${item.name}`)
+          alert(`/update cancelled; updated ${updated} of ${items.length} item${s}`)
+          return
+        }
         _modal_update(modal, {
           content: `Updating ${i + 1}/${items.length} (${item.name}) ...`,
         })
-        const updates = await check_updates(item)
-        if (updates) await update_item(item, updates)
+        try {
+          const updates = await check_updates(item)
+          if (updates && (await update_item(item, updates))) updated++
+        } catch (e) {
+          // stop and report: error is fatal to all items (see is_infra_error),
+          // so continuing would just fail (and log an error) for every item;
+          // errors w/o status are usually github secondary rate limits, whose
+          // error responses lack CORS headers (hiding status and Retry-After)
+          const hint = e?.status
+            ? ''
+            : ' — likely github rate limit, wait a minute and retry'
+          _this.error(`/update stopped at ${item.name}: ${e}`)
+          await _modal_update(modal, {
+            content:
+              `Update stopped at ${i + 1}/${items.length} (${item.name}) ` +
+              `after updating ${updated} item${updated == 1 ? '' : 's'}: ${e}${hint}`,
+            confirm: 'OK',
+            background: 'confirm',
+          })
+          modal = null // closed by await
+          return
+        }
       }
       await _modal_update(modal, {
-        content: `Updated ${items.length} item${s}`,
+        content: `Updated ${updated} of ${items.length} item${s}`,
         confirm: 'OK',
         background: 'confirm',
       })
