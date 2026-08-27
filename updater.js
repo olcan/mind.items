@@ -237,8 +237,15 @@ async function pace_github_call() {
 }
 
 // is error fatal to all subsequent github calls (vs specific to an item)?
-// missing status means a network/CORS failure, usually a secondary rate limit
-const is_infra_error = e => !e?.status || [401, 403, 429].includes(e.status)
+// network/CORS failures (usually secondary rate limits) can be status-less
+// (plain fetch TypeError), wrapped by Octokit as status 500, or best detected
+// by message across browsers ('Failed to fetch' chrome, 'Load failed' safari,
+// 'NetworkError ...' firefox); 5xx also covers transient github server errors
+const is_infra_error = e =>
+  !e?.status ||
+  e.status >= 500 ||
+  [401, 403, 429].includes(e.status) ||
+  /failed to fetch|load failed|networkerror/i.test(e?.message ?? '')
 
 // return auth token for updating item from github source
 // returns null if no token is available
