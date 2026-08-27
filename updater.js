@@ -825,11 +825,12 @@ async function _on_command_update(label) {
         } catch (e) {
           // stop and report: error is fatal to all items (see is_infra_error),
           // so continuing would just fail (and log an error) for every item;
-          // errors w/o status are usually github secondary rate limits, whose
-          // error responses lack CORS headers (hiding status and Retry-After)
-          const hint = e?.status
-            ? ''
-            : ' — likely github rate limit, wait a minute and retry'
+          // network/CORS failures are usually github secondary rate limits,
+          // whose error responses lack CORS headers (hiding status/Retry-After)
+          const network = !e?.status || /failed to fetch|load failed|networkerror/i.test(e?.message ?? '')
+          const hint = network || e?.status == 403 || e?.status == 429
+            ? ' — likely github rate limit, wait a minute and retry'
+            : ''
           _this.error(`/update stopped at ${item.name}: ${e}`)
           await _modal_update(modal, {
             content:
