@@ -284,6 +284,10 @@ function github_sha(text) {
 // similar to /_updates command defined in index.svelte in mind.page repo
 async function check_updates(item, mark_pushables = false) {
   const attr = item.attr
+  // guard against non-installed items: without a github source there is
+  // nothing to check, and attempting one would throw (null attr) or fire a
+  // junk api request (undefined owner/repo -> 404) that burns rate limits
+  if (!attr?.source) return null
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
   // _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
