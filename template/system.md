@@ -25,3 +25,5 @@
   - Put JavaScript code in `js` code blocks.
   - Avoid global variables: `array`.
   - Just generate code, do NOT execute using eval tool!
+
+#_///template
