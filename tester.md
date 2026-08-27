@@ -3,7 +3,9 @@
 - Can be associated w/ functions w/ different names:
   - Define `const _test_*_functions = [...names]`.
 - Run automatically on any changes to item.
-- Can be run manually as `/test [items]`:  
+- Tests named `_test_live_*` (e.g. tests hitting network APIs) are excluded from
+  automatic and default `/test` runs; select them via `pattern`, e.g. `/test #item live`.
+- Can be run manually as `/test [items] [pattern]`:  
 << command_table() >>
 
 ```js_removed:tester.js

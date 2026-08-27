@@ -15,7 +15,17 @@ function test_item(item, selector) {
     item.store._benchmarker,
   ]).then(async () => {
     const gs = item._global_store // changes saved manually below
-    if (!selector) delete gs._tests // clear any previous tests
+    if (!selector) {
+      // clear any previous tests, except live tests excluded by default below
+      each(entries(gs._tests ?? {}), ([name, result]) => {
+        if (!name.startsWith('live_') && !result.test?.startsWith('_test_live_'))
+          delete gs._tests[name]
+      })
+      if (empty(gs._tests)) delete gs._tests
+      // exclude live tests (_test_live_*) by default, e.g. tests hitting network apis
+      // these can be run explicitly via /test <items> <pattern> (see _on_command_test)
+      selector = name => !name.startsWith('live_')
+    }
     // evaluate any functions _test_*() defined on item
     const tests = item.text.match(/\b_test_\w+/g) ?? []
     let tests_done = 0
@@ -25,8 +35,11 @@ function test_item(item, selector) {
       let done, ms, e
       const start = Date.now()
       try {
+        // note async tests return a promise, resolved via then to count as done
+        // (bare `?? true` misses promises resolving to undefined on success)
         done = await item.eval(
-          `typeof ${test} == 'function' ? (${test}() ?? true) : false`,
+          `typeof ${test} == 'function' ? ` +
+            `Promise.resolve(${test}()).then(out => out ?? true) : false`,
           {
             trigger: 'test',
             async: item.deepasync,
@@ -87,14 +100,16 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   test_item(_item(id))
 }
 
-// => /test [items]
+// => /test [items] [pattern]
 // runs tests in items
 // `items` can be specific `#label` or id
-async function _on_command_test(label) {
+// `pattern` (regex) selects tests by name, e.g. `live` selects `_test_live_*`
+// tests named `_test_live_*` are excluded w/o `pattern` (see test_item)
+async function _on_command_test(args, label, pattern) {
   const items = _items(label)
   if (items.length == 0) {
     alert(`/test: ${label} not found`)
-    return '/test ' + label
+    return '/test ' + args
   }
   try {
     let num_tests = 0
@@ -103,7 +118,10 @@ async function _on_command_test(label) {
       if (!item.text.match(/\b_test_\w+/)) continue // no tests in item
       await _modal_close()
       _modal(`Running tests in ${item.name} ...`)
-      const count = await test_item(item)
+      const count = await test_item(
+        item,
+        pattern ? name => new RegExp(pattern).test(name) : undefined
+      )
       num_tests += count
       if (count) num_items++
     }
