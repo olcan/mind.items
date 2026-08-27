@@ -758,7 +758,7 @@ async function _on_command_edit(args, name, editor = 'github') {
 }
 
 // => /update [items]
-// update items
+// update installed items
 // `items` can be specific `#label` or id
 // paced against github (secondary) rate limits
 // stops (w/ report) on errors fatal to all items, e.g. rate limits
@@ -767,11 +767,20 @@ async function _on_command_update(label) {
   let modal // modal promise if open
   let cancelled = false // set on cancel via progress modal button
   try {
-    const items = _items(label)
+    // update installed items only: non-installed items have no github source
+    // (attr.source), so checking them just fails (and logs an error) per item
+    let items = label ? _items(label) : installed_named_items()
+    const skipped = items.filter(item => !item.attr?.source)
+    items = items.filter(item => item.attr?.source)
+    if (label && skipped.length)
+      _this.warn(
+        `/update skipping non-installed item${skipped.length > 1 ? 's' : ''}: ` +
+          skipped.map(item => item.name).join(', ')
+      )
     const s = items.length > 1 ? 's' : ''
     if (items.length == 0) {
-      alert(`/update: ${label} not found`)
-      return '/update ' + label
+      alert(`/update: no installed items${label ? ` matching ${label}` : ''}`)
+      return label ? '/update ' + label : '/update'
     }
     modal = _modal({
       content: `Updating ${items.length} item${s} ...`,
@@ -790,7 +799,10 @@ async function _on_command_update(label) {
           // modal already closed by cancel button
           modal = null
           _this.warn(`/update cancelled at ${item.name}`)
-          alert(`/update cancelled; updated ${updated} of ${items.length} item${s}`)
+          alert(
+            `/update cancelled at ${i}/${items.length}; ` +
+              `updated ${updated} item${updated == 1 ? '' : 's'}`
+          )
           return
         }
         _modal_update(modal, {
