@@ -11,6 +11,10 @@ const _on_command_claude = msg => _chat_command(msg)
 ```js:agent
 { // https://docs.anthropic.com/en/api/messages
   model: 'claude-fable-5', // https://docs.anthropic.com/en/docs/about-claude/models
-  temperature: 1
+  temperature: 1,
+  // max (adaptive) thinking; requires max_tokens headroom for thinking tokens
+  thinking: { type: 'adaptive' },
+  output_config: { effort: 'max' },
+  max_tokens: 32000
 }
 ```

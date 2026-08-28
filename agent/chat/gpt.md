@@ -30,26 +30,33 @@ const create_request = (messages, config) => ({
   },
   body: JSON.stringify({
     // function tools on chat completions require reasoning_effort 'none' on
-    // gpt-5+ (and o*) reasoning models, while non-reasoning models (e.g. the
-    // gpt-4 family) reject the argument entirely, so the default is applied
-    // by model family; can be overridden via config
-    ...(config.model.match(/^(gpt-5|o\d)/) ? { reasoning_effort: 'none' } : {}),
+    // gpt-5+ (and o*) reasoning models (or the responses api), while
+    // non-reasoning models (e.g. the gpt-4 family) reject the argument
+    // entirely, so the default is applied only when tools are enabled (see
+    // below), by model family; without tools the model's default effort
+    // applies and can be raised via config (up to 'xhigh')
+    ...(defined(config.tool_choice) && config.model.match(/^(gpt-5|o\d)/) ?
+      { reasoning_effort: 'none' } : {}),
     ...omit(config, 'name', 'api_key'),
     // model: https://platform.openai.com/docs/models
     messages,
-    // example 'eval' tool, see https://platform.openai.com/docs/api-reference/chat/create
-    tools: [{
-      type: 'function',
-      function: {
-        name: 'eval',
-        description: 'evaluate js code in browser on user device',
-        parameters: {
-          type: 'object',
-          properties: { js: { type: 'string', description: 'js code to evaluate' } },
-          required: ['js']
+    // example 'eval' tool, included only if config.tool_choice is defined
+    // (can be 'auto') since reasoning is incompatible w/ tools on this api
+    // see https://platform.openai.com/docs/api-reference/chat/create
+    ...(defined(config.tool_choice) ? {
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'eval',
+          description: 'evaluate js code in browser on user device',
+          parameters: {
+            type: 'object',
+            properties: { js: { type: 'string', description: 'js code to evaluate' } },
+            required: ['js']
+          }
         }
-      }
-    }]
+      }]
+    } : {})
   })
 })
 
@@ -158,20 +165,26 @@ function _test_create_request() {
     [{ role: 'user', content: 'hi' }],
     { model: 'gpt-5.6-terra', api_key: 'KEY', name: 'x', temperature: 0 })
   const body = JSON.parse(request.body)
-  // non-reasoning models (e.g. gpt-4o, as pinned in the #chat/gpt alias) reject
-  // reasoning_effort entirely, so the default must be gated by model family
-  const gpt4o = JSON.parse(create_request(
-    [{ role: 'user', content: 'hi' }], { model: 'gpt-4o', api_key: 'KEY' }).body)
+  // tools (and the reasoning_effort 'none' they require) only w/ tool_choice
+  const with_tools = JSON.parse(create_request([{ role: 'user', content: 'hi' }],
+    { model: 'gpt-5.6-terra', api_key: 'KEY', tool_choice: 'auto' }).body)
+  // non-reasoning models (e.g. gpt-4o) reject reasoning_effort entirely,
+  // so the default is also gated by model family
+  const gpt4o = JSON.parse(create_request([{ role: 'user', content: 'hi' }],
+    { model: 'gpt-4o', api_key: 'KEY', tool_choice: 'auto' }).body)
   check(
     () => request.method == 'POST',
     () => request.headers['Authorization'] == 'Bearer KEY',
     () => body.model == 'gpt-5.6-terra',
     () => body.temperature === 0,
-    () => body.reasoning_effort == 'none', // default applied (overridable)
+    () => body.tools === undefined, // tools only if tool_choice defined
+    () => body.reasoning_effort === undefined, // effort unrestricted w/o tools
+    () => with_tools.tools.length == 1 && with_tools.tools[0].function.name == 'eval',
+    () => with_tools.reasoning_effort == 'none', // required w/ tools (overridable)
+    () => gpt4o.tools.length == 1,
     () => gpt4o.reasoning_effort === undefined, // not applied to non-reasoning models
     () => body.api_key === undefined && body.name === undefined, // reserved keys omitted
     () => equal(body.messages, [{ role: 'user', content: 'hi' }]),
-    () => body.tools.length == 1 && body.tools[0].function.name == 'eval',
   )
 }
 const _test_create_request_functions = ['create_request']
@@ -227,9 +240,11 @@ const _test_live_smoke_functions = ['run_chat_agent']
 
 // live tool-use test against the api w/ default model, excluded from default runs
 // verifies the full tool loop: tool_calls response -> eval_tool -> tool message -> reply
+// note tool_choice is required for the eval tool to be included (see create_request)
 async function _test_live_tool_use() {
   const text = await run_chat_agent([{ role: 'user',
-    content: 'use the eval tool to compute 1234*5678, then reply with the result' }], {})
+    content: 'use the eval tool to compute 1234*5678, then reply with the result' }],
+    { tool_choice: 'auto' })
   check(
     () => text.includes(`\<<tool('eval')>>`), // tool call made & result rendered
     () => text.includes('7006652'), // correct result round-tripped

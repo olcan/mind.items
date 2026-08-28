@@ -13,6 +13,7 @@ const _on_command_groq = msg => _chat_command(msg)
   // model: 'openai/gpt-oss-120b', // https://console.groq.com/docs/models
   model: 'qwen/qwen3.8-27b',
   temperature: 1,
+  reasoning_effort: 'high', // max supported ('none'|'default'|'low'|'medium'|'high')
   // tool_choice: 'auto', // uncomment to enable 'eval' tool
   // converter: js_eval_converter // from #template/tool_use
 }

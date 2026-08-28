@@ -12,7 +12,8 @@ const _on_command_gemini = msg => _chat_command(msg)
 { // https://ai.google.dev/api/rest/v1beta/models/generateContent
   model: 'gemini-3.7-flash', // https://ai.google.dev/gemini-api/docs/models
   generationConfig: { // https://ai.google.dev/api/rest/v1beta/GenerationConfig
-    temperature: 1
+    temperature: 1,
+    thinkingConfig: { thinkingLevel: 'high' } // max supported
   }
 }
 ```

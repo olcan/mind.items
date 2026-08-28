@@ -16,6 +16,7 @@ const _on_command_openrouter = msg => _chat_command(msg)
   // model: 'google/gemini-3.7-flash',
   model: 'z-ai/glm-5.3',
   temperature: 1,
+  reasoning: { effort: 'max' }, // openrouter unified reasoning param
   // tool_choice: 'auto', // uncomment to enable 'eval' tool
 }
 ```
