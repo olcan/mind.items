@@ -10,7 +10,7 @@ const _on_command_gpt = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://platform.openai.com/docs/api-reference/chat/create
-  model: 'gpt-4o', // https://platform.openai.com/docs/models
-  temperature: 1
+  // note reasoning (gpt-5+) models reject the temperature argument
+  model: 'gpt-5.6-sol' // https://platform.openai.com/docs/models
 }
 ```

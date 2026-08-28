@@ -10,12 +10,12 @@ const _on_command_together = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://docs.together.ai/reference/chat-completions
-  // https://docs.together.ai/docs/chat-models
-  // model: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
-  // model: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
-  model: 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo',
+  // https://docs.together.ai/docs/serverless-models
+  // model: 'deepseek-ai/DeepSeek-V4-Pro',
+  // model: 'Qwen/Qwen3.7-Max',
+  model: 'moonshotai/Kimi-K3',
   temperature: 1,
-  // tool_choice: 'none', // uncomment for together tools api
+  // tool_choice: 'auto', // uncomment to enable 'eval' tool
   // converter: js_eval_converter // from #template/tool_use
 }
 ```

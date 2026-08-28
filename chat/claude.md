@@ -10,7 +10,7 @@ const _on_command_claude = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://docs.anthropic.com/en/api/messages
-  model: 'claude-3-5-sonnet-20240620',
+  model: 'claude-fable-5', // https://docs.anthropic.com/en/docs/about-claude/models
   temperature: 1
 }
 ```

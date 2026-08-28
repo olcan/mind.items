@@ -10,9 +10,11 @@ const _on_command_openrouter = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://openrouter.ai/models
-  // model: 'anthropic/claude-sonnet-5',
-  // model: 'openai/gpt-5.6-terra',
-  model: 'google/gemini-3.7-flash',
+  // note model availability depends on account provider/privacy settings,
+  // see https://openrouter.ai/settings/privacy
+  // model: 'moonshotai/kimi-k3',
+  // model: 'google/gemini-3.7-flash',
+  model: 'z-ai/glm-5.3',
   temperature: 1,
   // tool_choice: 'auto', // uncomment to enable 'eval' tool
 }
