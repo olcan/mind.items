@@ -9,11 +9,10 @@ const _on_command_gpt = msg => _chat_command(msg)
 <<system>> <<toggle(template('/system'), '⋮ #template/system')>>
 ---
 ```js:agent
-{ // https://platform.openai.com/docs/api-reference/chat/create
-  // note reasoning (gpt-5+) models reject the temperature argument, and
-  // reasoning is incompatible w/ tools on this api: to enable the eval
-  // tool, set tool_choice 'auto' AND change reasoning_effort to 'none'
+{ // https://platform.openai.com/docs/api-reference/responses
+  // note reasoning (gpt-5+) models reject the temperature argument
   model: 'gpt-5.6-sol', // https://platform.openai.com/docs/models
-  reasoning_effort: 'xhigh' // max supported
+  reasoning_effort: 'max', // max supported (responses api only)
+  // reasoning_summary: 'auto', // uncomment to render thinking blocks
 }
 ```
