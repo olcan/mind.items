@@ -6,4 +6,4 @@
 // the #agent framework, which runs every #agent/* item as an agent item)
 ```
 
-Status: **proof of concept**, certified end-to-end against the Firestore emulator (`tests/e2e/bridge.spec.ts` in mind.page). The listener (`bin/mind_bridge.py` in the vault repo, registry in `agents/bridge.toml`) is emulator-only and replies with an `echo` handler; production credentials and real agent dispatch are phase 2. Requests in live accounts are not answered until then.
+Status: **proof of concept**, certified end-to-end against the Firestore emulator only (`tests/e2e/bridge.spec.ts` in mind.page). The listener (`bin/mind_bridge.py` in the vault repo, registry in `agents/bridge.toml`) defaults to the emulator and replies with an `echo` handler; it has a guarded explicit `--production` mode (service-account credentials, per-account hard checks), but nothing is certified or served in production, and real agent dispatch is phase 2. Requests in live accounts are not answered until then.
