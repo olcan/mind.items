@@ -29,9 +29,11 @@ const create_request = (messages, config) => ({
     'Authorization': 'Bearer ' + config.api_key
   },
   body: JSON.stringify({
-    // function tools on chat completions require reasoning_effort 'none'
-    // on gpt-5.6+ models (or the responses api); can be overridden via config
-    reasoning_effort: 'none',
+    // function tools on chat completions require reasoning_effort 'none' on
+    // gpt-5+ (and o*) reasoning models, while non-reasoning models (e.g. the
+    // gpt-4 family) reject the argument entirely, so the default is applied
+    // by model family; can be overridden via config
+    ...(config.model.match(/^(gpt-5|o\d)/) ? { reasoning_effort: 'none' } : {}),
     ...omit(config, 'name', 'api_key'),
     // model: https://platform.openai.com/docs/models
     messages,
@@ -156,12 +158,17 @@ function _test_create_request() {
     [{ role: 'user', content: 'hi' }],
     { model: 'gpt-5.6-terra', api_key: 'KEY', name: 'x', temperature: 0 })
   const body = JSON.parse(request.body)
+  // non-reasoning models (e.g. gpt-4o, as pinned in the #chat/gpt alias) reject
+  // reasoning_effort entirely, so the default must be gated by model family
+  const gpt4o = JSON.parse(create_request(
+    [{ role: 'user', content: 'hi' }], { model: 'gpt-4o', api_key: 'KEY' }).body)
   check(
     () => request.method == 'POST',
     () => request.headers['Authorization'] == 'Bearer KEY',
     () => body.model == 'gpt-5.6-terra',
     () => body.temperature === 0,
     () => body.reasoning_effort == 'none', // default applied (overridable)
+    () => gpt4o.reasoning_effort === undefined, // not applied to non-reasoning models
     () => body.api_key === undefined && body.name === undefined, // reserved keys omitted
     () => equal(body.messages, [{ role: 'user', content: 'hi' }]),
     () => body.tools.length == 1 && body.tools[0].function.name == 'eval',
