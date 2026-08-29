@@ -10,10 +10,13 @@ const _on_command_tiny = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion
-  // host: '192.168.86.54', // tinybox private ip
-  // host: '24.4.198.129', // public ip via curl ifconfig.me
-  host: 'tiny0.duckdns.org', // public name via duckdns.org
-  model: 'gemma2:27b', // via ssh tiny@tiny0.duckdns.org ollama list|pull
+  // qwen3.8:27b (dense 27B, 256k ctx, ~30 tok/s, 100% GPU) — Ollama on m3ultra,
+  // tailnet-only HTTPS via `tailscale serve` (device must be on the tailnet);
+  // dedicated instance on port 11435, start/stop via vault `serve_model.sh 27b`.
+  // For the llama-server models see #/next (flash-next on tinybox) and #/dsv4
+  // (deepseek-v4-flash on m3ultra), served by #agent/chat/llama.
+  url: 'https://m3ultra.tail10a0fe.ts.net/api/chat',
+  model: 'qwen3.8:27b', // OLLAMA_HOST=127.0.0.1:11435 ollama list|pull on m3ultra
   options: { // https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
     temperature: 1
   }

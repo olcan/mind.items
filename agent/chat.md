@@ -1,4 +1,4 @@
-#agent/chat is a generic _[chat](#chat) agent_. See #/gpt #/gemini #/claude #/together #/groq #/ollama #/openrouter for specific chat agents.  
+#agent/chat is a generic _[chat](#chat) agent_. See #/gpt #/gemini #/claude #/together #/groq #/ollama #/openrouter #/llama for specific chat agents.  
 <<js_table()>>
 
 ```js:js_input_removed

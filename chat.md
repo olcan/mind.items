@@ -1,4 +1,4 @@
-#chat defines utilities for _chat items_ that represent chat histories using _delimiter macros_. See #/gpt #/gemini #/claude #/together #/groq #/ollama #/openrouter #/tiny #/gemma for agent-specific chat items, and #/native for the native (vault) agent bridge.  
+#chat defines utilities for _chat items_ that represent chat histories using _delimiter macros_. See #/gpt #/gemini #/claude #/together #/groq #/ollama #/openrouter #/tiny #/next #/dsv4 for agent-specific chat items, and #/native for the native (vault) agent bridge.  
 
 <<js_table()>>
 
