@@ -1803,6 +1803,17 @@ const link_command = (
         title
       )
 
+// map a raw-text offset into the editor's ZWSP-AUGMENTED textarea value: the app's editor
+// inserts zero-width spaces (\u200B) into long url runs so they can wrap (src/zwsp.ts in the
+// mind.page repo), so raw offsets applied unmapped drag the selection back one raw character
+// per preceding ZWSP (the todoer tail-truncation bug, 2026-08-29)
+function _zwsp_offset(value, raw) {
+  let i = 0
+  let n = 0
+  while (i < value.length && n < raw) if (value[i++] != '\u200B') n++
+  return i
+}
+
 // MindBox static class/object
 class MindBox {
   static get() {
@@ -1894,8 +1905,13 @@ class MindBox {
       if (pos < 0) console.error('could not find text: ' + text)
       else {
         if (textarea) {
+          // raw offsets must be mapped into the ZWSP-augmented textarea value; the
+          // data-selection branch below passes RAW offsets (the editor maps at consumption)
           textarea.focus()
-          textarea.setSelectionRange(pos, pos + text.length)
+          textarea.setSelectionRange(
+            _zwsp_offset(textarea.value, pos),
+            _zwsp_offset(textarea.value, pos + text.length)
+          )
         } else
           target.setAttribute('data-selection', `${pos},${pos + text.length}`)
       }
@@ -1921,8 +1937,12 @@ class MindBox {
         if (pos < 0) console.error('could not find text: ' + text)
         else {
           if (textarea) {
+            // raw offsets mapped into the ZWSP-augmented value, as in select_in_target
             textarea.focus()
-            textarea.setSelectionRange(pos, pos + text.length)
+            textarea.setSelectionRange(
+              _zwsp_offset(textarea.value, pos),
+              _zwsp_offset(textarea.value, pos + text.length)
+            )
           } else
             target.setAttribute('data-selection', `${pos},${pos + text.length}`)
         }
