@@ -511,7 +511,20 @@ async function update_item(item, updates) {
           label,
           _parse_tags(text).all.filter(t => t != label && !_special_tag(t))
         )
-        const missing_deps = deps.filter(dep => !_exists(dep))
+        let missing_deps = deps.filter(dep => !_exists(dep))
+        // close the runtime autodep edge (see install_deps in the mind.page repo): once no
+        // TEXT dependencies are missing — so the decision sees post-dependency local state,
+        // matching the app's two-phase install order (the restart below re-enters here after
+        // text deps install) — ask the app for the label-prefix parent that belongs in this
+        // item's closure; a missing parent rides the same confirm/install/restart flow below.
+        // guarded so stale app clients without the seam keep the old text-tags-only behavior
+        if (empty(missing_deps) && typeof _autodep_parent == 'function') {
+          const parent = await _autodep_parent({ label, text, owner, repo, branch, path, token })
+          if (parent && !_exists(parent)) {
+            deps.push(parent) // installed by the deps loop below
+            missing_deps = [parent]
+          }
+        }
         if (missing_deps.length) {
           _this.log(
             `confirming installation of ${missing_deps.length}` +
