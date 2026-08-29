@@ -17,7 +17,7 @@ const _on_command_tiny = msg => _chat_command(msg)
   // (deepseek-v4-flash on m3ultra), served by #agent/chat/llama.
   url: 'https://m3ultra.tail10a0fe.ts.net/api/chat',
   model: 'qwen3.8:27b', // OLLAMA_HOST=127.0.0.1:11435 ollama list|pull on m3ultra
-  options: { // https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
+  options: { // https://docs.ollama.com/modelfile#valid-parameters-and-values
     temperature: 1
   }
 }
