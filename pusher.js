@@ -716,6 +716,10 @@ async function _side_push_item(item, manual = false) {
 
 // auto-push consistent items on change
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  // ignore changes until init_pusher() creates store.items: on a fresh tab
+  // changes can stream in before _on_welcome, and init's rebuild from live
+  // items + remote tree subsumes anything dropped here
+  if (!_this.store.items) return
   if (dependency) return // ignore dependency change (item text unchanged)
   if (deleted) {
     // delete files for local deletions; remote deletions are handled at their source
