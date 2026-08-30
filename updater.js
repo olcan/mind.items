@@ -430,26 +430,40 @@ function resolve_embed_path(path, attr) {
 // applies specific updates (path->sha map) returned by check_updates
 // similar to /_update command defined in index.svelte in mind.page repo
 // allows item to be renamed with a warning to console
-// returns true iff item was updated successfully
+// returns true iff the update fully completed; a false return can follow an ACCEPTED
+// write when post-write housekeeping fails -- the text/metadata and the once-per-accepted-
+// write global_store._updater marker are then retained (published only at acceptance,
+// never up front, so pre-write failures need no marker restoration)
 async function update_item(item, updates) {
-  // record updates as item.global_store._updater.last_update
-  // enables detection of remote updates in _on_global_store_change above
-  // previous state is restored on failure (when false is returned)
-  const prev_updater_state = item.global_store._updater
-  item.global_store._updater = { last_update: updates }
+  // the _updater.last_update marker is published once per ACCEPTED write (review 144
+  // SS3, wording per 146 SS5: acceptance is the synchronous writer result -- the queued
+  // save settles later): publishing it up front made it durable and visible to other
+  // tabs while the overwrite modal was still open -- _on_global_store_change consumes
+  // it as an applied remote update and deletes its own pending entry, which no local
+  // restore can recreate. later post-write housekeeping errors must not revoke it.
+  const fail_update = why => {
+    _this.warn(why)
+    return false
+  }
 
   const start = Date.now()
   const attr = item.attr
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
-  const token = await github_token(item)
-  if (!token) {
-    _this.warn(
-      `update cancelled for ${item.name} from ` +
-        `${source}/${path} due to missing token`
+  // pre-call CAPABILITY FENCE (review 146 SS3): only the new app runtime's writer
+  // reports boolean acceptance. a stale runtime performs side effects (zwsp
+  // normalization, time bump, queued item/history saves) BEFORE any result could be
+  // inspected, so it must not be called at all -- fail closed until this tab reloads
+  // into the new app. mind.items can therefore publish independently of app activation.
+  if (item.write_accepts !== true)
+    return fail_update(
+      `update requires app reload for ${item.name} (writer acceptance capability missing)`
     )
-    return false
-  }
+  const token = await github_token(item)
+  if (!token)
+    return fail_update(
+      `update cancelled for ${item.name} from ${source}/${path} due to missing token`
+    )
   const github = github_client(token)
   _this.log(`updating ${item.name} from ${source}/${path} ...`)
   try {
@@ -544,7 +558,6 @@ async function update_item(item, updates) {
               `update cancelled for ${item.name} from ` +
                 `${source}/${path} due to missing dependencies`
             )
-            item.global_store._updater = prev_updater_state
             return false
           }
           for (let dep of deps) {
@@ -594,10 +607,11 @@ async function update_item(item, updates) {
       }
     }
 
-    // update attributes, to be saved on item.write below
-    // NOTE: attr is generally considered read-only and permanent; this is a rare exception and it works because it does not affect rendering/ranking so it does not require special handling during firestore sync
-    attr.sha = sha // new commit sha
-    attr.token = token // token for future updates
+    // NOTE: attr.sha/token are assigned AFTER the pushable-overwrite confirm below
+    // (2026-08-30): assigning here mutated the live attr before a possible Cancel, and any
+    // later attr save (e.g. the pusher marking the item pushable) then persisted the NEW sha
+    // with the OLD text -- a stuck item the updater considers current and the pusher considers
+    // locally modified, unable to self-heal
 
     // extract existing embed text from current item text
     // to avoid retrieving text for embeds w/o updates
@@ -618,9 +632,12 @@ async function update_item(item, updates) {
     for (let [m, sfx, body] of text.matchAll(/```\S+:(\S+?)\n(.*?)\n```/gs))
       if (sfx.includes('.')) embeds.push(resolve_embed_path(sfx, attr))
 
-    // update attr.embeds array
+    // build the NEXT embeds array in LOCAL objects (2026-08-30): mutating live attr
+    // across the awaited github calls left partial embed metadata behind on a later
+    // Cancel/error -- the same stuck class as the main-file sha bug (new embed sha over
+    // old inlined text). the live attr commits atomically after the confirm below.
     const prev_embeds = attr.embeds
-    attr.embeds = null // start w/ null = no embeds
+    let next_embeds = null // start w/ null = no embeds
     for (let path of uniq(embeds)) {
       try {
         // start w/ sha of existing embed, or undefined if missing
@@ -639,7 +656,7 @@ async function update_item(item, updates) {
             )?.data?.content ?? ''
           )
         }
-        attr.embeds = (attr.embeds ?? []).concat({ path, sha })
+        next_embeds = (next_embeds ?? []).concat({ path, sha })
       } catch (e) {
         const error = new Error(`failed to embed '${path}': ${e}`)
         error.status = e?.status // preserve for is_infra_error classification
@@ -653,9 +670,9 @@ async function update_item(item, updates) {
       (m, pfx, sfx, body) => {
         if (!sfx.includes('.')) return m // not path
         const path = resolve_embed_path(sfx, attr)
-        // store original body in attr.embeds
+        // store original body in next_embeds (committed to attr after the confirm)
         // only last body is retained for multiple embeds of same path
-        attr.embeds.find(e => e.path == path).body = body
+        next_embeds.find(e => e.path == path).body = body
         return '```' + pfx + ':' + sfx + '\n' + embed_text[path] + '\n```'
       }
     )
@@ -672,22 +689,50 @@ async function update_item(item, updates) {
         cancel: 'Cancel',
         background: 'cancel',
       })
-      if (!overwrite) {
-        _this.warn(
-          `update cancelled for ${item.name} from ` +
-            `${source}/${path} due to unpushed changes`
+      if (!overwrite)
+        return fail_update(
+          `update cancelled for ${item.name} from ${source}/${path} due to unpushed changes`
         )
-        return false
-      }
     }
 
+    // COMMIT the staged metadata, to be saved on item.write below (and consulted by
+    // the post-write check_updates); mutated only after the last cancel surface above
+    // NOTE: attr is generally considered read-only and permanent; this is a rare exception and it works because it does not affect rendering/ranking so it does not require special handling during firestore sync
+    const prev_sha = attr.sha
+    const prev_token = attr.token
+    attr.sha = sha // new commit sha
+    attr.token = token // token for future updates
+    attr.embeds = next_embeds
+
     // write new text to item (also triggers save of modified attributes)
-    // keep_time to avoid bringing up items due to auto-updates
     // note item text/deephash may be unchanged
     //   (e.g. if the update was triggered by a push from the same item)
     // log warning if auto-update changed item name (should not happen)
     const prev_name = item.name
-    item.write(text, '' /*, { keep_time: true }*/)
+    // the writer itself can still REFUSE (read-only mode; the large-write prompt being
+    // cancelled) -- and text EQUALITY is no success signal for legitimate same-text
+    // updates -- so use write()'s explicit acceptance result (review 144 SS4). a refusal
+    // rolls the staged metadata back; once accepted, the write is COMMITTED, the marker
+    // publishes exactly once, and no later housekeeping error rolls anything back.
+    let write_committed = false
+    try {
+      // the capability fence above guarantees the boolean acceptance contract, so
+      // === true is the only success rule (review 146 SS3: no legacy inference -- an
+      // old writer's own synchronous transforms, e.g. zwsp normalization, made every
+      // post-call predicate unsound)
+      write_committed = item.write(text, '') === true
+    } finally {
+      if (!write_committed) {
+        attr.sha = prev_sha
+        attr.token = prev_token
+        attr.embeds = prev_embeds
+      }
+    }
+    if (!write_committed)
+      return fail_update(
+        `update write refused for ${item.name} from ${source}/${path} (read-only or cancelled)`
+      )
+    item.global_store._updater = { last_update: updates } // published ONCE, at success
     if (item.name != prev_name)
       _this.warn(
         `renaming update for ${item.name} (was ${prev_name})` +
@@ -732,7 +777,8 @@ async function update_item(item, updates) {
     )
     return true
   } catch (e) {
-    item.global_store._updater = prev_updater_state
+    // no marker handling here: the marker publishes only at success (above), so a
+    // pre-success failure never wrote it and a post-success failure must not revoke it
     // rethrow errors fatal to all items so callers can stop instead of
     // failing (and logging an error for) every remaining item
     if (is_infra_error(e)) throw e
