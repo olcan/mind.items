@@ -78,6 +78,15 @@ function plot(obj, name = undefined) {
     caption_text = read(caption + '_removed')
     if (!caption_text)
       fatal(`could not read caption block '${caption}_removed'`)
+    // caption copying is CAPABILITY-FENCED (review 152 §2.3, one policy for both copy
+    // sites): on a stale runtime read() is RAW (grammar-active candidate bytes), so
+    // refuse outright with reload guidance; on the current runtime read() is the
+    // scanner-backed grammar view and the generated-marker prefix is the exact witness
+    // (a caption merely DISCUSSING the protocol name is fine)
+    if (typeof _vault_edit != 'function')
+      fatal(`caption copy requires app reload (vault edit capability missing)`)
+    if (caption_text.includes('\u27e6vault_result_v1:'))
+      fatal(`caption block '${caption}_removed' contains a vault result; cannot copy to plot item`)
     caption_sync_js = `function _on_item_change(...args) { _sync_caption('${caption}', ...args) }`
   }
 
@@ -88,7 +97,9 @@ function plot(obj, name = undefined) {
   // tag item if not tagged already
   if (!_this.tags_visible.includes(item.name.toLowerCase())) {
     const tag = item.name.replace(_this.name, '#') // make relative
-    let text = read()
+    // straight append: operate on RAW .text, not read() (which returns the grammar view
+    // -- writing that back would persist opaque vault_result markers; review 148 §2)
+    let text = _this.text
     // if item does not end with a separate line of tags, create a new line
     if (!text.match(/\n\s*#[^\n]+$/)) text += '\n' + tag
     else text += ' ' + tag
@@ -158,6 +169,19 @@ function _sync_caption(
 ) {
   if (remote || dependency || deleted) return
   const text = read(caption)
+  // caption copying is CAPABILITY-FENCED (reviews 150 §2.3, 152 §2.3, matching the
+  // initial-copy policy): on a stale runtime read() is RAW, so skip rather than copy
+  // grammar-active candidate bytes into the parent; on the current runtime the
+  // generated-marker prefix is the exact witness for a source-local marker the parent's
+  // edit seam could never restore. cross-item result copying has no use case.
+  if (typeof _vault_edit != 'function') {
+    warn(`skipping caption sync for ${_this.name}: app update required (reload)`)
+    return
+  }
+  if (text.includes('\u27e6vault_result_v1:')) {
+    warn(`skipping caption sync for ${_this.name}: caption contains a vault result`)
+    return
+  }
   const parent_name = _this.name.replace(/\/[^\/]*$/, '')
   const parent = _item(parent_name)
   if (caption != parent.read(caption)) parent.write(text, caption + '_removed')

@@ -128,7 +128,7 @@ function _delete_agent_messages_below(e) {
   const content = e.target.closest('.item > .content')
   const messages = content.querySelectorAll('div.message')
   let index = find_index(messages, e => e.isSameNode(message))
-  // verify dom against parsed messages
+  // verify dom against parsed messages (read() is the grammar view)
   let text = read()
   let parsed = parse_messages(text)
   if (parsed.length != messages.length)
@@ -141,16 +141,32 @@ function _delete_agent_messages_below(e) {
     _modal_alert('nothing to remove below this message')
     return // nothing to remove
   }
-  while (parsed.length > index) {
-    text = text.replace(
-      /^(.*)\n *\<< *(?:system|user|_?agent|tool)(?: *\([^\n]*\))? *>>.*?$/is,
-      '$1'
-    )
-    const removed = parse_messages(text)
-    if (removed.length >= parsed.length) fatal('failed to remove last message')
-    parsed = removed
+  // index-sensitive whole-item rewrite: route through the app's _vault_edit seam so the
+  // truncation runs over the grammar view (message boundaries are exact, a candidate's
+  // fake delimiters cannot shift them) and the raw vault_result envelopes are RESTORED
+  // rather than persisted as opaque markers (review 148 §2)
+  const truncate = grammar => {
+    let out = grammar
+    let count = parse_messages(out).length
+    while (count > index) {
+      out = out.replace(
+        /^(.*)\n *\<< *(?:system|user|_?agent|tool)(?: *\([^\n]*\))? *>>.*?$/is,
+        '$1'
+      )
+      const removed = parse_messages(out).length
+      if (removed >= count) fatal('failed to remove last message')
+      count = removed
+    }
+    return out
   }
-  write(text, '')
+  // FAIL CLOSED when the app's _vault_edit seam is absent (review 149 §2): a stale tab's
+  // raw fallback could persist opaque markers or parse a candidate's fake delimiters into
+  // this destructive truncation -- ask for a reload instead
+  if (typeof _vault_edit != 'function') {
+    _modal_alert('please reload to delete messages (app update required)')
+    return
+  }
+  write(_vault_edit(_this.text, truncate, { allowDrop: true }), '')
 }
 
 // generic delimiter macro reused by role-specific macros defined below

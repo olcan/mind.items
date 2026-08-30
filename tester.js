@@ -1,5 +1,5 @@
 function test_item(item, selector) {
-  if (!item.text.match(/\b_test_\w+/)) {
+  if (!item.read().match(/\b_test_\w+/)) {
     if (!selector && item._global_store._tests) delete item.global_store._tests
     return 0 // no tests in item
   }
@@ -27,7 +27,7 @@ function test_item(item, selector) {
       selector = name => !name.startsWith('live_')
     }
     // evaluate any functions _test_*() defined on item
-    const tests = item.text.match(/\b_test_\w+/g) ?? []
+    const tests = item.read().match(/\b_test_\w+/g) ?? []
     let tests_done = 0
     for (const test of tests) {
       const name = test.replace(/^_test_/, '')
@@ -115,7 +115,7 @@ async function _on_command_test(args, label, pattern) {
     let num_tests = 0
     let num_items = 0 // items with tests
     for (const item of items) {
-      if (!item.text.match(/\b_test_\w+/)) continue // no tests in item
+      if (!item.read().match(/\b_test_\w+/)) continue // no tests in item
       await _modal_close()
       _modal(`Running tests in ${item.name} ...`)
       const count = await test_item(

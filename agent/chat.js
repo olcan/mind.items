@@ -29,6 +29,17 @@ async function run_chat_agent(messages, config = {}) {
 // custom `msg` can have any role, including `agent` or `system`
 async function run_on_chat_item(item = _this, msg = undefined) {
   if (is_string(item)) item = _item(item) // look up item by name
+  // vault routing START fence (bridge design §2.1): a vault marker suppresses web
+  // dispatch entirely -- the vault bridge is the one responder for such items, and an
+  // invalid/unregistered vault persona fails CLOSED to the vault rather than falling
+  // through to a web provider. computed by the app from the scanner's grammar view
+  // (window._vault_routed), so a route inside a malformed result candidate does not
+  // count; guarded for stale app runtimes (fence activates with the app deploy).
+  // checked FIRST: a vault-routed item is skipped regardless of chat-item shape.
+  if (typeof _vault_routed == 'function' && _vault_routed(item.text)) {
+    debug(`skipping web dispatch for vault-routed item ${item.name}`)
+    return
+  }
   if (!is_chat_item(item)) fatal(`non-chat item ${item.name}`)
   if (item.running) fatal(`item ${item.name} marked running (another agent?)`)
   if (item.read_deep('_log|_output'))
@@ -98,12 +109,22 @@ async function run_on_chat_item(item = _this, msg = undefined) {
 
       if (msg) return agent_text // just return agent message text, keep item untouched
 
+      // vault routing COMPLETION fence (bridge design §2.1): a web run already in
+      // flight when the owner adds a vault route must NOT publish into the
+      // now-vault-routed item -- a stale-run fence, not cancellation
+      if (typeof _vault_routed == 'function' && _vault_routed(item.text)) {
+        warn(`dropping web reply for now-vault-routed item ${item.name}`)
+        return
+      }
+
       // stop if item already ends in an agent message
       // this can happen due to concurrent runs of the agent across instances
       if (last(parse_messages(item)).role == 'agent') return
 
-      // append agent message and save item
-      let text = item.read()
+      // append agent message and save item: straight append on RAW .text (review 148
+      // §2 -- item.read() returns the grammar view; writing it back would persist opaque
+      // markers over vault_result envelopes when a web-routed item has vault history)
+      let text = item.text
       if (!text.endsWith('\n')) text += '\n'
       item.write(text + agent_text, '')
       await item.save()
@@ -129,6 +150,12 @@ async function run_on_chat_item(item = _this, msg = undefined) {
     }
   } catch (e) {
     if (!msg) {
+      // vault routing CATCH fence (review 148 §4): a provider rejection after the owner
+      // added a vault marker must NOT publish a web _log into the now-vault-routed item
+      if (typeof _vault_routed == 'function' && _vault_routed(item.text)) {
+        warn(`dropping web error log for now-vault-routed item ${item.name}: ${e}`)
+        return
+      }
       item.error(e)
       item.write_log()
     } else throw e // just rethrow

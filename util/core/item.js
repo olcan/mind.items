@@ -33,6 +33,17 @@ const eval_macros = (...args) => _this.eval_macros(...args)
 // read([type=''],{…})
 // reads text from item
 // reads _whole item_ if `type==''` (default)
+// NOTE: returns the SECURITY GRAMMAR VIEW -- vault_result envelopes (model output from
+//   the vault bridge) are collapsed to inert markers so they never reach parsers/eval.
+//   for read-modify-WRITE, read raw `item.text` for straight appends, or route
+//   index-sensitive whole-item rewrites through the app's
+//   `_vault_edit(text, transform, {allowDrop})` seam: the transform runs over the
+//   grammar view and the exact raw envelopes are restored (writing a grammar view back
+//   would persist opaque markers). the seam REJECTS a transform that duplicates a
+//   marker, drops one without `allowDrop: true`, or moves one where its restored bytes
+//   are no longer claimable. when `_vault_edit` is absent (stale app runtime), FAIL
+//   CLOSED -- refuse the mutation with a reload message, never fall back to raw text.
+//   see notes/design/mind_bridge_v2.md §2.2-2.3 in the vault.
 // `type` can indicate block(s) to read, e.g. `js`
 // `type` can be regex, e.g. `js|js_tests?`
 // blocks matching `type` are concentenated

@@ -400,9 +400,34 @@ function __render(widget, widget_item) {
         // if (_exists('#logger'))
         //   MindBox.create('/log cancelled ' + e.item.title.replace(/\s+/g, ' '))
       } else if (e.to == done_bin) {
+        // gate ALL side effects (DOM removal, /log) on an ACCEPTED mutation (review 151
+        // §2.4): the fail-closed branch must not report completion, and item.write's
+        // boolean result is the acceptance signal (a refused write must not log as done)
+        if (truncated && typeof _vault_edit != 'function') {
+          // FAIL CLOSED, never raw (review 150 §2.4): a raw rewrite could alter #todo
+          // bytes inside a vault_result candidate. restore the dragged row (the snooze
+          // branch's cancellation idiom) so the widget matches the unchanged item.
+          list.insertBefore(e.item, list.children[e.oldIndex])
+          alert('please reload to complete todos (app update required)')
+          return
+        }
+        let completed
+        if (!truncated) {
+          // delete() returns deleteItem()'s boolean: false on fixed/shared mode or a
+          // declined confirmation (review 152 §2.1) -- a declined delete must not log
+          completed = item.delete() === true
+        } else {
+          // over the GRAMMAR VIEW (review 149 §2): a #todo inside a vault_result candidate
+          // must not be rewritten, and the raw envelope must survive
+          completed =
+            item.write(_vault_edit(item.text, grammar => grammar.replace(/#todo\b/g, '#done')), '') === true
+        }
+        if (!completed) {
+          list.insertBefore(e.item, list.children[e.oldIndex])
+          alert(`could not complete todo (mutation refused) for ${item.name}`)
+          return
+        }
         done_bin.firstChild.remove()
-        if (!truncated) item.delete()
-        else item.write(item.text.replace(/#todo\b/g, '#done'), '')
         // log if logger exists
         if (_exists('#logger'))
           MindBox.create('/log done ' + e.item.title.replace(/\s+/g, ' '))

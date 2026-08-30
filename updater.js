@@ -298,6 +298,23 @@ async function check_updates(item, mark_pushables = false) {
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
   // _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
+  // EARLY refusals before token/network work (reviews 152 §2.2, 153 §2): a stale
+  // runtime cannot scan (read() is raw, so the marker prefix can never match) -- refuse
+  // the embed-bearing pushable check outright rather than after github calls
+  if (mark_pushables && item.attr?.embeds && typeof _vault_edit != 'function') {
+    _this.warn(`skipping update check for ${item.name}: app update required (reload)`)
+    return false
+  }
+  // real-embed marker preflight: a REAL embed whose grammar-view body holds a vault
+  // result refuses the check before any token or github work
+  if (item.attr?.embeds)
+    for (const [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
+      if (!sfx.includes('.')) continue // not path
+      if (body.includes('\u27e6vault_result_v1:')) {
+        _this.warn(`embed ${sfx} in ${item.name} contains a vault result; skipping update check`)
+        return false
+      }
+    }
   const token = await github_token(item)
   if (!token) {
     _this.warn(
@@ -328,22 +345,39 @@ async function check_updates(item, mark_pushables = false) {
       } = await github.repos.getCommit({ ...attr, ref: attr.sha })
       const file_sha = files.find(f => f.filename == path)?.sha
       let text = item.text
-      // undo embeds based on original bodies in attr.embeds[].body
+      // PRE-UNDO concurrent-marker scan (review 153 §2): a real-embed candidate that
+      // ARRIVED during the awaited getCommit would be dropped by the undo below, so
+      // _vault_edit would throw its postcondition error before the explicit fill scan --
+      // and the generic catch could then return the already-recorded update. three
+      // deliberate scans mark three distinct race boundaries: entry state (top),
+      // this awaited-arrival boundary, and the update_item capture-time fill.
+      if (attr.embeds)
+        for (const [m2, pfx2, sfx2, body2] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
+          if (!sfx2.includes('.')) continue // not path
+          if (body2.includes('\u27e6vault_result_v1:')) {
+            _this.warn(`embed ${sfx2} in ${item.name} contains a vault result; skipping update check`)
+            return false
+          }
+        }
+      // undo embeds based on original bodies in attr.embeds[].body -- over the GRAMMAR
+      // VIEW, restoring raw vault_result envelopes (review 149 §2)
       if (attr.embeds) {
-        text = text.replace(
-          /```(\S+):(\S+?)\n(.*?)\n```/gs,
-          (m, pfx, sfx, body) => {
+        const undo = grammar =>
+          grammar.replace(/```(\S+):(\S+?)\n(.*?)\n```/gs, (m, pfx, sfx, body) => {
             if (!sfx.includes('.')) return m // not path
             const path = resolve_embed_path(sfx, attr)
             body = item.attr.embeds.find(e => e.path == path)?.body
             if (!defined(body))
-              _this.fatal(
-                `missing body for embed ${item.name}:${path}`,
-                str(item.attr)
-              )
+              _this.fatal(`missing body for embed ${item.name}:${path}`, str(item.attr))
             return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
-          }
-        )
+          })
+        // FAIL CLOSED on a stale runtime (review 150 §2.4): raw undo would parse and
+        // mutate candidate bytes; skip the pushable comparison until this tab reloads
+        if (typeof _vault_edit != 'function') {
+          _this.warn(`skipping pushable check for ${item.name}: app update required (reload)`)
+          return false // no update information; nothing marked
+        }
+        text = _vault_edit(text, undo)
       }
       if (file_sha != github_sha(text)) {
         _this.warn(`${item.name} is inconsistent with source ${source}/${path}`)
@@ -356,10 +390,16 @@ async function check_updates(item, mark_pushables = false) {
       // if we are marking pushables, we need to extract embed text from item
       let embed_text = {}
       if (mark_pushables) {
-        for (let [m, pfx, sfx, body] of item.text.matchAll(
-          /```(\S+):(\S+?)\n(.*?)\n```/gs
-        )) {
+        // over the GRAMMAR VIEW (review 150 §2.2): a candidate-body `type:path.ext`
+        // block must not feed sha comparison or mark the item pushable. a REAL embed
+        // whose body holds a vault result is refused outright (review 151 §2.2): its
+        // marker-domain sha is meaningless and the item cannot be pushed or updated
+        for (let [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
           if (!sfx.includes('.')) continue // not path
+          if (body.includes('\u27e6vault_result_v1:')) {
+            _this.warn(`embed ${sfx} in ${item.name} contains a vault result; skipping update check`)
+            return false
+          }
           const path = resolve_embed_path(sfx, attr)
           embed_text[path] = body
         }
@@ -455,10 +495,20 @@ async function update_item(item, updates) {
   // normalization, time bump, queued item/history saves) BEFORE any result could be
   // inspected, so it must not be called at all -- fail closed until this tab reloads
   // into the new app. mind.items can therefore publish independently of app activation.
-  if (item.write_accepts !== true)
+  if (item.write_accepts !== true || typeof _vault_edit != 'function')
     return fail_update(
-      `update requires app reload for ${item.name} (writer acceptance capability missing)`
+      `update requires app reload for ${item.name} (writer acceptance or vault edit capability missing)`
     )
+  // EARLY real-embed marker preflight (review 152 §2.2): a REAL embed whose grammar-view
+  // body holds a vault result refuses the update BEFORE token acquisition, repository
+  // fetches, or dependency installation can side-effect; the late fill check remains to
+  // catch a concurrent edit landing during the awaited work
+  if (attr.embeds)
+    for (const [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
+      if (!sfx.includes('.')) continue // not path
+      if (body.includes('\u27e6vault_result_v1:'))
+        return fail_update(`embed ${sfx} in ${item.name} contains a vault result; cannot update`)
+    }
   const token = await github_token(item)
   if (!token)
     return fail_update(
@@ -470,6 +520,8 @@ async function update_item(item, updates) {
     // compute updated text, reusing existing text if no updates
     // note retrieved text is pre-embed, existing text is post-embed
     let sha, text
+    let text_is_current = false // else-branch: text is the current item, not the trusted repo file
+    let grammar_text // the current item's (undone) grammar view, for masked path discovery
     if (updates[path]) {
       sha = updates[path]
       await pace_github_call()
@@ -497,18 +549,24 @@ async function update_item(item, updates) {
     } else {
       sha = attr.sha
       text = item.text
-      // undo embeds based on original bodies in attr.embeds[].body
-      // necessary since we update attr.embeds[] (w/ orig bodies) below
+      // CURRENT-ITEM branch (review 150 §2.2): all further parsing of `text` must be
+      // over the grammar view -- a candidate can carry fake `type:path.ext` blocks.
+      // (the fetched-repository branch above is the trusted-owner raw carveout)
+      text_is_current = true
+      // undo embeds based on original bodies in attr.embeds[].body (necessary since we
+      // update attr.embeds[] w/ orig bodies below) -- over the GRAMMAR VIEW; the undone
+      // grammar is captured for the path discovery below (candidates masked)
       if (attr.embeds) {
-        text = text.replace(
-          /```(\S+):(\S+?)\n(.*?)\n```/gs,
-          (m, pfx, sfx, body) => {
+        const undo = grammar =>
+          grammar.replace(/```(\S+):(\S+?)\n(.*?)\n```/gs, (m, pfx, sfx, body) => {
             if (!sfx.includes('.')) return m // not path
             const path = resolve_embed_path(sfx, attr)
             body = item.attr.embeds.find(e => e.path == path).body
             return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
-          }
-        )
+          })
+        text = _vault_edit(item.text, grammar => (grammar_text = undo(grammar)))
+      } else {
+        _vault_edit(item.text, grammar => (grammar_text = grammar)) // capture only
       }
     }
 
@@ -617,19 +675,27 @@ async function update_item(item, updates) {
     // to avoid retrieving text for embeds w/o updates
     let embed_text = {}
     if (attr.embeds) {
-      for (let [m, pfx, sfx, body] of item.text.matchAll(
-        /```(\S+):(\S+?)\n(.*?)\n```/gs
-      )) {
+      // over the GRAMMAR VIEW (review 149 §2): a candidate-nested `type:path.ext` block
+      // must not be extracted as an embed of the current item. REFUSE a marker-bearing
+      // REAL embed body (review 151 §2.2, same policy as pusher): embed_text is a side
+      // channel later spliced verbatim into the fetched main text and persisted --
+      // restoration never applies to captured values, so a candidate inside a real
+      // embed would ship as a literal marker
+      for (let [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
         if (!sfx.includes('.')) continue // not path
+        if (body.includes('\u27e6vault_result_v1:'))
+          return fail_update(`embed ${sfx} in ${item.name} contains a vault result; cannot update`)
         const path = resolve_embed_path(sfx, attr)
         embed_text[path] = body
       }
     }
 
-    // extract embed paths from updated text
-    // number of embeds can change here if item text is updated
+    // extract embed paths from updated text -- for the current-item branch over its
+    // UNDONE GRAMMAR (candidates masked, review 150 §2.2); the fetched repository file
+    // is trusted-owner raw. number of embeds can change here if item text is updated.
     let embeds = []
-    for (let [m, sfx, body] of text.matchAll(/```\S+:(\S+?)\n(.*?)\n```/gs))
+    const discovery_text = text_is_current ? grammar_text : text
+    for (let [m, sfx, body] of discovery_text.matchAll(/```\S+:(\S+?)\n(.*?)\n```/gs))
       if (sfx.includes('.')) embeds.push(resolve_embed_path(sfx, attr))
 
     // build the NEXT embeds array in LOCAL objects (2026-08-30): mutating live attr
@@ -664,18 +730,18 @@ async function update_item(item, updates) {
       }
     }
 
-    // replace embed block body with (updated) embed text
-    text = text.replace(
-      /```(\S+):(\S+?)\n(.*?)\n```/gs,
-      (m, pfx, sfx, body) => {
+    // replace embed block body with (updated) embed text -- through the edit seam for
+    // the current-item branch so a candidate's exact source is never mutated
+    const replace_embeds = target =>
+      target.replace(/```(\S+):(\S+?)\n(.*?)\n```/gs, (m, pfx, sfx, body) => {
         if (!sfx.includes('.')) return m // not path
         const path = resolve_embed_path(sfx, attr)
         // store original body in next_embeds (committed to attr after the confirm)
         // only last body is retained for multiple embeds of same path
         next_embeds.find(e => e.path == path).body = body
         return '```' + pfx + ':' + sfx + '\n' + embed_text[path] + '\n```'
-      }
-    )
+      })
+    text = text_is_current ? _vault_edit(text, replace_embeds) : replace_embeds(text)
 
     // confirm if updating "pushable" item w/ unpushed changes
     if (item.pushable && item.text != text) {
@@ -740,7 +806,7 @@ async function update_item(item, updates) {
       )
 
     // invoke _on_update() on item if defined as function
-    if (item.text.includes('_on_update')) {
+    if (item.read().includes('_on_update')) {
       try {
         _item(item.id).eval(
           `if (typeof _on_update == 'function') ` +

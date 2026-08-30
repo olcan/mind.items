@@ -402,7 +402,7 @@ function push_item(item, manual = false) {
 
       // invoke _on_push() on item if defined as function
       // _on_push is invoked on both internal and external updates
-      if (item.text.includes('_on_push')) {
+      if (item.read().includes('_on_push')) {
         try {
           _item(item.id).eval(
             `if (typeof _on_push == 'function') _on_push(_item('${item.id}'))`,
@@ -536,14 +536,28 @@ async function _side_push_item(item, manual = false) {
       }
       if (!dest.branch) dest.branch = 'master'
       const dest_str = `${dest.owner}/${dest.repo}/${dest.branch}/${dest.path}`
-      // determine side-push content (whole item or block)
-      let sidepush_text = dest.block ? item.read(dest.block) : item.text
-      // restore any embed blocks before pushing back installed item
-      if (attr.embeds) {
-        sidepush_text = sidepush_text.replace(
-          /```(\S+):(\S+?)\n(.*?)\n```/gs,
-          (m, pfx, sfx, body) => {
+      // determine side-push content (whole item or block) in ONE source-side edit over
+      // RAW item text (review 150 §2.1, authority-bearing): selecting a block from
+      // read() would strand source-local markers (the partial text carries no envelope
+      // to restore), and a literal marker must never reach the GitHub write. block
+      // selection and embed substitution run over the grammar view inside the transform
+      // (a candidate-nested `type:path.ext` is never extracted into embed_text);
+      // restoration carries candidates INSIDE the selected block as exact raw envelopes,
+      // and candidates outside the selection are dropped (allowDrop). FAIL CLOSED on a
+      // stale runtime -- never fall back to raw parsing (review 150 §2.4).
+      if (typeof _vault_edit != 'function')
+        throw new Error(`can not push ${item.name}: app update required (reload)`)
+      const substitute = grammar => {
+        let text = dest.block ? _extract_block(grammar, dest.block) : grammar
+        if (attr.embeds)
+          text = text.replace(/```(\S+):(\S+?)\n(.*?)\n```/gs, (m, pfx, sfx, body) => {
             if (sfx.includes('.')) {
+              // REFUSE a marker-bearing real embed body (review 151 §2.1): embed_text is
+              // a SIDE CHANNEL later pushed to GitHub verbatim -- restoration applies
+              // only to the returned text, so a candidate inside a real embed would ship
+              // as a literal marker. bridge results are not exportable through embeds.
+              if (body.includes('\u27e6vault_result_v1:'))
+                throw new Error(`embed ${sfx} in ${item.name} contains a vault result; cannot push`)
               const path = resolve_embed_path(sfx, attr)
               embed_text[path] = body // for push below
               embed_type[path] = pfx + ':' + sfx // for commit prompt below
@@ -551,9 +565,10 @@ async function _side_push_item(item, manual = false) {
               return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
             }
             return m
-          }
-        )
+          })
+        return text
       }
+      let sidepush_text = _vault_edit(item.text, substitute, { allowDrop: true })
       // get file sha (if exists) from latest commit for path
       let sha
       const {

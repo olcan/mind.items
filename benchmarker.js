@@ -1,5 +1,5 @@
 function benchmark_item(item, selector) {
-  if (!item.text.match(/\b_benchmark_\w+/)) {
+  if (!item.read().match(/\b_benchmark_\w+/)) {
     if (!selector && item._global_store._benchmarks)
       delete item.global_store._benchmarks
     return 0 // no benchmarks in item
@@ -18,7 +18,7 @@ function benchmark_item(item, selector) {
     const gs = item._global_store // changes saved manually below
     if (!selector) delete gs._benchmarks // clear any previous benchmarks
     // evaluate any functions _benchmark|_benchmark_*() defined on item
-    const benchmarks = item.text.match(/\b_benchmark_\w+/g) ?? []
+    const benchmarks = item.read().match(/\b_benchmark_\w+/g) ?? []
     let benchmarks_done = 0
     for (const benchmark of benchmarks) {
       const name = benchmark.replace(/^_benchmark_/, '')
@@ -100,7 +100,7 @@ async function _on_command_benchmark(label) {
     let num_benchmarks = 0
     let num_items = 0 // items with benchmarks
     for (const item of items) {
-      if (!item.text.match(/\b_benchmark_\w+/)) continue // no tests in item
+      if (!item.read().match(/\b_benchmark_\w+/)) continue // no benchmarks in item (grammar view)
       await _modal_close()
       _modal(`Running benchmarks in ${item.name} ...`)
       const count = await benchmark_item(item)
