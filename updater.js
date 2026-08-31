@@ -358,7 +358,7 @@ async function check_updates(item, mark_pushables = false) {
       if (attr.embeds)
         for (const [m2, pfx2, sfx2, body2] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
           if (!sfx2.includes('.')) continue // not path
-          if (window._grammar.containsOpaqueMarker(body2)) {
+          if (app_grammar.containsOpaqueMarker(body2)) {
             _this.warn(`embed ${sfx2} in ${item.name} contains a vault result; skipping update check`)
             return false
           }
@@ -400,7 +400,7 @@ async function check_updates(item, mark_pushables = false) {
         // marker-domain sha is meaningless and the item cannot be pushed or updated
         for (let [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
           if (!sfx.includes('.')) continue // not path
-          if (window._grammar.containsOpaqueMarker(body)) {
+          if (app_grammar.containsOpaqueMarker(body)) {
             _this.warn(`embed ${sfx} in ${item.name} contains a vault result; skipping update check`)
             return false
           }
@@ -688,7 +688,7 @@ async function update_item(item, updates) {
       // embed would ship as a literal marker
       for (let [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
         if (!sfx.includes('.')) continue // not path
-        if (window._grammar.containsOpaqueMarker(body))
+        if (app_grammar.containsOpaqueMarker(body))
           return fail_update(`embed ${sfx} in ${item.name} contains a vault result; cannot update`)
         const path = resolve_embed_path(sfx, attr)
         embed_text[path] = body
