@@ -301,7 +301,11 @@ async function check_updates(item, mark_pushables = false) {
   // EARLY refusals before token/network work (reviews 152 §2.2, 153 §2): a stale
   // runtime cannot scan (read() is raw, so the marker prefix can never match) -- refuse
   // the embed-bearing pushable check outright rather than after github calls
-  if (mark_pushables && item.attr?.embeds && !(window._grammar?.version >= 2)) {
+  const app_grammar = window._grammar
+  if (item.attr?.embeds && !(app_grammar?.version >= 2)) {
+    // the fence covers EVERY grammar-sensitive embed path (review 180 §3.2), not only
+    // mark_pushables: the marker preflight below must warn-and-return on a stale app,
+    // never throw, and never reach token/network work
     _this.warn(`skipping update check for ${item.name}: app update required (reload)`)
     return false
   }
@@ -310,7 +314,7 @@ async function check_updates(item, mark_pushables = false) {
   if (item.attr?.embeds)
     for (const [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
       if (!sfx.includes('.')) continue // not path
-      if (window._grammar.containsOpaqueMarker(body)) {
+      if (app_grammar.containsOpaqueMarker(body)) {
         _this.warn(`embed ${sfx} in ${item.name} contains a vault result; skipping update check`)
         return false
       }
@@ -373,11 +377,11 @@ async function check_updates(item, mark_pushables = false) {
           })
         // FAIL CLOSED on a stale runtime (review 150 §2.4): raw undo would parse and
         // mutate candidate bytes; skip the pushable comparison until this tab reloads
-        if (!(window._grammar?.version >= 2)) {
+        if (!(app_grammar?.version >= 2)) {
           _this.warn(`skipping pushable check for ${item.name}: app update required (reload)`)
           return false // no update information; nothing marked
         }
-        text = _vault_edit(text, undo)
+        text = app_grammar.edit(text, undo)
       }
       if (file_sha != github_sha(text)) {
         _this.warn(`${item.name} is inconsistent with source ${source}/${path}`)
@@ -495,7 +499,8 @@ async function update_item(item, updates) {
   // normalization, time bump, queued item/history saves) BEFORE any result could be
   // inspected, so it must not be called at all -- fail closed until this tab reloads
   // into the new app. mind.items can therefore publish independently of app activation.
-  if (item.write_accepts !== true || !(window._grammar?.version >= 2))
+  const app_grammar = window._grammar
+  if (item.write_accepts !== true || !(app_grammar?.version >= 2))
     return fail_update(
       `update requires app reload for ${item.name} (writer acceptance or vault edit capability missing)`
     )
@@ -506,7 +511,7 @@ async function update_item(item, updates) {
   if (attr.embeds)
     for (const [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
       if (!sfx.includes('.')) continue // not path
-      if (window._grammar.containsOpaqueMarker(body))
+      if (app_grammar.containsOpaqueMarker(body))
         return fail_update(`embed ${sfx} in ${item.name} contains a vault result; cannot update`)
     }
   const token = await github_token(item)
@@ -564,9 +569,9 @@ async function update_item(item, updates) {
             body = item.attr.embeds.find(e => e.path == path).body
             return '```' + pfx + ':' + sfx + '\n' + body + '\n```'
           })
-        text = _vault_edit(item.text, grammar => (grammar_text = undo(grammar)))
+        text = app_grammar.edit(item.text, grammar => (grammar_text = undo(grammar)))
       } else {
-        _vault_edit(item.text, grammar => (grammar_text = grammar)) // capture only
+        app_grammar.edit(item.text, grammar => (grammar_text = grammar)) // capture only
       }
     }
 
@@ -741,7 +746,7 @@ async function update_item(item, updates) {
         next_embeds.find(e => e.path == path).body = body
         return '```' + pfx + ':' + sfx + '\n' + embed_text[path] + '\n```'
       })
-    text = text_is_current ? _vault_edit(text, replace_embeds) : replace_embeds(text)
+    text = text_is_current ? app_grammar.edit(text, replace_embeds) : replace_embeds(text)
 
     // confirm if updating "pushable" item w/ unpushed changes
     if (item.pushable && item.text != text) {

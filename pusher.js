@@ -545,7 +545,8 @@ async function _side_push_item(item, manual = false) {
       // restoration carries candidates INSIDE the selected block as exact raw envelopes,
       // and candidates outside the selection are dropped (allowDrop). FAIL CLOSED on a
       // stale runtime -- never fall back to raw parsing (review 150 §2.4).
-      if (!(window._grammar?.version >= 2))
+      const app_grammar = window._grammar
+      if (!(app_grammar?.version >= 2))
         throw new Error(`can not push ${item.name}: app update required (reload)`)
       const substitute = grammar => {
         let text = dest.block ? _extract_block(grammar, dest.block) : grammar
@@ -556,7 +557,7 @@ async function _side_push_item(item, manual = false) {
               // a SIDE CHANNEL later pushed to GitHub verbatim -- restoration applies
               // only to the returned text, so a candidate inside a real embed would ship
               // as a literal marker. bridge results are not exportable through embeds.
-              if (window._grammar.containsOpaqueMarker(body))
+              if (app_grammar.containsOpaqueMarker(body))
                 throw new Error(`embed ${sfx} in ${item.name} contains a vault result; cannot push`)
               const path = resolve_embed_path(sfx, attr)
               embed_text[path] = body // for push below
@@ -568,7 +569,7 @@ async function _side_push_item(item, manual = false) {
           })
         return text
       }
-      let sidepush_text = _vault_edit(item.text, substitute, { allowDrop: true })
+      let sidepush_text = app_grammar.edit(item.text, substitute, { allowDrop: true })
       // get file sha (if exists) from latest commit for path
       let sha
       const {

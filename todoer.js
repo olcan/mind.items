@@ -403,7 +403,8 @@ function __render(widget, widget_item) {
         // gate ALL side effects (DOM removal, /log) on an ACCEPTED mutation (review 151
         // §2.4): the fail-closed branch must not report completion, and item.write's
         // boolean result is the acceptance signal (a refused write must not log as done)
-        if (truncated && !(window._grammar?.version >= 2)) {
+        const grammar = window._grammar
+        if (truncated && !(grammar?.version >= 2)) {
           // FAIL CLOSED, never raw (review 150 §2.4): a raw rewrite could alter #todo
           // bytes inside a vault_result candidate. restore the dragged row (the snooze
           // branch's cancellation idiom) so the widget matches the unchanged item.
@@ -420,7 +421,7 @@ function __render(widget, widget_item) {
           // over the GRAMMAR VIEW (review 149 §2): a #todo inside a vault_result candidate
           // must not be rewritten, and the raw envelope must survive
           completed =
-            item.write(_vault_edit(item.text, grammar => grammar.replace(/#todo\b/g, '#done')), '') === true
+            item.write(grammar.edit(item.text, view => view.replace(/#todo\b/g, '#done')), '') === true
         }
         if (!completed) {
           list.insertBefore(e.item, list.children[e.oldIndex])
