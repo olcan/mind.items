@@ -403,7 +403,7 @@ function __render(widget, widget_item) {
         // gate ALL side effects (DOM removal, /log) on an ACCEPTED mutation (review 151
         // §2.4): the fail-closed branch must not report completion, and item.write's
         // boolean result is the acceptance signal (a refused write must not log as done)
-        if (truncated && typeof _vault_edit != 'function') {
+        if (truncated && !(window._grammar?.version >= 2)) {
           // FAIL CLOSED, never raw (review 150 §2.4): a raw rewrite could alter #todo
           // bytes inside a vault_result candidate. restore the dragged row (the snooze
           // branch's cancellation idiom) so the widget matches the unchanged item.

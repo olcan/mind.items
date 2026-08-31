@@ -83,9 +83,9 @@ function plot(obj, name = undefined) {
     // refuse outright with reload guidance; on the current runtime read() is the
     // scanner-backed grammar view and the generated-marker prefix is the exact witness
     // (a caption merely DISCUSSING the protocol name is fine)
-    if (typeof _vault_edit != 'function')
+    if (!(window._grammar?.version >= 2))
       fatal(`caption copy requires app reload (vault edit capability missing)`)
-    if (caption_text.includes('\u27e6vault_result_v1:'))
+    if (window._grammar.containsOpaqueMarker(caption_text))
       fatal(`caption block '${caption}_removed' contains a vault result; cannot copy to plot item`)
     caption_sync_js = `function _on_item_change(...args) { _sync_caption('${caption}', ...args) }`
   }
@@ -174,11 +174,11 @@ function _sync_caption(
   // grammar-active candidate bytes into the parent; on the current runtime the
   // generated-marker prefix is the exact witness for a source-local marker the parent's
   // edit seam could never restore. cross-item result copying has no use case.
-  if (typeof _vault_edit != 'function') {
+  if (!(window._grammar?.version >= 2)) {
     warn(`skipping caption sync for ${_this.name}: app update required (reload)`)
     return
   }
-  if (text.includes('\u27e6vault_result_v1:')) {
+  if (window._grammar.containsOpaqueMarker(text)) {
     warn(`skipping caption sync for ${_this.name}: caption contains a vault result`)
     return
   }

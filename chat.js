@@ -162,7 +162,7 @@ function _delete_agent_messages_below(e) {
   // FAIL CLOSED when the app's _vault_edit seam is absent (review 149 §2): a stale tab's
   // raw fallback could persist opaque markers or parse a candidate's fake delimiters into
   // this destructive truncation -- ask for a reload instead
-  if (typeof _vault_edit != 'function') {
+  if (!(window._grammar?.version >= 2)) {
     _modal_alert('please reload to delete messages (app update required)')
     return
   }

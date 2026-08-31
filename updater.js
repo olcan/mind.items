@@ -301,7 +301,7 @@ async function check_updates(item, mark_pushables = false) {
   // EARLY refusals before token/network work (reviews 152 §2.2, 153 §2): a stale
   // runtime cannot scan (read() is raw, so the marker prefix can never match) -- refuse
   // the embed-bearing pushable check outright rather than after github calls
-  if (mark_pushables && item.attr?.embeds && typeof _vault_edit != 'function') {
+  if (mark_pushables && item.attr?.embeds && !(window._grammar?.version >= 2)) {
     _this.warn(`skipping update check for ${item.name}: app update required (reload)`)
     return false
   }
@@ -310,7 +310,7 @@ async function check_updates(item, mark_pushables = false) {
   if (item.attr?.embeds)
     for (const [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
       if (!sfx.includes('.')) continue // not path
-      if (body.includes('\u27e6vault_result_v1:')) {
+      if (window._grammar.containsOpaqueMarker(body)) {
         _this.warn(`embed ${sfx} in ${item.name} contains a vault result; skipping update check`)
         return false
       }
@@ -354,7 +354,7 @@ async function check_updates(item, mark_pushables = false) {
       if (attr.embeds)
         for (const [m2, pfx2, sfx2, body2] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
           if (!sfx2.includes('.')) continue // not path
-          if (body2.includes('\u27e6vault_result_v1:')) {
+          if (window._grammar.containsOpaqueMarker(body2)) {
             _this.warn(`embed ${sfx2} in ${item.name} contains a vault result; skipping update check`)
             return false
           }
@@ -373,7 +373,7 @@ async function check_updates(item, mark_pushables = false) {
           })
         // FAIL CLOSED on a stale runtime (review 150 §2.4): raw undo would parse and
         // mutate candidate bytes; skip the pushable comparison until this tab reloads
-        if (typeof _vault_edit != 'function') {
+        if (!(window._grammar?.version >= 2)) {
           _this.warn(`skipping pushable check for ${item.name}: app update required (reload)`)
           return false // no update information; nothing marked
         }
@@ -396,7 +396,7 @@ async function check_updates(item, mark_pushables = false) {
         // marker-domain sha is meaningless and the item cannot be pushed or updated
         for (let [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
           if (!sfx.includes('.')) continue // not path
-          if (body.includes('\u27e6vault_result_v1:')) {
+          if (window._grammar.containsOpaqueMarker(body)) {
             _this.warn(`embed ${sfx} in ${item.name} contains a vault result; skipping update check`)
             return false
           }
@@ -495,7 +495,7 @@ async function update_item(item, updates) {
   // normalization, time bump, queued item/history saves) BEFORE any result could be
   // inspected, so it must not be called at all -- fail closed until this tab reloads
   // into the new app. mind.items can therefore publish independently of app activation.
-  if (item.write_accepts !== true || typeof _vault_edit != 'function')
+  if (item.write_accepts !== true || !(window._grammar?.version >= 2))
     return fail_update(
       `update requires app reload for ${item.name} (writer acceptance or vault edit capability missing)`
     )
@@ -506,7 +506,7 @@ async function update_item(item, updates) {
   if (attr.embeds)
     for (const [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
       if (!sfx.includes('.')) continue // not path
-      if (body.includes('\u27e6vault_result_v1:'))
+      if (window._grammar.containsOpaqueMarker(body))
         return fail_update(`embed ${sfx} in ${item.name} contains a vault result; cannot update`)
     }
   const token = await github_token(item)
@@ -683,7 +683,7 @@ async function update_item(item, updates) {
       // embed would ship as a literal marker
       for (let [m, pfx, sfx, body] of item.read().matchAll(/```(\S+):(\S+?)\n(.*?)\n```/gs)) {
         if (!sfx.includes('.')) continue // not path
-        if (body.includes('\u27e6vault_result_v1:'))
+        if (window._grammar.containsOpaqueMarker(body))
           return fail_update(`embed ${sfx} in ${item.name} contains a vault result; cannot update`)
         const path = resolve_embed_path(sfx, attr)
         embed_text[path] = body

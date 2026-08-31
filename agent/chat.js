@@ -33,10 +33,13 @@ async function run_on_chat_item(item = _this, msg = undefined) {
   // dispatch entirely -- the vault bridge is the one responder for such items, and an
   // invalid/unregistered vault persona fails CLOSED to the vault rather than falling
   // through to a web provider. computed by the app from the scanner's grammar view
-  // (window._vault_routed), so a route inside a malformed result candidate does not
-  // count; guarded for stale app runtimes (fence activates with the app deploy).
+  // (window._grammar.routed), so a route inside a claimed region does not count.
+  // FAIL CLOSED on a stale app (reviews 178-179 §5.1): without the versioned grammar
+  // capability this consumer must not dispatch at all -- an old runtime cannot see
+  // vault routes claimed under the new grammar.
   // checked FIRST: a vault-routed item is skipped regardless of chat-item shape.
-  if (typeof _vault_routed == 'function' && _vault_routed(item.text)) {
+  if (!(window._grammar?.version >= 2)) fatal(`web dispatch requires app grammar v2; reload the app`)
+  if (window._grammar.routed(item.text)) {
     debug(`skipping web dispatch for vault-routed item ${item.name}`)
     return
   }
@@ -112,7 +115,8 @@ async function run_on_chat_item(item = _this, msg = undefined) {
       // vault routing COMPLETION fence (bridge design §2.1): a web run already in
       // flight when the owner adds a vault route must NOT publish into the
       // now-vault-routed item -- a stale-run fence, not cancellation
-      if (typeof _vault_routed == 'function' && _vault_routed(item.text)) {
+      if (!(window._grammar?.version >= 2)) fatal(`web publication requires app grammar v2; reload the app`)
+      if (window._grammar.routed(item.text)) {
         warn(`dropping web reply for now-vault-routed item ${item.name}`)
         return
       }
@@ -152,7 +156,8 @@ async function run_on_chat_item(item = _this, msg = undefined) {
     if (!msg) {
       // vault routing CATCH fence (review 148 §4): a provider rejection after the owner
       // added a vault marker must NOT publish a web _log into the now-vault-routed item
-      if (typeof _vault_routed == 'function' && _vault_routed(item.text)) {
+      if (!(window._grammar?.version >= 2)) fatal(`web publication requires app grammar v2; reload the app`)
+      if (window._grammar.routed(item.text)) {
         warn(`dropping web error log for now-vault-routed item ${item.name}: ${e}`)
         return
       }
