@@ -399,6 +399,10 @@ function push_item(item, manual = false) {
       state.sha = state.remote_sha = text_sha // resume auto-push
       state.name = item.name.startsWith('#') ? item.name : undefined // pushed name
       state.id = item.id // session id, see _on_item_change
+      // lifecycle hygiene (189 §1.1): a pending request token whose exact text just
+      // pushed is settled; completed-state precedence already makes correctness
+      // independent of this cleanup
+      if (_pending_requests[item.id] == text_sha) delete _pending_requests[item.id]
 
       // invoke _on_push() on item if defined as function
       // _on_push is invoked on both internal and external updates
@@ -715,6 +719,94 @@ async function _side_push_item(item, manual = false) {
   }
 }
 
+// ---- bridge-reply auto-push (reviews 187 §1.4 + 188 §1) --------------------------
+// a bridge reply is appended SERVER-side (vault append_reply/format_reply), so no tab
+// "originated" it and the remote-change assumption below would record a fiction. the
+// decision needs: (1) the text ends in an EXACT latest canonical writer tail; (2)
+// predecessor provenance -- the reconstructed pre-append text is EXACTLY a text this
+// tab authored: either the pending locally-authored text (recorded by session id
+// BEFORE the save/retry/queue boundary -- only the origin tab can know an unsaved or
+// in-flight predecessor, so it acts regardless of _primary) or THIS TAB's completed
+// pushed/assumed state pair (state is TAB-LOCAL; tabs merely reconstruct similar
+// pairs, so _primary owns state-derived action AND degradation); (3) the PRIMARY
+// alone publishes state-derived disabled/inconsistent badges (a mark persists via
+// item attributes to every tab -- review 190 §1). an ordinary remote edit that
+// merely preserves an old reply at EOF fails predecessor binding and stays on the
+// originator protocol. ACCEPTED RESIDUALS: the pending-origin/optimistic-primary
+// overlap can produce push+mark for one reply (a false but visible manual-push
+// badge; review 191 §2.2), and a losing concurrent git write can badge after the
+// winner mirrored (review 189 §1.1) -- both bounded, neither worth shared pending
+// state or post-success badge reconciliation.
+
+// the ACTIVE writer footer grammar, mirroring vault FOOTER_NAME_PATTERN exactly:
+// vault/<persona [a-z0-9_]+> · run <8-hex> [· $<canonical>.<2dp>] · <canonical>s
+// (cost sits BEFORE duration; review 188 §1.1)
+const _bridge_tail =
+  /(?:^|\n)<<agent\('vault\/[a-z0-9_]+ · run [0-9a-f]{8}(?: · \$(?:0|[1-9][0-9]*)\.[0-9][0-9])? · (?:0|[1-9][0-9]*)s'\)>>\n<!--inert-->\n((?:(?!<!--\/inert-->)[^])*)\n<!--\/inert-->$/
+
+// split text into { predecessors } iff it ends in an exact latest canonical writer
+// tail, via ONE anchored suffix match (review 188 §1.3): exact footer line, exact
+// opener line, structural LF, body TEMPERED against any bare close substring (the
+// writer's escape makes a genuine encoded body close-free), structural LF, close at
+// exact EOF (the writer emits no trailing LF). leftmost match selects the real OUTER
+// footer even when the body contains footer/opener-shaped lines, and an earlier
+// historical close spoils temperedness so a stale reply plus a later ordinary inert
+// region never matches. pure; exported for the plain-node decision table.
+function _split_bridge_reply(text) {
+  const m = _bridge_tail.exec(text)
+  if (!m) return null
+  // a footer at byte zero is NOT in append_reply's image (189 §1.3): the writer
+  // always leaves one LF before the reply, even for an empty predecessor
+  if (!m[0].startsWith('\n')) return null
+  const start = m.index + 1
+  // append_reply added one LF iff the predecessor did not end with one; both
+  // reconstructions are returned for sha comparison against recorded provenance
+  const with_lf = text.slice(0, start)
+  return { predecessors: [with_lf.slice(0, -1), with_lf] }
+}
+
+// the pure decision (reviews 187 §1.4, 188 §1.2): 'push' | 'mark' | 'assume'.
+// pending_sha = the sha of the latest text this tab locally authored for the item
+// (session-id provenance, recorded before any save/retry/queue); state = THIS TAB's
+// pushed/assumed pair (tab-local). exported for the plain-node decision table.
+function _bridge_reply_action(text, state, { pending_sha, primary, disabled, sha_of }) {
+  const split = _split_bridge_reply(text)
+  if (!split) return 'assume' // not a fresh writer tail: the originator protocol owns it
+  const shas = split.predecessors.map(sha_of)
+  // COMPLETED provenance takes precedence (review 189 §1.1): a consistent pair at a
+  // matching predecessor means THIS TAB represents the predecessor as completed
+  // (another tab may have assumed it optimistically before git settled), so a stale
+  // pending token must not let a non-primary former origin race the primary.
+  // STATE IS TAB-LOCAL (review 190 §1.1): the pusher's state map and the item's
+  // _pusher settings live in session-lifetime stores, and a 'mark' is NOT local --
+  // item.pushable persists through item attributes to every tab. So for
+  // state-derived provenance the PRIMARY owns both the write AND the degradation:
+  // a non-primary tab must never publish a global badge from its own local
+  // disabled/inconsistent view while the primary may be mirroring correctly.
+  const completed = !!state && state.sha == state.remote_sha && shas.includes(state.sha)
+  if (completed) {
+    if (!primary) return 'assume'
+    return disabled ? 'mark' : 'push'
+  }
+  // ORIGIN provenance for a predecessor NOT yet represented by a completed pair:
+  // genuinely exclusive session knowledge (unsaved/in-flight request), so the origin
+  // acts even when not _primary; push_item's per-tab queue orders the reply push
+  // after any pending request push. review 189 accepted the brief overlap while
+  // another tab optimistically assumes -- git's ref CAS contains it.
+  if (pending_sha != null && shas.includes(pending_sha)) return disabled ? 'mark' : 'push'
+  // an INCONSISTENT local pair at the matching predecessor: only the PRIMARY may
+  // surface the badge (its own record is broken and it is the actor); a non-primary
+  // tab assumes rather than publishing a possibly-false global badge (190 §1.2)
+  if (state && shas.includes(state.sha)) return primary ? 'mark' : 'assume'
+  return 'assume'
+}
+
+// latest locally-authored text sha per SESSION item id (review 188 §1.2): recorded on
+// every local change BEFORE the save/retry/queue boundary, so an unsaved new chat or
+// an in-flight request push still carries provenance when its reply arrives. session
+// lifetime only; overwritten per edit, dropped on deletion.
+const _pending_requests = {}
+
 // auto-push consistent items on change
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // ignore changes until init_pusher() creates store.items: on a fresh tab
@@ -723,17 +815,54 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (!_this.store.items) return
   if (dependency) return // ignore dependency change (item text unchanged)
   if (deleted) {
+    delete _pending_requests[id]
     // delete files for local deletions; remote deletions are handled at their source
     if (!remote) delete_item_files(id).catch(e => {}) // errors already logged
     return
   }
   const item = _item(id)
   if (remote) {
-    // update local state assuming remote auto-push
-    const sha = github_sha(item.text)
-    _this.store.items[item.saved_id] = { sha, remote_sha: sha }
+    const action = _bridge_reply_action(item.text, _this.store.items[item.saved_id], {
+      pending_sha: _pending_requests[id] ?? null,
+      primary: window._primary,
+      disabled: !!item.store._pusher?.auto_push_disabled,
+      sha_of: github_sha,
+    })
+    if (action == 'push') {
+      // per-tab push queue orders this after any in-flight/queued request push, whose
+      // own success pushes the LIVE text (already reply-bearing) and lets this call
+      // skip on the remote_sha match -- pushed exactly once either way
+      auto_push_item(item)
+      return
+    }
+    if (action == 'mark') {
+      // a provenance-verified bridge append this tab cannot push: record the new text
+      // sha but NOT remote_sha (the mirror is genuinely behind) and surface the badge
+      // now instead of leaving the fiction for the next pusher init. MUTATE the
+      // existing state object (review 188 §1.2): queued push work may hold it.
+      const state = (_this.store.items[item.saved_id] ??= {})
+      state.sha = github_sha(item.text)
+      item.pushable = true
+      _this.warn(
+        `bridge reply in ${item.name} not auto-pushed (auto-push disabled or ` +
+          `mirror inconsistent); manual /push required`
+      )
+      return
+    }
+    // update local state assuming remote auto-push (the originator -- or for a bridge
+    // append, the provenance-verified actor -- makes this true; with neither present
+    // the item surfaces as pushable on the next pusher init, as before). MUTATE, never
+    // replace: an in-flight push_item reads this object when its turn comes, and
+    // replacing it would hand the queued request push a fictional reply state
+    // (review 188 §1.2 schedule 2).
+    const state = (_this.store.items[item.saved_id] ??= {})
+    state.sha = github_sha(item.text)
+    state.remote_sha = state.sha
     return
   }
+  // ORIGIN provenance (review 188 §1.2): record the locally authored text sha by
+  // SESSION id before the save/retry/queue boundary in auto_push_item
+  _pending_requests[id] = github_sha(item.text)
   auto_push_item(item)
 }
 
