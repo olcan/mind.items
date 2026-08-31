@@ -742,7 +742,7 @@ async function _side_push_item(item, manual = false) {
 // vault/<persona [a-z0-9_]+> · run <8-hex> [· $<canonical>.<2dp>] · <canonical>s
 // (cost sits BEFORE duration; review 188 §1.1)
 const _bridge_tail =
-  /(?:^|\n)<<agent\('vault\/[a-z0-9_]+ · run [0-9a-f]{8}(?: · \$(?:0|[1-9][0-9]*)\.[0-9][0-9])? · (?:0|[1-9][0-9]*)s'\)>>\n<!--inert-->\n((?:(?!<!--\/inert-->)[^])*)\n<!--\/inert-->$/
+  /(?:^|\n)<{2}agent\('vault\/[a-z0-9_]+ · run [0-9a-f]{8}(?: · \$(?:0|[1-9][0-9]*)\.[0-9][0-9])? · (?:0|[1-9][0-9]*)s'\)>{2}\n<!--inert-->\n((?:(?!<!--\/inert-->)[^])*)\n<!--\/inert-->$/
 
 // split text into { predecessors } iff it ends in an exact latest canonical writer
 // tail, via ONE anchored suffix match (review 188 §1.3): exact footer line, exact
