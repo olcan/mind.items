@@ -10,7 +10,7 @@ const _on_command_ollama = msg => _chat_command(msg)
 ---
 ```js:agent
 { // https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion
-  model: 'gemma2',
+  model: 'gemma3:4b', // installed on the default tailnet server (gemma2 is not)
   options: { // https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
     temperature: 1
   }

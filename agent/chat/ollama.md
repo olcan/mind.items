@@ -1,4 +1,4 @@
-#agent/chat/ollama responds using [Ollama Chat API](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion). Requires [ollama](https://ollama.com) running locally, with `ollama pull <model>` to fetch model, and `launchctl setenv OLLAMA_ORIGINS "https://local.dev"` to enable requests from `local.dev`. To set this persistently, create an app (e.g. `Ollama_local_dev`) using Automator that runs `setenv` before launching `Ollama` app, and use that to replace `Ollama` in login items.
+#agent/chat/ollama responds using [Ollama Chat API](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion). By DEFAULT it targets the dedicated tailnet [ollama](https://ollama.com) instance on m3ultra (`https://m3ultra.tail10a0fe.ts.net/api/chat`, tailscale-served; start via vault `serve_model.sh 27b`; the device must be on the tailnet and the page on an allowed app origin) — so it works from production origins, like `#agent/chat/llama`. A LOCAL server can be selected instead via config `host`/`port` (e.g. `{host: 'localhost'}` for a local `ollama serve` on 11434): then ollama must run locally with the model pulled (`ollama pull <model>`), and for `local.dev` pages `launchctl setenv OLLAMA_ORIGINS "https://local.dev"` (persistently: an Automator app, e.g. `Ollama_local_dev`, that runs `setenv` before launching `Ollama`, replacing it in login items).
 
 ```js_input_removed
 run_on_dependents()
@@ -73,9 +73,21 @@ function eval_tool(tool) {
 }
 
 async function run_chat_agent(messages, config = {}) {
+  // url selects the server; the DEFAULT is the dedicated tailnet ollama on m3ultra
+  // (tailscale serve -> 127.0.0.1:11435, same model store as the default 11434
+  // instance; start via vault serve_model.sh 27b) -- like #agent/chat/llama's
+  // default, this works from tailnet devices on the ALLOWED APP ORIGINS (tailnet
+  // ACLs + the server's origin policy apply), production origins included, so the
+  // live tests below pass in prod. host/port instead select the legacy http
+  // host/port path (the host need not be local; {host: 'localhost'} restores the
+  // old local-dev behavior incl. the local-client guard and /proxy rewriting).
   let host = config.host || 'localhost'
   let port = config.port || 11434
-  let url = config.url || `http://${host}:${port}/api/chat`
+  let url =
+    config.url ||
+    (config.host || config.port
+      ? `http://${host}:${port}/api/chat`
+      : 'https://m3ultra.tail10a0fe.ts.net/api/chat')
   ;({ host, port } = new URL(url))
   if (_is_local(host) && !_is_local(location.host))
     fatal('ollama server is local but client is not')
@@ -193,9 +205,10 @@ async function _test_eval_tool() {
 }
 const _test_eval_tool_functions = ['eval_tool']
 
-// live smoke test against local ollama server w/ default model
-// excluded from default runs; run via /test #agent/chat/ollama live
-// requires ollama running locally w/ default model pulled
+// live smoke against the DEFAULT url (tailnet ollama on m3ultra) w/ default model:
+// excluded from default runs (run via /test #agent/chat/ollama live); requires the
+// 11435 instance up (vault serve_model.sh 27b), the device on the tailnet, and the
+// page on an allowed app origin -- passes from production origins too
 async function _test_live_smoke() {
   const text = await run_chat_agent(
     [{ role: 'user', content: 'reply with one short word' }], {})
@@ -207,13 +220,13 @@ async function _test_live_smoke() {
 const _test_live_smoke_functions = ['run_chat_agent']
 
 // live tool-use test verifying the full tool loop: tool_calls response ->
-// eval_tool -> tool message -> reply; the default model (gemma3) does not
-// support tools, so this uses qwen3:4b w/ an explicit tool schema, which
+// eval_tool -> tool message -> reply; the default model (gemma3:4b) does not
+// support tools, so this uses the tool-capable qwen3:4b w/ an explicit schema, which
 // passes through config into the request body (see create_request)
 async function _test_live_tool_use() {
   const text = await run_chat_agent([{ role: 'user',
     content: 'use the eval tool to compute 1234*5678, then reply with the result' }], {
-    model: 'qwen3:4b', // tool-capable local model (gemma3 rejects tools)
+    model: 'qwen3:4b', // tool-capable (the gemma3 default rejects tools)
     tools: [{ type: 'function', function: {
       name: 'eval',
       description: 'evaluate js code in browser on user device',
