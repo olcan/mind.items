@@ -47,6 +47,9 @@ check('slashed persona rejected', act(append(P, "<<agent('vault/a/b · run ab12c
 check('leading-zero duration rejected', act(append(P, "<<agent('vault/default · run ab12cd34 · 01s')>>\n<!--inert-->\nx\n<!--/inert-->"), pushedState(P)), 'assume')
 check('malformed cost rejected', act(append(P, "<<agent('vault/default · run ab12cd34 · $.. · 1s')>>\n<!--inert-->\nx\n<!--/inert-->"), pushedState(P)), 'assume')
 check('one-decimal cost rejected', act(append(P, "<<agent('vault/default · run ab12cd34 · $0.1 · 1s')>>\n<!--inert-->\nx\n<!--/inert-->"), pushedState(P)), 'assume')
+// the 2026-08-31 claude_agent switch: nominal subscription cost carries a ` (sub)` marker
+check('subscription cost footer', act(append(P, reply('Hello!', "<<agent('vault/default · run ab12cd34 · $0.29 (sub) · 22s')>>")), pushedState(P)), 'push')
+check('sub marker without cost rejected', act(append(P, "<<agent('vault/default · run ab12cd34 · (sub) · 1s')>>\n<!--inert-->\nx\n<!--/inert-->"), pushedState(P)), 'assume')
 check('bad run id rejected', act(append(P, "<<agent('vault/default · run xyz · 1s')>>\n<!--inert-->\nx\n<!--/inert-->"), pushedState(P)), 'assume')
 check('web-agent footer rejected', act(append(P, "<<agent('gpt5p6 · run ab12cd34 · 3s')>>\n<!--inert-->\nx\n<!--/inert-->"), pushedState(P)), 'assume')
 // canonical empty body is OPEN\n\nCLOSE; the unframed OPEN\nCLOSE is NOT writer-image

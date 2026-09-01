@@ -739,10 +739,11 @@ async function _side_push_item(item, manual = false) {
 // state or post-success badge reconciliation.
 
 // the ACTIVE writer footer grammar, mirroring vault FOOTER_NAME_PATTERN exactly:
-// vault/<persona [a-z0-9_]+> · run <8-hex> [· $<canonical>.<2dp>] · <canonical>s
-// (cost sits BEFORE duration; review 188 §1.1)
+// vault/<persona [a-z0-9_]+> · run <8-hex> [· $<canonical>.<2dp> [(sub)]] · <canonical>s
+// (cost sits BEFORE duration, review 188 §1.1; the optional ` (sub)` marker is the
+// 2026-08-31 claude_agent switch: nominal cost under subscription billing)
 const _bridge_tail =
-  /(?:^|\n)<{2}agent\('vault\/[a-z0-9_]+ · run [0-9a-f]{8}(?: · \$(?:0|[1-9][0-9]*)\.[0-9][0-9])? · (?:0|[1-9][0-9]*)s'\)>{2}\n<!--inert-->\n((?:(?!<!--\/inert-->)[^])*)\n<!--\/inert-->$/
+  /(?:^|\n)<{2}agent\('vault\/[a-z0-9_]+ · run [0-9a-f]{8}(?: · \$(?:0|[1-9][0-9]*)\.[0-9][0-9](?: \(sub\))?)? · (?:0|[1-9][0-9]*)s'\)>{2}\n<!--inert-->\n((?:(?!<!--\/inert-->)[^])*)\n<!--\/inert-->$/
 
 // split text into { predecessors } iff it ends in an exact latest canonical writer
 // tail, via ONE anchored suffix match (review 188 §1.3): exact footer line, exact
