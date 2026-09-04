@@ -1,19 +1,23 @@
 // #template/vault -- renders vault files synced as #vault/... items (vault design
-// notes/design/mind_sync.md, revision 8). a managed item carries its editable file in
-// a `jinja_removed` block (every macro opener escaped with a backslash) and, in a
-// `vault_removed` block, one line of base64: the canonical JSON payload (schema v1)
-// whose optional `head_preview` object holds the vault's pinned-HEAD renders and
-// navigation facts. this renderer parses the current item's envelope and decodes its
-// payload through ONE strict path, shows text through a character-reference carrier
-// (exact through the app's post-macro rewrites and the html parser), splits navigation
-// at the payload's managed slots into carriers and toggles under one container, returns
-// only a navigation composition in the nested mode, and returns plain text in the
-// expanded context. it runs no Jinja: the vault renders, the item displays.
+// notes/design/mind_sync_store.md, the v2 representation over notes/design/mind_sync.md).
+// a managed item carries its editable file in a `jinja_removed` block (every macro opener
+// escaped with a backslash); the vault's pinned snapshot lives in the item's hidden store
+// under the `_vault` key: the pinned source (the file at the commit pinned by the sync
+// snapshot the store currently holds) and the optional `head_preview` object with the
+// vault's pinned-HEAD renders and navigation facts. this renderer parses the current item's
+// source envelope, reads the store through the NON-SAVING `_global_store` accessor (the
+// `global_store` accessor schedules a save on every read and can re-persist a stale copy),
+// validates the observable `_vault` contract, shows text through a character-reference
+// carrier (exact through the app's post-macro rewrites and the html parser), splits
+// navigation at the store's managed slots into carriers and toggles under one container,
+// returns only a navigation composition in the nested mode, and returns plain text in the
+// expanded context. the badge is LIVE: it compares the editable source with the pinned
+// source at render time. it runs no Jinja: the vault renders, the item displays.
 //
-// CURRENT-ITEM IDENTITY: the envelope (text and name) is read from _this, the item whose
-// macro is being evaluated, never from _that (the outer rendered item, which toggle()
-// binds its click handler to). tests/template_vault_test.js evaluates this file under
-// a stub template environment (plain node). this file is item-embedded JS: it never
+// CURRENT-ITEM IDENTITY: the envelope (text and name) and the store are read from _this, the
+// item whose macro is being evaluated, never from _that (the outer rendered item, which
+// toggle() binds its click handler to). tests/template_vault_test.js evaluates this file
+// under a stub template environment (plain node). this file is item-embedded JS: it never
 // spells a literal macro opener/closer, fence line, template or inert marker, eval-macro
 // opener, or id token; the test command scans it for them.
 //
@@ -21,12 +25,11 @@
 // removed-block pass and interprets blocks and inert constructs by its own grammar, so a raw
 // opener or a malformed block/inert construct typed into the source can be interpreted
 // before or around this renderer. producer escaping keeps generated items safe and the
-// sync's admission (phase 1) refuses pulling malformed remote text; refusing arbitrary
-// raw editor input is an app grammar/editor concern outside this renderer.
+// sync's admission refuses pulling malformed remote text; refusing arbitrary raw editor
+// input is an app grammar/editor concern outside this renderer.
 
 const _VAULT_PATH = /^agents(?:\/[a-z0-9_]+)+\.md$/
-const _VAULT_RELATION = ['matches', 'differs', 'absent']
-const _VAULT_TOP = ['v', 'path', 'source_head_relation', 'head_preview']
+const _VAULT_STORE = ['v', 'path', 'pinned_source', 'head_preview']
 const _VAULT_PREVIEW = ['kind', 'navigation', 'base', 'exact']
 const _VAULT_EXACT = ['profile', 'instructions', 'run_instructions', 'user_prompt']
 // the consumer's template delimiter tokens (literal spaces, case-sensitive), matched as
@@ -34,10 +37,9 @@ const _VAULT_EXACT = ['profile', 'instructions', 'run_instructions', 'user_promp
 const _VAULT_DELIMITER = new RegExp('<!-' + '- *\\/?template *-' + '->')
 // the shared text domain: scalar values only; TAB and LF are the only admitted controls
 const _VAULT_DOMAIN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/
-// the envelope's exact opener lines and closer (spelled without a fence line here)
+// the envelope's exact opener line and closer (spelled without a fence line here)
 const _VAULT_FENCE = '`'.repeat(3)
 const _VAULT_SOURCE_OPENER = _VAULT_FENCE + 'jinja_removed'
-const _VAULT_PAYLOAD_OPENER = _VAULT_FENCE + 'vault_removed'
 // the source codec (design section 5): one left-to-right non-overlapping scan
 const _VAULT_OPENER = new RegExp('(\\\\*)' + '<' + '<', 'g')
 
@@ -52,48 +54,42 @@ const _vault_same_keys = (obj, keys) => {
   return present.length == expected.length && present.every((k, i) => k == expected[i])
 }
 const _vault_text = v => v === null || typeof v == 'string'
+const _vault_object = v => !!v && typeof v == 'object' && !Array.isArray(v)
 // a carrier-bound value: text inside the shared domain without a delimiter occurrence
 const _vault_unsafe = text => _VAULT_DELIMITER.test(text) || _VAULT_DOMAIN.test(text)
 
-// the ONE strict decoder (both macros use it): the exact one-line body (no surrounding
-// whitespace), canonical base64 (byte round trip), fatal utf-8, strict JSON.parse,
-// schema v1 with the exact key matrix, types, enums, the path grammar, and the text
-// domain plus delimiter fence on every carrier-bound field. canonical JSON is a producer
-// invariant: no reserialization claim here
-function _vault_decode(body) {
-  if (typeof body != 'string' || /\s/.test(body)) throw new Error('payload: not one unwrapped line')
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(body)) throw new Error('payload: not base64')
-  const bytes = Uint8Array.from(atob(body), c => c.charCodeAt(0))
-  let ascii = ''
-  for (const b of bytes) ascii += String.fromCharCode(b)
-  if (btoa(ascii) != body) throw new Error('payload: non-canonical base64')
-  const json = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  const p = JSON.parse(json)
-  if (!p || typeof p != 'object' || Array.isArray(p)) throw new Error('payload: not an object')
-  if (p.v !== 1) throw new Error('payload: not schema v1')
-  if (!_vault_same_keys(p, _VAULT_TOP)) throw new Error('payload: keys')
-  if (typeof p.path != 'string' || !_VAULT_PATH.test(p.path)) throw new Error('payload: bad path')
-  if (!_VAULT_RELATION.includes(p.source_head_relation)) throw new Error('payload: bad relation')
+// the observable `_vault` contract (design v2 section 3), checked by this consumer: exactly
+// the four own keys, v exactly 2, the path grammar, the pinned source null exactly when the
+// preview is null and otherwise inside the text domain, and every structural preview check
+// (exact keys, kinds, the positional navigation shape, the base rule, the exact fields with
+// their text domain and delimiter fence). provenance and the wrapper are the producer's and
+// the vault's discovery code's to establish; a renderer cannot see them
+function _vault_check_store(p) {
+  if (!_vault_object(p)) throw new Error('store: not an object')
+  if (p.v !== 2) throw new Error('store: not schema v2')
+  if (!_vault_same_keys(p, _VAULT_STORE)) throw new Error('store: keys')
+  if (typeof p.path != 'string' || !_VAULT_PATH.test(p.path)) throw new Error('store: bad path')
   const h = p.head_preview
   if (h === null) {
-    if (p.source_head_relation != 'absent') throw new Error('payload: null preview for a present path')
+    if (p.pinned_source !== null) throw new Error('store: pinned source without a preview')
     return p
   }
-  if (p.source_head_relation == 'absent') throw new Error('payload: preview for an absent path')
-  if (!h || typeof h != 'object' || Array.isArray(h)) throw new Error('payload: bad preview')
-  if (!['section', 'config'].includes(h.kind) || !_vault_same_keys(h, _VAULT_PREVIEW)) throw new Error('payload: preview keys')
+  if (typeof p.pinned_source != 'string') throw new Error('store: pinned source is not text')
+  if (p.pinned_source.includes('\r') || _VAULT_DOMAIN.test(p.pinned_source)) throw new Error('store: pinned source outside the text domain')
+  if (!_vault_object(h)) throw new Error('store: bad preview')
+  if (!['section', 'config'].includes(h.kind) || !_vault_same_keys(h, _VAULT_PREVIEW)) throw new Error('store: preview keys')
   _vault_check_navigation(h.navigation)
-  if (h.base !== null && (h.kind == 'section' || typeof h.base != 'string' || !_VAULT_PATH.test(h.base))) throw new Error('payload: bad base')
+  if (h.base !== null && (h.kind == 'section' || typeof h.base != 'string' || !_VAULT_PATH.test(h.base))) throw new Error('store: bad base')
   if (h.kind == 'section') {
-    if (h.exact !== null) throw new Error('payload: section exact')
+    if (h.exact !== null) throw new Error('store: section exact')
     return p
   }
   const x = h.exact
-  if (!x || typeof x != 'object' || Array.isArray(x) || !_vault_same_keys(x, _VAULT_EXACT)) throw new Error('payload: exact keys')
-  if (!['bridge', 'bare'].includes(x.profile)) throw new Error('payload: bad profile')
+  if (!_vault_object(x) || !_vault_same_keys(x, _VAULT_EXACT)) throw new Error('store: exact keys')
+  if (!['bridge', 'bare'].includes(x.profile)) throw new Error('store: bad profile')
   for (const k of ['instructions', 'run_instructions', 'user_prompt']) {
-    if (!_vault_text(x[k])) throw new Error('payload: bad ' + k)
-    if (x[k] !== null && _vault_unsafe(x[k])) throw new Error('payload: unsafe ' + k)
+    if (!_vault_text(x[k])) throw new Error('store: bad ' + k)
+    if (x[k] !== null && _vault_unsafe(x[k])) throw new Error('store: unsafe ' + k)
   }
   return p
 }
@@ -101,16 +97,16 @@ function _vault_decode(body) {
 // the positional navigation wire: parts with exactly one key, `text` (non-empty admitted
 // text, never adjacent to another text part) or `target` (a managed path, may repeat)
 function _vault_check_navigation(parts) {
-  if (!Array.isArray(parts)) throw new Error('payload: navigation is not a list')
+  if (!Array.isArray(parts)) throw new Error('store: navigation is not a list')
   let previous = null
   for (const part of parts) {
-    if (!part || typeof part != 'object' || Array.isArray(part) || Object.keys(part).length != 1) throw new Error('payload: navigation part shape')
+    if (!_vault_object(part) || Object.keys(part).length != 1) throw new Error('store: navigation part shape')
     const key = Object.keys(part)[0]
     if (key == 'text') {
-      if (typeof part.text != 'string' || !part.text || previous == 'text' || _vault_unsafe(part.text)) throw new Error('payload: bad navigation text')
+      if (typeof part.text != 'string' || !part.text || previous == 'text' || _vault_unsafe(part.text)) throw new Error('store: bad navigation text')
     } else if (key == 'target') {
-      if (typeof part.target != 'string' || !_VAULT_PATH.test(part.target)) throw new Error('payload: bad navigation target')
-    } else throw new Error('payload: navigation part key')
+      if (typeof part.target != 'string' || !_VAULT_PATH.test(part.target)) throw new Error('store: bad navigation target')
+    } else throw new Error('store: navigation part key')
     previous = key
   }
 }
@@ -120,48 +116,65 @@ const _vault_label = path => '#vault/' + path.replace(/\.md$/, '')
 // the app's fence grammar, mirrored: a line of optional whitespace and three backticks opens
 // a block (its type token follows) and, inside a block, closes it; the app recognizes a block
 // type with an optional colon prefix, an optional _hidden/_removed suffix, an optional
-// dotted suffix, case-insensitively. the envelope accepts ONLY the two exact opener lines and
-// refuses every other fence: a recognized source/payload-family variant (a raw or hidden or
-// prefixed or suffixed sibling the app would treat as the same family), an unrelated block,
-// and an orphan fence
+// dotted suffix, case-insensitively. the envelope accepts ONLY the exact source opener line
+// and refuses every other fence: a recognized source-family variant (a raw or hidden or
+// prefixed or suffixed sibling the app would treat as the same family), a leftover v1
+// payload block (the `vault` family), an unrelated block, and an orphan fence
 const _VAULT_FENCE_LINE = new RegExp('^\\s*' + _VAULT_FENCE)
 const _VAULT_FAMILY = new RegExp('^\\s*' + _VAULT_FENCE + '(?:\\S+:)?(?:jinja|vault)(?:_hidden|_removed)?(?::\\S*\\.\\S*)?(?:\\s|$)', 'i')
 // the reserved source markers (design section 5): the consumer's delimiter and the inert
 // marker, matched as a deliberately broad superset
 const _VAULT_RESERVED = new RegExp('<!' + '--\\s*/?\\s*(?:template|inert)\\s*-' + '->', 'i')
 
-// the current item's envelope (design sections 3 and 5), one line-state pass over _this.text:
-// exactly one source block and one payload block behind their exact opener lines and closed by
-// an exact bare fence, no other fence anywhere, the source with at least its one canonical
-// body line (an empty file is opener, one empty line, closer), the payload as one line, the
-// source recanonicalizing exactly (a raw opener fails), inside the shared text domain, and
-// free of reserved markers, and the item's name agreeing with the payload's path
+// the current item's source envelope (design sections 3 and 5), one line-state pass over
+// _this.text: exactly one source block behind its exact opener line and closed by an exact
+// bare fence, no other fence anywhere, with at least its one canonical body line (an empty
+// file is opener, one empty line, closer), recanonicalizing exactly (a raw opener fails),
+// inside the shared text domain, and free of reserved markers. returns the editable source
 function _vault_envelope() {
   const lines = _this.text.split('\n')
-  const blocks = { source: [], payload: [] }
+  const blocks = []
   for (let i = 0; i < lines.length; i++) {
     if (!_VAULT_FENCE_LINE.test(lines[i])) continue
-    const type = lines[i] == _VAULT_SOURCE_OPENER ? 'source' : lines[i] == _VAULT_PAYLOAD_OPENER ? 'payload' : null
-    if (!type) throw new Error(_VAULT_FAMILY.test(lines[i]) ? 'envelope: variant block' : 'envelope: unexpected fence')
+    if (lines[i] != _VAULT_SOURCE_OPENER) throw new Error(_VAULT_FAMILY.test(lines[i]) ? 'envelope: variant block' : 'envelope: unexpected fence')
     let end = i + 1
     while (end < lines.length && !_VAULT_FENCE_LINE.test(lines[end])) end++
     if (end == lines.length) throw new Error('envelope: unclosed block')
     if (lines[end] != _VAULT_FENCE) throw new Error('envelope: fence-shaped line inside a block')
-    blocks[type].push(lines.slice(i + 1, end))
+    blocks.push(lines.slice(i + 1, end))
     i = end
   }
-  if (blocks.source.length != 1) throw new Error('envelope: exactly one source block')
-  if (blocks.payload.length != 1) throw new Error('envelope: exactly one payload block')
-  if (blocks.source[0].length < 1) throw new Error('envelope: source without its separator line')
-  if (blocks.payload[0].length != 1) throw new Error('envelope: payload is one line')
-  const body = blocks.source[0].join('\n')
+  if (blocks.length != 1) throw new Error('envelope: exactly one source block')
+  if (blocks[0].length < 1) throw new Error('envelope: source without its separator line')
+  const body = blocks[0].join('\n')
   const source = _vault_unescape(body)
   if (_vault_escape(source) != body) throw new Error('envelope: raw opener in the source')
   if (source.includes('\r') || _VAULT_DOMAIN.test(source)) throw new Error('envelope: source outside the text domain')
   if (_VAULT_RESERVED.test(source)) throw new Error('envelope: reserved marker in the source')
-  const payload = _vault_decode(blocks.payload[0][0])
-  if (_this.name != _vault_label(payload.path)) throw new Error('envelope: label does not name the payload path')
-  return { source, payload }
+  return source
+}
+
+// the current item's state: its editable source and its validated `_vault` store, or one
+// fail-closed note. the store is read through the NON-SAVING accessor; the identity rule is
+// the item's unique NAME (duplicate labels become id-names in the app and fail closed here)
+function _vault_state() {
+  let source
+  try {
+    source = _vault_envelope()
+  } catch (e) {
+    return { note: 'vault source invalid' }
+  }
+  const s = _this._global_store
+  const raw = _vault_object(s) ? s._vault : undefined
+  if (raw === undefined) return { note: 'vault store missing' }
+  let store
+  try {
+    store = _vault_check_store(raw)
+  } catch (e) {
+    return { note: 'vault store invalid' }
+  }
+  if (_this.name !== _vault_label(store.path)) return { note: 'vault store invalid' }
+  return { note: null, source, store }
 }
 
 // the text-exact carrier: ONE physical line, every code point a decimal character
@@ -207,57 +220,56 @@ const _vault_embed = path => toggle(template(_vault_label(path), { _vault: 'navi
 const _vault_navigation = h =>
   _vault_container(h.navigation.map(part => ('target' in part ? _vault_embed(part.target) : _vault_carrier(part.text))))
 
-// badge next to the label: the selected source's relation to the sync-pinned HEAD at last sync
+// the live badge text (design v2 section 3, the owner's precise phrasing): the editable
+// source against the pinned source of the snapshot the store currently holds; a null preview
+// carries no kind
+function _vault_badge_text(state) {
+  if (state.note) return state.note
+  const p = state.store
+  if (p.head_preview === null) return p.path + ' · not in the stored sync snapshot'
+  const head = p.head_preview.kind + ' · ' + p.path
+  return state.source === p.pinned_source ? head : head + ' · differs from the stored sync snapshot'
+}
+
+// badge next to the label
 function vault_badge() {
-  let text
-  try {
-    const p = _vault_envelope().payload
-    text = `${p.head_preview ? p.head_preview.kind : 'no preview'} · ${p.path} · source ${p.source_head_relation} sync-pinned HEAD at last sync`
-  } catch (e) {
-    text = 'vault payload invalid'
-  }
+  const text = _vault_badge_text(_vault_state())
   // the expanded context (agent/chat.js) gets plain text from both macros: no markup, no carrier
   if (_vault_is_expanded()) return 'vault badge: ' + text
   return `<span class="template_placeholder" title="managed by the vault sync">${_vault_inline(text)}</span>`
 }
 
-// the template region of a managed item (frozen order: exact fields, base, navigation, source)
+// the template region of a managed item (frozen order: exact fields, base, navigation; the
+// editable source is the editor's, not a control)
 function vault_render() {
-  let env
-  try {
-    env = _vault_envelope()
-  } catch (e) {
-    return _vault_is_expanded() ? 'vault: payload invalid' : placeholder('vault payload invalid')
-  }
-  const p = env.payload
+  const state = _vault_state()
+  if (state.note) return _vault_is_expanded() ? 'vault: ' + state.note.replace(/^vault /, '') : placeholder(state.note)
+  const p = state.store
   if (_vault_is_expanded()) return _vault_expanded(p)
   const h = p.head_preview
   if (_vault_mode() == 'navigation') return h ? _vault_navigation(h) : placeholder('no pinned preview')
   const parts = []
   if (h && h.kind == 'config') {
     for (const name of ['instructions', 'run_instructions', 'user_prompt'])
-      if (h.exact[name] !== null) parts.push(toggle(_vault_carrier(h.exact[name]), '⋮ ' + name + ' (' + h.exact.profile + ' profile, sync-pinned HEAD)'))
+      if (h.exact[name] !== null) parts.push(toggle(_vault_carrier(h.exact[name]), '⋮ ' + name + ' (' + h.exact.profile + ' profile)'))
     if (h.base) parts.push(_vault_embed(h.base))
   }
-  if (h) parts.push(toggle(_vault_navigation(h), '⋮ navigation (bridge/default context, sync-pinned HEAD)'))
-  else parts.push(placeholder('no pinned preview (not in HEAD at last sync)'))
-  // the editable source is always shown, an empty file included
-  parts.push(toggle(_vault_carrier(env.source), '⋮ source'))
+  if (h) parts.push(toggle(_vault_navigation(h), '⋮ navigation (bridge/default context)'))
+  else parts.push(placeholder('no pinned preview (not in the stored sync snapshot)'))
   return _vault_container(parts)
 }
 
 function _test_vault_helpers() {
   const lt2 = '<' + '<'
-  const p = { v: 1, path: 'agents/x.md', source_head_relation: 'matches', head_preview: { kind: 'section', navigation: [{ text: 'A ' + lt2 + 'x' }, { target: 'agents/y.md' }, { text: 'tail' }], base: null, exact: null } }
-  const body = btoa(unescape(encodeURIComponent(JSON.stringify(p))))
-  const decoded = _vault_decode(body)
+  const p = { v: 2, path: 'agents/x.md', pinned_source: 'x', head_preview: { kind: 'section', navigation: [{ text: 'A ' + lt2 + 'x' }, { target: 'agents/y.md' }, { text: 'tail' }], base: null, exact: null } }
+  const checked = _vault_check_store(p)
   check(
     () => _vault_unescape('a \\' + lt2 + 'b') == 'a ' + lt2 + 'b',
     () => _vault_escape('a ' + lt2 + 'b') == 'a \\' + lt2 + 'b',
-    () => decoded.head_preview.navigation.length == 3 && decoded.head_preview.navigation[1].target == 'agents/y.md',
+    () => checked.head_preview.navigation.length == 3 && checked.head_preview.navigation[1].target == 'agents/y.md',
     () => _vault_carrier('a\nb') == '<pre style="white-space:pre-wrap;margin:0"><code>&#97;&#10;&#98;</code></pre>',
-    () => _vault_expanded(decoded) == 'vault: navigation only',
-    () => throws(() => _vault_decode(btoa('{"v":2}'))),
-    () => throws(() => _vault_decode(' ' + body))
+    () => _vault_expanded(checked) == 'vault: navigation only',
+    () => throws(() => _vault_check_store({ v: 1 })),
+    () => throws(() => _vault_check_store({ ...p, pinned_source: null }))
   )
 }

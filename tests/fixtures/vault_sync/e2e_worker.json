@@ -1,0 +1,16 @@
+{
+  "v": 2,
+  "path": "agents/e2e_worker.md",
+  "pinned_source": "---\ninstructions: |\n  Worker instructions.\n---\n",
+  "head_preview": {
+    "base": null,
+    "exact": {
+      "instructions": "Worker instructions.\n",
+      "profile": "bare",
+      "run_instructions": null,
+      "user_prompt": null
+    },
+    "kind": "config",
+    "navigation": []
+  }
+}

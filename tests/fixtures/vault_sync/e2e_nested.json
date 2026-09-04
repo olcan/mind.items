@@ -1,0 +1,18 @@
+{
+  "v": 2,
+  "path": "agents/e2e_nested.md",
+  "pinned_source": "![[agents/e2e_section]]\n{{ '![[agents/e2e_section]]' }}\n",
+  "head_preview": {
+    "base": null,
+    "exact": null,
+    "kind": "section",
+    "navigation": [
+      {
+        "target": "agents/e2e_section.md"
+      },
+      {
+        "text": "\n![[agents/e2e_section]]\n"
+      }
+    ]
+  }
+}

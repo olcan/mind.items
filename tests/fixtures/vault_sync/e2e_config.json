@@ -1,0 +1,26 @@
+{
+  "v": 2,
+  "path": "agents/e2e_config.md",
+  "pinned_source": "---\nbase: agents/e2e_worker.md\ninstructions: |\n  Config instructions ---\n  # heading\n---\nIntro\n![[agents/e2e_section]]\n\nOutro\n",
+  "head_preview": {
+    "base": "agents/e2e_worker.md",
+    "exact": {
+      "instructions": "Config instructions ---\n# heading\n<<x>>\n",
+      "profile": "bridge",
+      "run_instructions": "Run.",
+      "user_prompt": null
+    },
+    "kind": "config",
+    "navigation": [
+      {
+        "text": "Intro\n"
+      },
+      {
+        "target": "agents/e2e_section.md"
+      },
+      {
+        "text": "\nOutro"
+      }
+    ]
+  }
+}

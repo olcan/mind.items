@@ -1,0 +1,18 @@
+{
+  "v": 2,
+  "path": "agents/e2e_section.md",
+  "pinned_source": "**Docs**\n{% if read_only %}A{% else %}B{% endif %}\n<<not a macro>> and @{x}@\n![[agents/e2e_worker]]\npinned variant\n",
+  "head_preview": {
+    "base": null,
+    "exact": null,
+    "kind": "section",
+    "navigation": [
+      {
+        "text": "**Docs**\nB\n<<not a macro>> and @{x}@ ünï 😀\n"
+      },
+      {
+        "target": "agents/e2e_worker.md"
+      }
+    ]
+  }
+}
