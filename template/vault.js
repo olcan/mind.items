@@ -468,12 +468,14 @@ function _vault_marked() {
       },
       html(token) {
         // (presentation design 8.2) the characters stay references; only the wrapper changes:
-        // exactly one comment is gray text inheriting the surrounding font (the owner found the
-        // monospace odd and larger beside prose), any other literal html is code-styled
+        // exactly one comment is gray monospace (its delimiters read as code): a block comment is
+        // a pre, which the app sizes like its code blocks (14px), an inline comment a span at the
+        // app's inline-code size (14px) so it does not tower over the prose; any other literal
+        // html is code-styled
         const text = token.block ? token.text.replace(/\n$/, '') : token.text
         const shown = _vault_grammar_refs(text)
         if (_VAULT_COMMENT.test(text) && text.indexOf(_VAULT_COMMENT_CLOSE) == text.lastIndexOf(_VAULT_COMMENT_CLOSE))
-          return token.block ? '<p class="vault-comment" style="white-space:pre-wrap;color:#6a737d">' + shown + '</p>' : '<span class="vault-comment" style="color:#6a737d">' + shown + '</span>'
+          return token.block ? '<pre class="vault-comment" style="white-space:pre-wrap;color:#6a737d">' + shown + '</pre>' : '<span class="vault-comment" style="font-family:monospace;font-size:14px;color:#6a737d">' + shown + '</span>'
         return token.block ? '<pre><code>' + shown + '</code></pre>' : '<code>' + shown + '</code>'
       },
       checkbox(token) {
