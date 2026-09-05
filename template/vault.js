@@ -468,11 +468,12 @@ function _vault_marked() {
       },
       html(token) {
         // (presentation design 8.2) the characters stay references; only the wrapper changes:
-        // exactly one comment is gray monospace, any other literal html is code-styled
+        // exactly one comment is gray text inheriting the surrounding font (the owner found the
+        // monospace odd and larger beside prose), any other literal html is code-styled
         const text = token.block ? token.text.replace(/\n$/, '') : token.text
         const shown = _vault_grammar_refs(text)
         if (_VAULT_COMMENT.test(text) && text.indexOf(_VAULT_COMMENT_CLOSE) == text.lastIndexOf(_VAULT_COMMENT_CLOSE))
-          return token.block ? '<pre class="vault-comment" style="white-space:pre-wrap;color:#6a737d">' + shown + '</pre>' : '<span class="vault-comment" style="font-family:monospace;color:#6a737d">' + shown + '</span>'
+          return token.block ? '<p class="vault-comment" style="white-space:pre-wrap;color:#6a737d">' + shown + '</p>' : '<span class="vault-comment" style="color:#6a737d">' + shown + '</span>'
         return token.block ? '<pre><code>' + shown + '</code></pre>' : '<code>' + shown + '</code>'
       },
       checkbox(token) {
