@@ -468,14 +468,18 @@ function _vault_marked() {
       },
       html(token) {
         // (presentation design 8.2) the characters stay references; only the wrapper changes:
-        // exactly one comment is gray monospace (its delimiters read as code): a block comment is
-        // a pre, which the app sizes like its code blocks (14px), an inline comment a span at the
-        // app's inline-code size (14px) so it does not tower over the prose; any other literal
-        // html is code-styled
+        // exactly one comment is gray code typography: a `code` element, so the app's own rules
+        // give it the code font stack, size, and line height on desktop and narrow screens alike;
+        // inline, with the inline-code chrome (background, padding, corner radius) neutralized;
+        // as a block, inside a pre with the app's normal code-block layout (its padding, negative
+        // margin, and left border included); any other literal html is code-styled
         const text = token.block ? token.text.replace(/\n$/, '') : token.text
         const shown = _vault_grammar_refs(text)
-        if (_VAULT_COMMENT.test(text) && text.indexOf(_VAULT_COMMENT_CLOSE) == text.lastIndexOf(_VAULT_COMMENT_CLOSE))
-          return token.block ? '<pre class="vault-comment" style="white-space:pre-wrap;color:#6a737d">' + shown + '</pre>' : '<span class="vault-comment" style="font-family:monospace;font-size:14px;color:#6a737d">' + shown + '</span>'
+        if (_VAULT_COMMENT.test(text) && text.indexOf(_VAULT_COMMENT_CLOSE) == text.lastIndexOf(_VAULT_COMMENT_CLOSE)) {
+          // inline: the app's code rule minus its chrome; block: the app's own pre > code layout (left border included)
+          if (!token.block) return '<code class="vault-comment" style="background:none;padding:0;border-radius:0;color:#6a737d">' + shown + '</code>'
+          return '<pre class="vault-comment" style="white-space:pre-wrap;color:#6a737d"><code class="vault-comment">' + shown + '</code></pre>'
+        }
         return token.block ? '<pre><code>' + shown + '</code></pre>' : '<code>' + shown + '</code>'
       },
       checkbox(token) {
