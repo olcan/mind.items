@@ -75,6 +75,7 @@ const ctx = {
   _this: null,
   _that: null,
 }
+const _VAULT_WINDOW_UNITS = 4096
 const h = vm.runInNewContext(
   src +
     ';({ _vault_unescape, _vault_escape, _vault_check_store, _vault_envelope, _vault_envelope_parts, _vault_badge_visible, _vault_source_view, _vault_frontmatter_view, _vault_decode_entities, _vault_grammar_refs, _vault_state, _vault_refs, _vault_carrier, _vault_inline, _vault_container, _vault_expanded, _vault_navigation, _vault_badge_text, vault_render, vault_badge })',
@@ -338,7 +339,13 @@ check('line pass: a list, a table, and a deeper blockquote are closed before ord
 check('line pass: no sentinel survives', /&#[123];|[\u0001-\u0004]/.test(spacedView), false)
 check('line pass: an indented block keeps its blank line as code', h._vault_source_view('    code\n\n    more\n').includes('<pre><code>code&#10;&#10;more</code></pre>'), true)
 const listed = h._vault_source_view('- a\n\n  ~~~\n  x\n\n  y\n  ~~~\n\nafter\n')
-check('line pass: a list holding code is left untouched, its blank lines included', listed.includes('<pre><code>x&#10;&#10;y</code></pre>') && spacers(listed) == 1 && listed.includes('<p>after</p>'), true)
+check('line pass: a blank line after a list item closes the list like the app; the indented fence that follows keeps its lines as code', listed.includes('<li>a</li>\n</ul>') && listed.includes('<pre><code>  x&#10;&#10;  y</code></pre>') && spacers(listed) == 2 && listed.includes('<p>after</p>'), true)
+check('line pass: a fence directly under a list item stays inside the item, its blank line kept', h._vault_source_view('- a\n  ~~~\n  x\n\n  y\n  ~~~\n- b\n'), '<div class="vault-source"><ul>\n<li>a<pre><code>x&#10;&#10;y</code></pre></li>\n<li>b</li>\n</ul></div>')
+check('protection: two multiline code spans sharing a line both stay code spans (review 83)', h._vault_source_view('`a\nb` `c\n-d\ne`\n'), '<div class="vault-source"><p><code>a b</code> <code>c &#45;d e</code></p></div>')
+check('protection: an earlier single-line code span does not misplace a later multiline one (review 83)', h._vault_source_view('`a`\nplain\n`a\n-b\nc`\n'), '<div class="vault-source"><p><code>a</code><br>plain<br><code>a &#45;b c</code></p></div>')
+check('protection: a nested fence whose first line matches an earlier prose suffix keeps its full contents (review 83)', (v => v.includes('<pre><code>a&#10;&#10;b&#10;&#45;&#45;&#45;&#10;c</code></pre>') && !v.includes('<hr>') && (v.match(/<pre>/g) || []).length == 1)(h._vault_source_view('- explain ~~~\n- ordinary\n- ordinary2\n- ~~~\n  a\n\n  b\n  ---\n  c\n  ~~~\n')), true)
+check('line pass: a code span spanning lines inside a list item stays one code span', h._vault_source_view('- a\n  `b\n  -c\n  d`\n- e\n').includes('<li>a<br><code>b &#45;c d</code></li>'), true)
+check('line pass: a fence inside a blockquote keeps its blank line', h._vault_source_view('> q\n>\n> ~~~\n> x\n>\n> y\n> ~~~\n').includes('<pre><code>x&#10;&#10;y</code></pre>'), true)
 check('line pass: a rule between prose lines is a block between two paragraphs', h._vault_source_view('a\n---\nb\n'), '<div class="vault-source"><p>a</p>\n<hr>\n<p>b</p></div>')
 check('sentinels: a decoded control reference is the replacement character, never a spacer or a rule', (v => v.includes('<p>&#65533; a &#65533; b<br>&#160;<br></p>\n<p>end</p>') && spacers(v) == 1 && !v.includes('<hr>'))(h._vault_source_view('&#1; a &#2; b\n\nend\n')), true)
 check('sentinels: a decoded control reference in a destination is the replacement character', h._vault_source_view('[x](https://e.com/?q=&#1;)\n').includes('href="https&#58;&#47;&#47;e&#46;com&#47;&#63;q&#61;&#65533;"'), true)
@@ -351,10 +358,45 @@ check('line pass: an unclosed fence keeps its trailing blank lines as code', h._
 check('line pass: a code span spanning lines stays one code span (Marked reads its newlines as spaces)', h._vault_source_view('`a\n-b\nc`\n'), '<div class="vault-source"><p><code>a &#45;b c</code></p></div>')
 check('line pass: a link text spanning lines stays one link', (v => v.includes('<a href="https&#58;&#47;&#47;e&#46;test"') && (v.match(/<a /g) || []).length == 1 && !v.includes('&#91;a'))(h._vault_source_view('[a\n-b\nc](https://e.test)\n')), true)
 check('line pass: a pipe line inside a code span is not a table boundary', h._vault_source_view('`a\n| b\nc`\n'), '<div class="vault-source"><p><code>a &#124; b c</code></p></div>')
-check('line pass: a rule line inside a raw html comment stays its text, no sentinel', (v => v == '<div class="vault-source"><p>' + h._vault_grammar_refs('<!-- x\n---\n-->') + '</p></div>' && !/&#[123];|<hr>/.test(v))(h._vault_source_view('<!-- x\n---\n-->\n')), true)
-check('line pass: a single-line inline tag protects nothing beyond itself: the following rule line is a rule', h._vault_source_view('a <b>x</b>\n---\nb\n'), '<div class="vault-source"><p>a &#60;b&#62;x&#60;&#47;b&#62;</p>\n<hr>\n<p>b</p></div>')
+check('line pass: a rule line inside a raw html comment stays its text, no sentinel', (v => v == '<div class="vault-source"><pre class="vault-comment" style="white-space:pre-wrap;color:#6a737d">' + h._vault_grammar_refs('<!-- x\n---\n-->') + '</pre></div>' && !/&#[123];|<hr>/.test(v))(h._vault_source_view('<!-- x\n---\n-->\n')), true)
+check('line pass: a single-line inline tag protects nothing beyond itself: the following rule line is a rule', h._vault_source_view('a <b>x</b>\n---\nb\n'), '<div class="vault-source"><p>a <code>&#60;b&#62;</code>x<code>&#60;&#47;b&#62;</code></p>\n<hr>\n<p>b</p></div>')
 check('line pass: a single-line inline tag does not let a == line underline a heading', (v => !/<h[1-6]/.test(v) && v.includes('&#61;&#61; &#160;'))(h._vault_source_view('Use <root>\n==\nnext\n')), true)
-check('line pass: a rule line inside a raw html block stays its text', (v => v.includes('&#60;div&#62;&#10;&#45;&#45;&#45;&#10;&#60;&#47;div&#62;') && !v.includes('<hr>'))(h._vault_source_view('<div>\n---\n</div>\n')), true)
+check('line pass: a rule line inside a raw html block stays its text (code-styled, 8.2)', h._vault_source_view('<div>\n---\n</div>\n'), '<div class="vault-source"><pre><code>&#60;div&#62;&#10;&#45;&#45;&#45;&#10;&#60;&#47;div&#62;</code></pre></div>')
+// presentation design 8: jinja constructs, literal html wrappers, the frontmatter gap, body trimming
+check('jinja: an inline construct is inline code with its characters as references', h._vault_source_view('a {{ x | y }} b {%- if z %}c\n'), '<div class="vault-source"><p>a <code class="vault-jinja">&#123;&#123; x &#124; y &#125;&#125;</code> b <code class="vault-jinja">&#123;&#37;&#45; if z &#37;&#125;</code>c</p></div>')
+check('jinja: single-line statements standing alone on their lines are inline code rather than a separate code block (in the paragraph with their adjoining lines)', h._vault_source_view('{% if read_only -%}\ntext\n{%- endif %}\n'), '<div class="vault-source"><p><code class="vault-jinja">&#123;&#37; if read&#95;only &#45;&#37;&#125;</code><br>text<br><code class="vault-jinja">&#123;&#37;&#45; endif &#37;&#125;</code></p></div>')
+check('jinja: a multi-line construct standing on its own lines is a code block between the paragraph runs', h._vault_source_view('before\n{{ assert_(\n  x,\n  y\n) }}\nafter\n'), '<div class="vault-source"><p>before</p>\n<pre><code class="vault-jinja">&#123;&#123; assert&#95;&#40;&#10;  x&#44;&#10;  y&#10;&#41; &#125;&#125;</code></pre>\n<p>after</p></div>')
+check('jinja: a multi-line construct spanning a blank line is two paragraphs of text (out of scope: the paragraph is the unit)', (v => !v.includes('vault-jinja') && (v.match(/<p>/g) || []).length == 2)(h._vault_source_view('{{ assert_(\n  x,\n\n  y\n) }}\n')), true)
+check('jinja: a multi-line construct with prose on its first line is inline code inside the paragraph, not a block', (v => v.includes('<p>see <code class="vault-jinja">') && !v.includes('<pre>'))(h._vault_source_view('see {{ a\n| b }} here\n')), true)
+check('jinja: two constructs on consecutive lines stay two inline constructs (a construct ends at its first closer)', h._vault_source_view('{{ x }} tail\n{{ y }}\n'), '<div class="vault-source"><p><code class="vault-jinja">&#123;&#123; x &#125;&#125;</code> tail<br><code class="vault-jinja">&#123;&#123; y &#125;&#125;</code></p></div>')
+check('jinja: a link between two constructs survives', (v => (v.match(/<a /g) || []).length == 1 && (v.match(/vault-jinja/g) || []).length == 2 && !v.includes('<pre>'))(h._vault_source_view('{{ x }} [go](https://example.test)\n{{ y }}\n')), true)
+for (const [open, close] of [['{%', '%}'], ['{#', '#}']])
+  check(`jinja: separately closed ${open} constructs with prose between stay separate`, (v => (v.match(/vault-jinja/g) || []).length == 2 && v.includes(' tail<br>') && !v.includes('<pre>'))(h._vault_source_view(open + ' x ' + close + ' tail\n' + open + ' y ' + close + '\n')), true)
+check('jinja: a construct inside a multiline code span stays part of the code span (no block interrupts it)', h._vault_source_view('`a\n{{ x\n}}\nb`\n'), '<div class="vault-source"><p><code>a &#123;&#123; x &#125;&#125; b</code></p></div>')
+check('jinja: a construct inside a multiline link text stays inside the intact link (inline code there, never a block)', (v => (v.match(/<a /g) || []).length == 1 && !v.includes('<pre>') && /<a [^>]*>a<br><code class="vault-jinja">&#123;&#123; x&#10;&#125;&#125;<\/code><br>b<\/a>/.test(v))(h._vault_source_view('[a\n{{ x\n}}\nb](https://e.test)\n')), true)
+check('jinja: an opener that never closes is text and a later construct of another type is still recognized', (v => v.includes('&#123;&#123; a') && v.includes('<code class="vault-jinja">&#123;&#37; ok &#37;&#125;</code>') && (v.match(/vault-jinja/g) || []).length == 1)(h._vault_source_view('{{ a\nplain\n{% ok %}\n')), true)
+check('jinja: an out-of-window construct is text and a construct after it is still recognized', (v => v.includes('<code class="vault-jinja">&#123;&#123; ok &#125;&#125;</code>') && (v.match(/vault-jinja/g) || []).length == 1 && v.includes('x'.repeat(50)))(h._vault_source_view('{{ ' + 'x'.repeat(5000) + ' }} then {{ ok }}\n')), true)
+check('jinja: a construct exactly at the window is recognized, one unit longer is text', h._vault_source_view('{{' + 'x'.repeat(_VAULT_WINDOW_UNITS - 4) + '}}\n').includes('vault-jinja') && !h._vault_source_view('{{' + 'x'.repeat(_VAULT_WINDOW_UNITS - 3) + '}}\n').includes('vault-jinja'), true)
+check('jinja: a valid over-long comment falls back to text without loss (exact)', h._vault_source_view('{#' + '{'.repeat(9000) + '#}\n'), '<div class="vault-source"><p>' + h._vault_grammar_refs('{#' + '{'.repeat(9000) + '#}') + '</p></div>')
+// review 85: the finder's table is owned by the inline run (never crosses the protection lex, the
+// render parse, another paragraph, or a repeated render) and types are searched independently
+const prose = 'ordinary prose '.repeat(8)
+check('jinja: a construct followed by long prose keeps its code on the real protection-then-render path', h._vault_source_view('{{ x }} ' + prose + '\n').replace(/ +<\/p>/g, '</p>'), '<div class="vault-source"><p><code class="vault-jinja">&#123;&#123; x &#125;&#125;</code> ' + prose.trimEnd() + '</p></div>')
+check('jinja: rendering the same view again gives the same output', h._vault_source_view('{{ x }} ' + prose + '\n') === h._vault_source_view('{{ x }} ' + prose + '\n') && h._vault_source_view('{{ x }} ' + prose + '\n').includes('vault-jinja'), true)
+check('jinja: a second paragraph with the same 64-unit tail and no construct is text; a third with a construct elsewhere is recognized', (v => (v.match(/vault-jinja/g) || []).length == 2 && (p => p !== undefined && !p.includes('vault-jinja') && p.startsWith('<p>plain ordinary prose'))(v.split('\n').find(l => l.startsWith('<p>plain'))))(h._vault_source_view('{{ a }} ' + prose + '\n\nplain ' + prose + '\n\nlater {% b %} ' + prose + '\n')), true)
+check('jinja: a statement enclosing an expression is one statement construct', h._vault_source_view('{% set text = "{{ value }}" %}\n'), '<div class="vault-source"><p><code class="vault-jinja">' + h._vault_grammar_refs('{% set text = "{{ value }}" %}') + '</code></p></div>')
+check('jinja: a comment enclosing an expression or a statement is one comment construct', (v => (v.match(/vault-jinja/g) || []).length == 2 && v.includes(h._vault_grammar_refs('{# prose {{ x }} end #}')) && v.includes(h._vault_grammar_refs('{# {% s %} #}')))(h._vault_source_view('{# prose {{ x }} end #} and {# {% s %} #}\n')), true)
+check('jinja: overlapping delimiters are not constructs, a later closer completes them', (v => !v.includes('vault-jinja'))(h._vault_source_view('{%} and {#}\n')) && h._vault_source_view('{%}%}\n').includes('<code class="vault-jinja">&#123;&#37;&#125;&#37;&#125;</code>'), true)
+check('jinja: a construct inside a link text stays inline code inside the intact link when long prose follows (exact)', h._vault_source_view('[see {{ v }}](https://e.test) ' + prose + '\n').replace(/ +<\/p>/g, '</p>'), '<div class="vault-source"><p><a href="https&#58;&#47;&#47;e&#46;test" target="_blank" rel="opener">see <code class="vault-jinja">&#123;&#123; v &#125;&#125;</code></a> ' + prose.trimEnd() + '</p></div>')
+check('jinja: dense unfinished openers are text without loss', (v => !v.includes('vault-jinja') && (v.match(/&#123;/g) || []).length == 2000)(h._vault_source_view('{{'.repeat(1000) + '\n')), true)
+check('jinja: a quoted closer splits the construct (the delimiter policy is shallow, not a jinja lexer)', (v => v.includes('<code class="vault-jinja">&#123;&#123; &#34;&#125;&#125;</code>'))(h._vault_source_view('{{ "}}" }}\n')), true)
+check('jinja: a jinja comment is inline code too', h._vault_source_view('{# note #}\n'), '<div class="vault-source"><p><code class="vault-jinja">&#123;&#35; note &#35;&#125;</code></p></div>')
+check('jinja: inside a code span or a fence it stays ordinary code', (v => v.includes('<code>&#123;&#123; x &#125;&#125;</code>') && !v.includes('vault-jinja'))(h._vault_source_view('`{{ x }}`\n\n~~~\n{% y %}\n~~~\n')) && !h._vault_source_view('~~~\n{% y %}\n~~~\n').includes('vault-jinja'), true)
+check('html: an inline comment after prose is a gray monospace span of references', h._vault_source_view('text <!-- note -->\n'), '<div class="vault-source"><p>text <span class="vault-comment" style="font-family:monospace;color:#6a737d">&#60;&#33;&#45;&#45; note &#45;&#45;&#62;</span></p></div>')
+check('html: a literal tag placeholder is inline code', h._vault_source_view('use <name> here\n'), '<div class="vault-source"><p>use <code>&#60;name&#62;</code> here</p></div>')
+check('html: a line mixing a comment with other markup is code-styled, still text', (v => v.includes('<pre><code>') && !v.includes('vault-comment') && v.includes('secret'))(h._vault_source_view('<!-- hidden -->secret<!-- /hidden -->\n')), true)
+check('line pass: leading blank lines are not rendered', h._vault_source_view('\n\n  \na\n'), '<div class="vault-source"><p>a</p></div>')
+
 check('frontmatter view: a reference with the .md suffix links like the body', h._vault_frontmatter_view('base: [[agents/worker.md]]\nroot: [[AGENTS.md]]').includes('title="#vault/agents/worker"') && h._vault_frontmatter_view('root: [[AGENTS.md]]').includes('title="#vault/AGENTS"'), true)
 
 // frontmatter links (7.4): managed references inside the highlighted yaml are the item's tag links
@@ -431,6 +473,16 @@ check('projection: the config fields render as inert markdown (7.1 decision 2)',
 check('projection: a navigation text part renders as inert markdown with links', h._vault_navigation({ navigation: [{ text: 'see [[agents/worker]]\n\nand more' }] }).includes('<div class="vault-source"><p>see <mark class="link" title="#vault/agents/worker"'), true)
 check('the editable source is rendered as the source view, never a carrier or a control', fullRender.includes('<div class="vault-source">') && !fullRender.includes(h._vault_carrier('source F')) && !calls.toggle.some(c => c.label == '⋮ source'), true)
 check('the source view precedes the projection container', fullRender.indexOf('<div class="vault-source">') < fullRender.indexOf('<div class="vault">'), true)
+check('one blank line above the projection toggle when the source view precedes it (8.3)', fullRender.includes('</div>\n<p>&#160;<br></p>\n<div class="vault">'), true)
+// the gap composition (8.3): frontmatter present or absent × body blank or non-blank
+for (const [fm, body, gaps, shape] of [['a: 1', 'body\n', 2, 'yaml, gap, source, gap, projection'], ['a: 1', '  \n\n', 1, 'yaml, gap, projection'], [null, 'body\n', 1, 'source, gap, projection'], [null, '\n', 0, 'projection']]) {
+  reset()
+  const source = fm === null ? body : '---\n' + fm + '\n---\n' + body
+  ctx._this = ctx._that = stub({ id: 'id_gap', name: '#vault/agents/y', text: yamlText('#vault/agents/y', fm, body), _global_store: { _vault: yamlStore(source) } })
+  const rendered = h.vault_render()
+  const order = rendered.split('\n').filter(l => l.startsWith('<pre class="vault-frontmatter"') || l.startsWith('<div class="vault-source"') || l.startsWith('<div class="vault">') || l == '<p>&#160;<br></p>').map(l => (l.startsWith('<pre') ? 'yaml' : l.startsWith('<div class="vault-source"') ? 'source' : l == '<p>&#160;<br></p>' ? 'gap' : 'projection'))
+  check(`gap composition: ${shape}`, [order.filter(o => o == 'gap').length, order.join(', ')], [gaps, shape])
+}
 reset()
 ctx._this = item('id_g', { v: 2, path: 'agents/f.md', pinned_source: 'source G', head_preview: { kind: 'config', base: null, navigation: [], exact: { profile: 'bare', instructions: null, run_instructions: null, user_prompt: 'U' } } }, 'source G')
 ctx._that = ctx._this
@@ -469,7 +521,7 @@ ctx._that = A
 ctx._this = A
 const outer = h.vault_render()
 check('outer A: A text rendered as inert markdown in the projection, the source rendered as the view, never carried', outer.includes('<p>A text</p>') && !outer.includes(h._vault_carrier('A text')) && !outer.includes(h._vault_carrier(sourceA)) && outer.includes('<div class="vault-source">'), true)
-check('outer A: the source view keeps a raw opener inert', outer.includes('&#60;&#60;x&#62;&#62;'), true)
+check('outer A: the source view keeps a raw opener inert (Marked reads the inner <x> as a literal tag, code-styled since 8.2)', outer.includes('&#60;<code>&#60;x&#62;</code>&#62;'), true)
 reset()
 ctx._this = A
 ctx._that = A

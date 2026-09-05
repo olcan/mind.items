@@ -292,6 +292,79 @@ function _vault_item_link(path, spelling = null) {
 const _vault_hint = (text, title) => '<span class="template_placeholder" title="' + title + '">' + _vault_grammar_refs(text) + '</span>'
 const _VAULT_LINK_SCHEME = /^(?:https?|mailto):/i
 const _VAULT_WIKI = /^(!?)\[\[([^\]\n]+?)\]\]/
+// exactly one html comment (presentation design 8.2), spelled without the literal marker
+const _VAULT_COMMENT_CLOSE = '--' + '>'
+const _VAULT_COMMENT = new RegExp('^\\s*<!' + '--[\\s\\S]*?' + _VAULT_COMMENT_CLOSE + '\\s*$')
+// jinja constructs (presentation design 8.1): tempered (the content never contains the
+// construct's own closer), so a construct ends at its FIRST closer and can never swallow text up
+// to a later construct; the content is bounded by count so a construct longer than the window
+// (4096 UTF-16 units, delimiters included) is not recognized (text)
+const _VAULT_JINJA = /^(?:\{\{(?:(?!\}\})[\s\S]){0,4092}\}\}|\{%(?:(?!%\})[\s\S]){0,4092}%\}|\{#(?:(?!#\})[\s\S]){0,4092}#\})/
+const _VAULT_JINJA_PAIRS = [['{{', '}}'], ['{%', '%}'], ['{#', '#}']]
+const _VAULT_JINJA_WINDOW = 4096 // UTF-16 code units, opener to closer inclusive
+// the candidate finder (review 84, 85): the earliest opener that the tokenizer will accept (its
+// first same-type closer at or after the opener's end lies within the window), or undefined.
+// Marked stops plain-text consumption only where `start` points, so an unfinished or over-long
+// candidate never forces a tokenization step. each type is searched independently (an earlier
+// opener of one type may enclose a later construct of another: `{% set t = "{{ v }}" %}` is the
+// statement) and the earliest wins; the only shortcut is an opener at position zero, which
+// nothing can precede. per type the closers are walked in order and the opener is searched from
+// the window's start; a closer overlapping the opener (`{%}`) or lying before its end is skipped.
+// the closer table is OWNED by Marked's inline run: Marked hands the tokenizer the token array
+// it is filling (one array per inline run, per parse, nested runs included) and calls the
+// tokenizer at every position before consulting `start` with the same text minus its first
+// unit, so the tokenizer registers the run's table (computed once, from the run's first text,
+// positions measured from the END so every later suffix reuses it) and `start` uses the
+// registration of the same iteration or, if the iteration shape is not the expected one,
+// computes without a table. the two parses of one view (protection, rendering) are separate
+// runs, as are separate paragraphs and a link's inner text, so no table crosses them
+const _vault_jinja_runs = new WeakMap()
+let _vault_jinja_current = null
+function _vault_jinja_closers(src) {
+  return _VAULT_JINJA_PAIRS.map(([, closer]) => {
+    const distances = []
+    for (let i = src.indexOf(closer); i >= 0; i = src.indexOf(closer, i + closer.length)) distances.push(src.length - i)
+    return distances
+  })
+}
+function _vault_jinja_register(src, tokens) {
+  let run = tokens && _vault_jinja_runs.get(tokens)
+  if (!run || src.length > run.length) {
+    run = { length: src.length, closers: _vault_jinja_closers(src), next: [0, 0, 0] }
+    if (tokens) _vault_jinja_runs.set(tokens, run)
+  }
+  _vault_jinja_current = { run, remaining: src.length }
+  return run
+}
+function _vault_jinja_candidate(src, run) {
+  const table = run || { length: src.length, closers: _vault_jinja_closers(src), next: [0, 0, 0] }
+  let best = -1
+  for (let k = 0; k < _VAULT_JINJA_PAIRS.length && best !== 0; k++) {
+    const [opener, closer] = _VAULT_JINJA_PAIRS[k]
+    const distances = table.closers[k]
+    let j = table.next[k]
+    while (j < distances.length && distances[j] > src.length) j++ // closers before this suffix
+    table.next[k] = j
+    let from = 0
+    let open = -1
+    while (j < distances.length) {
+      const close = src.length - distances[j]
+      from = Math.max(from, close + closer.length - _VAULT_JINJA_WINDOW)
+      if (open < from) {
+        open = src.indexOf(opener, from)
+        if (open < 0) break // no opener anywhere after the window's start: none of this type
+      }
+      if (open + opener.length <= close) {
+        if (best < 0 || open < best) best = open
+        break
+      }
+      // this closer lies before the opener's end (overlapping or earlier): the opener needs a later one
+      while (j < distances.length && src.length - distances[j] < open + opener.length) j++
+      from = open
+    }
+  }
+  return best >= 0 ? best : undefined
+}
 const _VAULT_MANAGED_TARGET = /^(?:agents(?:\/[a-z0-9_]+)+|AGENTS|learnings)$/
 // a managed reference anywhere in a text piece (the frontmatter view links them, 7.4)
 const _VAULT_WIKI_ANYWHERE = /(!?\[\[(?:agents(?:\/[a-z0-9_]+)+|AGENTS|learnings)(?:\.md)?\]\])/
@@ -305,6 +378,37 @@ function _vault_marked() {
   const marked = new Marked({ gfm: true, breaks: true })
   marked.use({
     extensions: [
+      {
+        // (presentation design 8.1) a jinja construct is inline code; recognized inline only, so a
+        // construct inside a code span never is one and one inside a link text stays inline code inside
+        // the intact link (never an interrupting block); the paragraph renderer presents a
+        // construct that spans lines and stands alone on them as a code block
+        name: 'vault_jinja',
+        level: 'inline',
+        start(src) {
+          // Marked calls this with the tokenizer's text minus its first unit, in the same
+          // iteration; any other shape gets a table-free computation
+          const current = _vault_jinja_current
+          return _vault_jinja_candidate(src, current && current.remaining === src.length + 1 ? current.run : null)
+        },
+        tokenizer(src, tokens) {
+          // Marked tries every inline tokenizer at every position where text consumption stops:
+          // the run is registered here first (see the finder: the closer table is built at the
+          // run's first position), then the candidate lookup and the match run only when an
+          // opener stands at this position and the finder accepts it; the match itself is
+          // bounded by repetition count, never by slicing. cost per position: the registration
+          // (the table once per run, a scan of the run's text), then, at an opener, the closers
+          // passed and the opener search from the window's start (which may run to the next
+          // opener of that type)
+          const run = _vault_jinja_register(src, tokens)
+          if (src.charCodeAt(0) !== 123 || _vault_jinja_candidate(src, run) !== 0) return undefined
+          const m = _VAULT_JINJA.exec(src)
+          return m ? { type: 'vault_jinja', raw: m[0], text: m[0] } : undefined
+        },
+        renderer(token) {
+          return '<code class="vault-jinja">' + _vault_grammar_refs(token.text) + '</code>'
+        },
+      },
       {
         name: 'vault_wiki',
         level: 'inline',
@@ -325,6 +429,30 @@ function _vault_marked() {
       },
     ],
     renderer: {
+      paragraph(token) {
+        // (presentation design 8.1) a jinja construct that spans lines and stands alone on them (a
+        // line start before it, a line end after it) is presented as a code block between the
+        // paragraph's other runs; everything else is the ordinary paragraph
+        const tokens = token.tokens || []
+        const blockShaped = (t, i) =>
+          t.type == 'vault_jinja' && t.raw.includes('\n') && (i == 0 || tokens[i - 1].raw.endsWith('\n')) && (i == tokens.length - 1 || tokens[i + 1].raw.startsWith('\n'))
+        if (!tokens.some(blockShaped)) return '<p>' + this.parser.parseInline(tokens) + '</p>\n'
+        let out = ''
+        let run = []
+        const flush = () => {
+          if (!run.length) return
+          const html = this.parser.parseInline(run).replace(/^(?:<br>)+|(?:<br>)+$/g, '').trim()
+          if (html) out += '<p>' + html + '</p>\n'
+          run = []
+        }
+        tokens.forEach((t, i) => {
+          if (!blockShaped(t, i)) return run.push(t)
+          flush()
+          out += '<pre><code class="vault-jinja">' + _vault_grammar_refs(t.text) + '</code></pre>\n'
+        })
+        flush()
+        return out
+      },
       text(token) {
         if (token.tokens) return this.parser.parseInline(token.tokens)
         return _vault_grammar_refs(_vault_decode_entities(token.text ?? token.raw ?? ''))
@@ -339,8 +467,13 @@ function _vault_marked() {
         return '<pre><code class="hljs language-' + _vault_grammar_refs(lang) + '">' + shown + '</code></pre>'
       },
       html(token) {
-        const shown = _vault_grammar_refs(token.text)
-        return token.block ? '<p>' + shown + '</p>' : shown
+        // (presentation design 8.2) the characters stay references; only the wrapper changes:
+        // exactly one comment is gray monospace, any other literal html is code-styled
+        const text = token.block ? token.text.replace(/\n$/, '') : token.text
+        const shown = _vault_grammar_refs(text)
+        if (_VAULT_COMMENT.test(text) && text.indexOf(_VAULT_COMMENT_CLOSE) == text.lastIndexOf(_VAULT_COMMENT_CLOSE))
+          return token.block ? '<pre class="vault-comment" style="white-space:pre-wrap;color:#6a737d">' + shown + '</pre>' : '<span class="vault-comment" style="font-family:monospace;color:#6a737d">' + shown + '</span>'
+        return token.block ? '<pre><code>' + shown + '</code></pre>' : '<code>' + shown + '</code>'
       },
       checkbox(token) {
         return _vault_grammar_refs(token.checked ? '☑ ' : '☐ ')
@@ -368,12 +501,13 @@ function _vault_marked() {
 // a table, and a deeper blockquote are closed by the app's extra newline; a rule line becomes
 // a rule (between prose lines too, where Marked alone would read a setext heading); another
 // line of only - or = cannot underline a setext heading; an empty blockquote line gets the
-// app's non-breaking space. protected regions are Marked's own tokens over the ORIGINAL text:
-// every line of a top-level code block, raw html block, or a token holding one, or holding
-// an inline code span, link, or image that spans lines, is left untouched (blank and rule
-// lines included). the trailing blank lines of the source outside protection are not rendered
-// (the app trims trailing rendered whitespace; the final newline is the file's terminator,
-// not a blank line; a blank line inside an unclosed fence is code and stays). the app inserts literal markup (`&nbsp;<br>`, `<hr>`,
+// app's non-breaking space. protected lines are Marked's own tokens over the ORIGINAL text,
+// located by exact line accounting (_vault_protect): every line of a code block, a raw html
+// block, or an inline code span, link, image, or jinja construct that spans lines is left
+// untouched wherever it sits (blank and rule lines included); a container's other lines are
+// rewritten as usual. the blank lines at both ends of the source outside protection are not
+// rendered (the app trims trailing rendered whitespace; the final newline is the file's
+// terminator, not a blank line; a blank line inside an unclosed fence is code and stays). the app inserts literal markup (`&nbsp;<br>`, `<hr>`,
 // `&nbsp;`); here those would meet the html policy of the renderer's own pass, so the pass
 // inserts control-character sentinels (U+0001 spacer, U+0002 rule, U+0003 non-breaking
 // space) that the final html replaces: the shared text domain excludes them from the source
@@ -382,32 +516,49 @@ const _VAULT_SPACER = '\u0001'
 const _VAULT_RULE = '\u0002'
 const _VAULT_NBSP = '\u0003'
 const _VAULT_LIST_LINE = /^\s*(?:\d+\.|[-*+])/
-// a token whose lines the pass must not rewrite: a code block, a raw html block or a multiline
-// inline tag (the policy renders raw html as text, so a rewrite would surface a sentinel or a
-// rule inside the spelling), an inline code span, link, or image spanning more than one line (a
-// rewrite would split the construct), or any container (list, blockquote, paragraph) holding one
-function _vault_holds_protected(token) {
-  // a raw html BLOCK or a multiline inline tag; a single-line inline tag protects nothing beyond
-  // itself (the rule and setext rewrites on the following lines still apply)
-  if (token.type == 'code' || (token.type == 'html' && (token.block || token.raw.includes('\n')))) return true
-  if ((token.type == 'codespan' || token.type == 'link' || token.type == 'image') && token.raw.includes('\n')) return true
-  const children = token.items ? token.items.flatMap(item => item.tokens || []) : token.tokens || []
-  return children.some(_vault_holds_protected)
+// a construct whose own lines the pass must not rewrite: a code block, a raw html block or a
+// multiline inline tag (the policy renders raw html as text, so a rewrite would surface a
+// sentinel or a rule inside the spelling), or an inline code span, link, image, or jinja
+// construct spanning more than one line (a rewrite would split it)
+function _vault_protected_self(token) {
+  if (token.type == 'code') return true
+  if (token.type == 'html' && (token.block || token.raw.includes('\n'))) return true
+  return (token.type == 'codespan' || token.type == 'link' || token.type == 'image' || token.type == 'vault_jinja') && token.raw.includes('\n')
 }
-// the line indices covered by top-level tokens holding a protected construct (the block tokens'
-// raw texts concatenate to the source, so line counting over them is exact)
+const _vault_newlines = raw => (raw.match(/\n/g) || []).length
+// protect exactly the lines of every protected construct inside `token`, which starts at source
+// line `line`: EXACT ordered accounting over Marked's token raws (the block tokens' raws
+// concatenate to the source; a list's item raws to the list's raw; a container's children raws
+// to its text, line for line, since Marked strips a list item's indentation and a blockquote's
+// prefix without dropping lines), so no text matching is ever needed; a table's cells are one
+// line each and hold no protected construct
+function _vault_protect(token, line, out) {
+  if (_vault_protected_self(token)) {
+    const last = line + _vault_newlines(token.raw.replace(/\n$/, ''))
+    for (let i = line; i <= last; i++) out.add(i)
+    return
+  }
+  if (token.type == 'table') return
+  let at = line
+  for (const child of token.items || token.tokens || []) {
+    if (token.items) {
+      let inner = at
+      for (const grandchild of child.tokens || []) {
+        _vault_protect(grandchild, inner, out)
+        inner += _vault_newlines(grandchild.raw)
+      }
+    } else _vault_protect(child, at, out)
+    at += _vault_newlines(child.raw)
+  }
+}
 function _vault_protected_lines(marked, text) {
-  const lines = new Set()
+  const out = new Set()
   let line = 0
   for (const token of marked.lexer(text)) {
-    const count = (token.raw.match(/\n/g) || []).length
-    if (_vault_holds_protected(token)) {
-      const last = token.raw.endsWith('\n') ? line + count - 1 : line + count
-      for (let i = line; i <= last; i++) lines.add(i)
-    }
-    line += count
+    _vault_protect(token, line, out)
+    line += _vault_newlines(token.raw)
   }
-  return lines
+  return out
 }
 function _vault_line_pass(marked, source) {
   const all = source.split('\n')
@@ -419,8 +570,12 @@ function _vault_line_pass(marked, source) {
   // blank line inside an unclosed fence is code and stays
   let end = all.length
   while (end > 0 && /^\s*$/.test(all[end - 1]) && !protectedLines.has(end - 1)) end--
+  // and the leading ones (presentation design 8.3): a body never starts with an empty line
+  let begin = 0
+  while (begin < end && /^\s*$/.test(all[begin]) && !protectedLines.has(begin)) begin++
   let last = ''
-  const lines = all.slice(0, end).map((line, index) => {
+  const lines = all.slice(begin, end).map((line, offset) => {
+    const index = begin + offset
     let str = line
     if (protectedLines.has(index)) {
       last = ''
@@ -582,8 +737,14 @@ function vault_render() {
   if (_vault_mode() == 'navigation') return h ? _vault_navigation(h) : placeholder('no pinned preview')
   const view = []
   if (state.frontmatter !== null) view.push(_vault_frontmatter_view(state.frontmatter))
-  if (state.body.trim().length) view.push(_vault_source_view(state.body))
+  if (state.body.trim().length) {
+    // (presentation design 8.3) one blank line between the frontmatter and a non-blank body
+    if (state.frontmatter !== null) view.push('<p>&#160;<br></p>')
+    view.push(_vault_source_view(state.body))
+  }
   const projection = _vault_projection(h)
+  // (8.3) and one blank line above the projection toggle when anything precedes it
+  if (view.length) view.push('<p>&#160;<br></p>')
   view.push(_vault_container([toggle(projection.join('\n'), '⋮ projection (the stored sync snapshot)')]))
   return view.join('\n')
 }
