@@ -54,7 +54,7 @@ const hljsStub = {
   highlight: (text, opts) => ({
     value: text
       .split('\n')
-      .map(line => (line.startsWith('#') ? '<span class="hljs-comment">' + line.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' : line.replace(/^([a-z_]+):/, '<span class="hljs-attr">$1:</span>').replace(/&/g, '&amp;')))
+      .map(line => (line.startsWith('#') ? '<span class="hljs-comment">' + line.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' : line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/^([a-z_]+):/, '<span class="hljs-attr">$1:</span>')))
       .join('\n'),
     language: opts.language,
   }),
@@ -179,19 +179,20 @@ check('carrier of empty text', h._vault_carrier(''), '<pre style="white-space:pr
 check('inline carrier is references only', h._vault_inline('a b'), '<code>&#97;&#32;&#98;</code>')
 check('container has no blank lines', h._vault_container(['<pre>a</pre>', '<span>b</span>\n<div>c</div>']).includes('\n\n'), false)
 check('repeated target parts survive the contract', h._vault_check_store(section).head_preview.navigation.filter(p => p.target).length, 2)
-check('expanded section', h._vault_expanded(section), 'vault: navigation only')
+check('expanded section throws (7.6)', throws(() => h._vault_expanded(section)), true)
 check('expanded config', h._vault_expanded(config), 'I ---\n# x')
-check('expanded config with null instructions and other fields set', h._vault_expanded({ ...config, head_preview: { ...config.head_preview, exact: { profile: 'bare', instructions: null, run_instructions: 'R', user_prompt: 'U' } } }), 'vault: no pinned instructions')
-check('expanded absent', h._vault_expanded(absent), 'vault: no pinned preview')
+check('expanded config with null instructions throws (7.6)', throws(() => h._vault_expanded({ ...config, head_preview: { ...config.head_preview, exact: { profile: 'bare', instructions: null, run_instructions: 'R', user_prompt: 'U' } } })), true)
+check('expanded absent throws (7.6)', throws(() => h._vault_expanded(absent)), true)
 
 // the consumer boundary never rescans text parts: one nested call, the marker byte-for-byte;
 // the nested toggle's label is bare references (no element, no quote: it lands in a title)
 for (const marker of ['![[agents/x]]', '\n![[agents/x]]\n']) {
   reset()
+  ctx._this = ctx._that = { id: 'id_nav', name: '#vault/agents/nav' } // the text part's links carry the current item's id
   const html = h._vault_navigation({ navigation: [{ target: 'agents/x.md' }, { text: marker }] })
   check(`no rescan ${JSON.stringify(marker)}: exactly one nested template call`, calls.template.map(c => c.name), ['#vault/agents/x'])
   check(`no rescan ${JSON.stringify(marker)}: nested call in navigation mode`, calls.template[0].dict, { _vault: 'navigation' })
-  check(`no rescan ${JSON.stringify(marker)}: marker carried byte-for-byte`, html.includes(h._vault_carrier(marker)), true)
+  check(`no rescan ${JSON.stringify(marker)}: the text part is inert markdown (the reference a link, never a toggle)`, html.includes('<div class="vault-source">') && html.includes('title="#vault/agents/x"') && !html.includes(h._vault_carrier(marker)), true)
   check(`no rescan ${JSON.stringify(marker)}: one toggle over the target`, calls.toggle.map(c => c.label), ['⋮ ' + h._vault_refs('![[agents/x]]')])
   check(`no rescan ${JSON.stringify(marker)}: toggle label has no element or quote`, /[<>"']/.test(calls.toggle[0].label), false)
 }
@@ -296,7 +297,7 @@ const hostile = [
   '- [Run](javascript:void(0))',
   '- [ ] a task',
   '![img](https://example.com/i.png)',
-  '![[agents/worker]] and [[agents/instructions/sections/docs]] and [[AGENTS]].',
+  '![[agents/worker]] and [[agents/instructions/sections/docs]] and [[AGENTS]] and ![[learnings]] and [[notes/x]] and [[Agents]].',
   '~~~js',
   'fenced <script> #tag',
   '~~~',
@@ -314,11 +315,56 @@ check('source view: code keeps its entity spelling', view.includes('<code>&#38;a
 check('source view: an allowed destination is decoded once and referenced', view.includes('href="https&#58;&#47;&#47;example&#46;com&#63;a&#61;1&#38;b&#61;2"'), true)
 check('source view: a code span keeps a wiki reference literal', view.includes('<code>&#91;&#91;agents&#47;x&#93;&#93;</code>'), true)
 check('source view: managed references are the current item\'s tag links', view.includes('onmousedown="_handleTagClick(\'id_x\',\'#vault/agents/worker\'') && view.includes('title="#vault/agents/instructions/sections/docs"'), true)
-check('source view: an unmanaged reference is a hinted placeholder', view.includes('<span class="template_placeholder" title="not a managed file">&#91;&#91;AGENTS&#93;&#93;</span>'), true)
+check('source view: an unmanaged reference is a hinted placeholder', view.includes('<span class="template_placeholder" title="not a managed file">&#91;&#91;notes&#47;x&#93;&#93;</span>') && view.includes('title="not a managed file">&#91;&#91;Agents&#93;&#93;</span>'), true)
+check('source view: root references are tag links (7.5)', view.includes('title="#vault/AGENTS" onmousedown="_handleTagClick(\'id_x\',\'#vault/AGENTS\'') && view.includes('title="#vault/learnings"'), true)
 check('source view: task items are static markers', view.includes('&#9744;') && !view.includes('checkbox'), true)
-check('source view: heading, list, and code render', /<h1>/.test(view) && /<li>/.test(view) && view.includes('<pre><code>fenced &#60;script&#62; &#35;tag</code></pre>'), true)
+const codeBlock = /<pre><code class="hljs language-js">(.*?)<\/code><\/pre>/.exec(view)
+check('source view: heading, list, and code render; fenced code with a language is highlighted (7.3)', /<h1>/.test(view) && /<li>/.test(view) && codeBlock !== null && codeBlock[1].replace(/<[^>]+>/g, '') == 'fenced &#60;script&#62; &#35;tag', true)
+check('source view: fenced code without a language stays plain', h._vault_source_view('```\n<a> #b\n```\n').includes('<pre><code>&#60;a&#62; &#35;b</code></pre>'), true)
 check('source view without Marked falls back to the carrier', (ctx.window.Marked = undefined, h._vault_source_view('a\n')), h._vault_carrier('a\n'))
 ctx.window.Marked = Marked
+
+// the line pass (presentation design 7.2): the app's layout rewrites mirrored, Marked's code
+// regions untouched, control-character sentinels replaced, trailing blank lines not rendered
+const spaced = ['p1', '', 'p2', '', '', 'p3', '- a', '- b', 'after list', '---', 'x', '==', '| a |', '| - |', 'after table', '> q1', '> > q2', '> q3', '~~~', 'code', '', '---', 'more', '~~~', '', ''].join('\n')
+const spacedView = h._vault_source_view(spaced)
+const spacers = html => (html.match(/&#160;<br>/g) || []).length
+check('line pass: every line starts with a tag and none is blank', spacedView.split('\n').every(l => l.startsWith('<')) && !/\n\s*\n/.test(spacedView), true)
+check('line pass: one spacer per blank line outside code; trailing blank lines and the final newline render nothing', spacers(spacedView), 3)
+check('line pass: a spacer ends its paragraph like the app', spacedView.includes('<p>p1<br>&#160;<br></p>') && spacedView.includes('<p>p2<br>&#160;<br></p>\n<p>&#160;<br></p>'), true)
+check('line pass: an admitted tilde fence keeps its blank and rule lines as code', spacedView.includes('<pre><code>code&#10;&#10;&#45;&#45;&#45;&#10;more</code></pre>') && (spacedView.match(/<hr>/g) || []).length == 1, true)
+check('line pass: a rule line is a rule, a - or = line never underlines a heading', spacedView.includes('<hr>') && !/<h[1-6]/.test(spacedView) && spacedView.includes('<p>x<br>&#61;&#61; &#160;</p>'), true)
+check('line pass: a list, a table, and a deeper blockquote are closed before ordinary text', spacedView.includes('<li>b</li>') && spacedView.includes('<p>after list</p>') && spacedView.includes('</table>') && spacedView.includes('<p>after table</p>') && spacedView.includes('<p>q3</p>'), true)
+check('line pass: no sentinel survives', /&#[123];|[\u0001-\u0004]/.test(spacedView), false)
+check('line pass: an indented block keeps its blank line as code', h._vault_source_view('    code\n\n    more\n').includes('<pre><code>code&#10;&#10;more</code></pre>'), true)
+const listed = h._vault_source_view('- a\n\n  ~~~\n  x\n\n  y\n  ~~~\n\nafter\n')
+check('line pass: a list holding code is left untouched, its blank lines included', listed.includes('<pre><code>x&#10;&#10;y</code></pre>') && spacers(listed) == 1 && listed.includes('<p>after</p>'), true)
+check('line pass: a rule between prose lines is a block between two paragraphs', h._vault_source_view('a\n---\nb\n'), '<div class="vault-source"><p>a</p>\n<hr>\n<p>b</p></div>')
+check('sentinels: a decoded control reference is the replacement character, never a spacer or a rule', (v => v.includes('<p>&#65533; a &#65533; b<br>&#160;<br></p>\n<p>end</p>') && spacers(v) == 1 && !v.includes('<hr>'))(h._vault_source_view('&#1; a &#2; b\n\nend\n')), true)
+check('sentinels: a decoded control reference in a destination is the replacement character', h._vault_source_view('[x](https://e.com/?q=&#1;)\n').includes('href="https&#58;&#47;&#47;e&#46;com&#47;&#63;q&#61;&#65533;"'), true)
+check('sentinels: numeric references to excluded controls are the replacement character, TAB and LF stay', h._vault_decode_entities('&#9;&#10;&#11;&#127;&#8203;&#x1;'), '\t\n\ufffd\ufffd\ufffd\ufffd')
+check('line pass: a trailing blank line is not rendered', spacers(h._vault_source_view('a\n\n\n')), 0)
+check('line pass: a whitespace-only trailing line and the blank before it are not rendered', spacers(h._vault_source_view('a\n\n   \n')), 0)
+check('line pass: empty input renders an empty container, no spacer', h._vault_source_view(''), '<div class="vault-source"></div>')
+check('line pass: an unclosed fence keeps its trailing blank lines as code', h._vault_source_view('~~~\na\n\n\n').includes('<pre><code>a&#10;&#10;</code></pre>'), true)
+// protected inline and raw-html contexts (review 80): no closure, rule, or spacer inside them
+check('line pass: a code span spanning lines stays one code span (Marked reads its newlines as spaces)', h._vault_source_view('`a\n-b\nc`\n'), '<div class="vault-source"><p><code>a &#45;b c</code></p></div>')
+check('line pass: a link text spanning lines stays one link', (v => v.includes('<a href="https&#58;&#47;&#47;e&#46;test"') && (v.match(/<a /g) || []).length == 1 && !v.includes('&#91;a'))(h._vault_source_view('[a\n-b\nc](https://e.test)\n')), true)
+check('line pass: a pipe line inside a code span is not a table boundary', h._vault_source_view('`a\n| b\nc`\n'), '<div class="vault-source"><p><code>a &#124; b c</code></p></div>')
+check('line pass: a rule line inside a raw html comment stays its text, no sentinel', (v => v == '<div class="vault-source"><p>' + h._vault_grammar_refs('<!-- x\n---\n-->') + '</p></div>' && !/&#[123];|<hr>/.test(v))(h._vault_source_view('<!-- x\n---\n-->\n')), true)
+check('line pass: a single-line inline tag protects nothing beyond itself: the following rule line is a rule', h._vault_source_view('a <b>x</b>\n---\nb\n'), '<div class="vault-source"><p>a &#60;b&#62;x&#60;&#47;b&#62;</p>\n<hr>\n<p>b</p></div>')
+check('line pass: a single-line inline tag does not let a == line underline a heading', (v => !/<h[1-6]/.test(v) && v.includes('&#61;&#61; &#160;'))(h._vault_source_view('Use <root>\n==\nnext\n')), true)
+check('line pass: a rule line inside a raw html block stays its text', (v => v.includes('&#60;div&#62;&#10;&#45;&#45;&#45;&#10;&#60;&#47;div&#62;') && !v.includes('<hr>'))(h._vault_source_view('<div>\n---\n</div>\n')), true)
+check('frontmatter view: a reference with the .md suffix links like the body', h._vault_frontmatter_view('base: [[agents/worker.md]]\nroot: [[AGENTS.md]]').includes('title="#vault/agents/worker"') && h._vault_frontmatter_view('root: [[AGENTS.md]]').includes('title="#vault/AGENTS"'), true)
+
+// frontmatter links (7.4): managed references inside the highlighted yaml are the item's tag links
+const yamlLinks = h._vault_frontmatter_view('base: "[[agents/worker]]"\nroot: [[AGENTS]]\nother: [[Agents]] [[notes/x]]')
+check('frontmatter view: a quoted managed reference is a tag link inside the string', yamlLinks.includes('&#34;<mark class="link" title="#vault/agents/worker" onmousedown="_handleTagClick(\'id_x\',\'#vault/agents/worker\'') && yamlLinks.includes('>&#91;&#91;agents&#47;worker&#93;&#93;</mark>&#34;'), true)
+check('frontmatter view: a root reference is a tag link, an unmanaged one stays references', yamlLinks.includes('title="#vault/AGENTS"') && yamlLinks.includes('&#91;&#91;Agents&#93;&#93; &#91;&#91;notes&#47;x&#93;&#93;'), true)
+check('frontmatter view: a mask the highlighter did not keep falls back to the carrier', (() => { const keep = ctx.window.hljs; ctx.window.hljs = { highlight: () => ({ value: 'dropped' }) }; const v = h._vault_frontmatter_view('base: [[agents/worker]]'); ctx.window.hljs = keep; return v })(), h._vault_carrier('base: [[agents/worker]]'))
+// the root files in the store contract (7.5): the store's own path, a root target, a root item
+check('store contract accepts a root store and a root target', (s => s.path == 'AGENTS.md' && s.head_preview.navigation[0].target == 'learnings.md')(h._vault_check_store({ v: 2, path: 'AGENTS.md', pinned_source: 'Rules.\n', head_preview: { kind: 'section', navigation: [{ target: 'learnings.md' }, { text: 'x' }], base: null, exact: null } })), true)
+check('store contract still refuses a foreign root path', throws(() => h._vault_check_store({ v: 2, path: 'CLAUDE.md', pinned_source: 'x', head_preview: null })), true)
 
 // the frontmatter view (presentation design section 3): the highlighter's spans kept, its text
 // re-encoded, the comment class renamed, entities interpreted once, newlines as references
@@ -337,6 +383,7 @@ const state = it => {
   return h._vault_state()
 }
 check('state: valid A', (s => [s.note, s.source, s.store.path])(state(A)), [null, sourceA, 'agents/a.md'])
+check('state: a root item is valid under its label (7.5)', (s => [s.note, s.store.path])(state(item('id_root', { v: 2, path: 'AGENTS.md', pinned_source: 'Rules.\n', head_preview: { kind: 'section', navigation: [{ text: 'Rules.\n' }], base: null, exact: null } }, 'Rules.\n'))), [null, 'AGENTS.md'])
 check('state: a broken envelope is a source note', state(withText(A, badEnvelopes['raw opener in source'])).note, 'vault source invalid')
 check('state: no store object is missing', state(item('id_m', undefined, 'm', {}, '#vault/agents/m')).note, 'vault store missing')
 check('state: a store without the key is missing', state(variant(A, { _global_store: { other: 1 } })).note, 'vault store missing')
@@ -380,6 +427,8 @@ check('config control order', calls.toggle.map(c => c.label), [
   '⋮ projection (the stored sync snapshot)',
 ])
 check('config nested calls: base then navigation target', calls.template.map(c => c.name), ['#vault/agents/worker', '#vault/agents/s'])
+check('projection: the config fields render as inert markdown (7.1 decision 2)', fullRender.split('instructions (bridge profile)]')[1].split('[/toggle]')[0].includes('<div class="vault-source">'), true)
+check('projection: a navigation text part renders as inert markdown with links', h._vault_navigation({ navigation: [{ text: 'see [[agents/worker]]\n\nand more' }] }).includes('<div class="vault-source"><p>see <mark class="link" title="#vault/agents/worker"'), true)
 check('the editable source is rendered as the source view, never a carrier or a control', fullRender.includes('<div class="vault-source">') && !fullRender.includes(h._vault_carrier('source F')) && !calls.toggle.some(c => c.label == '⋮ source'), true)
 check('the source view precedes the projection container', fullRender.indexOf('<div class="vault-source">') < fullRender.indexOf('<div class="vault">'), true)
 reset()
@@ -405,9 +454,9 @@ ctx._that = A
 ctx._this = B
 ctx.window._template_dict = [{ _vault: 'navigation' }]
 const nested = h.vault_render()
-check('nested B under A: B text rendered', nested.includes(h._vault_carrier('B text')), true)
-check('nested B under A: A text absent', nested.includes(h._vault_carrier('A text')), false)
-check('nested B under A: no source in navigation mode', nested.includes(h._vault_carrier('source B')), false)
+check('nested B under A: B text rendered as inert markdown', nested.includes('<div class="vault-source"><p>B text</p></div>'), true)
+check('nested B under A: A text absent', nested.includes('A text'), false)
+check('nested B under A: no source in navigation mode', nested.includes('source B'), false)
 check('nested B under A: B target toggled', calls.template.map(c => c.name), ['#vault/agents/c'])
 check('nested B under A: the toggle belongs to A', calls.toggle.map(c => c.that), ['id_a'])
 check('nested B under A: badge describes B and compares B\'s source', h.vault_badge().includes(h._vault_inline('section · differs from the stored sync snapshot')), true)
@@ -419,13 +468,13 @@ reset()
 ctx._that = A
 ctx._this = A
 const outer = h.vault_render()
-check('outer A: A text carried in the projection, the source rendered as the view, never carried', outer.includes(h._vault_carrier('A text')) && !outer.includes(h._vault_carrier(sourceA)) && outer.includes('<div class="vault-source">'), true)
+check('outer A: A text rendered as inert markdown in the projection, the source rendered as the view, never carried', outer.includes('<p>A text</p>') && !outer.includes(h._vault_carrier('A text')) && !outer.includes(h._vault_carrier(sourceA)) && outer.includes('<div class="vault-source">'), true)
 check('outer A: the source view keeps a raw opener inert', outer.includes('&#60;&#60;x&#62;&#62;'), true)
 reset()
 ctx._this = A
 ctx._that = A
 ctx.window._item_eval_context = ['expanded']
-check('expanded A is one string without markup', h.vault_render(), 'vault: navigation only')
+check('expanded A (a section) throws instead of a fixed string (7.6)', throws(() => h.vault_render()), true)
 check('expanded A makes no nested call', calls.template.length + calls.toggle.length, 0)
 check('expanded badge is plain text', h.vault_badge(), 'vault badge: section · agents/a.md')
 check('expanded badge carries no markup', /<[a-z]/.test(h.vault_badge()), false)
@@ -441,7 +490,7 @@ for (const [label, it, note] of [
   check(`${label}: badge fails closed`, h.vault_badge().includes(h._vault_inline(note)), true)
   check(`${label}: render fails closed`, h.vault_render(), '[placeholder ' + note + ']')
   ctx.window._item_eval_context = ['expanded']
-  check(`${label}: expanded render fails closed`, h.vault_render(), 'vault: ' + note.replace(/^vault /, ''))
+  check(`${label}: expanded render throws its note (7.6)`, (() => { try { h.vault_render(); return null } catch (e) { return e.message } })(), 'vault: ' + note.replace(/^vault /, ''))
   check(`${label}: expanded badge fails closed`, h.vault_badge(), 'vault badge: ' + note)
 }
 

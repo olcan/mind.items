@@ -15,9 +15,8 @@
 // exposed Marked under an explicit policy: every grammar-significant character of every text
 // node is a character reference, raw html is text, links are admitted by scheme, images are
 // placeholders, task items are static markers, managed wiki references become the app's own
-// tag links), and the pinned projection (the stored snapshot's text-exact carriers and
-// navigation toggles) behind one toggle. it returns only a navigation composition in the
-// nested mode and plain text in the expanded context. the badge is LIVE: it compares the
+// tag links), and the pinned projection behind one toggle (the config fields and the navigation text parts as the same inert Markdown, the base and embed toggles unchanged). it returns only a navigation composition in the
+// nested mode, and the pinned instructions or an error in the expanded context. the badge is LIVE: it compares the
 // editable source with the pinned source at render time. it runs no Jinja: the vault renders,
 // the item displays.
 //
@@ -36,7 +35,9 @@
 // input is an app grammar/editor concern outside this renderer. the source view below is a
 // presentation of admitted text, not a fence either.
 
-const _VAULT_PATH = /^agents(?:\/[a-z0-9_]+)+\.md$/
+// the managed path language (design section 6 and the presentation design's 7.5): agents/ plus
+// lowercase segments, or one of the two fixed root stems
+const _VAULT_PATH = /^(?:agents(?:\/[a-z0-9_]+)+|AGENTS|learnings)\.md$/
 const _VAULT_STORE = ['v', 'path', 'pinned_source', 'head_preview']
 const _VAULT_PREVIEW = ['kind', 'navigation', 'base', 'exact']
 const _VAULT_EXACT = ['profile', 'instructions', 'run_instructions', 'user_prompt']
@@ -261,20 +262,28 @@ function _vault_decode_named(reference, name) {
   return Object.prototype.hasOwnProperty.call(_VAULT_BASIC_ENTITIES, name) ? _VAULT_BASIC_ENTITIES[name] : reference
 }
 function _vault_decode_entities(text) {
+  // (presentation design 7.2): a decoded text never carries a code point the shared text domain
+  // excludes (a control other than TAB and LF, U+200B, zero, a surrogate, a point beyond
+  // U+10FFFF): such a reference becomes the replacement character, so the line pass's
+  // control-character sentinels can come from the line pass alone
   return text.replace(_VAULT_ENTITY, (reference, dec, hex, name) => {
-    if (name !== undefined) return _vault_decode_named(reference, name)
+    if (name !== undefined) {
+      const value = _vault_decode_named(reference, name)
+      return _VAULT_DOMAIN.test(value) ? '\ufffd' : value
+    }
     const code = dec !== undefined ? parseInt(dec, 10) : parseInt(hex, 16)
     if (!Number.isFinite(code) || code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return '\ufffd'
-    return String.fromCodePoint(code)
+    const value = String.fromCodePoint(code)
+    return _VAULT_DOMAIN.test(value) ? '\ufffd' : value
   })
 }
 
 // the app's own tag-link markup for a managed wiki reference (a TRUSTED generated segment,
 // never passed through the grammar carrier): the mark the app renders for a hash-href link,
 // bound to the current item like the app's, so a click opens the referenced item
-function _vault_item_link(path) {
+function _vault_item_link(path, spelling = null) {
   const label = _vault_label(path)
-  const shown = _vault_grammar_refs(path.replace(/\.md$/, ''))
+  const shown = _vault_grammar_refs(spelling ?? path.replace(/\.md$/, ''))
   return (
     '<mark class="link" title="' + label + '" onmousedown="_handleTagClick(\'' + _this.id + '\',\'' + label + '\',\'' + shown + '\',event)"' +
     ' onclick="event.preventDefault();event.stopPropagation();">' + shown + '</mark>'
@@ -283,7 +292,9 @@ function _vault_item_link(path) {
 const _vault_hint = (text, title) => '<span class="template_placeholder" title="' + title + '">' + _vault_grammar_refs(text) + '</span>'
 const _VAULT_LINK_SCHEME = /^(?:https?|mailto):/i
 const _VAULT_WIKI = /^(!?)\[\[([^\]\n]+?)\]\]/
-const _VAULT_MANAGED_TARGET = /^agents(?:\/[a-z0-9_]+)+$/
+const _VAULT_MANAGED_TARGET = /^(?:agents(?:\/[a-z0-9_]+)+|AGENTS|learnings)$/
+// a managed reference anywhere in a text piece (the frontmatter view links them, 7.4)
+const _VAULT_WIKI_ANYWHERE = /(!?\[\[(?:agents(?:\/[a-z0-9_]+)+|AGENTS|learnings)(?:\.md)?\]\])/
 
 // one Marked instance per render, the app's exposed class under the policy above; the
 // wiki-reference extension recognizes only the managed spelling, and a code span keeps a
@@ -322,7 +333,10 @@ function _vault_marked() {
         return '<code>' + _vault_grammar_refs(token.text) + '</code>'
       },
       code(token) {
-        return '<pre><code>' + _vault_grammar_refs(token.text) + '</code></pre>'
+        const lang = (token.lang || '').split(/\s+/)[0]
+        const shown = lang ? _vault_highlight(token.text, lang) : null
+        if (shown === null) return '<pre><code>' + _vault_grammar_refs(token.text) + '</code></pre>'
+        return '<pre><code class="hljs language-' + _vault_grammar_refs(lang) + '">' + shown + '</code></pre>'
       },
       html(token) {
         const shown = _vault_grammar_refs(token.text)
@@ -348,10 +362,91 @@ function _vault_marked() {
 // the source view: the body as inert markdown in ONE container whose every line starts with a
 // tag and none is blank (newlines inside text are references), or the text-exact carrier
 // when the app's Marked is unavailable
+// the app's pre-markdown rewrites that shape layout (Item.svelte, presentation design 7.2),
+// mirrored for the supported set and in the app's order, so the same css lays the source out
+// like an ordinary item: an empty line becomes a spacer followed by its own newline; a list,
+// a table, and a deeper blockquote are closed by the app's extra newline; a rule line becomes
+// a rule (between prose lines too, where Marked alone would read a setext heading); another
+// line of only - or = cannot underline a setext heading; an empty blockquote line gets the
+// app's non-breaking space. protected regions are Marked's own tokens over the ORIGINAL text:
+// every line of a top-level code block, raw html block, or a token holding one, or holding
+// an inline code span, link, or image that spans lines, is left untouched (blank and rule
+// lines included). the trailing blank lines of the source outside protection are not rendered
+// (the app trims trailing rendered whitespace; the final newline is the file's terminator,
+// not a blank line; a blank line inside an unclosed fence is code and stays). the app inserts literal markup (`&nbsp;<br>`, `<hr>`,
+// `&nbsp;`); here those would meet the html policy of the renderer's own pass, so the pass
+// inserts control-character sentinels (U+0001 spacer, U+0002 rule, U+0003 non-breaking
+// space) that the final html replaces: the shared text domain excludes them from the source
+// and the decoder never produces them, so a sentinel in the output came from the pass alone
+const _VAULT_SPACER = '\u0001'
+const _VAULT_RULE = '\u0002'
+const _VAULT_NBSP = '\u0003'
+const _VAULT_LIST_LINE = /^\s*(?:\d+\.|[-*+])/
+// a token whose lines the pass must not rewrite: a code block, a raw html block or a multiline
+// inline tag (the policy renders raw html as text, so a rewrite would surface a sentinel or a
+// rule inside the spelling), an inline code span, link, or image spanning more than one line (a
+// rewrite would split the construct), or any container (list, blockquote, paragraph) holding one
+function _vault_holds_protected(token) {
+  // a raw html BLOCK or a multiline inline tag; a single-line inline tag protects nothing beyond
+  // itself (the rule and setext rewrites on the following lines still apply)
+  if (token.type == 'code' || (token.type == 'html' && (token.block || token.raw.includes('\n')))) return true
+  if ((token.type == 'codespan' || token.type == 'link' || token.type == 'image') && token.raw.includes('\n')) return true
+  const children = token.items ? token.items.flatMap(item => item.tokens || []) : token.tokens || []
+  return children.some(_vault_holds_protected)
+}
+// the line indices covered by top-level tokens holding a protected construct (the block tokens'
+// raw texts concatenate to the source, so line counting over them is exact)
+function _vault_protected_lines(marked, text) {
+  const lines = new Set()
+  let line = 0
+  for (const token of marked.lexer(text)) {
+    const count = (token.raw.match(/\n/g) || []).length
+    if (_vault_holds_protected(token)) {
+      const last = token.raw.endsWith('\n') ? line + count - 1 : line + count
+      for (let i = line; i <= last; i++) lines.add(i)
+    }
+    line += count
+  }
+  return lines
+}
+function _vault_line_pass(marked, source) {
+  const all = source.split('\n')
+  const protectedLines = _vault_protected_lines(marked, source)
+  // the terminating newline of a protected BLANK last line (an unclosed fence's trailing blank
+  // line is code) stays; any other final newline is the terminator
+  if (all.length >= 2 && all[all.length - 1] === '' && /^\s*$/.test(all[all.length - 2]) && protectedLines.has(all.length - 2)) protectedLines.add(all.length - 1)
+  // trailing blank lines outside protection are not rendered (the final newline included); a
+  // blank line inside an unclosed fence is code and stays
+  let end = all.length
+  while (end > 0 && /^\s*$/.test(all[end - 1]) && !protectedLines.has(end - 1)) end--
+  let last = ''
+  const lines = all.slice(0, end).map((line, index) => {
+    let str = line
+    if (protectedLines.has(index)) {
+      last = ''
+      return str
+    }
+    if (/^ *$/.test(str)) str += _VAULT_SPACER + '\n'
+    if (/^ *>[> ]*$/.test(str)) str += _VAULT_NBSP
+    if (_VAULT_LIST_LINE.test(last) && !_VAULT_LIST_LINE.test(line)) str = '\n' + str
+    if (/^ *(?:---+|___+|\*\*\*+) *$/.test(str)) str = '\n' + _VAULT_RULE + '\n'
+    else if (/^ *(?:-+|=+) *$/.test(line)) str += ' ' + _VAULT_NBSP
+    if (/^\s*\|/.test(last) && !/^\s*\|/.test(line)) str = '\n' + str
+    const lastDepth = last.match(/^[> ]*/)[0].replace(/ /g, '').length
+    const depth = line.match(/^[> ]*/)[0].replace(/ /g, '').length
+    if (depth < lastDepth) str = line.match(/^[> ]*/)[0] + '\n' + str
+    last = line
+    return str
+  })
+  return lines.join('\n')
+}
+// the sentinels' encoded forms (the grammar carrier encodes every control character)
+const _vault_sentinel = ch => '&#' + ch.codePointAt(0) + ';'
 function _vault_source_view(body) {
   const marked = _vault_marked()
   if (marked === null) return _vault_carrier(body)
-  let html = marked.parse(body)
+  let html = marked.parse(_vault_line_pass(marked, body))
+  html = html.split('<p>' + _vault_sentinel(_VAULT_RULE) + '</p>').join('<hr>').split(_vault_sentinel(_VAULT_SPACER)).join('&#160;<br>').split(_vault_sentinel(_VAULT_NBSP)).join('&#160;')
   html = html.replace(/\n{2,}/g, '\n').trim()
   const lines = html.split('\n').filter(line => line.length).map(line => (line[0] == '<' ? line : '<p>' + line + '</p>'))
   return '<div class="vault-source">' + lines.join('\n') + '</div>'
@@ -361,15 +456,20 @@ function _vault_source_view(body) {
 // re-encoded through the grammar carrier (the highlighter's own entities interpreted first,
 // never double-escaped) and its comment class renamed away from the app's post-render
 // linkifier; the text-exact carrier when the highlighter is unavailable
-function _vault_frontmatter_view(frontmatter) {
+// the highlighter's output filtered to its trusted structure: only spans with class names
+// survive (the comment class renamed away from the app's post-render linkifier), every text
+// piece is decoded once (the highlighter's own entities) and re-encoded through the grammar
+// carrier; null when the highlighter is unavailable, does not know the language, or fails
+function _vault_highlight(text, language) {
   const hljs = typeof window != 'undefined' ? window.hljs : undefined
   let value = null
   try {
-    if (hljs && typeof hljs.highlight == 'function') value = hljs.highlight(frontmatter, { language: 'yaml' }).value
+    if (hljs && typeof hljs.highlight == 'function' && (typeof hljs.getLanguage != 'function' || hljs.getLanguage(language)))
+      value = hljs.highlight(text, { language }).value
   } catch (e) {
     value = null
   }
-  if (typeof value != 'string') return _vault_carrier(frontmatter)
+  if (typeof value != 'string') return null
   const pieces = value.split(/(<[^>]*>)/)
   let out = ''
   for (const piece of pieces) {
@@ -383,16 +483,34 @@ function _vault_frontmatter_view(frontmatter) {
       // any other markup from the highlighter is dropped: only spans are trusted structure
     } else out += _vault_grammar_refs(_vault_decode_entities(piece))
   }
-  return '<pre class="vault-frontmatter" style="white-space:pre-wrap;margin:0"><code class="hljs language-yaml">' + out + '</code></pre>'
+  return out
+}
+// the frontmatter view (7.4): managed references are masked by one control-character sentinel
+// (U+0004, outside the text domain like the line pass's) before highlighting, so the
+// highlighter's tokenization cannot split them; every mask in the filtered output becomes the
+// item's tag link showing the reference's exact spelling (the view is source-exact), in order;
+// the text-exact carrier when the highlighter is unavailable or did not keep every mask
+const _VAULT_REF_MASK = '\u0004'
+function _vault_frontmatter_view(frontmatter) {
+  const refs = frontmatter.match(new RegExp(_VAULT_WIKI_ANYWHERE.source, 'g')) || []
+  const masked = frontmatter.replace(new RegExp(_VAULT_WIKI_ANYWHERE.source, 'g'), _VAULT_REF_MASK)
+  const out = _vault_highlight(masked, 'yaml')
+  if (out === null) return _vault_carrier(frontmatter)
+  const pieces = out.split(_vault_sentinel(_VAULT_REF_MASK))
+  if (pieces.length != refs.length + 1) return _vault_carrier(frontmatter) // the highlighter dropped or split a mask: fail to the carrier
+  const view = pieces.map((piece, n) => (n < refs.length ? piece + _vault_item_link(refs[n].replace(/^!?\[\[/, '').replace(/\]\]$/, '').replace(/\.md$/, '') + '.md', refs[n]) : piece)).join('')
+  return '<pre class="vault-frontmatter" style="white-space:pre-wrap;margin:0"><code class="hljs language-yaml">' + view + '</code></pre>'
 }
 
-// the expanded context (agent/chat.js): plain text, the pinned instructions or navigation
+// the expanded context (agent/chat.js): the pinned instructions as plain text, or an error
+// (presentation design 7.6): an item that cannot supply standalone context throws, so the
+// chat consumer fails with the reason instead of inserting a fixed string
 function _vault_expanded(p) {
   const h = p.head_preview
-  if (!h) return 'vault: no pinned preview'
-  if (h.kind == 'section') return 'vault: navigation only'
+  if (!h) throw new Error('vault: no pinned preview (not in the stored sync snapshot)')
+  if (h.kind == 'section') throw new Error('vault: a section carries no standalone context; include its config item instead')
   if (typeof h.exact.instructions == 'string') return h.exact.instructions
-  return 'vault: no pinned instructions'
+  throw new Error('vault: the pinned instructions are null')
 }
 
 const _vault_mode = () => last(window._template_dict ?? [])?._vault
@@ -403,10 +521,10 @@ const _vault_is_expanded = () => (window._item_eval_context ?? []).includes('exp
 // title attribute unescaped, so a block carrier there would break the div's start tag
 const _vault_embed = path => toggle(template(_vault_label(path), { _vault: 'navigation' }), '⋮ ' + _vault_refs('![[' + path.replace(/\.md$/, '') + ']]'))
 
-// navigation: the parts in order, text parts as carriers and target parts as toggles,
+// navigation: the parts in order, text parts as inert markdown and target parts as toggles,
 // under one container (no marker scanning: provenance is the producer's)
 const _vault_navigation = h =>
-  _vault_container(h.navigation.map(part => ('target' in part ? _vault_embed(part.target) : _vault_carrier(part.text))))
+  _vault_container(h.navigation.map(part => ('target' in part ? _vault_embed(part.target) : _vault_source_view(part.text))))
 
 // the live badge texts (design v2 section 3 and the presentation design's decision 4): the
 // editable source against the pinned source of the snapshot the store currently holds; the
@@ -434,13 +552,13 @@ function vault_badge() {
   return `<span class="template_placeholder" title="managed by the vault sync">${_vault_inline(_vault_badge_visible(state))}</span>`
 }
 
-// the pinned projection (the stored snapshot): the config field carriers, the base toggle, the
+// the pinned projection (the stored snapshot): the config fields as inert markdown, the base toggle, the
 // navigation toggle when the composition has target parts; frozen order
 function _vault_projection(h) {
   const parts = []
   if (h && h.kind == 'config') {
     for (const name of ['instructions', 'run_instructions', 'user_prompt'])
-      if (h.exact[name] !== null) parts.push(toggle(_vault_carrier(h.exact[name]), '⋮ ' + name + ' (' + h.exact.profile + ' profile)'))
+      if (h.exact[name] !== null) parts.push(toggle(_vault_source_view(h.exact[name]), '⋮ ' + name + ' (' + h.exact.profile + ' profile)'))
     if (h.base) parts.push(_vault_embed(h.base))
   }
   if (h && h.navigation.some(part => 'target' in part)) parts.push(toggle(_vault_navigation(h), '⋮ navigation (bridge/default context)'))
@@ -453,7 +571,11 @@ function _vault_projection(h) {
 // body rendered as inert markdown, and the projection behind one toggle under the container
 function vault_render() {
   const state = _vault_state()
-  if (state.note) return _vault_is_expanded() ? 'vault: ' + state.note.replace(/^vault /, '') : placeholder(state.note)
+  if (state.note) {
+    // (presentation design 7.6): no fixed diagnostic string enters a chat context either
+    if (_vault_is_expanded()) throw new Error('vault: ' + state.note.replace(/^vault /, ''))
+    return placeholder(state.note)
+  }
   const p = state.store
   if (_vault_is_expanded()) return _vault_expanded(p)
   const h = p.head_preview
@@ -477,7 +599,7 @@ function _test_vault_helpers() {
     () => _vault_carrier('a\nb') == '<pre style="white-space:pre-wrap;margin:0"><code>&#97;&#10;&#98;</code></pre>',
     () => _vault_grammar_refs('a #b\n') == 'a &#35;b&#10;',
     () => _vault_decode_entities('A &amp; B &#35; &#x41; &copycat &amp=2 &notit; &#0; &constructor;') == 'A & B # A &copycat &amp=2 &notit; \ufffd &constructor;',
-    () => _vault_expanded(checked) == 'vault: navigation only',
+    () => throws(() => _vault_expanded(checked)),
     () => throws(() => _vault_check_store({ v: 1 })),
     () => throws(() => _vault_check_store({ ...p, pinned_source: null }))
   )
