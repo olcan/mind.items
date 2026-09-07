@@ -22,6 +22,9 @@ const check = (name, actual, expected) => {
 }
 
 const now = 1_700_000_000_000
+const clock = { now }
+// the listing's element: counts assignments so an unchanged rendering is seen to skip the DOM
+const runs_div = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
 // the app's running flag is a refcount behind a boolean getter (index.svelte `set running`)
 class FakeItem {
   constructor(name, running = 0) { this.name = name; this.count = running }
@@ -39,16 +42,19 @@ const env = {
   is_numeric: x => !isNaN(parseFloat(x)),
   array: (n, f) => Array.from({ length: n }, (_, k) => f(k)),
   apply: (a, f) => { for (let i = 0; i < a.length; i++) a[i] = f(a[i]); return a },
-  _: { maxBy: (a, key) => a.reduce((x, y) => (x[key] > y[key] ? x : y)) },
+  _: { maxBy: (a, key) => a.reduce((x, y) => (x[key] > y[key] ? x : y)), escape: s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) },
   fatal: m => { throw new Error(m) },
   link_eval: (_item, js, text) => `[${text}](${js})`,
   _item: id => items[id] ?? null, // 'other-id' is a deleted item
-  Date: class extends Date { static now() { return now } }, // the item's clock, frozen at `now`
+  Date: class extends Date { static now() { return clock.now } }, // the item's clock, advanced by the witness
   Math,
   Object,
   console,
+  marked: { parse: s => `<parsed>${s}</parsed>` }, // the app's Markdown parser, stubbed
+  elem: s => (s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own element (util/core/item.js)
 }
 env._this = {
+  id: 'vault-id',
   _global_store: {
     _bridge: {
       updated: now,
@@ -69,14 +75,15 @@ vm.runInContext(tableSrc[0] + '\n' + block[1], ctx)
 
 const rows = vm.runInContext(
   "vault_runs_rows(_this._global_store._bridge, _this._global_store._owner.stop, " + now + ", id => 'stop:' + id)", ctx)
-check('rows: a read-only run renders a placeholder worktree and its stop flag', rows[0],
-  ['#chat/topic', 'fable', 'r1', '5s', '(read-only)', 'stopping…'])
+const mark = name => `<mark class="link" title="${name}" onmousedown="_handleTagClick('vault-id','${name}','${name}',event)" onclick="event.preventDefault();event.stopPropagation();">${name}</mark>`
+check('rows: a read-only run renders a placeholder worktree and its stop flag; the item cell is the app\'s clickable tag', rows[0],
+  [mark('#chat/topic'), 'fable', 'r1', '5s', '(read-only)', 'stopping…'])
 check('rows: an unknown item id shows the id; a bridge-reported stop shows stopping', rows[1],
   ['other-id', 'fable_wt', 'r2', '65s', 'chat_x', 'stopping…'])
 const rendered = vm.runInContext('vault_runs_table()', ctx)
-check('table: the real helper renders both rows with the headers', rendered.split('\n').length, 5)
+check('table: the real helper renders both rows with the headers, then a blank line and the stamp', rendered.split('\n').length, 6)
 check('table: header row', rendered.split('\n')[0], '| item | persona | run | elapsed | worktree |  |')
-check('table: the freshness stamp follows', /_as of .* on test-host_$/.test(rendered), true)
+check('table: the freshness stamp follows as its own paragraph', /\n\n_as of .* on test-host_$/.test(rendered), true)
 const one = vm.runInContext(
   "(() => { const b = {updated: " + now + ", host: 'h', runs: {r3: {item: 'x', persona: 'p', started: " + now + ", worktree: null}}};" +
   " _this._global_store = {_bridge: b, _owner: {stop: {}}}; return vault_runs_table() })()", ctx)
@@ -121,6 +128,44 @@ vm.runInContext('_on_welcome()', ctx)
 check('welcome after a store change keeps the marks and adds no reference', [counts(), marks()], [[1, 0, 0], { 'chat-id': true }])
 listing('{}')
 check('the delisting after that order releases the reference', [counts(), marks()], [[0, 0, 0], {}])
+
+// the startup script itself (the _html_hidden block): an immediate render, a one-second task
+// registration, and ticks that advance the elapsed column without any store delivery
+const script = item.match(/<script _uncached>\n([\s\S]*?)<\/script>/)
+if (!script) throw new Error('no _uncached script in vault.md')
+const tasks = []
+env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
+vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {r7: {item: 'chat-id', persona: 'p', started: " + (now - 3000) + ", worktree: null}}}, _owner: {stop: {}}}", ctx)
+vm.runInContext(script[1], ctx)
+check('the script renders at once: the table with the elapsed value, then the stamp paragraph', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>| item |'), runs_div.innerHTML.includes(`| ${mark('#chat/topic')} | p | r7 | 3s | (read-only) |`), /\n\n_as of /.test(runs_div.innerHTML)], [1, true, true, true])
+check('the script registers the one-second task', tasks.map(t => [t.name, t.delay, t.repeat]), [['update', 1000, 1000]])
+tasks[0].fn()
+check('a tick without a clock change is not reassigned', runs_div.writes, 1)
+clock.now += 2000
+tasks[0].fn()
+check('a tick after two seconds advances the elapsed column without a store delivery', [runs_div.writes, runs_div.innerHTML.includes('| r7 | 5s |')], [2, true])
+vm.runInContext("_this._global_store._bridge.runs = {}", ctx)
+tasks[0].fn()
+check('an empty listing renders its note', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>_none_')], [3, true])
+runs_div.missing = true // the item left the DOM
+tasks[0].fn()
+check('a tick without the element is a no-op', runs_div.writes, 3)
+runs_div.missing = false
+runs_div.replaced = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
+vm.runInContext(script[1], ctx) // the item re-rendered: a fresh element, the script runs again
+check('a re-render renders the fresh element and re-registers the task', [runs_div.replaced.writes, tasks.length], [1, 2])
+// the real parser, when the app's dependency is reachable (the main checkout; a review worktree
+// leaves external/mind.page empty): one body row per run, the stamp as a separate paragraph
+let realMarked = null
+try { realMarked = require(path.join(__dirname, '..', '..', 'mind.page', 'node_modules', 'marked')).marked } catch (e) { console.log('skip real parser rows (marked not reachable)') }
+if (realMarked) {
+  vm.runInContext("_this._global_store._bridge.runs = {r8: {item: 'chat-id', persona: 'p', started: " + clock.now + ", worktree: null}}", ctx)
+  const html = realMarked.parse(vm.runInContext('vault_runs_table()', ctx))
+  const body = html.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? ''
+  check('real parser: one body row for one run', (body.match(/<tr>/g) ?? []).length, 1)
+  check('real parser: the stamp is a paragraph after the table', /<\/table>\s*<p><em>as of .* on h<\/em><\/p>/.test(html), true)
+  check('real parser: the item cell carries the clickable tag markup', body.includes("onmousedown=\"_handleTagClick('vault-id','#chat/topic','#chat/topic',event)\""), true)
+}
 
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
 console.log('all checks passed')

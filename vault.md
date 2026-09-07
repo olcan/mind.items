@@ -1,8 +1,14 @@
 #vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows are as of the bridge's last update (the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The chat item of a listed run is shown as _running_ in every open tab, as a web agent's item is during its call, until the run is delisted.
 ---
 #### Active Runs
-<< vault_runs_table() >>
+<div class="runs"></div>
 ---
+```_html_hidden
+<script _uncached>
+update_vault_runs() // the first update synchronously (on script eval, i.e. at every render)
+dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column ticks every second
+</script>
+```
 ```js:js_removed
 // this item's hidden store carries two subtrees: _bridge, written by the vault bridge
 // ({v, host, boot, updated, runs: {run_id: {item, persona, worktree, started, stopping}}}),
@@ -43,16 +49,27 @@ function _on_global_store_change() {
   vault_reconcile_running()
 }
 
+// the app's clickable tag markup (its Marked instance renders `[text](#tag)` this way; the global
+// parser used below does not), so the item cell navigates to the chat item as the macro did
+const vault_item_link = name =>
+  `<mark class="link" title="${_.escape(name)}" onmousedown="_handleTagClick('${_this.id}','${_.escape(name)}','${_.escape(name)}',event)" onclick="event.preventDefault();event.stopPropagation();">${_.escape(name)}</mark>`
+
 // the table rows for a listing (side-effect-free; `stop` maps run ids to flags, `link` renders one)
 function vault_runs_rows(bridge, stop, now, link) {
   return entries(bridge?.runs ?? {}).map(([id, run]) => [
-    _item(run.item, { silent: true })?.name ?? run.item,
+    vault_item_cell(run.item),
     run.persona,
     id,
     Math.round((now - run.started) / 1000) + 's',
     run.worktree ?? '(read-only)', // nonempty: the table helper needs a value in every column
     run.stopping || stop?.[id] ? 'stopping…' : link(id),
   ])
+}
+
+// a known chat item links to it; a deleted one shows its id
+const vault_item_cell = id => {
+  const name = _item(id, { silent: true })?.name
+  return name ? vault_item_link(name) : id
 }
 
 function vault_runs_table() {
@@ -64,7 +81,20 @@ function vault_runs_table() {
     link_eval(_this, `stop_run('${id}')`, 'stop')
   )
   if (!rows.length) return `_none_ ${stamp}`
-  return table(rows, { headers: ['item', 'persona', 'run', 'elapsed', 'worktree', ''] }) + '\n' + stamp
+  // the blank line closes the table (the parser would read the stamp as another row otherwise)
+  return table(rows, { headers: ['item', 'persona', 'run', 'elapsed', 'worktree', ''] }) + '\n\n' + stamp
+}
+
+// render the listing into the item's own element (the #status pattern: a per-second task that
+// rewrites a div, no item re-render); a store change re-renders the item, which re-runs the
+// script above and so updates at once
+function update_vault_runs() {
+  const div = elem('.runs')
+  if (!div) return // the item is not in the DOM
+  const html = marked.parse(vault_runs_table())
+  if (div._vault_html === html) return // unchanged (the DOM's own serialization differs)
+  div._vault_html = html
+  div.innerHTML = html
 }
 
 // ask the bridge to stop a run: the flag lives in this item's store, which the bridge watches;
