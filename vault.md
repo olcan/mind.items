@@ -306,7 +306,6 @@ function stop_run(id) {
   store._owner = { ...(store._owner ?? {}), stop }
 }
 
-// the message delimiters of #chat's parse_messages (the bridge ports the same grammar)
 // the deferred status clearing (see vault_clear_status) is retried at every change of an item
 // this tab set a status on: the web call's reply on the same chat is such a change
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
