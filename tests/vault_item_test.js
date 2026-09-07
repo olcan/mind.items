@@ -275,55 +275,18 @@ check('a flag of a worktree no longer listed is dropped on the explicit action',
 vm.runInContext("_this._global_store._bridge.worktrees = {}; update_vault_runs()", ctx)
 check('no proposals renders as none, into the proposals element', proposals_div.innerHTML, '<parsed>_none_</parsed>')
 
-// the pending marks: a vault-routed chat item is marked the moment it is saved with a pending
-// request (this tab's _on_item_change), released when its reply lands or it is deleted; a
-// non-routed chat item and a dependency change are ignored; a listing mark is a second reference
-vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {}}, _owner: {stop: {}}}", ctx)
-const setText = (id, text, tags) => vm.runInContext(`items['${id}'].text = ${JSON.stringify(text)}; items['${id}'].tags = ${JSON.stringify(tags)}`, ctx)
-const change = (id, deleted = false, dependency = false) => vm.runInContext(`_on_item_change('${id}', '#x', '#x', ${deleted}, false, ${dependency})`, ctx)
-const pendingMarks = () => vm.runInContext('_this.store._vault_pending', ctx)
-setText('chat-id', '#chat/topic/0 #_agent/vault/fable_wt\n<<user>> please run the tests', ['#chat/topic/0', '#_agent/vault/fable_wt'])
-change('chat-id')
-check('a saved pending vault request marks its item at once', [counts(), pendingMarks()], [[1, 0, 0], { 'chat-id': true }])
-change('chat-id')
-check('a second change with the request still pending adds no reference', counts(), [1, 0, 0])
-vm.runInContext("_this._global_store._bridge.runs = {r9: {item: 'chat-id', status: 'Reading file x'}}; _this._global_store._supervisor = {runs: {r9: {progress: 0.5}}}; _on_global_store_change('other-store-id', false)", ctx)
-check('another store\'s change does not reconcile the listing (a listener hears every store)', counts(), [1, 0, 0])
-vm.runInContext("_on_global_store_change('vault-id', false)", ctx)
-check('the own store\'s change does: the listing mark is a second reference on the item', [counts(), status('chat-id')], [[2, 0, 0], ['Reading file x', 0.5]])
+// the queued window (design section 11): the bridge lists requests admitted to a lane before
+// their run starts; the item marks them, shows the status 'queued', and lists them in the table;
+// a queued entry becoming a run keeps the one reference; the welcome marks from the store alone
+vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {'chat2-id': {persona: 'fable', since: " + (clock.now - 3000) + "}}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
+check('welcome marks a queued request from the store (no item is scanned) and shows its status', [counts(), marks(), status('chat2-id')], [[0, 1, 0], { 'chat2-id': true }, ['queued', 0]])
+check('the table lists the queued request with its wait and no stop link', vm.runInContext('vault_runs_table()', ctx).split('\n')[2], `| ${mark('#chat/two')} | fable | (queued) | 3s | · | queued | · |`)
+vm.runInContext("_this._global_store._bridge = {host: 'h', updated: " + now + ", runs: {r9: {item: 'chat2-id', persona: 'fable', started: " + now + ", worktree: null}}, queued: {}}; _on_global_store_change('vault-id', false)", ctx)
+check('the queued entry becoming a run keeps the one reference and shows the run status', [counts(), status('chat2-id')], [[0, 1, 0], ['', 0]])
 listing('{}')
-check('the delisting releases the listing reference, the pending one remains, and so does the status (deferred)', [counts(), status('chat-id'), vm.runInContext('_this.store._vault_shown', ctx)], [[1, 0, 0], ['Reading file x', 0.5], { 'chat-id': true }])
-setText('chat-id', '#chat/topic/0 #_agent/vault/fable_wt\n<<user>> please run the tests\n<<agent(\'vault/fable_wt\')>> done', ['#chat/topic/0', '#_agent/vault/fable_wt'])
-change('chat-id')
-check('the reply releases the pending reference and clears the deferred status', [counts(), pendingMarks(), status('chat-id'), vm.runInContext('_this.store._vault_shown', ctx)], [[0, 0, 0], {}, ['', 0], {}])
-vm.runInContext("delete _this._global_store._supervisor", ctx)
-setText('chat2-id', '#chat/two #_agent/gpt\n<<user>> hello', ['#chat/two', '#_agent/gpt'])
-change('chat2-id')
-check('a chat item routed to a web agent is ignored', counts(), [0, 0, 0])
-setText('chat2-id', '#chat/two #_agent/vault\n<<user>> hello', ['#chat/two', '#_agent/vault'])
-change('chat2-id', false, true)
-check('a dependency change is ignored', counts(), [0, 0, 0])
-change('chat2-id')
-check('the vault-routed request marks the item', counts(), [0, 1, 0])
-const chat2 = items['chat2-id']
-delete items['chat2-id'] // deleted: the app's _item resolves null
-change('chat2-id', true)
-check('a deleted item drops its mark without a decrement', [pendingMarks(), chat2.count], [{}, 1])
-items['chat2-id'] = chat2
-chat2.count = 0
-setText('chat2-id', '#chat/two #_agent/vault/typo-name\n<<user>> hello', ['#chat/two', '#_agent/vault/typo-name'])
-change('chat2-id')
-check('a malformed persona tag is not a request (the bridge would not answer it)', counts(), [0, 0, 0])
-setText('chat2-id', '#chat/two #_agent/vault #_agent/vault/fable\n<<user>> hello', ['#chat/two', '#_agent/vault', '#_agent/vault/fable'])
-change('chat2-id')
-check('an ambiguous route is not a request', counts(), [0, 0, 0])
-setText('chat2-id', '#chat/two #_agent/vault\n<<user>>   \n', ['#chat/two', '#_agent/vault'])
-change('chat2-id')
-check('a blank user turn is not pending', counts(), [0, 0, 0])
-// welcome marks the pending requests it finds (a tab opened mid-request)
-setText('chat-id', '#chat/topic/0 #_agent/vault/fable_wt\n<<user>> still waiting', ['#chat/topic/0', '#_agent/vault/fable_wt'])
-vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
-check('welcome marks the chat items whose request is pending', [counts(), pendingMarks()], [[1, 0, 0], { 'chat-id': true }])
+check('the run ending releases the reference and clears the status', [counts(), status('chat2-id')], [[0, 0, 0], ['', 0]])
+check('the item defines no pending-mark scan', [typeof vm.runInContext('typeof vault_pending', ctx), vm.runInContext('typeof _on_welcome', ctx)], ['string', 'function'])
+check('_on_item_change keeps only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status] })()", ctx), [{}, ''])
 check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])
 

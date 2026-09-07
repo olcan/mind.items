@@ -21,14 +21,18 @@ dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column tic
 // bridge's listing also carries the undecided chat worktrees, the proposals ({worktrees: {name:
 // {item, generation, commits, result}}}); see notes/design/mind_vault_item.md
 const vault_runs = () => _this._global_store._bridge?.runs ?? {}
+// the requests admitted to an execution lane and waiting for their run ({item_id: {persona, since}})
+const vault_queued = () => _this._global_store._bridge?.queued ?? {}
+// the chat items the bridge holds: queued or executing (the store is the single source; no
+// item is parsed for it)
+const vault_held_items = () => new Set([...keys(vault_queued()), ...entries(vault_runs()).map(([, run]) => run.item)])
 
 // the app's per-item running flag is a refcount (a web agent's item holds one reference during
 // its call); this tab holds one reference of its own on every listed run's chat item, beside any
 // other holder's (a web call in flight on the same chat keeps its own): `marked` (in-tab state
 // under _this.store) records this tab's references, so an unchanged listing adds none and a
 // delisted run's item releases exactly one; a deleted item is skipped
-function vault_mark_running(runs, marked) {
-  const listed = new Set(entries(runs).map(([, run]) => run.item))
+function vault_mark_running(listed, marked) {
   for (const id of keys(marked)) {
     if (listed.has(id)) continue
     delete marked[id]
@@ -50,7 +54,18 @@ function vault_mark_running(runs, marked) {
 // status to innerHTML unescaped and its show_status skips an empty status and a zero progress,
 // so the text is escaped here and the props are assigned directly; `shown` records the items
 // this tab set, for the clearing below
-function vault_show_status(runs, sup = {}, shown = {}) {
+function vault_show_status(runs, sup = {}, shown = {}, queued = {}) {
+  for (const itemId of keys(queued)) {
+    const item = _item(itemId, { silent: true })
+    if (!item) continue
+    shown[itemId] = true
+    try {
+      item.status = 'queued'
+      item.progress = 0
+    } catch (e) {
+      console.warn(`#vault: status of ${itemId} not shown: ${e}`)
+    }
+  }
   for (const [id, run] of entries(runs)) {
     const item = _item(run.item, { silent: true })
     if (!item) continue
@@ -62,10 +77,8 @@ function vault_show_status(runs, sup = {}, shown = {}) {
       console.warn(`#vault: status of ${run.item} not shown: ${e}`)
     }
   }
-  return vault_clear_status(shown, vault_runs_items(runs))
+  return vault_clear_status(shown, vault_held_items())
 }
-
-const vault_runs_items = runs => new Set(entries(runs).map(([, run]) => run.item))
 
 // clear (status '' and progress 0) the items this tab set a status on that are no longer listed,
 // once their last running reference is gone: an item still running keeps its status and stays
@@ -94,9 +107,9 @@ function vault_clear_status(shown, listed) {
 // calls _on_global_store_change on the store's owner within about a second of a bridge write);
 // the marks survive either order, a store change can reach the tab before its welcome
 function vault_reconcile_running() {
-  _this.store._vault_marked = vault_mark_running(vault_runs(), _this.store._vault_marked ?? {})
+  _this.store._vault_marked = vault_mark_running(vault_held_items(), _this.store._vault_marked ?? {})
   _this.store._vault_shown = vault_show_status(
-    vault_runs(), _this._global_store._supervisor?.runs ?? {}, _this.store._vault_shown ?? {}
+    vault_runs(), _this._global_store._supervisor?.runs ?? {}, _this.store._vault_shown ?? {}, vault_queued()
   )
 }
 
@@ -125,7 +138,16 @@ const vault_cell = text =>
 // the table rows for a listing (side-effect-free; `stop` maps run ids to flags, `link` renders one,
 // `sup` maps run ids to supervisor entries)
 function vault_runs_rows(bridge, stop, now, link, sup = {}) {
-  return entries(bridge?.runs ?? {}).map(([id, run]) => {
+  const queued = entries(bridge?.queued ?? {}).map(([itemId, q]) => [
+    vault_item_cell(itemId),
+    q.persona,
+    '(queued)',
+    Math.round((now - q.since) / 1000) + 's',
+    '·', // nonempty: the table helper needs a value in every column
+    'queued',
+    '·',
+  ])
+  return queued.concat(entries(bridge?.runs ?? {}).map(([id, run]) => {
     const progress = vault_run_progress(sup[id])
     const status = vault_run_status(run, sup[id]) || '(no activity yet)'
     return [
@@ -137,7 +159,7 @@ function vault_runs_rows(bridge, stop, now, link, sup = {}) {
       (progress === null ? '' : Math.round(progress * 100) + '% ') + vault_cell(status),
       run.stopping || stop?.[id] ? 'stopping…' : link(id),
     ]
-  })
+  }))
 }
 
 // the log tails and supervisor notes under the table, one details block per run
@@ -271,65 +293,19 @@ function stop_run(id) {
 }
 
 // the message delimiters of #chat's parse_messages (the bridge ports the same grammar)
-const VAULT_MESSAGE =
-  /(?:^|\n) *\<< *(system|user|_?agent|tool)(?: *\( *([^\n]*) *\))? *>>(.*?)(?=$|\n *\<< *(?:system|user|_?agent|tool)(?: *\([^\n]*\))? *>>| *```(?:_output|_log)\s*\n)/gis
-
-// the bridge's route rule (its REQUEST_TAG_PATTERN) for ASCII persona names (JavaScript's \w is
-// ASCII, Python's Unicode): a vault tag with an optional persona name of word characters; exactly
-// one such tag routes. An unknown persona still gets an error reply,
-// which clears the mark; a malformed or ambiguous route gets no reply, so it is never marked
-const VAULT_ROUTE = /^#_?agent\/(vault|native)(\/\w+)?$/
-const vault_tag = tag => /^#_?agent\/(vault|native)(\/|$)/i.test(tag) // the cheap prefilter
-
-// a pending vault request: exactly one route among the tags of the app's grammar view of the
-// item (item.read(): inert reply regions are opaque markers there), and the last message a
-// `\<<user>>` with content, the bridge's rule. Not mirrored (hand-built regions, backfills): the
-// bridge's refusal of an unclosed region and its blankness test over the restored body
-function vault_pending(item) {
-  if (!(window._grammar?.version >= 2)) return false
-  const view = item.read()
-  const routes = window._parse_tags(view.toLowerCase()).raw.filter(tag => VAULT_ROUTE.test(tag))
-  if (routes.length != 1) return false
-  let last = null
-  for (const match of view.matchAll(VAULT_MESSAGE)) last = match
-  return !!last && last[1].toLowerCase() == 'user' && last[3].trim().length > 0
-}
-
-// the pending mark: this tab's own reference on a chat item with a pending vault request,
-// acquired when the item is saved with one (a local or remote change; the app calls
-// _on_item_change on listener items) and released when its reply lands or the item is deleted.
-// It precedes the bridge's listing by the two Firestore round trips and outlasts the delisting
-// until the reply is in the item, so the indicator covers the whole request; a listing mark on
-// the same item is a second reference (the refcount), released on its own schedule
-function vault_mark_pending(id, pending, marked) {
-  const item = _item(id, { silent: true })
-  if (pending && item && !marked[id]) {
-    item.running = true
-    marked[id] = true
-  } else if (!pending && marked[id]) {
-    delete marked[id]
-    if (item) item.running = false
-  }
-  return marked
-}
-
+// the deferred status clearing (see vault_clear_status) is retried at every change of an item
+// this tab set a status on: the web call's reply on the same chat is such a change
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // a dependency of the changed item, not the item itself
-  const item = deleted ? null : _item(id, { silent: true })
-  const pending = !!item && !!item.tags?.some(vault_tag) && vault_pending(item)
-  _this.store._vault_pending = vault_mark_pending(id, pending, _this.store._vault_pending ?? {})
   if (_this.store._vault_shown?.[id]) // a status this tab set: cleared once the item stops running
-    _this.store._vault_shown = vault_clear_status(_this.store._vault_shown, vault_runs_items(vault_runs()))
+    _this.store._vault_shown = vault_clear_status(_this.store._vault_shown, vault_held_items())
 }
 
-// provision the store at app startup (the bridge only updates it, never creates it), mark the
-// listed runs' items, and mark the chat items whose vault request is pending
+// provision the store at app startup (the bridge only updates it, never creates it) and mark
+// the items the bridge holds, queued or executing, from the store: no item is scanned
 function _on_welcome() {
   if (!_this._global_store._owner) _this.global_store._owner = { stop: {} }
   vault_reconcile_running()
-  for (const item of _items())
-    if (item.tags?.some(vault_tag) && vault_pending(item))
-      _this.store._vault_pending = vault_mark_pending(item.id, true, _this.store._vault_pending ?? {})
 }
 ```
 #_welcome #_util/core #_listen
