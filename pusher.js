@@ -1,5 +1,18 @@
+// WELCOME GATING (2026-09-07 stale-cache reversion): the verification compares each item's text
+// with the mirror, so it must see the server's texts. A returning device initializes from its
+// persistent cache, and verifying the cached (stale) texts marked every item edited elsewhere
+// pushable (jarring) and, while a mark still saved the item, wrote the stale text over the newer
+// revision. The app publishes `_server_confirmed` (false until a current server revision has
+// been applied, then true); an app without the flag (undefined) verifies at once, as before
+const _welcome_gate = server_confirmed => (server_confirmed === false ? 'wait' : 'init')
+// one poll step: retry in 250ms while waiting, else verify once and finish the task, returning
+// the verification's completion so a rejection stays under task error handling
+const _welcome_poll = (server_confirmed, init) =>
+  _welcome_gate(server_confirmed) == 'wait' ? 250 : init().then(() => null)
 function _on_welcome() {
-  init_pusher()
+  if (_welcome_gate(window._server_confirmed) == 'init') return init_pusher()
+  _this.log('waiting for the server-confirmed corpus before verifying items')
+  dispatch_task('init_pusher', () => _welcome_poll(window._server_confirmed, init_pusher), 250)
 }
 
 async function init_pusher() {
@@ -729,8 +742,10 @@ async function _side_push_item(item, manual = false) {
 // in-flight predecessor, so it acts regardless of _primary) or THIS TAB's completed
 // pushed/assumed state pair (state is TAB-LOCAL; tabs merely reconstruct similar
 // pairs, so _primary owns state-derived action AND degradation); (3) the PRIMARY
-// alone publishes state-derived disabled/inconsistent badges (a mark persists via
-// item attributes to every tab -- review 190 §1). an ordinary remote edit that
+// alone publishes state-derived disabled/inconsistent badges (review 190 §1; since
+// 2026-09-07 a mark is TAB-LOCAL -- item.pushable is transient, never saved -- so
+// the rule now keeps tabs from diverging on the same evidence rather than guarding a
+// global write). an ordinary remote edit that
 // merely preserves an old reply at EOF fails predecessor binding and stays on the
 // originator protocol. ACCEPTED RESIDUALS: the pending-origin/optimistic-primary
 // overlap can produce push+mark for one reply (a false but visible manual-push
@@ -779,10 +794,10 @@ function _bridge_reply_action(text, state, { pending_sha, primary, disabled, sha
   // (another tab may have assumed it optimistically before git settled), so a stale
   // pending token must not let a non-primary former origin race the primary.
   // STATE IS TAB-LOCAL (review 190 §1.1): the pusher's state map and the item's
-  // _pusher settings live in session-lifetime stores, and a 'mark' is NOT local --
-  // item.pushable persists through item attributes to every tab. So for
-  // state-derived provenance the PRIMARY owns both the write AND the degradation:
-  // a non-primary tab must never publish a global badge from its own local
+  // _pusher settings live in session-lifetime stores, and since 2026-09-07 a 'mark'
+  // is tab-local too (item.pushable is transient, never saved; each tab establishes
+  // its own marks at welcome). The PRIMARY still owns state-derived action AND
+  // degradation: a non-primary tab must not badge from its own local
   // disabled/inconsistent view while the primary may be mirroring correctly.
   const completed = !!state && state.sha == state.remote_sha && shas.includes(state.sha)
   if (completed) {
