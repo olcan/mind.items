@@ -33,6 +33,7 @@ const fresh_logs_div = () => ({
   querySelectorAll(sel) { return sel.includes('[open]') ? this.details.filter(d => d.open) : this.details },
 })
 const logs_div = fresh_logs_div()
+const proposals_div = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
 // a details element: open state, its toggle listener (the user's click flips `open` and fires
 // `toggle`, as does a programmatic assignment; synchronous here)
 const fake_details = run => ({
@@ -77,7 +78,7 @@ const env = {
   marked: { parse: s => `<parsed>${s}</parsed>` }, // the app's Markdown parser, stubbed
   window: { _grammar: { version: 2 }, _parse_tags: text => ({ raw: text.match(/#[\w/-]+/g) ?? [] }) }, // the app's grammar capability and tag parser, stubbed
   _items: () => Object.values(items),
-  elem: s => (s === '.logs' ? logs_div.replaced ?? logs_div : s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own elements (util/core/item.js)
+  elem: s => (s === '.logs' ? logs_div.replaced ?? logs_div : s === '.proposals' ? proposals_div : s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own elements (util/core/item.js)
 }
 env._this = {
   id: 'vault-id',
@@ -250,6 +251,20 @@ vm.runInContext('update_vault_runs()', ctx)
 check('a delisted run\'s open state is forgotten', [vm.runInContext('_this.store._vault_open', ctx), counts()], [{}, [0, 0, 0]])
 logs_div.replaced = null
 runs_div.replaced = null
+
+// the proposals: the bridge's undecided chat worktrees with approve/reject links; a decision is a
+// flag in this item's store (worktree -> {decision, t}), shown in flight with the bridge's outcome
+vm.runInContext("_this._global_store = {_bridge: {runs: {}, worktrees: {chat_a1: {item: 'chat-id', generation: 1, commits: 2, result: null}, chat_b2: {item: 'other-id', generation: 2, commits: 0, result: 'refused: test.sh failed (exit 3) | see log'}}}, _owner: {stop: {}, decide: {chat_b2: {decision: 'accepted', t: " + now + "}}}}; _this.global_store = _this._global_store", ctx)
+const prows = vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, (n, d, t) => `[${t}](${d}:${n})`)", ctx)
+check('proposal rows: the item cell, the worktree, its commits, the approve/reject links; a decided one shows the decision and the outcome', prows, [[mark('#chat/topic'), 'chat_a1', '2', '[approve](accepted:chat_a1) · [reject](rejected:chat_a1)'], ['other-id', 'chat_b2', '0', 'accepted… refused\\: test\\.sh failed \\(exit 3\\) \\| see log']])
+check('proposals table: header and rows', vm.runInContext('vault_proposals_table()', ctx).split('\n')[0], '| item | worktree | commits |  |')
+vm.runInContext("decide_worktree('chat_a1', 'rejected')", ctx)
+const decide = vm.runInContext('_this.global_store._owner.decide', ctx)
+check('decide_worktree writes the flag with a timestamp, keeps the other listed flag, and keeps stop', [Object.keys(decide).sort(), decide.chat_a1.decision, typeof decide.chat_a1.t, vm.runInContext('_this.global_store._owner.stop', ctx)], [['chat_a1', 'chat_b2'], 'rejected', 'number', {}])
+vm.runInContext("_this._global_store._bridge.worktrees = {chat_a1: {item: 'chat-id', generation: 1, commits: 2}}; decide_worktree('chat_a1', 'accepted')", ctx)
+check('a flag of a worktree no longer listed is dropped on the explicit action', Object.keys(vm.runInContext('_this.global_store._owner.decide', ctx)), ['chat_a1'])
+vm.runInContext("_this._global_store._bridge.worktrees = {}; update_vault_runs()", ctx)
+check('no proposals renders as none, into the proposals element', proposals_div.innerHTML, '<parsed>_none_</parsed>')
 
 // the pending marks: a vault-routed chat item is marked the moment it is saved with a pending
 // request (this tab's _on_item_change), released when its reply lands or it is deleted; a

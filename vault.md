@@ -3,6 +3,8 @@
 #### Active Runs
 <div class="runs"></div>
 <div class="logs"></div>
+#### Proposals
+<div class="proposals"></div>
 ---
 ```_html_hidden
 <script _uncached>
@@ -15,7 +17,9 @@ dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column tic
 // ({v, host, boot, updated, runs: {run_id: {item, persona, worktree, started, stopping, status,
 // log, activity}}}; status and log come from the run's log every few seconds), _supervisor,
 // written by the operator or a supervisor run ({runs: {run_id: {status, progress, notes}}}),
-// and _owner, written here ({stop: {run_id: ms}}); see notes/design/mind_vault_item.md
+// and _owner, written here ({stop: {run_id: ms}, decide: {worktree: {decision, t}}}); the
+// bridge's listing also carries the undecided chat worktrees, the proposals ({worktrees: {name:
+// {item, generation, commits, result}}}); see notes/design/mind_vault_item.md
 const vault_runs = () => _this._global_store._bridge?.runs ?? {}
 
 // the app's per-item running flag is a refcount (a web agent's item holds one reference during
@@ -190,6 +194,7 @@ function vault_logs_html() {
 function update_vault_runs() {
   vault_render('.runs', () => marked.parse(vault_runs_table()))
   vault_render('.logs', vault_logs_html)
+  vault_render('.proposals', () => marked.parse(vault_proposals_table()))
   const open = _this.store._vault_open ?? {}
   for (const id of keys(open)) if (!(id in vault_runs())) delete open[id] // delisted: forgotten
 }
@@ -211,6 +216,44 @@ function vault_render(selector, render) {
     if (open[d.dataset.run]) d.open = true
     d.addEventListener?.('toggle', () => (open[d.dataset.run] = d.open))
   }
+}
+
+// the proposals: the undecided chat worktrees the bridge lists (a writable run's changes, committed
+// in the chat's worktree; nothing reaches main until decided), each with approve/reject links, or
+// the decision in flight and the bridge's last outcome for it (side-effect-free; `decide` maps
+// worktrees to the owner's flags, `link` renders one action)
+function vault_proposal_rows(bridge, decide, link) {
+  return entries(bridge?.worktrees ?? {}).map(([name, wt]) => {
+    const flag = decide?.[name]
+    const outcome = wt.result ? vault_cell(wt.result) : ''
+    const actions = flag
+      ? `${flag.decision}… ${outcome}`
+      : link(name, 'accepted', 'approve') + ' · ' + link(name, 'rejected', 'reject')
+    return [vault_item_cell(wt.item), name, String(wt.commits ?? 0), actions || ' ']
+  })
+}
+
+function vault_proposals_table() {
+  const store = _this._global_store
+  const bridge = store._bridge
+  if (!bridge) return '_no listing yet_'
+  const rows = vault_proposal_rows(bridge, store._owner?.decide, (name, decision, text) =>
+    link_eval(_this, `decide_worktree('${name}', '${decision}')`, text)
+  )
+  if (!rows.length) return '_none_'
+  return table(rows, { headers: ['item', 'worktree', 'commits', ''] })
+}
+
+// the owner's decision on a proposal: the flag lives in this item's store, which the bridge
+// watches (it rejects by removing the worktree, accepts by merging it into main after the
+// worktree's gates pass, and lists the outcome); flags of worktrees no longer listed are dropped
+// here, on this explicit action only
+function decide_worktree(name, decision) {
+  const listed = _this._global_store._bridge?.worktrees ?? {}
+  const store = _this.global_store // the saving accessor
+  const decide = Object.fromEntries(entries(store._owner?.decide ?? {}).filter(([wt]) => wt in listed))
+  decide[name] = { decision, t: Date.now() }
+  store._owner = { ...(store._owner ?? {}), decide }
 }
 
 // ask the bridge to stop a run: the flag lives in this item's store, which the bridge watches;
