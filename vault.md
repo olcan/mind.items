@@ -218,18 +218,21 @@ function vault_render(selector, render) {
   }
 }
 
-// the proposals: the undecided chat worktrees the bridge lists (a writable run's changes, committed
-// in the chat's worktree; nothing reaches main until decided), each with approve/reject links, or
-// the decision in flight and the bridge's last outcome for it (side-effect-free; `decide` maps
-// worktrees to the owner's flags, `link` renders one action)
+// the proposals: the undecided chat worktrees the bridge lists (a writable run's changes, staged
+// in the chat's worktree; nothing reaches main until decided), each with the bridge's last outcome
+// for it (a refusal, or the supervisor's) and approve/reject links, or the decision in flight
+// (the owner's flag newer than the outcome the bridge answered: the links return once the bridge
+// has answered, so a refused decision can be retried or switched) (side-effect-free; `decide`
+// maps worktrees to the owner's flags, `link` renders one action)
 function vault_proposal_rows(bridge, decide, link) {
   return entries(bridge?.worktrees ?? {}).map(([name, wt]) => {
     const flag = decide?.[name]
     const outcome = wt.result ? vault_cell(wt.result) : ''
-    const actions = flag
-      ? `${flag.decision}… ${outcome}`
+    const inFlight = !!flag && !(wt.decided >= flag.t)
+    const actions = inFlight
+      ? `${flag.decision}…`
       : link(name, 'accepted', 'approve') + ' · ' + link(name, 'rejected', 'reject')
-    return [vault_item_cell(wt.item), name, String(wt.commits ?? 0), actions || ' ']
+    return [vault_item_cell(wt.item), name, String(wt.commits ?? 0), [outcome, actions].filter(Boolean).join(' ')]
   })
 }
 

@@ -254,13 +254,22 @@ runs_div.replaced = null
 
 // the proposals: the bridge's undecided chat worktrees with approve/reject links; a decision is a
 // flag in this item's store (worktree -> {decision, t}), shown in flight with the bridge's outcome
-vm.runInContext("_this._global_store = {_bridge: {runs: {}, worktrees: {chat_a1: {item: 'chat-id', generation: 1, commits: 2, result: null}, chat_b2: {item: 'other-id', generation: 2, commits: 0, result: 'refused: test.sh failed (exit 3) | see log'}}}, _owner: {stop: {}, decide: {chat_b2: {decision: 'accepted', t: " + now + "}}}}; _this.global_store = _this._global_store", ctx)
-const prows = vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, (n, d, t) => `[${t}](${d}:${n})`)", ctx)
-check('proposal rows: the item cell, the worktree, its commits, the approve/reject links; a decided one shows the decision and the outcome', prows, [[mark('#chat/topic'), 'chat_a1', '2', '[approve](accepted:chat_a1) · [reject](rejected:chat_a1)'], ['other-id', 'chat_b2', '0', 'accepted… refused\\: test\\.sh failed \\(exit 3\\) \\| see log']])
+vm.runInContext("_this._global_store = {_bridge: {runs: {}, worktrees: {chat_a1: {item: 'chat-id', generation: 1, commits: 2, result: null, decided: 0}, chat_b2: {item: 'other-id', generation: 2, commits: 0, result: 'refused: test.sh failed (exit 3) | see log', decided: " + now + "}, chat_c3: {item: 'other-id', generation: 1, commits: 1, result: 'refused: chat_c3 has a running run; decide again when it ends', decided: " + (now - 5) + "}}}, _owner: {stop: {}, decide: {chat_b2: {decision: 'accepted', t: " + now + "}, chat_c3: {decision: 'accepted', t: " + now + "}}}}; _this.global_store = _this._global_store", ctx)
+const proposalLink = "(n, d, t) => `[${t}](${d}:${n})`"
+const prows = vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, " + proposalLink + ")", ctx)
+check('proposal rows: the item cell, the worktree, its commits, the links; a completed refusal shows the outcome WITH the links (retry or switch); a decision the bridge has not answered yet is in flight', prows, [
+  [mark('#chat/topic'), 'chat_a1', '2', '[approve](accepted:chat_a1) · [reject](rejected:chat_a1)'],
+  ['other-id', 'chat_b2', '0', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log [approve](accepted:chat_b2) · [reject](rejected:chat_b2)'],
+  ['other-id', 'chat_c3', '1', 'refused\\: chat\\_c3 has a running run\\; decide again when it ends accepted…'],
+])
+vm.runInContext("_this._global_store._bridge.worktrees.chat_a1.result = 'refused: chat_a1 is already decided'", ctx)
+check('a supervisor refusal (no owner flag) is shown with the links', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][3], 'refused\\: chat\\_a1 is already decided [approve](accepted:chat_a1) · [reject](rejected:chat_a1)')
+vm.runInContext("decide_worktree('chat_b2', 'rejected')", ctx)
+check('after a refusal the owner can switch the decision: a new flag, newer than the outcome, is in flight', [vm.runInContext('_this.global_store._owner.decide.chat_b2.decision', ctx), vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this.global_store._owner.decide, " + proposalLink + ")", ctx)[1][3]], ['rejected', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log rejected…'])
 check('proposals table: header and rows', vm.runInContext('vault_proposals_table()', ctx).split('\n')[0], '| item | worktree | commits |  |')
 vm.runInContext("decide_worktree('chat_a1', 'rejected')", ctx)
 const decide = vm.runInContext('_this.global_store._owner.decide', ctx)
-check('decide_worktree writes the flag with a timestamp, keeps the other listed flag, and keeps stop', [Object.keys(decide).sort(), decide.chat_a1.decision, typeof decide.chat_a1.t, vm.runInContext('_this.global_store._owner.stop', ctx)], [['chat_a1', 'chat_b2'], 'rejected', 'number', {}])
+check('decide_worktree writes the flag with a timestamp, keeps the other listed flags, and keeps stop', [Object.keys(decide).sort(), decide.chat_a1.decision, typeof decide.chat_a1.t, vm.runInContext('_this.global_store._owner.stop', ctx)], [['chat_a1', 'chat_b2', 'chat_c3'], 'rejected', 'number', {}])
 vm.runInContext("_this._global_store._bridge.worktrees = {chat_a1: {item: 'chat-id', generation: 1, commits: 2}}; decide_worktree('chat_a1', 'accepted')", ctx)
 check('a flag of a worktree no longer listed is dropped on the explicit action', Object.keys(vm.runInContext('_this.global_store._owner.decide', ctx)), ['chat_a1'])
 vm.runInContext("_this._global_store._bridge.worktrees = {}; update_vault_runs()", ctx)
