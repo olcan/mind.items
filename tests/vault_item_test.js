@@ -285,7 +285,23 @@ vm.runInContext("_this._global_store._bridge = {host: 'h', updated: " + now + ",
 check('the queued entry becoming a run keeps the one reference and shows the run status', [counts(), status('chat2-id')], [[0, 1, 0], ['', 0]])
 listing('{}')
 check('the run ending releases the reference and clears the status', [counts(), status('chat2-id')], [[0, 0, 0], ['', 0]])
-check('the item defines no pending-mark scan', [typeof vm.runInContext('typeof vault_pending', ctx), vm.runInContext('typeof _on_welcome', ctx)], ['string', 'function'])
+check('the item defines no pending-mark scan', [vm.runInContext('typeof vault_pending', ctx), vm.runInContext('typeof vault_mark_pending', ctx), vm.runInContext('typeof _on_welcome', ctx)], ['undefined', 'undefined', 'function'])
+// the welcome parses no item: _items throws during it
+vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store", ctx)
+const realItems = env._items
+env._items = () => { throw new Error('welcome must not enumerate items') }
+vm.runInContext('_items = () => { throw new Error("welcome must not enumerate items") }', ctx)
+let welcomeError = null
+try { vm.runInContext('_on_welcome()', ctx) } catch (e) { welcomeError = String(e) }
+check('the welcome marks from the store without enumerating items', welcomeError, null)
+vm.runInContext('_items = undefined', ctx)
+env._items = realItems
+// the earlier item code's pending references (kept in the session store across /_update) are
+// released once, without parsing items; a second reconciliation finds nothing
+vm.runInContext("_this.store = {_vault_pending: {'chat-id': true}}; items['chat-id'].count = 1; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _on_global_store_change('vault-id', false)", ctx)
+check('legacy pending references are released once', [counts(), vm.runInContext('_this.store._vault_pending', ctx)], [[0, 0, 0], undefined])
+vm.runInContext("_on_global_store_change('vault-id', false)", ctx)
+check('a later reconciliation releases nothing more', counts(), [0, 0, 0])
 check('_on_item_change keeps only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status] })()", ctx), [{}, ''])
 check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])

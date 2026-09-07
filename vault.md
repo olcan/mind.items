@@ -1,4 +1,4 @@
-#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item with a pending vault request is shown as _running_ in every open tab, as a web agent's item is during its call: from the moment it is saved with the request (before the bridge lists it) until its reply lands.
+#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends, as an active agent's item is on every tab.
 ---
 #### Active Runs
 <div class="runs"></div>
@@ -83,7 +83,7 @@ function vault_show_status(runs, sup = {}, shown = {}, queued = {}) {
 // clear (status '' and progress 0) the items this tab set a status on that are no longer listed,
 // once their last running reference is gone: an item still running keeps its status and stays
 // recorded, and the clearing is retried at every release of a reference (the listing mark at a
-// store change, the pending mark at the reply or the deletion, in _on_item_change) or any later
+// store change) or any later
 // change of the item (a web call on the same chat posts its own status and clears it when it
 // completes; its reply is an item change)
 function vault_clear_status(shown, listed) {
@@ -107,10 +107,24 @@ function vault_clear_status(shown, listed) {
 // calls _on_global_store_change on the store's owner within about a second of a bridge write);
 // the marks survive either order, a store change can reach the tab before its welcome
 function vault_reconcile_running() {
+  vault_release_legacy_pending()
   _this.store._vault_marked = vault_mark_running(vault_held_items(), _this.store._vault_marked ?? {})
   _this.store._vault_shown = vault_show_status(
     vault_runs(), _this._global_store._supervisor?.runs ?? {}, _this.store._vault_shown ?? {}, vault_queued()
   )
+}
+
+// the pending marks of the item's earlier code (references this tab took at a request's save):
+// the app keeps the item's session store across /_update, so they are released once here,
+// without parsing any item
+function vault_release_legacy_pending() {
+  const pending = _this.store._vault_pending
+  if (!pending) return
+  for (const id of keys(pending)) {
+    const item = _item(id, { silent: true })
+    if (item) item.running = false
+  }
+  delete _this.store._vault_pending
 }
 
 function _on_global_store_change(id) {
