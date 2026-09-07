@@ -1,7 +1,8 @@
-#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). A chat item with a pending vault request is shown as _running_ in every open tab, as a web agent's item is during its call: from the moment it is saved with the request (before the bridge lists it) until its reply lands.
+#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item with a pending vault request is shown as _running_ in every open tab, as a web agent's item is during its call: from the moment it is saved with the request (before the bridge lists it) until its reply lands.
 ---
 #### Active Runs
 <div class="runs"></div>
+<div class="logs"></div>
 ---
 ```_html_hidden
 <script _uncached>
@@ -10,9 +11,11 @@ dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column tic
 </script>
 ```
 ```js:js_removed
-// this item's hidden store carries two subtrees: _bridge, written by the vault bridge
-// ({v, host, boot, updated, runs: {run_id: {item, persona, worktree, started, stopping}}}),
-// and _owner, written here ({stop: {run_id: ms}}); see notes/design/mind_vault_item.md in the vault
+// this item's hidden store carries three subtrees: _bridge, written by the vault bridge
+// ({v, host, boot, updated, runs: {run_id: {item, persona, worktree, started, stopping, status,
+// log, activity}}}; status and log come from the run's log every few seconds), _supervisor,
+// written by the operator or a supervisor run ({runs: {run_id: {status, progress, notes}}}),
+// and _owner, written here ({stop: {run_id: ms}}); see notes/design/mind_vault_item.md
 const vault_runs = () => _this._global_store._bridge?.runs ?? {}
 
 // the app's per-item running flag is a refcount (a web agent's item holds one reference during
@@ -38,11 +41,48 @@ function vault_mark_running(runs, marked) {
   return marked
 }
 
+// the listed runs' status lines and progress onto their chat items (the app's per-item status
+// and progress props, shown while the item runs; in-tab, nothing saved). The app assigns the
+// status to innerHTML unescaped and its show_status skips an empty status and a zero progress,
+// so the text is escaped here and the props are assigned directly. A delisted run's item is
+// cleared (status '' and progress 0) once its last running reference is released (the marks
+// are reconciled first); an item still running for another writer (a web call on the same
+// chat) keeps its status for that writer, which posts its own and clears it when it completes
+function vault_show_status(runs, sup = {}, shown = {}) {
+  const listed = {}
+  for (const [id, run] of entries(runs)) {
+    const item = _item(run.item, { silent: true })
+    if (!item) continue
+    listed[run.item] = true
+    try {
+      item.status = _.escape(vault_run_status(run, sup[id]))
+      item.progress = vault_run_progress(sup[id]) ?? 0
+    } catch (e) {
+      console.warn(`#vault: status of ${run.item} not shown: ${e}`)
+    }
+  }
+  for (const itemId of keys(shown)) {
+    if (itemId in listed) continue
+    const item = _item(itemId, { silent: true })
+    if (!item || item.running) continue
+    try {
+      item.status = ''
+      item.progress = 0
+    } catch (e) {
+      console.warn(`#vault: status of ${itemId} not cleared: ${e}`)
+    }
+  }
+  return listed
+}
+
 // the one reconciliation, at welcome and at every change of this store, local or remote (the app
 // calls _on_global_store_change on the store's owner within about a second of a bridge write);
 // the marks survive either order, a store change can reach the tab before its welcome
 function vault_reconcile_running() {
   _this.store._vault_marked = vault_mark_running(vault_runs(), _this.store._vault_marked ?? {})
+  _this.store._vault_shown = vault_show_status(
+    vault_runs(), _this._global_store._supervisor?.runs ?? {}, _this.store._vault_shown ?? {}
+  )
 }
 
 function _on_global_store_change(id) {
@@ -55,16 +95,42 @@ function _on_global_store_change(id) {
 const vault_item_link = name =>
   `<mark class="link" title="${_.escape(name)}" onmousedown="_handleTagClick('${_this.id}','${_.escape(name)}','${_.escape(name)}',event)" onclick="event.preventDefault();event.stopPropagation();">${_.escape(name)}</mark>`
 
-// the table rows for a listing (side-effect-free; `stop` maps run ids to flags, `link` renders one)
-function vault_runs_rows(bridge, stop, now, link) {
-  return entries(bridge?.runs ?? {}).map(([id, run]) => [
-    vault_item_cell(run.item),
-    run.persona,
-    id,
-    Math.round((now - run.started) / 1000) + 's',
-    run.worktree ?? '(read-only)', // nonempty: the table helper needs a value in every column
-    run.stopping || stop?.[id] ? 'stopping…' : link(id),
-  ])
+// a run's status line: the supervisor's when set, else the bridge's last activity line
+const vault_run_status = (run, sup) => sup?.status ?? run.status ?? ''
+const vault_run_progress = sup => (typeof sup?.progress == 'number' ? sup.progress : null)
+
+// literal text as a markdown table cell: HTML-escaped, pipes escaped for the table grammar,
+// newlines flattened (a status line is shell output; `rg todo | head` must stay one cell)
+const vault_cell = text => _.escape(String(text)).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+
+// the table rows for a listing (side-effect-free; `stop` maps run ids to flags, `link` renders one,
+// `sup` maps run ids to supervisor entries)
+function vault_runs_rows(bridge, stop, now, link, sup = {}) {
+  return entries(bridge?.runs ?? {}).map(([id, run]) => {
+    const progress = vault_run_progress(sup[id])
+    const status = vault_run_status(run, sup[id]) || '(no activity yet)'
+    return [
+      vault_item_cell(run.item),
+      run.persona,
+      id,
+      Math.round((now - run.started) / 1000) + 's',
+      run.worktree ?? '(read-only)', // nonempty: the table helper needs a value in every column
+      (progress === null ? '' : Math.round(progress * 100) + '% ') + vault_cell(status),
+      run.stopping || stop?.[id] ? 'stopping…' : link(id),
+    ]
+  })
+}
+
+// the log tails and supervisor notes under the table, one details block per run
+function vault_runs_details(bridge, sup = {}) {
+  return entries(bridge?.runs ?? {})
+    .map(([id, run]) => {
+      const lines = [...(run.log ?? []), ...(sup[id]?.notes ?? []).map(n => `note ${n.text}`)]
+      if (!lines.length) return ''
+      return `<details data-run="${_.escape(id)}"><summary>${_.escape(id)} log</summary><pre>${_.escape(lines.join('\n'))}</pre></details>`
+    })
+    .filter(Boolean)
+    .join('\n')
 }
 
 // a known chat item links to it; a deleted one shows its id
@@ -87,24 +153,44 @@ function vault_runs_table() {
   if (!bridge) return '_no listing yet (the bridge writes it when it starts and at each run)_'
   const now = Date.now()
   const stamp = `_bridge listing from ${bridge.host}, updated ${new Date(bridge.updated).toLocaleTimeString()} (${vault_age(now - bridge.updated)} ago)_`
+  const sup = store._supervisor?.runs ?? {}
   const rows = vault_runs_rows(bridge, store._owner?.stop, now, id =>
-    link_eval(_this, `stop_run('${id}')`, 'stop')
+    link_eval(_this, `stop_run('${id}')`, 'stop'), sup
   )
   if (!rows.length) return `_none_ ${stamp}`
   // the blank line closes the table (the parser would read the stamp as another row otherwise)
-  return table(rows, { headers: ['item', 'persona', 'run', 'elapsed', 'worktree', ''] }) + '\n\n' + stamp
+  return table(rows, { headers: ['item', 'persona', 'run', 'elapsed', 'worktree', 'status', ''] }) + '\n\n' + stamp
+}
+
+// the log tails and supervisor notes: their own element, replaced only when their content
+// changes (not on the elapsed tick), with the open blocks kept open by run id
+function vault_logs_html() {
+  const store = _this._global_store
+  return vault_runs_details(store._bridge, store._supervisor?.runs ?? {})
 }
 
 // render the listing into the item's own element (the #status pattern: a per-second task that
 // rewrites a div, no item re-render); a store change re-renders the item, which re-runs the
 // script above and so updates at once
 function update_vault_runs() {
-  const div = elem('.runs')
+  vault_render('.runs', marked.parse(vault_runs_table()))
+  vault_render('.logs', vault_logs_html())
+}
+
+// render into one of this item's own elements, skipping an unchanged rendering (the DOM's own
+// serialization differs from the parser's string, so the last string is remembered) and keeping
+// the open details blocks open across a replacement (by their run id)
+function vault_render(selector, html) {
+  const div = elem(selector)
   if (!div) return // the item is not in the DOM
-  const html = marked.parse(vault_runs_table())
-  if (div._vault_html === html) return // unchanged (the DOM's own serialization differs)
+  if (div._vault_html === html) return
+  const open = new Set(
+    Array.from(div.querySelectorAll?.('details[open][data-run]') ?? []).map(d => d.dataset.run)
+  )
   div._vault_html = html
   div.innerHTML = html
+  for (const d of Array.from(div.querySelectorAll?.('details[data-run]') ?? []))
+    if (open.has(d.dataset.run)) d.open = true
 }
 
 // ask the bridge to stop a run: the flag lives in this item's store, which the bridge watches;

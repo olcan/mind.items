@@ -25,10 +25,22 @@ const now = 1_700_000_000_000
 const clock = { now }
 // the listing's element: counts assignments so an unchanged rendering is seen to skip the DOM
 const runs_div = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
+// the logs' element: its details blocks are stubbed from the rendered data-run attributes
+const logs_div = {
+  writes: 0, _html: '', details: [],
+  get innerHTML() { return this._html },
+  set innerHTML(v) { this.writes++; this._html = v; this.details = Array.from(v.matchAll(/data-run="([^"]*)"/g), m => ({ dataset: { run: m[1] }, open: false })) },
+  querySelectorAll(sel) { return sel.includes('[open]') ? this.details.filter(d => d.open) : this.details },
+}
 // the app's running flag is a refcount behind a boolean getter (index.svelte `set running`)
 class FakeItem {
   constructor(name, running = 0, text = '', tags = []) { this.name = name; this.count = running; this.text = text; this.tags = tags; this.id = name + '-id' }
   read() { return this.text } // the app's cached grammar view; plain text here
+  // the app's status/progress props: the status lands in innerHTML, progress is checked on set
+  get status() { return this._status ?? null }
+  set status(v) { this._status = v }
+  get progress() { return this._progress ?? null }
+  set progress(v) { if (v < 0 || v > 1) throw new Error('invalid progress ' + v); this._progress = v }
   get running() { return !!this.count }
   set running(v) { this.count += v ? 1 : -1; if (this.count < 0) throw new Error('running below zero') }
 }
@@ -55,7 +67,7 @@ const env = {
   marked: { parse: s => `<parsed>${s}</parsed>` }, // the app's Markdown parser, stubbed
   window: { _grammar: { version: 2 }, _parse_tags: text => ({ raw: text.match(/#[\w/-]+/g) ?? [] }) }, // the app's grammar capability and tag parser, stubbed
   _items: () => Object.values(items),
-  elem: s => (s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own element (util/core/item.js)
+  elem: s => (s === '.logs' ? logs_div : s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own elements (util/core/item.js)
 }
 env._this = {
   id: 'vault-id',
@@ -81,17 +93,23 @@ const rows = vm.runInContext(
   "vault_runs_rows(_this._global_store._bridge, _this._global_store._owner.stop, " + now + ", id => 'stop:' + id)", ctx)
 const mark = name => `<mark class="link" title="${name}" onmousedown="_handleTagClick('vault-id','${name}','${name}',event)" onclick="event.preventDefault();event.stopPropagation();">${name}</mark>`
 check('rows: a read-only run renders a placeholder worktree and its stop flag; the item cell is the app\'s clickable tag', rows[0],
-  [mark('#chat/topic'), 'fable', 'r1', '5s', '(read-only)', 'stopping…'])
+  [mark('#chat/topic'), 'fable', 'r1', '5s', '(read-only)', '(no activity yet)', 'stopping…'])
 check('rows: an unknown item id shows the id; a bridge-reported stop shows stopping', rows[1],
-  ['other-id', 'fable_wt', 'r2', '65s', 'chat_x', 'stopping…'])
+  ['other-id', 'fable_wt', 'r2', '65s', 'chat_x', '(no activity yet)', 'stopping…'])
+const sup = { r1: { status: 'supervisor: reviewing the diff', progress: 0.25, notes: [{ t: now, text: 'looks fine' }] } }
+const withStatus = vm.runInContext("(() => { const b = _this._global_store._bridge; b.runs.r2.status = 'Reading file docs/x.md'; b.runs.r2.log = ['00:00:01 Reading file docs/x.md', '00:00:02 Executing bash: ls']; return vault_runs_rows(b, {}, " + now + ", id => 'stop', " + JSON.stringify(sup) + ") })()", ctx)
+check('rows: the supervisor status with its progress overrides the bridge activity; a bridge status shows as is', [withStatus[0][5], withStatus[1][5]], ['25% supervisor: reviewing the diff', 'Reading file docs/x.md'])
+const details = vm.runInContext("vault_runs_details(_this._global_store._bridge, " + JSON.stringify(sup) + ")", ctx)
+check('details: one block per run with a log tail or notes, escaped', details, '<details data-run="r1"><summary>r1 log</summary><pre>note looks fine</pre></details>\n<details data-run="r2"><summary>r2 log</summary><pre>00:00:01 Reading file docs/x.md\n00:00:02 Executing bash: ls</pre></details>')
+vm.runInContext("delete _this._global_store._bridge.runs.r2.status; delete _this._global_store._bridge.runs.r2.log", ctx)
 const rendered = vm.runInContext('vault_runs_table()', ctx)
 check('table: the real helper renders both rows with the headers, then a blank line and the stamp', rendered.split('\n').length, 6)
-check('table: header row', rendered.split('\n')[0], '| item | persona | run | elapsed | worktree |  |')
+check('table: header row', rendered.split('\n')[0], '| item | persona | run | elapsed | worktree | status |  |')
 check('table: the listing stamp follows as its own paragraph, with its age', /\n\n_bridge listing from test-host, updated .* \(0s ago\)_$/.test(rendered), true)
 const one = vm.runInContext(
   "(() => { const b = {updated: " + now + ", host: 'h', runs: {r3: {item: 'x', persona: 'p', started: " + now + ", worktree: null}}};" +
   " _this._global_store = {_bridge: b, _owner: {stop: {}}}; return vault_runs_table() })()", ctx)
-check('table: a lone read-only run renders (the empty-column case)', one.split('\n')[2], "| x | p | r3 | 0s | (read-only) | [stop](stop_run('r3')) |")
+check('table: a lone read-only run renders (the empty-column case)', one.split('\n')[2], "| x | p | r3 | 0s | (read-only) | (no activity yet) | [stop](stop_run('r3')) |")
 vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {}}}", ctx)
 check('empty listing keeps its stamp', vm.runInContext('vault_runs_table()', ctx), '_none_ _bridge listing from h, updated ' + new Date(now).toLocaleTimeString() + ' (0s ago)_')
 vm.runInContext('_this._global_store = {}', ctx)
@@ -110,16 +128,23 @@ vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {r1: {
 check('welcome marks the listed runs (a deleted item skipped) and records the marks', [counts(), marks()], [[1, 0, 1], { 'chat-id': true }])
 listing("{r3: {item: 'busy-id'}, r4: {item: 'chat2-id'}}")
 check('a changed listing releases and marks; a busy chat gets its own reference beside the web call\'s', [counts(), marks()], [[0, 1, 2], { 'busy-id': true, 'chat2-id': true }])
+vm.runInContext("_this._global_store._bridge.runs.r4.status = 'Searching web (brave) for \\'freeze\\''; _this._global_store._supervisor = {runs: {r3: {status: 'watching', progress: 0.5}}}; _on_global_store_change('vault-id', false)", ctx)
+const status = id => [items[id].status, items[id].progress]
+check('the listed items show their status: the supervisor line with progress, or the bridge activity, escaped for innerHTML', [status('busy-id'), status('chat2-id')], [['watching', 0.5], ['Searching web (brave) for &#39;freeze&#39;', 0]])
+check('the shown statuses are tracked by item', vm.runInContext('_this.store._vault_shown', ctx), { 'busy-id': true, 'chat2-id': true })
+vm.runInContext("delete _this._global_store._supervisor", ctx)
 vm.runInContext("_on_global_store_change('vault-id', true)", ctx)
 check('an unchanged listing adds no reference', counts(), [0, 1, 2])
 vm.runInContext("items['busy-id'].running = false", ctx) // the web call completes first
 check('web completion first leaves the bridge indicator on', counts(), [0, 1, 1])
 listing("{r4: {item: 'chat2-id'}}") // then the bridge run on that chat ends
 check('the bridge delisting then releases the last reference', counts(), [0, 1, 0])
+check('the delisted item, no longer running, has its status cleared', [status('busy-id'), vm.runInContext('_this.store._vault_shown', ctx)], [['', 0], { 'chat2-id': true }])
 vm.runInContext("items['busy-id'].running = true", ctx) // a new web call in flight
-listing("{r5: {item: 'busy-id'}, r4: {item: 'chat2-id'}}")
+listing("{r5: {item: 'busy-id', status: 'Reading file x'}, r4: {item: 'chat2-id'}}")
 listing("{r4: {item: 'chat2-id'}}") // the bridge run ends first
 check('bridge completion first leaves the web indicator on', counts(), [0, 1, 1])
+check('an item still running for the web call keeps its status for that writer', status('busy-id'), ['Reading file x', 0])
 vm.runInContext("items['busy-id'].running = false", ctx)
 check('the web completion then releases it', counts(), [0, 1, 0])
 listing('{}')
@@ -141,7 +166,7 @@ const tasks = []
 env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
 vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {r7: {item: 'chat-id', persona: 'p', started: " + (now - 3000) + ", worktree: null}}}, _owner: {stop: {}}}", ctx)
 vm.runInContext(script[1], ctx)
-check('the script renders at once: the table with the elapsed value, then the stamp paragraph', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>| item |'), runs_div.innerHTML.includes(`| ${mark('#chat/topic')} | p | r7 | 3s | (read-only) |`), /\n\n_bridge listing from h, updated /.test(runs_div.innerHTML)], [1, true, true, true])
+check('the script renders at once: the table with the elapsed value, then the stamp paragraph', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>| item |'), runs_div.innerHTML.includes(`| ${mark('#chat/topic')} | p | r7 | 3s | (read-only) | (no activity yet) |`), /\n\n_bridge listing from h, updated /.test(runs_div.innerHTML)], [1, true, true, true])
 check('the script registers the one-second task', tasks.map(t => [t.name, t.delay, t.repeat]), [['update', 1000, 1000]])
 tasks[0].fn()
 check('a tick without a clock change is not reassigned', runs_div.writes, 1)
@@ -161,15 +186,30 @@ check('a re-render renders the fresh element and re-registers the task', [runs_d
 // the real parser, when the app's dependency is reachable (the main checkout; a review worktree
 // leaves external/mind.page empty): one body row per run, the stamp as a separate paragraph
 let realMarked = null
-try { realMarked = require(path.join(__dirname, '..', '..', 'mind.page', 'node_modules', 'marked')).marked } catch (e) { console.log('skip real parser rows (marked not reachable)') }
+for (const dir of [path.join(__dirname, '..', '..', 'mind.page', 'node_modules', 'marked'), process.env.MARKED_DIR].filter(Boolean)) {
+  try { realMarked = require(dir).marked; break } catch (e) { /* the next candidate */ }
+}
+if (!realMarked) console.log('skip real parser rows (marked not reachable; set MARKED_DIR)')
 if (realMarked) {
-  vm.runInContext("_this._global_store._bridge.runs = {r8: {item: 'chat-id', persona: 'p', started: " + clock.now + ", worktree: null}}", ctx)
+  vm.runInContext("_this._global_store._bridge.runs = {r8: {item: 'chat-id', persona: 'p', started: " + clock.now + ", worktree: null, status: 'Executing bash: rg todo | head <x>'}}", ctx)
   const html = realMarked.parse(vm.runInContext('vault_runs_table()', ctx))
   const body = html.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? ''
   check('real parser: one body row for one run', (body.match(/<tr>/g) ?? []).length, 1)
+  check('real parser: seven cells, the status with its pipe and markup kept as text, the stop link last', [(body.match(/<td[ >]/g) ?? []).length, body.includes('<td align="left">Executing bash: rg todo | head &lt;x&gt;</td>'), /<td align="left"><a href="stop_run\('r8'\)">stop<\/a><\/td>\s*<\/tr>\s*$/.test(body)], [7, true, true])
   check('real parser: the stamp is a paragraph after the table', /<\/table>\s*<p><em>bridge listing from h, updated .* \(\d+s ago\)<\/em><\/p>/.test(html), true)
   check('real parser: the item cell carries the clickable tag markup', body.includes("onmousedown=\"_handleTagClick('vault-id','#chat/topic','#chat/topic',event)\""), true)
 }
+
+// the log tails: their own element, rewritten only when the content changes, with the open
+// blocks kept open by run id across the rewrite
+logs_div.writes = 0
+vm.runInContext("_this._global_store._bridge.runs = {r1: {item: 'chat-id', persona: 'p', started: " + clock.now + ", worktree: null, log: ['00:00:01 a']}, r2: {item: 'chat2-id', persona: 'p', started: " + clock.now + ", worktree: null, log: ['00:00:01 b']}}; update_vault_runs()", ctx)
+check('the logs render into their own element', [logs_div.writes, logs_div.details.map(d => d.dataset.run)], [1, ['r1', 'r2']])
+vm.runInContext('update_vault_runs()', ctx)
+check('an unchanged log rendering is not rewritten', logs_div.writes, 1)
+logs_div.details[0].open = true
+vm.runInContext("_this._global_store._bridge.runs.r1.log.push('00:00:02 c'); update_vault_runs()", ctx)
+check('a changed log rewrites the element and keeps the open block open', [logs_div.writes, logs_div.details.map(d => [d.dataset.run, d.open])], [2, [['r1', true], ['r2', false]]])
 
 // the pending marks: a vault-routed chat item is marked the moment it is saved with a pending
 // request (this tab's _on_item_change), released when its reply lands or it is deleted; a
