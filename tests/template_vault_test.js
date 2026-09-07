@@ -74,11 +74,16 @@ const ctx = {
   },
   _this: null,
   _that: null,
+  // init_perf (2026-09-07): the embed cache reads the target through _item (absent unless a row
+  // installs one), the lazy toggle hashes ids and guards clicks through the template helpers
+  _item: () => undefined,
+  hash: s => 'h' + String(s).length + '_' + String(s).replace(/[^a-z0-9]/gi, '').slice(0, 24),
+  _if_no_selection: code => code,
 }
 const _VAULT_WINDOW_UNITS = 4096
 const h = vm.runInNewContext(
   src +
-    ';({ _vault_unescape, _vault_escape, _vault_check_store, _vault_envelope, _vault_envelope_parts, _vault_badge_visible, _vault_source_view, _vault_frontmatter_view, _vault_decode_entities, _vault_grammar_refs, _vault_state, _vault_refs, _vault_carrier, _vault_inline, _vault_container, _vault_expanded, _vault_navigation, _vault_badge_text, vault_render, vault_badge })',
+    ';({ _vault_unescape, _vault_escape, _vault_check_store, _vault_envelope, _vault_envelope_parts, _vault_badge_visible, _vault_source_view, _vault_frontmatter_view, _vault_decode_entities, _vault_grammar_refs, _vault_state, _vault_refs, _vault_carrier, _vault_inline, _vault_container, _vault_expanded, _vault_navigation, _vault_badge_text, vault_render, vault_badge, _vault_lazy_toggle, _vault_embed })',
   ctx
 )
 const reset = () => {
@@ -86,7 +91,17 @@ const reset = () => {
   calls.toggle.length = 0
   ctx.window._template_dict = []
   ctx.window._item_eval_context = []
+  ctx.window._vault_lazy = {}
+  ctx.window._vault_embed_cache = new Map()
 }
+// the projection is LAZY (init_perf): vault_render registers its render under the toggle id; a
+// row that needs the projection runs the registered renders, as the first open would
+const lazy = () => {
+  const renders = Object.values(ctx.window._vault_lazy ?? {})
+  ctx.window._vault_lazy = {}
+  return renders.map(r => r()).join('\n')
+}
+const LAZY_TOGGLE = /^<span class="template_toggle (id_\S+)" title="⋮ projection \(the stored sync snapshot\)" onclick="[^"]*">⋮ projection \(the stored sync snapshot\)<\/span>\n<div class="template_toggle \1 hidden" title="⋮ projection \(the stored sync snapshot\)" onclick="[^"]*"><\/div>$/
 
 // the source codec: the design section 5 vectors, the SAME literals as the Python table
 const vectors = [
@@ -459,17 +474,19 @@ reset()
 ctx._this = full
 ctx._that = full
 const fullRender = h.vault_render()
-check('config control order', calls.toggle.map(c => c.label), [
+check('lazy projection: the render carries the toggle with an EMPTY hidden div and no projection content', [calls.toggle.length, calls.template.length, LAZY_TOGGLE.test(fullRender.split('<div class="vault">')[1].replace(/<\/div>$/, '')), fullRender.includes('instructions (bridge profile)')], [0, 0, true, false])
+check('lazy projection: the toggle click fills through the item and toggles both elements', /onclick="event.stopPropagation\(\);event.preventDefault\(\);window._vault_lazy_fill\('id_f','id_\S+'\);_item\('id_f'\)/.test(fullRender), true)
+const fullProjection = lazy()
+check('config control order (on the first open)', calls.toggle.map(c => c.label), [
   '⋮ instructions (bridge profile)',
   '⋮ run_instructions (bridge profile)',
   '⋮ user_prompt (bridge profile)',
   '⋮ ' + h._vault_refs('![[agents/worker]]'),
   '⋮ ' + h._vault_refs('![[agents/s]]'),
   '⋮ navigation (bridge/default context)',
-  '⋮ projection (the stored sync snapshot)',
 ])
 check('config nested calls: base then navigation target', calls.template.map(c => c.name), ['#vault/agents/worker', '#vault/agents/s'])
-check('projection: the config fields render as inert markdown (7.1 decision 2)', fullRender.split('instructions (bridge profile)]')[1].split('[/toggle]')[0].includes('<div class="vault-source">'), true)
+check('projection: the config fields render as inert markdown (7.1 decision 2)', fullProjection.split('instructions (bridge profile)]')[1].split('[/toggle]')[0].includes('<div class="vault-source">'), true)
 check('projection: a navigation text part renders as inert markdown with links', h._vault_navigation({ navigation: [{ text: 'see [[agents/worker]]\n\nand more' }] }).includes('<div class="vault-source"><p>see <mark class="link" title="#vault/agents/worker"'), true)
 check('the editable source is rendered as the source view, never a carrier or a control', fullRender.includes('<div class="vault-source">') && !fullRender.includes(h._vault_carrier('source F')) && !calls.toggle.some(c => c.label == '⋮ source'), true)
 check('the source view precedes the projection container', fullRender.indexOf('<div class="vault-source">') < fullRender.indexOf('<div class="vault">'), true)
@@ -487,18 +504,21 @@ reset()
 ctx._this = item('id_g', { v: 2, path: 'agents/f.md', pinned_source: 'source G', head_preview: { kind: 'config', base: null, navigation: [], exact: { profile: 'bare', instructions: null, run_instructions: null, user_prompt: 'U' } } }, 'source G')
 ctx._that = ctx._this
 h.vault_render()
-check('config with null fields omits their controls, and no target parts omit the navigation toggle', calls.toggle.map(c => c.label), ['⋮ user_prompt (bare profile)', '⋮ projection (the stored sync snapshot)'])
+lazy()
+check('config with null fields omits their controls, and no target parts omit the navigation toggle', calls.toggle.map(c => c.label), ['⋮ user_prompt (bare profile)'])
 reset()
 ctx._this = A
 ctx._that = A
 h.vault_render()
-check('section control order', calls.toggle.map(c => c.label), ['⋮ ' + h._vault_refs('![[agents/b]]'), '⋮ navigation (bridge/default context)', '⋮ projection (the stored sync snapshot)'])
+lazy()
+check('section control order', calls.toggle.map(c => c.label), ['⋮ ' + h._vault_refs('![[agents/b]]'), '⋮ navigation (bridge/default context)'])
 reset()
 const emptyItem = item('id_e', { v: 2, path: 'agents/e.md', pinned_source: null, head_preview: null }, '')
 ctx._this = emptyItem
 ctx._that = emptyItem
 const emptyRender = h.vault_render()
-check('null preview: the placeholder behind the projection toggle, an empty source shows no view', [calls.toggle.length, emptyRender], [1, '<div class="vault">[toggle ⋮ projection (the stored sync snapshot)]\n[placeholder no pinned preview (not in the stored sync snapshot)]\n[/toggle]</div>'])
+check('null preview: the lazy toggle alone, an empty source shows no view', [calls.toggle.length, LAZY_TOGGLE.test(emptyRender.replace(/^<div class="vault">/, '').replace(/<\/div>$/, '')), emptyRender.startsWith('<div class="vault"><span')], [0, true, true])
+check('null preview: the placeholder behind the projection toggle (on the first open)', lazy(), '[placeholder no pinned preview (not in the stored sync snapshot)]')
 
 // current-item identity: A renders nested B; envelope and store from _this (B), the toggle belongs to _that (A)
 reset()
@@ -520,7 +540,8 @@ reset()
 ctx._that = A
 ctx._this = A
 const outer = h.vault_render()
-check('outer A: A text rendered as inert markdown in the projection, the source rendered as the view, never carried', outer.includes('<p>A text</p>') && !outer.includes(h._vault_carrier('A text')) && !outer.includes(h._vault_carrier(sourceA)) && outer.includes('<div class="vault-source">'), true)
+const outerProjection = lazy()
+check('outer A: A text rendered as inert markdown in the projection (on the first open), the source rendered as the view, never carried', outerProjection.includes('<p>A text</p>') && !outer.includes(h._vault_carrier('A text')) && !outerProjection.includes(h._vault_carrier('A text')) && !outer.includes(h._vault_carrier(sourceA)) && outer.includes('<div class="vault-source">'), true)
 check('outer A: the source view keeps a raw opener inert (Marked reads the inner <x> as a literal tag, code-styled since 8.2)', outer.includes('&#60;<code>&#60;x&#62;</code>&#62;'), true)
 reset()
 ctx._this = A
@@ -583,6 +604,43 @@ for (const name of manifest) {
     check('fixture e2e_large.md instructions are 107,087 reference characters', h._vault_refs(hp.exact.instructions).length, 107087)
   }
 }
+
+// init_perf (2026-09-07): the lazy toggle and the embed cache
+reset()
+ctx._this = A
+ctx._that = A
+ctx.window._item_eval_context = ['expanded']
+check('lazy toggle: the expanded context gets the content at once, no registration', [h._vault_lazy_toggle(() => 'X', 'L'), Object.keys(ctx.window._vault_lazy).length], ['X', 0])
+reset()
+ctx._this = A
+ctx._that = A
+// the lazy fill (window._vault_lazy_fill, installed by the first lazy toggle): runs the registered
+// render through the item's eval, keeps the registration, and attaches the app's link
+// handling to the inserted anchors (the enclosing toggle would otherwise swallow their clicks)
+const lazyId = /template_toggle (id_\S+)"/.exec(h._vault_lazy_toggle(() => '<p>x</p>', 'L'))[1]
+const clicks = []
+ctx.window._handleLinkClick = (...args) => clicks.push(args)
+const anchor = { onclick: null, getAttribute: name => (name == 'href' ? 'https://example.com/x' : null) }
+const div = { dataset: {}, innerHTML: '', querySelectorAll: sel => (sel == 'a[href]' ? [anchor] : []) }
+const evals = []
+// the item eval stub runs the registered closure the way the app's eval would run the code string
+ctx._item = id => (id == A.id ? { elem: { querySelector: () => div }, eval: (code, opts) => (evals.push([code, opts]), ctx.window._vault_lazy[lazyId]()) } : undefined)
+ctx.window._vault_lazy_fill(A.id, lazyId)
+check('lazy fill: renders through the item eval without the prefix', [evals.length, evals[0] && evals[0][1].exclude_prefix, evals[0] && evals[0][0], div.innerHTML], [1, true, 'window._vault_lazy[' + JSON.stringify(lazyId) + ']()', '<p>x</p>'])
+check('lazy fill: the registration stays (the html cache re-renders the same toggle id)', lazyId in ctx.window._vault_lazy, true)
+check('lazy fill: fills a filled div once', (ctx.window._vault_lazy_fill(A.id, lazyId), evals.length), 1)
+check('lazy fill: a fresh div with the same toggle id (a re-render from the html cache) fills again', (div.dataset = {}, div.innerHTML = '', ctx.window._vault_lazy_fill(A.id, lazyId), [evals.length, div.innerHTML]), [2, '<p>x</p>'])
+// a failing render leaves the toggle unfilled (a placeholder shows the error) and keeps the
+// registration, so the next open retries
+const failId = /template_toggle (id_\S+)"/.exec(h._vault_lazy_toggle(() => { throw new Error('boom') }, 'F'))[1]
+const failDiv = { dataset: {}, innerHTML: '', querySelectorAll: () => [] }
+ctx._item = id => (id == A.id ? { elem: { querySelector: () => failDiv }, eval: () => ctx.window._vault_lazy[failId]() } : undefined)
+ctx.window._vault_lazy_fill(A.id, failId)
+check('lazy fill: a failing render shows a placeholder, stays unfilled and keeps the registration', [failDiv.innerHTML, 'filled' in failDiv.dataset, failId in ctx.window._vault_lazy], ['[placeholder projection failed: boom]', false, true])
+anchor.onclick({ type: 'click' })
+check('lazy fill: inserted anchors get the app link handling bound to the owner', clicks, [[A.id, 'https://example.com/x', { type: 'click' }]])
+ctx._item = () => undefined
+delete ctx.window._handleLinkClick
 
 if (failures) {
   console.log(`${failures} failure(s)`)

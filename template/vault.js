@@ -683,6 +683,47 @@ const _vault_is_expanded = () => (window._item_eval_context ?? []).includes('exp
 // title attribute unescaped, so a block carrier there would break the div's start tag
 const _vault_embed = path => toggle(template(_vault_label(path), { _vault: 'navigation' }), '⋮ ' + _vault_refs('![[' + path.replace(/\.md$/, '') + ']]'))
 
+// LAZY TOGGLE (init_perf, 2026-09-07): the same markup as toggle() (template.js) with the hidden
+// content produced on the FIRST open instead of at render time, through the item's own eval so
+// nested toggles find their `_that` and the eval context as usual. the expanded context (an
+// agent reading the item) gets the content at once, as toggle() does. the render closure lives
+// on window under the toggle id for the page's lifetime: the app re-renders an item from its
+// html cache with the SAME markup (the same toggle id, an empty div again), so a consumed
+// closure would leave that re-render an orphan (found by the admin contract row); tying the
+// registry to the render generation is a backfill. the inserted html gets the app's link
+// handling, which the app attaches to rendered anchors and which the enclosing toggle's
+// handler would otherwise swallow (Item.svelte: _handleLinkClick)
+const _vault_lazy_toggle = (render, label, tooltip = label) => {
+  if (window._item_eval_context.includes('expanded')) return render()
+  const id = 'id_' + hash(Math.random())
+  ;(window._vault_lazy ??= {})[id] = render
+  window._vault_lazy_fill ??= (item_id, toggle_id) => {
+    const div = _item(item_id)?.elem?.querySelector('div.template_toggle.' + toggle_id)
+    const render = window._vault_lazy?.[toggle_id]
+    if (!div || div.dataset.filled || !render) return
+    let html
+    try {
+      html = _item(item_id).eval('window._vault_lazy[' + JSON.stringify(toggle_id) + ']()', { exclude_prefix: true })
+    } catch (e) {
+      // the eval logs its own error; the toggle shows it and stays unfilled, so a later open
+      // retries (a render during a transient state, e.g. a dependency not yet installed)
+      div.innerHTML = placeholder('projection failed: ' + (e?.message ?? e))
+      return
+    }
+    div.innerHTML = html
+    div.dataset.filled = '1' // filled: only after a successful render (the registration stays)
+    for (const a of div.querySelectorAll('a[href]'))
+      if (!a.onclick && !a.getAttribute('onclick')) a.onclick = e => window._handleLinkClick(item_id, a.getAttribute('href'), e)
+  }
+  const toggle_tag = tag => "_item('" + _that.id + "').elem?.querySelector('" + tag + '.template_toggle.' + id + "').classList.toggle('hidden');"
+  const click = _if_no_selection("window._vault_lazy_fill('" + _that.id + "','" + id + "');" + toggle_tag('div') + toggle_tag('span'))
+  const onclick = 'onclick="event.stopPropagation();event.preventDefault();' + click + '"'
+  return [
+    '<span class="template_toggle ' + id + '" title="' + tooltip + '" ' + onclick + '>' + label + '</span>',
+    '<div class="template_toggle ' + id + ' hidden" title="' + label + '" ' + onclick + '></div>',
+  ].join('\n')
+}
+
 // navigation: the parts in order, text parts as inert markdown and target parts as toggles,
 // under one container (no marker scanning: provenance is the producer's)
 const _vault_navigation = h =>
@@ -749,10 +790,10 @@ function vault_render() {
     if (state.frontmatter !== null) view.push('<p>&#160;<br></p>')
     view.push(_vault_source_view(state.body))
   }
-  const projection = _vault_projection(h)
-  // (8.3) and one blank line above the projection toggle when anything precedes it
+  // (8.3) one blank line above the projection toggle when anything precedes it; the projection
+  // (the base embed, the navigation composition) renders on the toggle's first open
   if (view.length) view.push('<p>&#160;<br></p>')
-  view.push(_vault_container([toggle(projection.join('\n'), '⋮ projection (the stored sync snapshot)')]))
+  view.push(_vault_container([_vault_lazy_toggle(() => _vault_projection(h).join('\n'), '⋮ projection (the stored sync snapshot)')]))
   return view.join('\n')
 }
 
