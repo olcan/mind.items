@@ -22,6 +22,13 @@ const check = (name, actual, expected) => {
 }
 
 const now = 1_700_000_000_000
+// the app's running flag is a refcount behind a boolean getter (index.svelte `set running`)
+class FakeItem {
+  constructor(name, running = 0) { this.name = name; this.count = running }
+  get running() { return !!this.count }
+  set running(v) { this.count += v ? 1 : -1; if (this.count < 0) throw new Error('running below zero') }
+}
+const items = { 'chat-id': new FakeItem('#chat/topic'), 'chat2-id': new FakeItem('#chat/two'), 'busy-id': new FakeItem('#chat/busy', 1) }
 // the helper's own dependencies, as util/core.js defines them (kept minimal and equivalent)
 const env = {
   entries: Object.entries,
@@ -35,7 +42,7 @@ const env = {
   _: { maxBy: (a, key) => a.reduce((x, y) => (x[key] > y[key] ? x : y)) },
   fatal: m => { throw new Error(m) },
   link_eval: (_item, js, text) => `[${text}](${js})`,
-  _item: id => (id === 'chat-id' ? { name: '#chat/topic' } : null),
+  _item: id => items[id] ?? null, // 'other-id' is a deleted item
   Date: class extends Date { static now() { return now } }, // the item's clock, frozen at `now`
   Math,
   Object,
@@ -55,6 +62,8 @@ env._this = {
   },
 }
 env.global_store = env._this._global_store
+env._this.store = {}
+env.items = items // the fake items, for the count checks below
 const ctx = vm.createContext(env)
 vm.runInContext(tableSrc[0] + '\n' + block[1], ctx)
 
@@ -82,6 +91,36 @@ check('stop_run keeps _bridge and prunes stale flags', vm.runInContext('_this.gl
 check('the stop flag is a timestamp', typeof vm.runInContext('_this.global_store._owner.stop.r9', ctx), 'number')
 vm.runInContext("_this._global_store = {}; _this.global_store = _this._global_store; _on_welcome()", ctx)
 check('welcome provisions the store', vm.runInContext('_this.global_store', ctx), { _owner: { stop: {} } })
+// the running marks: one reference of this tab's own per listed chat item (the app's refcount)
+const counts = () => vm.runInContext("[items['chat-id'].count, items['chat2-id'].count, items['busy-id'].count]", ctx)
+const marks = () => vm.runInContext('_this.store._vault_marked', ctx)
+const listing = runs => vm.runInContext(`_this._global_store._bridge = {runs: ${runs}}; _on_global_store_change('id', false)`, ctx)
+vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {r1: {item: 'chat-id'}, r2: {item: 'other-id'}}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
+check('welcome marks the listed runs (a deleted item skipped) and records the marks', [counts(), marks()], [[1, 0, 1], { 'chat-id': true }])
+listing("{r3: {item: 'busy-id'}, r4: {item: 'chat2-id'}}")
+check('a changed listing releases and marks; a busy chat gets its own reference beside the web call\'s', [counts(), marks()], [[0, 1, 2], { 'busy-id': true, 'chat2-id': true }])
+vm.runInContext("_on_global_store_change('id', true)", ctx)
+check('an unchanged listing adds no reference', counts(), [0, 1, 2])
+vm.runInContext("items['busy-id'].running = false", ctx) // the web call completes first
+check('web completion first leaves the bridge indicator on', counts(), [0, 1, 1])
+listing("{r4: {item: 'chat2-id'}}") // then the bridge run on that chat ends
+check('the bridge delisting then releases the last reference', counts(), [0, 1, 0])
+vm.runInContext("items['busy-id'].running = true", ctx) // a new web call in flight
+listing("{r5: {item: 'busy-id'}, r4: {item: 'chat2-id'}}")
+listing("{r4: {item: 'chat2-id'}}") // the bridge run ends first
+check('bridge completion first leaves the web indicator on', counts(), [0, 1, 1])
+vm.runInContext("items['busy-id'].running = false", ctx)
+check('the web completion then releases it', counts(), [0, 1, 0])
+listing('{}')
+check('an empty listing releases every reference of this tab', [counts(), marks()], [[0, 0, 0], {}])
+// a store change can reach a tab before its welcome: welcome keeps the marks it finds and adds
+// no reference, so the delisting still releases it (order: change, welcome, delist)
+vm.runInContext('_this.store = {}', ctx) // a fresh tab
+listing("{r6: {item: 'chat-id'}}")
+vm.runInContext('_on_welcome()', ctx)
+check('welcome after a store change keeps the marks and adds no reference', [counts(), marks()], [[1, 0, 0], { 'chat-id': true }])
+listing('{}')
+check('the delisting after that order releases the reference', [counts(), marks()], [[0, 0, 0], {}])
 
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
 console.log('all checks passed')
