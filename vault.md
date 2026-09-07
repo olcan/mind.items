@@ -44,16 +44,13 @@ function vault_mark_running(runs, marked) {
 // the listed runs' status lines and progress onto their chat items (the app's per-item status
 // and progress props, shown while the item runs; in-tab, nothing saved). The app assigns the
 // status to innerHTML unescaped and its show_status skips an empty status and a zero progress,
-// so the text is escaped here and the props are assigned directly. A delisted run's item is
-// cleared (status '' and progress 0) once its last running reference is released (the marks
-// are reconciled first); an item still running for another writer (a web call on the same
-// chat) keeps its status for that writer, which posts its own and clears it when it completes
+// so the text is escaped here and the props are assigned directly; `shown` records the items
+// this tab set, for the clearing below
 function vault_show_status(runs, sup = {}, shown = {}) {
-  const listed = {}
   for (const [id, run] of entries(runs)) {
     const item = _item(run.item, { silent: true })
     if (!item) continue
-    listed[run.item] = true
+    shown[run.item] = true
     try {
       item.status = _.escape(vault_run_status(run, sup[id]))
       item.progress = vault_run_progress(sup[id]) ?? 0
@@ -61,10 +58,24 @@ function vault_show_status(runs, sup = {}, shown = {}) {
       console.warn(`#vault: status of ${run.item} not shown: ${e}`)
     }
   }
+  return vault_clear_status(shown, vault_runs_items(runs))
+}
+
+const vault_runs_items = runs => new Set(entries(runs).map(([, run]) => run.item))
+
+// clear (status '' and progress 0) the items this tab set a status on that are no longer listed,
+// once their last running reference is gone: an item still running keeps its status and stays
+// recorded, and the clearing is retried at every release of a reference (the listing mark at a
+// store change, the pending mark at the reply or the deletion, in _on_item_change) or any later
+// change of the item (a web call on the same chat posts its own status and clears it when it
+// completes; its reply is an item change)
+function vault_clear_status(shown, listed) {
   for (const itemId of keys(shown)) {
-    if (itemId in listed) continue
+    if (listed.has(itemId)) continue
     const item = _item(itemId, { silent: true })
-    if (!item || item.running) continue
+    if (item?.running) continue // deferred
+    delete shown[itemId]
+    if (!item) continue
     try {
       item.status = ''
       item.progress = 0
@@ -72,7 +83,7 @@ function vault_show_status(runs, sup = {}, shown = {}) {
       console.warn(`#vault: status of ${itemId} not cleared: ${e}`)
     }
   }
-  return listed
+  return shown
 }
 
 // the one reconciliation, at welcome and at every change of this store, local or remote (the app
@@ -99,9 +110,13 @@ const vault_item_link = name =>
 const vault_run_status = (run, sup) => sup?.status ?? run.status ?? ''
 const vault_run_progress = sup => (typeof sup?.progress == 'number' ? sup.progress : null)
 
-// literal text as a markdown table cell: HTML-escaped, pipes escaped for the table grammar,
-// newlines flattened (a status line is shell output; `rg todo | head` must stay one cell)
-const vault_cell = text => _.escape(String(text)).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+// literal text as a markdown table cell: line breaks flattened, then every ASCII punctuation
+// character backslash-escaped (the parser's escape rule): a pipe cannot split the row whatever
+// precedes it (a literal backslash doubles, so the backslashes before a pipe stay odd: `grep
+// 'foo\|bar'` is one cell), backticks and emphasis stay text, and `<`, `>`, `&` reach the
+// renderer as text it escapes (a status line is shell output; `rg todo | head` stays one cell)
+const vault_cell = text =>
+  String(text).replace(/\r\n|\r|\n/g, ' ').replace(/[!-\/:-@\[-`{-~]/g, c => '\\' + c)
 
 // the table rows for a listing (side-effect-free; `stop` maps run ids to flags, `link` renders one,
 // `sup` maps run ids to supervisor entries)
@@ -173,24 +188,29 @@ function vault_logs_html() {
 // rewrites a div, no item re-render); a store change re-renders the item, which re-runs the
 // script above and so updates at once
 function update_vault_runs() {
-  vault_render('.runs', marked.parse(vault_runs_table()))
-  vault_render('.logs', vault_logs_html())
+  vault_render('.runs', () => marked.parse(vault_runs_table()))
+  vault_render('.logs', vault_logs_html)
+  const open = _this.store._vault_open ?? {}
+  for (const id of keys(open)) if (!(id in vault_runs())) delete open[id] // delisted: forgotten
 }
 
 // render into one of this item's own elements, skipping an unchanged rendering (the DOM's own
-// serialization differs from the parser's string, so the last string is remembered) and keeping
-// the open details blocks open across a replacement (by their run id)
-function vault_render(selector, html) {
+// serialization differs from the parser's string, so the last string is remembered). The open
+// details blocks are remembered by run id in this tab's item state (from their toggle events)
+// and re-opened after any replacement: an in-place rewrite here, or the app's re-render of the
+// whole item at a store change (fresh elements, this script run again)
+function vault_render(selector, render) {
   const div = elem(selector)
   if (!div) return // the item is not in the DOM
+  const html = render()
   if (div._vault_html === html) return
-  const open = new Set(
-    Array.from(div.querySelectorAll?.('details[open][data-run]') ?? []).map(d => d.dataset.run)
-  )
   div._vault_html = html
   div.innerHTML = html
-  for (const d of Array.from(div.querySelectorAll?.('details[data-run]') ?? []))
-    if (open.has(d.dataset.run)) d.open = true
+  const open = (_this.store._vault_open ??= {})
+  for (const d of Array.from(div.querySelectorAll?.('details[data-run]') ?? [])) {
+    if (open[d.dataset.run]) d.open = true
+    d.addEventListener?.('toggle', () => (open[d.dataset.run] = d.open))
+  }
 }
 
 // ask the bridge to stop a run: the flag lives in this item's store, which the bridge watches;
@@ -252,6 +272,8 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   const item = deleted ? null : _item(id, { silent: true })
   const pending = !!item && !!item.tags?.some(vault_tag) && vault_pending(item)
   _this.store._vault_pending = vault_mark_pending(id, pending, _this.store._vault_pending ?? {})
+  if (_this.store._vault_shown?.[id]) // a status this tab set: cleared once the item stops running
+    _this.store._vault_shown = vault_clear_status(_this.store._vault_shown, vault_runs_items(vault_runs()))
 }
 
 // provision the store at app startup (the bridge only updates it, never creates it), mark the
