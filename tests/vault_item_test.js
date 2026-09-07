@@ -27,11 +27,13 @@ const clock = { now }
 const runs_div = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
 // the app's running flag is a refcount behind a boolean getter (index.svelte `set running`)
 class FakeItem {
-  constructor(name, running = 0) { this.name = name; this.count = running }
+  constructor(name, running = 0, text = '', tags = []) { this.name = name; this.count = running; this.text = text; this.tags = tags; this.id = name + '-id' }
+  read() { return this.text } // the app's cached grammar view; plain text here
   get running() { return !!this.count }
   set running(v) { this.count += v ? 1 : -1; if (this.count < 0) throw new Error('running below zero') }
 }
 const items = { 'chat-id': new FakeItem('#chat/topic'), 'chat2-id': new FakeItem('#chat/two'), 'busy-id': new FakeItem('#chat/busy', 1) }
+for (const [id, item] of Object.entries(items)) item.id = id
 // the helper's own dependencies, as util/core.js defines them (kept minimal and equivalent)
 const env = {
   entries: Object.entries,
@@ -51,6 +53,8 @@ const env = {
   Object,
   console,
   marked: { parse: s => `<parsed>${s}</parsed>` }, // the app's Markdown parser, stubbed
+  window: { _grammar: { version: 2 }, _parse_tags: text => ({ raw: text.match(/#[\w/-]+/g) ?? [] }) }, // the app's grammar capability and tag parser, stubbed
+  _items: () => Object.values(items),
   elem: s => (s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own element (util/core/item.js)
 }
 env._this = {
@@ -83,13 +87,13 @@ check('rows: an unknown item id shows the id; a bridge-reported stop shows stopp
 const rendered = vm.runInContext('vault_runs_table()', ctx)
 check('table: the real helper renders both rows with the headers, then a blank line and the stamp', rendered.split('\n').length, 6)
 check('table: header row', rendered.split('\n')[0], '| item | persona | run | elapsed | worktree |  |')
-check('table: the freshness stamp follows as its own paragraph', /\n\n_as of .* on test-host_$/.test(rendered), true)
+check('table: the listing stamp follows as its own paragraph, with its age', /\n\n_bridge listing from test-host, updated .* \(0s ago\)_$/.test(rendered), true)
 const one = vm.runInContext(
   "(() => { const b = {updated: " + now + ", host: 'h', runs: {r3: {item: 'x', persona: 'p', started: " + now + ", worktree: null}}};" +
   " _this._global_store = {_bridge: b, _owner: {stop: {}}}; return vault_runs_table() })()", ctx)
 check('table: a lone read-only run renders (the empty-column case)', one.split('\n')[2], "| x | p | r3 | 0s | (read-only) | [stop](stop_run('r3')) |")
 vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {}}}", ctx)
-check('empty listing keeps its stamp', vm.runInContext('vault_runs_table()', ctx), '_none_ _as of ' + new Date(now).toLocaleTimeString() + ' on h_')
+check('empty listing keeps its stamp', vm.runInContext('vault_runs_table()', ctx), '_none_ _bridge listing from h, updated ' + new Date(now).toLocaleTimeString() + ' (0s ago)_')
 vm.runInContext('_this._global_store = {}', ctx)
 check('missing listing explains itself', vm.runInContext('vault_runs_table()', ctx).startsWith('_no listing yet'), true)
 // stop_run prunes flags of delisted runs on the explicit action and never touches _bridge
@@ -101,12 +105,12 @@ check('welcome provisions the store', vm.runInContext('_this.global_store', ctx)
 // the running marks: one reference of this tab's own per listed chat item (the app's refcount)
 const counts = () => vm.runInContext("[items['chat-id'].count, items['chat2-id'].count, items['busy-id'].count]", ctx)
 const marks = () => vm.runInContext('_this.store._vault_marked', ctx)
-const listing = runs => vm.runInContext(`_this._global_store._bridge = {runs: ${runs}}; _on_global_store_change('id', false)`, ctx)
+const listing = runs => vm.runInContext(`_this._global_store._bridge = {runs: ${runs}}; _on_global_store_change('vault-id', false)`, ctx)
 vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {r1: {item: 'chat-id'}, r2: {item: 'other-id'}}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
 check('welcome marks the listed runs (a deleted item skipped) and records the marks', [counts(), marks()], [[1, 0, 1], { 'chat-id': true }])
 listing("{r3: {item: 'busy-id'}, r4: {item: 'chat2-id'}}")
 check('a changed listing releases and marks; a busy chat gets its own reference beside the web call\'s', [counts(), marks()], [[0, 1, 2], { 'busy-id': true, 'chat2-id': true }])
-vm.runInContext("_on_global_store_change('id', true)", ctx)
+vm.runInContext("_on_global_store_change('vault-id', true)", ctx)
 check('an unchanged listing adds no reference', counts(), [0, 1, 2])
 vm.runInContext("items['busy-id'].running = false", ctx) // the web call completes first
 check('web completion first leaves the bridge indicator on', counts(), [0, 1, 1])
@@ -137,7 +141,7 @@ const tasks = []
 env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
 vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {r7: {item: 'chat-id', persona: 'p', started: " + (now - 3000) + ", worktree: null}}}, _owner: {stop: {}}}", ctx)
 vm.runInContext(script[1], ctx)
-check('the script renders at once: the table with the elapsed value, then the stamp paragraph', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>| item |'), runs_div.innerHTML.includes(`| ${mark('#chat/topic')} | p | r7 | 3s | (read-only) |`), /\n\n_as of /.test(runs_div.innerHTML)], [1, true, true, true])
+check('the script renders at once: the table with the elapsed value, then the stamp paragraph', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>| item |'), runs_div.innerHTML.includes(`| ${mark('#chat/topic')} | p | r7 | 3s | (read-only) |`), /\n\n_bridge listing from h, updated /.test(runs_div.innerHTML)], [1, true, true, true])
 check('the script registers the one-second task', tasks.map(t => [t.name, t.delay, t.repeat]), [['update', 1000, 1000]])
 tasks[0].fn()
 check('a tick without a clock change is not reassigned', runs_div.writes, 1)
@@ -163,9 +167,60 @@ if (realMarked) {
   const html = realMarked.parse(vm.runInContext('vault_runs_table()', ctx))
   const body = html.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? ''
   check('real parser: one body row for one run', (body.match(/<tr>/g) ?? []).length, 1)
-  check('real parser: the stamp is a paragraph after the table', /<\/table>\s*<p><em>as of .* on h<\/em><\/p>/.test(html), true)
+  check('real parser: the stamp is a paragraph after the table', /<\/table>\s*<p><em>bridge listing from h, updated .* \(\d+s ago\)<\/em><\/p>/.test(html), true)
   check('real parser: the item cell carries the clickable tag markup', body.includes("onmousedown=\"_handleTagClick('vault-id','#chat/topic','#chat/topic',event)\""), true)
 }
+
+// the pending marks: a vault-routed chat item is marked the moment it is saved with a pending
+// request (this tab's _on_item_change), released when its reply lands or it is deleted; a
+// non-routed chat item and a dependency change are ignored; a listing mark is a second reference
+vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {}}, _owner: {stop: {}}}", ctx)
+const setText = (id, text, tags) => vm.runInContext(`items['${id}'].text = ${JSON.stringify(text)}; items['${id}'].tags = ${JSON.stringify(tags)}`, ctx)
+const change = (id, deleted = false, dependency = false) => vm.runInContext(`_on_item_change('${id}', '#x', '#x', ${deleted}, false, ${dependency})`, ctx)
+const pendingMarks = () => vm.runInContext('_this.store._vault_pending', ctx)
+setText('chat-id', '#chat/topic/0 #_agent/vault/fable_wt\n<<user>> please run the tests', ['#chat/topic/0', '#_agent/vault/fable_wt'])
+change('chat-id')
+check('a saved pending vault request marks its item at once', [counts(), pendingMarks()], [[1, 0, 0], { 'chat-id': true }])
+change('chat-id')
+check('a second change with the request still pending adds no reference', counts(), [1, 0, 0])
+vm.runInContext("_this._global_store._bridge.runs = {r9: {item: 'chat-id'}}; _on_global_store_change('other-store-id', false)", ctx)
+check('another store\'s change does not reconcile the listing (a listener hears every store)', counts(), [1, 0, 0])
+vm.runInContext("_on_global_store_change('vault-id', false)", ctx)
+check('the own store\'s change does: the listing mark is a second reference on the item', counts(), [2, 0, 0])
+listing('{}')
+check('the delisting releases the listing reference, the pending one remains', counts(), [1, 0, 0])
+setText('chat-id', '#chat/topic/0 #_agent/vault/fable_wt\n<<user>> please run the tests\n<<agent(\'vault/fable_wt\')>> done', ['#chat/topic/0', '#_agent/vault/fable_wt'])
+change('chat-id')
+check('the reply releases the pending reference', [counts(), pendingMarks()], [[0, 0, 0], {}])
+setText('chat2-id', '#chat/two #_agent/gpt\n<<user>> hello', ['#chat/two', '#_agent/gpt'])
+change('chat2-id')
+check('a chat item routed to a web agent is ignored', counts(), [0, 0, 0])
+setText('chat2-id', '#chat/two #_agent/vault\n<<user>> hello', ['#chat/two', '#_agent/vault'])
+change('chat2-id', false, true)
+check('a dependency change is ignored', counts(), [0, 0, 0])
+change('chat2-id')
+check('the vault-routed request marks the item', counts(), [0, 1, 0])
+const chat2 = items['chat2-id']
+delete items['chat2-id'] // deleted: the app's _item resolves null
+change('chat2-id', true)
+check('a deleted item drops its mark without a decrement', [pendingMarks(), chat2.count], [{}, 1])
+items['chat2-id'] = chat2
+chat2.count = 0
+setText('chat2-id', '#chat/two #_agent/vault/typo-name\n<<user>> hello', ['#chat/two', '#_agent/vault/typo-name'])
+change('chat2-id')
+check('a malformed persona tag is not a request (the bridge would not answer it)', counts(), [0, 0, 0])
+setText('chat2-id', '#chat/two #_agent/vault #_agent/vault/fable\n<<user>> hello', ['#chat/two', '#_agent/vault', '#_agent/vault/fable'])
+change('chat2-id')
+check('an ambiguous route is not a request', counts(), [0, 0, 0])
+setText('chat2-id', '#chat/two #_agent/vault\n<<user>>   \n', ['#chat/two', '#_agent/vault'])
+change('chat2-id')
+check('a blank user turn is not pending', counts(), [0, 0, 0])
+// welcome marks the pending requests it finds (a tab opened mid-request)
+setText('chat-id', '#chat/topic/0 #_agent/vault/fable_wt\n<<user>> still waiting', ['#chat/topic/0', '#_agent/vault/fable_wt'])
+vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
+check('welcome marks the chat items whose request is pending', [counts(), pendingMarks()], [[1, 0, 0], { 'chat-id': true }])
+check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
+check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])
 
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
 console.log('all checks passed')
