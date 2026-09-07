@@ -1,18 +1,10 @@
 // WELCOME GATING (2026-09-07 stale-cache reversion): the verification compares each item's text
-// with the mirror, so it must see the server's texts. A returning device initializes from its
-// persistent cache, and verifying the cached (stale) texts marked every item edited elsewhere
-// pushable (jarring) and, while a mark still saved the item, wrote the stale text over the newer
-// revision. The app publishes `_server_confirmed` (false until a current server revision has
-// been applied, then true); an app without the flag (undefined) verifies at once, as before
-const _welcome_gate = server_confirmed => (server_confirmed === false ? 'wait' : 'init')
-// one poll step: retry in 250ms while waiting, else verify once and finish the task, returning
-// the verification's completion so a rejection stays under task error handling
-const _welcome_poll = (server_confirmed, init) =>
-  _welcome_gate(server_confirmed) == 'wait' ? 250 : init().then(() => null)
+// with the mirror, so it must see the server's texts, never a returning device's cache-served
+// (stale) ones — verifying those marked every item edited elsewhere pushable (jarring) and,
+// while a mark still saved the item, wrote the stale text over the newer revision. see
+// when_server_confirmed in util/core.js
 function _on_welcome() {
-  if (_welcome_gate(window._server_confirmed) == 'init') return init_pusher()
-  _this.log('waiting for the server-confirmed corpus before verifying items')
-  dispatch_task('init_pusher', () => _welcome_poll(window._server_confirmed, init_pusher), 250)
+  return when_server_confirmed(_this, 'init_pusher', init_pusher)
 }
 
 async function init_pusher() {

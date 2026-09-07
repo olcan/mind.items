@@ -1354,6 +1354,27 @@ function _install_core_css() {
   _this.store.css_hash = css_hash
 }
 
+// runs `f` once the app's corpus is SERVER-CONFIRMED: `window._server_confirmed` is false
+// from startup until the app applied a current server revision (see the app's
+// markServerConfirmed), and undefined on an app without the flag (run at once, as before).
+// welcome hooks that compare item texts with an external source (the pusher's mirror
+// verification, the updater's install check, the sharer's share tags) must never run on a
+// cache-served corpus: a stale text marked, updated or shared from there was saved whole
+// over the server's newer revision (2026-09-07). the app runs welcome hooks after its own
+// settlement (server-confirmed, offline, or a timeout), so this waits only past a timeout
+// or offline, polling every 250ms as task `name` on `item`. returns `f`'s completion when
+// run at once, so a rejection stays with the caller
+function when_server_confirmed(item, name, f) {
+  if (window._server_confirmed !== false) return f()
+  item.log(`${name}: waiting for the server-confirmed corpus`)
+  item.dispatch_task(
+    name,
+    () =>
+      window._server_confirmed === false ? 250 : Promise.resolve(f()).then(() => null),
+    250
+  )
+}
+
 // install core.css and set up globals (attached to window) on init
 function _init() {
   if (typeof window === 'undefined') return // non-window context

@@ -7,10 +7,14 @@ const _special_tag_aliases = tag =>
   tag?.match(_share_tag_regex) ? ['#features/_share'] : null
 
 function _on_welcome() {
-  // perform full update pass to ensure share tags are reflected in attribs
-  // note we can skip unshares since update_shared_deps handles them
-  each(_items(), item => _update_shared(item, { skip_unshares: true }))
-  _update_shared_deps()
+  // never on a cache-served corpus: a share implied by a cached text saves the whole item
+  // (see when_server_confirmed in util/core.js)
+  return when_server_confirmed(_this, 'welcome_shares', () => {
+    // perform full update pass to ensure share tags are reflected in attribs
+    // note we can skip unshares since update_shared_deps handles them
+    each(_items(), item => _update_shared(item, { skip_unshares: true }))
+    _update_shared_deps()
+  })
 }
 
 // updates item's 'shared' attribs to sync w/ its #share/... tags

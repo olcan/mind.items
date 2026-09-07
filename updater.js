@@ -2,7 +2,9 @@
 // ensures page is ready to display modals, e.g. for token prompts
 // also allows existing items to initialize before being updated
 function _on_welcome() {
-  init_updater()
+  // never on a cache-served corpus: the check reads the cached install sha and text and
+  // writes the whole item (see when_server_confirmed in util/core.js)
+  return when_server_confirmed(_this, 'init_updater', init_updater)
 }
 
 async function init_updater() {
