@@ -1,4 +1,4 @@
-#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends, as an active agent's item is on every tab.
+#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends, as an active agent's item is on every tab; in the tab that saves a vault request the mark is immediate, as a web agent's: the save itself marks the item until the bridge's listing takes over (or, without a listing, until the reply lands, the item is deleted, or 30 s pass).
 ---
 #### Active Runs
 <div class="runs"></div>
@@ -28,13 +28,21 @@ const vault_queued = () => _this._global_store._bridge?.queued ?? {}
 const vault_held_items = () => new Set([...keys(vault_queued()), ...entries(vault_runs()).map(([, run]) => run.item)])
 
 // the app's per-item running flag is a refcount (a web agent's item holds one reference during
-// its call); this tab holds one reference of its own on every listed run's chat item, beside any
-// other holder's (a web call in flight on the same chat keeps its own): `marked` (in-tab state
-// under _this.store) records this tab's references, so an unchanged listing adds none and a
-// delisted run's item releases exactly one; a deleted item is skipped
-function vault_mark_running(listed, marked) {
+// its call); this tab holds one reference of its own on every chat item the bridge holds, beside
+// any other holder's (a web call in flight on the same chat keeps its own): `marked` (in-tab
+// state under _this.store) records this tab's references by item, so an unchanged listing adds
+// none and a delisted run's item releases exactly one; a deleted item is skipped. `pending` (also
+// under _this.store) records, by item, the save time of a reference taken at a save
+// (vault_mark_saved) that the store does not list yet: the listing takes such a reference over
+// when it lists the item (the entry leaves `pending`, the reference stays, the store owns it from
+// then on) and never releases one it has not taken over
+function vault_mark_running(listed, marked, pending = {}) {
   for (const id of keys(marked)) {
-    if (listed.has(id)) continue
+    if (listed.has(id)) {
+      delete pending[id] // handed over to the listing
+      continue
+    }
+    if (id in pending) continue // saved here and not listed yet: vault_release_pending's
     delete marked[id]
     const item = _item(id, { silent: true })
     if (item) item.running = false
@@ -103,28 +111,65 @@ function vault_clear_status(shown, listed) {
   return shown
 }
 
+// this tab's mark records, under its item state (see vault_mark_running)
+const vault_marks = () => [(_this.store._vault_marked ??= {}), (_this.store._vault_pending ??= {})]
+
 // the one reconciliation, at welcome and at every change of this store, local or remote (the app
 // calls _on_global_store_change on the store's owner within about a second of a bridge write);
 // the marks survive either order, a store change can reach the tab before its welcome
 function vault_reconcile_running() {
-  vault_release_legacy_pending()
-  _this.store._vault_marked = vault_mark_running(vault_held_items(), _this.store._vault_marked ?? {})
+  const [marked, pending] = vault_marks()
+  vault_mark_running(vault_held_items(), marked, pending)
+  vault_expire_pending()
   _this.store._vault_shown = vault_show_status(
     vault_runs(), _this._global_store._supervisor?.runs ?? {}, _this.store._vault_shown ?? {}, vault_queued()
   )
 }
 
-// the pending marks of the item's earlier code (references this tab took at a request's save):
-// the app keeps the item's session store across /_update, so they are released once here,
-// without parsing any item
-function vault_release_legacy_pending() {
-  const pending = _this.store._vault_pending
-  if (!pending) return
-  for (const id of keys(pending)) {
+// the save-time mark, the way a web agent marks its item at dispatch: a save in this tab of an
+// item the app routes to the vault takes this tab's reference at once, ahead of the bridge's
+// listing (save, watch, admission, store write, delivery: seconds). The routing predicate is the
+// app's (window._grammar.routed: a vault route among the tags of the grammar view, inert reply
+// regions opaque) over the item's raw text, and no request grammar is parsed here: every save of
+// a routed item marks, and a save that is no request (an edit of an old turn, a route the bridge
+// never answers) lapses at the timeout below. The listing takes the reference over when it lists
+// the item (vault_mark_running); until then it is released at the item's next remote change (its
+// reply; an edit from another device releases it too, and the listing marks a live request
+// again), at its deletion, or after VAULT_PENDING_MS, so a stopped bridge leaves no stale mark
+const VAULT_PENDING_MS = 30000
+const vault_routed = id =>
+  window._grammar?.version >= 2 && !!window._grammar.routed(_item(id, { silent: true })?.text ?? '')
+
+function vault_mark_saved(id, marked, pending) {
+  if (marked[id] && !(id in pending)) return // listed by the store, which owns the reference
+  if (!marked[id]) {
     const item = _item(id, { silent: true })
-    if (item) item.running = false
+    if (!item) return
+    item.running = true
+    marked[id] = true
   }
-  delete _this.store._vault_pending
+  pending[id] = Date.now() // a re-save restarts the timeout
+  dispatch_task('pending', vault_expire_pending, 1000, 1000) // ticks while a mark is pending
+}
+
+// release a pending mark (none for an item the listing has taken over): the reference is given
+// back if the item exists (a deleted item's count is gone with it)
+function vault_release_pending(id, marked, pending) {
+  if (!(id in pending)) return
+  delete pending[id]
+  delete marked[id]
+  const item = _item(id, { silent: true })
+  if (item) item.running = false
+}
+
+// the timeout, as the task above and at every reconciliation: the pending marks past it are
+// released (a `true` of the item's earliest code, kept in a tab's session store across /_update,
+// is past it too); the task ends once nothing is pending (null cancels it)
+function vault_expire_pending() {
+  const [marked, pending] = vault_marks()
+  const now = Date.now()
+  for (const [id, since] of entries(pending)) if (since + VAULT_PENDING_MS <= now) vault_release_pending(id, marked, pending)
+  if (!keys(pending).length) return null
 }
 
 function _on_global_store_change(id) {
@@ -306,10 +351,17 @@ function stop_run(id) {
   store._owner = { ...(store._owner ?? {}), stop }
 }
 
-// the deferred status clearing (see vault_clear_status) is retried at every change of an item
-// this tab set a status on: the web call's reply on the same chat is such a change
+// a save in this tab of an item the app routes to the vault takes the save-time mark (or restarts
+// its timeout); a remote change of a pending item is its reply, and a deletion or a save that
+// removed the route ends the request: the pending mark is released (a reference the listing has
+// taken over is the store's alone). Then the deferred status clearing (see vault_clear_status),
+// retried at every change of an item this tab set a status on: the web call's reply on the same
+// chat is such a change
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // a dependency of the changed item, not the item itself
+  const [marked, pending] = vault_marks()
+  if (!deleted && !remote && vault_routed(id)) vault_mark_saved(id, marked, pending)
+  else vault_release_pending(id, marked, pending)
   if (_this.store._vault_shown?.[id]) // a status this tab set: cleared once the item stops running
     _this.store._vault_shown = vault_clear_status(_this.store._vault_shown, vault_held_items())
 }

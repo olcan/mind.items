@@ -55,7 +55,10 @@ class FakeItem {
   get running() { return !!this.count }
   set running(v) { this.count += v ? 1 : -1; if (this.count < 0) throw new Error('running below zero') }
 }
-const items = { 'chat-id': new FakeItem('#chat/topic'), 'chat2-id': new FakeItem('#chat/two'), 'busy-id': new FakeItem('#chat/busy', 1) }
+// the chat items' raw texts carry a vault route (the stubbed routing predicate below reads them)
+// and no user turn: the item parses no request grammar for its marks
+const routed_text = name => `${name} #_agent/vault/fable\nhello`
+const items = { 'chat-id': new FakeItem('#chat/topic', 0, routed_text('#chat/topic')), 'chat2-id': new FakeItem('#chat/two', 0, routed_text('#chat/two')), 'busy-id': new FakeItem('#chat/busy', 1), 'web-id': new FakeItem('#chat/web', 0, '#chat/web #_agent/openai\nhello') }
 for (const [id, item] of Object.entries(items)) item.id = id
 // the helper's own dependencies, as util/core.js defines them (kept minimal and equivalent)
 const env = {
@@ -76,7 +79,7 @@ const env = {
   Object,
   console,
   marked: { parse: s => `<parsed>${s}</parsed>` }, // the app's Markdown parser, stubbed
-  window: { _grammar: { version: 2 }, _parse_tags: text => ({ raw: text.match(/#[\w/-]+/g) ?? [] }) }, // the app's grammar capability and tag parser, stubbed
+  window: { _grammar: { version: 2, routed: text => /#_?agent\/(vault|native)(\/|$)/i.test(text) } }, // the app's versioned grammar capability with its routing predicate over an item's raw text, stubbed
   _items: () => Object.values(items),
   elem: s => (s === '.logs' ? logs_div.replaced ?? logs_div : s === '.proposals' ? proposals_div : s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own elements (util/core/item.js)
 }
@@ -285,7 +288,6 @@ vm.runInContext("_this._global_store._bridge = {host: 'h', updated: " + now + ",
 check('the queued entry becoming a run keeps the one reference and shows the run status', [counts(), status('chat2-id')], [[0, 1, 0], ['', 0]])
 listing('{}')
 check('the run ending releases the reference and clears the status', [counts(), status('chat2-id')], [[0, 0, 0], ['', 0]])
-check('the item defines no pending-mark scan', [vm.runInContext('typeof vault_pending', ctx), vm.runInContext('typeof vault_mark_pending', ctx), vm.runInContext('typeof _on_welcome', ctx)], ['undefined', 'undefined', 'function'])
 // the welcome parses no item: _items throws during it
 vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store", ctx)
 const realItems = env._items
@@ -296,13 +298,66 @@ try { vm.runInContext('_on_welcome()', ctx) } catch (e) { welcomeError = String(
 check('the welcome marks from the store without enumerating items', welcomeError, null)
 vm.runInContext('_items = undefined', ctx)
 env._items = realItems
-// the earlier item code's pending references (kept in the session store across /_update) are
-// released once, without parsing items; a second reconciliation finds nothing
-vm.runInContext("_this.store = {_vault_pending: {'chat-id': true}}; items['chat-id'].count = 1; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _on_global_store_change('vault-id', false)", ctx)
-check('legacy pending references are released once', [counts(), vm.runInContext('_this.store._vault_pending', ctx)], [[0, 0, 0], undefined])
+// the save-time mark (design section 12): a save in this tab of an item the app routes to the
+// vault (the stubbed window._grammar.routed over the raw text) takes one reference at once and
+// starts the timeout task; the listing takes the reference over when it lists the item, in either
+// order, never two; without a listing the reply (a remote change), a save that removed the route,
+// the deletion, or the timeout releases it
+const change = (id, { remote = false, deleted = false } = {}) => vm.runInContext(`_on_item_change('${id}', '#x', '#x', ${deleted}, ${remote}, false)`, ctx)
+const pending = () => vm.runInContext('_this.store._vault_pending', ctx)
+const pendingTask = () => tasks.findLast(t => t.name === 'pending')
+vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
+const tasksBefore = tasks.length
+change('chat-id')
+check('a local save of a routed item marks at once, records the save time, and starts the pending task', [counts(), marks(), pending(), tasks.length - tasksBefore, [pendingTask().delay, pendingTask().repeat]], [[1, 0, 0], { 'chat-id': true }, { 'chat-id': clock.now }, 1, [1000, 1000]])
+clock.now += 1000
+change('chat-id')
+check('a re-save adds no reference and restarts the timeout', [counts(), pending()], [[1, 0, 0], { 'chat-id': clock.now }])
+check('a tick before the timeout releases nothing and keeps the task', [pendingTask().fn() === undefined, counts()], [true, [1, 0, 0]])
+listing("{r1: {item: 'chat-id'}}")
+check('the listing takes the mark over: still one reference, no longer pending', [counts(), marks(), pending()], [[1, 0, 0], { 'chat-id': true }, {}])
+check('the tick after the handoff ends the task', pendingTask().fn() === null, true)
+change('chat-id')
+change('chat-id', { remote: true })
+check('while listed, a save and a remote change are the listing\'s: no reference taken or released', [counts(), pending()], [[1, 0, 0], {}])
+listing('{}')
+check('the delisting releases the handed-over reference', [counts(), marks()], [[0, 0, 0], {}])
+listing("{r2: {item: 'chat2-id'}}") // the other order: listed first (a request saved on another device)
+change('chat2-id')
+check('listed first: the local save adds no reference and no pending mark', [counts(), pending()], [[0, 1, 0], {}])
+listing('{}')
+check('the delisting then releases the one reference', counts(), [0, 0, 0])
+change('chat-id')
+change('chat-id', { remote: true }) // the reply lands with no listing seen
+check('the reply (a remote change) releases a pending mark', [counts(), marks(), pending()], [[0, 0, 0], {}, {}])
+change('chat-id')
+items['chat-id'].text = '#chat/topic #_agent/openai\nhello' // the route removed
+change('chat-id')
+check('a save that removed the route releases the pending mark', [counts(), pending()], [[0, 0, 0], {}])
+items['chat-id'].text = routed_text('#chat/topic')
+const gone = (items['gone-id'] = new FakeItem('#chat/gone', 0, routed_text('#chat/gone')))
+change('gone-id')
+delete items['gone-id'] // deleted: _item returns null
+change('gone-id', { deleted: true })
+check('a deletion drops the pending mark without a decrement (the count is gone with the item)', [gone.count, marks(), pending()], [1, {}, {}])
+change('chat-id')
+clock.now += 30000
+check('the timeout tick releases the pending mark and ends the task', [pendingTask().fn() === null, counts(), marks(), pending()], [true, [0, 0, 0], {}, {}])
+change('chat-id')
+clock.now += 30000
 vm.runInContext("_on_global_store_change('vault-id', false)", ctx)
-check('a later reconciliation releases nothing more', counts(), [0, 0, 0])
-check('_on_item_change keeps only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status] })()", ctx), [{}, ''])
+check('a reconciliation releases an overdue pending mark too', [counts(), pending()], [[0, 0, 0], {}])
+vm.runInContext("_this.store._vault_pending = {'chat-id': true}; items['chat-id'].count = 1; _on_global_store_change('vault-id', false)", ctx)
+check('a legacy mark of the item\'s earliest code (a true kept in the session store across /_update) is released at the first reconciliation', [counts(), pending()], [[0, 0, 0], {}])
+change('web-id')
+check('a save of a web-routed item takes no mark', [items['web-id'].count, marks()], [0, {}])
+const grammar = env.window._grammar
+delete env.window._grammar // a stale app without the capability
+change('chat-id')
+check('without the app\'s grammar capability no mark is taken (the listing alone marks)', [counts(), marks()], [[0, 0, 0], {}])
+env.window._grammar = grammar
+check('the item neither enumerates items nor parses request grammar for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags'), block[1].includes('.read(')], [false, false, false])
+check('a change of a non-routed item runs only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status, _this.store._vault_marked] })()", ctx), [{}, '', {}])
 check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])
 
