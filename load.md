@@ -1,4 +1,4 @@
-#load function loads external libraries.
+#load function loads external libraries. Each url is loaded at most once per page: concurrent and repeated calls share the pending or completed load (so the `self.lib || url` guards below are optional), and a failed load is retried by the next call.
 ```js_example
 await _load(
   self.lib1 || "url1", // load only if !self.lib1
