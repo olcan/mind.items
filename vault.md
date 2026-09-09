@@ -26,6 +26,10 @@ const vault_queued = () => _this._global_store._bridge?.queued ?? {}
 // the chat items the bridge holds: queued or executing (the store is the single source; no
 // item is parsed for it)
 const vault_held_items = () => new Set([...keys(vault_queued()), ...entries(vault_runs()).map(([, run]) => run.item)])
+// the bridge lists an item by its saved document id, while the app calls _on_item_change with the
+// item's own id, a temporary one for a chat created in this tab until the tab reloads (_item
+// resolves the saved id to that item): this tab's records are keyed by the item's own id
+const vault_item_key = id => _item(id, { silent: true })?.id ?? id
 
 // the app's per-item running flag is a refcount (a web agent's item holds one reference during
 // its call); this tab holds one reference of its own on every chat item the bridge holds, beside
@@ -37,6 +41,7 @@ const vault_held_items = () => new Set([...keys(vault_queued()), ...entries(vaul
 // when it lists the item (the entry leaves `pending`, the reference stays, the store owns it from
 // then on) and never releases one it has not taken over
 function vault_mark_running(listed, marked, pending = {}) {
+  listed = new Set([...listed].map(vault_item_key)) // the saved ids as this tab's item ids
   for (const id of keys(marked)) {
     if (listed.has(id)) {
       delete pending[id] // handed over to the listing
@@ -111,8 +116,21 @@ function vault_clear_status(shown, listed) {
   return shown
 }
 
-// this tab's mark records, under its item state (see vault_mark_running)
-const vault_marks = () => [(_this.store._vault_marked ??= {}), (_this.store._vault_pending ??= {})]
+// this tab's mark records, under its item state (see vault_mark_running). A `true` in `pending`
+// is the item's earliest code's own pending reference (2026-09-06: held beside the listing's,
+// in a tab that ran that code until this update reached it; the session store survives
+// /_update): released here, once, keeping the listing's record
+const vault_marks = () => {
+  const marked = (_this.store._vault_marked ??= {})
+  const pending = (_this.store._vault_pending ??= {})
+  for (const [id, since] of entries(pending)) {
+    if (since !== true) continue
+    delete pending[id]
+    const item = _item(id, { silent: true })
+    if (item) item.running = false
+  }
+  return [marked, pending]
+}
 
 // the one reconciliation, at welcome and at every change of this store, local or remote (the app
 // calls _on_global_store_change on the store's owner within about a second of a bridge write);
@@ -163,8 +181,7 @@ function vault_release_pending(id, marked, pending) {
 }
 
 // the timeout, as the task above and at every reconciliation: the pending marks past it are
-// released (a `true` of the item's earliest code, kept in a tab's session store across /_update,
-// is past it too); the task ends once nothing is pending (null cancels it)
+// released; the task ends once nothing is pending (null cancels it)
 function vault_expire_pending() {
   const [marked, pending] = vault_marks()
   const now = Date.now()

@@ -347,8 +347,30 @@ change('chat-id')
 clock.now += 30000
 vm.runInContext("_on_global_store_change('vault-id', false)", ctx)
 check('a reconciliation releases an overdue pending mark too', [counts(), pending()], [[0, 0, 0], {}])
+// the item's earliest code held a pending reference of its own beside the listing's, both `true`:
+// a tab still running it when this update arrives releases the pending one and keeps the listing's
 vm.runInContext("_this.store._vault_pending = {'chat-id': true}; items['chat-id'].count = 1; _on_global_store_change('vault-id', false)", ctx)
-check('a legacy mark of the item\'s earliest code (a true kept in the session store across /_update) is released at the first reconciliation', [counts(), pending()], [[0, 0, 0], {}])
+check('a legacy pending mark alone (the earliest code, kept in the session store across /_update) is released at the first reconciliation', [counts(), pending()], [[0, 0, 0], {}])
+listing("{r3: {item: 'chat-id'}}")
+vm.runInContext("_this.store._vault_pending = {'chat-id': true}; items['chat-id'].count = 2; _on_global_store_change('vault-id', false)", ctx)
+check('a legacy pending mark beside the listing\'s reference releases only its own and keeps the listing\'s record', [counts(), marks(), pending()], [[1, 0, 0], { 'chat-id': true }, {}])
+listing('{}')
+check('the delisting then releases the listing\'s reference: nothing leaks', [counts(), marks()], [[0, 0, 0], {}])
+// a chat created in this tab keeps a temporary id until the tab reloads: the app calls
+// _on_item_change with it, the bridge lists the saved document id, and _item resolves the saved id
+// to the same item, so the records are keyed by the item's own id in both orders (review 0 B1)
+items['chat-saved'] = items['chat-id'] // the saved id resolves to the item whose own id is chat-id
+change('chat-id')
+listing("{r4: {item: 'chat-saved'}}")
+check('a new chat: the listing by the saved id takes over the mark taken under the temporary id (one reference, not pending)', [counts(), marks(), pending()], [[1, 0, 0], { 'chat-id': true }, {}])
+listing('{}')
+check('and its delisting releases that reference before any reply', counts(), [0, 0, 0])
+listing("{r5: {item: 'chat-saved'}}")
+change('chat-id')
+check('listed by the saved id first: a local edit under the temporary id adds no reference', [counts(), marks(), pending()], [[1, 0, 0], { 'chat-id': true }, {}])
+listing('{}')
+check('and the delisting releases the one reference', counts(), [0, 0, 0])
+delete items['chat-saved']
 change('web-id')
 check('a save of a web-routed item takes no mark', [items['web-id'].count, marks()], [0, {}])
 const grammar = env.window._grammar
