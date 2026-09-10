@@ -13,6 +13,37 @@ async function run_chat_agent(messages, config = {}) {
   )
 }
 
+// is `item` routed to the vault, by its own text or, for a chained item (`…/N` created by the
+// app under a chat, or an item that names a chat as its direct dependency with a hidden tag), by
+// its direct chat dependency's? The direct chat dependency is selected exactly as parse_messages
+// selects the transcript's (the one chat item among `item.dependencies` whose label is among the
+// item's hidden tags or is the item's immediate label prefix; several fail closed), recursively,
+// so the web responder yields for the whole chain the bridge owns (the bridge inherits a route
+// through the same direct-chat lineage; vault design mind_vault_item section 13). Labels are
+// compared as normalized lowercase identities (item.label is the case-preserving text, hidden
+// tags are lowercase, the bridge resolves lowercase labels). Ambiguity counts as routed: the
+// bridge refuses it, and the web must not answer it either. The depth cap is a conservative
+// bound, not cycle detection: a chain deeper than 100 is treated as routed (fenced from the web).
+function vault_routed_item(item, depth = 0) {
+  if (!item) return false
+  if (window._grammar.routed(item.text ?? '')) return true
+  if (depth > 100) return true // deeper than any ordinary chain: fail closed
+  const item_label = item.label?.toLowerCase()
+  let chat_dep = null
+  for (const id of item.dependencies ?? []) {
+    const dep = _item(id, { silent: true })
+    if (!dep || !is_chat_item(dep)) continue
+    const label = (dep.label ?? dep.name).toLowerCase()
+    const direct =
+      item.tags_hidden?.includes(label) ||
+      (item_label?.startsWith(label + '/') && !item_label.substring(label.length + 1).includes('/'))
+    if (!direct) continue
+    if (chat_dep) return true // multiple chat dependencies: ambiguous, fail closed
+    chat_dep = dep
+  }
+  return chat_dep ? vault_routed_item(chat_dep, depth + 1) : false
+}
+
 // run_on_chat_item([item|name = _this], [msg])
 // run chat agent on chat `item` (`name`)
 // `item` must not be _running_, and have no `_log|_output` blocks
@@ -33,13 +64,14 @@ async function run_on_chat_item(item = _this, msg = undefined) {
   // dispatch entirely -- the vault bridge is the one responder for such items, and an
   // invalid/unregistered vault persona fails CLOSED to the vault rather than falling
   // through to a web provider. computed by the app from the scanner's grammar view
-  // (window._grammar.routed), so a route inside a claimed region does not count.
+  // (window._grammar.routed), so a route inside a claimed region does not count; a chained
+  // item inherits its ancestor's route (vault_routed_item).
   // FAIL CLOSED on a stale app (reviews 178-179 §5.1): without the versioned grammar
   // capability this consumer must not dispatch at all -- an old runtime cannot see
   // vault routes claimed under the new grammar.
   // checked FIRST: a vault-routed item is skipped regardless of chat-item shape.
   if (!(window._grammar?.version >= 2)) fatal(`web dispatch requires app grammar v2; reload the app`)
-  if (window._grammar.routed(item.text)) {
+  if (vault_routed_item(item)) {
     debug(`skipping web dispatch for vault-routed item ${item.name}`)
     return
   }
@@ -116,7 +148,7 @@ async function run_on_chat_item(item = _this, msg = undefined) {
       // flight when the owner adds a vault route must NOT publish into the
       // now-vault-routed item -- a stale-run fence, not cancellation
       if (!(window._grammar?.version >= 2)) fatal(`web publication requires app grammar v2; reload the app`)
-      if (window._grammar.routed(item.text)) {
+      if (vault_routed_item(item)) {
         warn(`dropping web reply for now-vault-routed item ${item.name}`)
         return
       }
@@ -157,7 +189,7 @@ async function run_on_chat_item(item = _this, msg = undefined) {
       // vault routing CATCH fence (review 148 §4): a provider rejection after the owner
       // added a vault marker must NOT publish a web _log into the now-vault-routed item
       if (!(window._grammar?.version >= 2)) fatal(`web publication requires app grammar v2; reload the app`)
-      if (window._grammar.routed(item.text)) {
+      if (vault_routed_item(item)) {
         warn(`dropping web error log for now-vault-routed item ${item.name}: ${e}`)
         return
       }

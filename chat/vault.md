@@ -4,8 +4,9 @@
 // => /vault [msg]
 // send `msg` to the [vault agent](#agent/vault) on the vault host: the Fable supervisor that
 // gets the work done through a worker in the chat's own worktree (the one vault command since
-// 2026-09-10); as _chat_command, but created items also tag #_agent/vault explicitly,
-// since the vault bridge parses item text only (no web-side dependency
+// 2026-09-10); as _chat_command, but created items also tag #_agent/vault explicitly (a
+// chained `…/N` item created under it later inherits the route through the chat lineage, on
+// the vault side and in #vault alike, so it needs no tag); the bridge parses item text (no web-side dependency
 // resolution); see #agent/vault for the protocol
 const _on_command_vault = msg => {
   let suffix = 0

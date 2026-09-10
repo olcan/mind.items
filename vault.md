@@ -1,4 +1,4 @@
-#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends (a supervisor's worker: until its outcome is recorded, through its finalization, with a row of its own while its run is not listed), as an active agent's item is on every tab; in the tab that saves a vault request the mark is immediate, as a web agent's: the save itself marks the item until the bridge's listing takes over (or, without a listing, until the reply lands, the item is deleted, or its 30-second deadline passes, released at the next tick).
+#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends (a supervisor's worker: until its outcome is recorded, through its finalization, with a row of its own while its run is not listed), as an active agent's item is on every tab; a vault request is marked the moment its text reaches a tab, as a web agent's item is at dispatch: the save in the saving tab, and the synced change in every other tab, mark the item (an item whose last turn is a user turn, routed by its own tags or, for a chained `…/N` item, by its nearest ancestor's) until the bridge's listing takes over (or, without a listing, until the reply lands, the item is deleted, or its 30-second deadline passes, released at the next tick).
 ---
 #### Active Runs
 <div class="runs"></div>
@@ -167,27 +167,57 @@ function vault_reconcile_running() {
   )
 }
 
-// the save-time mark, the way a web agent marks its item at dispatch: a save in this tab of an
-// item the app routes to the vault takes this tab's reference at once, ahead of the bridge's
-// listing (save, watch, admission, store write, delivery: seconds). The routing predicate is the
-// app's (window._grammar.routed: a vault route among the tags of the grammar view, inert reply
-// regions opaque) over the item's raw text, and no request grammar is parsed here: every save of
-// a routed item marks, and a save that is no request (an edit of an old turn, a route the bridge
-// never answers) lapses at the timeout below; a save of a routed item that opens no user turn (a route, persona, or command item, e.g. under /update; an escaped mention in prose or code is not a turn) never marks. The listing takes the reference over when it lists
-// the item (vault_mark_running); until then it is released at the item's next remote change (its
-// reply; an edit from another device releases it too, and the listing marks a live request
-// again), at its deletion, or at the first tick or reconciliation past its VAULT_PENDING_MS
-// deadline, so a stopped bridge leaves no lasting mark
+// the save-time mark, the way a web agent marks its item at dispatch: a change (a save in this
+// tab, or another tab's save arriving by sync) that leaves an item a pending vault request takes
+// this tab's reference at once, ahead of the bridge's listing (save, watch, admission, store
+// write, delivery: seconds). A pending request: the item's LAST role opener over the grammar view
+// (item.read(), macros unevaluated, inert reply regions opaque) is a user turn, and the app's
+// routing predicate (window._grammar.routed: a vault route among the tags of the grammar view)
+// holds over the item's raw text or, for a chained item without a route of its own, over its
+// nearest label-prefix ancestor's (vault_routed). Only the role openers are read, never a whole
+// request, so an edit of an old turn that still ends with a user turn, or a route the bridge
+// never answers, marks too and lapses at the timeout below; a change that leaves no pending
+// request (the reply, a deletion, a removed route or turn) releases the mark. The listing takes
+// the reference over when it lists the item (vault_mark_running); until then it is released at
+// the item's next change that ends the request, at its deletion, or at the first tick or
+// reconciliation past its VAULT_PENDING_MS deadline, so a stopped bridge leaves no lasting mark
 const VAULT_PENDING_MS = 30000
-// a chat REQUEST the app routes to the vault: the item's raw text OPENS a user turn on some line
-// (the chat grammar's `\<<user>>` delimiter, ASCII spaces before and inside allowed: an escaped
-// mention inside prose or code, as in the route, command, and persona items /update re-saves,
-// is not one; the request grammar itself is not parsed here) and the app's routing predicate
-// holds over it. The pattern is built from a string so the item source carries no macro delimiter.
-const VAULT_USER_TURN = new RegExp('^ *\<< *user *>>', 'm') // the chat parser's spelling: ASCII spaces only
+// a chat REQUEST the app routes to the vault: the item's raw text ENDS with a user turn (the
+// last delimiter opener at a line start is the chat grammar's `\<<user>>`, ASCII spaces before
+// and inside allowed: an escaped mention inside prose or code, as in the route, command, and
+// persona items /update re-saves, is not one; a reply ends with an agent turn; only the role
+// openers are read, over the grammar view, never a whole request) and the app's routing predicate holds over the item or,
+// for a chained item (`…/N`, created by the app under a chat) without a route of its own, over
+// its nearest label-prefix ancestor, as the bridge inherits a route through the direct-chat
+// lineage and the web framework through the dependency closure. The patterns are built from
+// strings so the item source carries no macro delimiter.
+const VAULT_OPENER = new RegExp('^ *\<< *(system|user|_?agent|tool)(?: *\\([^\\n]*\\))? *>>', 'gm')
+const vault_last_turn_is_user = text => {
+  let role = null
+  for (const m of text.matchAll(VAULT_OPENER)) role = m[1]
+  return role === 'user'
+}
+const vault_route_text = id => {
+  // the item's own text when the app routes it, else the nearest label-prefix ancestor's
+  const routed = window._grammar.routed
+  let item = _item(id, { silent: true })
+  if (!item) return null
+  if (routed(item.text ?? '')) return item.text
+  for (let name = item.name ?? ''; name.includes('/'); ) {
+    name = name.slice(0, name.lastIndexOf('/'))
+    const parent = _item(name, { silent: true })
+    if (!parent) return null // no unique parent by that name: no inheritance
+    if (routed(parent.text ?? '')) return parent.text
+  }
+  return null
+}
 const vault_routed = id => {
-  const text = _item(id, { silent: true })?.text ?? ''
-  return window._grammar?.version >= 2 && VAULT_USER_TURN.test(text) && !!window._grammar.routed(text)
+  if (!(window._grammar?.version >= 2)) return false
+  const item = _item(id, { silent: true })
+  if (!item) return false
+  // the grammar view (item.read(): the app's cached view, macros unevaluated, an inert reply
+  // body opaque), so a delimiter quoted inside a bridge reply is not a turn
+  return vault_last_turn_is_user(item.read() ?? '') && vault_route_text(id) !== null
 }
 
 function vault_mark_saved(id, marked, pending) {
@@ -415,16 +445,20 @@ function stop_run(id) {
   store._owner = { ...(store._owner ?? {}), stop }
 }
 
-// a save in this tab of an item the app routes to the vault takes the save-time mark (or restarts
-// its timeout); a remote change of a pending item is its reply, and a deletion or a save that
-// removed the route ends the request: the pending mark is released (a reference the listing has
-// taken over is the store's alone). Then the deferred status clearing (see vault_clear_status),
+// a change (a save in this tab, or another tab's save arriving by sync) that leaves an item a
+// pending vault request takes the save-time mark (or restarts its timeout); a change that does not
+// (its reply, which ends with an agent turn; a deletion; an edit that removed the route or the
+// turn) ends the request: the pending mark is released (a reference the listing has taken over is
+// the store's alone). Then the deferred status clearing (see vault_clear_status),
 // retried at every change of an item this tab set a status on: the web call's reply on the same
 // chat is such a change
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // a dependency of the changed item, not the item itself
   const [marked, pending] = vault_marks()
-  if (!deleted && !remote && vault_routed(id)) vault_mark_saved(id, marked, pending)
+  // a change, local or remote, that leaves the item a pending request marks it: a save in this
+  // tab, or another tab's save arriving by sync (its reply arrives as a remote change too, and
+  // ends with an agent turn: released)
+  if (!deleted && vault_routed(id)) vault_mark_saved(id, marked, pending)
   else vault_release_pending(id, marked, pending)
   if (_this.store._vault_shown?.[id]) // a status this tab set: cleared once the item stops running
     _this.store._vault_shown = vault_clear_status(_this.store._vault_shown, vault_held_items())

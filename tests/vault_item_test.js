@@ -46,7 +46,7 @@ const fake_details = run => ({
 // the app's running flag is a refcount behind a boolean getter (index.svelte `set running`)
 class FakeItem {
   constructor(name, running = 0, text = '', tags = []) { this.name = name; this.count = running; this.text = text; this.tags = tags; this.id = name + '-id' }
-  read() { return this.text } // the app's cached grammar view; plain text here
+  read() { return this.text.replace(/<!--inert-->[\s\S]*?<!--\/inert-->/g, m => '<!--inert-->' + ' '.repeat(m.length - 24) + '<!--/inert-->') } // the grammar view: an inert body opaque
   // the app's status/progress props: the status lands in innerHTML, progress is checked on set
   get status() { return this._status ?? null }
   set status(v) { this._status = v }
@@ -74,7 +74,11 @@ const env = {
   _: { maxBy: (a, key) => a.reduce((x, y) => (x[key] > y[key] ? x : y)), escape: s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) },
   fatal: m => { throw new Error(m) },
   link_eval: (_item, js, text) => `[${text}](${js})`,
-  _item: id => items[id] ?? null, // 'other-id' is a deleted item
+  _item: key => { // by id, or by UNIQUE case-insensitive name (as the app's _item(name)); 'other-id' is a deleted item
+    if (items[key]) return items[key]
+    const named = Object.values(items).filter(i => i.name?.toLowerCase() === String(key).toLowerCase())
+    return named.length === 1 ? named[0] : null
+  },
   Date: class extends Date { static now() { return clock.now } }, // the item's clock, advanced by the witness
   Math,
   Object,
@@ -380,10 +384,13 @@ check('listed first: the local save adds no reference and no pending mark', [cou
 listing('{}')
 check('the delisting then releases the one reference', counts(), [0, 0, 0])
 change('chat-id')
+items['chat-id'].text += '\n<<agent(vault/default)>> the reply' // the reply: the text ends with an agent turn
 change('chat-id', { remote: true }) // the reply lands with no listing seen
 check('the reply (a remote change) releases a pending mark', [counts(), marks(), pending()], [[0, 0, 0], {}, {}])
+items['chat-id'].text = '#chat/topic #_agent/vault\n<<user>> asked again' // a new request: marked
 change('chat-id')
-items['chat-id'].text = '#chat/topic #_agent/openai\nhello' // the route removed
+check('a new request after the reply is marked again', [counts(), pending()['chat-id'] !== undefined], [[1, 0, 0], true])
+items['chat-id'].text = '#chat/topic #_agent/openai\n<<user>> asked again' // the route removed
 change('chat-id')
 check('a save that removed the route releases the pending mark', [counts(), pending()], [[0, 0, 0], {}])
 items['chat-id'].text = routed_text('#chat/topic')
@@ -430,7 +437,45 @@ delete env.window._grammar // a stale app without the capability
 change('chat-id')
 check('without the app\'s grammar capability no mark is taken (the listing alone marks)', [counts(), marks()], [[0, 0, 0], {}])
 env.window._grammar = grammar
-check('the item neither enumerates items nor parses request grammar for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags'), block[1].includes('.read(')], [false, false, false])
+check('the item neither enumerates items nor parses request grammar for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags')], [false, false])
+// a remote change (another tab's save arriving by sync) that leaves the item a pending request
+// marks it in this tab too (design section 13); the reply, a remote change ending with an agent
+// turn, releases; a chained item (`…/0`, no route of its own) inherits its parent's route and marks
+// like a first item, while a chained item under an unrouted chat does not
+items['remote-id'] = new FakeItem('#chat/remote', 0, '#chat/remote #_agent/vault\n<<user>> from another tab')
+change('remote-id', { remote: true })
+check('a remote change that leaves the item a pending request marks it here too', [items['remote-id'].count, items['remote-id'].running], [1, true])
+items['remote-id'].text += '\n<<agent(vault/default)>> reply'
+change('remote-id', { remote: true })
+check('the reply (a remote change ending with an agent turn) releases it', [items['remote-id'].count, items['remote-id'].running], [0, false])
+// a PRODUCER-SHAPED reply (the bridge's canonical inert region) whose body quotes the delimiter
+// on its own line: the grammar view keeps the inert body opaque, so the reply releases the mark
+// instead of renewing it (review 0 of vault_chain, B3)
+items['remote-id'].text = '#chat/remote #_agent/vault\n<<user>> how do I write a turn?'
+change('remote-id', { remote: true })
+check('the question (a remote user turn) is marked first', items['remote-id'].count, 1)
+items['remote-id'].text += "\n<<agent('vault/default · run ab12cd34 · 1s')>>\n<!--inert-->\nUse this delimiter:\n<<user>> hello\n<!--/inert-->"
+change('remote-id', { remote: true })
+check('a canonical inert reply quoting the user delimiter releases the mark (the grammar view is read)', [items['remote-id'].count, items['remote-id'].running], [0, false])
+items['remote-id'].text += '\n<<user>> and again'
+change('remote-id', { remote: true })
+check('the next remote user turn marks again', items['remote-id'].count, 1)
+change('remote-id', { deleted: true })
+items['#chat/topic/0'] = new FakeItem('#chat/topic/0', 0, '#chat/topic/0\n<<user>> continued')
+change('#chat/topic/0')
+check('a chained item without a route of its own inherits its parent\'s and marks', [items['#chat/topic/0'].count, items['#chat/topic/0'].running], [1, true])
+change('#chat/topic/0', { deleted: true })
+items['#chat/plain'] = new FakeItem('#chat/plain', 0, '#chat/plain\n<<user>> a web chat')
+items['#chat/plain/0'] = new FakeItem('#chat/plain/0', 0, '#chat/plain/0\n<<user>> chained under it')
+change('#chat/plain/0')
+check('a chained item under an unrouted chat is no vault request', items['#chat/plain/0'].count, 0)
+items['#chat/topic/0/0'] = new FakeItem('#chat/topic/0/0', 0, '#chat/topic/0/0\n<<user>> two levels down')
+change('#chat/topic/0/0')
+check('inheritance walks the label-prefix chain (a grandchild)', items['#chat/topic/0/0'].count, 1)
+change('#chat/topic/0/0', { deleted: true })
+items['#chat/topic/1'] = new FakeItem('#chat/topic/1', 0, '#chat/topic/1\n<<user>> asked\n<<agent(vault/default)>> answered')
+change('#chat/topic/1')
+check('a chained item whose last turn is the agent\'s is no request', items['#chat/topic/1'].count, 0)
 // a routed item that opens no user turn is no request: its local save takes no mark. The REAL
 // installed sources (the route item, the command item, this helper: their bytes from disk) all
 // carry a vault route and an ESCAPED mention of the delimiter in prose or code (what /update
