@@ -56,8 +56,9 @@ class FakeItem {
   set running(v) { this.count += v ? 1 : -1; if (this.count < 0) throw new Error('running below zero') }
 }
 // the chat items' raw texts carry a vault route (the stubbed routing predicate below reads them)
-// and no user turn: the item parses no request grammar for its marks
-const routed_text = name => `${name} #_agent/vault/fable\n<<user>> hello` // a chat request: routed AND a user turn
+// and open a user turn (a request): the item parses no request grammar for its marks, it checks
+// the turn opener at a line start only
+const routed_text = name => `${name} #_agent/vault/fable\n<<user>> hello`
 const items = { 'chat-id': new FakeItem('#chat/topic', 0, routed_text('#chat/topic')), 'chat2-id': new FakeItem('#chat/two', 0, routed_text('#chat/two')), 'busy-id': new FakeItem('#chat/busy', 1), 'web-id': new FakeItem('#chat/web', 0, '#chat/web #_agent/openai\nhello') }
 for (const [id, item] of Object.entries(items)) item.id = id
 // the helper's own dependencies, as util/core.js defines them (kept minimal and equivalent)
@@ -79,7 +80,7 @@ const env = {
   Object,
   console,
   marked: { parse: s => `<parsed>${s}</parsed>` }, // the app's Markdown parser, stubbed
-  window: { _grammar: { version: 2, routed: text => /#_?agent\/(vault|native)(\/|$)/i.test(text) } }, // the app's versioned grammar capability with its routing predicate over an item's raw text, stubbed
+  window: { _grammar: { version: 2, routed: text => /#_?agent\/(vault|native)(\/|\b)/i.test(text) } }, // the app's versioned grammar capability with its routing predicate over an item's raw text, stubbed
   _items: () => Object.values(items),
   elem: s => (s === '.logs' ? logs_div.replaced ?? logs_div : s === '.proposals' ? proposals_div : s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own elements (util/core/item.js)
 }
@@ -430,16 +431,34 @@ change('chat-id')
 check('without the app\'s grammar capability no mark is taken (the listing alone marks)', [counts(), marks()], [[0, 0, 0], {}])
 env.window._grammar = grammar
 check('the item neither enumerates items nor parses request grammar for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags'), block[1].includes('.read(')], [false, false, false])
-// a routed item WITHOUT a user turn (a route, persona, or command item: what /update re-saves)
-// is no request: its local save takes no mark; the same item with a turn does
-const persona = (items['persona-id'] = new FakeItem('#agent/vault/x', 0, '#agent/vault/x is a persona item\nno turn here'))
+// a routed item that opens no user turn is no request: its local save takes no mark. The REAL
+// installed sources (the route item, the command item, this helper) all carry a vault route and
+// an ESCAPED mention of the delimiter in prose or code (what /update re-saves), a persona item
+// carries neither; a chat with a turn, canonical or with spaces inside the delimiter, is marked
+const installed = {
+  'route-id': fs.readFileSync(path.join(__dirname, '..', 'agent', 'vault.md'), 'utf8'),
+  'command-id': fs.readFileSync(path.join(__dirname, '..', 'chat', 'vault.md'), 'utf8'),
+  'helper-id': item,
+  'persona-id': '#agent/vault/x is a persona item\nno turn here',
+}
+for (const [id, text] of Object.entries(installed)) {
+  items[id] = new FakeItem('#' + id, 0, text)
+  check(`the harness routes the installed source ${id} (a vault route tag) so the turn check decides`, env.window._grammar.routed(text), true)
+  change(id)
+  check(`a local save of the installed ${id} takes no mark (an escaped delimiter mention is no turn)`, [items[id].count, items[id].running], [0, false])
+}
+for (const turn of ['<<user>> hello', '<< user >> hello', '<<user >> hello', '<< user>> hello']) {
+  const id = 'turn-' + turn.replace(/\W/g, '')
+  items[id] = new FakeItem('#chat/t', 0, `#chat/t #_agent/vault\n${turn}`)
+  change(id)
+  check(`a chat whose text opens the turn ${JSON.stringify(turn)} is marked at its save`, [items[id].count, items[id].running], [1, true])
+  change(id, { deleted: true })
+}
+items['persona-id'].text = '#agent/vault/x\n<<user>> now a request'
 change('persona-id')
-check('a local save of a routed item without a user turn (a persona item) does not mark it', [persona.count, persona.running], [0, false])
-persona.text = '#agent/vault/x\n<<user>> now a request'
-change('persona-id')
-check('the same item with a user turn is marked at its save', [persona.count, persona.running], [1, true])
+check('the persona item given a real turn is marked at its save', [items['persona-id'].count, items['persona-id'].running], [1, true])
 change('persona-id', { deleted: true })
-check('its deletion releases the mark', persona.count, 0)
+check('its deletion releases the mark', items['persona-id'].count, 0)
 check('a change of a non-routed item runs only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status, _this.store._vault_marked] })()", ctx), [{}, '', {}])
 check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])

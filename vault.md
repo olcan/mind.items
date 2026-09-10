@@ -173,18 +173,21 @@ function vault_reconcile_running() {
 // app's (window._grammar.routed: a vault route among the tags of the grammar view, inert reply
 // regions opaque) over the item's raw text, and no request grammar is parsed here: every save of
 // a routed item marks, and a save that is no request (an edit of an old turn, a route the bridge
-// never answers) lapses at the timeout below; a save of a routed item that carries no `\<<user>>` turn (a route, persona, or command item, e.g. under /update) never marks. The listing takes the reference over when it lists
+// never answers) lapses at the timeout below; a save of a routed item that opens no user turn (a route, persona, or command item, e.g. under /update; an escaped mention in prose or code is not a turn) never marks. The listing takes the reference over when it lists
 // the item (vault_mark_running); until then it is released at the item's next remote change (its
 // reply; an edit from another device releases it too, and the listing marks a live request
 // again), at its deletion, or at the first tick or reconciliation past its VAULT_PENDING_MS
 // deadline, so a stopped bridge leaves no lasting mark
 const VAULT_PENDING_MS = 30000
-// a chat REQUEST the app routes to the vault: the item's raw text carries a `\<<user>>` turn (a
-// route, persona, or command item never does, so an install or /update of those never marks;
-// the request grammar itself is not parsed here) and the app's routing predicate holds over it
+// a chat REQUEST the app routes to the vault: the item's raw text OPENS a user turn on some line
+// (the chat grammar's `\<<user>>` delimiter, spaces inside allowed, at a line start: an escaped
+// mention inside prose or code, as in the route, command, and persona items /update re-saves,
+// is not one; the request grammar itself is not parsed here) and the app's routing predicate
+// holds over it. The pattern is built from a string so the item source carries no macro delimiter.
+const VAULT_USER_TURN = new RegExp('^\<<\\s*user\\s*>>', 'm')
 const vault_routed = id => {
   const text = _item(id, { silent: true })?.text ?? ''
-  return window._grammar?.version >= 2 && text.includes('\<<user>>') && !!window._grammar.routed(text)
+  return window._grammar?.version >= 2 && VAULT_USER_TURN.test(text) && !!window._grammar.routed(text)
 }
 
 function vault_mark_saved(id, marked, pending) {
