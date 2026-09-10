@@ -2,8 +2,9 @@
 <<command_table()>>
 ```js:js_removed
 // => /vault [msg]
-// send `msg` to [vault agent](#agent/vault) on the vault host
-// as _chat_command, but created items also tag #_agent/vault explicitly,
+// send `msg` to the [vault agent](#agent/vault) on the vault host: the Fable supervisor that
+// gets the work done through a worker in the chat's own worktree (the one vault command since
+// 2026-09-10); as _chat_command, but created items also tag #_agent/vault explicitly,
 // since the vault bridge parses item text only (no web-side dependency
 // resolution); see #agent/vault for the protocol
 const _on_command_vault = msg => {

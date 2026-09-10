@@ -288,6 +288,57 @@ vm.runInContext("_this._global_store._bridge = {host: 'h', updated: " + now + ",
 check('the queued entry becoming a run keeps the one reference and shows the run status', [counts(), status('chat2-id')], [[0, 1, 0], ['', 0]])
 listing('{}')
 check('the run ending releases the reference and clears the status', [counts(), status('chat2-id')], [[0, 0, 0], ['', 0]])
+// one status per chat (design mind_vault_supervisor 2.3, B4 + R4): a supervisor's turn beside
+// its worker shows the status posted on the worker's run whichever order the bridge lists them
+// in; the worker outliving the supervisor keeps it; a later supervisor turn posting on its own
+// run takes over; a note-only entry does not count; equal starts fall back to the run id; a
+// worker queued behind another chat stays visible through the workers projection, under a
+// follow-up supervisor request and after it
+const bridge = (runs, workers = '{}') => vm.runInContext(`_this._global_store._bridge = {host: 'h', updated: ${now}, runs: ${runs}, queued: {}, workers: ${workers}}; _on_global_store_change('vault-id', false)`, ctx)
+const sup_store = sup => vm.runInContext(`_this._global_store._supervisor = {runs: ${sup}}`, ctx)
+const s1 = `s1: {item: 'chat2-id', persona: 'default', started: ${now - 2000}, worktree: null, status: 'Thinking'}`
+const w1 = `w1: {item: 'chat2-id', persona: 'worker', started: ${now - 1000}, worktree: 'chat_two', status: 'Reading x'}`
+sup_store("{w1: {status: 'step 1 of 3', progress: 0.3}}")
+bridge(`{${s1}, ${w1}}`)
+check('supervisor then worker: the status posted on the worker shows', status('chat2-id'), ['step 1 of 3', 0.3])
+bridge(`{${w1}, ${s1}}`)
+check('worker then supervisor: the same', status('chat2-id'), ['step 1 of 3', 0.3])
+bridge(`{${w1}}`)
+check('the supervisor ended first: the worker keeps showing its posted status', status('chat2-id'), ['step 1 of 3', 0.3])
+const s2 = `s2: {item: 'chat2-id', persona: 'default', started: ${now + 1000}, worktree: null, status: 'Thinking'}`
+sup_store("{w1: {status: 'step 1 of 3', progress: 0.3}, s2: {status: 'reviewing the report', progress: 0.9}}")
+bridge(`{${w1}, ${s2}}`)
+check('a later supervisor turn posting on its own run takes over', status('chat2-id'), ['reviewing the report', 0.9])
+sup_store("{w1: {status: 'step 1 of 3', progress: 0.3}, s2: {notes: [{t: 1, text: 'n'}]}}")
+bridge(`{${w1}, ${s2}}`)
+check('a note-only supervisor entry does not count: the worker\'s posted status wins', status('chat2-id'), ['step 1 of 3', 0.3])
+sup_store('{}')
+const s3 = `s3: {item: 'chat2-id', persona: 'default', started: ${now - 1000}, worktree: null, status: 'Thinking'}`
+bridge(`{${s3}, ${w1}}`)
+check('nothing posted, equal starts: the run id decides, deterministically', status('chat2-id'), ['Reading x', 0])
+bridge(`{${s3}}`, "{'chat2-id': {worker: 'w0000aaaa', phase: 'queued', run: null, worktree: 'chat_two', since: 1}}")
+check('a queued worker under its chat\'s supervisor turn: the listed run\'s status shows, the chat is held', [status('chat2-id'), counts()], [['Thinking', 0], [0, 1, 0]])
+bridge('{}', "{'chat2-id': {worker: 'w0000aaaa', phase: 'queued', run: null, worktree: 'chat_two', since: 1}}")
+check('the supervisor turn over, the queued worker keeps the chat marked and shows its phase', [status('chat2-id'), counts()], [['queued', 0], [0, 1, 0]])
+bridge('{}', "{'chat2-id': {worker: 'w0000aaaa', phase: 'finishing', run: 'w1', worktree: 'chat_two', since: 1}}")
+check('a finishing worker (delisted, not yet ended) shows its phase', status('chat2-id'), ['finishing', 0])
+bridge('{}')
+check('the worker ended: the chat is released and its status cleared', [status('chat2-id'), counts()], [['', 0], [0, 0, 0]])
+// the table shows a worker whose run is not listed as a row of its own (B2 of review 6): queued
+// behind another chat, under its chat's follow-up supervisor turn, then executing (its run's row,
+// no duplicate), finishing (delisted, its row back), and gone once ended
+const table = () => vm.runInContext('vault_runs_table()', ctx).split('\n').filter(r => r.startsWith('| ')).slice(2) // the data rows
+const w_queued = "{'chat2-id': {worker: 'w0000aaaa', phase: 'queued', run: null, worktree: 'chat_two', since: " + (clock.now - 5000) + "}}"
+bridge('{}', w_queued)
+check('a queued worker has a compact row', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa (queued) | 5s | chat_two | queued | · |`])
+bridge(`{${s3}}`, w_queued)
+check('under its chat\'s supervisor turn the worker keeps its row beside the supervisor\'s', table().map(r => r.split(' | ')[2]), ['w0000aaaa (queued)', 's3'])
+bridge(`{${w1}}`, "{'chat2-id': {worker: 'w0000aaaa', phase: 'executing', run: 'w1', worktree: 'chat_two', since: " + (clock.now - 5000) + "}}")
+check('an executing worker is its run\'s row only (no duplicate)', table().map(r => r.split(' | ')[2]), ['w1'])
+bridge('{}', "{'chat2-id': {worker: 'w0000aaaa', phase: 'finishing', run: 'w1', worktree: 'chat_two', since: " + (clock.now - 5000) + "}}")
+check('a finishing worker (delisted) has its row back', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa (finishing) | 5s | chat_two | finishing | · |`])
+bridge('{}')
+check('the worker ended: no row', vm.runInContext('vault_runs_table()', ctx).startsWith('_none_'), true)
 // the welcome parses no item: _items throws during it
 vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store", ctx)
 const realItems = env._items

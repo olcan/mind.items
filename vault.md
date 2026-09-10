@@ -1,4 +1,4 @@
-#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends, as an active agent's item is on every tab; in the tab that saves a vault request the mark is immediate, as a web agent's: the save itself marks the item until the bridge's listing takes over (or, without a listing, until the reply lands, the item is deleted, or its 30-second deadline passes, released at the next tick).
+#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends (a supervisor's worker: until its outcome is recorded, through its finalization, with a row of its own while its run is not listed), as an active agent's item is on every tab; in the tab that saves a vault request the mark is immediate, as a web agent's: the save itself marks the item until the bridge's listing takes over (or, without a listing, until the reply lands, the item is deleted, or its 30-second deadline passes, released at the next tick).
 ---
 #### Active Runs
 <div class="runs"></div>
@@ -25,7 +25,13 @@ const vault_runs = () => _this._global_store._bridge?.runs ?? {}
 const vault_queued = () => _this._global_store._bridge?.queued ?? {}
 // the chat items the bridge holds: queued or executing (the store is the single source; no
 // item is parsed for it)
-const vault_held_items = () => new Set([...keys(vault_queued()), ...entries(vault_runs()).map(([, run]) => run.item)])
+// the supervisor's active workers ({item_id: {worker, phase, run, worktree, since}}; design
+// notes/design/mind_vault_supervisor.md): live metadata only, the single source of a pending
+// worker's visibility (the lane's queued entry is the owner request's, keyed by item)
+const vault_workers = () => _this._global_store._bridge?.workers ?? {}
+// the chat items the bridge holds: queued, executing, or owning an active worker
+const vault_held_items = () =>
+  new Set([...keys(vault_queued()), ...keys(vault_workers()), ...entries(vault_runs()).map(([, run]) => run.item)])
 // the bridge lists an item by its saved document id, while the app calls _on_item_change with the
 // item's own id, a temporary one for a chat created in this tab until the tab reloads (_item
 // resolves the saved id to that item): this tab's records are keyed by the item's own id
@@ -67,30 +73,47 @@ function vault_mark_running(listed, marked, pending = {}) {
 // status to innerHTML unescaped and its show_status skips an empty status and a zero progress,
 // so the text is escaped here and the props are assigned directly; `shown` records the items
 // this tab set, for the clearing below
-function vault_show_status(runs, sup = {}, shown = {}, queued = {}) {
-  for (const itemId of keys(queued)) {
+function vault_show_status(runs, sup = {}, shown = {}, queued = {}, workers = {}) {
+  const set = (itemId, status, progress) => {
     const item = _item(itemId, { silent: true })
-    if (!item) continue
+    if (!item) return
     shown[itemId] = true
     try {
-      item.status = 'queued'
-      item.progress = 0
+      item.status = status
+      item.progress = progress
     } catch (e) {
       console.warn(`#vault: status of ${itemId} not shown: ${e}`)
     }
   }
+  for (const itemId of keys(queued)) set(itemId, 'queued', 0)
+  // a chat with an active worker and no listed run of its own shows the worker's phase (queued,
+  // starting, finishing); its executing worker has a row of its own below
+  const listed = new Set(entries(runs).map(([, run]) => run.item))
+  for (const [itemId, worker] of entries(workers)) {
+    if (!listed.has(itemId)) set(itemId, _.escape(String(worker.phase ?? 'queued')), 0)
+  }
+  // one status per chat item (design mind_vault_supervisor 2.3): among a chat's listed runs one
+  // is chosen, a run with a supervisor-posted status LINE first (a note-only or progress-only
+  // entry does not count), then the latest start, then the run id, so the order the bridge lists
+  // them in never decides
+  const chosen = {}
   for (const [id, run] of entries(runs)) {
-    const item = _item(run.item, { silent: true })
-    if (!item) continue
-    shown[run.item] = true
-    try {
-      item.status = _.escape(vault_run_status(run, sup[id]))
-      item.progress = vault_run_progress(sup[id]) ?? 0
-    } catch (e) {
-      console.warn(`#vault: status of ${run.item} not shown: ${e}`)
-    }
+    const key = [sup[id]?.status ? 1 : 0, run.started ?? 0, id]
+    const prev = chosen[run.item]
+    if (!prev || vault_key_after(key, prev.key)) chosen[run.item] = { id, run, key }
+  }
+  for (const { id, run } of Object.values(chosen)) {
+    set(run.item, _.escape(vault_run_status(run, sup[id])), vault_run_progress(sup[id]) ?? 0)
   }
   return vault_clear_status(shown, vault_held_items())
+}
+// lexicographic order over [posted, started, id]: whether `a` sorts after `b`
+const vault_key_after = (a, b) => {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === b[i]) continue
+    return a[i] > b[i]
+  }
+  return false
 }
 
 // clear (status '' and progress 0) the items this tab set a status on that are no longer listed,
@@ -140,7 +163,7 @@ function vault_reconcile_running() {
   vault_mark_running(vault_held_items(), marked, pending)
   vault_expire_pending()
   _this.store._vault_shown = vault_show_status(
-    vault_runs(), _this._global_store._supervisor?.runs ?? {}, _this.store._vault_shown ?? {}, vault_queued()
+    vault_runs(), _this._global_store._supervisor?.runs ?? {}, _this.store._vault_shown ?? {}, vault_queued(), vault_workers()
   )
 }
 
@@ -224,7 +247,22 @@ function vault_runs_rows(bridge, stop, now, link, sup = {}) {
     'queued',
     '·',
   ])
-  return queued.concat(entries(bridge?.runs ?? {}).map(([id, run]) => {
+  // a supervisor's worker whose run is not listed (queued, in setup, or finishing; design
+  // mind_vault_supervisor 2.3, R4): a compact row from the workers projection, so a pending
+  // worker is visible here as well as on its chat item
+  const runs = bridge?.runs ?? {}
+  const workers = entries(bridge?.workers ?? {})
+    .filter(([, w]) => !(w.run && runs[w.run]))
+    .map(([itemId, w]) => [
+      vault_item_cell(itemId),
+      'worker',
+      `${w.worker} (${w.phase ?? 'queued'})`,
+      Math.round((now - w.since) / 1000) + 's',
+      w.worktree ?? '·',
+      String(w.phase ?? 'queued'),
+      '·',
+    ])
+  return queued.concat(workers, entries(runs).map(([id, run]) => {
     const progress = vault_run_progress(sup[id])
     const status = vault_run_status(run, sup[id]) || '(no activity yet)'
     return [
