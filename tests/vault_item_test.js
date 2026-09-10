@@ -57,7 +57,7 @@ class FakeItem {
 }
 // the chat items' raw texts carry a vault route (the stubbed routing predicate below reads them)
 // and no user turn: the item parses no request grammar for its marks
-const routed_text = name => `${name} #_agent/vault/fable\nhello`
+const routed_text = name => `${name} #_agent/vault/fable\n<<user>> hello` // a chat request: routed AND a user turn
 const items = { 'chat-id': new FakeItem('#chat/topic', 0, routed_text('#chat/topic')), 'chat2-id': new FakeItem('#chat/two', 0, routed_text('#chat/two')), 'busy-id': new FakeItem('#chat/busy', 1), 'web-id': new FakeItem('#chat/web', 0, '#chat/web #_agent/openai\nhello') }
 for (const [id, item] of Object.entries(items)) item.id = id
 // the helper's own dependencies, as util/core.js defines them (kept minimal and equivalent)
@@ -430,6 +430,16 @@ change('chat-id')
 check('without the app\'s grammar capability no mark is taken (the listing alone marks)', [counts(), marks()], [[0, 0, 0], {}])
 env.window._grammar = grammar
 check('the item neither enumerates items nor parses request grammar for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags'), block[1].includes('.read(')], [false, false, false])
+// a routed item WITHOUT a user turn (a route, persona, or command item: what /update re-saves)
+// is no request: its local save takes no mark; the same item with a turn does
+const persona = (items['persona-id'] = new FakeItem('#agent/vault/x', 0, '#agent/vault/x is a persona item\nno turn here'))
+change('persona-id')
+check('a local save of a routed item without a user turn (a persona item) does not mark it', [persona.count, persona.running], [0, false])
+persona.text = '#agent/vault/x\n<<user>> now a request'
+change('persona-id')
+check('the same item with a user turn is marked at its save', [persona.count, persona.running], [1, true])
+change('persona-id', { deleted: true })
+check('its deletion releases the mark', persona.count, 0)
 check('a change of a non-routed item runs only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status, _this.store._vault_marked] })()", ctx), [{}, '', {}])
 check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])
