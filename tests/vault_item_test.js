@@ -432,9 +432,10 @@ check('without the app\'s grammar capability no mark is taken (the listing alone
 env.window._grammar = grammar
 check('the item neither enumerates items nor parses request grammar for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags'), block[1].includes('.read(')], [false, false, false])
 // a routed item that opens no user turn is no request: its local save takes no mark. The REAL
-// installed sources (the route item, the command item, this helper) all carry a vault route and
-// an ESCAPED mention of the delimiter in prose or code (what /update re-saves), a persona item
-// carries neither; a chat with a turn, canonical or with spaces inside the delimiter, is marked
+// installed sources (the route item, the command item, this helper: their bytes from disk) all
+// carry a vault route and an ESCAPED mention of the delimiter in prose or code (what /update
+// re-saves); the synthetic persona item carries a route and no turn; a chat with a turn,
+// canonical, with spaces inside the delimiter, or indented by spaces, is marked
 const installed = {
   'route-id': fs.readFileSync(path.join(__dirname, '..', 'agent', 'vault.md'), 'utf8'),
   'command-id': fs.readFileSync(path.join(__dirname, '..', 'chat', 'vault.md'), 'utf8'),
@@ -447,7 +448,7 @@ for (const [id, text] of Object.entries(installed)) {
   change(id)
   check(`a local save of the installed ${id} takes no mark (an escaped delimiter mention is no turn)`, [items[id].count, items[id].running], [0, false])
 }
-for (const turn of ['<<user>> hello', '<< user >> hello', '<<user >> hello', '<< user>> hello']) {
+for (const turn of ['<<user>> hello', '<< user >> hello', '<<user >> hello', '<< user>> hello', ' <<user>> hello', '   << user >> hello']) {
   const id = 'turn-' + turn.replace(/\W/g, '')
   items[id] = new FakeItem('#chat/t', 0, `#chat/t #_agent/vault\n${turn}`)
   change(id)

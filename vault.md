@@ -180,11 +180,11 @@ function vault_reconcile_running() {
 // deadline, so a stopped bridge leaves no lasting mark
 const VAULT_PENDING_MS = 30000
 // a chat REQUEST the app routes to the vault: the item's raw text OPENS a user turn on some line
-// (the chat grammar's `\<<user>>` delimiter, spaces inside allowed, at a line start: an escaped
+// (the chat grammar's `\<<user>>` delimiter, ASCII spaces before and inside allowed: an escaped
 // mention inside prose or code, as in the route, command, and persona items /update re-saves,
 // is not one; the request grammar itself is not parsed here) and the app's routing predicate
 // holds over it. The pattern is built from a string so the item source carries no macro delimiter.
-const VAULT_USER_TURN = new RegExp('^\<<\\s*user\\s*>>', 'm')
+const VAULT_USER_TURN = new RegExp('^ *\<< *user *>>', 'm') // the chat parser's spelling: ASCII spaces only
 const vault_routed = id => {
   const text = _item(id, { silent: true })?.text ?? ''
   return window._grammar?.version >= 2 && VAULT_USER_TURN.test(text) && !!window._grammar.routed(text)
