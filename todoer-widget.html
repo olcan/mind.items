@@ -120,6 +120,55 @@
   #widget.dragging .bin.snooze {
     margin: 0 10px; /* >= 10px prevents flickering while dragging across */
   }
+  #widget .bin.agent {
+    background: repeating-linear-gradient(
+      -45deg,
+      #6af,
+      #6af 10px,
+      #249 10px,
+      #249 20px
+    );
+    border-radius: 0 4px 4px 0;
+  }
+  #widget .bin.agent:not(:empty) {
+    background: repeating-linear-gradient(
+      -45deg,
+      #3af,
+      #3af 10px,
+      #22a 10px,
+      #22a 20px
+    );
+  }
+  #widget .bin.owner {
+    background: repeating-linear-gradient(
+      -45deg,
+      #ccc,
+      #ccc 10px,
+      #666 10px,
+      #666 20px
+    );
+    border-radius: 4px 0 0 4px;
+  }
+  #widget .bin.owner:not(:empty) {
+    background: repeating-linear-gradient(
+      -45deg,
+      #eee,
+      #eee 10px,
+      #777 10px,
+      #777 20px
+    );
+  }
+  #widget.dragging .bin.agent {
+    margin-left: 10px; /* >= 10px prevents flickering while dragging across */
+  }
+  #widget .list-item mark.age {
+    color: #777;
+    background: #1a1a1a;
+    font-size: 90%;
+  }
+  #widget .list > .list-item-container[data-pending] {
+    opacity: 0.6; /* the overlay: a command the bridge has not acknowledged */
+  }
 
   #widget .list-item {
     cursor: pointer;

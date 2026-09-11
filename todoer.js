@@ -55,21 +55,24 @@ function __render(widget, widget_item) {
   list.className = 'list'
   widget.appendChild(list)
 
-  const done_bin = document.createElement('div')
-  done_bin.className = 'done bin'
-  widget.appendChild(done_bin)
-
-  const snooze_bin = document.createElement('div')
-  snooze_bin.className = 'snooze bin'
-  widget.appendChild(snooze_bin)
-
-  const cancel_bin = document.createElement('div')
-  cancel_bin.className = 'cancel bin'
-  widget.appendChild(cancel_bin)
-
   // parse widget options for required tags & storage key
   const options = widget_item.store[widget.id]?.options ?? {}
-  let { tags = [], snoozed, storage_key } = options
+  let { tags = [], snoozed, delegated, storage_key } = options
+
+  // the bins: the main and snoozed lists keep done/snooze/cancel and gain the AGENT bin (a
+  // delegation); the delegated list (design 2.2) has the agent bin (a re-delegation) and the
+  // OWNER bin (a take-back) only
+  const bin = name => {
+    const elem = document.createElement('div')
+    elem.className = `${name} bin`
+    widget.appendChild(elem)
+    return elem
+  }
+  const done_bin = delegated ? null : bin('done')
+  const snooze_bin = delegated ? null : bin('snooze')
+  const cancel_bin = delegated ? null : bin('cancel')
+  const owner_bin = delegated ? bin('owner') : null
+  const agent_bin = bin('agent')
   if (is_string(tags)) tags = tags.split(/[,;\s]+/).filter(t => t)
   tags = tags.map(tag => {
     if (tag.match(/^[^#!-]/)) return '#' + tag // tag w/o # or negation
@@ -79,14 +82,18 @@ function __render(widget, widget_item) {
   tags = uniq(['#todo', ...tags]) // prepend #todo & remove duplicates
   if (!tags.every(tag => tag.match(/^[!-]?#[^#\s<>&\?!,.;:"'`(){}\[\]]+$/)))
     fatal(`invalid tags ${tags}`)
-  // use comma-separated tags as default storage key
+  // use comma-separated tags as default storage key; the delegated list keeps its own order
+  // under its own key (design 6: separate orders)
   // note snoozed flag can be excluded since snooze lists are not saved
-  storage_key ??= tags.join(',')
+  storage_key ??= delegated ? 'delegated' : tags.join(',')
 
   // console.debug(`rendering list ${storage_key} in ${widget.id} ...`)
 
-  // initialize set of todo items in session-lived store
-  widget_item.store._todoer = { items: new Set() }
+  // initialize this widget's set of todo items in session-lived store (membership is tracked
+  // PER WIDGET: the main and delegated widgets of one pinned item hold different items)
+  widget_item.store._todoer ??= { items: {} }
+  widget_item.store._todoer.items ??= {}
+  const members = (widget_item.store._todoer.items[widget.id] = new Set())
 
   // insert all todo items into list
   let have_unsnoozed = false
@@ -99,8 +106,23 @@ function __render(widget, widget_item) {
     )
       continue // filtered out based on tags
     if (item.tags.includes('#menu')) continue // skip menu items
-    // skip based on snoozed state (via metadata in item's own global store)
-    if (!!snoozed != !!item._global_store._todoer?.snoozed) continue
+    // the list a task belongs to (design 2.2): the bridge's projection, overlaid by this tab's
+    // pending command until the bridge acknowledges it; an agent-held (or pending-delegate)
+    // task sits in the delegated list only, whatever its snooze state
+    const state = _task_state(item)
+    let pending = _pending_commands()[item.id]
+    if (pending && state?.acked?.[pending.id]) {
+      delete _pending_commands()[item.id] // acknowledged: the projection decides from here
+      pending = null
+    }
+    const task_list = _task_list(state, pending)
+    if (delegated) {
+      if (task_list != 'delegated') continue
+    } else {
+      if (task_list == 'delegated') continue
+      // skip based on snoozed state (via metadata in item's own global store)
+      if (!!snoozed != !!item._global_store._todoer?.snoozed) continue
+    }
     // record if we have unsnoozed items to trigger a sort & save below
     if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
@@ -108,11 +130,12 @@ function __render(widget, widget_item) {
     let text = _extract_todo_snippet(item)
     if (!text) continue // no #todo tag found (should have logged error)
 
-    widget_item.store._todoer.items.add(item.id)
+    members.add(item.id)
     const div = document.createElement('div')
     div.className = 'list-item'
     const container = document.createElement('div')
     container.className = 'list-item-container'
+    if (pending) container.setAttribute('data-pending', pending.kind) // the overlay, until acked
     if (MindBox.get().trim() == 'id:' + item.id)
       container.classList.add('selected')
     list.appendChild(container)
@@ -159,13 +182,18 @@ function __render(widget, widget_item) {
         (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`
       )
 
-    container.title = text // original whitespace for title
+    // the row (and its tooltip) shows the snippet without its hidden tags (#_…, hidden everywhere
+    // else in the app; a task's route tag is not part of what the owner wrote) and without the
+    // grammar view's inert-region tokens (⟦…⟧: the agent's answers and plans read as tokens)
+    const visible = s => s.replace(/(^|\s)#_[^#\s<>&?!,.;:"'`(){}\[\]]+/g, '$1').replace(/\u27e6[^\u27e7]*\u27e7/g, '')
+    container.title = visible(text) // original whitespace for title
+    const shown = visible(text).replace(/\s+/g, ' ')
 
     // determine suffix vs prefix snippet based on #todo suffix match
     if (!text.match(/(?:^|\s|\()#todo$/)) {
       if (!text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
       if (text.endsWith(' …')) container.setAttribute('data-truncated', true) // used for done/cancel
-      const html = _.escape(text.replace(/\s+/g, ' '))
+      const html = _.escape(shown)
       div.innerHTML = link_urls(link_markdown_links(mark_tags(html)))
     } else {
       if (text.startsWith('… ')) container.setAttribute('data-truncated', true) // used for done/cancel
@@ -181,7 +209,7 @@ function __render(widget, widget_item) {
       if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
         div.style.textOverflow = 'clip'
 
-      const html = _.escape(text.replace(/\s+/g, ' '))
+      const html = _.escape(shown)
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
       div.innerHTML = '&lrm;' + link_urls(link_markdown_links(mark_tags(html)))
@@ -192,9 +220,17 @@ function __render(widget, widget_item) {
         new Date(item._global_store._todoer.snoozed).toLocaleString() +
         '\n' +
         container.title
+    if (delegated) {
+      const updated = state?.updated
+      const age = document.createElement('mark')
+      age.className = 'age'
+      age.innerText = _age(updated, Date.now())
+      age.title = updated ? new Date(updated).toLocaleString() : 'not acknowledged yet'
+      div.prepend(age, ' ')
+    }
 
-    // handle clicks and modify styling for non-todo tags
-    div.querySelectorAll('mark').forEach(elem => {
+    // handle clicks and modify styling for non-todo tags (the age mark is not a tag)
+    div.querySelectorAll('mark:not(.age)').forEach(elem => {
       let tag = elem.innerText.replace(/#_/, '#')
       if (item.label) tag = _resolve_tag(item.label, tag) ?? tag
       elem.title = tag
@@ -391,7 +427,19 @@ function __render(widget, widget_item) {
       const id = e.item.getAttribute('data-id')
       const truncated = e.item.getAttribute('data-truncated')
       const item = _item(id)
-      if (e.to == cancel_bin) {
+      if (e.to == agent_bin) {
+        // a delegation (or a re-delegation from the delegated list): the command document is
+        // the acceptance; the row moves through the overlay once it is enqueued
+        agent_bin.firstChild.remove()
+        _delegate(item).then(ok => {
+          if (!ok) list.insertBefore(e.item, list.children[e.oldIndex])
+        })
+      } else if (e.to == owner_bin) {
+        owner_bin.firstChild.remove()
+        _takeback(item).then(ok => {
+          if (!ok) list.insertBefore(e.item, list.children[e.oldIndex])
+        })
+      } else if (e.to == cancel_bin) {
         cancel_bin.firstChild.remove()
         item.delete()
         // if (!truncated) item.delete()
@@ -483,17 +531,8 @@ function __render(widget, widget_item) {
     },
   })
 
-  done_bin.sortable = Sortable.create(done_bin, {
-    group: widget.id,
-  })
-
-  snooze_bin.sortable = Sortable.create(snooze_bin, {
-    group: widget.id,
-  })
-
-  cancel_bin.sortable = Sortable.create(cancel_bin, {
-    group: widget.id,
-  })
+  for (const elem of [done_bin, snooze_bin, cancel_bin, owner_bin, agent_bin])
+    if (elem) elem.sortable = Sortable.create(elem, { group: widget.id })
 
   // NOTE: this is no longer needed w/ 'dragging' class moved to onStart instead of onChoose, preventing the list item div from being shrunk under the cursor prematurely, sending clicks to the widget instead
   // widget.onclick = e => {
@@ -592,6 +631,29 @@ function _unsnooze(item) {
   )
 }
 
+// whether the snippet runs forward from the #todo tag at `todo_offset` (suffix mode) or backward
+// (prefix mode): we prefer suffix, but switch to prefix if it looks "cleaner" (clean means
+// alphanumeric for suffix, alphanumeric+punctuation for prefix); the WHOLE text after and before
+// the tag decides, and a bracketed marker word right after the tag ([question] etc., the vault
+// design 2.4) keeps suffix mode; the marker writer uses the same rule
+function _snippet_uses_suffix(text, todo_offset) {
+  return (
+    !!text.substring(todo_offset + 5).match(/^\s*(\[[a-z]+\]|[\p{L}\d])/u) ||
+    !text.substring(0, todo_offset).match(/[\p{P}\p{L}\d]\s*$/u)
+  )
+}
+
+// the offset of the first #todo tag over the widget's own grammar view, or -1
+function _todo_offset(text) {
+  let todo_offset = -1
+  _replace_tags(text, '(?:^|\\s|\\()#todo', (m, offset) => {
+    if (todo_offset < 0) todo_offset = offset
+  })
+  if (todo_offset < 0) return -1
+  while (text[todo_offset] != '#') todo_offset++ // skip leading delimiter
+  return todo_offset
+}
+
 // extract todo snippet from item
 function _extract_todo_snippet(item) {
   // read text and determine todo tag positions
@@ -615,15 +677,8 @@ function _extract_todo_snippet(item) {
   let todo_offset = todo_offsets[0]
   while (text[todo_offset] != '#') todo_offset++ // skip leading delimiter
 
-  // determine if we should use suffix or prefix
-  // we prefer suffix, but will switch to prefix if it looks "cleaner"
-  // clean means alphanumeric for suffix, alphanumeric+punctuation for prefix
-  let use_suffix = true
-  if (
-    !text.substring(todo_offset + 5).match(/^\s*[\p{L}\d]/u) &&
-    text.substring(0, todo_offset).match(/[\p{P}\p{L}\d]\s*$/u)
-  )
-    use_suffix = false
+  // determine if we should use suffix or prefix (the rule shared with the marker writer)
+  const use_suffix = _snippet_uses_suffix(text, todo_offset)
 
   if (use_suffix) {
     // use suffix, truncate on right
@@ -662,7 +717,12 @@ function _render_todoer_widget(widget, item = _this) {
 // create pinned item w/ widget
 function create_pinned_item() {
   const item = _create()
-  item.write_lines(`#_pin `, `\<<todoer_widget()>>`, `#_todoer`)
+  item.write_lines(
+    `#_pin `,
+    `\<<todoer_widget()>>`,
+    `\<<todoer_widget({delegated: true})>>`, // the delegated list (design 2.2), below the main one
+    `#_todoer`
+  )
 }
 
 // => /todo [text]
@@ -683,12 +743,17 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   const is_todo_item = item?.tags.includes('#todo')
   each(_this.dependents, dep => {
     const item = _item(dep)
-    if (is_todo_item || item.store._todoer?.items?.has(id)) {
+    if (is_todo_item || _listed(item, id)) {
       item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
         _render_todoer_widget(widget, item)
       })
     }
   })
+}
+
+// whether any widget of a pinned item lists the todo (membership is tracked per widget)
+function _listed(pinned, id) {
+  return Object.values(pinned.store._todoer?.items ?? {}).some(set => set.has(id))
 }
 
 // detect any changes to global stores on todo items
@@ -708,10 +773,7 @@ function _on_search(text) {
     return
   each(_this.dependents, dep => {
     const item = _item(dep)
-    if (
-      item.store._todoer?.items?.has(target_item?.id) ||
-      item.elem?.querySelector('.list-item-container.selected')
-    ) {
+    if (_listed(item, target_item?.id) || item.elem?.querySelector('.list-item-container.selected')) {
       item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
         _render_todoer_widget(widget, item)
       })
@@ -733,4 +795,202 @@ function _on_welcome() {
     0,
     60 * 1000
   ) // run now and every minute
+}
+
+
+// ---- tasks (design notes/design/mind_task_agents.md, 2.2 and 2.3) -------------------------
+
+// the task projection the bridge writes into the item's store, or null for a todo the bridge
+// never held ({held, reason, epoch, rev, updated, worktree, phase, acked})
+function _task_state(item) {
+  const state = item._global_store?._agent?.state
+  return state && typeof state == 'object' ? state : null
+}
+
+// this tab's pending commands by item id ({id, kind}): the overlay from the enqueue until the
+// bridge's `acked` names the id (a stale, refused, or invalidated disposition clears it too)
+const _pending_commands = () => (_todoer.store.pending ??= {})
+
+// where a todo belongs (design 2.2): the pending command first (a take-back puts the item in the
+// main list, a delegate in the delegated list), else the projection's possession
+function _task_list(state, pending) {
+  if (pending && !state?.acked?.[pending.id]) return pending.kind == 'takeback' ? 'main' : 'delegated'
+  return state?.held == 'agent' ? 'delegated' : 'main'
+}
+
+// a coarse age as of now (`<1m`, `5m`, `2h`, `3d`), or `?` without a projection
+function _age(updated, now) {
+  if (!updated) return '?'
+  const s = Math.max(0, Math.floor((now - updated) / 1000))
+  if (s < 60) return '<1m'
+  if (s < 3600) return Math.floor(s / 60) + 'm'
+  if (s < 86400) return Math.floor(s / 3600) + 'h'
+  return Math.floor(s / 86400) + 'd'
+}
+
+// a fresh command id (the wrapper name suffix; the bridge disposes of every id it observes once)
+const _command_id = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('')
+
+// the marker token adjacent to the #todo tag on its snippet side (design 2.4): written (or
+// replaced, or removed with word=null) on the todo line only, over the widget's own grammar
+// view of the tag; every other byte of the text is preserved
+function _set_marker(text, word) {
+  const todo_offset = _todo_offset(text)
+  if (todo_offset < 0) return text
+  const tag_end = todo_offset + 5
+  const line_start = text.lastIndexOf('\n', todo_offset) + 1
+  let line_end = text.indexOf('\n', todo_offset)
+  if (line_end < 0) line_end = text.length
+  const after = text.substring(tag_end, line_end) // the todo line's own suffix (the edit site)
+  const before = text.substring(line_start, todo_offset) // the todo line's own prefix
+  const use_suffix = _snippet_uses_suffix(text, todo_offset) // the snippet's own decision
+  const marker = word ? `[${word}]` : ''
+  if (use_suffix) {
+    const m = after.match(/^ \[[a-z]+\]/)
+    const rest = m ? after.substring(m[0].length) : after
+    return text.substring(0, tag_end) + (marker ? ' ' + marker : '') + rest + text.substring(line_end)
+  }
+  const m = before.match(/\[[a-z]+\] $/)
+  const head = m ? before.substring(0, before.length - m[0].length) : before
+  return text.substring(0, line_start) + head + (marker ? marker + ' ' : '') + text.substring(todo_offset)
+}
+
+// re-render every todoer widget (the overlay changed)
+function _rerender_todoer_widgets() {
+  each(_todoer.dependents, dep => {
+    const item = _item(dep)
+    item.elem?.querySelectorAll('.todoer-widget').forEach(widget => _render_todoer_widget(widget, item))
+  })
+}
+
+// enqueue a command document through the app's narrow operation (design 2.2, 3.1): the overlay
+// begins at the enqueue; a terminal create failure is retried ONCE with the same id, then
+// reported and the overlay cleared
+async function _enqueue_command(item, command, retry_id = null) {
+  let enqueued
+  try {
+    enqueued = await window._enqueue_hidden_document('task_command_' + command.id, command, retry_id)
+  } catch (e) {
+    _clear_pending(item, command.id) // a retry that could not be prepared: its overlay goes
+    alert(`could not ${command.kind} ${item.name}: ${e?.message ?? e}`)
+    return false
+  }
+  // the FIRST enqueue takes the overlay; a retry keeps whatever gesture is pending now (a
+  // newer take-back must not be replaced by an older delegate's transport)
+  if (!retry_id) {
+    _pending_commands()[item.id] = { id: command.id, kind: command.kind }
+    _rerender_todoer_widgets()
+  }
+  enqueued.written.catch(e => {
+    if (!retry_id) {
+      console.warn(`retrying ${command.kind} ${command.id} of ${item.name} once: ${e?.message ?? e}`)
+      return _enqueue_command(item, command, enqueued.id)
+    }
+    _clear_pending(item, command.id) // only this command's own overlay
+    alert(`${command.kind} of ${item.name} was not saved: ${e?.message ?? e}`)
+  })
+  return true
+}
+
+// clear the item's pending overlay when it belongs to the given command (never a newer one)
+function _clear_pending(item, command_id) {
+  const pending = _pending_commands()
+  if (pending[item.id]?.id != command_id) return
+  delete pending[item.id]
+  _rerender_todoer_widgets()
+}
+
+// the checks every gesture shares; returns the target item or null (reported)
+function _task_target(item, kind) {
+  if (!item) return null
+  if (!item.tags.includes('#todo')) {
+    alert(`cannot ${kind} ${item.name}: not a #todo item`)
+    return null
+  }
+  if (!item.saved_id) {
+    alert(`cannot ${kind} ${item.name}: item not saved yet`)
+    return null
+  }
+  return item
+}
+
+// delegate a todo (design 2.3): the body is captured BEFORE the presentation edits (the route
+// tag and the [delegated] marker) so the instruction is exactly what the owner wrote; a refused
+// enqueue (the size gate) reports and changes nothing; a pending take-back refuses the gesture
+async function _delegate(item) {
+  item = _task_target(item, 'delegate')
+  if (!item) return false
+  const state = _task_state(item)
+  const pending = _pending_commands()[item.id]
+  if (pending?.kind == 'takeback' && !state?.acked?.[pending.id]) {
+    alert(`take-back of ${item.name} pending; delegate again after it is acknowledged`)
+    return false
+  }
+  // the capture is the RAW text (item.text): item.read() is the grammar view, whose inert
+  // regions (the agent's answers and plans) are tokens, never the bytes the bridge must see
+  const grammar = window._grammar
+  if (!(grammar?.version >= 2)) {
+    alert('please reload to delegate todos (app update required)')
+    return false
+  }
+  const command = {
+    task: item.saved_id,
+    id: _command_id(),
+    kind: 'delegate',
+    epoch: state?.epoch ?? 0,
+    at: Date.now(),
+    body: item.text,
+  }
+  if (!(await _enqueue_command(item, command))) return false
+  // the presentation: the marker at every delegation and the route tag once, planned over the
+  // grammar view of the CURRENT raw text (an edit made during the await is kept; the inert
+  // regions survive the rewrite); a refused write is repaired by the bridge at the next state change
+  const text = grammar.edit(item.text, view => _delegated_view(view))
+  if (item.write(text, '') !== true) console.warn(`delegate: presentation write refused for ${item.name}`)
+  // a delegated item cannot be snoozed: delegating a snoozed one clears its snooze (design 2.3)
+  if (item._global_store._todoer?.snoozed) item.global_store._todoer.snoozed = 0
+  return true
+}
+
+// the grammar view of a delegated item: the [delegated] marker on the todo line and the route
+// tag once (checked on the text: hidden tags are not in item.tags)
+function _delegated_view(view) {
+  view = _set_marker(view, 'delegated')
+  if (!view.match(/(^|\s)#_agent\/vault(?=[\s<>&?!,.;:"'`(){}\[\]]|$)/)) view = view.replace(/\s*$/, '\n#_agent/vault\n')
+  return view
+}
+
+// take a delegated todo back (design 2.3): the command alone; the bridge writes [taken]
+async function _takeback(item) {
+  item = _task_target(item, 'take back')
+  if (!item) return false
+  const state = _task_state(item)
+  const command = { task: item.saved_id, id: _command_id(), kind: 'takeback', epoch: state?.epoch ?? 0, at: Date.now() }
+  return _enqueue_command(item, command)
+}
+
+// the item a command names, else the targeted (selected) item; null when neither resolves
+function _command_target(name, command) {
+  const id = name || document.querySelector('.container.target')?.getAttribute('data-item-id')
+  const item = id ? _item(id, { silent: true }) : null
+  if (!item) alert(`${command}: ${name ? name + ' missing or ambiguous' : 'no target item'}`)
+  return item
+}
+
+// => /delegate [item]
+// delegate `item` (default: the targeted item) to the vault agent: start or resume the task
+async function _on_command_delegate(args, name) {
+  const item = _command_target(name, '/delegate')
+  // a refused gesture (reported in a dialog) leaves the command in the box, as /edit does
+  if (!item || !(await _delegate(item))) return `/delegate ${args}`
+  return null
+}
+
+// => /takeback [item]
+// take `item` (default: the targeted item) back from the vault agent
+async function _on_command_takeback(args, name) {
+  const item = _command_target(name, '/takeback')
+  if (!item || !(await _takeback(item))) return `/takeback ${args}`
+  return null
 }
