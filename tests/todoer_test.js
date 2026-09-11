@@ -43,6 +43,7 @@ vm.runInContext(
     '_snippet_uses_suffix',
     '_todo_offset',
     '_set_marker',
+    '_without_log',
     '_extract_todo_snippet',
     '_delegated_view',
     '_clear_pending',
@@ -105,6 +106,10 @@ check('snippet: suffix with a marker', _extract_todo_snippet(item('Context\n#tod
 check('snippet: suffix, marker and text', _extract_todo_snippet(item('#todo [working] fix\n')), '#todo [working] fix\n')
 check('snippet: prefix keeps its marker', _extract_todo_snippet(item('fix [question] #todo\n')), 'fix [question] #todo')
 check('snippet: prefix without a marker', _extract_todo_snippet(item('Context\n#todo\n')), 'Context\n#todo')
+check('snippet: drops the _log block', _extract_todo_snippet(item('#todo hello\n\n```_log\nINFO: 1 handed back: done\n```\n#_agent/vault\n')), '#todo hello\n\n#_agent/vault\n')
+check('snippet: drops the _log block before a prefix tag', _extract_todo_snippet(item('Fix the cache\n```_log\nINFO: 1 a\n```\n[question] #todo\n')), 'Fix the cache\n[question] #todo')
+check('snippet: drops an empty _log block', _extract_todo_snippet(item('#todo hello\n```_log\n```\n')), '#todo hello\n')
+check('snippet: the mode is decided with the log in place', _extract_todo_snippet(item(_set_marker('Fix the cache\n[question] #todo\n\n```_log\nINFO: 1 handed back: question\n```\nTry the returning device too\n#_agent/vault\n', 'delegated'))), 'Fix the cache\n[delegated] #todo')
 check('snippet: multiline stays suffix', _extract_todo_snippet(item('Context\n#todo\nFix the cache\n')), '#todo\nFix the cache\n')
 
 // the enqueue path's overlay across retries and failures (design 2.2): an older command's

@@ -654,9 +654,15 @@ function _todo_offset(text) {
   return todo_offset
 }
 
+// the text without its fenced _log blocks (the bridge's task log; the app's opener grammar)
+function _without_log(text) {
+  return text.replace(/(?:^|\n)[ \t]*```(?:\S+:)?_log(?:_hidden|_removed)?(?::\S*\.\S*)?(?:[ \t][^\n]*)?(?:\n[\s\S]*?)?\n[ \t]*```[ \t]*(?=\n|$)/gi, '')
+}
+
 // extract todo snippet from item
 function _extract_todo_snippet(item) {
-  // read text and determine todo tag positions
+  // read text and determine todo tag positions (the mode is decided on the text as read, as
+  // the marker writer decides it; the bridge's _log block is dropped from the chosen slice)
   let text = item.read()
   let todo_offsets = []
 
@@ -681,8 +687,8 @@ function _extract_todo_snippet(item) {
   const use_suffix = _snippet_uses_suffix(text, todo_offset)
 
   if (use_suffix) {
-    // use suffix, truncate on right
-    text = text.substring(todo_offset)
+    // use suffix (without the log), truncate on right
+    text = _without_log(text.substring(todo_offset))
     if (text.length > 200) {
       // truncate on first whitespace in tail (index > 200)
       // note we only truncate on whitespace to avoid breaking tags or urls
@@ -690,8 +696,8 @@ function _extract_todo_snippet(item) {
       if (cutoff >= 0) text = text.substr(0, 200 + cutoff) + ' …'
     }
   } else {
-    // use prefix, truncate (and align) on left
-    text = text.substring(0, todo_offset + 5)
+    // use prefix (without the log), truncate (and align) on left
+    text = _without_log(text.substring(0, todo_offset + 5))
     if (text.length > 200) {
       // truncate on _last_ whitespace in head (index < end - 200)
       // note we only truncate on whitespace to avoid breaking tags or urls
