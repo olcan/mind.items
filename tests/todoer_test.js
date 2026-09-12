@@ -18,7 +18,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = src.match(/\nconst _pending_commands = [^\n]*\n/)[0]
+const consts = src.match(/\nconst _pending_commands = [^\n]*\n/)[0] + src.match(/\nconst TODOER_VERSION = [^\n]*\n/)[0]
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 const context = {
   console,
@@ -45,6 +45,8 @@ vm.runInContext(
     '_set_marker',
     '_without_log',
     '_extract_todo_snippet',
+    '_merged_order',
+    '_order_blocked',
     '_delegated_view',
     '_clear_pending',
     '_rerender_todoer_widgets',
@@ -53,7 +55,8 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command } = context
+const { _task_list, _age, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked } = context
+const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 // a top-level `const` of the evaluated source is script-scoped, not a context property: read it in place
 const _pending_commands = vm.runInContext('_pending_commands', context)
 
@@ -169,3 +172,16 @@ const tick = () => new Promise(r => setTimeout(r, 0))
   process.exit(failures ? 1 : 0)
 })()
 
+
+// the saved order merges this tab's rows with the ids it does not show (design 6, 2026-09-12):
+// a delivery-caused render reproduces the delivered string; a local change keeps unknown ids
+// in place; a build older than the store's writer stops writing orders
+check('order: a delivery reproduces the delivered string', _merged_order(['a', 'b'], 'a,x,b'), 'a,x,b')
+check('order: a local reorder keeps an unknown id after the row it followed', _merged_order(['b', 'a'], 'a,x,b'), 'b,a,x')
+check('order: a new local row lands where the DOM puts it', _merged_order(['a', 'n', 'b'], 'a,x,b'), 'a,x,n,b')
+check('order: unknown ids before any known row lead', _merged_order(['a'], 'y,x,a'), 'y,x,a')
+check('order: a row this tab lacks is an unknown id too, kept in place', _merged_order(['b'], 'a,x,b'), 'a,x,b')
+check('order: nothing stored', _merged_order(['a', 'b'], undefined), 'a,b')
+check('order: an empty DOM keeps the stored ids', _merged_order([], 'a,b'), 'a,b')
+check('version: a newer writer blocks this build', _order_blocked({ version: TODOER_VERSION + 1 }), true)
+check('version: the same or an older writer does not', [_order_blocked({ version: TODOER_VERSION }), _order_blocked({}), _order_blocked(undefined)], [false, false, false])

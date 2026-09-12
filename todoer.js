@@ -86,6 +86,7 @@ function __render(widget, widget_item) {
   // under its own key (design 6: separate orders)
   // note snoozed flag can be excluded since snooze lists are not saved
   storage_key ??= delegated ? 'delegated' : tags.join(',')
+  if (storage_key == 'version') fatal(`storage_key 'version' is reserved (the todoer's build stamp)`)
 
   // console.debug(`rendering list ${storage_key} in ${widget.id} ...`)
 
@@ -362,15 +363,23 @@ function __render(widget, widget_item) {
                   .map(id => _item(id).saved_id)
                 if (saved_ids.includes(null)) return // try again later
 
-                // store saved_ids under storage_key & filter all ids using _exists
+                // store the merged order under storage_key (ids this tab does not show are
+                // kept in place: see _merged_order), never pruned by what this tab has loaded
                 const gs = widget_item._global_store // saved manually below
                 gs._todoer ??= {}
+                if (_order_blocked(gs._todoer)) {
+                  // a newer build wrote the store: this one stops writing orders (once told);
+                  // null ends the save task (a later render schedules the next attempt)
+                  if (!_todoer.store.reload_notice) {
+                    _todoer.store.reload_notice = true
+                    alert('please reload to keep your todo order (todoer update required)')
+                  }
+                  return null
+                }
                 const prev_state = clone_deep(gs._todoer) // to detect changes
-                gs._todoer[storage_key] = saved_ids.join()
-                gs._todoer = map_values(gs._todoer, v =>
-                  v.split(',').filter(_exists).join()
-                )
-                gs._todoer = pick_by(gs._todoer, v => v.length > 0) // filter empties
+                gs._todoer[storage_key] = _merged_order(saved_ids, gs._todoer[storage_key])
+                gs._todoer = pick_by(gs._todoer, v => typeof v != 'string' || v.length > 0)
+                gs._todoer.version = TODOER_VERSION
 
                 // clear unsnoozed flags/times to prevent custom order override
                 each(saved_ids, id => {
@@ -657,6 +666,42 @@ function _todo_offset(text) {
 // the text without its fenced _log blocks (the bridge's task log; the app's opener grammar)
 function _without_log(text) {
   return text.replace(/(?:^|\n)[ \t]*```(?:\S+:)?_log(?:_hidden|_removed)?(?::\S*\.\S*)?(?:[ \t][^\n]*)?(?:\n[\s\S]*?)?\n[ \t]*```[ \t]*(?=\n|$)/gi, '')
+}
+
+// the todoer build's store stamp (`_todoer.version`, a reserved key): a saved list order carries
+// it, and a build older than the one that last wrote the store (the owner's other device, updated
+// first) stops writing orders and asks for a reload instead of fighting the newer build's
+// membership rules (two writers with different rules re-asserting one key on every delivery
+// thrash every tab's order each second). Best effort: the check reads the store this tab holds
+// when its save runs, so a save accepted before the newer stamp arrived can still land; increment
+// it with every incompatible change to what an order key holds
+const TODOER_VERSION = 1
+
+// the order to save for a list: this tab's rows in their DOM order, with the ids the stored
+// order carries that this tab does not show (not loaded here, another list, another build's
+// membership) kept in place after the known id they followed; never dropped, so a tab holding
+// part of the items (a stale device mid-sync) cannot rewrite the others' order, and a render
+// caused by a delivery of a settled order (every displayed id already occurs in the delivered
+// order, no resurfacing, the stamp already there) reproduces the delivered string, which is
+// then not written at all
+function _merged_order(dom_ids, stored) {
+  const known = new Set(dom_ids)
+  const leading = []
+  const after = new Map() // known id -> the unknown ids that followed it in the stored order
+  let last = null
+  for (const id of (stored ?? '').split(',').filter(id => id)) {
+    if (known.has(id)) last = id
+    else if (last === null) leading.push(id)
+    else (after.get(last) ?? after.set(last, []).get(last)).push(id)
+  }
+  const out = [...leading]
+  for (const id of dom_ids) out.push(id, ...(after.get(id) ?? []))
+  return out.join()
+}
+
+// whether this build must not write orders: the store was last written by a newer build
+function _order_blocked(todoer_store) {
+  return (todoer_store?.version ?? 0) > TODOER_VERSION
 }
 
 // extract todo snippet from item
