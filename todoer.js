@@ -306,6 +306,8 @@ function __render(widget, widget_item) {
   // also removes unsnooze times & switches snoozed items to custom ordering
   setTimeout(() => list.sortable.save())
 
+  _suppress_touch_context_menu(list) // a touch long press must not open the context menu
+
   // track unchoose (i.e. "ungrab") time to ignore click events too close to it
   // NOTE: this requires positive "delay" option (including non-touch devices)
   let last_choose_time = 0
@@ -702,6 +704,36 @@ function _merged_order(dom_ids, stored) {
 // whether this build must not write orders: the store was last written by a newer build
 function _order_blocked(todoer_store) {
   return (todoer_store?.version ?? 0) > TODOER_VERSION
+}
+
+// a long press on a touch screen should start the delayed drag (Sortable's delayOnTouchOnly),
+// but on the owner's touch-screen laptop under Chrome it opened the context menu instead (Chrome
+// opens it on a long press; the rows' -webkit-touch-callout CSS quiets only iOS, and Sortable
+// 1.15 prevents no context menu of its own). So the list prevents the context menu after a press
+// that came from touch, and keeps every other one (a mouse right-click, a keyboard menu, a pen).
+// Where the contextmenu event carries the gesture's pointer type (Chromium: '' for a keyboard
+// menu) that decides; elsewhere the last press's origin does, recorded by pointerdown (or by
+// touchstart where pointer events are absent, never overriding a pointer classification) and
+// cleared by a keydown (a keyboard menu request) or a mousedown, which a touch's compatibility
+// mouse events send too, so that fallback is best effort; Chromium's own-event path is unaffected
+function _suppress_touch_context_menu(list) {
+  let touch = false // the last press came from touch (the fallback classification)
+  let pointer = false // pointer events classify presses here (touchstart must not override)
+  list.addEventListener(
+    'pointerdown',
+    e => {
+      pointer = true
+      touch = e.pointerType == 'touch'
+    },
+    true
+  )
+  list.addEventListener('touchstart', () => (touch = pointer ? touch : true), { capture: true, passive: true })
+  list.addEventListener('keydown', () => (touch = false), true)
+  list.addEventListener('mousedown', e => (touch = e.pointerType == 'touch' ? touch : false), true)
+  list.addEventListener('contextmenu', e => {
+    const type = typeof e.pointerType == 'string' ? e.pointerType : null
+    if (type !== null ? type == 'touch' : touch) e.preventDefault()
+  })
 }
 
 // extract todo snippet from item

@@ -46,6 +46,7 @@ vm.runInContext(
     '_without_log',
     '_extract_todo_snippet',
     '_merged_order',
+    '_suppress_touch_context_menu',
     '_order_blocked',
     '_delegated_view',
     '_clear_pending',
@@ -55,7 +56,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked } = context
+const { _task_list, _age, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 // a top-level `const` of the evaluated source is script-scoped, not a context property: read it in place
 const _pending_commands = vm.runInContext('_pending_commands', context)
@@ -185,3 +186,43 @@ check('order: nothing stored', _merged_order(['a', 'b'], undefined), 'a,b')
 check('order: an empty DOM keeps the stored ids', _merged_order([], 'a,b'), 'a,b')
 check('version: a newer writer blocks this build', _order_blocked({ version: TODOER_VERSION + 1 }), true)
 check('version: the same or an older writer does not', [_order_blocked({ version: TODOER_VERSION }), _order_blocked({}), _order_blocked(undefined)], [false, false, false])
+
+// the context menu on the list is prevented after a touch press and kept for every other
+// origin (2026-09-12): the event's own pointer type decides where the browser provides it
+// (Chromium), else the last press's origin, recorded by pointerdown or touchstart and cleared
+// by a keyboard menu request or a mousedown (a touch's compatibility mousedown too: best effort)
+{
+  const handlers = {}
+  const options = {}
+  const list = { addEventListener: (type, fn, opts) => ((handlers[type] = fn), (options[type] = opts)) }
+  _suppress_touch_context_menu(list)
+  check('touch: the press listeners capture, touchstart passive', [options.pointerdown, options.touchstart, options.keydown, options.mousedown], [true, { capture: true, passive: true }, true, true])
+  const menu = (e = {}) => {
+    const event = { prevented: false, preventDefault() { this.prevented = true }, ...e }
+    handlers.contextmenu(event)
+    return event.prevented
+  }
+  handlers.pointerdown({ pointerType: 'touch' })
+  check('touch: a long press prevents the context menu', menu(), true)
+  handlers.pointerdown({ pointerType: 'mouse' })
+  check('touch: a mouse press keeps the context menu', menu(), false)
+  handlers.pointerdown({ pointerType: 'touch' })
+  handlers.keydown({ key: 'F10', shiftKey: true })
+  check('touch: a keyboard menu after a touch press is kept', menu(), false)
+  handlers.pointerdown({ pointerType: 'pen' })
+  handlers.touchstart({})
+  check('touch: touchstart never overrides a pen classification', menu(), false)
+  check('touch: the event\'s own pointer type decides where present', [menu({ pointerType: 'touch' }), menu({ pointerType: '' }), menu({ pointerType: 'mouse' })], [true, false, false])
+  const legacy = {}
+  const legacyList = { addEventListener: (type, fn) => (legacy[type] = fn) }
+  _suppress_touch_context_menu(legacyList)
+  const legacyMenu = () => {
+    const event = { prevented: false, preventDefault() { this.prevented = true } }
+    legacy.contextmenu(event)
+    return event.prevented
+  }
+  legacy.touchstart({})
+  check('touch: touchstart (no pointer events) prevents it', legacyMenu(), true)
+  legacy.mousedown({ button: 2 })
+  check('touch: a mousedown after touch (no pointer events) clears the fallback', legacyMenu(), false)
+}
