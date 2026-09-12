@@ -307,6 +307,7 @@ function __render(widget, widget_item) {
   setTimeout(() => list.sortable.save())
 
   _suppress_touch_context_menu(list) // a touch long press must not open the context menu
+  _grab_on_sideways_touch(list) // a quick sideways touch grabs its row without the delay
 
   // track unchoose (i.e. "ungrab") time to ignore click events too close to it
   // NOTE: this requires positive "delay" option (including non-touch devices)
@@ -734,6 +735,83 @@ function _suppress_touch_context_menu(list) {
     const type = typeof e.pointerType == 'string' ? e.pointerType : null
     if (type !== null ? type == 'touch' : touch) e.preventDefault()
   })
+}
+
+// a quick sideways touch grabs its row at once (2026-09-12). The delayed touch drag (Sortable's
+// delay with delayOnTouchOnly) exists so that a touch moving up or down scrolls the page instead
+// of grabbing a row, but the page never pans sideways, so a touch that moves mostly sideways
+// before its row is chosen (the delay pending, or cancelled by Sortable on a jitter) can only
+// mean a drag: the list presses the row again without the delay, at the touch's position. The
+// touch is followed through pointer events (a browser withholds touchmove events inside its tap
+// slop, Chromium among them, but streams pointermove events from the start; a browser without
+// pointer events keeps the delayed drag only): pointerdown records the primary touch, pointermove
+// classifies it once it has moved HGRAB_RADIUS px on either axis (mostly sideways by HGRAB_RATIO:
+// grab; otherwise left alone for the rest of that touch, the browser's scroll included), and
+// pointerup or pointercancel (the browser took the touch for a scroll) ends it. The list's
+// touch-action (pan-y pinch-zoom, todoer-widget.html) keeps the browser from taking a touch that crosses
+// its slop mostly sideways, and from the grab on the list prevents that touch's cancelable
+// touchmove events (the first one past the slop is the browser's last chance to start a scroll,
+// before Sortable's own prevention takes over with the drag). A second finger on this list, a
+// row already chosen (the delay ended), or a touch that pressed no row of this list grab
+// nothing (a second finger elsewhere is not seen here). The press
+// again goes through Sortable 1.15's press path by its private names (_disableDelayedDrag and
+// _onDrop release the pending press without events, _onTapStart with delay 0 presses at the
+// touch's position); a Sortable without them keeps the delayed drag only
+const HGRAB_RADIUS = 10 // px moved on either axis before a pending touch press is classified
+const HGRAB_RATIO = 2 // the sideways move must be at least this multiple of the vertical one
+
+// classifies a touch that moved (dx, dy) since its press: true (mostly sideways: grab), false
+// (leave to the browser and Sortable), null (not moved HGRAB_RADIUS px yet)
+function _sideways(dx, dy) {
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < HGRAB_RADIUS) return null
+  return Math.abs(dx) >= HGRAB_RATIO * Math.abs(dy)
+}
+
+function _grab_on_sideways_touch(list) {
+  if (typeof PointerEvent == 'undefined') return // the delayed drag only
+  let press = null // the primary touch pressed on the list, until classified or ended
+  let grabbed = false // this touch grabbed a row: its moves are the drag's, never a scroll
+  const ended = () => ((press = null), (grabbed = false))
+  list.addEventListener(
+    'pointerdown',
+    e => {
+      if (e.pointerType != 'touch') return
+      if (!e.isPrimary) return (press = null) // a second finger: no grab for this touch
+      grabbed = false
+      press = { id: e.pointerId, x: e.clientX, y: e.clientY, target: e.target }
+    },
+    true
+  )
+  list.addEventListener(
+    'pointermove',
+    e => {
+      if (!press || e.pointerId != press.id) return
+      const sideways = _sideways(e.clientX - press.x, e.clientY - press.y)
+      if (sideways === null) return
+      const { target } = press
+      press = null // classified either way
+      const sortable = list.sortable
+      const row = Sortable.dragged // the row of the pending (or cancelled) press, if any
+      if (!sideways || !sortable || row?.parentNode !== list) return
+      if (row.classList.contains(sortable.options.chosenClass)) return // the delay ended
+      if (!['_disableDelayedDrag', '_onDrop', '_onTapStart'].every(name => typeof sortable[name] == 'function')) return
+      grabbed = true
+      sortable._disableDelayedDrag() // Sortable's own move handler may have done this already
+      sortable._onDrop() // no event: the pending press is released without unchoose or end
+      const delay = sortable.option('delay')
+      sortable.option('delay', 0)
+      try {
+        const { clientX, clientY } = e
+        sortable._onTapStart({ type: 'pointerdown', pointerType: 'touch', button: 0, cancelable: true, target, clientX, clientY })
+      } finally {
+        sortable.option('delay', delay)
+      }
+    },
+    true
+  )
+  list.addEventListener('pointerup', ended, true)
+  list.addEventListener('pointercancel', ended, true)
+  list.addEventListener('touchmove', e => grabbed && e.cancelable && e.preventDefault(), { capture: true, passive: false })
 }
 
 // extract todo snippet from item

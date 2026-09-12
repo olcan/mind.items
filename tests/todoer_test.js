@@ -18,7 +18,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = src.match(/\nconst _pending_commands = [^\n]*\n/)[0] + src.match(/\nconst TODOER_VERSION = [^\n]*\n/)[0]
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 const context = {
   console,
@@ -33,6 +33,8 @@ const context = {
   fatal: msg => { throw new Error(msg) },
   _todoer: { store: {} },
   crypto: { getRandomValues: a => a.fill(7) },
+  Sortable: { dragged: null }, // the row of the pending press, as Sortable exposes it
+  PointerEvent: class {}, // present: the grab follows the touch through pointer events
 }
 vm.createContext(context)
 vm.runInContext(
@@ -48,6 +50,8 @@ vm.runInContext(
     '_merged_order',
     '_suppress_touch_context_menu',
     '_order_blocked',
+    '_sideways',
+    '_grab_on_sideways_touch',
     '_delegated_view',
     '_clear_pending',
     '_rerender_todoer_widgets',
@@ -56,8 +60,10 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu } = context
+const { _task_list, _age, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
+const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
+const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
 // a top-level `const` of the evaluated source is script-scoped, not a context property: read it in place
 const _pending_commands = vm.runInContext('_pending_commands', context)
 
@@ -225,4 +231,125 @@ check('version: the same or an older writer does not', [_order_blocked({ version
   check('touch: touchstart (no pointer events) prevents it', legacyMenu(), true)
   legacy.mousedown({ button: 2 })
   check('touch: a mousedown after touch (no pointer events) clears the fallback', legacyMenu(), false)
+}
+
+// a quick sideways touch grabs its row without the delay (2026-09-12): a primary touch that moved
+// HGRAB_RADIUS px mostly sideways (HGRAB_RATIO) while its row's press is pending (Sortable.dragged
+// a row of this list, not chosen yet) presses the row again through Sortable's press path with
+// the delay at 0 at the touch's position, and from then on that touch's cancelable touchmove
+// events are prevented; a move mostly up or down leaves the touch alone, for the rest of that touch;
+// a second finger on this list, a mouse, or another pointer grab nothing; a press again that throws
+// propagates with the delay restored
+check('sideways: not moved enough is undecided', [_sideways(0, 0), _sideways(HGRAB_RADIUS - 1, 0), _sideways(0, 1 - HGRAB_RADIUS)], [null, null, null])
+check('sideways: mostly sideways grabs', [_sideways(HGRAB_RADIUS, 0), _sideways(-HGRAB_RADIUS, HGRAB_RADIUS / HGRAB_RATIO), _sideways(30, -15)], [true, true, true])
+check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _sideways(HGRAB_RADIUS, HGRAB_RADIUS / HGRAB_RATIO + 1), _sideways(-5, -12)], [false, false, false])
+{
+  const calls = []
+  const handlers = {}
+  const options = {}
+  const list = { addEventListener: (type, fn, opts) => ((handlers[type] = fn), (options[type] = opts)) }
+  const row = { parentNode: list, chosen: false, classList: { contains: cls => row.chosen && cls == 'chosen' } }
+  const sortable = {
+    options: { delay: 250, chosenClass: 'chosen' },
+    option(name, value) {
+      if (value === undefined) return this.options[name]
+      this.options[name] = value
+      calls.push(['option', name, value])
+    },
+    _disableDelayedDrag: () => calls.push(['_disableDelayedDrag']),
+    _onDrop: (...args) => calls.push(['_onDrop', ...args]),
+    _onTapStart: e => calls.push(['_onTapStart', e, sortable.options.delay]),
+  }
+  list.sortable = sortable
+  const { Sortable } = context
+  _grab_on_sideways_touch(list)
+  check('grab: the listeners capture, touchmove not passive', [options.pointerdown, options.pointermove, options.pointerup, options.pointercancel, options.touchmove], [true, true, true, true, { capture: true, passive: false }])
+  const pointer = (type, clientX, clientY, extra = {}) => {
+    const e = { type, pointerType: 'touch', pointerId: 1, isPrimary: true, clientX, clientY, target: 'text', ...extra }
+    handlers[type](e)
+    return e
+  }
+  const touchmove = (extra = {}) => {
+    const e = { cancelable: true, prevented: false, preventDefault() { this.prevented = true }, ...extra }
+    handlers.touchmove(e)
+    return e
+  }
+  const reset = () => {
+    calls.length = 0
+    row.chosen = false
+    Sortable.dragged = row
+    handlers.pointerup({})
+  }
+  reset()
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 105, 51)
+  check('grab: a short move is undecided', [calls, touchmove().prevented], [[], false])
+  pointer('pointermove', 112, 52)
+  check('grab: a sideways move presses the row again without the delay, at the touch', calls, [['_disableDelayedDrag'], ['_onDrop'], ['option', 'delay', 0], ['_onTapStart', { type: 'pointerdown', pointerType: 'touch', button: 0, cancelable: true, target: 'text', clientX: 112, clientY: 52 }, 0], ['option', 'delay', 250]])
+  check('grab: the delay is restored', sortable.options.delay, 250)
+  calls.length = 0
+  pointer('pointermove', 112, 90)
+  check('grab: from the grab on, that touch\'s cancelable touchmove events are prevented, nothing pressed again', [touchmove().prevented, touchmove({ cancelable: false }).prevented, calls], [true, false, []])
+  pointer('pointerup', 112, 90)
+  check('grab: once the touch ended, nothing is prevented', touchmove().prevented, false)
+  reset()
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 103, 62)
+  pointer('pointermove', 140, 62)
+  check('grab: a move mostly up or down leaves the touch alone, for the rest of that touch', [calls, touchmove().prevented], [[], false])
+  reset()
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 104, 50)
+  pointer('pointercancel', 104, 50)
+  pointer('pointermove', 120, 50)
+  check('grab: a touch the browser took (pointercancel) grabs nothing', calls, [])
+  reset()
+  row.chosen = true
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 112, 50)
+  check('grab: a row already chosen (the delay ended) is left to Sortable', calls, [])
+  reset()
+  Sortable.dragged = null
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 112, 50)
+  check('grab: no pending press, no grab', calls, [])
+  reset()
+  Sortable.dragged = { parentNode: {}, classList: row.classList }
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 112, 50)
+  check('grab: another list\'s pending press, no grab', calls, [])
+  reset()
+  pointer('pointerdown', 100, 50)
+  pointer('pointerdown', 200, 50, { pointerId: 2, isPrimary: false })
+  pointer('pointermove', 112, 50)
+  check('grab: a second finger, no grab', calls, [])
+  reset()
+  pointer('pointerdown', 100, 50, { pointerType: 'mouse' })
+  pointer('pointermove', 112, 50, { pointerType: 'mouse' })
+  check('grab: a mouse press is not a touch', calls, [])
+  reset()
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 112, 50, { pointerId: 7 })
+  check('grab: another pointer\'s move is not this touch\'s', calls, [])
+  reset()
+  list.sortable = { ...sortable, _onTapStart: () => { throw new Error('press failed') } }
+  pointer('pointerdown', 100, 50)
+  let thrown = null
+  try {
+    pointer('pointermove', 112, 50)
+  } catch (e) {
+    thrown = e.message
+  }
+  check('grab: a press again that throws propagates, the delay restored', [thrown, sortable.options.delay, calls.slice(-1)], ['press failed', 250, [['option', 'delay', 250]]])
+  reset()
+  list.sortable = { options: sortable.options, option: sortable.option }
+  pointer('pointerdown', 100, 50)
+  pointer('pointermove', 112, 50)
+  check('grab: a Sortable without the press path, no grab, no throw', calls, [])
+  const legacy = {}
+  const { PointerEvent } = context
+  delete context.PointerEvent
+  _grab_on_sideways_touch({ addEventListener: (type, fn) => (legacy[type] = fn) })
+  context.PointerEvent = PointerEvent
+  check('grab: without pointer events nothing is installed (the delayed drag only)', Object.keys(legacy), [])
 }

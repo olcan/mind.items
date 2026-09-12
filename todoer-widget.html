@@ -18,6 +18,12 @@
   #widget .list {
     width: 100%;
     box-sizing: border-box;
+    /* a touch on the list may pan the page up or down only: a sideways move is a drag (todoer.js,
+       _grab_on_sideways_touch); pinch zoom stays allowed, as the body's `manipulation` allows it
+       (the viewport meta's scale limits do not bind Safari); the plain pan-y line is the fallback
+       where a browser rejects the pinch-zoom keyword */
+    touch-action: pan-y;
+    touch-action: pan-y pinch-zoom;
     /* transition: width 0.1s ease-out; */
   }
   #widget .list:empty:before {
