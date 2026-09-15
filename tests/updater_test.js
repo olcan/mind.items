@@ -189,8 +189,10 @@ const retry_rows = async () => {
   check('item-specific: a missing file', is_infra_error({ status: 404, message: 'Not Found' }), false)
 }
 
-// init_updater under stubs: the items, their checks and writes, the dialogs, the webhooks
-const wiring = () => {
+// init_updater under stubs: the items, their checks and writes, the dialogs, the webhooks;
+// `real_check` runs the REAL check_updates (its GitHub client faked: page.github) instead of
+// the stub, for the check's own side effects (the pushable mark)
+const wiring = ({ real_check = false } = {}) => {
   const page = {
     logs: [],
     writes: [], // [item name, the updates written]
@@ -202,6 +204,8 @@ const wiring = () => {
     answers: {}, // item name -> the updates a check returns (a function defers)
     webhook: null, // the listener's callback
     time: 5_000_000,
+    github: null, // real_check: { repos: { listCommits, getCommit } } fakes
+    pusher: null, // { store: { _push } }: a #pusher with a push in flight
   }
   const item = (name, id) => (page.items[id] = { id, name, attr: { source: 'github', owner: 'o', repo: 'r', branch: 'master', path: `${name.slice(1)}.md` }, global_store: {} })
   const env = {
@@ -226,19 +230,32 @@ const wiring = () => {
       warn: m => page.logs.push(['warn', m]),
       error: m => page.logs.push(['error', m]),
       debug: () => {},
+      fatal: m => { throw new Error(m) },
     },
+    github_token: async () => 'token',
+    github_client: () => page.github,
+    github_sha: text => 'h:' + text, // the real one hashes; the comparison is what matters
+    empty: x => Object.keys(x ?? {}).length == 0,
+    size: x => Object.keys(x ?? {}).length,
+    keys: Object.keys,
     _labels: fn => Object.values(page.items).map(i => i.name).filter(name => fn(name, [1])),
-    _item: (id, opts) => (id == '#pusher' ? null : page.items[id] ?? Object.values(page.items).find(i => i.name == id)),
+    _item: (id, opts) => (id == '#pusher' ? page.pusher : page.items[id] ?? Object.values(page.items).find(i => i.name == id)),
     _modal: ({ content }) => {
       const modal = { content }
-      modal.promise = new Promise(resolve => (modal.resolve = resolve))
+      modal.promise = new Promise(resolve => (modal.resolve = v => { modal.resolved = true; resolve(v) }))
       page.modals.push(modal)
       return modal.promise
     },
     _modal_update: (modal, content) => page.updates.push(content),
     _modal_close: promise => {
+      // as the app: closing resolves undefined; with no argument EVERY open dialog is closed
+      // (the pusher does that before its commit prompt)
       page.closes++
-      page.modals.find(m => m.promise === promise).resolve(undefined) // as the app: closing resolves undefined
+      const targets = promise ? [page.modals.find(m => m.promise === promise)] : page.modals.filter(m => !m.resolved)
+      for (const m of targets) {
+        m.resolved = true
+        m.resolve(undefined)
+      }
     },
     values: Object.values,
     entries: Object.entries,
@@ -264,6 +281,7 @@ const wiring = () => {
     },
   }
   vm.createContext(context)
+  if (real_check) vm.runInContext(pick(['check_updates']).join('\n') + '\nasync function pace_github_call() {}', context) // the declaration replaces the stub
   vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
   page.init = () => vm.runInContext('init_updater()', context)
   page.push = (name, sha) => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: sha, before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: [{ id: sha, message: 'm', modified: [`${name.slice(1)}.md`] }] } }) } }] })
@@ -352,7 +370,7 @@ const wiring_rows = async () => {
     // offline, the connection returns, the retried scan's check is outstanding (a slow GitHub)
     // when the push arrives; the push's worker waits on the scan (no check or write overtakes
     // it), then one dialog asks once and the write is of the latest version (a re-check at the
-    // write). Removing the scan's publication (`store._update = scan`) fails this row
+    // write). Removing the scan's publication (`store._scan = scan`) fails this row
     const page = wiring()
     page.item('#todoer', 'i1')
     page.answers['#todoer'] = new TypeError('Failed to fetch')
@@ -641,6 +659,136 @@ const wiring_rows = async () => {
     page.answer(true)
     await tick()
     check('Update: m2 written', page.writes, [['#a', { 'a.md': 'm2' }]])
+  }
+  {
+    // S1: a push during a RETRIED scan with workers scheduled meanwhile (an empty listener
+    // callback, then a relevant push) does not wait for the scan: the worker's wait for the
+    // scan and its dialog are published as store._worker, never as store._update, which
+    // #pusher waits on (pusher.js: `Promise.allSettled([_push, updater.store._update])`);
+    // the writes alone are (from the decision on). One dialog, the re-checked version written
+    const page = wiring()
+    page.item('#todoer', 'i1')
+    page.answers['#todoer'] = new TypeError('Failed to fetch')
+    let online
+    page.context.window.addEventListener = (t, f) => { if (t == 'online') online = f }
+    await page.init()
+    await tick()
+    let resolve_check
+    page.answers['#todoer'] = () => new Promise(resolve => (resolve_check = resolve))
+    page.time += 60_000
+    online()
+    await tick()
+    page.webhook({ docChanges: () => [] }) // an empty callback schedules a worker
+    page.push('#todoer', 'sha2') // a relevant one too
+    await tick()
+    let pushed = false
+    Promise.allSettled([page.store()._update]).then(() => (pushed = true)) // the pusher's wait
+    await tick()
+    check('the retried scan pending, workers scheduled: a push proceeds, no dialog yet', [pushed, page.modals.length, page.checks.length], [true, 0, 2])
+    page.answers['#todoer'] = { v: 2 }
+    resolve_check({ v: 1 })
+    await tick()
+    check('the scan released: one dialog', page.modals.length, 1)
+    pushed = false
+    Promise.allSettled([page.store()._update]).then(() => (pushed = true))
+    await tick()
+    check('the dialog open: a push proceeds', pushed, true)
+    page.answer(true)
+    await tick()
+    check('Update: written once with the re-checked version', page.writes, [['#todoer', { v: 2 }]])
+  }
+  {
+    // S2 (the real check_updates): a manual /update landing while the scan's getCommit is
+    // outstanding: the check compares nothing against the old install (no pushable mark, no
+    // queued find); a later check sees the new state
+    const page = wiring({ real_check: true })
+    const it = page.item('#a', 'i1')
+    it.attr.sha = 'c1'
+    it.text = 'v1'
+    let release_commit
+    page.github = {
+      repos: {
+        listCommits: async () => ({ data: [{ sha: 'c2' }] }), // GitHub moved on to c2
+        getCommit: ({ ref }) => new Promise(resolve => (release_commit = () => resolve({ data: { files: [{ filename: 'a.md', sha: 'h:v1' }] } }))),
+      },
+    }
+    const init = page.init()
+    await tick()
+    check('the scan\'s getCommit outstanding', typeof release_commit, 'function')
+    // the manual update installs c2 (as update_item does: attr.sha in place, the text, pushable off)
+    it.text = 'v2'
+    it.attr.sha = 'c2'
+    it.pushable = false
+    release_commit()
+    await init
+    await tick()
+    check('the stale comparison discarded: not pushable, nothing queued', [it.pushable, page.store().modified_ids, page.logs.filter(l => l[0] == 'warn').length], [false, [], 0])
+  }
+  {
+    // the real check_updates, the control: an unchanged item completes normally (no find, no
+    // pushable mark, no warning), and an item behind GitHub is found
+    const page = wiring({ real_check: true })
+    const a = page.item('#a', 'i1')
+    a.attr.sha = 'c1'
+    a.text = 'v1'
+    const b = page.item('#b', 'i2')
+    b.attr.sha = 'c1'
+    b.text = 'v1'
+    page.github = {
+      repos: {
+        listCommits: async ({ path }) => ({ data: [{ sha: path == 'b.md' ? 'c2' : 'c1' }] }),
+        getCommit: async ({ path }) => ({ data: { files: [{ filename: path, sha: 'h:v1' }] } }),
+      },
+    }
+    await page.init()
+    await tick()
+    check('the control: A unchanged (nothing), B behind (found), no warnings', [a.pushable, page.store().pending_updates, page.logs.filter(l => l[0] != 'log').length, page.modals.length], [undefined, { i2: { 'b.md': 'c2' } }, 0, 1])
+  }
+  {
+    // S3: the pusher closes EVERY dialog before its commit prompt (the app's close-all
+    // resolves them undefined, unlike an explicit Skip's false): the update dialog closed
+    // that way is not a decision: the queue is kept and asked again once the push settles
+    // (a failed push included), never over the pusher's prompt
+    const page = wiring()
+    page.item('#a', 'i1')
+    let resolve_check
+    page.answers['#a'] = () => new Promise(resolve => (resolve_check = resolve))
+    const init = page.init()
+    await tick()
+    let settle_push
+    page.pusher = { store: { _push: new Promise(resolve => (settle_push = resolve)) } } // a manual push in flight
+    resolve_check({ v: 1 }) // the scan finds A
+    await init
+    await tick()
+    check('the update dialog asked while the push runs', page.modals.length, 1)
+    page.context._modal_close() // the pusher, before its commit prompt: close-all
+    await tick()
+    check('closed by the pusher: not skipped, the queue kept, not reopened over the prompt', [page.logs.filter(l => l[0] == 'warn').length, page.store().modified_ids, page.modals.length, page.logs.filter(l => l[1] == 'update dialog closed by another operation; asking again after it').length], [0, ['i1'], 1, 1])
+    page.answers['#a'] = { v: 1 }
+    settle_push() // the push settles (failed or not)
+    await tick()
+    check('the push settled: asked again', page.modals.length, 2)
+    page.answer(true)
+    await tick()
+    check('Update: A written once', page.writes, [['#a', { v: 1 }]])
+  }
+  {
+    // a push during the on-load scan does not wait for it: the scan is published as
+    // store._scan (the worker waits on it), never as store._update, which #pusher waits on
+    // before every push (pusher.js: `Promise.allSettled([_push, updater.store._update])`);
+    // publishing the scan as _update held every push for the scan's minutes (2026-09-15)
+    const page = wiring()
+    page.item('#todoer', 'i1')
+    let resolve_check
+    page.answers['#todoer'] = () => new Promise(resolve => (resolve_check = resolve))
+    const init = page.init()
+    await tick()
+    let pushed = false
+    Promise.allSettled([page.store()._update]).then(() => (pushed = true)) // the pusher's wait
+    await tick()
+    check('the scan pending: a push proceeds, the scan published for the worker alone', [page.checks.length, pushed, typeof page.store()._scan?.then], [1, true, 'function'])
+    resolve_check(null)
+    await init
   }
   {
     // the retry path asks too: the catch-up fails (offline), the connection returns, the

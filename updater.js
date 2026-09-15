@@ -60,14 +60,27 @@ async function init_updater() {
   // without memory (the same commit delivered again asks again). Both the on-load catch-up and
   // the webhook listener queue through it: nothing installs without an answer
   const run_update_worker = () => {
-    const worker = Promise.allSettled([
-      store._update,
-      _item('#pusher', { silent: true })?.store._push,
-    ]).then(async () => {
+    // the workers run one at a time (store._worker: the previous worker, its writes
+    // included) and after the on-load scan (store._scan: its finds join the dialog); NEITHER
+    // wait is published as store._update, which #pusher waits on before every push: a push
+    // must never wait for the scan or for this worker's dialog, only for update writes in
+    // flight (the manual /update chain, with its acknowledgement dialog, is unchanged)
+    const worker = Promise.allSettled([store._worker, store._scan]).then(async () => {
       if (modified_ids.length == 0) return // nothing to do (a previous worker took them)
       store.update_modal = _modal({ content: ready_text(), confirm: 'Update', cancel: 'Skip' })
       const update = await store.update_modal
       store.update_modal = null // modal dismissed
+      if (update === undefined && modified_ids.length) {
+        // closed by a competing operation, not decided: #pusher closes EVERY dialog
+        // (_modal_close() with no argument, resolving them undefined; an explicit Skip is
+        // false) before its commit prompt, and a remote completion of the whole queue closes
+        // it with the queue empty (below). The queue is kept and asked again once the push in
+        // flight settles (never a dialog over the pusher's prompt)
+        _this.log(`update dialog closed by another operation; asking again after it`)
+        await Promise.allSettled([_item('#pusher', { silent: true })?.store._push])
+        run_update_worker() // behind this worker
+        return
+      }
       // the decision covers the ids queued now: they leave the queue, their keys move to
       // `accepted` (a later push of the same item is a fresh queue entry)
       const batch = modified_ids.splice(0).map(id => [id, pending_updates[id]])
@@ -83,46 +96,58 @@ async function init_updater() {
         for (const [id] of batch) delete accepted[id]
         return
       }
-      while (batch.length) {
-        const [id, key] = batch.shift()
-        const item = _item(id)
-        if (!(id in accepted)) {
-          _this.log(`update of ${item.name} done remotely; skipped`)
-          continue
-        }
-        let started = false
-        try {
-          const updates = await check_updates(item)
+      // the writes: behind update writes and pushes in flight, published as store._update (the
+      // pusher's barrier) from the decision on
+      const writes = Promise.allSettled([
+        store._update,
+        _item('#pusher', { silent: true })?.store._push,
+      ]).then(async () => {
+        while (batch.length) {
+          const [id, key] = batch.shift()
+          const item = _item(id)
           if (!(id in accepted)) {
-            _this.log(`update of ${item.name} done remotely; skipped`) // during the check
+            _this.log(`update of ${item.name} done remotely; skipped`)
             continue
           }
-          delete accepted[id] // started (a remote completion can no longer cancel it)
-          started = true
-          if (updates) await update_item(item, updates)
-          else _this.log(`update no longer needed for ${item.name}`)
-        } catch (e) {
-          // an error fatal to all items: this item (unless cancelled during its check) and the
-          // rest of the batch still accepted are HELD (their keys kept, remote completions
-          // still cancel them) until the next queued update re-queues them, or /update or a
-          // page load checks them afresh; nothing prompts on its own (an id queued anew by a
-          // later push is not held: that entry supersedes this one)
-          for (const [held_id, held_key] of [[id, key], ...batch.splice(0)]) {
-            const live = held_id == id ? started || id in accepted : held_id in accepted
-            delete accepted[held_id]
-            if (live && !modified_ids.includes(held_id)) held[held_id] = held_key
+          let started = false
+          try {
+            const updates = await check_updates(item)
+            if (!(id in accepted)) {
+              _this.log(`update of ${item.name} done remotely; skipped`) // during the check
+              continue
+            }
+            delete accepted[id] // started (a remote completion can no longer cancel it)
+            started = true
+            if (updates) await update_item(item, updates)
+            else _this.log(`update no longer needed for ${item.name}`)
+          } catch (e) {
+            // an error fatal to all items: this item (unless cancelled during its check) and the
+            // rest of the batch still accepted are HELD (their keys kept, remote completions
+            // still cancel them) until the next queued update re-queues them, or /update or a
+            // page load checks them afresh; nothing prompts on its own (an id queued anew by a
+            // later push is not held: that entry supersedes this one)
+            for (const [held_id, held_key] of [[id, key], ...batch.splice(0)]) {
+              const live = held_id == id ? started || id in accepted : held_id in accepted
+              delete accepted[held_id]
+              if (live && !modified_ids.includes(held_id)) held[held_id] = held_key
+            }
+            _this.error(`update batch stopped (${e}); the remaining items update on the next push, /update, or page load`)
           }
-          _this.error(`update batch stopped (${e}); the remaining items update on the next push, /update, or page load`)
         }
-      }
+      })
+      store._update = writes
+      await writes
     })
-    store._update = worker
+    store._worker = worker
     return worker
   }
 
-  // check for updates on page init: the installed items checked (serialized like a write
-  // batch, so a check never interleaves with a batch's writes), those with updates queued for
-  // the worker's dialog. An error fatal to all items (rate limit / auth / network) PAUSES the
+  // check for updates on page init: the installed items checked (behind the update writes in
+  // flight at its start; it runs beside pushes and manual updates, each check guarded by its
+  // freshness check: see check_updates; published as store._scan, NOT store._update: the scan
+  // writes no item (its one side effect, the pushable mark, is guarded), and #pusher waits on
+  // _update before every push, so a scan there held every push for the scan's minutes over a
+  // large corpus), those with updates queued for the worker's dialog, which waits for the scan. An error fatal to all items (rate limit / auth / network) PAUSES the
   // checks instead of failing (and logging an error for) every remaining item, and they resume
   // when the connection returns (see _retry_on_connectivity): a load while offline or asleep
   // used to skip the catch-up until the next page load
@@ -138,9 +163,9 @@ async function init_updater() {
         if (updates) queue_update(item, updates)
       }
     })
-    store._update = scan
+    store._scan = scan
     // the checks are the scan's result (what the retry awaits); the dialog and the writes
-    // run on their own behind store._update, never holding up the listener below
+    // run on their own (the worker), never holding up the listener below
     return scan.then(() => {
       if (modified_ids.length) run_update_worker()
     })
@@ -454,6 +479,19 @@ async function check_updates(item, mark_pushables = false) {
   if (!attr?.source) return null
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
+  // FRESHNESS: the installed commits captured with the attributes, before any awaited call
+  // (the token prompt included); an update or a push landing meanwhile (a manual /update, a
+  // push, another tab: the on-load scan runs beside them, only update writes are serialized
+  // with it) changes them, and every comparison below would be against the old install: the
+  // check then yields nothing (no updates, no pushable mark) and a later check sees the new
+  // state. Checked after each awaited call and at the end (a rejected response's path too)
+  const installed = () => [item.attr?.sha, ...(item.attr?.embeds?.map(e => e.sha) ?? [])].join(',')
+  const installed_at_start = installed()
+  const outdated = () => {
+    if (installed() == installed_at_start) return false
+    _this.debug(`${item.name} changed during its update check; nothing marked`)
+    return true
+  }
   // _this.log(`checking for updates to ${item.name} from ${source}/${path} ...`)
   // EARLY refusals before token/network work (reviews 152 §2.2, 153 §2): a stale
   // runtime cannot scan (read() is raw, so the marker prefix can never match) -- refuse
@@ -484,6 +522,7 @@ async function check_updates(item, mark_pushables = false) {
     )
     return false
   }
+  if (outdated()) return null // (the token prompt is awaited too)
   const github = github_client(token)
   const updates = {} // path->hash object of available updates
   try {
@@ -496,6 +535,7 @@ async function check_updates(item, mark_pushables = false) {
       sha: attr.branch,
       per_page: 1,
     })
+    if (outdated()) return null
     // _this.debug(`listCommits returned sha ${sha} for ${path}`)
     if (sha != attr.sha) updates[path] = sha
     if (mark_pushables) {
@@ -504,6 +544,7 @@ async function check_updates(item, mark_pushables = false) {
       const {
         data: { files },
       } = await github.repos.getCommit({ ...attr, ref: attr.sha })
+      if (outdated()) return null
       const file_sha = files.find(f => f.filename == path)?.sha
       let text = item.text
       // PRE-UNDO concurrent-marker scan (review 153 §2): a real-embed candidate that
@@ -577,6 +618,7 @@ async function check_updates(item, mark_pushables = false) {
             per_page: 1,
           })
         )?.data[0]?.sha
+        if (outdated()) return null
         // _this.debug(`listCommits returned sha ${sha} for ${embed.path}`)
         if (sha && sha != embed.sha) updates[embed.path] = sha
 
@@ -590,6 +632,7 @@ async function check_updates(item, mark_pushables = false) {
             const {
               data: { files },
             } = await github.repos.getCommit({ ...attr, ref: embed.sha })
+            if (outdated()) return null
             const file_sha = files.find(f => f.filename == embed.path)?.sha
             if (file_sha != github_sha(embed_text[embed.path])) {
               _this.warn(
@@ -609,6 +652,7 @@ async function check_updates(item, mark_pushables = false) {
     if (is_infra_error(e)) throw e
     _this.error(`failed to check for updates to ${item.name}: ` + e)
   }
+  if (outdated()) return null // a stale finding accumulated before a rejected response too
   if (empty(updates)) {
     // _this.log(`no updates to ${item.name} from ${source}/${path}`)
     return null
