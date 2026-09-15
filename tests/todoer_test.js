@@ -42,6 +42,8 @@ vm.runInContext(
     '_task_state',
     '_task_list',
     '_age',
+    '_stats_suffix',
+    '_age_title',
     '_snippet_uses_suffix',
     '_todo_offset',
     '_set_marker',
@@ -60,7 +62,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch } = context
+const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -90,6 +92,16 @@ check('age: seconds', _age(now - 30_000, now), '<1m')
 check('age: minutes', _age(now - 5 * 60_000, now), '5m')
 check('age: hours', _age(now - 2 * 3_600_000, now), '2h')
 check('age: days', _age(now - 3 * 86_400_000, now), '3d')
+// the stats suffix (design 9.6): workers started and the summed cost, when the projection carries them
+check('stats: none', _stats_suffix(undefined), '')
+check('stats: zero', _stats_suffix({ turns: 1, workers: 0, active: 0, cost: 0, since: 0 }), '')
+check('stats: workers and cost', _stats_suffix({ turns: 3, workers: 2, active: 1, cost: 14.5, since: now }), ' · 2w · $14.50')
+check('stats: cost alone', _stats_suffix({ workers: 0, cost: 0.333 }), ' · $0.33')
+check('stats: some unknown', _stats_suffix({ workers: 3, cost: 2, unknown: 1 }), ' · 3w · $2.00+?')
+check('stats: only unknown', _stats_suffix({ workers: 1, cost: 0, unknown: 1 }), ' · 1w · $?')
+check('age title: since', _age_title(now, { since: now - 60_000 }).split('\n').length, 2)
+check('age title: no stats', _age_title(now, undefined).includes('\n'), false)
+check('age title: unacknowledged', _age_title(undefined, undefined), 'not acknowledged yet')
 
 // the marker on the todo line (design 2.4)
 check('suffix: written after the tag', _set_marker('#todo fix the cache\nbody\n', 'delegated'), '#todo [delegated] fix the cache\nbody\n')

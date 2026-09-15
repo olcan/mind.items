@@ -225,8 +225,10 @@ function __render(widget, widget_item) {
       const updated = state?.updated
       const age = document.createElement('mark')
       age.className = 'age'
-      age.innerText = _age(updated, Date.now())
-      age.title = updated ? new Date(updated).toLocaleString() : 'not acknowledged yet'
+      // the age since the last state change, then the stats the bridge projects (vault design
+      // mind_task_agents 9.6): workers started and the summed nominal cost, when present
+      age.innerText = _age(updated, Date.now()) + _stats_suffix(state?.stats)
+      age.title = _age_title(updated, state?.stats)
       div.prepend(age, ' ')
     }
 
@@ -987,6 +989,29 @@ function _age(updated, now) {
   if (s < 3600) return Math.floor(s / 60) + 'm'
   if (s < 86400) return Math.floor(s / 3600) + 'h'
   return Math.floor(s / 86400) + 'd'
+}
+
+// the row's stats suffix (design 9.6): ` · 2w · $14.50` from the projection's stats (workers
+// started, the summed nominal cost), nothing for a projection without them
+function _stats_suffix(stats) {
+  if (!stats || typeof stats != 'object') return ''
+  const parts = []
+  if (typeof stats.workers == 'number' && stats.workers > 0) parts.push(stats.workers + 'w')
+  // the cost keeps its uncertainty: the known sum, `+?` when some paid work's cost is unknown,
+  // `$?` when only unknown costs exist
+  const known = typeof stats.cost == 'number' && stats.cost > 0
+  const unknown = typeof stats.unknown == 'number' && stats.unknown > 0
+  if (known) parts.push('$' + stats.cost.toFixed(2) + (unknown ? '+?' : ''))
+  else if (unknown) parts.push('$?')
+  return parts.length ? ' · ' + parts.join(' · ') : ''
+}
+
+// the age mark's tooltip: the absolute time of the last state change, and the first delegation
+function _age_title(updated, stats) {
+  const lines = [updated ? new Date(updated).toLocaleString() : 'not acknowledged yet']
+  if (stats && typeof stats == 'object' && typeof stats.since == 'number' && stats.since > 0)
+    lines.push('delegated ' + new Date(stats.since).toLocaleString())
+  return lines.join('\n')
 }
 
 // a fresh command id (the wrapper name suffix; the bridge disposes of every id it observes once)
