@@ -10,24 +10,137 @@ function _on_welcome() {
 async function init_updater() {
   _this.log(`initializing ...`)
   const store = _this.store
-  const modified_ids = (store.modified_ids = []) // modified item id queue
-  const pending_updates = (store.pending_updates = {}) // pending update commit shas
+  // the queue's three states, each a map of item id -> the commit sha the update answers (or
+  // 'catch-up' for an update the on-load scan found), so a remote completion (another tab
+  // finishing the same update, _on_global_store_change) cancels the entry of that version in
+  // whichever state it is (each state matched on its own commit):
+  const modified_ids = (store.modified_ids = []) // queued: awaiting a dialog (in order)
+  const pending_updates = (store.pending_updates = {}) // queued id -> sha
+  const accepted = (store.accepted_updates = {}) // accepted at a dialog, not started yet
+  const held = (store.held_updates = {}) // a batch stopped by a fatal error: re-queued by the next queued update
   store.update_modal = null // visible update modal (if any)
 
-  // check for updates on page init
-  // stop on errors fatal to all items (rate limit / auth / network), which
-  // would otherwise fail (and log an error for) every remaining item;
-  // the next page load retries
-  try {
-    for (let item of installed_named_items()) {
-      const updates = await check_updates(item, true /* mark_pushables */)
-      if (updates) await update_item(item, updates)
+  const ready_text = () => {
+    const names = modified_ids.map(id => _item(id).name)
+    const s = modified_ids.length > 1 ? 's' : ''
+    return `${_this.name} is ready to update ${modified_ids.length} installed item${s}: ${names.join(', ')}`
+  }
+  const enqueue = (id, sha) => {
+    // a later push's sha replaces an earlier queued one; the scan's marker never replaces a sha
+    if (sha != 'catch-up' || !(id in pending_updates)) pending_updates[id] = sha
+    if (modified_ids.includes(id)) return false
+    modified_ids.push(id)
+    return true
+  }
+  // queue an item for the confirm-and-write worker below (once; a visible dialog's text
+  // follows); any queued update (a push, a retried scan's find) also re-queues the work a
+  // stopped batch held (asked again with it)
+  const queue_update = (item, sha) => {
+    let joined = false
+    for (const [id, held_sha] of Object.entries(held)) {
+      delete held[id]
+      if (!modified_ids.includes(id)) joined = enqueue(id, held_sha) || joined // a newer queued entry supersedes
     }
-  } catch (e) {
-    _this.warn(`stopped update checks: ${e}`)
+    joined = enqueue(item.id, sha) || joined
+    if (joined && store.update_modal) _modal_update(store.update_modal, ready_text())
+  }
+  // the ONE confirm-and-write worker (the owner's rule, 2026-09-15: always ask): serialized
+  // through store._update, coordinated with #pusher's _push (fewer conflicts and rate-limit
+  // violations; the pusher waits on _update likewise). It asks about the ids queued so far,
+  // takes the batch accepted at the decision (ids arriving while the dialog is open join it;
+  // an id arriving after the answer is a new queue entry with its own sha, asked by the
+  // worker its push scheduled), re-checks each item at the write, skips an accepted item
+  // another tab completed meanwhile, and on an error fatal to all items HOLDS the rest (no
+  // worker drains held work by itself: the next push re-queues it). Skip drains the ids shown
+  // without memory (the same commit delivered again asks again). Both the on-load catch-up and
+  // the webhook listener queue through it: nothing installs without an answer
+  const run_update_worker = () => {
+    const worker = Promise.allSettled([
+      store._update,
+      _item('#pusher', { silent: true })?.store._push,
+    ]).then(async () => {
+      if (modified_ids.length == 0) return // nothing to do (a previous worker took them)
+      store.update_modal = _modal({ content: ready_text(), confirm: 'Update', cancel: 'Skip' })
+      const update = await store.update_modal
+      store.update_modal = null // modal dismissed
+      // the decision covers the ids queued now: they leave the queue, their shas move to
+      // `accepted` (a later push of the same item is a fresh queue entry)
+      const batch = modified_ids.splice(0).map(id => [id, pending_updates[id]])
+      if (batch.length == 0) return // closed by remote completions (see _on_global_store_change)
+      for (const [id, sha] of batch) {
+        delete pending_updates[id]
+        delete held[id] // superseded by this decision
+        accepted[id] = sha
+      }
+      if (!update) {
+        const s = batch.length > 1 ? 's' : ''
+        _this.warn(`updates skipped for ${batch.length} installed item${s}: ${batch.map(([id]) => _item(id).name).join(', ')}`)
+        for (const [id] of batch) delete accepted[id]
+        return
+      }
+      while (batch.length) {
+        const [id, sha] = batch.shift()
+        const item = _item(id)
+        if (!(id in accepted)) {
+          _this.log(`update of ${item.name} done remotely; skipped`)
+          continue
+        }
+        let started = false
+        try {
+          const updates = await check_updates(item)
+          if (!(id in accepted)) {
+            _this.log(`update of ${item.name} done remotely; skipped`) // during the check
+            continue
+          }
+          delete accepted[id] // started (a remote completion can no longer cancel it)
+          started = true
+          if (updates) await update_item(item, updates)
+          else _this.log(`update no longer needed for ${item.name}`)
+        } catch (e) {
+          // an error fatal to all items: this item (unless cancelled during its check) and the
+          // rest of the batch still accepted are HELD (their shas kept, remote completions
+          // still cancel them) until the next queued update re-queues them, or /update or a
+          // page load checks them afresh; nothing prompts on its own (an id queued anew by a
+          // later push is not held: that entry supersedes this one)
+          for (const [held_id, held_sha] of [[id, sha], ...batch.splice(0)]) {
+            const live = held_id == id ? started || id in accepted : held_id in accepted
+            delete accepted[held_id]
+            if (live && !modified_ids.includes(held_id)) held[held_id] = held_sha
+          }
+          _this.error(`update batch stopped (${e}); the remaining items update on the next push, /update, or page load`)
+        }
+      }
+    })
+    store._update = worker
+    return worker
   }
 
-  // listen for updates through firebase
+  // check for updates on page init: the installed items checked (serialized like a write
+  // batch, so a check never interleaves with a batch's writes), those with updates queued for
+  // the worker's dialog. An error fatal to all items (rate limit / auth / network) PAUSES the
+  // checks instead of failing (and logging an error for) every remaining item, and they resume
+  // when the connection returns (see _retry_on_connectivity): a load while offline or asleep
+  // used to skip the catch-up until the next page load
+  const scan_installed = () => {
+    const scan = Promise.allSettled([
+      store._update,
+      _item('#pusher', { silent: true })?.store._push,
+    ]).then(async () => {
+      for (let item of installed_named_items()) {
+        const updates = await check_updates(item, true /* mark_pushables */)
+        if (updates) queue_update(item, 'catch-up')
+      }
+    })
+    store._update = scan
+    // the checks are the scan's result (what the retry awaits); the dialog and the writes
+    // run on their own behind store._update, never holding up the listener below
+    return scan.then(() => {
+      if (modified_ids.length) run_update_worker()
+    })
+  }
+  await _retry_on_connectivity(scan_installed, { log: msg => _this.log(msg), warn: msg => _this.warn(msg) })
+
+  // listen for updates through firebase (the receipts newer than this registration)
   _this.log(`listening for updates ...`)
   const { getFirestore, query, collection, where, onSnapshot } =
     firebase.firestore
@@ -82,82 +195,11 @@ async function init_updater() {
               `github_webhook commit ${update_commit.id} modified ` +
                 `${item.name} in ${owner}/${repo}/${branch}`
             )
-            // record latest update commit sha for modified item
-            pending_updates[item.id] = update_commit.id
-            // push to back of queue if not already in queue
-            if (!modified_ids.includes(item.id)) {
-              modified_ids.push(item.id)
-              // update modal if visible
-              if (store.update_modal) {
-                const modified_names = modified_ids.map(id => _item(id).name)
-                const s = modified_ids.length > 1 ? 's' : ''
-                _modal_update(
-                  store.update_modal,
-                  `${_this.name} is ready to update ${modified_ids.length} ` +
-                    `installed item${s}: ${modified_names.join(', ')}`
-                )
-              }
-            }
+            queue_update(item, update_commit.id)
           }
         }
       })
-
-      // update modified items
-      // serialize updates via _this.store._update
-      // also coordinate w/ #pusher via #pusher.store._push
-      // helps reduce conflict errors and rate-limit violations
-      // confirmation dialog further serializes updates across tabs/devices
-      _this.store._update = Promise.allSettled([
-        _this.store._update,
-        _item('#pusher', { silent: true })?.store._push,
-      ]).then(async () => {
-        if (modified_ids.length == 0) return // nothing to do
-        const modified_names = modified_ids.map(id => _item(id).name)
-        const s = modified_ids.length > 1 ? 's' : ''
-        if (window._init_time == _this.global_store.auto_updater_init_time) {
-          _this.log(`skipping confirmation on this instance (${_init_time})`)
-        } else {
-          store.update_modal = _modal({
-            content:
-              `${_this.name} is ready to update ${modified_ids.length} ` +
-              `installed item${s}: ${modified_names.join(', ')}`,
-            confirm: 'Update',
-            cancel: 'Skip',
-          })
-          const update = await store.update_modal
-          store.update_modal = null // modal dismissed
-          if (!update) {
-            // warn about skipped updates
-            if (modified_ids.length) {
-              _this.warn(
-                `updates skipped for ${modified_ids.length} ` +
-                  `installed items: ${modified_names.join(', ')}`
-              )
-              // clear update queue
-              while (modified_ids.length)
-                delete pending_updates[modified_ids.shift()]
-            }
-            return
-          }
-        }
-        try {
-          while (modified_ids.length) {
-            const item = _item(modified_ids.shift())
-            const update = pending_updates[item.id]
-            delete pending_updates[item.id] // no longer pending
-            const updates = await check_updates(item)
-            if (updates) {
-              // record _init_time for app instance that can skip confirmation
-              _this.global_store.auto_updater_init_time = window._init_time
-              await update_item(item, updates)
-            } else _this.log(`update no longer needed for ${item.name}`)
-          }
-        } catch (e) {
-          // stop on errors fatal to all items; remaining items update on
-          // the next webhook, /update command, or page load
-          _this.error(`stopped update batch: ${e}`)
-        }
-      })
+      run_update_worker()
     }
   )
 }
@@ -168,15 +210,23 @@ function _on_global_store_change(id, remote) {
   const item = _item(id)
   if (!item.attr?.source) return // not an installed item
   if (!item.name.startsWith('#')) return // not a named item
-  // if item is pending update, check for remote update
-  let { modified_ids, pending_updates } = _this.store
-  if (!pending_updates?.[id]) return // not pending any updates
-  // if last update in global store contains pending update, cancel locally
-  const last_update = item.global_store._updater?.last_update
-  if (values(last_update).includes(pending_updates[id])) {
-    _this.log(`detected remote update for ${item.name}`)
-    // remove item/update from local update queue
-    modified_ids.splice(modified_ids.indexOf(item.id), 1)
+  // if item is pending update (queued, accepted but not started, or held), check for a remote
+  // update of THAT version: each state is matched on its own commit and cancelled alone (a
+  // completion of an older accepted version leaves a newer queued entry and its dialog alone)
+  let { modified_ids, pending_updates, accepted_updates, held_updates } = _this.store
+  const last_update = values(item.global_store._updater?.last_update ?? {}) // no marker before a first update
+  const done = state => !!state?.[id] && last_update.includes(state[id])
+  const queued_done = done(pending_updates)
+  const accepted_done = done(accepted_updates)
+  const held_done = done(held_updates)
+  if (!queued_done && !accepted_done && !held_done) return // not pending any updates, or another version
+  _this.log(`detected remote update for ${item.name}`)
+  if (accepted_done) delete accepted_updates[id]
+  if (held_done) delete held_updates[id]
+  if (queued_done) {
+    // remove item/update from the local queue
+    const index = modified_ids.indexOf(item.id)
+    if (index >= 0) modified_ids.splice(index, 1)
     delete pending_updates[id]
     // update modal if visible, close if no other updates pending
     if (_this.store.update_modal) {
@@ -236,6 +286,96 @@ async function pace_github_call() {
   const wait = _last_github_call_time + 400 + 200 * Math.random() - Date.now()
   if (wait > 0) await _delay(wait)
   _last_github_call_time = Date.now()
+}
+
+// run the update checks, and when they fail with an error fatal to all items (network, rate
+// limit, auth: see is_infra_error) keep them paused-but-pending until they succeed: one pending
+// retry at a time, triggered by the connection's return (`online`), the tab shown again, or a
+// bounded backoff timer (a GitHub outage clears with no browser event at all); a trigger
+// during the spacing after an attempt waits out the spacing (never dropped), a trigger during
+// an attempt is honored after it (never lost), a hidden tab waits to be shown, attempts never
+// overlap, and a success cancels the timer and the listeners. The first attempt is awaited,
+// the retries are not: the caller goes on. `env` is the browser (the tests pass stubs)
+const RETRY_SPACING = 30_000 // between attempts (a burst of events runs one)
+const RETRY_BACKOFF_MAX = 10 * 60_000 // the timer's cap
+const RETRY_TIMER_ATTEMPTS = 8 // attempts before the timer stops (about 45 minutes after an
+// immediate failure: 0.5, 1.5, 3.5, 7.5, 15.5, 25.5, 35.5, 45.5 min; an event's attempt counts
+// toward it too); events keep retrying after
+async function _retry_on_connectivity(
+  run,
+  { log, warn },
+  env = { window, document, now: Date.now, setTimeout, clearTimeout }
+) {
+  let last_attempt = -Infinity
+  let attempts = 0
+  let running = false
+  let wanted = false // a trigger arrived during an attempt
+  let timer = null
+  let armed = false
+  const clear = () => {
+    if (timer != null) env.clearTimeout(timer)
+    timer = null
+  }
+  const disarm = () => {
+    clear()
+    if (!armed) return
+    armed = false
+    env.window.removeEventListener('online', trigger)
+    env.document.removeEventListener('visibilitychange', trigger)
+  }
+  const arm = () => {
+    if (armed) return
+    armed = true
+    env.window.addEventListener('online', trigger)
+    env.document.addEventListener('visibilitychange', trigger)
+  }
+  const backoff = () => Math.min(RETRY_SPACING * 2 ** Math.max(0, attempts - 1), RETRY_BACKOFF_MAX)
+  const attempt = async first => {
+    running = true
+    wanted = false
+    attempts++
+    last_attempt = env.now()
+    try {
+      if (!first) log('retrying update checks')
+      await run()
+      disarm()
+      return true
+    } catch (e) {
+      warn(`update checks paused (${e}); retrying when the connection returns`)
+      return false
+    } finally {
+      running = false
+    }
+  }
+  const after_failure = () => {
+    arm()
+    if (wanted) trigger() // a trigger during the attempt: honored now (the spacing applies)
+    else if (attempts <= RETRY_TIMER_ATTEMPTS) schedule(backoff())
+  }
+  const schedule = delay => {
+    clear()
+    timer = env.setTimeout(() => {
+      timer = null
+      trigger()
+    }, delay)
+  }
+  function trigger() {
+    if (env.document.visibilityState == 'hidden') return // the tab shown again triggers
+    if (running) {
+      wanted = true
+      return
+    }
+    const wait = last_attempt + RETRY_SPACING - env.now()
+    if (wait > 0) {
+      schedule(wait) // one pending retry, at the end of the spacing
+      return
+    }
+    clear()
+    attempt(false).then(ok => {
+      if (!ok) after_failure()
+    })
+  }
+  if (!(await attempt(true))) after_failure()
 }
 
 // is error fatal to all subsequent github calls (vs specific to an item)?
