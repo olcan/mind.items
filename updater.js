@@ -10,12 +10,14 @@ function _on_welcome() {
 async function init_updater() {
   _this.log(`initializing ...`)
   const store = _this.store
-  // the queue's three states, each a map of item id -> the commit sha the update answers (or
-  // 'catch-up' for an update the on-load scan found), so a remote completion (another tab
-  // finishing the same update, _on_global_store_change) cancels the entry of that version in
-  // whichever state it is (each state matched on its own commit):
+  // the queue's three states, each a map of item id -> the KEY of the update the entry answers:
+  // a push's commit sha (a string), or for the on-load scan's find the check's path -> latest
+  // commit snapshot (an object, every changed path of the item and its embeds), so a remote
+  // completion (another tab finishing the same update, _on_global_store_change; its marker is
+  // the per-path snapshot it wrote) cancels the entry of that version in whichever state it is
+  // (each state matched on its own key; a snapshot only when the marker covers all its paths):
   const modified_ids = (store.modified_ids = []) // queued: awaiting a dialog (in order)
-  const pending_updates = (store.pending_updates = {}) // queued id -> sha
+  const pending_updates = (store.pending_updates = {}) // queued id -> key
   const accepted = (store.accepted_updates = {}) // accepted at a dialog, not started yet
   const held = (store.held_updates = {}) // a batch stopped by a fatal error: re-queued by the next queued update
   store.update_modal = null // visible update modal (if any)
@@ -25,30 +27,33 @@ async function init_updater() {
     const s = modified_ids.length > 1 ? 's' : ''
     return `${_this.name} is ready to update ${modified_ids.length} installed item${s}: ${names.join(', ')}`
   }
-  const enqueue = (id, sha) => {
-    // a later push's sha replaces an earlier queued one; the scan's marker never replaces a sha
-    if (sha != 'catch-up' || !(id in pending_updates)) pending_updates[id] = sha
+  const enqueue = (id, key) => {
+    // a push's key (a sha) replaces any queued key; a scan's snapshot replaces an earlier
+    // scan's (fresher evidence) but never a push's (the scan's listing may predate a push it
+    // overlaps, unknowably): the key's type carries its origin through every state
+    if (typeof key == 'string' || typeof pending_updates[id] != 'string') pending_updates[id] = key
     if (modified_ids.includes(id)) return false
     modified_ids.push(id)
     return true
   }
   // queue an item for the confirm-and-write worker below (once; a visible dialog's text
   // follows); any queued update (a push, a retried scan's find) also re-queues the work a
-  // stopped batch held (asked again with it)
-  const queue_update = (item, sha) => {
+  // stopped batch held (asked again with it; the incoming key is applied after, so a fresh
+  // scan refreshes a held scan's evidence)
+  const queue_update = (item, key) => {
     let joined = false
-    for (const [id, held_sha] of Object.entries(held)) {
+    for (const [id, held_key] of Object.entries(held)) {
       delete held[id]
-      if (!modified_ids.includes(id)) joined = enqueue(id, held_sha) || joined // a newer queued entry supersedes
+      if (!modified_ids.includes(id)) joined = enqueue(id, held_key) || joined // a newer queued entry supersedes
     }
-    joined = enqueue(item.id, sha) || joined
+    joined = enqueue(item.id, key) || joined
     if (joined && store.update_modal) _modal_update(store.update_modal, ready_text())
   }
   // the ONE confirm-and-write worker (the owner's rule, 2026-09-15: always ask): serialized
   // through store._update, coordinated with #pusher's _push (fewer conflicts and rate-limit
   // violations; the pusher waits on _update likewise). It asks about the ids queued so far,
   // takes the batch accepted at the decision (ids arriving while the dialog is open join it;
-  // an id arriving after the answer is a new queue entry with its own sha, asked by the
+  // an id arriving after the answer is a new queue entry with its own key, asked by the
   // worker its push scheduled), re-checks each item at the write, skips an accepted item
   // another tab completed meanwhile, and on an error fatal to all items HOLDS the rest (no
   // worker drains held work by itself: the next push re-queues it). Skip drains the ids shown
@@ -63,14 +68,14 @@ async function init_updater() {
       store.update_modal = _modal({ content: ready_text(), confirm: 'Update', cancel: 'Skip' })
       const update = await store.update_modal
       store.update_modal = null // modal dismissed
-      // the decision covers the ids queued now: they leave the queue, their shas move to
+      // the decision covers the ids queued now: they leave the queue, their keys move to
       // `accepted` (a later push of the same item is a fresh queue entry)
       const batch = modified_ids.splice(0).map(id => [id, pending_updates[id]])
       if (batch.length == 0) return // closed by remote completions (see _on_global_store_change)
-      for (const [id, sha] of batch) {
+      for (const [id, key] of batch) {
         delete pending_updates[id]
         delete held[id] // superseded by this decision
-        accepted[id] = sha
+        accepted[id] = key
       }
       if (!update) {
         const s = batch.length > 1 ? 's' : ''
@@ -79,7 +84,7 @@ async function init_updater() {
         return
       }
       while (batch.length) {
-        const [id, sha] = batch.shift()
+        const [id, key] = batch.shift()
         const item = _item(id)
         if (!(id in accepted)) {
           _this.log(`update of ${item.name} done remotely; skipped`)
@@ -98,14 +103,14 @@ async function init_updater() {
           else _this.log(`update no longer needed for ${item.name}`)
         } catch (e) {
           // an error fatal to all items: this item (unless cancelled during its check) and the
-          // rest of the batch still accepted are HELD (their shas kept, remote completions
+          // rest of the batch still accepted are HELD (their keys kept, remote completions
           // still cancel them) until the next queued update re-queues them, or /update or a
           // page load checks them afresh; nothing prompts on its own (an id queued anew by a
           // later push is not held: that entry supersedes this one)
-          for (const [held_id, held_sha] of [[id, sha], ...batch.splice(0)]) {
+          for (const [held_id, held_key] of [[id, key], ...batch.splice(0)]) {
             const live = held_id == id ? started || id in accepted : held_id in accepted
             delete accepted[held_id]
-            if (live && !modified_ids.includes(held_id)) held[held_id] = held_sha
+            if (live && !modified_ids.includes(held_id)) held[held_id] = held_key
           }
           _this.error(`update batch stopped (${e}); the remaining items update on the next push, /update, or page load`)
         }
@@ -128,7 +133,9 @@ async function init_updater() {
     ]).then(async () => {
       for (let item of installed_named_items()) {
         const updates = await check_updates(item, true /* mark_pushables */)
-        if (updates) queue_update(item, 'catch-up')
+        // queued under the check's path -> commit snapshot: a completion elsewhere publishes
+        // the snapshot it wrote, so one covering every path here dismisses the dialog
+        if (updates) queue_update(item, updates)
       }
     })
     store._update = scan
@@ -214,8 +221,16 @@ function _on_global_store_change(id, remote) {
   // update of THAT version: each state is matched on its own commit and cancelled alone (a
   // completion of an older accepted version leaves a newer queued entry and its dialog alone)
   let { modified_ids, pending_updates, accepted_updates, held_updates } = _this.store
-  const last_update = values(item.global_store._updater?.last_update ?? {}) // no marker before a first update
-  const done = state => !!state?.[id] && last_update.includes(state[id])
+  const last_update = item.global_store._updater?.last_update ?? {} // no marker before a first update
+  const done = state => {
+    const key = state?.[id]
+    if (!key) return false
+    if (typeof key == 'string') return values(last_update).includes(key) // a push's commit
+    // a scan's snapshot: complete only if the marker covers every path at the same commit (a
+    // path's later commit elsewhere, or one missing, leaves the entry pending: asked, and its
+    // write-time re-check writes nothing if the item caught up meanwhile)
+    return entries(key).every(([path, sha]) => last_update[path] == sha)
+  }
   const queued_done = done(pending_updates)
   const accepted_done = done(accepted_updates)
   const held_done = done(held_updates)

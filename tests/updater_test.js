@@ -241,6 +241,7 @@ const wiring = () => {
       page.modals.find(m => m.promise === promise).resolve(undefined) // as the app: closing resolves undefined
     },
     values: Object.values,
+    entries: Object.entries,
     check_updates: (it, mark = false) => {
       page.checks.push([it.name, mark])
       const answer = page.answers[it.name]
@@ -267,10 +268,11 @@ const wiring = () => {
   page.init = () => vm.runInContext('init_updater()', context)
   page.push = (name, sha) => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: sha, before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: [{ id: sha, message: 'm', modified: [`${name.slice(1)}.md`] }] } }) } }] })
   page.answer = ok => page.modals[page.modals.length - 1].resolve(ok)
-  // another tab completed the item's update at `sha` (its global store carries the mark)
-  page.remote = (name, sha) => {
+  // another tab completed the item's update: its global store carries the marker, the
+  // path -> commit snapshot it wrote (a string stands for a one-path marker at that commit)
+  page.remote = (name, marker) => {
     const it = Object.values(page.items).find(i => i.name == name)
-    it.global_store._updater = { last_update: { file: sha } }
+    it.global_store._updater = { last_update: typeof marker == 'string' ? { file: marker } : marker }
     page.context._on_global_store_change(it.id, true)
   }
   page.store = () => page.context._this.store
@@ -582,6 +584,63 @@ const wiring_rows = async () => {
     await tick()
     page.context._on_global_store_change('i1', true)
     check('no marker, the item queued: the entry and its dialog untouched', [page.store().modified_ids, page.store().pending_updates, page.closes, page.store().update_modal != null], [['i1'], { i1: 'sha1' }, 0, true])
+  }
+  {
+    // the catch-up's find is queued under the check's path -> commit snapshot, so a completion
+    // elsewhere (another tab installing it: its marker is the snapshot it wrote) dismisses the
+    // startup dialog only when it covers every path at the same commit: a marker of another
+    // commit, or of a subset of the paths, or an older embed leaves the entry pending
+    const page = wiring()
+    page.item('#todoer', 'i1')
+    page.item('#c', 'i3')
+    page.answers['#todoer'] = { 'todoer.md': 'm1', 'embed.js': 'e2' } // the item and an embed
+    page.answers['#c'] = { 'first.js': 'f1', 'second.js': 's2' } // embed-only, two paths
+    await page.init()
+    await tick()
+    check('the startup finds queued under their snapshots', page.store().pending_updates, { i1: { 'todoer.md': 'm1', 'embed.js': 'e2' }, i3: { 'first.js': 'f1', 'second.js': 's2' } })
+    page.remote('#todoer', { 'todoer.md': 'm0', 'embed.js': 'e2' }) // another commit of the item
+    page.remote('#todoer', { 'todoer.md': 'm1', 'embed.js': 'e1' }) // the item's commit, an older embed
+    page.remote('#todoer', { 'todoer.md': 'm1' }) // the item's commit alone
+    page.remote('#c', { 'first.js': 'f1', 'second.js': 's1' }) // one of two embeds
+    check('partial completions: nothing dismissed, the dialog untouched', [page.store().modified_ids, page.updates, page.closes, page.logs.filter(l => l[1].startsWith('detected')).length], [['i1', 'i3'], [], 0, 0])
+    page.remote('#todoer', { 'todoer.md': 'm1', 'embed.js': 'e2', 'other.js': 'o1' }) // covers every path (and more)
+    check('a covering completion: dismissed from the dialog', [page.store().modified_ids, page.updates], [['i3'], ['#updater is ready to update 1 installed item: #c']])
+    page.remote('#c', { 'first.js': 'f1', 'second.js': 's2' })
+    await tick()
+    check('the last one done elsewhere too: the dialog closed, nothing written or skipped-warned', [page.closes, page.store().update_modal, page.writes, page.logs.filter(l => l[0] == 'warn').length], [1, null, [], 0])
+  }
+  {
+    // C2: a held scan entry is refreshed by the recovery scan's fresher snapshot (a push's
+    // key would be kept): the initial scan finds A at m1 then fails on B; the initial empty
+    // snapshot starts A's worker whose accepted check fails (A held at m1); the recovery scan
+    // lists A at m2: the dialog's entry is m2, a delayed completion at m1 leaves it pending
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.item('#b', 'i2')
+    page.answers['#a'] = { 'a.md': 'm1' }
+    page.answers['#b'] = new TypeError('Failed to fetch')
+    let online
+    page.context.window.addEventListener = (t, f) => { if (t == 'online') online = f }
+    await page.init()
+    await tick()
+    page.webhook({ docChanges: () => [] }) // the listener's initial snapshot
+    await tick()
+    check('A found before the scan paused: asked', [page.modals.length, page.store().pending_updates], [1, { i1: { 'a.md': 'm1' } }])
+    page.answers['#a'] = new TypeError('Failed to fetch')
+    page.answer(true)
+    await tick()
+    check('A\'s accepted check failed: held under its snapshot', page.store().held_updates, { i1: { 'a.md': 'm1' } })
+    page.answers['#a'] = { 'a.md': 'm2' }
+    page.answers['#b'] = null
+    page.time += 60_000
+    online()
+    await tick()
+    check('the recovery scan refreshed the held evidence: asked at m2', [page.modals.length, page.store().pending_updates, page.store().held_updates], [2, { i1: { 'a.md': 'm2' } }, {}])
+    page.remote('#a', { 'a.md': 'm1' }) // a delayed completion of the OLD find
+    check('the old completion leaves the m2 entry pending', [page.store().modified_ids, page.closes], [['i1'], 0])
+    page.answer(true)
+    await tick()
+    check('Update: m2 written', page.writes, [['#a', { 'a.md': 'm2' }]])
   }
   {
     // the retry path asks too: the catch-up fails (offline), the connection returns, the
