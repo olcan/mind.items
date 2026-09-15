@@ -49,6 +49,7 @@ vm.runInContext(
     '_set_marker',
     '_without_log',
     '_extract_todo_snippet',
+    '_todo_line',
     '_merged_order',
     '_suppress_touch_context_menu',
     '_order_blocked',
@@ -62,7 +63,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _extract_todo_snippet, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch } = context
+const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -133,6 +134,25 @@ check('snippet: drops the _log block before a prefix tag', _extract_todo_snippet
 check('snippet: drops an empty _log block', _extract_todo_snippet(item('#todo hello\n```_log\n```\n')), '#todo hello\n')
 check('snippet: the mode is decided with the log in place', _extract_todo_snippet(item(_set_marker('Fix the cache\n[question] #todo\n\n```_log\nINFO: 1 handed back: question\n```\nTry the returning device too\n#_agent/vault\n', 'delegated'))), 'Fix the cache\n[delegated] #todo')
 check('snippet: multiline stays suffix', _extract_todo_snippet(item('Context\n#todo\nFix the cache\n')), '#todo\nFix the cache\n')
+
+// the row click's selection: the todo line, raw bytes in the item, where the snippet (a display
+// slice with the _log block dropped) need not be (the "could not find text" console error on a
+// [done] task's row)
+const done_task = '#todo [done] fix the cache\n- working\n    - the cache is fixed\n\n```_log\nINFO: 14:13 handed back: done\n```\n#_agent/vault\n'
+const done_snippet = _extract_todo_snippet(item(done_task))
+check('selection: the snippet of a done task is not in its text', done_task.includes(done_snippet.replace(/^[\s…]+|[\s…]+$/g, '')), false)
+check('selection: the todo line is', _todo_line(done_snippet), '#todo [done] fix the cache')
+check('selection: the todo line is in the text', done_task.includes(_todo_line(done_snippet)), true)
+check('selection: suffix, the first line', _todo_line('#todo [working] fix\nbody line\n'), '#todo [working] fix')
+check('selection: prefix, the last line', _todo_line('… Context\nfix the cache [question] #todo'), 'fix the cache [question] #todo')
+check('selection: a truncated suffix keeps its line', _todo_line('#todo a very long line that the snippet cut …'), '#todo a very long line that the snippet cut')
+check('selection: a one-line snippet is itself', _todo_line('#todo fix'), '#todo fix')
+// through the extractor: a suffix whose later text ends in another tag is a suffix still (the
+// first tag decides), and a look-alike tag before a prefix tag is not the tag
+check('selection: a suffix ending in another tag', _todo_line(_extract_todo_snippet(item('#todo fix\ncontext #todo'))), '#todo fix')
+check('selection: a look-alike tag before a prefix tag', _todo_line(_extract_todo_snippet(item('#todos\nfix #todo'))), 'fix #todo')
+check('selection: a nested look-alike before a prefix tag', _todo_line(_extract_todo_snippet(item('#todo/nested\nfix #todo'))), 'fix #todo')
+check('selection: a long todo line through the extractor', _todo_line(_extract_todo_snippet(item('#todo ' + 'word '.repeat(50) + 'end\nbody\n'))).startsWith('#todo word word'), true)
 
 // the enqueue path's overlay across retries and failures (design 2.2): an older command's
 // transport never replaces or clears a newer gesture's overlay; a retry keeps the document id

@@ -279,10 +279,14 @@ function __render(widget, widget_item) {
       // if we skip edit, then we still select text in case item is clicked directly to edit
       const target = document.querySelector('.container.target')
       const edit = target?.getAttribute('data-item-id') == item.id
-      text = text.replace(/^[\s…]+|[\s…]+$/g, '') // trim for selection
+      // the selection is the todo LINE (raw bytes in the item), not the row's snippet: the
+      // snippet is a display slice, up to 200 characters across lines with the bridge's _log
+      // block dropped, which a task's tree and log make non-contiguous in the item's text (the
+      // app then logged "could not find text" on a [done] task's row and selected nothing)
+      const selection = _todo_line(text)
       MindBox.set(
         'id:' + item.id,
-        edit ? { edit: text } : { scroll: true, select: text }
+        edit ? { edit: selection } : { scroll: true, select: selection }
       )
     }
   }
@@ -814,6 +818,17 @@ function _grab_on_sideways_touch(list) {
   list.addEventListener('pointerup', ended, true)
   list.addEventListener('pointercancel', ended, true)
   list.addEventListener('touchmove', e => grabbed && e.cancelable && e.preventDefault(), { capture: true, passive: false })
+}
+
+// the todo line of a snippet, trimmed of whitespace and the truncation ellipsis: the first line
+// when the snippet starts with the complete tag (a suffix snippet; its later text may end in
+// another tag, which decides nothing: the first tag does, as for the extractor and the marker
+// writer), the last line otherwise (a prefix snippet ends at the tag); what a row click selects
+// in the item (the line is raw bytes there, the snippet need not be)
+function _todo_line(snippet) {
+  const lines = snippet.split('\n')
+  const line = _todo_offset(snippet) === 0 ? lines[0] : lines[lines.length - 1]
+  return line.replace(/^[\s…]+|[\s…]+$/g, '')
 }
 
 // extract todo snippet from item
