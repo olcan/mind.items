@@ -1018,10 +1018,14 @@ function _stats_suffix(stats) {
   // known dollar is the runtime's, ` (sub $2.00)` for a part, nothing when none is
   const known = typeof stats.cost == 'number' && stats.cost > 0
   const unknown = typeof stats.unknown == 'number' && stats.unknown > 0
+  // the cents rule of the vault's format_cost (the scaled float, rounded half-up): a bare
+  // toFixed(2) rounds the exact binary value, so 1.115 would give $1.11 here and $1.12 there,
+  // and the all/part decision below would flip with it
+  const cents = x => (Math.floor(x * 100 + 0.5) / 100).toFixed(2)
   if (known) {
-    let text = '$' + stats.cost.toFixed(2) + (unknown ? '+?' : '')
-    const sub = typeof stats.sub == 'number' && stats.sub > 0 ? stats.sub.toFixed(2) : '0.00'
-    const all = stats.sub >= stats.cost || sub == stats.cost.toFixed(2)
+    let text = '$' + cents(stats.cost) + (unknown ? '+?' : '')
+    const sub = typeof stats.sub == 'number' && stats.sub > 0 ? cents(stats.sub) : '0.00'
+    const all = stats.sub >= stats.cost || sub == cents(stats.cost)
     if (sub != '0.00') text += all ? ' (sub)' : ' (sub $' + sub + ')'
     parts.push(text)
   } else if (unknown) parts.push('$?')
