@@ -1013,11 +1013,18 @@ function _stats_suffix(stats) {
   const parts = []
   if (typeof stats.workers == 'number' && stats.workers > 0) parts.push(stats.workers + 'w')
   // the cost keeps its uncertainty: the known sum, `+?` when some paid work's cost is unknown,
-  // `$?` when only unknown costs exist
+  // `$?` when only unknown costs exist; then the subscription runtime's share as the chat
+  // footer's qualifier (the twin of the vault's format_money, the one rule): ` (sub)` when every
+  // known dollar is the runtime's, ` (sub $2.00)` for a part, nothing when none is
   const known = typeof stats.cost == 'number' && stats.cost > 0
   const unknown = typeof stats.unknown == 'number' && stats.unknown > 0
-  if (known) parts.push('$' + stats.cost.toFixed(2) + (unknown ? '+?' : ''))
-  else if (unknown) parts.push('$?')
+  if (known) {
+    let text = '$' + stats.cost.toFixed(2) + (unknown ? '+?' : '')
+    const sub = typeof stats.sub == 'number' && stats.sub > 0 ? stats.sub.toFixed(2) : '0.00'
+    const all = stats.sub >= stats.cost || sub == stats.cost.toFixed(2)
+    if (sub != '0.00') text += all ? ' (sub)' : ' (sub $' + sub + ')'
+    parts.push(text)
+  } else if (unknown) parts.push('$?')
   return parts.length ? ' · ' + parts.join(' · ') : ''
 }
 
