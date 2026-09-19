@@ -18,7 +18,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 const context = {
   console,
@@ -58,12 +58,19 @@ vm.runInContext(
     '_delegated_view',
     '_clear_pending',
     '_rerender_todoer_widgets',
+    '_task_target',
+    '_command_target',
+    '_delegate',
+    '_on_command_delegate',
+    '_delegate_text',
+    '_delegate_created',
+    '_wait_for_save',
   ]).join('\n') +
     consts +
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch } = context
+const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -217,6 +224,75 @@ const tick = () => new Promise(r => setTimeout(r, 0))
   await tick()
   await tick()
   check('a retry that cannot be prepared clears the command\'s own overlay', _pending_commands().i1, undefined)
+
+  // /delegate's argument (design 2.2): empty is the targeted item, a `#name` or `id:` first word
+  // or a whole argument that resolves (an id) that item; any other text, the exact first word
+  // `#todo` (the tag itself) included, is a todo created as /todo creates it (the app's {text}
+  // return, with an init hook for the created item; a `#todo` first word kept as written) and
+  // delegated once its save names it. The grammar gate before the creation returns the
+  // command; nothing after the creation does (a retry would create a second todo)
+  const alerts = []
+  context.alert = m => alerts.push(m)
+  const docs = [] // the command documents enqueued, in order
+  context.window._enqueue_hidden_document = async (name, cmd) => {
+    docs.push({ name, cmd })
+    return { id: 'doc-' + cmd.id, written: Promise.resolve() }
+  }
+  context.window._grammar = { version: 2, edit: (text, fn) => fn(text) }
+  let ids = 0
+  context._command_id = () => 'c' + ++ids
+  const items = {} // by id, and by name when named
+  const make = (id, name, text, saved_id) => {
+    const item = { id, name: name ?? id, text, saved_id, tags: text.match(/#\S+/g) ?? [], _global_store: {}, write: t => ((item.text = t), true) }
+    items[id] = item
+    if (name) items[name] = item
+    return item
+  }
+  context._item = ref => items[ref] ?? null
+  context._exists = ref => ref in items
+  let target = null // the targeted item's container, as the document holds it
+  context.document = { querySelector: () => target }
+  context.setTimeout = setTimeout
+  make('i1', null, '#todo fix\nbody\n', 's1')
+  make('i2', '#other', '#todo other\n', 's2')
+  target = { getAttribute: () => 'i1' }
+  check('delegate: empty, the targeted item', [await _on_command_delegate('', ''), docs.at(-1)?.cmd.task, items.i1.text], [null, 's1', '#todo [delegated] fix\nbody\n#_agent/vault\n'])
+  target = null
+  check('delegate: empty without a target is refused, the command kept', [await _on_command_delegate('', ''), alerts.at(-1), docs.length], ['/delegate ', '/delegate: no target item', 1])
+  check('delegate: a #name', [await _on_command_delegate('#other', '#other'), docs.at(-1).cmd.task], [null, 's2'])
+  check('delegate: a missing #name is refused, never a todo', [await _on_command_delegate('#nope fix it', '#nope'), alerts.at(-1), docs.length], ['/delegate #nope fix it', '/delegate: #nope missing or ambiguous', 2])
+  check('delegate: a missing id: reference is refused, never a todo', [await _on_command_delegate('id:nope', 'id:nope'), alerts.at(-1), docs.length], ['/delegate id:nope', '/delegate: id:nope missing or ambiguous', 2])
+  check('delegate: an id is a reference', [await _on_command_delegate('i2', 'i2'), docs.at(-1).cmd.task, docs.length], [null, 's2', 3])
+  context.window._grammar.version = 1
+  check('delegate: text under the old grammar is refused before anything is created', [await _on_command_delegate('fix the cache', 'fix'), alerts.at(-1), docs.length], ['/delegate fix the cache', 'please reload to delegate todos (app update required)', 3])
+  context.window._grammar.version = 2
+  const ret = await _on_command_delegate('fix the cache', 'fix')
+  check('delegate: text creates the todo as /todo does, with an init hook', [ret.text, ret.edit, typeof ret.init], ['#todo fix the cache', false, 'function'])
+  const created = make('i3', null, ret.text, null) // the app's created item, not saved yet
+  const done = ret.init(created)
+  check('delegate: nothing is enqueued before the save', docs.length, 3)
+  setTimeout(() => (created.saved_id = 's3'), 10)
+  check('delegate: the saved todo is delegated under its saved id, the created text the capture', [await done, docs.at(-1).cmd, created.text], [null, { task: 's3', id: docs.at(-1).cmd.id, kind: 'delegate', epoch: 0, at: docs.at(-1).cmd.at, body: '#todo fix the cache' }, '#todo [delegated] fix the cache\n#_agent/vault\n'])
+  check('delegate: a save that does not come is reported, the command not returned', [await _delegate_created(make('i4', null, '#todo never', null), 20), alerts.at(-1), docs.length], [null, 'cannot delegate i4: not saved after 0.02s; delegate it once it is', 4])
+  const gone = make('i5', null, '#todo gone', null)
+  const reported = alerts.length
+  setTimeout(() => delete items.i5, 10)
+  check('delegate: a todo deleted during the wait is let go', [await _delegate_created(gone, 5000), alerts.length, docs.length], [null, reported, 4])
+  check('delegate: the wait is bounded', await _wait_for_save(make('i6', null, '#todo slow', null), 20, 5), false)
+  // the exact first word `#todo` (the tag itself) is text, created as written (never a doubled
+  // tag) and delegated once saved; `/delegate #todo` alone an empty todo, as /todo alone creates
+  // one; a name that merely starts with it is a reference, refused when missing
+  const tagged = await _on_command_delegate('#todo fix x', '#todo')
+  check('delegate: the #todo first word is text, created as written', [tagged.text, tagged.edit, typeof tagged.init], ['#todo fix x', false, 'function'])
+  const tagged_item = make('i7', null, tagged.text, null)
+  const tagged_done = tagged.init(tagged_item)
+  check('delegate: nothing is enqueued before the tagged todo\'s save', docs.length, 4)
+  setTimeout(() => (tagged_item.saved_id = 's7'), 10)
+  check('delegate: the tagged todo is delegated once saved, its text the capture', [await tagged_done, docs.at(-1).cmd.task, docs.at(-1).cmd.body, tagged_item.text], [null, 's7', '#todo fix x', '#todo [delegated] fix x\n#_agent/vault\n'])
+  check('delegate: #todo alone is text, an empty todo', [(await _on_command_delegate('#todo', '#todo')).text, docs.length], ['#todo', 5])
+  check('delegate: a missing name that merely starts with #todo is refused', [await _on_command_delegate('#todox', '#todox'), alerts.at(-1), docs.length], ['/delegate #todox', '/delegate: #todox missing or ambiguous', 5])
+  make('i8', '#todox', '#todo x\n', 's8')
+  check('delegate: a name that merely starts with #todo is a reference, delegated by its saved id', [await _on_command_delegate('#todox', '#todox'), docs.at(-1).cmd.task, docs.length], [null, 's8', 6])
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()

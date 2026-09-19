@@ -988,6 +988,8 @@ function _task_state(item) {
 // this tab's pending commands by item id ({id, kind}): the overlay from the enqueue until the
 // bridge's `acked` names the id (a stale, refused, or invalidated disposition clears it too)
 const _pending_commands = () => (_todoer.store.pending ??= {})
+const SAVE_WAIT_MS = 30_000 // /delegate text waits this long for the created todo's save
+const SAVE_POLL_MS = 250 // polled as the widget's detect_save task polls
 
 // where a todo belongs (design 2.2): the pending command first (a take-back puts the item in the
 // main list, a delegate in the delegated list), else the projection's possession
@@ -1190,13 +1192,53 @@ function _command_target(name, command) {
   return item
 }
 
-// => /delegate [item]
-// delegate `item` (default: the targeted item) to the vault agent: start or resume the task
+// => /delegate [item|text]
+// delegate `item` (default: the targeted item) to the vault agent, start or resume the task; other `text` creates `#todo text` and delegates it (a `#todo` first word is kept as written)
 async function _on_command_delegate(args, name) {
+  // a reference is an empty argument (the target), a `#name` or `id:` first word (the todoer's own
+  // reference syntax) or a whole argument _item resolves (a bare id); any other text is a new todo,
+  // the exact first word `#todo` (the tag itself, never a name) included: that text is created as written
+  const tagged = name == '#todo'
+  if (args && (tagged || (!name?.startsWith('#') && !name?.startsWith('id:') && !_exists(args)))) return _delegate_text(args, tagged)
   const item = _command_target(name, '/delegate')
   // a refused gesture (reported in a dialog) leaves the command in the box, as /edit does
   if (!item || !(await _delegate(item))) return `/delegate ${args}`
   return null
+}
+
+// the plain-text form: the todo is created as /todo creates it (the app's {text} return, its
+// init hook handing the created item over) and delegated once its save gives it the id the
+// command names; a `tagged` text (its first word the tag) is created as written, never tagged
+// twice; the grammar gate is checked BEFORE the creation (a refusal leaves the command in the
+// box), and after it the command never comes back (a retry would create a second todo)
+function _delegate_text(text, tagged = false) {
+  if (!(window._grammar?.version >= 2)) {
+    alert('please reload to delegate todos (app update required)')
+    return `/delegate ${text}`
+  }
+  return { text: tagged ? text : '#todo ' + text, edit: false, init: item => _delegate_created(item) }
+}
+
+// delegate a todo created a moment ago, once saved (bounded): a save that does not come is
+// reported (the gesture reports its own refusals) and the todo stays on the main list
+async function _delegate_created(item, wait = SAVE_WAIT_MS) {
+  if (!item) return null // not created (reported by the app)
+  const saved = await _wait_for_save(item, wait)
+  if (!_exists(item.id)) return null // deleted meanwhile
+  if (!saved) alert(`cannot delegate ${item.name}: not saved after ${wait / 1000}s; delegate it once it is`)
+  else await _delegate(item)
+  return null
+}
+
+// wait for the item's saved id (the id a command names), polling as the widget's detect_save
+// task does; false once the wait runs out or the item is gone
+async function _wait_for_save(item, wait = SAVE_WAIT_MS, poll = SAVE_POLL_MS) {
+  const deadline = Date.now() + wait
+  while (!item.saved_id) {
+    if (!_exists(item.id) || Date.now() >= deadline) return false
+    await new Promise(resolve => setTimeout(resolve, poll))
+  }
+  return true
 }
 
 // => /takeback [item]

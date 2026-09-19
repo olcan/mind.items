@@ -1,7 +1,7 @@
 #todoer helps manage todo items.  
 - Try <<link_eval(_this, 'create_pinned_item()', 'creating a pinned item')>> with a drag-and-drop widget.
 - Try using the `/todo [text]` command to quickly create new items.
-- Delegate a todo to the vault agent by dragging it to the widget's agent bin (or `/delegate`); it moves to the delegated list below the main one, and comes back when the agent hands it back (design: the vault's `notes/design/mind_task_agents.md`).
+- Delegate a todo to the vault agent by dragging it to the widget's agent bin (or `/delegate`; `/delegate text` creates `#todo text` and delegates it, a `#todo` first word kept as written); it moves to the delegated list below the main one, and comes back when the agent hands it back (design: the vault's `notes/design/mind_task_agents.md`).
 - A pinned item created before the delegated list exists shows only the main widget: add `\<<todoer_widget({delegated: true})>>` below it (new pins carry both).
 #### Commands
 << command_table() >>
