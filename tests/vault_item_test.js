@@ -88,8 +88,10 @@ const env = {
   _items: () => Object.values(items),
   elem: s => (s === '.logs' ? logs_div.replaced ?? logs_div : s === '.proposals' ? proposals_div : s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own elements (util/core/item.js)
 }
+const saves = [] // this item's own saves: the options each save_global_store call carried
 env._this = {
   id: 'vault-id',
+  save_global_store: opts => saves.push(opts), // the app's save (a task; the change handlers run after it)
   _global_store: {
     _bridge: {
       updated: now,
@@ -112,9 +114,9 @@ const rows = vm.runInContext(
   "vault_runs_rows(_this._global_store._bridge, _this._global_store._owner.stop, " + now + ", id => 'stop:' + id)", ctx)
 const mark = name => `<mark class="link" title="${name}" onmousedown="_handleTagClick('vault-id','${name}','${name}',event)" onclick="event.preventDefault();event.stopPropagation();">${name}</mark>`
 check('rows: a read-only run renders a placeholder worktree and its stop flag; the item cell is the app\'s clickable tag', rows[0],
-  [mark('#chat/topic'), 'fable', 'r1', '5s', '(read-only)', '\\(no activity yet\\)', 'stopping…'])
+  [mark('#chat/topic'), 'fable', 'r1', '5s', '(read-only)', '·', 'stopping…'])
 check('rows: an unknown item id shows the id; a bridge-reported stop shows stopping', rows[1],
-  ['other-id', 'fable_wt', 'r2', '65s', 'chat_x', '\\(no activity yet\\)', 'stopping…'])
+  ['other-id', 'fable_wt', 'r2', '65s', 'chat_x', '·', 'stopping…'])
 const sup = { r1: { status: 'supervisor: reviewing the diff', progress: 0.25, notes: [{ t: now, text: 'looks fine <b>' }] } }
 const withStatus = vm.runInContext("(() => { const b = _this._global_store._bridge; b.runs.r2.status = 'Reading file docs/x.md'; b.runs.r2.log = ['00:00:01 Reading file docs/x.md', '00:00:02 Executing bash: ls']; return vault_runs_rows(b, {}, " + now + ", id => 'stop', " + JSON.stringify(sup) + ") })()", ctx)
 check('rows: the supervisor status with its progress overrides the bridge activity; a bridge status shows as is', [withStatus[0][5], withStatus[1][5]], ['25% supervisor\\: reviewing the diff', 'Reading file docs\\/x\\.md'] /* the parser's escapes, undone at render */)
@@ -124,25 +126,29 @@ vm.runInContext("delete _this._global_store._bridge.runs.r2.status; delete _this
 const rendered = vm.runInContext('vault_runs_table()', ctx)
 check('table: the real helper renders both rows with the headers, then a blank line and the stamp', rendered.split('\n').length, 6)
 check('table: header row', rendered.split('\n')[0], '| item | persona | run | elapsed | worktree | status |  |')
-check('table: the listing stamp follows as its own paragraph, with its age', /\n\n_bridge listing from test-host, updated .* \(0s ago\)_$/.test(rendered), true)
+check('table: the listing stamp follows as its own paragraph, with its age', /\n\n_listed by test-host at .* \(0s ago\)_$/.test(rendered), true)
 const one = vm.runInContext(
   "(() => { const b = {updated: " + now + ", host: 'h', runs: {r3: {item: 'x', persona: 'p', started: " + now + ", worktree: null}}};" +
   " _this._global_store = {_bridge: b, _owner: {stop: {}}}; return vault_runs_table() })()", ctx)
-check('table: a lone read-only run renders (the empty-column case)', one.split('\n')[2], "| x | p | r3 | 0s | (read-only) | \\(no activity yet\\) | [stop](stop_run('r3')) |")
+check('table: a lone read-only run renders (the empty-column case)', one.split('\n')[2], "| x | p | r3 | 0s | (read-only) | · | [stop](stop_run('r3')) |")
 vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {}}}", ctx)
-check('empty listing keeps its stamp', vm.runInContext('vault_runs_table()', ctx), '_none_ _bridge listing from h, updated ' + new Date(now).toLocaleTimeString() + ' (0s ago)_')
+check('empty listing keeps its stamp', vm.runInContext('vault_runs_table()', ctx), '_none_ _listed by h at ' + new Date(now).toLocaleTimeString() + ' (0s ago)_')
 vm.runInContext('_this._global_store = {}', ctx)
 check('missing listing explains itself', vm.runInContext('vault_runs_table()', ctx).startsWith('_no listing yet'), true)
 // stop_run prunes flags of delisted runs on the explicit action and never touches _bridge
 vm.runInContext("_this._global_store = {_bridge: {runs: {r9: {}}}, _owner: {stop: {old: 1}}}; _this.global_store = _this._global_store; stop_run('r9')", ctx)
 check('stop_run keeps _bridge and prunes stale flags', vm.runInContext('_this.global_store', ctx), { _bridge: { runs: { r9: {} } }, _owner: { stop: { r9: vm.runInContext('_this.global_store._owner.stop.r9', ctx) } } })
 check('the stop flag is a timestamp', typeof vm.runInContext('_this.global_store._owner.stop.r9', ctx), 'number')
+check('stop_run saves the whole store without the re-render the app forces on a save (the change handler renders the flag in place)', saves.splice(0), [{ invalidate_elem_cache: false }])
 vm.runInContext("_this._global_store = {}; _this.global_store = _this._global_store; _on_welcome()", ctx)
 check('welcome provisions the store', vm.runInContext('_this.global_store', ctx), { _owner: { stop: {} } })
+check('welcome saves the provisioned store the same way', saves.splice(0), [{ invalidate_elem_cache: false }])
 // the running marks: one reference of this tab's own per listed chat item (the app's refcount)
 const counts = () => vm.runInContext("[items['chat-id'].count, items['chat2-id'].count, items['busy-id'].count]", ctx)
 const marks = () => vm.runInContext('_this.store._vault_marked', ctx)
-const listing = runs => vm.runInContext(`_this._global_store._bridge = {runs: ${runs}}; _on_global_store_change('vault-id', false)`, ctx)
+// a listing of minimal rows: the bridge's rows always carry a persona and a start, and the table,
+// rendered at every store change, needs a value in every column, so the helper fills them in
+const listing = runs => vm.runInContext(`_this._global_store._bridge = {runs: ${runs}}; for (const r of Object.values(_this._global_store._bridge.runs)) { r.persona ??= 'p'; r.started ??= ${now} }; _on_global_store_change('vault-id', false)`, ctx)
 vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {runs: {r1: {item: 'chat-id'}, r2: {item: 'other-id'}}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
 check('welcome marks the listed runs (a deleted item skipped) and records the marks', [counts(), marks()], [[1, 0, 1], { 'chat-id': true }])
 listing("{r3: {item: 'busy-id'}, r4: {item: 'chat2-id'}}")
@@ -183,21 +189,30 @@ const script = item.match(/<script _uncached>\n([\s\S]*?)<\/script>/)
 if (!script) throw new Error('no _uncached script in vault.md')
 const tasks = []
 env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
+runs_div.writes = 0 // the store changes above rendered into it; this section counts the script's own
+delete runs_div._vault_html
 vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {r7: {item: 'chat-id', persona: 'p', started: " + (now - 3000) + ", worktree: null}}}, _owner: {stop: {}}}", ctx)
 vm.runInContext(script[1], ctx)
-check('the script renders at once: the table with the elapsed value, then the stamp paragraph', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>| item |'), runs_div.innerHTML.includes(`| ${mark('#chat/topic')} | p | r7 | 3s | (read-only) | \\(no activity yet\\) |`), /\n\n_bridge listing from h, updated /.test(runs_div.innerHTML)], [1, true, true, true])
+check('the script renders at once: the table with the elapsed value, then the stamp paragraph', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>| item |'), runs_div.innerHTML.includes(`| ${mark('#chat/topic')} | p | r7 | 3s | (read-only) | · |`), /\n\n_listed by h at /.test(runs_div.innerHTML)], [1, true, true, true])
 check('the script registers the one-second task', tasks.map(t => [t.name, t.delay, t.repeat]), [['update', 1000, 1000]])
 tasks[0].fn()
 check('a tick without a clock change is not reassigned', runs_div.writes, 1)
 clock.now += 2000
 tasks[0].fn()
 check('a tick after two seconds advances the elapsed column without a store delivery', [runs_div.writes, runs_div.innerHTML.includes('| r7 | 5s |')], [2, true])
+// a change of this store (the bridge's listing, or this tab's flag) rewrites the elements in
+// place from the change handler, which returns true: the app then skips the re-render it would
+// force on a remote delivery (design 2026-09-19: fresh empty elements painted before this script
+// refilled them, the item collapsed for a frame); another store's change is not this item's
+const changed = vm.runInContext("_this._global_store._bridge.runs.r7.status = 'Reading file x'; _on_global_store_change('vault-id', true)", ctx)
+check('a store change rewrites the listing in place and reports it rendered', [changed, runs_div.writes, runs_div.innerHTML.includes('| r7 | 5s | (read-only) | Reading file x |')], [true, 3, true])
+check('a foreign store\'s change rewrites nothing and reports nothing', [vm.runInContext("_on_global_store_change('other-id', true)", ctx), runs_div.writes], [undefined, 3])
 vm.runInContext("_this._global_store._bridge.runs = {}", ctx)
 tasks[0].fn()
-check('an empty listing renders its note', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>_none_')], [3, true])
+check('an empty listing renders its note', [runs_div.writes, runs_div.innerHTML.startsWith('<parsed>_none_')], [4, true])
 runs_div.missing = true // the item left the DOM
 tasks[0].fn()
-check('a tick without the element is a no-op', runs_div.writes, 3)
+check('a tick without the element is a no-op', runs_div.writes, 4)
 runs_div.missing = false
 runs_div.replaced = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
 vm.runInContext(script[1], ctx) // the item re-rendered: a fresh element, the script runs again
@@ -230,7 +245,7 @@ if (realMarked) {
     const cells = Array.from(row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g), m => m[1])
     check(`real parser: ${JSON.stringify(text)} is one literal cell with the stop link last`, [cells.length, /<[a-z]/.test(cells[5]), visible(cells[5]), cells[6]], [7, false, shown ?? text, `<a href="stop_run('r8')">stop</a>`])
   }
-  check('real parser: the stamp is a paragraph after the table', /<\/table>\s*<p><em>bridge listing from h, updated .* \(\d+s ago\)<\/em><\/p>/.test(html), true)
+  check('real parser: the stamp is a paragraph after the table', /<\/table>\s*<p><em>listed by h at .* \(\d+s ago\)<\/em><\/p>/.test(html), true)
   check('real parser: the item cell carries the clickable tag markup', body.includes("onmousedown=\"_handleTagClick('vault-id','#chat/topic','#chat/topic',event)\""), true)
 }
 
@@ -245,10 +260,12 @@ logs_div.details[0].click() // the user opens r1's log
 check('the open block is remembered in the item state from its toggle event', vm.runInContext('_this.store._vault_open', ctx), { r1: true })
 vm.runInContext("_this._global_store._bridge.runs.r1.log.push('00:00:02 c'); update_vault_runs()", ctx)
 check('a changed log rewrites the element and keeps the open block open', [logs_div.writes, logs_div.details.map(d => [d.dataset.run, d.open])], [2, [['r1', true], ['r2', false]]])
-// the app's store delivery re-renders the whole item: fresh elements, the script run again
+// a store change rewrites the logs in place too (no item re-render); a re-render of the whole
+// item for another reason (an edit, /update) brings fresh elements and runs the script again
+vm.runInContext("_this._global_store._bridge.runs.r1.log.push('00:00:03 d'); _on_global_store_change('vault-id', false)", ctx)
+check('a store change rewrites the logs in place and keeps the open block open', [logs_div.writes, logs_div.details.map(d => [d.dataset.run, d.open])], [3, [['r1', true], ['r2', false]]])
 logs_div.replaced = fresh_logs_div()
 runs_div.replaced = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
-vm.runInContext("_this._global_store._bridge.runs.r1.log.push('00:00:03 d'); _on_global_store_change('vault-id', false)", ctx)
 vm.runInContext(script[1], ctx)
 check('after the item re-render the remembered block is open again on the fresh element', [logs_div.replaced.writes, logs_div.replaced.details.map(d => [d.dataset.run, d.open])], [1, [['r1', true], ['r2', false]]])
 logs_div.replaced.details[0].click() // the user closes it
@@ -280,6 +297,7 @@ const decide = vm.runInContext('_this.global_store._owner.decide', ctx)
 check('decide_worktree writes the flag with a timestamp, keeps the other listed flags, and keeps stop', [Object.keys(decide).sort(), decide.chat_a1.decision, typeof decide.chat_a1.t, vm.runInContext('_this.global_store._owner.stop', ctx)], [['chat_a1', 'chat_b2', 'chat_c3'], 'rejected', 'number', {}])
 vm.runInContext("_this._global_store._bridge.worktrees = {chat_a1: {item: 'chat-id', generation: 1, commits: 2}}; decide_worktree('chat_a1', 'accepted')", ctx)
 check('a flag of a worktree no longer listed is dropped on the explicit action', Object.keys(vm.runInContext('_this.global_store._owner.decide', ctx)), ['chat_a1'])
+check('each decision saves the whole store without a forced re-render', saves.splice(0), [{ invalidate_elem_cache: false }, { invalidate_elem_cache: false }, { invalidate_elem_cache: false }])
 vm.runInContext("_this._global_store._bridge.worktrees = {}; update_vault_runs()", ctx)
 check('no proposals renders as none, into the proposals element', proposals_div.innerHTML, '<parsed>_none_</parsed>')
 
@@ -288,7 +306,7 @@ check('no proposals renders as none, into the proposals element', proposals_div.
 // a queued entry becoming a run keeps the one reference; the welcome marks from the store alone
 vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {'chat2-id': {persona: 'fable', since: " + (clock.now - 3000) + "}}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
 check('welcome marks a queued request from the store (no item is scanned) and shows its status', [counts(), marks(), status('chat2-id')], [[0, 1, 0], { 'chat2-id': true }, ['queued', 0]])
-check('the table lists the queued request with its wait and no stop link', vm.runInContext('vault_runs_table()', ctx).split('\n')[2], `| ${mark('#chat/two')} | fable | (queued) | 3s | · | queued | · |`)
+check('the table lists the queued request with its wait and no stop link', vm.runInContext('vault_runs_table()', ctx).split('\n')[2], `| ${mark('#chat/two')} | fable | · | 3s | · | queued | · |`)
 vm.runInContext("_this._global_store._bridge = {host: 'h', updated: " + now + ", runs: {r9: {item: 'chat2-id', persona: 'fable', started: " + now + ", worktree: null}}, queued: {}}; _on_global_store_change('vault-id', false)", ctx)
 check('the queued entry becoming a run keeps the one reference and shows the run status', [counts(), status('chat2-id')], [[0, 1, 0], ['', 0]])
 listing('{}')
@@ -335,13 +353,13 @@ check('the worker ended: the chat is released and its status cleared', [status('
 const table = () => vm.runInContext('vault_runs_table()', ctx).split('\n').filter(r => r.startsWith('| ')).slice(2) // the data rows
 const w_queued = "{'chat2-id': {worker: 'w0000aaaa', phase: 'queued', run: null, worktree: 'chat_two', since: " + (clock.now - 5000) + "}}"
 bridge('{}', w_queued)
-check('a queued worker has a compact row', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa (queued) | 5s | chat_two | queued | · |`])
+check('a queued worker has a compact row', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa | 5s | chat_two | queued | · |`])
 bridge(`{${s3}}`, w_queued)
-check('under its chat\'s supervisor turn the worker keeps its row beside the supervisor\'s', table().map(r => r.split(' | ')[2]), ['w0000aaaa (queued)', 's3'])
+check('under its chat\'s supervisor turn the worker keeps its row beside the supervisor\'s', table().map(r => r.split(' | ')[2]), ['w0000aaaa', 's3'])
 bridge(`{${w1}}`, "{'chat2-id': {worker: 'w0000aaaa', phase: 'executing', run: 'w1', worktree: 'chat_two', since: " + (clock.now - 5000) + "}}")
 check('an executing worker is its run\'s row only (no duplicate)', table().map(r => r.split(' | ')[2]), ['w1'])
 bridge('{}', "{'chat2-id': {worker: 'w0000aaaa', phase: 'finishing', run: 'w1', worktree: 'chat_two', since: " + (clock.now - 5000) + "}}")
-check('a finishing worker (delisted) has its row back', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa (finishing) | 5s | chat_two | finishing | · |`])
+check('a finishing worker (delisted) has its row back', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa | 5s | chat_two | finishing | · |`])
 bridge('{}')
 check('the worker ended: no row', vm.runInContext('vault_runs_table()', ctx).startsWith('_none_'), true)
 // the welcome parses no item: _items throws during it
@@ -508,6 +526,7 @@ check('its deletion releases the mark', items['persona-id'].count, 0)
 check('a change of a non-routed item runs only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status, _this.store._vault_marked] })()", ctx), [{}, '', {}])
 check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])
+check('nothing else saved the store (a welcome with a provisioned store, the marks, the statuses)', saves, [])
 
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
 console.log('all checks passed')

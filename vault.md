@@ -1,6 +1,8 @@
-#vault lists the runs the vault [bridge](#agent/vault) is executing and lets you stop one. A run is listed when its model execution starts and delisted when that execution ends (before its reply is published). A stop is delivered at the run's next suspension point; the runtime then finishes its work in flight before the stop takes effect (a shell command is terminated and drained, the Claude session closes) and it arrives as a `stopped` reply; the request stays claimed, so edit the message to run it again. Rows come from the bridge's last listing, whose time and age the line under the table shows (the elapsed column ticks locally; the bridge also publishes an empty listing when it starts, so a dead bridge's rows clear on its restart). The status column is the run's last activity from its log, refreshed every few seconds, overridden by a supervisor's status line (with a progress ratio when one is set); each run's log tail and supervisor notes fold out under the table, and the chat item shows the same status while it runs. A chat item is shown as _running_ in every open tab from the moment the bridge admits its request (listed as queued while it waits its turn, with the status `queued`) until its run's model execution ends (a supervisor's worker: until its outcome is recorded, through its finalization, with a row of its own while its run is not listed), as an active agent's item is on every tab; a vault request is marked the moment its text reaches a tab, as a web agent's item is at dispatch: the save in the saving tab, and the synced change in every other tab, mark the item (an item whose last turn is a user turn, routed by its own tags or, for a chained `…/N` item, by its nearest ancestor's) until the bridge's listing takes over (or, without a listing, until the reply lands, the item is deleted, or its 30-second deadline passes, released at the next tick).
+#vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
+- **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
+- **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it.
 ---
-#### Active Runs
+#### Runs
 <div class="runs"></div>
 <div class="logs"></div>
 #### Proposals
@@ -251,9 +253,16 @@ function vault_expire_pending() {
   if (!keys(pending).length) return null
 }
 
+// this store's changes, local (a flag) or remote (a listing; the app calls the owner within
+// about a second of a bridge write): the marks and statuses, then the tables in place. true
+// tells the app the change is rendered, so it skips the re-render it forces on a remote
+// delivery (fresh empty elements, painted before this script refilled them: the item collapsed
+// for a frame and everything below it shifted; design 2026-09-19)
 function _on_global_store_change(id) {
   if (id != _this.id) return // another item's store (this item listens to item changes below)
   vault_reconcile_running()
+  update_vault_runs()
+  return true
 }
 
 // the app's clickable tag markup (its Marked instance renders `[text](#tag)` this way; the global
@@ -279,9 +288,9 @@ function vault_runs_rows(bridge, stop, now, link, sup = {}) {
   const queued = entries(bridge?.queued ?? {}).map(([itemId, q]) => [
     vault_item_cell(itemId),
     q.persona,
-    '(queued)',
+    '·', // no run yet (nonempty: the table helper needs a value in every column)
     Math.round((now - q.since) / 1000) + 's',
-    '·', // nonempty: the table helper needs a value in every column
+    '·',
     'queued',
     '·',
   ])
@@ -294,7 +303,7 @@ function vault_runs_rows(bridge, stop, now, link, sup = {}) {
     .map(([itemId, w]) => [
       vault_item_cell(itemId),
       'worker',
-      `${w.worker} (${w.phase ?? 'queued'})`,
+      w.worker,
       Math.round((now - w.since) / 1000) + 's',
       w.worktree ?? '·',
       String(w.phase ?? 'queued'),
@@ -302,7 +311,7 @@ function vault_runs_rows(bridge, stop, now, link, sup = {}) {
     ])
   return queued.concat(workers, entries(runs).map(([id, run]) => {
     const progress = vault_run_progress(sup[id])
-    const status = vault_run_status(run, sup[id]) || '(no activity yet)'
+    const status = vault_run_status(run, sup[id]) || '·' // no activity yet
     return [
       vault_item_cell(run.item),
       run.persona,
@@ -348,9 +357,9 @@ function vault_age(ms) {
 function vault_runs_table() {
   const store = _this._global_store
   const bridge = store._bridge
-  if (!bridge) return '_no listing yet (the bridge writes it when it starts and at each run)_'
+  if (!bridge) return '_no listing yet: the bridge writes one when it starts_'
   const now = Date.now()
-  const stamp = `_bridge listing from ${bridge.host}, updated ${new Date(bridge.updated).toLocaleTimeString()} (${vault_age(now - bridge.updated)} ago)_`
+  const stamp = `_listed by ${bridge.host} at ${new Date(bridge.updated).toLocaleTimeString()} (${vault_age(now - bridge.updated)} ago)_`
   const sup = store._supervisor?.runs ?? {}
   const rows = vault_runs_rows(bridge, store._owner?.stop, now, id =>
     link_eval(_this, `stop_run('${id}')`, 'stop'), sup
@@ -367,9 +376,10 @@ function vault_logs_html() {
   return vault_runs_details(store._bridge, store._supervisor?.runs ?? {})
 }
 
-// render the listing into the item's own element (the #status pattern: a per-second task that
-// rewrites a div, no item re-render); a store change re-renders the item, which re-runs the
-// script above and so updates at once
+// render the listing into the item's own elements (the #status pattern: a per-second task that
+// rewrites a div, no item re-render); a store change updates them in place through
+// _on_global_store_change, and a re-render for any other reason (an edit, /update) runs the
+// script above over fresh elements
 function update_vault_runs() {
   vault_render('.runs', () => marked.parse(vault_runs_table()))
   vault_render('.logs', vault_logs_html)
@@ -381,8 +391,8 @@ function update_vault_runs() {
 // render into one of this item's own elements, skipping an unchanged rendering (the DOM's own
 // serialization differs from the parser's string, so the last string is remembered). The open
 // details blocks are remembered by run id in this tab's item state (from their toggle events)
-// and re-opened after any replacement: an in-place rewrite here, or the app's re-render of the
-// whole item at a store change (fresh elements, this script run again)
+// and re-opened after any replacement: an in-place rewrite here, or a re-render of the whole
+// item (fresh elements, this script run again)
 function vault_render(selector, render) {
   const div = elem(selector)
   if (!div) return // the item is not in the DOM
@@ -432,21 +442,27 @@ function vault_proposals_table() {
 // here, on this explicit action only
 function decide_worktree(name, decision) {
   const listed = _this._global_store._bridge?.worktrees ?? {}
-  const store = _this.global_store // the saving accessor
+  const store = _this._global_store
   const decide = Object.fromEntries(entries(store._owner?.decide ?? {}).filter(([wt]) => wt in listed))
   decide[name] = { decision, t: Date.now() }
   store._owner = { ...(store._owner ?? {}), decide }
+  vault_save()
 }
+
+// save this item's store (the whole store, as the app's saving accessor writes it) without the
+// re-render the app forces on a save: the change handler renders the flag in place
+const vault_save = () => _this.save_global_store({ invalidate_elem_cache: false })
 
 // ask the bridge to stop a run: the flag lives in this item's store, which the bridge watches;
 // flags of runs no longer listed are dropped here, on this explicit action only (an automatic
 // save on every remote listing change could overwrite the bridge's next listing)
 function stop_run(id) {
   const runs = vault_runs()
-  const store = _this.global_store // the saving accessor
+  const store = _this._global_store
   const stop = Object.fromEntries(entries(store._owner?.stop ?? {}).filter(([run_id]) => run_id in runs))
   stop[id] = Date.now()
   store._owner = { ...(store._owner ?? {}), stop }
+  vault_save()
 }
 
 // a change (a save in this tab, or another tab's save arriving by sync) that leaves an item a
@@ -471,7 +487,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
 // provision the store at app startup (the bridge only updates it, never creates it) and mark
 // the items the bridge holds, queued or executing, from the store: no item is scanned
 function _on_welcome() {
-  if (!_this._global_store._owner) _this.global_store._owner = { stop: {} }
+  if (!_this._global_store._owner) {
+    _this._global_store._owner = { stop: {} }
+    vault_save()
+  }
   vault_reconcile_running()
 }
 ```
