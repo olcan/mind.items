@@ -888,6 +888,23 @@ const wiring_rows = async () => {
     await tick()
     check('the deleted item skipped, the other written, nothing left accepted', [page.writes.map(w => w[0]), page.logs.filter(l => l[1] == 'update of i1 skipped: the item no longer exists (deleted meanwhile)').length, page.store().accepted_updates], [['#b'], 1, {}])
   }
+  {
+    // a queued id deleted meanwhile (another tab took the same removal, or the owner deleted
+    // it), unknown to _item: named by its id in the dialog's text (here a remote completion's
+    // refresh) and in Skip's warning, nothing thrown, the batch drained
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.item('#b', 'i2')
+    page.answers['#a'] = { v: 2 }
+    page.answers['#b'] = { v: 2 }
+    await page.init()
+    await tick()
+    delete page.items.i1
+    page.remote('#b', { v: 2 }) // #b done elsewhere: the open dialog's text refreshed, i1 alone
+    page.answer(false) // Skip
+    await tick()
+    check('a queued id deleted meanwhile: named by its id in the refreshed dialog and the Skip warning, the batch drained', [page.updates, page.logs.filter(l => l[0] == 'warn').map(l => l[1]), page.store().accepted_updates, page.store().modified_ids], [['#updater is ready to update 1 installed item: i1'], ['updates skipped for 1 installed item: i1'], {}, []])
+  }
 }
 
 const main = async () => {

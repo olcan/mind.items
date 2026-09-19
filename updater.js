@@ -22,16 +22,21 @@ async function init_updater() {
   const held = (store.held_updates = {}) // a batch stopped by a fatal error: re-queued by the next queued update
   store.update_modal = null // visible update modal (if any)
 
+  // a queued id's name for the dialog and the Skip warning: an id another tab deleted meanwhile
+  // (it took the same removal, or the owner deleted the item) is unknown to _item (null, silent:
+  // no console error) and named by its id; the batch loop below skips it likewise
+  const name_of = id => _item(id, { silent: true })?.name ?? id
   const ready_text = () => {
     // the removals (an entry answering a removed source, see REMOVED_SOURCES) named apart
     const removals = modified_ids.filter(id => pending_updates[id]?.removed)
     const updates = modified_ids.filter(id => !removals.includes(id))
-    const names = ids => ids.map(id => _item(id).name).join(', ')
+    const names = ids => ids.map(name_of).join(', ')
     const parts = []
     if (updates.length) parts.push(`update ${updates.length} installed item${updates.length > 1 ? 's' : ''}: ${names(updates)}`)
     if (removals.length) parts.push(`delete ${removals.length} retired item${removals.length > 1 ? 's' : ''}: ${names(removals)}`)
     return `${_this.name} is ready to ${parts.join(', and to ')}`
   }
+  store.ready_text = ready_text // the dialog's ONE text: a remote completion's refresh (_on_global_store_change) reads it too
   const enqueue = (id, key) => {
     // a push's key (a sha) replaces any queued key; a scan's snapshot replaces an earlier
     // scan's (fresher evidence) but never a push's (the scan's listing may predate a push it
@@ -97,7 +102,7 @@ async function init_updater() {
       }
       if (!update) {
         const s = batch.length > 1 ? 's' : ''
-        _this.warn(`updates skipped for ${batch.length} installed item${s}: ${batch.map(([id]) => _item(id).name).join(', ')}`)
+        _this.warn(`updates skipped for ${batch.length} installed item${s}: ${batch.map(([id]) => name_of(id)).join(', ')}`)
         for (const [id] of batch) delete accepted[id]
         return
       }
@@ -281,13 +286,7 @@ function _on_global_store_change(id, remote) {
     delete pending_updates[id]
     // update modal if visible, close if no other updates pending
     if (_this.store.update_modal) {
-      const modified_names = modified_ids.map(id => _item(id).name)
-      const s = modified_ids.length > 1 ? 's' : ''
-      _modal_update(
-        _this.store.update_modal,
-        `${_this.name} is ready to update ${modified_ids.length} ` +
-          `installed item${s}: ${modified_names.join(', ')}`
-      )
+      _modal_update(_this.store.update_modal, _this.store.ready_text()) // the queue's text, from its one source
       // if no updates pending, close modal
       // closing resolves modal promise as undefined (see await above)
       // closing modal should trigger setting of store.update_modal to null
@@ -485,7 +484,9 @@ function github_sha(text) {
 // found an "update" whose content fetch failed on every page load), decided in check_updates
 // before any token or GitHub call: the on-load scan and /update offer the deletion (the dialog
 // names the retired item, the per-item confirm its replacement) and an accepted one deletes the
-// item (see update_item). Each entry is the retired item's one-line reason (its tombstone's text)
+// item (see update_item). Each entry is the retired item's one-line reason (its tombstone's text).
+// A path ADDED BACK to the repository must be dropped from the table: it is consulted before the
+// listing, so a listed path's installed copy keeps being offered the deletion instead of updates
 const REMOVED_SOURCES = {
   'chat/gemma.md': 'its server (tiny0.duckdns.org) and model (gemma2:27b) are gone; see chat/tiny for the local Ollama chat, chat/next or chat/dsv4 for the llama-server models',
   'chat/native.md': 'renamed to chat/vault (the /vault command)',
@@ -742,7 +743,9 @@ async function update_item(item, updates) {
   const source = `${owner}/${repo}/${branch}`
   // a REMOVED source (see REMOVED_SOURCES): the deletion offered in place of an update, no token
   // or GitHub call, confirmed per item (the on-load dialog named it among the batch; /update
-  // asks here alone); Keep, or the app refusing the deletion (a shared view), is no failure
+  // asks here alone); Keep, or the app refusing the deletion (a shared view), is no failure; the
+  // app's /_undelete restores a deleted copy in-session only and under a NEW id, so a restored
+  // copy is offered the removal again at the next load
   if (updates.removed) {
     const confirmed = await _modal({
       content: `Delete ${item.name}? Its source ${source}/${path} was removed: ${updates.removed}`,
@@ -752,8 +755,15 @@ async function update_item(item, updates) {
     })
     if (!confirmed)
       return fail_update(`${item.name} kept (its source ${source}/${path} was removed: ${updates.removed})`)
-    if (item.delete(false /* confirmed above */) !== true)
-      return fail_update(`deletion of retired ${item.name} refused by the app`)
+    // a failing deletion stays per item: this branch runs outside the try below, whose catch
+    // rethrows the errors fatal to all items, and an exception here would stop the batch
+    let deleted
+    try {
+      deleted = item.delete(false /* confirmed above */)
+    } catch (e) {
+      return fail_update(`deletion of retired ${item.name} failed: ${e}`)
+    }
+    if (deleted !== true) return fail_update(`deletion of retired ${item.name} refused by the app`)
     _this.log(`deleted retired ${item.name} (its source ${source}/${path} was removed: ${updates.removed})`)
     return true
   }
