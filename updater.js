@@ -23,9 +23,14 @@ async function init_updater() {
   store.update_modal = null // visible update modal (if any)
 
   const ready_text = () => {
-    const names = modified_ids.map(id => _item(id).name)
-    const s = modified_ids.length > 1 ? 's' : ''
-    return `${_this.name} is ready to update ${modified_ids.length} installed item${s}: ${names.join(', ')}`
+    // the removals (an entry answering a removed source, see REMOVED_SOURCES) named apart
+    const removals = modified_ids.filter(id => pending_updates[id]?.removed)
+    const updates = modified_ids.filter(id => !removals.includes(id))
+    const names = ids => ids.map(id => _item(id).name).join(', ')
+    const parts = []
+    if (updates.length) parts.push(`update ${updates.length} installed item${updates.length > 1 ? 's' : ''}: ${names(updates)}`)
+    if (removals.length) parts.push(`delete ${removals.length} retired item${removals.length > 1 ? 's' : ''}: ${names(removals)}`)
+    return `${_this.name} is ready to ${parts.join(', and to ')}`
   }
   const enqueue = (id, key) => {
     // a push's key (a sha) replaces any queued key; a scan's snapshot replaces an earlier
@@ -104,7 +109,13 @@ async function init_updater() {
       ]).then(async () => {
         while (batch.length) {
           const [id, key] = batch.shift()
-          const item = _item(id)
+          const item = _item(id, { silent: true })
+          if (!item) {
+            // deleted meanwhile (another tab took its removal, or the owner deleted it)
+            _this.log(`update of ${id} skipped: the item no longer exists (deleted meanwhile)`)
+            delete accepted[id]
+            continue
+          }
           if (!(id in accepted)) {
             _this.log(`update of ${item.name} done remotely; skipped`)
             continue
@@ -469,7 +480,34 @@ function github_sha(text) {
   // ).join('')
 }
 
+// sources REMOVED from the mind.items repository, by path: an installed copy of a listed path is
+// a REMOVAL, never an update (the deletion commit is the path's latest, so listing its commits
+// found an "update" whose content fetch failed on every page load), decided in check_updates
+// before any token or GitHub call: the on-load scan and /update offer the deletion (the dialog
+// names the retired item, the per-item confirm its replacement) and an accepted one deletes the
+// item (see update_item). Each entry is the retired item's one-line reason (its tombstone's text)
+const REMOVED_SOURCES = {
+  'chat/gemma.md': 'its server (tiny0.duckdns.org) and model (gemma2:27b) are gone; see chat/tiny for the local Ollama chat, chat/next or chat/dsv4 for the llama-server models',
+  'chat/native.md': 'renamed to chat/vault (the /vault command)',
+  'agent/native.md': 'renamed to agent/vault (the bridge still reads the legacy route)',
+  'chat/fable.md': 'folded into the /vault supervisor on 2026-09-10 (see chat/vault)',
+  'chat/fable_wt.md': 'folded into the /vault supervisor on 2026-09-10 (see chat/vault)',
+  'chat/fable_dev.md': 'folded into the /vault supervisor on 2026-09-10 (see chat/vault)',
+  'chat/supervisor.md': 'folded into the /vault supervisor on 2026-09-10 (see chat/vault)',
+  'agent/vault/fable.md': 'folded into the /vault supervisor on 2026-09-10 (see agent/vault)',
+  'agent/vault/fable_wt.md': 'folded into the /vault supervisor on 2026-09-10 (see agent/vault)',
+  'agent/vault/fable_dev.md': 'folded into the /vault supervisor on 2026-09-10 (see agent/vault)',
+  'agent/vault/supervisor.md': 'folded into the /vault supervisor on 2026-09-10 (see agent/vault)',
+}
+
+// the reason an installed item's source was removed (see REMOVED_SOURCES), or null: the
+// repository is matched by name (the removal is part of its history, whatever the owner or
+// branch of the install), the path without a slash prefix (as the webhook listener reads it)
+const removed_source = attr =>
+  (attr?.repo == 'mind.items' && REMOVED_SOURCES[attr.path?.replace(/^\//, '')]) || null
+
 // checks for updates to item, returns path->hash object of updates or null
+// (or, for a removed source, the one key `removed`: the reason, see REMOVED_SOURCES)
 // similar to /_updates command defined in index.svelte in mind.page repo
 async function check_updates(item, mark_pushables = false) {
   const attr = item.attr
@@ -479,6 +517,13 @@ async function check_updates(item, mark_pushables = false) {
   if (!attr?.source) return null
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
+  // a REMOVED source: a removal (the one key `removed`, the reason, in place of path -> sha
+  // entries), decided before any token or GitHub call; the dialog and update_item take it on
+  const removed = removed_source(attr)
+  if (removed) {
+    _this.log(`${item.name} is retired: its source ${source}/${path} was removed (${removed})`)
+    return { removed }
+  }
   // FRESHNESS: the installed commits captured with the attributes, before any awaited call
   // (the token prompt included); an update or a push landing meanwhile (a manual /update, a
   // push, another tab: the on-load scan runs beside them, only update writes are serialized
@@ -695,6 +740,23 @@ async function update_item(item, updates) {
   const attr = item.attr
   const { owner, repo, branch, path } = attr
   const source = `${owner}/${repo}/${branch}`
+  // a REMOVED source (see REMOVED_SOURCES): the deletion offered in place of an update, no token
+  // or GitHub call, confirmed per item (the on-load dialog named it among the batch; /update
+  // asks here alone); Keep, or the app refusing the deletion (a shared view), is no failure
+  if (updates.removed) {
+    const confirmed = await _modal({
+      content: `Delete ${item.name}? Its source ${source}/${path} was removed: ${updates.removed}`,
+      confirm: 'Delete',
+      cancel: 'Keep',
+      background: 'cancel',
+    })
+    if (!confirmed)
+      return fail_update(`${item.name} kept (its source ${source}/${path} was removed: ${updates.removed})`)
+    if (item.delete(false /* confirmed above */) !== true)
+      return fail_update(`deletion of retired ${item.name} refused by the app`)
+    _this.log(`deleted retired ${item.name} (its source ${source}/${path} was removed: ${updates.removed})`)
+    return true
+  }
   // pre-call CAPABILITY FENCE (review 146 SS3): only the new app runtime's writer
   // reports boolean acceptance. a stale runtime performs side effects (zwsp
   // normalization, time bump, queued item/history saves) BEFORE any result could be

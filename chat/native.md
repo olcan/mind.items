@@ -1,1 +1,0 @@
-#chat/native is retired — renamed to #chat/vault (the `/vault` command; same protocol, new canonical route `#agent/vault`). This permanent tombstone keeps updates clean for accounts that still hold the item; it defines no command and no agent behavior.

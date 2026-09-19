@@ -1,1 +1,0 @@
-#chat/fable is retired — the vault's personas were folded into the single `/vault` supervisor on 2026-09-10 (see #chat/vault and #agent/vault). This permanent tombstone keeps updates clean for accounts that still hold the item; it defines no command.

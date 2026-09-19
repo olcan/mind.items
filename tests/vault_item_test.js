@@ -58,7 +58,7 @@ class FakeItem {
 // the chat items' raw texts carry a vault route (the stubbed routing predicate below reads them)
 // and open a user turn (a request): the item parses no request grammar for its marks, it checks
 // the turn opener at a line start only
-const routed_text = name => `${name} #_agent/vault/fable\n<<user>> hello`
+const routed_text = name => `${name} #_agent/vault\n<<user>> hello`
 const items = { 'chat-id': new FakeItem('#chat/topic', 0, routed_text('#chat/topic')), 'chat2-id': new FakeItem('#chat/two', 0, routed_text('#chat/two')), 'busy-id': new FakeItem('#chat/busy', 1), 'web-id': new FakeItem('#chat/web', 0, '#chat/web #_agent/openai\nhello') }
 for (const [id, item] of Object.entries(items)) item.id = id
 // the helper's own dependencies, as util/core.js defines them (kept minimal and equivalent)

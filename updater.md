@@ -1,4 +1,4 @@
-#updater auto-updates installed items.  
+#updater auto-updates installed items, and offers the deletion of an installed item whose source was removed from mind.items (see `REMOVED_SOURCES` in updater.js).  
 << command_table() >>
 
 ```js_removed:updater.js

@@ -7,7 +7,9 @@
 // writes and dialogs): every install asks (the on-load catch-up and the webhooks queue through
 // one confirm-and-write worker), the batch is the ids accepted at the decision, Skip drains
 // without memory, a check never interleaves with a batch's writes, a stale instance stamp does
-// not skip the dialog. run: node external/mind.items/tests/updater_test.js
+// not skip the dialog, and the REMOVED sources (`REMOVED_SOURCES`: an installed copy of a removed
+// path is a removal decided before any token or GitHub call, named apart in the dialog, confirmed
+// per item, deleted or kept). run: node external/mind.items/tests/updater_test.js
 const fs = require('fs')
 const path = require('path')
 const vm = require('vm')
@@ -20,7 +22,7 @@ const pick = names => names.map(name => {
   return m[0]
 })
 const consts = ['RETRY_SPACING', 'RETRY_BACKOFF_MAX', 'RETRY_TIMER_ATTEMPTS'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
-const arrows = ['is_infra_error'].map(name => src.match(new RegExp(`\\nconst ${name} = [\\s\\S]*?\\n\\n`))[0]).join('')
+const arrows = ['is_infra_error', 'REMOVED_SOURCES', 'removed_source'].map(name => src.match(new RegExp(`\\nconst ${name} = [\\s\\S]*?\\n\\n`))[0]).join('')
 // the helper and the classification alone, no browser
 const helpers = { console }
 vm.createContext(helpers)
@@ -30,6 +32,7 @@ const { _retry_on_connectivity } = helpers
 const RETRY_SPACING = vm.runInContext('RETRY_SPACING', helpers)
 const RETRY_TIMER_ATTEMPTS = vm.runInContext('RETRY_TIMER_ATTEMPTS', helpers)
 const is_infra_error = vm.runInContext('is_infra_error', helpers)
+const REASON = vm.runInContext("REMOVED_SOURCES['chat/fable.md']", helpers) // a removed source's reason
 
 let failures = 0
 const check = (name, actual, expected) => {
@@ -191,8 +194,9 @@ const retry_rows = async () => {
 
 // init_updater under stubs: the items, their checks and writes, the dialogs, the webhooks;
 // `real_check` runs the REAL check_updates (its GitHub client faked: page.github) instead of
-// the stub, for the check's own side effects (the pushable mark)
-const wiring = ({ real_check = false } = {}) => {
+// the stub, for the check's own side effects (the pushable mark); `real_update` the REAL
+// update_item (its removal branch: the confirm and the item's `delete`)
+const wiring = ({ real_check = false, real_update = false } = {}) => {
   const page = {
     logs: [],
     writes: [], // [item name, the updates written]
@@ -282,6 +286,7 @@ const wiring = ({ real_check = false } = {}) => {
   }
   vm.createContext(context)
   if (real_check) vm.runInContext(pick(['check_updates']).join('\n') + '\nasync function pace_github_call() {}', context) // the declaration replaces the stub
+  if (real_update) vm.runInContext(pick(['update_item']).join('\n'), context)
   vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
   page.init = () => vm.runInContext('init_updater()', context)
   page.push = (name, sha) => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: sha, before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: [{ id: sha, message: 'm', modified: [`${name.slice(1)}.md`] }] } }) } }] })
@@ -809,6 +814,79 @@ const wiring_rows = async () => {
     page.answer(true)
     await tick()
     check('Update: written once', page.writes, [['#todoer', { v: 2 }]])
+  }
+  {
+    // a REMOVED source (the real check_updates): an installed copy of a path listed in
+    // REMOVED_SOURCES is a removal decided before any token or GitHub call (a token prompt for it
+    // throws here, its client calls are counted), named apart in the dialog beside an update and
+    // handed to update_item as the batch's entry; the same path in another repository is checked
+    // as before
+    const page = wiring({ real_check: true })
+    const retired = page.item('#chat/fable', 'i1')
+    retired.attr.repo = 'mind.items'
+    const other = page.item('#chat/gemma', 'i2') // a listed path, another repository: behind GitHub
+    other.attr.sha = 'c1'
+    other.text = 'v1'
+    const calls = []
+    page.github = {
+      repos: {
+        listCommits: async ({ repo, path }) => (calls.push(`${repo}/${path}`), { data: [{ sha: 'c2' }] }),
+        getCommit: async ({ path }) => ({ data: { files: [{ filename: path, sha: 'h:v1' }] } }),
+      },
+    }
+    page.context.github_token = async it => {
+      if (it.attr.repo == 'mind.items') throw new Error('token asked for a removed source')
+      return 'token'
+    }
+    await page.init()
+    await tick()
+    check('the removal found without GitHub, the other repository checked, nothing warned', [page.store().pending_updates, calls, page.logs.filter(l => l[0] != 'log')], [{ i1: { removed: REASON }, i2: { 'chat/gemma.md': 'c2' } }, ['r/chat/gemma.md'], []])
+    check('the dialog names the removal apart', page.modals.map(m => m.content), ['#updater is ready to update 1 installed item: #chat/gemma, and to delete 1 retired item: #chat/fable'])
+    page.answer(true)
+    await tick()
+    check('Update: the removal handed on as the entry, the other item re-checked and written', [page.writes, calls.length], [[['#chat/fable', { removed: REASON }], ['#chat/gemma', { 'chat/gemma.md': 'c2' }]], 2])
+  }
+  {
+    // the removal's decision (the real update_item): Keep is a warning and no deletion (asked
+    // again by the next load's scan, like any pending update); Delete deletes the item without
+    // the app's own confirm (the dialog and the confirm asked) and writes nothing
+    const page = wiring({ real_check: true, real_update: true })
+    const retired = page.item('#chat/fable', 'i1')
+    retired.attr.repo = 'mind.items'
+    retired.deletions = [] // the confirm argument of each delete call
+    retired.delete = confirm => (retired.deletions.push(confirm), true)
+    page.github = null // a client call would throw
+    await page.init()
+    await tick()
+    check('a removal alone: the dialog', page.modals.map(m => m.content), ['#updater is ready to delete 1 retired item: #chat/fable'])
+    page.answer(true)
+    await tick()
+    check('Update: confirmed per item, with the reason', page.modals[1]?.content, `Delete #chat/fable? Its source o/mind.items/master/chat/fable.md was removed: ${REASON}`)
+    page.answer(false) // Keep
+    await tick()
+    check('Keep: not deleted, one warning, no error, the queue drained', [retired.deletions, page.logs.filter(l => l[0] == 'warn').map(l => l[1]), page.logs.filter(l => l[0] == 'error'), page.store().modified_ids], [[], [`#chat/fable kept (its source o/mind.items/master/chat/fable.md was removed: ${REASON})`], [], []])
+    await page.init() // the next page load's scan asks again
+    await tick()
+    page.answer(true)
+    await tick()
+    page.answer(true) // Delete
+    await tick()
+    check('Delete: deleted without the app\'s confirm, nothing written, no error, the deletion logged', [retired.deletions, page.writes, page.logs.filter(l => l[0] == 'error'), page.logs.filter(l => l[1].startsWith('deleted retired #chat/fable')).length], [[false], [], [], 1])
+  }
+  {
+    // an accepted item deleted meanwhile (another tab took its removal, or the owner deleted
+    // it): skipped with a log line, the rest of the batch written
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.item('#b', 'i2')
+    page.answers['#a'] = { v: 2 }
+    page.answers['#b'] = { v: 2 }
+    await page.init()
+    await tick()
+    delete page.items.i1
+    page.answer(true)
+    await tick()
+    check('the deleted item skipped, the other written, nothing left accepted', [page.writes.map(w => w[0]), page.logs.filter(l => l[1] == 'update of i1 skipped: the item no longer exists (deleted meanwhile)').length, page.store().accepted_updates], [['#b'], 1, {}])
   }
 }
 

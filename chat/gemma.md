@@ -1,1 +1,0 @@
-#chat/gemma is retired — its server (`tiny0.duckdns.org`) and model (`gemma2:27b`) are gone. See #chat/tiny for the local Ollama chat, or #chat/next and #chat/dsv4 for the llama-server models. This permanent tombstone keeps updates clean for accounts that still hold the item; it defines no command and no agent behavior.
