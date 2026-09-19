@@ -227,7 +227,7 @@ async function init_updater() {
         for (let item of installed_named_items()) {
           const attr = item.attr
           if (attr.owner != owner || attr.repo != repo || attr.branch != branch)
-            return // item not from modified repo/branch
+            continue // item not from modified repo/branch (a `return` here aborted the whole webhook)
           // calculate item paths, including any embeds, removing slash prefixes
           let paths = [attr.path, ...(attr.embeds?.map(e => e.path) ?? [])].map(
             path => path.replace(/^\//, '')
