@@ -317,13 +317,15 @@ function vault_runs_rows(bridge, stop, now, link, sup = {}) {
 
 // the log tails and supervisor notes under the table, one details block per run; the summary's
 // click stays in the block (a click that reaches the item opens its editor): stopped, not
-// prevented, so it still toggles the block
+// prevented, so it still toggles the block; its hand cursor is an inline style, as the app's
+// cursor rules reach only its own controls and an item's tags and checkboxes (its `_clickable`
+// hook shields a click but styles nothing); the pre body stays content, a click there edits
 function vault_runs_details(bridge, sup = {}) {
   return entries(bridge?.runs ?? {})
     .map(([id, run]) => {
       const lines = [...(run.log ?? []), ...(sup[id]?.notes ?? []).map(n => `note ${n.text}`)]
       if (!lines.length) return ''
-      return `<details data-run="${_.escape(id)}"><summary onclick="event.stopPropagation()">${_.escape(id)} log</summary><pre>${_.escape(lines.join('\n'))}</pre></details>`
+      return `<details data-run="${_.escape(id)}"><summary style="cursor:pointer" onclick="event.stopPropagation()">${_.escape(id)} log</summary><pre>${_.escape(lines.join('\n'))}</pre></details>`
     })
     .filter(Boolean)
     .join('\n')
