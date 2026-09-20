@@ -112,11 +112,12 @@ function _init_log_highlight() {
           // urls (regexp from util.js in mind.page repo)
           // note we allow < in the url because we do not expect html
           // we also disallow ; as we do not expect html-escaped/encoded entities
+          // an unencoded " is never part of a url (RFC 3986), so a url followed by a closing quote ends before the quote
           {
             begin: [
               /^|\s|\(/,
               new RegExp(
-                `(?:${shortcut_host_alts}[a-z][-a-z0-9\\+\\.]*://[^\\s)/]+/?)[^\\s):]*[^\\s):;,.]`
+                `(?:${shortcut_host_alts}[a-z][-a-z0-9\\+\\.]*://[^\\s)"/]+/?)[^\\s):"]*[^\\s):;,."]`
               ),
             ],
             beginScope: { 2: 'tag.url._highlight' },
