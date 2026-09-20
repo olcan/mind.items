@@ -292,6 +292,14 @@ check('a supervisor refusal (no owner flag) is shown with the links', vm.runInCo
 vm.runInContext("decide_worktree('chat_b2', 'rejected')", ctx)
 check('after a refusal the owner can switch the decision: a new flag, newer than the outcome, is in flight', [vm.runInContext('_this.global_store._owner.decide.chat_b2.decision', ctx), vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this.global_store._owner.decide, " + proposalLink + ")", ctx)[1][3]], ['rejected', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log rejected…'])
 check('proposals table: header and rows', vm.runInContext('vault_proposals_table()', ctx).split('\n')[0], '| item | worktree | commits |  |')
+// the review links (design mind_vault_item 10): with the vault root in the listing the worktree cell links the
+// editor's multi-diff of the proposal (the vault's VS Code extension handles the URI) and the folder; without
+// it (an older bridge) the bare name; a name outside the grammar is never linked
+check('review links with the root', vm.runInContext("vault_review_links('chat_a1', '/Users/olcan/vault')", ctx), '[chat_a1](vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&root=%2FUsers%2Folcan%2Fvault) · [dir](vscode-insiders://file/Users/olcan/vault/worktrees/chat_a1)')
+check('review links without the root, or an odd name', [vm.runInContext("vault_review_links('chat_a1', undefined)", ctx), vm.runInContext("vault_review_links('a b', '/r')", ctx)], ['chat_a1', 'a b'])
+vm.runInContext("_this._global_store._bridge.root = '/Users/olcan/vault'", ctx)
+check('the rows carry the links once the listing names the root', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][1], '[chat_a1](vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&root=%2FUsers%2Folcan%2Fvault) · [dir](vscode-insiders://file/Users/olcan/vault/worktrees/chat_a1)')
+vm.runInContext("delete _this._global_store._bridge.root", ctx)
 vm.runInContext("decide_worktree('chat_a1', 'rejected')", ctx)
 const decide = vm.runInContext('_this.global_store._owner.decide', ctx)
 check('decide_worktree writes the flag with a timestamp, keeps the other listed flags, and keeps stop', [Object.keys(decide).sort(), decide.chat_a1.decision, typeof decide.chat_a1.t, vm.runInContext('_this.global_store._owner.stop', ctx)], [['chat_a1', 'chat_b2', 'chat_c3'], 'rejected', 'number', {}])

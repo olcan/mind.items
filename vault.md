@@ -1,6 +1,7 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it.
+- a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder.
 ---
 #### Runs
 <div class="runs"></div>
@@ -184,6 +185,9 @@ function vault_reconcile_running() {
 // the item's next change that ends the request, at its deletion, or at the first tick or
 // reconciliation past its VAULT_PENDING_MS deadline, so a stopped bridge leaves no lasting mark
 const VAULT_PENDING_MS = 30000
+// the editor the review links open (the vault's own VS Code extension `auto-open-obsidian`
+// handles the URI): `vscode-insiders`, or `vscode` for the stable build
+const VAULT_EDITOR = 'vscode-insiders'
 // a chat REQUEST the app routes to the vault: the item's raw text ENDS with a user turn (the
 // last delimiter opener at a line start is the chat grammar's `\<<user>>`, ASCII spaces before
 // and inside allowed: an escaped mention inside prose or code, as in the route, command, and
@@ -415,14 +419,25 @@ function vault_render(selector, render) {
 // maps worktrees to the owner's flags, `link` renders one action)
 function vault_proposal_rows(bridge, decide, link) {
   return entries(bridge?.worktrees ?? {}).map(([name, wt]) => {
+    const worktree = vault_review_links(name, bridge?.root)
     const flag = decide?.[name]
     const outcome = wt.result ? vault_cell(wt.result) : ''
     const inFlight = !!flag && !(wt.decided >= flag.t)
     const actions = inFlight
       ? `${flag.decision}…`
       : link(name, 'accepted', 'approve') + ' · ' + link(name, 'rejected', 'reject')
-    return [vault_item_cell(wt.item), name, String(wt.commits ?? 0), [outcome, actions].filter(Boolean).join(' ')]
+    return [vault_item_cell(wt.item), worktree, String(wt.commits ?? 0), [outcome, actions].filter(Boolean).join(' ')]
   })
+}
+
+// the review links of a proposal (design mind_vault_item 10): the editor's multi-diff of the
+// worktree's changes against main, populated submodules included, and the worktree's folder;
+// the bridge lists the vault root (`root`) for the absolute paths, and a listing without it
+// (an older bridge) shows the bare name
+function vault_review_links(name, root) {
+  if (!root || !/^[A-Za-z0-9_.-]+$/.test(name)) return name
+  const review = `${VAULT_EDITOR}://olcan.auto-open-obsidian/review?worktree=${name}&root=${encodeURIComponent(root)}`
+  return `[${name}](${review}) · [dir](${VAULT_EDITOR}://file${root}/worktrees/${name})`
 }
 
 function vault_proposals_table() {
