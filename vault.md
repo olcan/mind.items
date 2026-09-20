@@ -436,19 +436,28 @@ function vault_proposal_rows(bridge, decide, link) {
   })
 }
 
-// the review links of a proposal (design mind_vault_item 10): the editor's multi-diff of the
-// worktree's changes against main, populated submodules included, and the worktree's folder,
-// both through the vault's VS Code extension so they resolve on the extension host (a Remote-SSH
-// window opens the remote vault's paths; a `file` link would look on the local machine); the
-// bridge lists the vault root (`root`) for the absolute paths, and a listing without it (an
-// older bridge) shows the bare name. HTML anchors that stop the click's propagation, not
-// markdown links: the item renders its tables itself (`marked`), so the app's link pass never
-// sees them, and a click that bubbles opens the item's editor (as the log toggle's did)
+// the review url of a worktree (design mind_vault_item 10): the editor's multi-diff of the
+// worktree's changes against main, populated submodules included (`review`), or the worktree's
+// folder (`open`), through the vault's VS Code extension so the paths resolve on the extension
+// host (a Remote-SSH window opens the remote vault's paths; a `file` link would look on the
+// local machine); `root` is the vault root the bridge's listing carries (`_bridge.root`) for the
+// absolute paths. Null without a root (an older bridge) or for a name outside the grammar
+// (never `.` or `..`). The one place for the scheme and the editor: the todoer's task rows link
+// their marker through it (reached by this item's eval), so the two views agree
+function vault_review_url(name, root, action = 'review') {
+  if (!root || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(name)) return null
+  return `${VAULT_EDITOR}://olcan.auto-open-obsidian/${action}?worktree=${name}&root=${encodeURIComponent(root)}`
+}
+
+// the review links of a proposal: the multi-diff under the name and the folder under `dir`, or
+// the bare name when there is no url (no root, a name outside the grammar). HTML anchors that
+// stop the click's propagation, not markdown links: the item renders its tables itself
+// (`marked`), so the app's link pass never sees them, and a click that bubbles opens the item's
+// editor (as the log toggle's did)
 function vault_review_links(name, root) {
-  if (!root || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(name)) return name // never `.` or `..`
-  const query = `worktree=${name}&root=${encodeURIComponent(root)}`
+  if (!vault_review_url(name, root)) return name
   const link = (action, text) =>
-    `<a href="${_.escape(`${VAULT_EDITOR}://olcan.auto-open-obsidian/${action}?${query}`)}" onclick="event.stopPropagation()">${text}</a>`
+    `<a href="${_.escape(vault_review_url(name, root, action))}" onclick="event.stopPropagation()">${text}</a>`
   return `${link('review', name)} · ${link('open', 'dir')}`
 }
 

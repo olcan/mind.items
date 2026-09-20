@@ -120,6 +120,7 @@ function __render(widget, widget_item) {
 
   // insert all todo items into list
   let have_unsnoozed = false
+  let review_url // the #vault item's review-url builder, resolved at the first task row that needs it
   for (const item of _items()) {
     if (
       !tags.every(tag => {
@@ -202,12 +203,22 @@ function __render(widget, widget_item) {
     container.title = visible(text) // original whitespace for title
     const shown = visible(text).replace(/\s+/g, ' ')
 
+    // the row's html: the escaped snippet through the tag, markdown-link and url passes, then a
+    // task's marker linked to its worktree's review (design 2.4: presentation only, the text
+    // keeps its one bracketed word; the #vault item's builder, resolved once per render)
+    let html = _link_urls(link_markdown_links(mark_tags(_.escape(shown))))
+    const marker = state?.worktree ? _marker_of(text) : null
+    if (marker) {
+      if (review_url === undefined) review_url = _review_url_builder()
+      const url = review_url?.(state.worktree)
+      if (url) html = _link_marker(html, marker, url, `${state.worktree} · its changes against main in VS Code`)
+    }
+
     // determine suffix vs prefix snippet based on #todo suffix match
     if (!text.match(/(?:^|\s|\()#todo$/)) {
       if (!text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
       if (text.endsWith(' …')) container.setAttribute('data-truncated', true) // used for done/cancel
-      const html = _.escape(shown)
-      div.innerHTML = _link_urls(link_markdown_links(mark_tags(html)))
+      div.innerHTML = html
     } else {
       if (text.startsWith('… ')) container.setAttribute('data-truncated', true) // used for done/cancel
       // use direction=rtl to truncate (and add ellipsis) on the left
@@ -222,10 +233,9 @@ function __render(widget, widget_item) {
       if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
         div.style.textOverflow = 'clip'
 
-      const html = _.escape(shown)
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
-      div.innerHTML = '&lrm;' + _link_urls(link_markdown_links(mark_tags(html)))
+      div.innerHTML = '&lrm;' + html
     }
 
     if (snoozed)
@@ -1080,6 +1090,52 @@ function _set_marker(text, word) {
   const m = before.match(/\[[a-z]+\] $/)
   const head = m ? before.substring(0, before.length - m[0].length) : before
   return text.substring(0, line_start) + head + (marker ? marker + ' ' : '') + text.substring(todo_offset)
+}
+
+// the marker a snippet carries where the writer places it (design 2.4): `#todo [word]` at the
+// start of a suffix snippet, `[word] #todo` at the end of a prefix one; {word, suffix}, or null
+// when the todo line carries none (the owner removed it; a bracketed word elsewhere is theirs)
+function _marker_of(snippet) {
+  const suffix = snippet.match(/^#todo \[([a-z]+)\]/)
+  if (suffix) return { word: suffix[1], suffix: true }
+  const prefix = snippet.match(/\[([a-z]+)\] #todo$/)
+  return prefix ? { word: prefix[1], suffix: false } : null
+}
+
+// the marker word linked to `url` over the row's html (escaped, its passes applied): the anchor
+// wraps the word, the brackets stay text, and the slot is found on the tag's own
+// <mark>#todo</mark> (the writer's position: a bracketed word elsewhere is never linked, and
+// owner text cannot spoof the mark); the row's anchor pass adds the target and the click stop.
+// The html comes back unchanged when the slot is not there (the markdown pass consumed it)
+function _link_marker(html, marker, url, title) {
+  const tag = '<mark>#todo</mark>'
+  const anchor = `[<a href="${_.escape(url)}" title="${_.escape(title)}">${marker.word}</a>]`
+  if (marker.suffix) {
+    const head = `${tag} [${marker.word}]`
+    return html.startsWith(head) ? `${tag} ${anchor}${html.substring(head.length)}` : html
+  }
+  const tail = `[${marker.word}] ${tag}`
+  return html.endsWith(tail) ? html.substring(0, html.length - tail.length) + `${anchor} ${tag}` : html
+}
+
+// the review-url builder for a task's worktree (name => url, or null), from the #vault item
+// (design mind_vault_item 10): its `vault_review_url`, reached through the app's eval in that
+// item's own scope (an item's functions are in scope for its dependents only, and #vault is
+// nobody's dependency), over the vault root its listing carries (`_bridge.root`), for the
+// worktrees the listing names (the undecided ones that exist: the projection keeps a retired
+// worktree's name, so the listing decides, as it does for #vault's own links). Null without the
+// item, its builder, or a root: the marker stays plain text
+function _review_url_builder() {
+  try {
+    const vault = _item('#vault', { silent: true })
+    const bridge = vault?._global_store?._bridge
+    if (!bridge?.root) return null
+    const build = vault.eval("typeof vault_review_url == 'function' ? vault_review_url : null")
+    if (typeof build != 'function') return null
+    return name => (bridge.worktrees?.[name] ? build(name, bridge.root) || null : null)
+  } catch (e) {
+    return null // a #vault that cannot evaluate (a missing dependency): no link
+  }
 }
 
 // re-render every todoer widget (the overlay changed)
