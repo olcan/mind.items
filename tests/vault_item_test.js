@@ -296,7 +296,8 @@ check('proposals table: header and rows', vm.runInContext('vault_proposals_table
 // editor's multi-diff of the proposal (the vault's VS Code extension handles the URI) and the folder; without
 // it (an older bridge) the bare name; a name outside the grammar is never linked
 check('review links with the root', vm.runInContext("vault_review_links('chat_a1', '/Users/olcan/vault')", ctx), '[chat_a1](vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&root=%2FUsers%2Folcan%2Fvault) · [dir](vscode-insiders://file/Users/olcan/vault/worktrees/chat_a1)')
-check('review links without the root, or an odd name', [vm.runInContext("vault_review_links('chat_a1', undefined)", ctx), vm.runInContext("vault_review_links('a b', '/r')", ctx)], ['chat_a1', 'a b'])
+check('review links without the root, or an odd name (a space, a dot name)', [vm.runInContext("vault_review_links('chat_a1', undefined)", ctx), vm.runInContext("vault_review_links('a b', '/r')", ctx), vm.runInContext("vault_review_links('..', '/r')", ctx)], ['chat_a1', 'a b', '..'])
+check('the folder link encodes a root with a space or a hash', vm.runInContext("vault_review_links('chat_a1', '/Users/o c/v#1')", ctx), '[chat_a1](vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&root=%2FUsers%2Fo%20c%2Fv%231) · [dir](vscode-insiders://file/Users/o%20c/v%231/worktrees/chat_a1)')
 vm.runInContext("_this._global_store._bridge.root = '/Users/olcan/vault'", ctx)
 check('the rows carry the links once the listing names the root', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][1], '[chat_a1](vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&root=%2FUsers%2Folcan%2Fvault) · [dir](vscode-insiders://file/Users/olcan/vault/worktrees/chat_a1)')
 vm.runInContext("delete _this._global_store._bridge.root", ctx)

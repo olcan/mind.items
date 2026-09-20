@@ -435,9 +435,10 @@ function vault_proposal_rows(bridge, decide, link) {
 // the bridge lists the vault root (`root`) for the absolute paths, and a listing without it
 // (an older bridge) shows the bare name
 function vault_review_links(name, root) {
-  if (!root || !/^[A-Za-z0-9_.-]+$/.test(name)) return name
+  if (!root || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(name)) return name // never `.` or `..`
   const review = `${VAULT_EDITOR}://olcan.auto-open-obsidian/review?worktree=${name}&root=${encodeURIComponent(root)}`
-  return `[${name}](${review}) · [dir](${VAULT_EDITOR}://file${root}/worktrees/${name})`
+  const folder = root.split('/').map(encodeURIComponent).join('/') // `#` and spaces encoded
+  return `[${name}](${review}) · [dir](${VAULT_EDITOR}://file${folder}/worktrees/${name})`
 }
 
 function vault_proposals_table() {
