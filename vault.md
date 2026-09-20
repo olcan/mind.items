@@ -1,6 +1,6 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
-- **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it.
+- **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included).
 ---
 #### Runs
@@ -22,7 +22,9 @@ dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column tic
 // written by the operator or a supervisor run ({runs: {run_id: {status, progress, notes}}}),
 // and _owner, written here ({stop: {run_id: ms}, decide: {worktree: {decision, t}}}); the
 // bridge's listing also carries the undecided chat worktrees, the proposals ({worktrees: {name:
-// {item, generation, commits, result}}}); see notes/design/mind_vault_item.md
+// {item, generation, commits, result, decided, task, admits}}}: task is a delegated todo's
+// state ({held, reason}) or null for a chat's worktree, admits maps each decision to null (the
+// bridge takes it now) or why not); see notes/design/mind_vault_item.md
 const vault_runs = () => _this._global_store._bridge?.runs ?? {}
 // the requests admitted to an execution lane and waiting for their run ({item_id: {persona, since}})
 const vault_queued = () => _this._global_store._bridge?.queued ?? {}
@@ -411,22 +413,26 @@ function vault_render(selector, render) {
   }
 }
 
-// the proposals: the undecided chat worktrees the bridge lists (a writable run's changes, staged
-// in the chat's worktree; nothing reaches main until decided), each with the bridge's last outcome
-// for it (a refusal, or the supervisor's) and approve/reject links, or the decision in flight
-// (the owner's flag newer than the outcome the bridge answered: the links return once the bridge
-// has answered, so a refused decision can be retried or switched) (side-effect-free; `decide`
-// maps worktrees to the owner's flags, `link` renders one action)
+// the proposals: the undecided chat worktrees the bridge lists (a writable run's changes,
+// committed in the chat's worktree; nothing reaches main until decided), each with its state (a
+// delegated todo's marker word, `chat` for a chat's), the bridge's last outcome for it (a
+// refusal, or the supervisor's) and the approve/reject links the bridge ADMITS now (a todo's
+// worktree takes a decision only while the todo is owner-held; the bridge publishes its rule's
+// answer per decision, `admits`, and enforces it, so no rule lives here; a row it admits nothing
+// on shows why instead), or the decision in flight (the owner's flag newer than the outcome the
+// bridge answered: the links return once the bridge has answered, so a refused decision can be
+// retried or switched) (side-effect-free; `decide` maps worktrees to the owner's flags, `link`
+// renders one action)
 function vault_proposal_rows(bridge, decide, link) {
   return entries(bridge?.worktrees ?? {}).map(([name, wt]) => {
     const worktree = vault_review_links(name, bridge?.root)
     const flag = decide?.[name]
     const outcome = wt.result ? vault_cell(wt.result) : ''
     const inFlight = !!flag && !(wt.decided >= flag.t)
-    const actions = inFlight
-      ? `${flag.decision}…`
-      : link(name, 'accepted', 'approve') + ' · ' + link(name, 'rejected', 'reject')
-    return [vault_item_cell(wt.item), worktree, String(wt.commits ?? 0), [outcome, actions].filter(Boolean).join(' ')]
+    const admits = wt.admits ?? {} // an older bridge admits both
+    const links = [['accepted', 'approve'], ['rejected', 'reject']].filter(([d]) => admits[d] == null).map(([d, text]) => link(name, d, text))
+    const actions = inFlight ? `${flag.decision}…` : links.length ? links.join(' · ') : vault_cell(admits.accepted ?? admits.rejected)
+    return [vault_item_cell(wt.item), worktree, String(wt.commits ?? 0), wt.task?.reason ?? 'chat', [outcome, actions].filter(Boolean).join(' ')]
   })
 }
 
@@ -454,7 +460,7 @@ function vault_proposals_table() {
     link_eval(_this, `decide_worktree('${name}', '${decision}')`, text)
   )
   if (!rows.length) return '_none_'
-  return table(rows, { headers: ['item', 'worktree', 'commits', ''] })
+  return table(rows, { headers: ['item', 'worktree', 'commits', 'state', ''] })
 }
 
 // the owner's decision on a proposal: the flag lives in this item's store, which the bridge

@@ -282,16 +282,36 @@ runs_div.replaced = null
 vm.runInContext("_this._global_store = {_bridge: {runs: {}, worktrees: {chat_a1: {item: 'chat-id', generation: 1, commits: 2, result: null, decided: 0}, chat_b2: {item: 'other-id', generation: 2, commits: 0, result: 'refused: test.sh failed (exit 3) | see log', decided: " + now + "}, chat_c3: {item: 'other-id', generation: 1, commits: 1, result: 'refused: chat_c3 has a running run; decide again when it ends', decided: " + (now - 5) + "}}}, _owner: {stop: {}, decide: {chat_b2: {decision: 'accepted', t: " + now + "}, chat_c3: {decision: 'accepted', t: " + now + "}}}}; _this.global_store = _this._global_store", ctx)
 const proposalLink = "(n, d, t) => `[${t}](${d}:${n})`"
 const prows = vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, " + proposalLink + ")", ctx)
-check('proposal rows: the item cell, the worktree, its commits, the links; a completed refusal shows the outcome WITH the links (retry or switch); a decision the bridge has not answered yet is in flight', prows, [
-  [mark('#chat/topic'), 'chat_a1', '2', '[approve](accepted:chat_a1) · [reject](rejected:chat_a1)'],
-  ['other-id', 'chat_b2', '0', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log [approve](accepted:chat_b2) · [reject](rejected:chat_b2)'],
-  ['other-id', 'chat_c3', '1', 'refused\\: chat\\_c3 has a running run\\; decide again when it ends accepted…'],
+check('proposal rows: the item cell, the worktree, its commits, the state (a chat\'s), the links; a completed refusal shows the outcome WITH the links (retry or switch); a decision the bridge has not answered yet is in flight', prows, [
+  [mark('#chat/topic'), 'chat_a1', '2', 'chat', '[approve](accepted:chat_a1) · [reject](rejected:chat_a1)'],
+  ['other-id', 'chat_b2', '0', 'chat', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log [approve](accepted:chat_b2) · [reject](rejected:chat_b2)'],
+  ['other-id', 'chat_c3', '1', 'chat', 'refused\\: chat\\_c3 has a running run\\; decide again when it ends accepted…'],
 ])
 vm.runInContext("_this._global_store._bridge.worktrees.chat_a1.result = 'refused: chat_a1 is already decided'", ctx)
-check('a supervisor refusal (no owner flag) is shown with the links', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][3], 'refused\\: chat\\_a1 is already decided [approve](accepted:chat_a1) · [reject](rejected:chat_a1)')
+check('a supervisor refusal (no owner flag) is shown with the links', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][4], 'refused\\: chat\\_a1 is already decided [approve](accepted:chat_a1) · [reject](rejected:chat_a1)')
 vm.runInContext("decide_worktree('chat_b2', 'rejected')", ctx)
-check('after a refusal the owner can switch the decision: a new flag, newer than the outcome, is in flight', [vm.runInContext('_this.global_store._owner.decide.chat_b2.decision', ctx), vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this.global_store._owner.decide, " + proposalLink + ")", ctx)[1][3]], ['rejected', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log rejected…'])
-check('proposals table: header and rows', vm.runInContext('vault_proposals_table()', ctx).split('\n')[0], '| item | worktree | commits |  |')
+check('after a refusal the owner can switch the decision: a new flag, newer than the outcome, is in flight', [vm.runInContext('_this.global_store._owner.decide.chat_b2.decision', ctx), vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this.global_store._owner.decide, " + proposalLink + ")", ctx)[1][4]], ['rejected', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log rejected…'])
+// task worktrees (design mind_vault_item 15): the state column is the task's marker word, the
+// links are the decisions the bridge admits (its rule, published per decision: no rule here), a
+// row admitting nothing shows why (beside the outcome of a flag it refused; an unreadable
+// record likewise), and a flag still unanswered is in flight whatever the row admits
+const why = w => `agent-held (${w}); decide after it hands back`
+vm.runInContext("Object.assign(_this._global_store._bridge.worktrees, {" +
+  "chat_t1: {item: 'chat-id', generation: 1, commits: 3, result: 'refused: " + why('working') + "', decided: " + now + ", task: {held: 'agent', reason: 'working'}, admits: {accepted: '" + why('working') + "', rejected: '" + why('working') + "'}}, " +
+  "chat_t2: {item: 'other-id', generation: 2, commits: 1, result: null, decided: 0, task: {held: 'owner', reason: 'taken'}, admits: {accepted: 'no standing proposal (taken); delegate for one', rejected: null}}, " +
+  "chat_t3: {item: 'other-id', generation: 1, commits: 1, result: null, decided: 0, task: {held: 'owner', reason: 'proposal'}, admits: {accepted: null, rejected: null}}, " +
+  "chat_t4: {item: 'other-id', generation: 1, commits: 1, result: null, decided: 0, task: {held: null, reason: 'unreadable'}, admits: {accepted: 'task record unreadable; see the bridge log', rejected: 'task record unreadable; see the bridge log'}}, " +
+  "chat_t5: {item: 'other-id', generation: 1, commits: 1, result: null, decided: 0, task: {held: 'agent', reason: 'checkin'}, admits: {accepted: '" + why('checkin') + "', rejected: '" + why('checkin') + "'}}}); " +
+  "_this._global_store._owner.decide.chat_t1 = {decision: 'rejected', t: " + now + "}; _this._global_store._owner.decide.chat_t5 = {decision: 'rejected', t: " + now + "}", ctx)
+check('task rows: the state column, the admitted links only, the why in place of none (with a refused flag\'s outcome), an unreadable record, a flag in flight', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, " + proposalLink + ").slice(3)", ctx), [
+  [mark('#chat/topic'), 'chat_t1', '3', 'working', 'refused\\: agent\\-held \\(working\\)\\; decide after it hands back agent\\-held \\(working\\)\\; decide after it hands back'],
+  ['other-id', 'chat_t2', '1', 'taken', '[reject](rejected:chat_t2)'],
+  ['other-id', 'chat_t3', '1', 'proposal', '[approve](accepted:chat_t3) · [reject](rejected:chat_t3)'],
+  ['other-id', 'chat_t4', '1', 'unreadable', 'task record unreadable\\; see the bridge log'],
+  ['other-id', 'chat_t5', '1', 'checkin', 'rejected…'],
+])
+vm.runInContext("for (const name of ['chat_t1', 'chat_t2', 'chat_t3', 'chat_t4', 'chat_t5']) delete _this._global_store._bridge.worktrees[name]; delete _this._global_store._owner.decide.chat_t1; delete _this._global_store._owner.decide.chat_t5", ctx)
+check('proposals table: header and rows', vm.runInContext('vault_proposals_table()', ctx).split('\n')[0], '| item | worktree | commits | state |  |')
 // the review links (design mind_vault_item 10): with the vault root in the listing the worktree cell links the
 // editor's multi-diff of the proposal (the vault's VS Code extension handles the URI) and the folder; without
 // it (an older bridge) the bare name; a name outside the grammar is never linked
