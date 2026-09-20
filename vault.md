@@ -435,12 +435,15 @@ function vault_proposal_rows(bridge, decide, link) {
 // both through the vault's VS Code extension so they resolve on the extension host (a Remote-SSH
 // window opens the remote vault's paths; a `file` link would look on the local machine); the
 // bridge lists the vault root (`root`) for the absolute paths, and a listing without it (an
-// older bridge) shows the bare name
+// older bridge) shows the bare name. HTML anchors that stop the click's propagation, not
+// markdown links: the item renders its tables itself (`marked`), so the app's link pass never
+// sees them, and a click that bubbles opens the item's editor (as the log toggle's did)
 function vault_review_links(name, root) {
   if (!root || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(name)) return name // never `.` or `..`
   const query = `worktree=${name}&root=${encodeURIComponent(root)}`
-  const link = action => `${VAULT_EDITOR}://olcan.auto-open-obsidian/${action}?${query}`
-  return `[${name}](${link('review')}) · [dir](${link('open')})`
+  const link = (action, text) =>
+    `<a href="${_.escape(`${VAULT_EDITOR}://olcan.auto-open-obsidian/${action}?${query}`)}" onclick="event.stopPropagation()">${text}</a>`
+  return `${link('review', name)} · ${link('open', 'dir')}`
 }
 
 function vault_proposals_table() {
