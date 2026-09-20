@@ -1,7 +1,7 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it.
-- a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder.
+- a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included).
 ---
 #### Runs
 <div class="runs"></div>
@@ -431,14 +431,16 @@ function vault_proposal_rows(bridge, decide, link) {
 }
 
 // the review links of a proposal (design mind_vault_item 10): the editor's multi-diff of the
-// worktree's changes against main, populated submodules included, and the worktree's folder;
-// the bridge lists the vault root (`root`) for the absolute paths, and a listing without it
-// (an older bridge) shows the bare name
+// worktree's changes against main, populated submodules included, and the worktree's folder,
+// both through the vault's VS Code extension so they resolve on the extension host (a Remote-SSH
+// window opens the remote vault's paths; a `file` link would look on the local machine); the
+// bridge lists the vault root (`root`) for the absolute paths, and a listing without it (an
+// older bridge) shows the bare name
 function vault_review_links(name, root) {
   if (!root || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(name)) return name // never `.` or `..`
-  const review = `${VAULT_EDITOR}://olcan.auto-open-obsidian/review?worktree=${name}&root=${encodeURIComponent(root)}`
-  const folder = root.split('/').map(encodeURIComponent).join('/') // `#` and spaces encoded
-  return `[${name}](${review}) · [dir](${VAULT_EDITOR}://file${folder}/worktrees/${name})`
+  const query = `worktree=${name}&root=${encodeURIComponent(root)}`
+  const link = action => `${VAULT_EDITOR}://olcan.auto-open-obsidian/${action}?${query}`
+  return `[${name}](${link('review')}) · [dir](${link('open')})`
 }
 
 function vault_proposals_table() {
