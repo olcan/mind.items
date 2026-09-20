@@ -18,7 +18,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', '_url_char'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 const context = {
   console,
@@ -48,6 +48,7 @@ vm.runInContext(
     '_todo_offset',
     '_set_marker',
     '_without_log',
+    '_link_urls',
     '_extract_todo_snippet',
     '_todo_line',
     '_merged_order',
@@ -70,7 +71,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save } = context
+const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -151,6 +152,29 @@ check('snippet: drops the _log block before a prefix tag', _extract_todo_snippet
 check('snippet: drops an empty _log block', _extract_todo_snippet(item('#todo hello\n```_log\n```\n')), '#todo hello\n')
 check('snippet: the mode is decided with the log in place', _extract_todo_snippet(item(_set_marker('Fix the cache\n[question] #todo\n\n```_log\nINFO: 1 handed back: question\n```\nTry the returning device too\n#_agent/vault\n', 'delegated'))), 'Fix the cache\n[delegated] #todo')
 check('snippet: multiline stays suffix', _extract_todo_snippet(item('Context\n#todo\nFix the cache\n')), '#todo\nFix the cache\n')
+
+// the row's url linkifier over the ESCAPED html the row renders (2026-09-20): a closing quote
+// arrives as `&quot;`, whose letters and `;` pass the url classes, so the whole entity used to
+// ride into the link; a real `&` in a query string (`&amp;`) must still stay inside the url.
+// `_replace_tags` here replaces over the raw text with the app's tag delimiter appended, as the
+// real helper does (it also skips code blocks and html, which these rows do not exercise)
+{
+  const prev = context._replace_tags
+  const delimiter = /(?=[\s<>&?!,.;:"'`(){}\[\]]|$)/.source // tagRegexDelimiter in util.js
+  context._replace_tags = (text, pattern, fn) => text.replace(new RegExp(pattern.source + delimiter, 'g'), fn)
+  const link = text => _link_urls(text)
+  check(
+    'row: an escaped closing quote is not part of the url',
+    link('#todo Rafal Wilinski on X: &quot;Jev is now in charge of this account&#39;s humor https://t.co/ojSOHeMFT2&quot; / X'),
+    '#todo Rafal Wilinski on X: &quot;Jev is now in charge of this account&#39;s humor <a>https://t.co/ojSOHeMFT2</a>&quot; / X'
+  )
+  check('row: an escaped angle bracket ends the url', link('see https://example.com/a&lt;b end'), 'see <a>https://example.com/a</a>&lt;b end')
+  check('row: an escaped ampersand stays inside the url', link('see https://example.com/q?a=1&amp;b=2 end'), 'see <a>https://example.com/q?a=1&amp;b=2</a> end')
+  check('row: a trailing entity is kept whole', link('see https://example.com/a&amp;'), 'see <a>https://example.com/a&amp;</a>')
+  check('row: an escaped apostrophe stays inside the url', link("see https://example.com/o&#39;brien end"), "see <a>https://example.com/o&#39;brien</a> end")
+  check('row: trailing punctuation stays out of the url', link('see https://example.com/a, end'), 'see <a>https://example.com/a</a>, end')
+  context._replace_tags = prev
+}
 
 // the row click's selection: the todo line, raw bytes in the item, where the snippet (a display
 // slice with the _log block dropped) need not be (the "could not find text" console error on a

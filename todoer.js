@@ -37,6 +37,28 @@ function todoer_widget(options = {}) {
   )
 }
 
+// one character of a url in html-escaped text (escapedUrlChar in util.js in mind.page repo):
+// an `&` matches only as a COMPLETE entity, so `&amp;` (a real `&` in a query string) and the
+// apostrophe forms stay INSIDE the url while every other entity (`&quot;`, `&lt;`, `&gt;`) ends it
+const _url_char = c => `(?:&(?:amp|apos|#0*39|#[xX]0*27);|(?!&)${c})`
+
+// helper function to linkify urls (regex from util.js in mind.page repo)
+// we use _replace_tags to exclude code blocks, html tags, etc
+// we apply after link_markdown_links so they are excluded (as html tags)
+// the row text is html-escaped, so this is the escaped-html rule (see _url_char above): the
+// closing quote of a quoted title arrives as `&quot;` and used to ride into the link whole
+function _link_urls(text) {
+  return _replace_tags(
+    text,
+    new RegExp(
+      `(^|\\s|\\()([a-z](?:[-a-z0-9\\+\\.])*://${_url_char('[^\\s)<"/]')}+/?` +
+        `${_url_char('[^\\s)<:"]')}*${_url_char('[^\\s)<:,."]')})`,
+      'g'
+    ),
+    (m, pfx, url) => `${pfx}<a>${url}</a>`
+  )
+}
+
 // internal helper for _render_todoer_widget, assumes Sortable loaded
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
@@ -166,16 +188,6 @@ function __render(widget, widget_item) {
         '$1<mark>$2</mark>'
       )
 
-    // helper function to linkify urls (regex from util.js in mind.page repo)
-    // we use _replace_tags to exclude code blocks, html tags, etc
-    // we apply after link_markdown_links so they are excluded (as html tags)
-    const link_urls = text =>
-      _replace_tags(
-        text,
-        /(^|\s|\()([a-z](?:[-a-z0-9\+\.])*:\/\/[^\s)<"/]+\/?[^\s)<:"]*[^\s)<:,."])/g,
-        (m, pfx, url) => `${pfx}<a>${url}</a>`
-      )
-
     // helper function to linkify markdown links
     const link_markdown_links = text =>
       text.replace(
@@ -195,7 +207,7 @@ function __render(widget, widget_item) {
       if (!text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
       if (text.endsWith(' …')) container.setAttribute('data-truncated', true) // used for done/cancel
       const html = _.escape(shown)
-      div.innerHTML = link_urls(link_markdown_links(mark_tags(html)))
+      div.innerHTML = _link_urls(link_markdown_links(mark_tags(html)))
     } else {
       if (text.startsWith('… ')) container.setAttribute('data-truncated', true) // used for done/cancel
       // use direction=rtl to truncate (and add ellipsis) on the left
@@ -213,7 +225,7 @@ function __render(widget, widget_item) {
       const html = _.escape(shown)
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
-      div.innerHTML = '&lrm;' + link_urls(link_markdown_links(mark_tags(html)))
+      div.innerHTML = '&lrm;' + _link_urls(link_markdown_links(mark_tags(html)))
     }
 
     if (snoozed)
