@@ -184,7 +184,7 @@ delete context._item
 const title = 'chat_a1 · its changes against main in VS Code'
 const anchor = word => `[<a href="${review.replace('&', '&amp;')}" title="${title}">${word}</a>]`
 check('link: suffix, the anchor wraps the word on the tag\'s mark; brackets, the rest of the row, and a bracketed word in the text kept', _link_marker('<mark>#todo</mark> [proposal] fix the <a>https://x.y/z</a> [x] cache', { word: 'proposal', suffix: true }, review, title), `<mark>#todo</mark> ${anchor('proposal')} fix the <a>https://x.y/z</a> [x] cache`)
-check('link: prefix, at the end of the row', _link_marker('&lrm;fix the [x] cache [question] <mark>#todo</mark>', { word: 'question', suffix: false }, review, title), `&lrm;fix the [x] cache ${anchor('question')} <mark>#todo</mark>`)
+check('link: prefix, the anchor replaces the marker at the row\'s end and the rest is kept verbatim (the leading &lrm; is just such text here: the widget prepends its own after this pass)', _link_marker('&lrm;fix the [x] cache [question] <mark>#todo</mark>', { word: 'question', suffix: false }, review, title), `&lrm;fix the [x] cache ${anchor('question')} <mark>#todo</mark>`)
 check('link: a marker-only row (the collapsed newline after it kept)', _link_marker('<mark>#todo</mark> [done] ', { word: 'done', suffix: true }, review, title), `<mark>#todo</mark> ${anchor('done')} `)
 check('link: the slot is on the mark, which owner text cannot produce (escaped), nor a marker the markdown pass consumed', [
   _link_marker('&lt;mark&gt;#todo&lt;/mark&gt; [proposal] fix', { word: 'proposal', suffix: true }, review, title),
