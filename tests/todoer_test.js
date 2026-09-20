@@ -171,7 +171,8 @@ check('snippet: multiline stays suffix', _extract_todo_snippet(item('Context\n#t
   check('row: an escaped angle bracket ends the url', link('see https://example.com/a&lt;b end'), 'see <a>https://example.com/a</a>&lt;b end')
   check('row: an escaped ampersand stays inside the url', link('see https://example.com/q?a=1&amp;b=2 end'), 'see <a>https://example.com/q?a=1&amp;b=2</a> end')
   check('row: a trailing entity is kept whole', link('see https://example.com/a&amp;'), 'see <a>https://example.com/a&amp;</a>')
-  check('row: an escaped apostrophe stays inside the url', link("see https://example.com/o&#39;brien end"), "see <a>https://example.com/o&#39;brien</a> end")
+  check('row: an escaped apostrophe ends the url', link('on X: &#39;humor https://t.co/x&#39; / X'), 'on X: &#39;humor <a>https://t.co/x</a>&#39; / X')
+  check('row: a numeric escaped quote ends the url', link('see https://example.com/a&#34;b end'), 'see <a>https://example.com/a</a>&#34;b end')
   check('row: trailing punctuation stays out of the url', link('see https://example.com/a, end'), 'see <a>https://example.com/a</a>, end')
   context._replace_tags = prev
 }

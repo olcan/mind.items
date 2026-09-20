@@ -38,9 +38,9 @@ function todoer_widget(options = {}) {
 }
 
 // one character of a url in html-escaped text (escapedUrlChar in util.js in mind.page repo):
-// an `&` matches only as a COMPLETE entity, so `&amp;` (a real `&` in a query string) and the
-// apostrophe forms stay INSIDE the url while every other entity (`&quot;`, `&lt;`, `&gt;`) ends it
-const _url_char = c => `(?:&(?:amp|apos|#0*39|#[xX]0*27);|(?!&)${c})`
+// an `&` is a url character only in `&amp;` (a real `&` in a query string), while every other
+// entity (`&quot;`, `&#34;`, `&lt;`, `&gt;`, `&#39;`) ends the url instead of riding into it
+const _url_char = c => `(?:&amp;|(?!&)${c})`
 
 // helper function to linkify urls (regex from util.js in mind.page repo)
 // we use _replace_tags to exclude code blocks, html tags, etc
