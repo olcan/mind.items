@@ -148,7 +148,9 @@ check('the delegated view: an existing route tag is kept single', _delegated_vie
 // the marker's link (design 2.4, the presentation): a task row's marker word links its
 // worktree's review in VS Code through the #vault item's builder (the real vault_review_url,
 // evaluated in a stub of that item's scope as the app's eval would), over the row's html, only
-// where the writer places the marker; the item text is never touched
+// where the writer places the marker; the item text is never touched. The anchor is plain, as
+// #vault's own review link is (no target: a new tab for the vscode: url stays behind empty), and
+// carries `data-marker`, which the row's anchor pass keys on to leave it alone (DOM, untested)
 const vault_src = fs.readFileSync(path.join(__dirname, '..', 'vault.md'), 'utf8')
 const vault_ctx = vm.createContext({ _: context._ })
 vm.runInContext(vault_src.match(/\nconst VAULT_EDITOR = [^\n]*\n/)[0] + vault_src.match(/\nfunction vault_review_url\([^\n]*\) \{[\s\S]*?\n\}\n/)[0], vault_ctx)
@@ -182,7 +184,7 @@ context._item = () => vault_item(listing, () => { throw new Error('eval missing 
 check('builder: a #vault that cannot evaluate', _review_url_builder(), null)
 delete context._item
 const title = 'chat_a1 · its changes against main in VS Code'
-const anchor = word => `[<a href="${review.replace('&', '&amp;')}" title="${title}">${word}</a>]`
+const anchor = word => `[<a href="${review.replace('&', '&amp;')}" title="${title}" data-marker>${word}</a>]`
 check('link: suffix, the anchor wraps the word on the tag\'s mark; brackets, the rest of the row, and a bracketed word in the text kept', _link_marker('<mark>#todo</mark> [proposal] fix the <a>https://x.y/z</a> [x] cache', { word: 'proposal', suffix: true }, review, title), `<mark>#todo</mark> ${anchor('proposal')} fix the <a>https://x.y/z</a> [x] cache`)
 check('link: prefix, the anchor replaces the marker at the row\'s end and the rest is kept verbatim (the leading &lrm; is just such text here: the widget prepends its own after this pass)', _link_marker('&lrm;fix the [x] cache [question] <mark>#todo</mark>', { word: 'question', suffix: false }, review, title), `&lrm;fix the [x] cache ${anchor('question')} <mark>#todo</mark>`)
 check('link: a marker-only row (the collapsed newline after it kept)', _link_marker('<mark>#todo</mark> [done] ', { word: 'done', suffix: true }, review, title), `<mark>#todo</mark> ${anchor('done')} `)
@@ -191,7 +193,9 @@ check('link: the slot is on the mark, which owner text cannot produce (escaped),
   _link_marker('fix [question] &lt;mark&gt;#todo&lt;/mark&gt;', { word: 'question', suffix: false }, review, title),
   _link_marker('<mark>#todo</mark> <a href="y">x</a> fix', { word: 'x', suffix: true }, review, title),
 ], ['&lt;mark&gt;#todo&lt;/mark&gt; [proposal] fix', 'fix [question] &lt;mark&gt;#todo&lt;/mark&gt;', '<mark>#todo</mark> <a href="y">x</a> fix'])
-check('link: the url and the title are attribute-escaped', _link_marker('<mark>#todo</mark> [done]', { word: 'done', suffix: true }, 'x://a?b=1&c="2"', 'w · <t>'), '<mark>#todo</mark> [<a href="x://a?b=1&amp;c=&quot;2&quot;" title="w · &lt;t&gt;">done</a>]')
+check('link: the url and the title are attribute-escaped', _link_marker('<mark>#todo</mark> [done]', { word: 'done', suffix: true }, 'x://a?b=1&c="2"', 'w · <t>'), '<mark>#todo</mark> [<a href="x://a?b=1&amp;c=&quot;2&quot;" title="w · &lt;t&gt;" data-marker>done</a>]')
+const linked = _link_marker('<mark>#todo</mark> [proposal] fix', { word: 'proposal', suffix: true }, review, title)
+check('link: a plain anchor, as #vault\'s review link is: no target (a new tab for the vscode: url stays behind empty) and no rel, and the data-marker attribute the row\'s anchor pass leaves alone', [/\btarget=|\brel=/.test(linked), /\bdata-marker\b/.test(linked), linked.includes(`href="${review.replace('&', '&amp;')}"`)], [false, true, true])
 
 // the snippet rule with a marker (the widget's own mode decision)
 const item = text => ({ name: 'i', read: () => text })

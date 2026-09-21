@@ -271,6 +271,13 @@ function __render(widget, widget_item) {
 
     // handle clicks on urls
     div.querySelectorAll('a').forEach(elem => {
+      // the task marker's anchor is authored by _link_marker (its href and title, data-marker):
+      // it takes the click stop only, and no target — its href is a vscode: url, for which a new
+      // tab is left behind empty, and #vault's own review link is a plain anchor too
+      if (elem.hasAttribute('data-marker')) {
+        elem.onclick = e => e.stopPropagation()
+        return
+      }
       const url = elem.href || elem.innerText
       elem.title ||= url // default title is url
       // simplify naked url links by trimming out protocol & path/query/fragment
@@ -1107,11 +1114,13 @@ function _marker_of(snippet) {
 // the marker word linked to `url` over the row's html (escaped, its passes applied): the anchor
 // wraps the word, the brackets stay text, and the slot is found on the tag's own
 // <mark>#todo</mark> (the writer's position: a bracketed word elsewhere is never linked, and
-// owner text cannot spoof the mark); the row's anchor pass adds the target and the click stop.
+// owner text cannot spoof the mark); `data-marker` tells the row's anchor pass the anchor is
+// authored here, so it adds the click stop only and no target (a new tab for the vscode: url is
+// left behind empty; #vault's own review link is a plain anchor with the click stop too).
 // The html comes back unchanged when the slot is not there (the markdown pass consumed it)
 function _link_marker(html, marker, url, title) {
   const tag = '<mark>#todo</mark>'
-  const anchor = `[<a href="${_.escape(url)}" title="${_.escape(title)}">${marker.word}</a>]`
+  const anchor = `[<a href="${_.escape(url)}" title="${_.escape(title)}" data-marker>${marker.word}</a>]`
   if (marker.suffix) {
     const head = `${tag} [${marker.word}]`
     return html.startsWith(head) ? `${tag} ${anchor}${html.substring(head.length)}` : html
