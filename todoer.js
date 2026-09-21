@@ -122,7 +122,7 @@ function __render(widget, widget_item) {
 
   // insert all todo items into list
   let have_unsnoozed = false
-  let review_url // the #vault item's review-url builder, resolved at the first task row that needs it
+  let review_anchor // the #vault item's review-anchor builder, resolved at the first task row that needs it
   for (const item of _items()) {
     if (
       !tags.every(tag => {
@@ -211,9 +211,9 @@ function __render(widget, widget_item) {
     let html = _link_urls(link_markdown_links(mark_tags(_.escape(shown))))
     const marker = state?.worktree ? _marker_of(text) : null
     if (marker) {
-      if (review_url === undefined) review_url = _review_url_builder()
-      const url = review_url?.(state.worktree)
-      if (url) html = _link_marker(html, marker, url, `${state.worktree} · its changes against main in VS Code`)
+      if (review_anchor === undefined) review_anchor = _review_anchor_builder()
+      const anchor = review_anchor?.(state.worktree, marker.word, `${state.worktree} · its changes against main in VS Code`)
+      if (anchor) html = _link_marker(html, marker, anchor)
     }
 
     // determine suffix vs prefix snippet based on #todo suffix match
@@ -271,13 +271,13 @@ function __render(widget, widget_item) {
 
     // handle clicks on urls
     div.querySelectorAll('a').forEach(elem => {
-      // the task marker's anchor is authored by _link_marker (its href and title, data-marker):
-      // it takes the click stop only, and no target — its href is a vscode: url, for which a new
-      // tab is left behind empty, and #vault's own review link is a plain anchor too
-      if (elem.hasAttribute('data-marker')) {
-        elem.onclick = e => e.stopPropagation()
-        return
-      }
+      // an anchor that carries its own inline onclick is authored, and is left exactly as
+      // written — the app's own passes over item content read the attribute the same way
+      // (Item.svelte). The task marker's review anchor is #vault's (its href, tooltip and click
+      // stop, no target), so a click on it takes #vault's path: the browser's in-place
+      // navigation hands the vscode: url straight to the editor. The rewriting below is for the
+      // row's PLAIN web links, which do want a new tab (and the shortened text)
+      if (elem.getAttribute('onclick')) return
       const url = elem.href || elem.innerText
       elem.title ||= url // default title is url
       // simplify naked url links by trimming out protocol & path/query/fragment
@@ -1111,16 +1111,16 @@ function _marker_of(snippet) {
   return prefix ? { word: prefix[1], suffix: false } : null
 }
 
-// the marker word linked to `url` over the row's html (escaped, its passes applied): the anchor
-// wraps the word, the brackets stay text, and the slot is found on the tag's own
-// <mark>#todo</mark> (the writer's position: a bracketed word elsewhere is never linked, and
-// owner text cannot spoof the mark); `data-marker` tells the row's anchor pass the anchor is
-// authored here, so it adds the click stop only and no target (a new tab for the vscode: url is
-// left behind empty; #vault's own review link is a plain anchor with the click stop too).
+// the marker word linked over the row's html (escaped, its passes applied) by `anchor_html` —
+// #vault's own review anchor for the worktree, built around the marker word: the anchor wraps
+// the word, the brackets stay text, and the slot is found on the tag's own <mark>#todo</mark>
+// (the writer's position: a bracketed word elsewhere is never linked, and owner text cannot
+// spoof the mark). The anchor carries its own click stop, which is also what keeps the row's
+// anchor pass off it (no target, so the vscode: url opens in place, as #vault's link does).
 // The html comes back unchanged when the slot is not there (the markdown pass consumed it)
-function _link_marker(html, marker, url, title) {
+function _link_marker(html, marker, anchor_html) {
   const tag = '<mark>#todo</mark>'
-  const anchor = `[<a href="${_.escape(url)}" title="${_.escape(title)}" data-marker>${marker.word}</a>]`
+  const anchor = `[${anchor_html}]`
   if (marker.suffix) {
     const head = `${tag} [${marker.word}]`
     return html.startsWith(head) ? `${tag} ${anchor}${html.substring(head.length)}` : html
@@ -1129,21 +1129,24 @@ function _link_marker(html, marker, url, title) {
   return html.endsWith(tail) ? html.substring(0, html.length - tail.length) + `${anchor} ${tag}` : html
 }
 
-// the review-url builder for a task's worktree (name => url, or null), from the #vault item
-// (design mind_vault_item 10): its `vault_review_url`, reached through the app's eval in that
-// item's own scope (an item's functions are in scope for its dependents only, and #vault is
-// nobody's dependency), over the vault root its listing carries (`_bridge.root`), for the
-// worktrees the listing names (the undecided ones that exist: the projection keeps a retired
-// worktree's name, so the listing decides, as it does for #vault's own links). Null without the
-// item, its builder, or a root: the marker stays plain text
-function _review_url_builder() {
+// the review-anchor builder for a task's worktree ((name, text, title) => anchor html, or
+// null), from the #vault item (design mind_vault_item 10): its `vault_review_anchor` — the ONE
+// anchor form of the review url, so a marker click takes the same path as a click on the
+// #vault row's link — reached through the app's eval in that item's own scope (an item's
+// functions are in scope for its dependents only, and #vault is nobody's dependency), over the
+// vault root its listing carries (`_bridge.root`), for the worktrees the listing names (the
+// undecided ones that exist: the projection keeps a retired worktree's name, so the listing
+// decides, as it does for #vault's own links). Null without the item, its builder, or a root:
+// the marker stays plain text
+function _review_anchor_builder() {
   try {
     const vault = _item('#vault', { silent: true })
     const bridge = vault?._global_store?._bridge
     if (!bridge?.root) return null
-    const build = vault.eval("typeof vault_review_url == 'function' ? vault_review_url : null")
+    const build = vault.eval("typeof vault_review_anchor == 'function' ? vault_review_anchor : null")
     if (typeof build != 'function') return null
-    return name => (bridge.worktrees?.[name] ? build(name, bridge.root) || null : null)
+    return (name, text, title) =>
+      bridge.worktrees?.[name] ? build(name, bridge.root, 'review', text, title) || null : null
   } catch (e) {
     return null // a #vault that cannot evaluate (a missing dependency): no link
   }

@@ -442,22 +442,35 @@ function vault_proposal_rows(bridge, decide, link) {
 // host (a Remote-SSH window opens the remote vault's paths; a `file` link would look on the
 // local machine); `root` is the vault root the bridge's listing carries (`_bridge.root`) for the
 // absolute paths. Null without a root (an older bridge) or for a name outside the grammar
-// (never `.` or `..`). The one place for the scheme and the editor: the todoer's task rows link
-// their marker through it (reached by this item's eval), so the two views agree
+// (never `.` or `..`). The one place for the scheme and the editor
 function vault_review_url(name, root, action = 'review') {
   if (!root || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(name)) return null
   return `${VAULT_EDITOR}://olcan.auto-open-obsidian/${action}?worktree=${name}&root=${encodeURIComponent(root)}`
 }
 
+// the review ANCHOR of a worktree: `text` linked to that url (escaped), with `title` as its
+// tooltip when given, an inline click stop, and NO target. The click stop keeps the click off
+// the item (a click that bubbles opens the item's editor, as the log toggle's did) and leaves
+// the DEFAULT action alone, so the browser navigates in place and hands the `vscode:` url
+// straight to the editor; a target would open a browser tab that launches the editor and stays
+// behind empty (observed on the device). `text` is html as given (a caller passes the checked
+// name or a fixed word). Null when there is no url (no root, a name outside the grammar).
+// The ONE anchor form of this url: the todoer's task rows link their marker through it (reached
+// by this item's eval), so a click there takes exactly the path a click here takes
+function vault_review_anchor(name, root, action = 'review', text = name, title = '') {
+  const url = vault_review_url(name, root, action)
+  if (!url) return null
+  const tip = title ? ` title="${_.escape(title)}"` : ''
+  return `<a href="${_.escape(url)}"${tip} onclick="event.stopPropagation()">${text}</a>`
+}
+
 // the review links of a proposal: the multi-diff under the name and the folder under `dir`, or
-// the bare name when there is no url (no root, a name outside the grammar). HTML anchors that
-// stop the click's propagation, not markdown links: the item renders its tables itself
-// (`marked`), so the app's link pass never sees them, and a click that bubbles opens the item's
-// editor (as the log toggle's did)
+// the bare name when there is no url (no root, a name outside the grammar). HTML anchors
+// (above), not markdown links: the item renders its tables itself (`marked`), so the app's link
+// pass never sees them
 function vault_review_links(name, root) {
-  if (!vault_review_url(name, root)) return name
-  const link = (action, text) =>
-    `<a href="${_.escape(vault_review_url(name, root, action))}" onclick="event.stopPropagation()">${text}</a>`
+  const link = (action, text) => vault_review_anchor(name, root, action, text)
+  if (!link('review', name)) return name
   return `${link('review', name)} · ${link('open', 'dir')}`
 }
 

@@ -50,7 +50,7 @@ vm.runInContext(
     '_set_marker',
     '_marker_of',
     '_link_marker',
-    '_review_url_builder',
+    '_review_anchor_builder',
     '_without_log',
     '_link_urls',
     '_extract_todo_snippet',
@@ -75,7 +75,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _review_url_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
+const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -146,17 +146,25 @@ check('the delegated view: marker and route tag once', _delegated_view('#todo fi
 check('the delegated view: an existing route tag is kept single', _delegated_view('#todo [question] fix\nbody\n#_agent/vault\n'), '#todo [delegated] fix\nbody\n#_agent/vault\n')
 
 // the marker's link (design 2.4, the presentation): a task row's marker word links its
-// worktree's review in VS Code through the #vault item's builder (the real vault_review_url,
-// evaluated in a stub of that item's scope as the app's eval would), over the row's html, only
-// where the writer places the marker; the item text is never touched. The anchor is plain, as
-// #vault's own review link is (no target: a new tab for the vscode: url stays behind empty), and
-// carries `data-marker`, which the row's anchor pass keys on to leave it alone (DOM, untested)
+// worktree's review in VS Code through the #vault item's ANCHOR builder (the real
+// vault_review_anchor, evaluated in a stub of that item's scope as the app's eval would), over
+// the row's html, only where the writer places the marker; the item text is never touched. The
+// anchor is #vault's own, so a click on a marker takes the same path as a click on the #vault
+// row's link: an inline click stop and no target, so the browser navigates in place and hands
+// the vscode: url to the editor with no tab in between. That same inline onclick is what keeps
+// the row's anchor pass off the anchor (DOM, untested)
 const vault_src = fs.readFileSync(path.join(__dirname, '..', 'vault.md'), 'utf8')
 const vault_ctx = vm.createContext({ _: context._ })
-vm.runInContext(vault_src.match(/\nconst VAULT_EDITOR = [^\n]*\n/)[0] + vault_src.match(/\nfunction vault_review_url\([^\n]*\) \{[\s\S]*?\n\}\n/)[0], vault_ctx)
+const vault_fn = name => vault_src.match(new RegExp(`\\nfunction ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}\\n`))[0]
+vm.runInContext(
+  vault_src.match(/\nconst VAULT_EDITOR = [^\n]*\n/)[0] + ['vault_review_url', 'vault_review_anchor', 'vault_review_links'].map(vault_fn).join(''),
+  vault_ctx
+)
 const vault_item = (bridge, evaluate = js => vm.runInContext(js, vault_ctx)) => ({ _global_store: { _bridge: bridge }, eval: evaluate })
 const listing = { root: '/Users/olcan/vault', worktrees: { chat_a1: { item: 'i', commits: 2 } } }
 const review = 'vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&root=%2FUsers%2Folcan%2Fvault'
+const title = 'chat_a1 · its changes against main in VS Code'
+const anchor = word => `<a href="${review.replace('&', '&amp;')}" title="${title}" onclick="event.stopPropagation()">${word}</a>`
 check('marker: suffix', _marker_of('#todo [proposal] fix the cache\n'), { word: 'proposal', suffix: true })
 check('marker: prefix', _marker_of('… context\nfix the cache [question] #todo'), { word: 'question', suffix: false })
 check('marker: a marker-only line', _marker_of('#todo [done]\n'), { word: 'done', suffix: true })
@@ -164,38 +172,38 @@ check('marker: none (the owner removed it)', _marker_of('#todo fix the cache\n')
 check('marker: a bracketed word elsewhere is not the marker', [_marker_of('#todo fix [x] the cache\n'), _marker_of('[x] fix the cache #todo'), _marker_of('#todo  [x] fix\n')], [null, null, null])
 check('marker: the writer\'s slot whatever follows the brackets (as _set_marker replaces it; a markdown link there is left to the html pass below)', [_marker_of('#todo [x](y) fix\n'), _set_marker('#todo [x](y) fix\n', 'working')], [{ word: 'x', suffix: true }, '#todo [working](y) fix\n'])
 context._item = ref => (ref == '#vault' ? vault_item(listing) : null)
-const build = _review_url_builder()
-check('builder: the #vault item\'s url for a worktree the listing names, over the root it carries', [typeof build, build('chat_a1')], ['function', review])
-check('builder: a worktree the listing does not name (retired, or not listed yet) gets none', build('chat_gone'), null)
+const build = _review_anchor_builder()
+check('builder: the #vault item\'s review anchor for a worktree the listing names, over the root it carries', [typeof build, build('chat_a1', 'proposal', title)], ['function', anchor('proposal')])
+check('builder: a worktree the listing does not name (retired, or not listed yet) gets none', build('chat_gone', 'proposal', title), null)
 listing.worktrees['..'] = {}
-check('builder: the vault\'s name grammar', build('..'), null)
+check('builder: the vault\'s name grammar', build('..', 'proposal', title), null)
 delete listing.worktrees['..']
 context._item = () => vault_item({ worktrees: listing.worktrees })
-check('builder: a listing without the root (an older bridge)', _review_url_builder(), null)
+check('builder: a listing without the root (an older bridge)', _review_anchor_builder(), null)
 context._item = () => vault_item({ root: '/r' })
-check('builder: a listing without worktrees names none', _review_url_builder()('chat_a1'), null)
+check('builder: a listing without worktrees names none', _review_anchor_builder()('chat_a1', 'proposal', title), null)
 context._item = () => null
-check('builder: no #vault item', _review_url_builder(), null)
+check('builder: no #vault item', _review_anchor_builder(), null)
 context._item = () => vault_item(listing, () => undefined)
-check('builder: an older #vault without the builder', _review_url_builder(), null)
+check('builder: an older #vault without the builder', _review_anchor_builder(), null)
 context._item = () => vault_item(listing, () => Promise.resolve(() => 'x'))
-check('builder: an async #vault answers with a promise, not the function', _review_url_builder(), null)
+check('builder: an async #vault answers with a promise, not the function', _review_anchor_builder(), null)
 context._item = () => vault_item(listing, () => { throw new Error('eval missing dependencies: x') })
-check('builder: a #vault that cannot evaluate', _review_url_builder(), null)
+check('builder: a #vault that cannot evaluate', _review_anchor_builder(), null)
 delete context._item
-const title = 'chat_a1 · its changes against main in VS Code'
-const anchor = word => `[<a href="${review.replace('&', '&amp;')}" title="${title}" data-marker>${word}</a>]`
-check('link: suffix, the anchor wraps the word on the tag\'s mark; brackets, the rest of the row, and a bracketed word in the text kept', _link_marker('<mark>#todo</mark> [proposal] fix the <a>https://x.y/z</a> [x] cache', { word: 'proposal', suffix: true }, review, title), `<mark>#todo</mark> ${anchor('proposal')} fix the <a>https://x.y/z</a> [x] cache`)
-check('link: prefix, the anchor replaces the marker at the row\'s end and the rest is kept verbatim (the leading &lrm; is just such text here: the widget prepends its own after this pass)', _link_marker('&lrm;fix the [x] cache [question] <mark>#todo</mark>', { word: 'question', suffix: false }, review, title), `&lrm;fix the [x] cache ${anchor('question')} <mark>#todo</mark>`)
-check('link: a marker-only row (the collapsed newline after it kept)', _link_marker('<mark>#todo</mark> [done] ', { word: 'done', suffix: true }, review, title), `<mark>#todo</mark> ${anchor('done')} `)
+const slot = word => `[${anchor(word)}]`
+check('link: suffix, the anchor wraps the word on the tag\'s mark; brackets, the rest of the row, and a bracketed word in the text kept', _link_marker('<mark>#todo</mark> [proposal] fix the <a>https://x.y/z</a> [x] cache', { word: 'proposal', suffix: true }, anchor('proposal')), `<mark>#todo</mark> ${slot('proposal')} fix the <a>https://x.y/z</a> [x] cache`)
+check('link: prefix, the anchor replaces the marker at the row\'s end and the rest is kept verbatim (the leading &lrm; is just such text here: the widget prepends its own after this pass)', _link_marker('&lrm;fix the [x] cache [question] <mark>#todo</mark>', { word: 'question', suffix: false }, anchor('question')), `&lrm;fix the [x] cache ${slot('question')} <mark>#todo</mark>`)
+check('link: a marker-only row (the collapsed newline after it kept)', _link_marker('<mark>#todo</mark> [done] ', { word: 'done', suffix: true }, anchor('done')), `<mark>#todo</mark> ${slot('done')} `)
 check('link: the slot is on the mark, which owner text cannot produce (escaped), nor a marker the markdown pass consumed', [
-  _link_marker('&lt;mark&gt;#todo&lt;/mark&gt; [proposal] fix', { word: 'proposal', suffix: true }, review, title),
-  _link_marker('fix [question] &lt;mark&gt;#todo&lt;/mark&gt;', { word: 'question', suffix: false }, review, title),
-  _link_marker('<mark>#todo</mark> <a href="y">x</a> fix', { word: 'x', suffix: true }, review, title),
+  _link_marker('&lt;mark&gt;#todo&lt;/mark&gt; [proposal] fix', { word: 'proposal', suffix: true }, anchor('proposal')),
+  _link_marker('fix [question] &lt;mark&gt;#todo&lt;/mark&gt;', { word: 'question', suffix: false }, anchor('question')),
+  _link_marker('<mark>#todo</mark> <a href="y">x</a> fix', { word: 'x', suffix: true }, anchor('x')),
 ], ['&lt;mark&gt;#todo&lt;/mark&gt; [proposal] fix', 'fix [question] &lt;mark&gt;#todo&lt;/mark&gt;', '<mark>#todo</mark> <a href="y">x</a> fix'])
-check('link: the url and the title are attribute-escaped', _link_marker('<mark>#todo</mark> [done]', { word: 'done', suffix: true }, 'x://a?b=1&c="2"', 'w · <t>'), '<mark>#todo</mark> [<a href="x://a?b=1&amp;c=&quot;2&quot;" title="w · &lt;t&gt;" data-marker>done</a>]')
-const linked = _link_marker('<mark>#todo</mark> [proposal] fix', { word: 'proposal', suffix: true }, review, title)
-check('link: a plain anchor, as #vault\'s review link is: no target (a new tab for the vscode: url stays behind empty) and no rel, and the data-marker attribute the row\'s anchor pass leaves alone', [/\btarget=|\brel=/.test(linked), /\bdata-marker\b/.test(linked), linked.includes(`href="${review.replace('&', '&amp;')}"`)], [false, true, true])
+check('link: the url and the title are attribute-escaped, by the #vault builder that writes the anchor', vm.runInContext('vault_review_anchor(\'chat_a1\', \'/r"x&y\', \'review\', \'done\', \'w · <t>\')', vault_ctx), '<a href="vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&amp;root=%2Fr%22x%26y" title="w · &lt;t&gt;" onclick="event.stopPropagation()">done</a>')
+check('link: one builder for both views — the marker\'s anchor IS the anchor #vault\'s own proposals row links the worktree with (the same click path), the tooltip aside', [build('chat_a1', 'chat_a1'), vm.runInContext("vault_review_links('chat_a1', '/Users/olcan/vault')", vault_ctx).split(' · ')[0]], [anchor('chat_a1').replace(` title="${title}"`, ''), anchor('chat_a1').replace(` title="${title}"`, '')])
+const linked = _link_marker('<mark>#todo</mark> [proposal] fix', { word: 'proposal', suffix: true }, anchor('proposal'))
+check('link: the inline click stop and no target or rel, so the vscode: url opens in place with no tab in between (and the row\'s anchor pass, which keys on an inline onclick, leaves it alone)', [/\btarget=|\brel=/.test(linked), linked.includes('onclick="event.stopPropagation()"'), linked.includes(`href="${review.replace('&', '&amp;')}"`)], [false, true, true])
 
 // the snippet rule with a marker (the widget's own mode decision)
 const item = text => ({ name: 'i', read: () => text })
