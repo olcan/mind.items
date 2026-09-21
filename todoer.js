@@ -81,20 +81,22 @@ function __render(widget, widget_item) {
   const options = widget_item.store[widget.id]?.options ?? {}
   let { tags = [], snoozed, delegated, storage_key } = options
 
-  // the bins: the main and snoozed lists keep done/snooze/cancel and gain the AGENT bin (a
-  // delegation); the delegated list (design 2.2) has the agent bin (a re-delegation) and the
-  // OWNER bin (a take-back) only
+  // the bins: the AGENT bin (a delegation) comes FIRST on every widget, followed by
+  // done/snooze/cancel on the main and snoozed lists; the delegated list (design 2.2) has the
+  // agent bin (a re-delegation) and the OWNER bin (a take-back) only.
+  // NOTE: the widget is a flex row (the list, then the bins), so the append order below is the
+  // row order; the bins' rounded outer edges and drag margins in todoer-widget.html follow it
   const bin = name => {
     const elem = document.createElement('div')
     elem.className = `${name} bin`
     widget.appendChild(elem)
     return elem
   }
+  const agent_bin = bin('agent')
   const done_bin = delegated ? null : bin('done')
   const snooze_bin = delegated ? null : bin('snooze')
   const cancel_bin = delegated ? null : bin('cancel')
   const owner_bin = delegated ? bin('owner') : null
-  const agent_bin = bin('agent')
   if (is_string(tags)) tags = tags.split(/[,;\s]+/).filter(t => t)
   tags = tags.map(tag => {
     if (tag.match(/^[^#!-]/)) return '#' + tag // tag w/o # or negation

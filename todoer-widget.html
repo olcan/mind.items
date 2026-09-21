@@ -134,7 +134,7 @@
       #249 10px,
       #249 20px
     );
-    border-radius: 0 4px 4px 0;
+    border-radius: 4px 0 0 4px; /* the agent bin is first (todoer.js), so the row's left end */
   }
   #widget .bin.agent:not(:empty) {
     background: repeating-linear-gradient(
@@ -153,7 +153,7 @@
       #666 10px,
       #666 20px
     );
-    border-radius: 4px 0 0 4px;
+    border-radius: 0 4px 4px 0; /* last on the delegated widget (after the agent bin) */
   }
   #widget .bin.owner:not(:empty) {
     background: repeating-linear-gradient(
@@ -165,7 +165,7 @@
     );
   }
   #widget.dragging .bin.agent {
-    margin-left: 10px; /* >= 10px prevents flickering while dragging across */
+    margin-right: 10px; /* >= 10px prevents flickering while dragging across */
   }
   #widget .list-item mark.age {
     color: #777;
