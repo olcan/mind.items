@@ -335,9 +335,12 @@ function _on_global_store_change(id, remote) {
   // update of THAT version: each state is matched on its own commit and cancelled alone (a
   // completion of an older accepted version leaves a newer queued entry and its dialog alone)
   let { modified_ids, pending_updates, accepted_updates, held_updates } = _this.store
-  const queued_done = update_completed(item, pending_updates[id])
-  const accepted_done = update_completed(item, accepted_updates[id])
-  const held_done = update_completed(item, held_updates[id])
+  // pending_updates/accepted_updates/held_updates do not exist until init_updater runs; a remote
+  // store event can arrive before that (the welcome gate defers init after an offline or timed-out
+  // welcome, see util/core.js), so read each optionally, as the original done(state) did
+  const queued_done = update_completed(item, pending_updates?.[id])
+  const accepted_done = update_completed(item, accepted_updates?.[id])
+  const held_done = update_completed(item, held_updates?.[id])
   if (!queued_done && !accepted_done && !held_done) return // not pending any updates, or another version
   _this.log(`detected remote update for ${item.name}`)
   if (accepted_done) delete accepted_updates[id]

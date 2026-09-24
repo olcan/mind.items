@@ -1193,6 +1193,21 @@ const wiring_rows = async () => {
     check('a genuinely missed update is offered on replay', [Object.keys(page.store().pending_updates), page.modals.length], [['i1'], 1])
   }
 
+  {
+    // review 1: a remote store event for an installed item BEFORE init_updater runs (the welcome
+    // gate defers init after an offline or timed-out welcome): the queues do not exist yet, so
+    // the handler must return without throwing or acting (update_completed reads them optionally)
+    const page = wiring()
+    page.item('#a', 'i1')
+    let threw = false
+    try {
+      page.context._on_global_store_change('i1', true)
+    } catch (e) {
+      threw = true
+    }
+    check('a remote store event before init: no exception, no updater state', [threw, page.store().modified_ids, page.modals.length], [false, undefined, 0])
+  }
+
 }
 
 const main = async () => {
