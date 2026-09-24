@@ -190,16 +190,25 @@ async function init_updater() {
       if (modified_ids.length) run_update_worker()
     })
   }
+  // the moment catch-up begins, captured BEFORE the scan: the listener below replays receipts
+  // from here, not from its own registration. Registering with Date.now() at that later point
+  // missed a push that landed DURING the scan (after its item's own check but before the
+  // listener registered): the scan's query for that item had passed and the receipt predated
+  // the listener's baseline, so neither saw it until the next page load. The scan stays the
+  // primary catch-up (a state comparison against the live head); this only covers the sliver
+  // between an item's check and the registration. A receipt the scan also caught is absorbed
+  // (queue_update dedupes by id; an item already at head checks clean at its write)
+  const listen_since = Date.now()
   await _retry_on_connectivity(scan_installed, { log: msg => _this.log(msg), warn: msg => _this.warn(msg) })
 
-  // listen for updates through firebase (the receipts newer than this registration)
+  // listen for updates through firebase (the receipts after listen_since, captured before the scan)
   _this.log(`listening for updates ...`)
   const { getFirestore, query, collection, where, onSnapshot } =
     firebase.firestore
   onSnapshot(
     query(
       collection(getFirestore(firebase), 'github_webhooks'),
-      where('time', '>', Date.now())
+      where('time', '>', listen_since)
     ),
     snapshot => {
       snapshot.docChanges().forEach(change => {

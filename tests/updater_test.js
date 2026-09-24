@@ -293,7 +293,7 @@ const wiring = ({ real_check = false, real_update = false } = {}) => {
       firestore: {
         getFirestore: () => ({}),
         collection: () => ({}),
-        where: () => ({}),
+        where: (field, op, value) => ((page.listen_since = value), {}),
         query: () => ({}),
         onSnapshot: (q, cb) => (page.webhook = cb),
       },
@@ -1137,6 +1137,22 @@ const wiring_rows = async () => {
     const cut = await installer.context.check_updates(it)
     check('a finding cut short by an error: returned as before, without provenance', [cut, installer.provenance(cut), installer.logs.filter(l => l[0] == 'error').length], [{ 'a.md': 'p1' }, undefined, 1])
   }
+  {
+    // the listener's baseline is captured BEFORE the scan, so a receipt that lands during the
+    // scan (after its item's own check, before the listener registers) still passes the
+    // where('time', '>', listen_since) filter instead of being missed until the next page load.
+    // the scan advances the clock here (its paced GitHub calls take time); the baseline the
+    // listener registers with must be the pre-scan time, not the post-scan time
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.item('#b', 'i2')
+    page.time = 1000
+    page.context.check_updates = (it, mark) => (page.checks.push([it.name, mark]), (page.time += 5000), Promise.resolve(null))
+    await page.init()
+    await tick()
+    check('the listener baseline was captured before the scan advanced the clock', [page.listen_since, page.time, page.checks.length], [1000, 11000, 2])
+  }
+
 }
 
 const main = async () => {
