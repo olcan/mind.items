@@ -302,7 +302,7 @@ const wiring = ({ real_check = false, real_update = false } = {}) => {
   vm.createContext(context)
   if (real_check) vm.runInContext(pick(['check_updates']).join('\n') + '\nasync function pace_github_call() {}', context) // the declaration replaces the stub
   if (real_update) vm.runInContext(pick(['update_item']).join('\n'), context)
-  vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change', 'completion_marker']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
+  vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change', 'completion_marker', 'update_completed']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
   page.init = () => vm.runInContext('init_updater()', context)
   // a push of several commits ([id, the files modified, the message] each), oldest first as the
   // webhook lists them; an empty list is a rewind (a force push to an older commit)
@@ -1151,6 +1151,46 @@ const wiring_rows = async () => {
     await page.init()
     await tick()
     check('the listener baseline was captured before the scan advanced the clock', [page.listen_since, page.time, page.checks.length], [1000, 11000, 2])
+  }
+
+  {
+    // review 0 P2: the baseline moved BEFORE the scan, so the initial snapshot replays a receipt
+    // that arrived during the scan. If another tab COMPLETED that receipt's item during the scan
+    // (its entry removed from the queue), the replay must not re-queue and prompt for nothing.
+    // A is queued by the scan, completed by a remote tab while B's check is still outstanding, so
+    // the scan finishes with an empty queue and no modal; the replayed receipt for A is then
+    // skipped (its completion marker satisfies it)
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.item('#b', 'i2')
+    page.answers['#a'] = { 'a.md': 'p1' } // the scan finds A behind and queues it (a snapshot)
+    let resolve_b
+    page.answers['#b'] = () => new Promise(r => (resolve_b = r)) // B's check outstanding
+    const init = page.init()
+    await tick()
+    check('A queued by the scan, B outstanding, no modal yet', [page.store().modified_ids, typeof resolve_b, page.modals.length], [['i1'], 'function', 0])
+    page.remote('#a', { 'a.md': 'p1' }) // another tab completes A during the scan
+    await tick()
+    check('A completed remotely: removed from the queue', page.store().modified_ids, [])
+    resolve_b(null) // B has no update; the scan finishes with an empty queue -> no worker, no modal
+    await init
+    await tick()
+    check('the scan finished with no modal', page.modals.length, 0)
+    page.push('#a', 'p1') // the initial snapshot replays A's receipt (its time > listen_since)
+    await tick()
+    check('the replayed receipt of the completed item is skipped: no re-queue, no prompt', [page.store().modified_ids, page.modals.length], [[], 0])
+  }
+  {
+    // review 0 P2 (the positive case): an update the scan MISSED (its receipt landed after the
+    // item's own check) is still offered when the replay delivers it -- the item has no
+    // completion marker satisfying it, so it queues and prompts
+    const page = wiring()
+    page.item('#a', 'i1')
+    await page.init() // the scan finds nothing (no answers)
+    await tick()
+    page.push('#a', 'p1') // the replayed receipt of a real push the scan missed
+    await tick()
+    check('a genuinely missed update is offered on replay', [Object.keys(page.store().pending_updates), page.modals.length], [['i1'], 1])
   }
 
 }

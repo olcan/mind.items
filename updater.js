@@ -196,8 +196,9 @@ async function init_updater() {
   // listener registered): the scan's query for that item had passed and the receipt predated
   // the listener's baseline, so neither saw it until the next page load. The scan stays the
   // primary catch-up (a state comparison against the live head); this only covers the sliver
-  // between an item's check and the registration. A receipt the scan also caught is absorbed
-  // (queue_update dedupes by id; an item already at head checks clean at its write)
+  // between an item's check and the registration. A replayed receipt whose work is already done
+  // is reconciled before any prompt: one still queued is deduped by enqueue, and one whose item
+  // was completed during the scan is skipped (update_completed, in the listener below)
   const listen_since = Date.now()
   await _retry_on_connectivity(scan_installed, { log: msg => _this.log(msg), warn: msg => _this.warn(msg) })
 
@@ -263,11 +264,17 @@ async function init_updater() {
               const ids = update_commits.filter(c => c.modified.includes(path)).map(c => c.id)
               if (ids.length) touched[path] = ids
             }
+            const key = { commits: update_commits.map(c => c.id), paths: touched }
+            // skip a receipt already satisfied by the item's completion marker: the initial
+            // snapshot replays every receipt after listen_since (before the scan), so one whose
+            // item another tab completed during the scan would otherwise re-queue and prompt for
+            // nothing (see update_completed); a still-queued item is deduped by enqueue
+            if (update_completed(item, key)) continue
             _this.debug(
-              `github_webhook commits ${update_commits.map(c => c.id).join(', ')} modified ` +
+              `github_webhook commits ${key.commits.join(', ')} modified ` +
                 `${item.name} (${keys(touched).join(', ')}) in ${owner}/${repo}/${branch}`
             )
-            queue_update(item, { commits: update_commits.map(c => c.id), paths: touched })
+            queue_update(item, key)
           }
         }
       })
@@ -277,6 +284,48 @@ async function init_updater() {
 }
 
 // detect remote updates and cancel unnecessary local updates
+// whether `key` (a push's { commits, paths }, or a scan's path -> commit snapshot) is already
+// satisfied by item's current completion marker (global_store._updater). Two callers: a remote
+// completion cancels a pending, accepted or held entry it satisfies (_on_global_store_change),
+// and the webhook listener skips a receipt it satisfies before queueing it -- since the baseline
+// moved BEFORE the scan (see listen_since), the initial snapshot can redeliver a receipt whose
+// item another tab completed DURING the scan, which would re-queue it and prompt although
+// nothing is left to install (its write-time re-check then writes nothing); a still-queued item
+// is deduped by enqueue instead, and a genuinely missed update (no marker, or an older one) is
+// not satisfied and queues
+function update_completed(item, key) {
+  if (!key) return false
+  const marker = item.global_store._updater ?? {} // no marker before a first update
+  // its entries as delivered (the app's persistence merges the publications: the fields one
+  // supplies take precedence, the fields it omits inherit the stored ones, see completion_marker),
+  // and the CERTIFIED entries: those of the complete one-ref check that published the
+  // certification (one string, kept or replaced whole; an older updater's marker inherits the
+  // stored one, which still names only those entries)
+  const last_update = marker.last_update ?? {}
+  let certified = {}
+  try {
+    if (marker.certified) certified = JSON.parse(marker.certified).last_update ?? {}
+  } catch (e) {} // not this updater's certification: none
+  if (Array.isArray(key.commits)) {
+    // a push: satisfied when the CERTIFIED entries hold one of its commits (a complete check
+    // read every path at one ref, so a path at one of the push's commits means that ref was at
+    // the push or later, hence every touched path at the push's version or newer, written if it
+    // differed from that tab's copy and current already if not; or master was rewound to that
+    // commit, the version then), or when every touched path is, in the entries as delivered, at
+    // one of the push's commits for it (the entries of an older updater's marker, whose check
+    // read each path at the branch name as it moved, or of a finding cut short by an error, say
+    // nothing about the paths they omit, and can hold a stale version of a path beside a newer
+    // one; a path a publication omits keeps its stored entry)
+    const shas = values(certified)
+    const at = path => last_update[path] ?? last_update['/' + path] // an embed's path may keep its slash
+    return key.commits.some(sha => shas.includes(sha)) || entries(key.paths).every(([path, ids]) => ids.includes(at(path)))
+  }
+  // a scan's snapshot: complete only if the marker covers every path at the same commit (a
+  // path's later commit elsewhere, or one missing, leaves the entry pending: asked, and its
+  // write-time re-check writes nothing if the item caught up meanwhile)
+  return entries(key).every(([path, sha]) => last_update[path] == sha)
+}
+
 function _on_global_store_change(id, remote) {
   if (!remote) return // not a remote change
   const item = _item(id)
@@ -286,42 +335,9 @@ function _on_global_store_change(id, remote) {
   // update of THAT version: each state is matched on its own commit and cancelled alone (a
   // completion of an older accepted version leaves a newer queued entry and its dialog alone)
   let { modified_ids, pending_updates, accepted_updates, held_updates } = _this.store
-  const marker = item.global_store._updater ?? {} // no marker before a first update
-  // its entries as delivered (the app's persistence merges the publications: the fields one
-  // supplies take precedence, the fields it omits inherit the stored ones, see
-  // completion_marker), and the CERTIFIED entries: those of the complete
-  // one-ref check that published the certification (one string, kept or replaced whole; an
-  // older updater's marker inherits the stored one, which still names only those entries)
-  const last_update = marker.last_update ?? {}
-  let certified = {}
-  try {
-    if (marker.certified) certified = JSON.parse(marker.certified).last_update ?? {}
-  } catch (e) {} // not this updater's certification: none
-  const done = state => {
-    const key = state?.[id]
-    if (!key) return false
-    if (Array.isArray(key.commits)) {
-      // a push: dismissed when the CERTIFIED entries hold one of its commits (a complete check
-      // read every path at one ref, so a path at one of the push's commits means that ref was
-      // at the push or later, hence every touched path at the push's version or newer, written
-      // if it differed from that tab's copy and current already if not; or master was rewound
-      // to that commit, the version then), or when every touched path is, in the entries as
-      // delivered, at one of the push's commits for it (the entries of an older updater's
-      // marker, whose check read each path at the branch name as it moved, or of a finding cut
-      // short by an error, say nothing about the paths they omit, and can hold a stale version
-      // of a path beside a newer one; a path a publication omits keeps its stored entry)
-      const shas = values(certified)
-      const at = path => last_update[path] ?? last_update['/' + path] // an embed's path may keep its slash
-      return key.commits.some(sha => shas.includes(sha)) || entries(key.paths).every(([path, ids]) => ids.includes(at(path)))
-    }
-    // a scan's snapshot: complete only if the marker covers every path at the same commit (a
-    // path's later commit elsewhere, or one missing, leaves the entry pending: asked, and its
-    // write-time re-check writes nothing if the item caught up meanwhile)
-    return entries(key).every(([path, sha]) => last_update[path] == sha)
-  }
-  const queued_done = done(pending_updates)
-  const accepted_done = done(accepted_updates)
-  const held_done = done(held_updates)
+  const queued_done = update_completed(item, pending_updates[id])
+  const accepted_done = update_completed(item, accepted_updates[id])
+  const held_done = update_completed(item, held_updates[id])
   if (!queued_done && !accepted_done && !held_done) return // not pending any updates, or another version
   _this.log(`detected remote update for ${item.name}`)
   if (accepted_done) delete accepted_updates[id]
