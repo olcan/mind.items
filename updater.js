@@ -11,13 +11,14 @@ async function init_updater() {
   _this.log(`initializing ...`)
   const store = _this.store
   // the queue's three states, each a map of item id -> the KEY of the update the entry answers:
-  // a push's { commits, paths } (its commits touching the item, in the push's order, and the
-  // item paths they touched), or for the on-load scan's find the check's path -> latest commit
-  // snapshot (an object, every changed path of the item and its embeds), so a remote completion
-  // (another tab finishing the same update, _on_global_store_change; its marker is the per-path
-  // snapshot it wrote) cancels the entry of that version in whichever state it is (each state
-  // matched on its own key; a push's when the marker covers its paths and holds one of its
-  // commits, a snapshot only when the marker covers all its paths at the same commits):
+  // a push's { commits, paths } (its commits touching the item, in the push's order, and by
+  // item path the commits touching it), or for the on-load scan's find the check's path ->
+  // latest commit snapshot (an object, every changed path of the item and its embeds), so a
+  // remote completion (another tab finishing the same update, _on_global_store_change; its
+  // marker is the per-path snapshot it wrote) cancels the entry of that version in whichever
+  // state it is (each state matched on its own key; a push's when the marker holds one of its
+  // commits, or path by path for a marker without provenance; a snapshot only when the marker
+  // covers all its paths at the same commits):
   const modified_ids = (store.modified_ids = []) // queued: awaiting a dialog (in order)
   const pending_updates = (store.pending_updates = {}) // queued id -> key
   const accepted = (store.accepted_updates = {}) // accepted at a dialog, not started yet
@@ -236,9 +237,9 @@ async function init_updater() {
             path => path.replace(/^\//, '')
           )
           // update item if any paths were modified in any commits: ALL such commits of the
-          // push (their ids, in order) and the item paths they touched key the entry
-          // (pending_updates), and a completion another tab publishes dismisses it when its
-          // marker covers those paths and holds ANY of those commits (_on_global_store_change).
+          // push (their ids, in order) and, by item path, the commits touching it key the entry
+          // (pending_updates); a completion another tab publishes dismisses it when its marker
+          // holds ANY of those commits, or path by path (_on_global_store_change).
           // Keyed by the FIRST such commit alone (until 2026-09-23) a push carrying two commits
           // to one file never matched the marker and the dialog outlived the update in every
           // other tab; keyed by the last alone, a later commit to that path which this listener
@@ -248,10 +249,14 @@ async function init_updater() {
             paths.some(path => commit.modified.includes(path))
           )
           if (update_commits.length) {
-            const touched = paths.filter(path => update_commits.some(c => c.modified.includes(path)))
+            const touched = {} // by item path, the push's commits touching it
+            for (const path of paths) {
+              const ids = update_commits.filter(c => c.modified.includes(path)).map(c => c.id)
+              if (ids.length) touched[path] = ids
+            }
             _this.debug(
               `github_webhook commits ${update_commits.map(c => c.id).join(', ')} modified ` +
-                `${item.name} (${touched.join(', ')}) in ${owner}/${repo}/${branch}`
+                `${item.name} (${keys(touched).join(', ')}) in ${owner}/${repo}/${branch}`
             )
             queue_update(item, { commits: update_commits.map(c => c.id), paths: touched })
           }
@@ -272,22 +277,24 @@ function _on_global_store_change(id, remote) {
   // update of THAT version: each state is matched on its own commit and cancelled alone (a
   // completion of an older accepted version leaves a newer queued entry and its dialog alone)
   let { modified_ids, pending_updates, accepted_updates, held_updates } = _this.store
-  const last_update = item.global_store._updater?.last_update ?? {} // no marker before a first update
+  const marker = item.global_store._updater ?? {} // no marker before a first update
+  const last_update = marker.last_update ?? {}
   const done = state => {
     const key = state?.[id]
     if (!key) return false
     if (Array.isArray(key.commits)) {
-      // a push: every path it touched is among the paths written (a marker of a PARTIAL
-      // installation must not pass: one path found at the new commit and another still at the
-      // old by a check that spanned the push, which an updater older than 2026-09-23 can still
-      // publish until its tab reloads) and one of its commits is among the commits written (a
-      // check reads every path at one head, so a path at one of the push's commits means that
-      // head was at the push or later, the whole push written, or master rewound to that
-      // commit, the version then). A marker of the follow-up check after a partial one holds
-      // the remaining path alone: the entry stays until answered (its re-check writes nothing)
-      const written = new Set(keys(last_update).map(path => path.replace(/^\//, '')))
-      const shas = values(last_update)
-      return key.paths.every(path => written.has(path)) && key.commits.some(sha => shas.includes(sha))
+      // a push. A marker with provenance (`at`: a complete finding of the one-ref check, updaters
+      // of 2026-09-23 on) dismisses it when it holds ANY of the push's commits: every path was
+      // read at one commit, so a path at one of the push's commits means that commit was at
+      // the push or later, hence every touched path at the push's version or newer, written if
+      // it differed from that tab's copy and current already if not (or master was rewound to
+      // that commit, the version then). A marker without (an older updater's, until its tab
+      // reloads: its check read each path at the branch name as it moved, so it can hold a
+      // stale version of one path beside a newer one; or a finding cut short by an error)
+      // dismisses it only path by path: every touched path at one of the push's commits for it
+      const at = path => last_update[path] ?? last_update['/' + path] // a marker's path may keep its slash
+      if (marker.at) return key.commits.some(sha => values(last_update).includes(sha))
+      return entries(key.paths).every(([path, ids]) => ids.includes(at(path)))
     }
     // a scan's snapshot: complete only if the marker covers every path at the same commit (a
     // path's later commit elsewhere, or one missing, leaves the entry pending: asked, and its
@@ -529,6 +536,10 @@ const REMOVED_SOURCES = {
 const removed_source = attr =>
   (attr?.repo == 'mind.items' && REMOVED_SOURCES[attr.path?.replace(/^\//, '')]) || null
 
+// a COMPLETE finding of check_updates -> the ref every path was read at (its provenance, published
+// with the completion marker, see update_item and _on_global_store_change)
+const checked_at = new WeakMap()
+
 // checks for updates to item, returns path->hash object of updates or null
 // (or, for a removed source, the one key `removed`: the reason, see REMOVED_SOURCES)
 // similar to /_updates command defined in index.svelte in mind.page repo
@@ -593,24 +604,31 @@ async function check_updates(item, mark_pushables = false) {
   if (outdated()) return null // (the token prompt is awaited too)
   const github = github_client(token)
   const updates = {} // path->hash object of available updates
+  let at = attr.branch // the ref every history query below reads at
+  let complete = false // every query answered (a finding cut short by an error is not provenanced)
   try {
-    // ONE head for every history query below: the branch's head resolved first, each path's
-    // latest commit then read AT it (`sha: head`), never at the moving branch name, so a push
-    // landing between the main file's query and an embed's cannot yield a partial finding
-    // (the main file at the old commit, the embed at the new: installed alone, its completion
-    // marker dismissed the other tabs' whole update; review 1 of updater_key, 2026-09-23); the
-    // push is found whole by the next check instead
-    await pace_github_call()
-    const head = (await github.repos.getBranch({ owner, repo, branch }))?.data?.commit?.sha
-    if (!head) throw new Error(`no head for ${source}`)
-    if (outdated()) return null
+    // ONE ref for every history query below: with embeds, the source ref (`attr.branch`: a
+    // branch name, or a commit sha for a pinned install, see docs/mind_sync) is resolved to its
+    // commit first, through listCommits (which takes either; getBranch takes a name only), and
+    // each path's latest commit is then read AT that commit, never at the moving branch name,
+    // so a push landing between the main file's query and an embed's is not seen by the later
+    // ones: the check finds nothing OF that push (the next check finds it whole) instead of a
+    // mixed finding (the main file at the old commit, the embed at the new: installed alone,
+    // its completion marker dismissed the other tabs' whole update; review 1 of updater_key,
+    // 2026-09-23). A single-path item's one query is consistent by itself: no extra call
+    if (attr.embeds?.length) {
+      await pace_github_call()
+      at = (await github.repos.listCommits({ owner, repo, sha: attr.branch, per_page: 1 }))?.data?.[0]?.sha
+      if (!at) throw new Error(`no commit at ${source}`)
+      if (outdated()) return null
+    }
     // check for change to item
     await pace_github_call()
     const {
       data: [{ sha }],
     } = await github.repos.listCommits({
       ...attr,
-      sha: head,
+      sha: at,
       per_page: 1,
     })
     if (outdated()) return null
@@ -692,7 +710,7 @@ async function check_updates(item, mark_pushables = false) {
           await github.repos.listCommits({
             ...attr,
             path: embed.path,
-            sha: head,
+            sha: at,
             per_page: 1,
           })
         )?.data[0]?.sha
@@ -724,6 +742,7 @@ async function check_updates(item, mark_pushables = false) {
         }
       }
     }
+    complete = true
   } catch (e) {
     // rethrow errors fatal to all items so callers can stop instead of
     // failing (and logging an error for) every remaining item
@@ -740,6 +759,7 @@ async function check_updates(item, mark_pushables = false) {
         `${source} at paths: ${keys(updates).join(', ')}`
     )
   }
+  if (complete) checked_at.set(updates, at) // the marker's provenance (a cut-short finding has none)
   return updates
 }
 
@@ -1108,7 +1128,10 @@ async function update_item(item, updates) {
       return fail_update(
         `update write refused for ${item.name} from ${source}/${path} (read-only or cancelled)`
       )
-    item.global_store._updater = { last_update: updates } // published ONCE, at success
+    // published ONCE, at success; `at`, the ref the check read every path at, marks a complete
+    // finding of the one-ref check (2026-09-23 on): the other tabs dismiss a pushed update on
+    // it by one commit, on a marker without it only path by path (_on_global_store_change)
+    item.global_store._updater = { last_update: updates, at: checked_at.get(updates) }
     if (item.name != prev_name)
       _this.warn(
         `renaming update for ${item.name} (was ${prev_name})` +
