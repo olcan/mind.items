@@ -292,13 +292,8 @@ function push_item(item, manual = false, retried = false) {
   const [owner, repo] = dest.split('/')
   const github = _this.store.github
 
-  // serialize pushes via _this.store._push
-  // also coordinate w/ #updater via #updater.store._update
-  // helps reduce conflict errors and rate-limit violations
-  return (_this.store._push = Promise.allSettled([
-    _this.store._push,
-    _item('#updater', { silent: true })?.store._update,
-  ]).then(async () => {
+  // serialized with the other pushes, deletions and base adoptions (see serialized)
+  return serialized(async () => {
     let start = Date.now()
     const state = _this.store.items[item.saved_id]
     let text_sha = github_sha(item.text)
@@ -323,8 +318,16 @@ function push_item(item, manual = false, retried = false) {
       // this tab last pushed or saw (absent for a never-pushed item), else it stops and marks,
       // never overwriting a text the tab does not know. A verified item pays nothing on its
       // later pushes: any external commit after that moves master, so the push is rejected
-      // below and verified again at the fetched head; a new adoption clears the memo.
-      if (!manual && _this.store.external_base && !_this.store.verified[path]) {
+      // below and verified again at the fetched head; a new adoption starts a new memo.
+      // The base and the memo are taken BEFORE the read, so the read vouches for exactly
+      // that base and that memo: adoptions run serialized with pushes (see adopt_head), but
+      // should one ever move the base during the read, this push writes on the base it took
+      // (rejected by the ref update if master moved) and records the read in the memo it took
+      // (dropped by the adoption), never on or in a base and memo the read did not see
+      const commit_sha = _this.global_store.commit_sha
+      const tree_sha = _this.global_store.tree_sha
+      let verified = _this.store.verified
+      if (!manual && _this.store.external_base && !verified[path]) {
         const blob = await remote_blob_sha(github, owner, repo, path, 'heads/master')
         if (blob != state.remote_sha) {
           _this.warn(
@@ -335,10 +338,8 @@ function push_item(item, manual = false, retried = false) {
           item.pushable = true // mark pushable again (if not already)
           return
         }
-        _this.store.verified[path] = true
+        verified[path] = true
       }
-      const commit_sha = _this.global_store.commit_sha
-      const tree_sha = _this.global_store.tree_sha
 
       // the outgoing text and its hash, captured TOGETHER after the await above: a save during
       // that read must not push one text and record another's hash (the tree below and the
@@ -422,16 +423,13 @@ function push_item(item, manual = false, retried = false) {
         // since this adoption reads its own file at master first (see above), so no queued
         // push can overwrite an external change
         const head = await branch_head(github, owner, repo, dest)
-        const head_sha = head.commit_sha
-        _this.global_store.commit_sha = head.commit_sha
-        _this.global_store.tree_sha = head.tree_sha
-        _this.store.external_base = true
-        _this.store.verified = {} // a new epoch: nothing verified at this head yet
+        adopt_head(head)
+        verified = _this.store.verified // this adoption's memo (taken before the read, as above)
         if (!manual) {
           // retry ONCE, and only when the external commits left this item's own file as this
           // tab last pushed or saw it (its blob at the head equals state.remote_sha; both absent
           // for a never-pushed item); otherwise stop and mark, never overwrite
-          const blob = await remote_blob_sha(github, owner, repo, path, head_sha)
+          const blob = await remote_blob_sha(github, owner, repo, path, head.commit_sha)
           if (blob != state.remote_sha) {
             _this.warn(
               `push failed for ${item.name} due to unknown (external) ` +
@@ -441,7 +439,7 @@ function push_item(item, manual = false, retried = false) {
             item.pushable = true // mark pushable again (if not already)
             return
           }
-          _this.store.verified[path] = true // compared at the adopted head just above
+          verified[path] = true // compared at the adopted head just above
           _this.warn(
             `push failed for ${item.name} due to unknown (external) ` +
               `commits in ${dest} that left ${path} as pushed; retrying once after fetching latest commit ...`
@@ -489,7 +487,29 @@ function push_item(item, manual = false, retried = false) {
       _this.error(`push failed for ${item.name}: ${e}`)
       throw e
     }
-  }))
+  })
+}
+
+// runs fn after the pushes, deletions and base adoptions queued so far, serialized with them
+// through _this.store._push (the tab's one queue for anything that reads or moves its base),
+// also coordinated w/ #updater via #updater.store._update
+// helps reduce conflict errors and rate-limit violations
+function serialized(fn) {
+  return (_this.store._push = Promise.allSettled([
+    _this.store._push,
+    _item('#updater', { silent: true })?.store._update,
+  ]).then(fn))
+}
+
+// adopts a fetched head of master as the base of this tab's commits (see push_item): master
+// then holds commits this tab has not verified item by item, so the memo of verified items
+// starts over; the ONE way to adopt an external head, and only ever run serialized with pushes
+// (see serialized), so no push's verification read is in flight while the base moves
+function adopt_head(head) {
+  _this.global_store.commit_sha = head.commit_sha
+  _this.global_store.tree_sha = head.tree_sha
+  _this.store.external_base = true
+  _this.store.verified = {} // a new epoch: nothing verified at this head yet
 }
 
 // returns { commit_sha, tree_sha } of master's head in repo (throws on an empty repo)
@@ -518,9 +538,9 @@ function symlink_path(name) {
   return `names/${name.slice(1)}.md`
 }
 
-// deletes paths from repo in a single commit, serialized w/ pushes (see push_item)
-// retries once after fetching latest commit if master has moved (e.g. external commits)
-// deleted files remain in repo history (see /history)
+// deletes paths from repo in a single commit, serialized w/ pushes (see serialized)
+// retries once after fetching and adopting latest commit if master has moved (e.g. external
+// commits; see adopt_head); deleted files remain in repo history (see /history)
 function delete_paths(paths, message) {
   if (!paths.length) return Promise.resolve()
   if (!_this.store.github) throw new Error('missing github client')
@@ -528,10 +548,7 @@ function delete_paths(paths, message) {
   const dest = _this.global_store.dest
   const [owner, repo] = dest.split('/')
   const github = _this.store.github
-  return (_this.store._push = Promise.allSettled([
-    _this.store._push,
-    _item('#updater', { silent: true })?.store._update,
-  ]).then(async () => {
+  return serialized(async () => {
     const start = Date.now()
     const entries = paths.map(path => ({
       path,
@@ -570,12 +587,10 @@ function delete_paths(paths, message) {
           `delete failed due to unknown (external) commits in ${dest}; ` +
             `retrying after fetching latest commit ...`
         )
-        const resp = await github.repos.getBranch({ owner, repo, branch: 'master' })
-        _this.global_store.commit_sha = resp.data.commit?.sha
-        _this.global_store.tree_sha = resp.data.commit?.commit?.tree?.sha
+        adopt_head(await branch_head(github, owner, repo, dest))
       }
     }
-  }))
+  })
 }
 
 // resolves embed path relative to container item (attr) path
@@ -1251,9 +1266,12 @@ async function _on_command_prune() {
       cancel: 'Cancel',
     })
     if (!confirmed) return '/prune'
-    // base deletions on latest commit (delete_paths also retries if master moves)
-    _this.global_store.commit_sha = commit_sha
-    _this.global_store.tree_sha = tree_sha
+    // base deletions on the scanned head (delete_paths also retries if master moves), adopted
+    // in the queue behind any push in flight (see adopt_head), and not at all when it is the
+    // base already (then nothing external is pending and the verified items stay verified)
+    await serialized(() => {
+      if (commit_sha != _this.global_store.commit_sha) adopt_head({ commit_sha, tree_sha })
+    })
     modal = _modal({ content: `Pruning ${paths.length} paths ...`, background: 'block' })
     const chunk_size = 500 // paths per commit
     for (let i = 0; i < paths.length; i += chunk_size) {

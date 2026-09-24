@@ -43,6 +43,7 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
     holdingContent: false, // getContent stalls while true (a slow read)
     contentWaiters: [], // held getContent resolvers when holdingContent
     getBranchError: null, // thrown by getBranch when set
+    branches: {}, // other refs updated (update_branch after a prune)
   }
   const blob = content => ({ sha: world.sandbox.github_sha(content), content })
   const applied = (base, entries) => {
@@ -65,6 +66,9 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
   world.fileAtHead = path => world.repo.trees[world.repo.commits[world.repo.head].tree][path]?.content
   const github = {
     git: {
+      getTree: async ({ tree_sha }) => ({
+        data: { tree: Object.keys(world.repo.trees[tree_sha]).map(path => ({ path, type: 'blob', mode: '100644' })) },
+      }),
       createTree: async ({ base_tree, tree }) => {
         world.lastTree = tree
         if (world.holding) await new Promise(resolve => world.treeWaiters.push(resolve))
@@ -80,7 +84,8 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
         world.submitted.push([parents[0], tree])
         return { data: { sha } }
       },
-      updateRef: async ({ sha }) => {
+      updateRef: async ({ ref, sha }) => {
+        if (ref !== 'heads/master') return (world.branches[ref] = sha), {} // e.g. last_prune
         if (world.repo.commits[sha].parent !== world.repo.head) throw new Error('Update is not a fast forward')
         world.repo.head = sha
         world.pushed.push(world.commits[Number(sha.replace('commit', '')) - 1])
@@ -99,9 +104,10 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
         world.reads++
         world.contentRefs.push(ref)
         if (world.getContentError) throw world.getContentError
-        if (world.holdingContent) await new Promise(resolve => world.contentWaiters.push(resolve))
         const commit = ref === 'heads/master' ? world.repo.head : ref // the live head, or a commit
         const entry = world.repo.trees[world.repo.commits[commit].tree][path]
+        // the server answers at the head of the request; a held read delays the answer's delivery
+        if (world.holdingContent) await new Promise(resolve => world.contentWaiters.push(resolve))
         if (!entry) throw Object.assign(new Error('Not Found'), { status: 404 })
         return { data: { sha: entry.sha } }
       },
@@ -122,12 +128,15 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
     setTimeout: fn => world.timers.push(fn),
     _hash_160_sha1: bytes => 'h' + Buffer.from(bytes).toString('hex'),
     _exists: () => true,
-    _modal: async () => 'msg',
+    _modal: async () => 'msg', // truthy: a /prune is confirmed
     _modal_close: async () => {},
+    _modal_update: () => {},
+    alert: msg => world.logs.push(['alert', msg]),
+    _items: () => Object.values(world.items),
     merge: (a, b) => ({ ...a, ...b }),
     encodeBase64: () => '',
     _this: {
-      store: { items: {}, github, _push: undefined, external_base: false },
+      store: { items: {}, github, _push: undefined, external_base: false, verified: {} }, // as init leaves it
       global_store: { dest: 'o/r', commit_sha: 'c0', tree_sha: 't0' },
       log: (...a) => world.logs.push(['log', ...a]),
       warn: (...a) => world.logs.push(['warn', ...a]),
@@ -161,6 +170,32 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
   world.change = (remote, deleted = false, id = items[0]) =>
     sandbox._on_item_change(id, world.items[id].name, world.items[id].name, deleted, remote, false)
   return world
+}
+
+// two pushed items, doc1 (A, its text w.text) and doc2 (B); then an external commit elsewhere
+// and an edit of A whose rejected push adopts the external base and retries: A verified there,
+// B not yet (as S13 and S15 build by hand)
+async function adoptedWorld() {
+  const w = makeWorld({ items: ['session1', 'session2'] })
+  const A = w.items.session1, B = w.items.session2
+  A.saved_id = 'doc1'
+  B.saved_id = 'doc2'
+  B.text = 'B0'
+  w.change(false, false, 'session1')
+  await flush()
+  await w.sandbox._this.store._push
+  w.change(false, false, 'session2')
+  await flush()
+  await w.sandbox._this.store._push
+  w.externalCommit('items/other.md', 'x')
+  w.text = P + '\nA1'
+  w.change(false, false, 'session1')
+  await flush()
+  await w.sandbox._this.store._push
+  w.timers.splice(0).forEach(t => t())
+  await flush()
+  await w.sandbox._this.store._push
+  return w
 }
 
 async function run() {
@@ -537,7 +572,7 @@ async function run() {
     w.change(false, false, 'session2')
     await flush()
     await w.sandbox._this.store._push
-    check('S15 no reads without an external commit', w.reads, 0)
+    check('S15 no reads without an external commit', [w.reads, w.heads], [0, 0])
     w.externalCommit('items/other.md', 'x')
     w.text = P + '\nA1'
     w.change(false, false, 'session1')
@@ -546,12 +581,12 @@ async function run() {
     w.timers.splice(0).forEach(t => t())
     await flush()
     await w.sandbox._this.store._push
-    check('S15 the adoption read once (at the fetched head), the retry not again', w.reads, 1)
+    check('S15 the adoption fetched the head and read once there, the retry neither', [w.reads, w.heads], [1, 1])
     B.text = 'B1'
     w.change(false, false, 'session2')
     await flush()
     await w.sandbox._this.store._push
-    check('S15 the first push of another item reads once at the live head', [w.reads, w.lastContentRef, w.fileAtHead('items/doc2.md')], [2, 'heads/master', 'B1'])
+    check('S15 the first push of another item reads once at the live head, no branch read', [w.reads, w.heads, w.lastContentRef, w.fileAtHead('items/doc2.md')], [2, 1, 'heads/master', 'B1'])
     B.text = 'B2'
     w.change(false, false, 'session2')
     await flush()
@@ -560,7 +595,7 @@ async function run() {
     w.change(false, false, 'session1')
     await flush()
     await w.sandbox._this.store._push
-    check('S15 repeat pushes of verified items read nothing', [w.reads, w.fileAtHead('items/doc2.md'), w.fileAtHead('items/doc1.md')], [2, 'B2', w.text])
+    check('S15 repeat pushes of verified items read nothing', [w.reads, w.heads, w.fileAtHead('items/doc2.md'), w.fileAtHead('items/doc1.md')], [2, 1, 'B2', w.text])
     w.externalCommit('items/other.md', 'y') // a new adoption forgets the memo
     w.text = P + '\nA3'
     w.change(false, false, 'session1')
@@ -573,7 +608,112 @@ async function run() {
     w.change(false, false, 'session2')
     await flush()
     await w.sandbox._this.store._push
-    check('S15 after a new adoption the other item reads once again', [w.reads, w.fileAtHead('items/doc2.md')], [4, 'B3'])
+    check('S15 after a new adoption (one branch read) the other item reads once again', [w.reads, w.heads, w.fileAtHead('items/doc2.md')], [4, 2, 'B3'])
+  }
+  // S16 (review 4 B3): a deletion's adoption starts a new epoch too. B verified since A's
+  // adoption; an external commit changes B; a local deletion of A is rejected, fetches and
+  // adopts the head (B-external in it) and lands; B's next save must read and be refused, not
+  // skip its verification on the memo and write B over B-external on the adopted base
+  {
+    const w = await adoptedWorld()
+    const B = w.items.session2
+    B.text = 'B1'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S16 B verified at the live head', [!!w.sandbox._this.store.verified['items/doc2.md'], w.fileAtHead('items/doc2.md')], [true, 'B1'])
+    w.externalCommit('items/doc2.md', 'B-external')
+    w.change(false, true, 'session1') // A deleted locally: its file deleted in the repo
+    await flush()
+    await w.sandbox._this.store._push
+    check('S16 the deletion adopted the head and landed, the memo started over', [w.fileAtHead('items/doc1.md'), w.fileAtHead('items/doc2.md'), w.sandbox._this.store.external_base, Object.keys(w.sandbox._this.store.verified).length], [undefined, 'B-external', true, 0])
+    B.text = 'B2'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S16 B read at the live head, refused and marked, B-external preserved', [w.lastContentRef, B.pushable, w.sandbox._this.store.items['doc2'].remote_sha, w.fileAtHead('items/doc2.md')], ['heads/master', true, undefined, 'B-external'])
+    check('S16 B warned as changed by external commits', w.logs.some(l => l[0] == 'warn' && l[1].includes('items/doc2.md changed by unknown (external)')), true)
+  }
+  // S16b: the same in a session without a prior adoption: the deletion's adoption is the
+  // session's first, and B's next save must verify there (the landed pusher wrote B over
+  // B-external here too: a deletion adopted the head without starting the verification)
+  {
+    const w = makeWorld({ items: ['session1', 'session2'] })
+    const A = w.items.session1, B = w.items.session2
+    A.saved_id = 'doc1'
+    B.saved_id = 'doc2'
+    B.text = 'B0'
+    w.change(false, false, 'session1')
+    await flush()
+    await w.sandbox._this.store._push
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    w.externalCommit('items/doc2.md', 'B-external')
+    w.change(false, true, 'session1')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S16b the first adoption of the session by a deletion', [w.fileAtHead('items/doc1.md'), w.sandbox._this.store.external_base, w.heads], [undefined, true, 1])
+    B.text = 'B1'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S16b B refused and marked, B-external preserved', [B.pushable, w.sandbox._this.store.items['doc2'].remote_sha, w.fileAtHead('items/doc2.md')], [true, undefined, 'B-external'])
+  }
+  // S17 (review 4 B3): /prune under a push's verification read. B's first push after A's
+  // adoption reads at the live head; the server answers at that head but the answer is held;
+  // an external commit changes B; /prune scans master (B-external there, items/other.md
+  // stale) and is confirmed while the read waits. Its adoption must queue behind the push:
+  // B writes on the base its read vouched for and is rejected, then refused at the fetched
+  // head; the prune lands on that head. (Adopting the scanned head at once let B's push write
+  // its local text on it, over B-external, unmarked.)
+  {
+    const w = await adoptedWorld()
+    const B = w.items.session2
+    const base = w.sandbox._this.global_store.commit_sha
+    w.holdingContent = true
+    B.text = 'B-local'
+    w.change(false, false, 'session2')
+    await flush()
+    check('S17 read in flight, answered at the head before the external commit', [w.contentWaiters.length, w.lastContentRef], [1, 'heads/master'])
+    w.externalCommit('items/doc2.md', 'B-external')
+    const pruning = w.sandbox._on_command_prune()
+    await flush()
+    check('S17 the confirmed prune waits for the push before adopting the scanned head', [w.sandbox._this.global_store.commit_sha, w.fileAtHead('items/other.md')], [base, 'x'])
+    w.holdingContent = false
+    w.contentWaiters.splice(0).forEach(resolve => resolve())
+    await pruning
+    await flush()
+    await w.sandbox._this.store._push
+    check('S17 B rejected on its base, refused at the fetched head and marked, B-external preserved, the prune landed', [w.submitted.some(([parent]) => parent === base), B.pushable, w.sandbox._this.store.items['doc2'].remote_sha, w.fileAtHead('items/doc2.md'), w.fileAtHead('items/other.md'), w.fileAtHead('items/doc1.md')], [true, true, undefined, 'B-external', undefined, w.text])
+    check('S17 B warned as changed at the fetched head, last_prune moved', [w.logs.some(l => l[0] == 'warn' && l[1].includes('that changed items/doc2.md')), w.branches['heads/last_prune']], [true, w.repo.head])
+  }
+  // S18: /prune keeps the verified items verified when master is at the base already (no
+  // adoption, no read after it), and starts a new epoch when its scanned head holds external
+  // commits (one read at the live head for each item's next push)
+  {
+    const w = await adoptedWorld()
+    const B = w.items.session2
+    B.text = 'B1'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push // both verified now
+    const reads = w.reads
+    await w.sandbox._on_command_prune() // items/other.md is stale, master at the base
+    check('S18 pruned at the base: no adoption, the memo kept', [w.fileAtHead('items/other.md'), Object.keys(w.sandbox._this.store.verified).sort(), w.sandbox._this.global_store.commit_sha === w.repo.head], [undefined, ['items/doc1.md', 'items/doc2.md'], true])
+    B.text = 'B2'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S18 no read after a prune at the base', [w.reads, w.fileAtHead('items/doc2.md')], [reads, 'B2'])
+    w.externalCommit('items/stale.md', 'y')
+    await w.sandbox._on_command_prune() // the scanned head holds the external commit: adopted
+    check('S18 pruned after an external commit: adopted, the memo started over', [w.fileAtHead('items/stale.md'), Object.keys(w.sandbox._this.store.verified).length, w.sandbox._this.global_store.commit_sha === w.repo.head], [undefined, 0, true])
+    B.text = 'B3'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S18 the next push of an item reads once at the live head and lands', [w.reads, w.lastContentRef, w.fileAtHead('items/doc2.md'), B.pushable], [reads + 1, 'heads/master', 'B3', false])
   }
   if (failures) {
     console.error(`\n${failures} FAILURES`)
