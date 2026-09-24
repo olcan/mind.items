@@ -11,11 +11,12 @@ async function init_updater() {
   _this.log(`initializing ...`)
   const store = _this.store
   // the queue's three states, each a map of item id -> the KEY of the update the entry answers:
-  // a push's commit sha (a string), or for the on-load scan's find the check's path -> latest
-  // commit snapshot (an object, every changed path of the item and its embeds), so a remote
-  // completion (another tab finishing the same update, _on_global_store_change; its marker is
-  // the per-path snapshot it wrote) cancels the entry of that version in whichever state it is
-  // (each state matched on its own key; a snapshot only when the marker covers all its paths):
+  // a push's commits touching the item (an array of shas, in the push's order), or for the
+  // on-load scan's find the check's path -> latest commit snapshot (an object, every changed
+  // path of the item and its embeds), so a remote completion (another tab finishing the same
+  // update, _on_global_store_change; its marker is the per-path snapshot it wrote) cancels the
+  // entry of that version in whichever state it is (each state matched on its own key; a push's
+  // when the marker holds any of its commits, a snapshot only when it covers all its paths):
   const modified_ids = (store.modified_ids = []) // queued: awaiting a dialog (in order)
   const pending_updates = (store.pending_updates = {}) // queued id -> key
   const accepted = (store.accepted_updates = {}) // accepted at a dialog, not started yet
@@ -38,10 +39,11 @@ async function init_updater() {
   }
   store.ready_text = ready_text // the dialog's ONE text: a remote completion's refresh (_on_global_store_change) reads it too
   const enqueue = (id, key) => {
-    // a push's key (a sha) replaces any queued key; a scan's snapshot replaces an earlier
+    // a push's key (its commits) replaces any queued key; a scan's snapshot replaces an earlier
     // scan's (fresher evidence) but never a push's (the scan's listing may predate a push it
     // overlaps, unknowably): the key's type carries its origin through every state
-    if (typeof key == 'string' || typeof pending_updates[id] != 'string') pending_updates[id] = key
+    const pushed = key => Array.isArray(key)
+    if (pushed(key) || !pushed(pending_updates[id])) pending_updates[id] = key
     if (modified_ids.includes(id)) return false
     modified_ids.push(id)
     return true
@@ -232,22 +234,26 @@ async function init_updater() {
           let paths = [attr.path, ...(attr.embeds?.map(e => e.path) ?? [])].map(
             path => path.replace(/^\//, '')
           )
-          // update item if any paths were modified in any commits: the LAST such commit's id
-          // (sha) keys the entry (pending_updates), since another tab's completion marker
-          // holds the latest commit of each path it wrote (_on_global_store_change), which the
-          // push's last commit touching the item is; keyed by the FIRST such commit (until
-          // 2026-09-23), a push carrying two commits to one file never matched the marker, and
-          // the dialog outlived the update in every other tab. We do not use body.after since
-          // that could be a dropped commit
-          const update_commit = commits.findLast(commit =>
+          // update item if any paths were modified in any commits: ALL such commits of the
+          // push (their ids, in order) key the entry (pending_updates), and a completion
+          // another tab publishes dismisses it when its marker holds ANY of them
+          // (_on_global_store_change; the marker is the latest commit of each path that tab
+          // wrote, and a push lands whole, so a marker at one of its commits means that tab
+          // installed this push or a later one, or master was rewound to that commit, the
+          // version then). Keyed by the FIRST such commit alone (until 2026-09-23) a push
+          // carrying two commits to one file never matched the marker and the dialog outlived
+          // the update in every other tab; keyed by the last alone, a later commit to that
+          // path which this listener drops (a side-push's, via #pusher) would strand it. We do
+          // not use body.after since that could be a dropped commit
+          const update_commits = commits.filter(commit =>
             paths.some(path => commit.modified.includes(path))
           )
-          if (update_commit) {
+          if (update_commits.length) {
             _this.debug(
-              `github_webhook commit ${update_commit.id} modified ` +
+              `github_webhook commits ${update_commits.map(c => c.id).join(', ')} modified ` +
                 `${item.name} in ${owner}/${repo}/${branch}`
             )
-            queue_update(item, update_commit.id)
+            queue_update(item, update_commits.map(c => c.id))
           }
         }
       })
@@ -270,7 +276,7 @@ function _on_global_store_change(id, remote) {
   const done = state => {
     const key = state?.[id]
     if (!key) return false
-    if (typeof key == 'string') return values(last_update).includes(key) // a push's commit
+    if (Array.isArray(key)) return key.some(sha => values(last_update).includes(sha)) // a push's commits
     // a scan's snapshot: complete only if the marker covers every path at the same commit (a
     // path's later commit elsewhere, or one missing, leaves the entry pending: asked, and its
     // write-time re-check writes nothing if the item caught up meanwhile)

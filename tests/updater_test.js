@@ -289,8 +289,9 @@ const wiring = ({ real_check = false, real_update = false } = {}) => {
   if (real_update) vm.runInContext(pick(['update_item']).join('\n'), context)
   vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
   page.init = () => vm.runInContext('init_updater()', context)
-  // a push of several commits ([id, the files modified] each), oldest first as the webhook lists them
-  page.push_commits = commits => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: commits[commits.length - 1][0], before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: commits.map(([id, modified]) => ({ id, message: 'm', modified })) } }) } }] })
+  // a push of several commits ([id, the files modified, the message] each), oldest first as the
+  // webhook lists them; an empty list is a rewind (a force push to an older commit)
+  page.push_commits = commits => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: commits.length ? commits[commits.length - 1][0] : 'y', before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: commits.map(([id, modified, message = 'm']) => ({ id, message, modified })) } }) } }] })
   page.push = (name, sha) => page.push_commits([[sha, [`${name.slice(1)}.md`]]])
   page.answer = ok => page.modals[page.modals.length - 1].resolve(ok)
   // another tab completed the item's update: its global store carries the marker, the
@@ -397,7 +398,7 @@ const wiring_rows = async () => {
     page.answers['#todoer'] = { v: 2 } // GitHub moved on by the time of the write's re-check
     resolve_check({ v: 1 })
     await tick()
-    check('the scan released: one dialog for the item, the push\'s sha kept', [page.modals.length, page.store().pending_updates], [1, { i1: 'sha2' }])
+    check('the scan released: one dialog for the item, the push\'s sha kept', [page.modals.length, page.store().pending_updates], [1, { i1: ['sha2'] }])
     page.answer(true)
     await tick()
     check('written once, with the version of the re-check (never the stale one)', page.writes, [['#todoer', { v: 2 }]])
@@ -426,7 +427,7 @@ const wiring_rows = async () => {
     page.answers['#todoer'] = new TypeError('Failed to fetch')
     page.answer(true)
     await tick()
-    check('a failed batch: held, no repeat dialog or request, the stop logged', [page.modals.length, page.checks.length, page.store().held_updates, page.store().modified_ids, page.logs.filter(l => l[0] == 'error').map(l => l[1])], [1, 3, { i1: 'sha1' }, [], ['update batch stopped (TypeError: Failed to fetch); the remaining items update on the next push, /update, or page load']])
+    check('a failed batch: held, no repeat dialog or request, the stop logged', [page.modals.length, page.checks.length, page.store().held_updates, page.store().modified_ids, page.logs.filter(l => l[0] == 'error').map(l => l[1])], [1, 3, { i1: ['sha1'] }, [], ['update batch stopped (TypeError: Failed to fetch); the remaining items update on the next push, /update, or page load']])
     page.answers['#todoer'] = { v: 2 }
     page.push('#c', 'shac')
     await tick()
@@ -444,7 +445,7 @@ const wiring_rows = async () => {
     page.answers['#todoer'] = new TypeError('Failed to fetch')
     page.answer(true)
     await tick()
-    check('a duplicate push\'s worker after the failure: no dialog, the work stays held', [page.modals.length, page.store().held_updates, page.store().modified_ids], [1, { i1: 'sha1' }, []])
+    check('a duplicate push\'s worker after the failure: no dialog, the work stays held', [page.modals.length, page.store().held_updates, page.store().modified_ids], [1, { i1: ['sha1'] }, []])
   }
   {
     // R1: A+B accepted, A's check outstanding, a newer push for B, then A fails: B's newer
@@ -466,7 +467,7 @@ const wiring_rows = async () => {
     await tick()
     reject_check(new TypeError('Failed to fetch'))
     await tick()
-    check('A failed with a newer B queued: A held, B queued once with the newer sha, B asked', [page.store().held_updates, page.store().modified_ids, page.store().pending_updates, page.modals.map(m => m.content)], [{ i1: 'sha1' }, ['i2'], { i2: 'sha2' }, ['#updater is ready to update 2 installed items: #a, #b', '#updater is ready to update 1 installed item: #b']])
+    check('A failed with a newer B queued: A held, B queued once with the newer sha, B asked', [page.store().held_updates, page.store().modified_ids, page.store().pending_updates, page.modals.map(m => m.content)], [{ i1: ['sha1'] }, ['i2'], { i2: ['sha2'] }, ['#updater is ready to update 2 installed items: #a, #b', '#updater is ready to update 1 installed item: #b']])
   }
   {
     // R2: an accepted item another tab completes before its write starts is skipped (the
@@ -518,7 +519,7 @@ const wiring_rows = async () => {
     await tick()
     release(true) // B (the accepted entry)
     await tick()
-    check('the batch written; the later B entry keeps its own sha and asks anew', [page.writes.map(w => w[0]), page.store().pending_updates, page.modals.length, page.store().update_modal != null], [['#a', '#b'], { i2: 'sha2' }, 2, true])
+    check('the batch written; the later B entry keeps its own sha and asks anew', [page.writes.map(w => w[0]), page.store().pending_updates, page.modals.length, page.store().update_modal != null], [['#a', '#b'], { i2: ['sha2'] }, 2, true])
     page.remote('#b', 'sha2')
     await tick()
     check('its remote completion dismisses the dialog (nothing skipped, nothing written)', [page.closes, page.store().modified_ids, page.store().pending_updates, page.writes.length, page.logs.filter(l => l[0] == 'warn').length], [1, [], {}, 2, 0])
@@ -543,7 +544,7 @@ const wiring_rows = async () => {
     page.push('#b', 'b2')
     await tick()
     page.remote('#b', 'b1')
-    check('the older accepted B cancelled, the newer queued B kept', [page.store().accepted_updates, page.store().modified_ids, page.store().pending_updates], [{}, ['i2'], { i2: 'b2' }])
+    check('the older accepted B cancelled, the newer queued B kept', [page.store().accepted_updates, page.store().modified_ids, page.store().pending_updates], [{}, ['i2'], { i2: ['b2'] }])
     release(true) // A
     await tick()
     check('A written, the accepted B skipped, the newer B asked', [page.writes.map(w => w[0]), page.modals.map(m => m.content)], [['#a'], ['#updater is ready to update 2 installed items: #a, #b', '#updater is ready to update 1 installed item: #b']])
@@ -587,7 +588,7 @@ const wiring_rows = async () => {
     page.remote('#b', 'b1')
     reject_check(new TypeError('Failed to fetch'))
     await tick()
-    check('A failed after B was cancelled: A held alone', page.store().held_updates, { i1: 'sha1' })
+    check('A failed after B was cancelled: A held alone', page.store().held_updates, { i1: ['sha1'] })
     page.answers['#a'] = { v: 2 }
     page.answers['#c'] = { v: 2 }
     page.push('#c', 'shac')
@@ -608,7 +609,7 @@ const wiring_rows = async () => {
     page.push('#a', 'sha1')
     await tick()
     page.context._on_global_store_change('i1', true)
-    check('no marker, the item queued: the entry and its dialog untouched', [page.store().modified_ids, page.store().pending_updates, page.closes, page.store().update_modal != null], [['i1'], { i1: 'sha1' }, 0, true])
+    check('no marker, the item queued: the entry and its dialog untouched', [page.store().modified_ids, page.store().pending_updates, page.closes, page.store().update_modal != null], [['i1'], { i1: ['sha1'] }, 0, true])
   }
   {
     // the catch-up's find is queued under the check's path -> commit snapshot, so a completion
@@ -909,25 +910,25 @@ const wiring_rows = async () => {
   }
   {
     // a push carrying SEVERAL commits to an item's file (a review cycle's landing, 2026-09-23:
-    // three of the day's pushes to #pusher's script): the entry is keyed by the push's LAST
-    // commit touching the item, the commit the completion marker of the tab that installs it
-    // holds for the path (the latest commit of each path it wrote); keyed by the first commit
-    // the entry never matched and the dialog outlived the update in the other tabs
+    // two of the day's three pushes to #pusher's script): the entry is keyed by the push's
+    // commits touching the item, and the completion marker of the tab that installs it (the
+    // latest commit of each path it wrote) dismisses the dialog by holding any of them; keyed
+    // by the first commit alone the entry never matched and the dialog outlived the update
     const page = wiring()
     page.item('#a', 'i1')
     await page.init()
     await tick()
     page.push_commits([['sha1', ['a.md']], ['sha2', ['a.md']], ['sha3', ['other.md']]])
     await tick()
-    check('two commits to the file: keyed by the second, one dialog', [page.store().pending_updates, page.modals.length], [{ i1: 'sha2' }, 1])
+    check('two commits to the file: both key the entry, one dialog', [page.store().pending_updates, page.modals.length], [{ i1: ['sha1', 'sha2'] }, 1])
     page.remote('#a', 'sha2') // installed elsewhere: the marker holds the file's latest commit
     await tick()
     check('the completion at the last commit dismisses the dialog', [page.store().modified_ids, page.store().pending_updates, page.closes, page.store().update_modal, page.logs.filter(l => l[1] == 'detected remote update for #a').length], [[], {}, 1, null, 1])
   }
   {
-    // the last commit touching the item may touch an embed alone: the marker holds it for the
-    // embed's path (any path's commit matches a push's key), while a marker of the first commit
-    // alone (a tab that installed an older push's version) leaves the entry pending
+    // the push's commits may touch different paths (the main file, then an embed): a marker of
+    // an OLDER version (a tab that installed the previous push's) leaves the entry pending; the
+    // marker of the tab that installed this push holds a commit of it for each path
     const page = wiring()
     page.item('#a', 'i1')
     page.items.i1.attr.embeds = [{ path: 'a.js' }]
@@ -935,12 +936,59 @@ const wiring_rows = async () => {
     await tick()
     page.push_commits([['sha1', ['a.md']], ['sha2', ['a.js']]])
     await tick()
-    check('the last touching commit an embed\'s: the key', page.store().pending_updates, { i1: 'sha2' })
-    page.remote('#a', { 'a.md': 'sha1' })
-    check('a completion at the first commit alone leaves the entry pending, the dialog open', [page.store().modified_ids, page.closes], [['i1'], 0])
+    check('a commit to the main file and one to the embed: both key the entry', page.store().pending_updates, { i1: ['sha1', 'sha2'] })
+    page.remote('#a', { 'a.md': 'sha0' })
+    check('a completion of an older version leaves the entry pending, the dialog open', [page.store().modified_ids, page.closes], [['i1'], 0])
     page.remote('#a', { 'a.md': 'sha1', 'a.js': 'sha2' })
     await tick()
-    check('the completion holding the last commit (for the embed) dismisses the dialog', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
+    check('the completion of this push dismisses the dialog', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
+  }
+  {
+    // review 0 P2 (the reviewer's schedule): a LATER commit to the embed that this listener
+    // drops (a side-push's, via #pusher) queues nothing and leaves the key; the tab that then
+    // installs from master reports the embed at that dropped commit, the main file at the
+    // push's, in the marker the REAL check_updates computes (its GitHub client faked): the
+    // main file's commit dismisses the dialog (keyed by the push's last commit alone, the
+    // entry was stranded)
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.items.i1.attr.embeds = [{ path: 'a.js' }]
+    await page.init()
+    await tick()
+    page.push_commits([['sha1', ['a.md']], ['sha2', ['a.js']]])
+    await tick()
+    page.push_commits([['sha3', ['a.js'], 'a side-push (via #pusher)']])
+    await tick()
+    check('the dropped commit queues nothing: the key and the one dialog unchanged', [page.store().pending_updates, page.modals.length], [{ i1: ['sha1', 'sha2'] }, 1])
+    const installer = wiring({ real_check: true }) // the installing tab's check, at master after both pushes
+    const it = installer.item('#a', 'i1')
+    it.attr.sha = 'sha0'
+    it.attr.embeds = [{ path: 'a.js', sha: 'sha0' }]
+    it.read = () => ''
+    installer.context.window._grammar = { version: 2 }
+    installer.github = { repos: { listCommits: async ({ path }) => ({ data: [{ sha: path == 'a.md' ? 'sha1' : 'sha3' }] }) } }
+    const marker = await installer.context.check_updates(it)
+    check('the installing tab\'s marker: the main file at the push\'s commit, the embed at the dropped one', marker, { 'a.md': 'sha1', 'a.js': 'sha3' })
+    page.remote('#a', marker)
+    await tick()
+    check('the completion dismisses the dialog through the main file\'s commit', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
+  }
+  {
+    // a rewind (a force push back to the push's first commit: an empty commit list) re-keys
+    // nothing; a tab that then installs reports the file at that commit, which is the version
+    // now, and the marker dismisses the dialog (keyed by the last commit alone, stranded)
+    const page = wiring()
+    page.item('#a', 'i1')
+    await page.init()
+    await tick()
+    page.push_commits([['sha1', ['a.md']], ['sha2', ['a.md']]])
+    await tick()
+    page.push_commits([])
+    await tick()
+    check('the rewind queues nothing', [page.store().pending_updates, page.modals.length], [{ i1: ['sha1', 'sha2'] }, 1])
+    page.remote('#a', 'sha1')
+    await tick()
+    check('the completion at the rewound commit dismisses the dialog', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
   }
 }
 
