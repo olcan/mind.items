@@ -428,7 +428,7 @@ async function run() {
     await flush()
     await w.sandbox._this.store._push
     check('S14 verified at the fetched head, pushed as a fast-forward', [w.fileAtHead('items/doc2.md'), B.pushable, sB.sha === sB.remote_sha], ['B created\ndone', false, true])
-    check('S14 the base moved to the created head before the push', w.submitted[w.submitted.length - 1][0] === created || w.repo.commits[w.submitted[w.submitted.length - 1][0]] !== undefined, true)
+    check('S14 the base moved to the created head before the push', w.submitted[w.submitted.length - 1][0], created)
     check('S14 no conflict warned', w.logs.some(l => l[0] == 'warn' && l[1].includes('changed by unknown')), false)
   }
   // S11: a non-404 getContent failure during the check: the push fails and is logged, the
