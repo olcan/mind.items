@@ -313,15 +313,17 @@ function push_item(item, manual = false, retried = false) {
     // )
     try {
       const path = `items/${item.saved_id}.md`
-      const commit_sha = _this.global_store.commit_sha
-      const tree_sha = _this.global_store.tree_sha
 
-      // once this session adopted an external head as its base (below), that base holds commits
-      // this tab has not verified item by item: an AUTOMATIC push first reads its own file at
-      // the base, which must be what this tab last pushed or saw (absent for a never-pushed
-      // item), else it stops and marks, never overwriting a text the tab does not know
+      // once this session adopted an external head as its base (below), master holds commits
+      // this tab has not verified item by item: an AUTOMATIC push first fetches the CURRENT
+      // head (the base may lag it: a file created or changed externally since is absent or
+      // different at the base, although this tab already holds its delivered text as pushed)
+      // and reads its own file there, which must be what this tab last pushed or saw (absent
+      // for a never-pushed item), else it stops and marks, never overwriting a text the tab
+      // does not know; the verified head becomes the base, so the push is a fast-forward
       if (!manual && _this.store.external_base) {
-        const blob = await remote_blob_sha(github, owner, repo, path, commit_sha)
+        const head = await branch_head(github, owner, repo, dest)
+        const blob = await remote_blob_sha(github, owner, repo, path, head.commit_sha)
         if (blob != state.remote_sha) {
           _this.warn(
             `push failed for ${item.name}: ${path} changed by unknown (external) ` +
@@ -331,7 +333,11 @@ function push_item(item, manual = false, retried = false) {
           item.pushable = true // mark pushable again (if not already)
           return
         }
+        _this.global_store.commit_sha = head.commit_sha
+        _this.global_store.tree_sha = head.tree_sha
       }
+      const commit_sha = _this.global_store.commit_sha
+      const tree_sha = _this.global_store.tree_sha
 
       // the outgoing text and its hash, captured TOGETHER after the await above: a save during
       // that read must not push one text and record another's hash (the tree below and the
@@ -412,17 +418,12 @@ function push_item(item, manual = false, retried = false) {
         }
         // master moved under us (external commits, e.g. the vault's item tool): fetch its head
         // and adopt it as the base; from here on every automatic push verifies its own file at
-        // the base before writing (see above), so no queued push can overwrite an external change
-        const resp = await github.repos.getBranch({
-          owner,
-          repo,
-          branch: 'master',
-        })
-        const head_sha = resp.data.commit?.sha
-        const head_tree = resp.data.commit?.commit?.tree?.sha
-        if (!head_sha || !head_tree) throw new Error(`can not push to empty repo ${dest}`)
-        _this.global_store.commit_sha = head_sha
-        _this.global_store.tree_sha = head_tree
+        // the fetched head before writing (see above), so no queued push can overwrite an
+        // external change
+        const head = await branch_head(github, owner, repo, dest)
+        const head_sha = head.commit_sha
+        _this.global_store.commit_sha = head.commit_sha
+        _this.global_store.tree_sha = head.tree_sha
         _this.store.external_base = true
         if (!manual) {
           // retry ONCE, and only when the external commits left this item's own file as this
@@ -486,6 +487,15 @@ function push_item(item, manual = false, retried = false) {
       throw e
     }
   }))
+}
+
+// returns { commit_sha, tree_sha } of master's head in repo (throws on an empty repo)
+async function branch_head(github, owner, repo, dest) {
+  const resp = await github.repos.getBranch({ owner, repo, branch: 'master' })
+  const commit_sha = resp.data.commit?.sha
+  const tree_sha = resp.data.commit?.commit?.tree?.sha
+  if (!commit_sha || !tree_sha) throw new Error(`can not push to empty repo ${dest}`)
+  return { commit_sha, tree_sha }
 }
 
 // returns blob sha of file at path in repo at ref, or undefined if absent (404)

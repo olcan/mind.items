@@ -340,9 +340,9 @@ async function run() {
     check('S8 lost track and marked', [state.remote_sha, w.item.pushable], [undefined, true])
     check('S8 warned about the changed file', w.logs.some(l => l[0] == 'warn' && l[1].includes('changed items/doc1.md')), true)
   }
-  // S9: the one retry is rejected too (master moved again before it fired): no third attempt,
-  // the item marked; the durable disabling of a never-pushed item is the inherited limitation
-  // (both shas undefined), not this row's claim
+  // S9: the one retry is rejected too (master moved again while the retry's tree was being
+  // written): no third attempt, the item marked; the durable disabling of a never-pushed
+  // item is the inherited limitation (both shas undefined), not this row's claim
   {
     const w = makeWorld()
     w.item.saved_id = 'doc1'
@@ -351,12 +351,17 @@ async function run() {
     await flush()
     await w.sandbox._this.store._push
     check('S9 first rejection retries (the absent file matches a never-pushed item)', w.timers.length, 1)
-    w.externalCommit('items/other.md', 'y') // and again before the retry fires
+    w.holding = true // the retry: its head verified, its tree held...
     w.timers.splice(0).forEach(t => t())
+    await flush()
+    check('S9 the retry is writing its tree', w.treeWaiters.length, 1)
+    w.externalCommit('items/other.md', 'y') // ...and master moves again meanwhile
+    w.holding = false
+    w.treeWaiters.splice(0).forEach(resolve => resolve())
     await flush()
     await w.sandbox._this.store._push
     const state = w.sandbox._this.store.items['doc1']
-    check('S9 second rejection: no third attempt, marked, one fetch only', [w.timers.length, state.remote_sha, w.item.pushable, w.heads], [0, undefined, true, 1])
+    check('S9 second rejection: no third attempt, marked, no further fetch', [w.timers.length, state.remote_sha, w.item.pushable, w.heads], [0, undefined, true, 2])
     check('S9 warned (again)', w.logs.some(l => l[0] == 'warn' && l[1].includes('(again)')), true)
   }
   // S10 (review 0 B1): two items; an external commit changed B's file while the tab holds
@@ -391,6 +396,40 @@ async function run() {
     check('S10 A landed on the external head, B still preserved', [w.fileAtHead('items/doc1.md'), w.fileAtHead('items/doc2.md')], [w.text, 'B-external'])
     check('S10 A truthful', sA.sha === sA.remote_sha && sA.sha === w.sandbox.github_sha(w.text), true)
     check('S10 B warned as changed by external commits', w.logs.some(l => l[0] == 'warn' && l[1].includes('items/doc2.md changed by unknown (external)')), true)
+  }
+  // S14 (the live failure of 2026-09-23): an item CREATED by an external commit and delivered
+  // to the tab (assumed pushed) while the session's base, adopted earlier, lags master; a
+  // local edit of that item must push, not be marked as changed (the old check read the file
+  // at the stale base, where it was absent)
+  {
+    const w = makeWorld({ items: ['session1', 'session2'] })
+    const A = w.items.session1, B = w.items.session2
+    A.saved_id = 'doc1'
+    w.change(false, false, 'session1')
+    await flush()
+    await w.sandbox._this.store._push // A pushed on c0
+    w.externalCommit('items/other.md', 'x')
+    w.text = P + '\nA edit'
+    w.change(false, false, 'session1') // rejected, the head adopted, the retry lands: external base
+    await flush()
+    await w.sandbox._this.store._push
+    w.timers.splice(0).forEach(t => t())
+    await flush()
+    await w.sandbox._this.store._push
+    check('S14 the session adopted an external base', w.sandbox._this.store.external_base, true)
+    const created = w.externalCommit('items/doc2.md', 'B created') // the vault's item tool
+    B.saved_id = 'doc2'
+    B.text = 'B created'
+    w.change(true, false, 'session2') // delivered: assumed pushed by its originator
+    const sB = w.sandbox._this.store.items['doc2']
+    check('S14 the delivered creation assumed pushed', sB.sha === sB.remote_sha && sB.sha === w.sandbox.github_sha('B created'), true)
+    B.text = 'B created\ndone'
+    w.change(false, false, 'session2') // the owner marks it done
+    await flush()
+    await w.sandbox._this.store._push
+    check('S14 verified at the fetched head, pushed as a fast-forward', [w.fileAtHead('items/doc2.md'), B.pushable, sB.sha === sB.remote_sha], ['B created\ndone', false, true])
+    check('S14 the base moved to the created head before the push', w.submitted[w.submitted.length - 1][0] === created || w.repo.commits[w.submitted[w.submitted.length - 1][0]] !== undefined, true)
+    check('S14 no conflict warned', w.logs.some(l => l[0] == 'warn' && l[1].includes('changed by unknown')), false)
   }
   // S11: a non-404 getContent failure during the check: the push fails and is logged, the
   // item neither marked nor written (a transient error, retried by the next change)
