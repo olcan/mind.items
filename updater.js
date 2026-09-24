@@ -278,8 +278,9 @@ function _on_global_store_change(id, remote) {
   // completion of an older accepted version leaves a newer queued entry and its dialog alone)
   let { modified_ids, pending_updates, accepted_updates, held_updates } = _this.store
   const marker = item.global_store._updater ?? {} // no marker before a first update
-  // its entries, each path at its latest publication by any tab (the app's persistence merges
-  // the publications, see completion_marker), and the CERTIFIED entries: those of the complete
+  // its entries as delivered (the app's persistence merges the publications: the fields one
+  // supplies take precedence, the fields it omits inherit the stored ones, see
+  // completion_marker), and the CERTIFIED entries: those of the complete
   // one-ref check that published the certification (one string, kept or replaced whole; an
   // older updater's marker inherits the stored one, which still names only those entries)
   const last_update = marker.last_update ?? {}
@@ -295,11 +296,11 @@ function _on_global_store_change(id, remote) {
       // read every path at one ref, so a path at one of the push's commits means that ref was
       // at the push or later, hence every touched path at the push's version or newer, written
       // if it differed from that tab's copy and current already if not; or master was rewound
-      // to that commit, the version then), or when every touched path is, as last published by
-      // any tab, at one of the push's commits for it (the entries of an older updater's marker,
-      // whose check read each path at the branch name as it moved, or of a finding cut short by
-      // an error, say nothing about the paths they omit, and can hold a stale version of a path
-      // beside a newer one; the merged entries hold each path as last written)
+      // to that commit, the version then), or when every touched path is, in the entries as
+      // delivered, at one of the push's commits for it (the entries of an older updater's
+      // marker, whose check read each path at the branch name as it moved, or of a finding cut
+      // short by an error, say nothing about the paths they omit, and can hold a stale version
+      // of a path beside a newer one; a path a publication omits keeps its stored entry)
       const shas = values(certified)
       const at = path => last_update[path] ?? last_update['/' + path] // an embed's path may keep its slash
       return key.commits.some(sha => shas.includes(sha)) || entries(key.paths).every(([path, ids]) => ids.includes(at(path)))
@@ -553,7 +554,7 @@ const checked_at = new WeakMap()
 // its certification, the ref and those entries as ONE string. The app's persistence merges a
 // published global store into the stored one field by field (`_.defaultsDeep`: what the
 // publication leaves undefined is filled from what was stored, nested objects included), so a
-// reader is delivered the entries of every publication so far, each path at its latest, and a
+// reader is delivered the entries a publication supplies over the stored ones it omits, and a
 // certification published as a separate field beside them would be inherited by a marker that
 // omits it (an older updater's, a cut-short finding's) and certify entries it never saw; a
 // string is kept or replaced whole, so an inherited certification still names exactly the
