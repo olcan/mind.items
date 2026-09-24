@@ -319,11 +319,12 @@ function push_item(item, manual = false, retried = false) {
       // never overwriting a text the tab does not know. A verified item pays nothing on its
       // later pushes: any external commit after that moves master, so the push is rejected
       // below and verified again at the fetched head; a new adoption starts a new memo.
-      // The base and the memo are taken BEFORE the read, so the read vouches for exactly
-      // that base and that memo: adoptions run serialized with pushes (see adopt_head), but
-      // should one ever move the base during the read, this push writes on the base it took
-      // (rejected by the ref update if master moved) and records the read in the memo it took
-      // (dropped by the adoption), never on or in a base and memo the read did not see
+      // The base and the memo are taken BEFORE the read, and the push keeps them whatever the
+      // read sees (a live-head read may see a head newer than the base; a stale parent is
+      // rejected by the ref update): adoptions run serialized with pushes (see adopt_head),
+      // but should one ever move the base during the read, this push writes on the base it
+      // took (rejected if master moved) and records the read in the memo it took (dropped by
+      // the adoption), never on or in a base and memo it did not take
       const commit_sha = _this.global_store.commit_sha
       const tree_sha = _this.global_store.tree_sha
       let verified = _this.store.verified
