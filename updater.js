@@ -238,8 +238,8 @@ async function init_updater() {
           )
           // update item if any paths were modified in any commits: ALL such commits of the
           // push (their ids, in order) and, by item path, the commits touching it key the entry
-          // (pending_updates); a completion another tab publishes dismisses it when its marker
-          // holds ANY of those commits, or path by path (_on_global_store_change).
+          // (pending_updates); a completion another tab publishes dismisses it when its
+          // certified entries hold ANY of those commits, or path by path (_on_global_store_change).
           // Keyed by the FIRST such commit alone (until 2026-09-23) a push carrying two commits
           // to one file never matched the marker and the dialog outlived the update in every
           // other tab; keyed by the last alone, a later commit to that path which this listener
@@ -278,23 +278,31 @@ function _on_global_store_change(id, remote) {
   // completion of an older accepted version leaves a newer queued entry and its dialog alone)
   let { modified_ids, pending_updates, accepted_updates, held_updates } = _this.store
   const marker = item.global_store._updater ?? {} // no marker before a first update
+  // its entries, each path at its latest publication by any tab (the app's persistence merges
+  // the publications, see completion_marker), and the CERTIFIED entries: those of the complete
+  // one-ref check that published the certification (one string, kept or replaced whole; an
+  // older updater's marker inherits the stored one, which still names only those entries)
   const last_update = marker.last_update ?? {}
+  let certified = {}
+  try {
+    if (marker.certified) certified = JSON.parse(marker.certified).last_update ?? {}
+  } catch (e) {} // not this updater's certification: none
   const done = state => {
     const key = state?.[id]
     if (!key) return false
     if (Array.isArray(key.commits)) {
-      // a push. A marker with provenance (`at`: a complete finding of the one-ref check, updaters
-      // of 2026-09-23 on) dismisses it when it holds ANY of the push's commits: every path was
-      // read at one commit, so a path at one of the push's commits means that commit was at
-      // the push or later, hence every touched path at the push's version or newer, written if
-      // it differed from that tab's copy and current already if not (or master was rewound to
-      // that commit, the version then). A marker without (an older updater's, until its tab
-      // reloads: its check read each path at the branch name as it moved, so it can hold a
-      // stale version of one path beside a newer one; or a finding cut short by an error)
-      // dismisses it only path by path: every touched path at one of the push's commits for it
-      const at = path => last_update[path] ?? last_update['/' + path] // a marker's path may keep its slash
-      if (marker.at) return key.commits.some(sha => values(last_update).includes(sha))
-      return entries(key.paths).every(([path, ids]) => ids.includes(at(path)))
+      // a push: dismissed when the CERTIFIED entries hold one of its commits (a complete check
+      // read every path at one ref, so a path at one of the push's commits means that ref was
+      // at the push or later, hence every touched path at the push's version or newer, written
+      // if it differed from that tab's copy and current already if not; or master was rewound
+      // to that commit, the version then), or when every touched path is, as last published by
+      // any tab, at one of the push's commits for it (the entries of an older updater's marker,
+      // whose check read each path at the branch name as it moved, or of a finding cut short by
+      // an error, say nothing about the paths they omit, and can hold a stale version of a path
+      // beside a newer one; the merged entries hold each path as last written)
+      const shas = values(certified)
+      const at = path => last_update[path] ?? last_update['/' + path] // an embed's path may keep its slash
+      return key.commits.some(sha => shas.includes(sha)) || entries(key.paths).every(([path, ids]) => ids.includes(at(path)))
     }
     // a scan's snapshot: complete only if the marker covers every path at the same commit (a
     // path's later commit elsewhere, or one missing, leaves the entry pending: asked, and its
@@ -537,8 +545,24 @@ const removed_source = attr =>
   (attr?.repo == 'mind.items' && REMOVED_SOURCES[attr.path?.replace(/^\//, '')]) || null
 
 // a COMPLETE finding of check_updates -> the ref every path was read at (its provenance, published
-// with the completion marker, see update_item and _on_global_store_change)
+// with the completion marker, see completion_marker and _on_global_store_change)
 const checked_at = new WeakMap()
+
+// the completion marker of a finding just written (item.global_store._updater): its entries
+// (path -> commit) for every reader, and for a COMPLETE finding of this updater's one-ref check
+// its certification, the ref and those entries as ONE string. The app's persistence merges a
+// published global store into the stored one field by field (`_.defaultsDeep`: what the
+// publication leaves undefined is filled from what was stored, nested objects included), so a
+// reader is delivered the entries of every publication so far, each path at its latest, and a
+// certification published as a separate field beside them would be inherited by a marker that
+// omits it (an older updater's, a cut-short finding's) and certify entries it never saw; a
+// string is kept or replaced whole, so an inherited certification still names exactly the
+// entries of the complete check that published it, and an explicit null is kept too, so a
+// cut-short finding revokes the stored certification instead of inheriting it
+function completion_marker(updates) {
+  const at = checked_at.get(updates)
+  return { last_update: updates, certified: at ? JSON.stringify({ at, last_update: updates }) : null }
+}
 
 // checks for updates to item, returns path->hash object of updates or null
 // (or, for a removed source, the one key `removed`: the reason, see REMOVED_SOURCES)
@@ -1128,10 +1152,9 @@ async function update_item(item, updates) {
       return fail_update(
         `update write refused for ${item.name} from ${source}/${path} (read-only or cancelled)`
       )
-    // published ONCE, at success; `at`, the ref the check read every path at, marks a complete
-    // finding of the one-ref check (2026-09-23 on): the other tabs dismiss a pushed update on
-    // it by one commit, on a marker without it only path by path (_on_global_store_change)
-    item.global_store._updater = { last_update: updates, at: checked_at.get(updates) }
+    // published ONCE, at success (see completion_marker: a complete finding certified, the
+    // other tabs dismiss a pushed update on it by one commit, else path by path)
+    item.global_store._updater = completion_marker(updates)
     if (item.name != prev_name)
       _this.warn(
         `renaming update for ${item.name} (was ${prev_name})` +

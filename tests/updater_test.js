@@ -99,6 +99,21 @@ const scripted = outcomes => {
   return { run, state }
 }
 const logger = logs => ({ log: m => logs.push(['log', m]), warn: m => logs.push(['warn', m]) })
+// the app's persistence of a published global store, what a reader is delivered (mind.page
+// src/hidden_persistence.ts: cloneState, a JSON round trip dropping undefined fields, then adopt,
+// `_.defaultsDeep(pending.item, found.item)`: every field the publication leaves undefined is
+// filled from the stored state, nested objects included, null and strings kept as published)
+const persisted = (pending, found) => {
+  const clone = value => JSON.parse(JSON.stringify(value ?? {}))
+  const fill = (target, source) => {
+    for (const [key, value] of Object.entries(source)) {
+      if (target[key] === undefined) target[key] = value
+      else if (target[key] && typeof target[key] == 'object' && value && typeof value == 'object') fill(target[key], value)
+    }
+    return target
+  }
+  return fill(clone(pending), clone(found))
+}
 const failed = new Error('HttpError: Failed to fetch')
 const PAUSED = ['warn', 'update checks paused (Error: HttpError: Failed to fetch); retrying when the connection returns']
 
@@ -287,19 +302,24 @@ const wiring = ({ real_check = false, real_update = false } = {}) => {
   vm.createContext(context)
   if (real_check) vm.runInContext(pick(['check_updates']).join('\n') + '\nasync function pace_github_call() {}', context) // the declaration replaces the stub
   if (real_update) vm.runInContext(pick(['update_item']).join('\n'), context)
-  vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
+  vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change', 'completion_marker']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
   page.init = () => vm.runInContext('init_updater()', context)
   // a push of several commits ([id, the files modified, the message] each), oldest first as the
   // webhook lists them; an empty list is a rewind (a force push to an older commit)
   page.push_commits = commits => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: commits.length ? commits[commits.length - 1][0] : 'y', before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: commits.map(([id, modified, message = 'm']) => ({ id, message, modified })) } }) } }] })
   page.push = (name, sha) => page.push_commits([[sha, [`${name.slice(1)}.md`]]])
   page.answer = ok => page.modals[page.modals.length - 1].resolve(ok)
-  // another tab completed the item's update: its global store carries the marker, the
-  // path -> commit snapshot it wrote (a string stands for the main file alone at that commit)
-  // and, from a current updater's complete check, the ref it read every path at (`at`)
+  // another tab completed the item's update and published its marker, delivered here as the app
+  // PERSISTS it (see persisted below): the path -> commit entries it wrote (a string stands for
+  // the main file alone at that commit) and, from a current updater, the real completion_marker
+  // (`at` a string: a complete check's ref, certified; `at` null: a finding cut short, the
+  // certification revoked); `at` undefined: an older updater's marker, the entries alone
   page.remote = (name, marker, at) => {
     const it = Object.values(page.items).find(i => i.name == name)
-    it.global_store._updater = { last_update: typeof marker == 'string' ? { [it.attr.path]: marker } : marker, at }
+    const updates = typeof marker == 'string' ? { [it.attr.path]: marker } : marker
+    if (at) vm.runInContext('checked_at', context).set(updates, at)
+    const published = at === undefined ? { last_update: updates } : context.completion_marker(updates)
+    it.global_store._updater = persisted(published, it.global_store._updater)
     page.context._on_global_store_change(it.id, true)
   }
   page.store = () => page.context._this.store
@@ -1036,34 +1056,65 @@ const wiring_rows = async () => {
     check('its completion dismisses the waiting tab\'s dialog', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
   }
   {
-    // review 1 and 2 P2 (the consumer): a marker WITHOUT provenance (an older updater's check
-    // that spanned the push, published until its tab reloads: the embed at the push's commit
-    // beside the main file MISSING, or at a STALE version it had not installed before) holds a
-    // commit of the push but does not dismiss the entry: without provenance every touched path
-    // must be at one of the push's commits for it; with none arriving after (the follow-up
-    // failed) the entry stays, its dialog open. A marker with provenance holding one commit
-    // dismisses, its other touched path current in that tab already (omitted from the finding)
+    // reviews 1 and 2 P2 (the consumer): an older updater's marker (no certification: its check
+    // read each path at the branch name as it moved, so its entries can hold the embed at the
+    // push's commit beside the main file MISSING, or at a STALE version it had not installed
+    // before) does not dismiss the entry on the embed's commit: without a certification every
+    // touched path must be, as last published, at one of the push's commits for it; its
+    // follow-up publishing the main file at the push's commit completes that (the app merges
+    // the publications, each path at its latest). A current updater's certified marker holding
+    // one commit dismisses, its other touched path current in that tab already (omitted). The
+    // embed's path keeps its leading slash in the item's attributes and the markers
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.items.i1.attr.embeds = [{ path: '/a.js' }]
+    await page.init()
+    await tick()
+    page.push_commits([['sha1', ['a.md']], ['sha2', ['a.js']]])
+    await tick()
+    check('the embed keyed by its repository path', page.store().pending_updates, { i1: { commits: ['sha1', 'sha2'], paths: { 'a.md': ['sha1'], 'a.js': ['sha2'] } } })
+    page.remote('#a', { '/a.js': 'sha2' })
+    check('no certification, the main file missing: the entry stays', [page.store().modified_ids, page.closes], [['i1'], 0])
+    page.remote('#a', { 'a.md': 'pre-main', '/a.js': 'sha2' })
+    check('no certification, the main file at a stale version beside the embed at the push\'s: the entry stays', [page.store().modified_ids, page.closes], [['i1'], 0])
+    page.remote('#a', { 'a.md': 'sha1' })
+    await tick()
+    check('no certification, the follow-up\'s main file at the push\'s commit completes the entries: dismissed', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
+    page.push_commits([['sha4', ['a.md']], ['sha5', ['a.js']]])
+    await tick()
+    page.remote('#a', { '/a.js': 'sha5' }, 'head5') // certified: the main file current in that tab already
+    await tick()
+    check('certified, one commit of the push suffices', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 2, null])
+  }
+  {
+    // review 3 P2: the app's persistence merges a publication into the stored marker, so a
+    // marker that omits the certification (an older updater's) is delivered WITH the stored one,
+    // and a cut-short finding's (published null) without: a stored certification names only the
+    // entries of the complete check that published it, so an older updater's mixed publication
+    // after it dismisses nothing on the stored certification, and its stale main file is not
+    // taken for the push's; a current cut-short publication leaves the embed's obligation to the
+    // merged entries; the complete follow-up of either dismisses
     const page = wiring()
     page.item('#a', 'i1')
     page.items.i1.attr.embeds = [{ path: 'a.js' }]
     await page.init()
     await tick()
+    page.remote('#a', { 'a.md': 'old-main', 'a.js': 'old-embed' }, 'prior-head') // a complete update before, stored
+    const stored = page.items.i1.global_store._updater.certified
     page.push_commits([['sha1', ['a.md']], ['sha2', ['a.js']]])
     await tick()
-    page.remote('#a', { 'a.js': 'sha2' })
-    check('no provenance, the main file missing: the entry stays', [page.store().modified_ids, page.closes], [['i1'], 0])
-    page.remote('#a', { 'a.md': 'pre-main', 'a.js': 'sha2' })
-    check('no provenance, the main file at a stale version beside the embed at the push\'s: the entry stays', [page.store().modified_ids, page.closes], [['i1'], 0])
-    page.remote('#a', { 'a.md': 'sha1' })
-    check('no provenance, the follow-up\'s main file alone: the entry stays (the residual)', [page.store().modified_ids, page.closes], [['i1'], 0])
-    page.remote('#a', { '/a.md': 'sha1', 'a.js': 'sha2' }) // no provenance, every touched path at the push's commit (a leading slash kept)
+    page.remote('#a', { 'a.md': 'pre-main', 'a.js': 'sha2' }) // an older updater's mixed finding
+    check('the older updater\'s marker delivered with the stored certification and its own entries, the entry stays', [page.items.i1.global_store._updater, page.store().modified_ids, page.closes], [{ last_update: { 'a.md': 'pre-main', 'a.js': 'sha2' }, certified: stored }, ['i1'], 0])
+    page.remote('#a', { 'a.md': 'sha1' }) // its follow-up
     await tick()
-    check('no provenance, every touched path at the push\'s commit: dismissed', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
+    check('the older updater\'s follow-up completes the merged entries: dismissed', [page.items.i1.global_store._updater.last_update, page.store().modified_ids, page.closes], [{ 'a.md': 'sha1', 'a.js': 'sha2' }, [], 1])
     page.push_commits([['sha4', ['a.md']], ['sha5', ['a.js']]])
     await tick()
-    page.remote('#a', { 'a.js': 'sha5' }, 'sha5') // with provenance: the main file current in that tab already
+    page.remote('#a', { 'a.md': 'sha4' }, null) // a current updater's finding cut short at the embed's query
+    check('a cut-short finding delivered with the certification revoked, the embed still owed: the entry stays', [page.items.i1.global_store._updater, page.store().modified_ids, page.closes], [{ last_update: { 'a.md': 'sha4', 'a.js': 'sha2' }, certified: null }, ['i1'], 1])
+    page.remote('#a', { 'a.js': 'sha5' }, 'head5') // its complete follow-up
     await tick()
-    check('with provenance, one commit of the push suffices', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 2, null])
+    check('the complete follow-up, certified, dismisses', [JSON.parse(page.items.i1.global_store._updater.certified), page.store().modified_ids, page.closes], [{ at: 'head5', last_update: { 'a.js': 'sha5' } }, [], 2])
   }
   {
     // review 2 P2: a PINNED install (`attr.branch` a commit sha, as docs/mind_sync installs the
