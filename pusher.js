@@ -9,6 +9,7 @@ function _on_welcome() {
 
 async function init_pusher() {
   _this.store.items = {} // init first, in case there are errors below
+  _this.store.external_base = false // the base is verified item by item below (see push_item)
 
   // look up push destination from global store, or from user prompt
   // if destination is missing, cancel init (i.e. disable) with warning
@@ -315,6 +316,23 @@ function push_item(item, manual = false, retried = false) {
       const commit_sha = _this.global_store.commit_sha
       const tree_sha = _this.global_store.tree_sha
 
+      // once this session adopted an external head as its base (below), that base holds commits
+      // this tab has not verified item by item: an AUTOMATIC push first reads its own file at
+      // the base, which must be what this tab last pushed or saw (absent for a never-pushed
+      // item), else it stops and marks, never overwriting a text the tab does not know
+      if (!manual && _this.store.external_base) {
+        const blob = await remote_blob_sha(github, owner, repo, path, commit_sha)
+        if (blob != state.remote_sha) {
+          _this.warn(
+            `push failed for ${item.name}: ${path} changed by unknown (external) ` +
+              `commits in ${dest}; manual /push or /pull is required`
+          )
+          state.remote_sha = undefined // lost track, disable auto-push
+          item.pushable = true // mark pushable again (if not already)
+          return
+        }
+      }
+
       // create tree based off the tree of the latest commit
       // tree contains item file and symlink iff item is named
       // NOTE: drop base_tree for root commit on empty repo
@@ -371,53 +389,58 @@ function push_item(item, manual = false, retried = false) {
           sha: commit.sha,
         })
       } catch (e) {
-        if (String(e.message).includes('Update is not a fast forward')) {
-          // master moved under us (external commits, e.g. the vault's item tool): fetch its head
-          const resp = await github.repos.getBranch({
-            owner,
-            repo,
-            branch: 'master',
-          })
-          const commit_sha = resp.data.commit?.sha
-          const tree_sha = resp.data.commit?.commit?.tree?.sha
-          if (!commit_sha || !tree_sha)
-            throw new Error(`can not push to empty repo ${dest}`)
-          if (!manual) {
-            // an automatic push retries ONCE, and only when the external commits left this
-            // item's own file as this tab last pushed or saw it (its blob at the new head equals
-            // state.remote_sha; both absent for a never-pushed item); otherwise the repo holds
-            // a text this tab does not know: stop and mark, never overwrite
-            const blob = retried ? undefined : await remote_blob_sha(github, owner, repo, path, commit_sha)
-            if (retried || blob != state.remote_sha) {
-              _this.warn(
-                `push failed for ${item.name} due to unknown (external) ` +
-                  `commits in ${dest}` +
-                  (retried ? ` (again)` : ` that changed ${path}`) +
-                  `; manual /push or /pull is required`
-              )
-              state.remote_sha = undefined // lost track, disable auto-push
-              item.pushable = true // mark pushable again (if not already)
-              return
-            }
+        if (!String(e.message).includes('Update is not a fast forward')) throw e
+        if (!manual && retried) {
+          // the one retry lost too: master keeps moving under us; stop and mark
+          _this.warn(
+            `push failed for ${item.name} due to unknown (external) ` +
+              `commits in ${dest} (again); manual /push or /pull is required`
+          )
+          state.remote_sha = undefined // lost track, disable auto-push
+          item.pushable = true // mark pushable again (if not already)
+          return
+        }
+        // master moved under us (external commits, e.g. the vault's item tool): fetch its head
+        // and adopt it as the base; from here on every automatic push verifies its own file at
+        // the base before writing (see above), so no queued push can overwrite an external change
+        const resp = await github.repos.getBranch({
+          owner,
+          repo,
+          branch: 'master',
+        })
+        const head_sha = resp.data.commit?.sha
+        const head_tree = resp.data.commit?.commit?.tree?.sha
+        if (!head_sha || !head_tree) throw new Error(`can not push to empty repo ${dest}`)
+        _this.global_store.commit_sha = head_sha
+        _this.global_store.tree_sha = head_tree
+        _this.store.external_base = true
+        if (!manual) {
+          // retry ONCE, and only when the external commits left this item's own file as this
+          // tab last pushed or saw it (its blob at the head equals state.remote_sha; both absent
+          // for a never-pushed item); otherwise stop and mark, never overwrite
+          const blob = await remote_blob_sha(github, owner, repo, path, head_sha)
+          if (blob != state.remote_sha) {
             _this.warn(
               `push failed for ${item.name} due to unknown (external) ` +
-                `commits in ${dest} that left ${path} as pushed; retrying once after fetching latest commit ...`
+                `commits in ${dest} that changed ${path}; manual /push or /pull is required`
             )
-            _this.global_store.commit_sha = commit_sha
-            _this.global_store.tree_sha = tree_sha
-            setTimeout(() => push_item(item, false, true /*retried*/)) // retry once
+            state.remote_sha = undefined // lost track, disable auto-push
+            item.pushable = true // mark pushable again (if not already)
             return
           }
           _this.warn(
             `push failed for ${item.name} due to unknown (external) ` +
-              `commits in ${dest}; retrying after fetching latest commit ...`
+              `commits in ${dest} that left ${path} as pushed; retrying once after fetching latest commit ...`
           )
-          _this.global_store.commit_sha = commit_sha
-          _this.global_store.tree_sha = tree_sha
-          setTimeout(() => push_item(item, true /*manual*/)) // retry
+          setTimeout(() => push_item(item, false, true /*retried*/).catch(e => {})) // errors already logged
           return
         }
-        throw e
+        _this.warn(
+          `push failed for ${item.name} due to unknown (external) ` +
+            `commits in ${dest}; retrying after fetching latest commit ...`
+        )
+        setTimeout(() => push_item(item, true /*manual*/).catch(e => {})) // errors already logged
+        return
       }
       _this.global_store.commit_sha = commit.sha
       _this.global_store.tree_sha = tree.sha
