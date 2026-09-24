@@ -459,7 +459,7 @@ async function run() {
     await w.sandbox._this.store._push
     await flush()
     const state = w.sandbox._this.store.items['doc1']
-    check('S13 the pushed text and its hash agree, the queued push skipped', [w.fileAtHead('items/doc1.md'), state.sha === state.remote_sha && state.sha === w.sandbox.github_sha(w.text)], [w.text, true])
+    check('S13 one push, the pushed text and its recorded hash agree', [w.pushed.length, w.fileAtHead('items/doc1.md'), state.sha === state.remote_sha && state.sha === w.sandbox.github_sha(w.text)], [3, w.text, true])
     check('S13 no false conflict', [w.item.pushable, w.logs.some(l => l[0] == 'warn' && l[1].includes('changed by unknown'))], [false, false])
     w.text = P + '\nA-edit-3'
     w.change(false)
