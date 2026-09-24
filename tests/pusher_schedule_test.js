@@ -38,6 +38,8 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
     heads: 0, // getBranch calls
     repo: { head: 'c0', commits: { c0: { parent: null, tree: 't0' } }, trees: { t0: {} }, n: 0 },
     getContentError: null, // thrown by getContent when set (a non-404 failure)
+    holdingContent: false, // getContent stalls while true (a slow read)
+    contentWaiters: [], // held getContent resolvers when holdingContent
     getBranchError: null, // thrown by getBranch when set
   }
   const blob = content => ({ sha: world.sandbox.github_sha(content), content })
@@ -93,6 +95,7 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
       getContent: async ({ path, ref }) => {
         world.lastContentRef = ref
         if (world.getContentError) throw world.getContentError
+        if (world.holdingContent) await new Promise(resolve => world.contentWaiters.push(resolve))
         const entry = world.repo.trees[world.repo.commits[ref].tree][path]
         if (!entry) throw Object.assign(new Error('Not Found'), { status: 404 })
         return { data: { sha: entry.sha } }
@@ -423,6 +426,46 @@ async function run() {
     const state = w.sandbox._this.store.items['doc1']
     check('S12 failed without marking or writing', [w.timers.length, w.pushed.length, state.remote_sha === w.sandbox.github_sha(P), w.item.pushable], [0, 1, true, false])
     check('S12 the error logged', w.logs.some(l => l[0] == 'error' && l[1].includes('Bad Gateway')), true)
+  }
+  // S13 (review 1 B2): a save lands while the verification read of an automatic push is in
+  // flight; the push must write the text it pushes with that text's hash (no false conflict
+  // for the queued push, no false badge), and a later edit still pushes
+  {
+    const w = makeWorld()
+    w.item.saved_id = 'doc1'
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push
+    w.externalCommit('items/other.md', 'x') // adopt an external base through one retry
+    w.text = P + '\nafter external'
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push
+    w.timers.splice(0).forEach(t => t())
+    await flush()
+    await w.sandbox._this.store._push
+    check('S13 external base adopted', w.sandbox._this.store.external_base, true)
+    w.holdingContent = true // the verification read of the next push stalls
+    w.text = P + '\nA-edit-1'
+    w.change(false)
+    await flush()
+    check('S13 read in flight', w.contentWaiters.length, 1)
+    w.text = P + '\nA-edit-2' // a second save while the read waits: its push queues
+    w.change(false)
+    await flush()
+    w.holdingContent = false
+    w.contentWaiters.splice(0).forEach(resolve => resolve())
+    await flush()
+    await w.sandbox._this.store._push
+    await flush()
+    const state = w.sandbox._this.store.items['doc1']
+    check('S13 the pushed text and its hash agree, the queued push skipped', [w.fileAtHead('items/doc1.md'), state.sha === state.remote_sha && state.sha === w.sandbox.github_sha(w.text)], [w.text, true])
+    check('S13 no false conflict', [w.item.pushable, w.logs.some(l => l[0] == 'warn' && l[1].includes('changed by unknown'))], [false, false])
+    w.text = P + '\nA-edit-3'
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push
+    check('S13 a later edit still pushes', [w.fileAtHead('items/doc1.md'), state.sha === state.remote_sha], [w.text, true])
   }
   if (failures) {
     console.error(`\n${failures} FAILURES`)

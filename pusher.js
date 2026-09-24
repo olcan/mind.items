@@ -300,7 +300,7 @@ function push_item(item, manual = false, retried = false) {
   ]).then(async () => {
     let start = Date.now()
     const state = _this.store.items[item.saved_id]
-    const text_sha = github_sha(item.text)
+    let text_sha = github_sha(item.text)
     if (state.remote_sha == text_sha) {
       state.sha = text_sha // resume auto-push
       // for manual push, side-push even if push is skipped
@@ -333,10 +333,20 @@ function push_item(item, manual = false, retried = false) {
         }
       }
 
+      // the outgoing text and its hash, captured TOGETHER after the await above: a save during
+      // that read must not push one text and record another's hash (the tree below and the
+      // bookkeeping at the end use this pair; a text pushed meanwhile is skipped as before)
+      const text = item.text
+      text_sha = github_sha(text)
+      if (state.remote_sha == text_sha) {
+        state.sha = text_sha // resume auto-push
+        return
+      }
+
       // create tree based off the tree of the latest commit
       // tree contains item file and symlink iff item is named
       // NOTE: drop base_tree for root commit on empty repo
-      const entries = [{ path, mode: '100644', type: 'blob', content: item.text }]
+      const entries = [{ path, mode: '100644', type: 'blob', content: text }]
       if (item.name.startsWith('#')) {
         const name = item.name.slice(1)
         const symlink = name.replace(/[^/]+/g, '..') + '/' + path
