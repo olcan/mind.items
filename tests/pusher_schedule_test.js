@@ -20,14 +20,20 @@ const check = (name, actual, expected) => {
 }
 const flush = () => new Promise(resolve => setImmediate(resolve))
 
-function makeWorld({ holdTree = false, failUpdateRef = false } = {}) {
+// failUpdateRef: how many updateRef calls fail as non-fast-forward (true: every one);
+// remoteBlobs: the repo's blob sha per path at the head getBranch reports (absent: 404)
+function makeWorld({ holdTree = false, failUpdateRef = false, remoteBlobs = {} } = {}) {
   const world = {
     holding: holdTree, // createTree stalls while true (in-flight git write)
     timers: [], // captured setTimeout callbacks (fake timers)
-    commits: [], // pushed item file contents, in commit order
+    commits: [], // item file contents of the commit objects created, in order
+    pushed: [], // the contents whose ref update succeeded (master actually moved)
     treeWaiters: [], // held createTree resolvers when holdTree
     logs: [],
     item: null,
+    failUpdateRef: failUpdateRef === true ? Infinity : Number(failUpdateRef),
+    remoteBlobs,
+    heads: 0, // getBranch calls: each reports a fresh external head
   }
   const github = {
     git: {
@@ -41,12 +47,27 @@ function makeWorld({ holdTree = false, failUpdateRef = false } = {}) {
         world.commits.push(content)
         return { data: { sha: 'commit' + world.commits.length } }
       },
-      updateRef: async () => {
-        if (failUpdateRef) throw new Error('Update is not a fast forward')
+      updateRef: async ({ sha }) => {
+        if (world.failUpdateRef > 0) {
+          world.failUpdateRef--
+          throw new Error('Update is not a fast forward')
+        }
+        world.pushed.push(world.commits[Number(sha.replace('commit', '')) - 1])
         return {}
       },
     },
-    repos: {},
+    repos: {
+      getBranch: async () => {
+        world.heads++
+        return { data: { commit: { sha: 'head' + world.heads, commit: { tree: { sha: 'headtree' + world.heads } } } } }
+      },
+      getContent: async ({ path, ref }) => {
+        world.lastContentRef = ref
+        const sha = world.remoteBlobs[path]
+        if (sha === undefined) throw Object.assign(new Error('Not Found'), { status: 404 })
+        return { data: { sha } }
+      },
+    },
   }
   const sandbox = {
     TextEncoder,
@@ -206,10 +227,11 @@ async function run() {
     // newer remote text's mirroring belongs to its originator tab (init reconciles)
     check('S6 completing push wrote the same live object, no orphan', held === w.sandbox._this.store.items['doc1'] && held.sha === held.remote_sha && held.sha === w.sandbox.github_sha(P), true)
   }
-  // S4: the request push FAILS (external non-fast-forward); the reply must MARK, never
-  // become reply/reply fiction
+  // S4: the request push FAILS (external non-fast-forward, the external commits having
+  // changed this item's own file: no automatic retry); the reply must MARK, never become
+  // reply/reply fiction
   {
-    const w = makeWorld({ failUpdateRef: true })
+    const w = makeWorld({ failUpdateRef: true, remoteBlobs: { 'items/doc1.md': 'external' } })
     w.item.saved_id = 'doc1'
     w.change(false)
     await flush()
@@ -239,6 +261,66 @@ async function run() {
     check('S5 no second commit', w.commits.length, 1)
     check('S5 sha recorded, remote_sha honest (request push)', [state.sha === w.sandbox.github_sha(w.text), state.remote_sha === w.sandbox.github_sha(P)], [true, true])
     check('S5 badge surfaced', w.item.pushable, true)
+  }
+  // S7: an external commit elsewhere in the repo (the vault's item tool committed another
+  // item) moved master; the automatic push of a local edit fails once, finds this item's
+  // file at the new head as this tab pushed it, and retries ONCE on the new base
+  {
+    const w = makeWorld()
+    w.item.saved_id = 'doc1'
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push // pushed: state P/P on base c0
+    w.remoteBlobs['items/doc1.md'] = w.sandbox.github_sha(P) // the repo still holds P
+    w.failUpdateRef = 1 // master moved by an external commit: the next updateRef fails
+    w.text = P + '\nlocal edit'
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push
+    const state = w.sandbox._this.store.items['doc1']
+    check('S7 retry scheduled after the refetch, nothing pushed yet', [w.timers.length, w.pushed.length, w.lastContentRef], [1, 1, 'head1'])
+    check('S7 base moved to the fetched head', [w.sandbox._this.global_store.commit_sha, w.sandbox._this.global_store.tree_sha], ['head1', 'headtree1'])
+    check('S7 not marked, auto-push kept', [w.item.pushable, state.remote_sha === w.sandbox.github_sha(P)], [false, true])
+    w.timers.splice(0).forEach(t => t()) // the retry fires
+    await flush()
+    await w.sandbox._this.store._push
+    check('S7 retry pushed the edit once', w.pushed, [P, w.text])
+    check('S7 map truthful', state.sha === state.remote_sha && state.sha === w.sandbox.github_sha(w.text), true)
+    check('S7 warned once, retrying', w.logs.filter(l => l[0] == 'warn').map(l => /retrying once/.test(l[1])), [true])
+  }
+  // S8: the external commit changed THIS item's file: no retry, stop and mark as before
+  {
+    const w = makeWorld()
+    w.item.saved_id = 'doc1'
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push
+    w.remoteBlobs['items/doc1.md'] = 'changed-elsewhere'
+    w.failUpdateRef = 1
+    w.text = P + '\nlocal edit'
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push
+    const state = w.sandbox._this.store.items['doc1']
+    check('S8 no retry, nothing more pushed', [w.timers.length, w.pushed.length], [0, 1])
+    check('S8 lost track and marked', [state.remote_sha, w.item.pushable], [undefined, true])
+    check('S8 warned about the changed file', w.logs.some(l => l[0] == 'warn' && l[1].includes('changed items/doc1.md')), true)
+  }
+  // S9: the retry fails again (master moved once more): disabled after the one retry
+  {
+    const w = makeWorld({ remoteBlobs: { 'items/doc1.md': undefined } })
+    w.item.saved_id = 'doc1'
+    w.failUpdateRef = 2 // a never-pushed item: the file is absent at every head (404)
+    w.change(false)
+    await flush()
+    await w.sandbox._this.store._push
+    check('S9 first failure retries (absent file matches never pushed)', w.timers.length, 1)
+    w.timers.splice(0).forEach(t => t())
+    await flush()
+    await w.sandbox._this.store._push
+    const state = w.sandbox._this.store.items['doc1']
+    check('S9 second failure disables, no third try', [w.timers.length, state.remote_sha, w.item.pushable], [0, undefined, true])
+    check('S9 warned (again)', w.logs.some(l => l[0] == 'warn' && l[1].includes('(again)')), true)
   }
   if (failures) {
     console.error(`\n${failures} FAILURES`)

@@ -278,7 +278,9 @@ function decodeBase64(str) {
 }
 
 // pushes item to github
-function push_item(item, manual = false) {
+// an automatic push that fails as non-fast-forward retries ONCE (retried) when the external
+// commits left this item's own file as this tab last pushed or saw it (see below)
+function push_item(item, manual = false, retried = false) {
   if (!item.saved_id) throw new Error(`can not push unsaved item ${item.name}`)
   if (!_this.store.github) throw new Error('missing github client')
   if (!_this.global_store.dest) throw new Error('missing destination')
@@ -370,19 +372,7 @@ function push_item(item, manual = false) {
         })
       } catch (e) {
         if (String(e.message).includes('Update is not a fast forward')) {
-          if (!manual) {
-            _this.warn(
-              `push failed for ${item.name} due to unknown (external) ` +
-                `commits in ${dest}; manual /push or /pull is required`
-            )
-            state.remote_sha = undefined // lost track, disable auto-push
-            item.pushable = true // mark pushable again (if not already)
-            return
-          }
-          _this.warn(
-            `push failed for ${item.name} due to unknown (external) ` +
-              `commits in ${dest}; retrying after fetching latest commit ...`
-          )
+          // master moved under us (external commits, e.g. the vault's item tool): fetch its head
           const resp = await github.repos.getBranch({
             owner,
             repo,
@@ -392,6 +382,36 @@ function push_item(item, manual = false) {
           const tree_sha = resp.data.commit?.commit?.tree?.sha
           if (!commit_sha || !tree_sha)
             throw new Error(`can not push to empty repo ${dest}`)
+          if (!manual) {
+            // an automatic push retries ONCE, and only when the external commits left this
+            // item's own file as this tab last pushed or saw it (its blob at the new head equals
+            // state.remote_sha; both absent for a never-pushed item); otherwise the repo holds
+            // a text this tab does not know: stop and mark, never overwrite
+            const blob = retried ? undefined : await remote_blob_sha(github, owner, repo, path, commit_sha)
+            if (retried || blob != state.remote_sha) {
+              _this.warn(
+                `push failed for ${item.name} due to unknown (external) ` +
+                  `commits in ${dest}` +
+                  (retried ? ` (again)` : ` that changed ${path}`) +
+                  `; manual /push or /pull is required`
+              )
+              state.remote_sha = undefined // lost track, disable auto-push
+              item.pushable = true // mark pushable again (if not already)
+              return
+            }
+            _this.warn(
+              `push failed for ${item.name} due to unknown (external) ` +
+                `commits in ${dest} that left ${path} as pushed; retrying once after fetching latest commit ...`
+            )
+            _this.global_store.commit_sha = commit_sha
+            _this.global_store.tree_sha = tree_sha
+            setTimeout(() => push_item(item, false, true /*retried*/)) // retry once
+            return
+          }
+          _this.warn(
+            `push failed for ${item.name} due to unknown (external) ` +
+              `commits in ${dest}; retrying after fetching latest commit ...`
+          )
           _this.global_store.commit_sha = commit_sha
           _this.global_store.tree_sha = tree_sha
           setTimeout(() => push_item(item, true /*manual*/)) // retry
@@ -433,6 +453,17 @@ function push_item(item, manual = false) {
       throw e
     }
   }))
+}
+
+// returns blob sha of file at path in repo at ref, or undefined if absent (404)
+async function remote_blob_sha(github, owner, repo, path, ref) {
+  try {
+    const { data } = await github.repos.getContent({ owner, repo, path, ref })
+    return data?.sha
+  } catch (e) {
+    if (e.status == 404) return undefined
+    throw e
+  }
 }
 
 // returns symlink path (under names/) for item name, or undefined if unnamed
