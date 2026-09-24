@@ -6,4 +6,3 @@
 ```
 
 #_welcome #_listen #_util/core
-<!-- a live check of the update dialog across tabs, take 2, 2026-09-24 -->
