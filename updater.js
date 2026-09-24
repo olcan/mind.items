@@ -232,10 +232,14 @@ async function init_updater() {
           let paths = [attr.path, ...(attr.embeds?.map(e => e.path) ?? [])].map(
             path => path.replace(/^\//, '')
           )
-          // update item if any paths were modified in any commits
-          // first such commit id (sha) is stored in pending_updates for item
-          // we do not use body.after since that could be a dropped commit
-          const update_commit = commits.find(commit =>
+          // update item if any paths were modified in any commits: the LAST such commit's id
+          // (sha) keys the entry (pending_updates), since another tab's completion marker
+          // holds the latest commit of each path it wrote (_on_global_store_change), which the
+          // push's last commit touching the item is; keyed by the FIRST such commit (until
+          // 2026-09-23), a push carrying two commits to one file never matched the marker, and
+          // the dialog outlived the update in every other tab. We do not use body.after since
+          // that could be a dropped commit
+          const update_commit = commits.findLast(commit =>
             paths.some(path => commit.modified.includes(path))
           )
           if (update_commit) {

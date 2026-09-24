@@ -289,7 +289,9 @@ const wiring = ({ real_check = false, real_update = false } = {}) => {
   if (real_update) vm.runInContext(pick(['update_item']).join('\n'), context)
   vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
   page.init = () => vm.runInContext('init_updater()', context)
-  page.push = (name, sha) => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: sha, before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: [{ id: sha, message: 'm', modified: [`${name.slice(1)}.md`] }] } }) } }] })
+  // a push of several commits ([id, the files modified] each), oldest first as the webhook lists them
+  page.push_commits = commits => page.webhook({ docChanges: () => [{ type: 'added', doc: { data: () => ({ body: { ref: 'refs/heads/master', after: commits[commits.length - 1][0], before: 'x', repository: { name: 'r', owner: { login: 'o' } }, commits: commits.map(([id, modified]) => ({ id, message: 'm', modified })) } }) } }] })
+  page.push = (name, sha) => page.push_commits([[sha, [`${name.slice(1)}.md`]]])
   page.answer = ok => page.modals[page.modals.length - 1].resolve(ok)
   // another tab completed the item's update: its global store carries the marker, the
   // path -> commit snapshot it wrote (a string stands for a one-path marker at that commit)
@@ -904,6 +906,41 @@ const wiring_rows = async () => {
     page.answer(false) // Skip
     await tick()
     check('a queued id deleted meanwhile: named by its id in the refreshed dialog and the Skip warning, the batch drained', [page.updates, page.logs.filter(l => l[0] == 'warn').map(l => l[1]), page.store().accepted_updates, page.store().modified_ids], [['#updater is ready to update 1 installed item: i1'], ['updates skipped for 1 installed item: i1'], {}, []])
+  }
+  {
+    // a push carrying SEVERAL commits to an item's file (a review cycle's landing, 2026-09-23:
+    // three of the day's pushes to #pusher's script): the entry is keyed by the push's LAST
+    // commit touching the item, the commit the completion marker of the tab that installs it
+    // holds for the path (the latest commit of each path it wrote); keyed by the first commit
+    // the entry never matched and the dialog outlived the update in the other tabs
+    const page = wiring()
+    page.item('#a', 'i1')
+    await page.init()
+    await tick()
+    page.push_commits([['sha1', ['a.md']], ['sha2', ['a.md']], ['sha3', ['other.md']]])
+    await tick()
+    check('two commits to the file: keyed by the second, one dialog', [page.store().pending_updates, page.modals.length], [{ i1: 'sha2' }, 1])
+    page.remote('#a', 'sha2') // installed elsewhere: the marker holds the file's latest commit
+    await tick()
+    check('the completion at the last commit dismisses the dialog', [page.store().modified_ids, page.store().pending_updates, page.closes, page.store().update_modal, page.logs.filter(l => l[1] == 'detected remote update for #a').length], [[], {}, 1, null, 1])
+  }
+  {
+    // the last commit touching the item may touch an embed alone: the marker holds it for the
+    // embed's path (any path's commit matches a push's key), while a marker of the first commit
+    // alone (a tab that installed an older push's version) leaves the entry pending
+    const page = wiring()
+    page.item('#a', 'i1')
+    page.items.i1.attr.embeds = [{ path: 'a.js' }]
+    await page.init()
+    await tick()
+    page.push_commits([['sha1', ['a.md']], ['sha2', ['a.js']]])
+    await tick()
+    check('the last touching commit an embed\'s: the key', page.store().pending_updates, { i1: 'sha2' })
+    page.remote('#a', { 'a.md': 'sha1' })
+    check('a completion at the first commit alone leaves the entry pending, the dialog open', [page.store().modified_ids, page.closes], [['i1'], 0])
+    page.remote('#a', { 'a.md': 'sha1', 'a.js': 'sha2' })
+    await tick()
+    check('the completion holding the last commit (for the embed) dismisses the dialog', [page.store().modified_ids, page.closes, page.store().update_modal], [[], 1, null])
   }
 }
 
