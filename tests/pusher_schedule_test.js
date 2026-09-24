@@ -36,6 +36,8 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
     item: null,
     items: {},
     heads: 0, // getBranch calls
+    reads: 0, // getContent calls
+    contentRefs: [], // the refs getContent was asked for, in order
     repo: { head: 'c0', commits: { c0: { parent: null, tree: 't0' } }, trees: { t0: {} }, n: 0 },
     getContentError: null, // thrown by getContent when set (a non-404 failure)
     holdingContent: false, // getContent stalls while true (a slow read)
@@ -94,9 +96,12 @@ function makeWorld({ holdTree = false, items = ['session1'] } = {}) {
       },
       getContent: async ({ path, ref }) => {
         world.lastContentRef = ref
+        world.reads++
+        world.contentRefs.push(ref)
         if (world.getContentError) throw world.getContentError
         if (world.holdingContent) await new Promise(resolve => world.contentWaiters.push(resolve))
-        const entry = world.repo.trees[world.repo.commits[ref].tree][path]
+        const commit = ref === 'heads/master' ? world.repo.head : ref // the live head, or a commit
+        const entry = world.repo.trees[world.repo.commits[commit].tree][path]
         if (!entry) throw Object.assign(new Error('Not Found'), { status: 404 })
         return { data: { sha: entry.sha } }
       },
@@ -361,7 +366,7 @@ async function run() {
     await flush()
     await w.sandbox._this.store._push
     const state = w.sandbox._this.store.items['doc1']
-    check('S9 second rejection: no third attempt, marked, no further fetch', [w.timers.length, state.remote_sha, w.item.pushable, w.heads], [0, undefined, true, 2])
+    check('S9 second rejection: no third attempt, marked, no further fetch or read', [w.timers.length, state.remote_sha, w.item.pushable, w.heads, w.reads], [0, undefined, true, 1, 1])
     check('S9 warned (again)', w.logs.some(l => l[0] == 'warn' && l[1].includes('(again)')), true)
   }
   // S10 (review 0 B1): two items; an external commit changed B's file while the tab holds
@@ -399,8 +404,9 @@ async function run() {
   }
   // S14 (the live failure of 2026-09-23): an item CREATED by an external commit and delivered
   // to the tab (assumed pushed) while the session's base, adopted earlier, lags master; a
-  // local edit of that item must push, not be marked as changed (the old check read the file
-  // at the stale base, where it was absent)
+  // local edit of that item must push, not be marked as changed (a check at the stale base
+  // read the file as absent). The read is at the LIVE head; the base being stale, the ref
+  // update rejects once and the retry lands on the fetched head.
   {
     const w = makeWorld({ items: ['session1', 'session2'] })
     const A = w.items.session1, B = w.items.session2
@@ -427,8 +433,11 @@ async function run() {
     w.change(false, false, 'session2') // the owner marks it done
     await flush()
     await w.sandbox._this.store._push
-    check('S14 verified at the fetched head, pushed as a fast-forward', [w.fileAtHead('items/doc2.md'), B.pushable, sB.sha === sB.remote_sha], ['B created\ndone', false, true])
-    check('S14 the base moved to the created head before the push', w.submitted[w.submitted.length - 1][0], created)
+    check('S14 read at the live head, not marked; the stale base rejected once and re-verified at the fetched head, the retry scheduled', [w.contentRefs.slice(-2), B.pushable, w.timers.length], [['heads/master', created], false, 1])
+    w.timers.splice(0).forEach(t => t())
+    await flush()
+    await w.sandbox._this.store._push
+    check('S14 the retry landed on the fetched head', [w.fileAtHead('items/doc2.md'), B.pushable, sB.sha === sB.remote_sha, w.submitted[w.submitted.length - 1][0]], ['B created\ndone', false, true, created])
     check('S14 no conflict warned', w.logs.some(l => l[0] == 'warn' && l[1].includes('changed by unknown')), false)
   }
   // S11: a non-404 getContent failure during the check: the push fails and is logged, the
@@ -468,43 +477,103 @@ async function run() {
   }
   // S13 (review 1 B2): a save lands while the verification read of an automatic push is in
   // flight; the push must write the text it pushes with that text's hash (no false conflict
-  // for the queued push, no false badge), and a later edit still pushes
+  // for the queued push, no false badge), and a later edit still pushes. Two items: doc1
+  // adopts the external base (verified there), doc2 is the one read at its next push.
   {
-    const w = makeWorld()
-    w.item.saved_id = 'doc1'
-    w.change(false)
+    const w = makeWorld({ items: ['session1', 'session2'] })
+    const A = w.items.session1, B = w.items.session2
+    A.saved_id = 'doc1'
+    B.saved_id = 'doc2'
+    B.text = 'B0'
+    w.change(false, false, 'session1')
     await flush()
     await w.sandbox._this.store._push
-    w.externalCommit('items/other.md', 'x') // adopt an external base through one retry
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push // both pushed
+    w.externalCommit('items/other.md', 'x') // adopt an external base through doc1's retry
     w.text = P + '\nafter external'
-    w.change(false)
+    w.change(false, false, 'session1')
     await flush()
     await w.sandbox._this.store._push
     w.timers.splice(0).forEach(t => t())
     await flush()
     await w.sandbox._this.store._push
-    check('S13 external base adopted', w.sandbox._this.store.external_base, true)
-    w.holdingContent = true // the verification read of the next push stalls
-    w.text = P + '\nA-edit-1'
-    w.change(false)
+    check('S13 external base adopted, doc1 verified there, doc2 not', [w.sandbox._this.store.external_base, !!w.sandbox._this.store.verified['items/doc1.md'], !!w.sandbox._this.store.verified['items/doc2.md']], [true, true, false])
+    w.holdingContent = true // the verification read of doc2's next push stalls
+    B.text = 'B-edit-1'
+    w.change(false, false, 'session2')
     await flush()
     check('S13 read in flight', w.contentWaiters.length, 1)
-    w.text = P + '\nA-edit-2' // a second save while the read waits: its push queues
-    w.change(false)
+    B.text = 'B-edit-2' // a second save while the read waits: its push queues
+    w.change(false, false, 'session2')
     await flush()
     w.holdingContent = false
     w.contentWaiters.splice(0).forEach(resolve => resolve())
     await flush()
     await w.sandbox._this.store._push
     await flush()
-    const state = w.sandbox._this.store.items['doc1']
-    check('S13 one push, the pushed text and its recorded hash agree', [w.pushed.length, w.fileAtHead('items/doc1.md'), state.sha === state.remote_sha && state.sha === w.sandbox.github_sha(w.text)], [3, w.text, true])
-    check('S13 no false conflict', [w.item.pushable, w.logs.some(l => l[0] == 'warn' && l[1].includes('changed by unknown'))], [false, false])
-    w.text = P + '\nA-edit-3'
-    w.change(false)
+    const state = w.sandbox._this.store.items['doc2']
+    check('S13 one push, the pushed text and its recorded hash agree', [w.pushed.length, w.fileAtHead('items/doc2.md'), state.sha === state.remote_sha && state.sha === w.sandbox.github_sha(B.text)], [4, B.text, true])
+    check('S13 no false conflict', [B.pushable, w.logs.some(l => l[0] == 'warn' && l[1].includes('changed by unknown'))], [false, false])
+    const reads = w.reads
+    B.text = 'B-edit-3'
+    w.change(false, false, 'session2')
     await flush()
     await w.sandbox._this.store._push
-    check('S13 a later edit still pushes', [w.fileAtHead('items/doc1.md'), state.sha === state.remote_sha], [w.text, true])
+    check('S13 a later edit still pushes, without a read (verified)', [w.fileAtHead('items/doc2.md'), state.sha === state.remote_sha, w.reads], [B.text, true, reads])
+  }
+  // S15: the read cost. After an adoption, the first push of each item reads once at the live
+  // head; a repeat push of a verified item reads nothing; a new adoption forgets the memo
+  {
+    const w = makeWorld({ items: ['session1', 'session2'] })
+    const A = w.items.session1, B = w.items.session2
+    A.saved_id = 'doc1'
+    B.saved_id = 'doc2'
+    B.text = 'B0'
+    w.change(false, false, 'session1')
+    await flush()
+    await w.sandbox._this.store._push
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S15 no reads without an external commit', w.reads, 0)
+    w.externalCommit('items/other.md', 'x')
+    w.text = P + '\nA1'
+    w.change(false, false, 'session1')
+    await flush()
+    await w.sandbox._this.store._push
+    w.timers.splice(0).forEach(t => t())
+    await flush()
+    await w.sandbox._this.store._push
+    check('S15 the adoption read once (at the fetched head), the retry not again', w.reads, 1)
+    B.text = 'B1'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S15 the first push of another item reads once at the live head', [w.reads, w.lastContentRef, w.fileAtHead('items/doc2.md')], [2, 'heads/master', 'B1'])
+    B.text = 'B2'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    w.text = P + '\nA2'
+    w.change(false, false, 'session1')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S15 repeat pushes of verified items read nothing', [w.reads, w.fileAtHead('items/doc2.md'), w.fileAtHead('items/doc1.md')], [2, 'B2', w.text])
+    w.externalCommit('items/other.md', 'y') // a new adoption forgets the memo
+    w.text = P + '\nA3'
+    w.change(false, false, 'session1')
+    await flush()
+    await w.sandbox._this.store._push
+    w.timers.splice(0).forEach(t => t())
+    await flush()
+    await w.sandbox._this.store._push
+    B.text = 'B3'
+    w.change(false, false, 'session2')
+    await flush()
+    await w.sandbox._this.store._push
+    check('S15 after a new adoption the other item reads once again', [w.reads, w.fileAtHead('items/doc2.md')], [4, 'B3'])
   }
   if (failures) {
     console.error(`\n${failures} FAILURES`)

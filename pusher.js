@@ -10,6 +10,7 @@ function _on_welcome() {
 async function init_pusher() {
   _this.store.items = {} // init first, in case there are errors below
   _this.store.external_base = false // the base is verified item by item below (see push_item)
+  _this.store.verified = {} // item files verified at master since the last external adoption
 
   // look up push destination from global store, or from user prompt
   // if destination is missing, cancel init (i.e. disable) with warning
@@ -315,15 +316,16 @@ function push_item(item, manual = false, retried = false) {
       const path = `items/${item.saved_id}.md`
 
       // once this session adopted an external head as its base (below), master holds commits
-      // this tab has not verified item by item: an AUTOMATIC push first fetches the CURRENT
-      // head (the base may lag it: a file created or changed externally since is absent or
-      // different at the base, although this tab already holds its delivered text as pushed)
-      // and reads its own file there, which must be what this tab last pushed or saw (absent
-      // for a never-pushed item), else it stops and marks, never overwriting a text the tab
-      // does not know; the verified head becomes the base, so the push is a fast-forward
-      if (!manual && _this.store.external_base) {
-        const head = await branch_head(github, owner, repo, dest)
-        const blob = await remote_blob_sha(github, owner, repo, path, head.commit_sha)
+      // this tab has not verified item by item: an AUTOMATIC push of an item not yet verified
+      // since that adoption reads its own file at master's LIVE head (one read; the base may
+      // lag the head: a file created or changed externally since is absent or different at the
+      // base, although this tab already holds its delivered text as pushed), which must be what
+      // this tab last pushed or saw (absent for a never-pushed item), else it stops and marks,
+      // never overwriting a text the tab does not know. A verified item pays nothing on its
+      // later pushes: any external commit after that moves master, so the push is rejected
+      // below and verified again at the fetched head; a new adoption clears the memo.
+      if (!manual && _this.store.external_base && !_this.store.verified[path]) {
+        const blob = await remote_blob_sha(github, owner, repo, path, 'heads/master')
         if (blob != state.remote_sha) {
           _this.warn(
             `push failed for ${item.name}: ${path} changed by unknown (external) ` +
@@ -333,8 +335,7 @@ function push_item(item, manual = false, retried = false) {
           item.pushable = true // mark pushable again (if not already)
           return
         }
-        _this.global_store.commit_sha = head.commit_sha
-        _this.global_store.tree_sha = head.tree_sha
+        _this.store.verified[path] = true
       }
       const commit_sha = _this.global_store.commit_sha
       const tree_sha = _this.global_store.tree_sha
@@ -417,14 +418,15 @@ function push_item(item, manual = false, retried = false) {
           return
         }
         // master moved under us (external commits, e.g. the vault's item tool): fetch its head
-        // and adopt it as the base; from here on every automatic push verifies its own file at
-        // the fetched head before writing (see above), so no queued push can overwrite an
-        // external change
+        // and adopt it as the base; from here on an automatic push of an item not verified
+        // since this adoption reads its own file at master first (see above), so no queued
+        // push can overwrite an external change
         const head = await branch_head(github, owner, repo, dest)
         const head_sha = head.commit_sha
         _this.global_store.commit_sha = head.commit_sha
         _this.global_store.tree_sha = head.tree_sha
         _this.store.external_base = true
+        _this.store.verified = {} // a new epoch: nothing verified at this head yet
         if (!manual) {
           // retry ONCE, and only when the external commits left this item's own file as this
           // tab last pushed or saw it (its blob at the head equals state.remote_sha; both absent
@@ -439,6 +441,7 @@ function push_item(item, manual = false, retried = false) {
             item.pushable = true // mark pushable again (if not already)
             return
           }
+          _this.store.verified[path] = true // compared at the adopted head just above
           _this.warn(
             `push failed for ${item.name} due to unknown (external) ` +
               `commits in ${dest} that left ${path} as pushed; retrying once after fetching latest commit ...`
