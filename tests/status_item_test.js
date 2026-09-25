@@ -161,7 +161,7 @@ check('finished: an ok run, an error run with its first line as a literal cell, 
 check('tasks: running, the host column the running host (m3 runs b.c, last run on m4), never run; a suspended host is marked', run(`status_task_rows(status_snapshot(status_hosts()), ${now})`),
   [['bin\\/tasks\\/hello\\.py\\:5', 'running', '1h00m&nbsp;ago', 'm3'], ['bin\\/tasks\\/b\\.py', 'running', '1m00s&nbsp;ago', 'm3'], ['tasks\\.never', '·', '·', '·']])
 check('tasks: due and a countdown once nothing runs', run(`(() => { const s = status_snapshot(status_hosts()); const saved = s.entry.hosts.m3.running_tasks; s.entry.hosts.m3.running_tasks = []; const rows = status_task_rows(s, ${now}); s.entry.hosts.m3.running_tasks = saved; return rows.map(r => r[1]) })()`), ['due', '2m05s', '·'])
-check('tasks: the global suspension marks every row', run(`(() => { const s = status_snapshot(status_hosts()); s.entry.suspended_all = true; const rows = status_task_rows(s, ${now}); s.entry.suspended_all = false; return rows.map(r => r[3]) })()`), ['m3 ' + warn('suspended'), 'm4 ' + warn('suspended'), '· ' + warn('suspended')])
+check('tasks: the global suspension marks every row', run(`(() => { const s = status_snapshot(status_hosts()); s.entry.suspended_all = true; const rows = status_task_rows(s, ${now}); s.entry.suspended_all = false; return rows.map(r => r[3]) })()`), ['m3 ' + warn('suspended'), 'm3 ' + warn('suspended'), '· ' + warn('suspended')])
 
 // the real parser over the tables: one body row per entry, the literal cells intact
 const hostsHtml = marked.parse(run(`status_hosts_md(${now})`))
