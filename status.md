@@ -1,4 +1,4 @@
-#status (names from `/device <name>`) <div class="instances"></div>
+#status <div class="instances"></div>
 <div class="hosts"></div>
 <div class="tasks"></div>
 #### Runs
@@ -41,7 +41,7 @@ const device_name = x => [
 function list_instances() {
   const devices = group(_instances, device_name)
   return [
-    `${_instances.length} instances live on ~${size(devices)} devices:`,
+    `${_instances.length} instances live on ~${size(devices)} devices (names from \`/device <name>\`):`,
     entries(devices).map(([device, instances])=>
       table(instances.map((x,j)=>{
         const ua = new UAParser(x.user_agent).getResult()

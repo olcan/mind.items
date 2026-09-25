@@ -181,7 +181,7 @@ const tasks = []
 env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
 run(script[1])
 check('the script renders the instances line, the three sections and the footer at once and registers the task', [divs['.instances'].writes, divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes, divs['.footer'].writes, tasks.map(t => [t.name, t.delay, t.repeat])], [1, 1, 1, 1, 1, [['update', 1000, 1000]]])
-check('the instances line keeps its own rendering', divs['.instances'].innerHTML.startsWith('<p>0 instances live on ~0 devices:'), true)
+check('the instances line keeps its own rendering, the reminder after the summary', divs['.instances'].innerHTML.startsWith('<p>0 instances live on ~0 devices (names from <code>/device &lt;name&gt;</code>):'), true)
 // the instances with a device name (/device <name>): the name in place of the ip with the ip in
 // its tooltip; without one the ip as before; a local client shows the server's host name
 const instance = (extra) => ({ user_agent: 'ua', screen_size: { width: 1, height: 2 }, focus_time: clock.now, update_time: clock.now, client_ip: '1.2.3.4', server_name: 'srv', server_domain: 'olcan.com', screen_colors: { color_depth: 24 }, hardware_concurrency: 8, gpu: 'g', ...extra })
