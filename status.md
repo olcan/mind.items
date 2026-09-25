@@ -16,7 +16,7 @@ dispatch_task('update', update_status, 1000, 1000) // update every second
 #item table { width: 100%; border-spacing: 0 5px /* extra spacing */ }
 #item table code { font-size: 90% }
 #item .footer p { margin: 0; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-#item table th { background: transparent } /* a header follows its column's alignment */
+#item table th { background: transparent; padding: 2px 10px } /* the cells' padding, so the headers line up; a header follows its column's alignment */
 #item .instances th { text-align: left }
 #item table :not(thead) > tr { background: #171717 }
 #item table :not(thead) > tr:first-of-type { background: #222 }
