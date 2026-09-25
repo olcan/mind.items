@@ -155,6 +155,9 @@ function __render(widget, widget_item) {
     // read text and determine todo tag positions
     let text = _extract_todo_snippet(item)
     if (!text) continue // no #todo tag found (should have logged error)
+    // a project's bound child (its projection carries `parent`): the row is marked ↳ and its
+    // tooltip names the parent (vault project design 2.7); presentation only
+    const parent = state?.parent ? _parent_of(state.parent) : null
 
     members.add(item.id)
     const div = document.createElement('div')
@@ -202,19 +205,15 @@ function __render(widget, widget_item) {
     // else in the app; a task's route tag is not part of what the owner wrote) and without the
     // grammar view's inert-region tokens (⟦…⟧: the agent's answers and plans read as tokens)
     const visible = s => s.replace(/(^|\s)#_[^#\s<>&?!,.;:"'`(){}\[\]]+/g, '$1').replace(/\u27e6[^\u27e7]*\u27e7/g, '')
-    container.title = visible(text) // original whitespace for title
+    container.title = (parent ? `child of ${parent}\n` : '') + visible(text) // original whitespace for title
     const shown = visible(text).replace(/\s+/g, ' ')
 
     // the row's html: the escaped snippet through the tag, markdown-link and url passes, then a
     // task's marker linked to its worktree's review (design 2.4: presentation only, the text
     // keeps its one bracketed word; the #vault item's builder, resolved once per render)
     let html = _link_urls(link_markdown_links(mark_tags(_.escape(shown))))
-    const marker = state?.worktree ? _marker_of(text) : null
-    if (marker) {
-      if (review_anchor === undefined) review_anchor = _review_anchor_builder()
-      const anchor = review_anchor?.(state.worktree, marker.word, `${state.worktree} · its changes against main in VS Code`)
-      if (anchor) html = _link_marker(html, marker, anchor)
-    }
+    if (state?.worktree && review_anchor === undefined) review_anchor = _review_anchor_builder()
+    html = _decorate_row(html, text, state, review_anchor, parent)
 
     // determine suffix vs prefix snippet based on #todo suffix match
     if (!text.match(/(?:^|\s|\()#todo$/)) {
@@ -1022,11 +1021,35 @@ const _pending_commands = () => (_todoer.store.pending ??= {})
 const SAVE_WAIT_MS = 30_000 // /delegate text waits this long for the created todo's save
 const SAVE_POLL_MS = 250 // polled as the widget's detect_save task polls
 
-// where a todo belongs (design 2.2): the pending command first (a take-back puts the item in the
-// main list, a delegate in the delegated list), else the projection's possession
+// where a todo belongs (design 2.2; projects: the vault's notes/design/mind_project_agent.md 2.4
+// and 4): the pending command first (a take-back puts the item in the main list, a delegate in
+// the delegated list); then an agent-held item: a PROJECT asking (`question`), blocked or out of
+// budget goes to the main list (the owner must act while its work continues), else delegated;
+// then an owner-held item: a project's bound child (`parent`) stays in the delegated list (its
+// parent decides), else main
 function _task_list(state, pending) {
   if (pending && !state?.acked?.[pending.id]) return pending.kind == 'takeback' ? 'main' : 'delegated'
-  return state?.held == 'agent' ? 'delegated' : 'main'
+  if (state?.held == 'agent') return state.project && ['question', 'blocked', 'budget'].includes(state.reason) ? 'main' : 'delegated'
+  return state?.parent ? 'delegated' : 'main'
+}
+
+// a task row's decorations over its linked html: the marker linked to its worktree's review
+// FIRST (design 2.4: the link reads the row's start, `#todo [word]`, so the prefix must not
+// precede it), then a child's ↳ prefix (the vault's project design 2.7); presentation only
+function _decorate_row(html, text, state, anchor_builder, parent) {
+  const marker = state?.worktree ? _marker_of(text) : null
+  if (marker) {
+    const anchor = anchor_builder?.(state.worktree, marker.word, `${state.worktree} · its changes against main in VS Code`)
+    if (anchor) html = _link_marker(html, marker, anchor)
+  }
+  return parent ? '↳ ' + html : html
+}
+
+// the parent project's snippet for a child's tooltip (the item resolved silently), or its id
+function _parent_of(id) {
+  const parent = _item(id, { silent: true })
+  const snippet = parent ? _extract_todo_snippet(parent) : null
+  return snippet ? snippet.replace(/\s+/g, ' ').trim() : id
 }
 
 // a coarse age as of now (`<1m`, `5m`, `2h`, `3d`), or `?` without a projection

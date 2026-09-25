@@ -50,6 +50,7 @@ vm.runInContext(
     '_set_marker',
     '_marker_of',
     '_link_marker',
+    '_decorate_row',
     '_review_anchor_builder',
     '_without_log',
     '_link_urls',
@@ -75,7 +76,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
+const { _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -97,6 +98,17 @@ check('pending delegate overlays an owner-held task', _task_list({ held: 'owner'
 check('pending take-back overlays an agent-held task', _task_list({ held: 'agent', acked: {} }, { id: 'c2', kind: 'takeback' }), 'main')
 check('an acknowledged command no longer overlays', _task_list({ held: 'agent', acked: { c2: 'stale' } }, { id: 'c2', kind: 'takeback' }), 'delegated')
 check('pending delegate with no record yet', _task_list(null, { id: 'c1', kind: 'delegate' }), 'delegated')
+// projects (the vault's notes/design/mind_project_agent.md 2.4 and 4): a project asking, blocked or
+// out of budget sits in the main list while agent-held; a bound child stays delegated when owner-held
+check('an agent-held project asking: main', _task_list({ held: 'agent', reason: 'question', project: true, acked: {} }, null), 'main')
+check('an agent-held project blocked: main', _task_list({ held: 'agent', reason: 'blocked', project: true, acked: {} }, null), 'main')
+check('an agent-held project out of budget: main', _task_list({ held: 'agent', reason: 'budget', project: true, acked: {} }, null), 'main')
+check('an agent-held project working: delegated', _task_list({ held: 'agent', reason: 'delegated', project: true, acked: {} }, null), 'delegated')
+check('an agent-held task asking (no project): delegated', _task_list({ held: 'agent', reason: 'question', acked: {} }, null), 'delegated')
+check('an owner-held bound child: delegated', _task_list({ held: 'owner', reason: 'proposal', parent: 'p1', acked: {} }, null), 'delegated')
+check('an owner-held reclaimed child (no parent): main', _task_list({ held: 'owner', reason: 'taken', acked: {} }, null), 'main')
+check('a pending take-back overlays a bound child', _task_list({ held: 'owner', reason: 'proposal', parent: 'p1', acked: {} }, { id: 'c9', kind: 'takeback' }), 'main')
+check('a pending delegate overlays a project asking', _task_list({ held: 'agent', reason: 'question', project: true, acked: {} }, { id: 'c8', kind: 'delegate' }), 'delegated')
 
 // the age
 const now = 1_700_000_000_000
@@ -192,6 +204,16 @@ context._item = () => vault_item(listing, () => { throw new Error('eval missing 
 check('builder: a #vault that cannot evaluate', _review_anchor_builder(), null)
 delete context._item
 const slot = word => `[${anchor(word)}]`
+// the row's decorations (the vault's project design 2.7): the marker is linked FIRST and a
+// child's ↳ prefix added after it, so a bound child's proposal keeps its review link (review 5
+// B2: the prefix ahead of the link broke the suffix branch's row-start match); no worktree, no
+// link; no parent, no prefix; the anchor builder is #vault's, given the worktree and the word
+const builder = (worktree, word, tip) => (worktree == 'chat_x_1' && tip.startsWith('chat_x_1 · ') ? anchor(word) : null)
+check('decorate: a child with a suffix marker and a worktree keeps its review link behind the prefix', _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', { worktree: 'chat_x_1' }, builder, 'the parent'), `↳ <mark>#todo</mark> ${slot('proposal')} fix`)
+check('decorate: a child in prefix mode', _decorate_row('fix [question] <mark>#todo</mark>', 'fix [question] #todo', { worktree: 'chat_x_1' }, builder, 'the parent'), `↳ fix ${slot('question')} <mark>#todo</mark>`)
+check('decorate: a child without a worktree gets the prefix and no link', _decorate_row('<mark>#todo</mark> [question] fix', '#todo [question] fix', { worktree: null }, builder, 'the parent'), '↳ <mark>#todo</mark> [question] fix')
+check('decorate: an ordinary task links without a prefix', _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', { worktree: 'chat_x_1' }, builder, null), `<mark>#todo</mark> ${slot('proposal')} fix`)
+check('decorate: no builder (no #vault item), no link', _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', { worktree: 'chat_x_1' }, null, 'the parent'), '↳ <mark>#todo</mark> [proposal] fix')
 check('link: suffix, the anchor wraps the word on the tag\'s mark; brackets, the rest of the row, and a bracketed word in the text kept', _link_marker('<mark>#todo</mark> [proposal] fix the <a>https://x.y/z</a> [x] cache', { word: 'proposal', suffix: true }, anchor('proposal')), `<mark>#todo</mark> ${slot('proposal')} fix the <a>https://x.y/z</a> [x] cache`)
 check('link: prefix, the anchor replaces the marker at the row\'s end and the rest is kept verbatim (the leading &lrm; is just such text here: the widget prepends its own after this pass)', _link_marker('&lrm;fix the [x] cache [question] <mark>#todo</mark>', { word: 'question', suffix: false }, anchor('question')), `&lrm;fix the [x] cache ${slot('question')} <mark>#todo</mark>`)
 check('link: a marker-only row (the collapsed newline after it kept)', _link_marker('<mark>#todo</mark> [done] ', { word: 'done', suffix: true }, anchor('done')), `<mark>#todo</mark> ${slot('done')} `)
