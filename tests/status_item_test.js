@@ -46,10 +46,10 @@ const fake_div = () => ({
   set innerHTML(v) { this.writes++; this._html = v; this.details = Array.from(v.matchAll(/data-fold="([^"]*)"/g), m => fake_details(m[1])) },
   querySelectorAll(sel) { return sel.includes('[open]') ? this.details.filter(d => d.open) : this.details },
 })
-const divs = { '.instances': fake_div(), '.hosts': fake_div(), '.runs': fake_div(), '.tasks': fake_div() }
+const divs = { '.instances': fake_div(), '.hosts': fake_div(), '.runs': fake_div(), '.tasks': fake_div(), '.footer': fake_div() }
 const items = {
   'chat-id': { id: 'chat-id', name: '#chat/topic' },
-  'vault-id': { id: 'vault-id', name: '#vault', _global_store: { _bridge: { updated: now - 5000, host: 'm3.local', boot: now - 2 * 3600000, runs: { '5ad5b172': { item: 'chat-id', persona: 'default' } } } } },
+  'vault-id': { id: 'vault-id', name: '#vault', _global_store: { _bridge: { updated: now - 5000, host: 'm3ultra.local', boot: now - 2 * 3600000, runs: { '5ad5b172': { item: 'chat-id', persona: 'default' } } } } },
 }
 const env = {
   entries: Object.entries,
@@ -95,6 +95,7 @@ check('snapshot: the newest entry wins; entries without a stamp are skipped; non
   [run(`status_snapshot({a: {updated: 5}, b: {updated: 9}, c: {}, d: null})`).host, run('status_snapshot({})'), run('status_snapshot({c: {}})')], ['b', null, null])
 check('ages as list_agents.sh prints them, never negative', [run('status_age(7000)'), run('status_age(182000)'), run('status_age(7500000)'), run('status_age(-5)')], ['7s', '3m02s', '2h05m', '0s'])
 check('cells: literal text (a pipe cannot split the row, markup stays text); an empty value is ·', [run("status_cell('rg a | b <x>')"), run("status_cell('')"), run('status_cell(null)')], ['rg a \\| b \\<x\\>', '·', '·'])
+check('display forms: no .local, no _agent, an id in code style without backticks, an age with its ago unbroken', [run("status_host_name('m3ultra.local')"), run("status_host_name('gen14')"), run("status_agent_name('supervisor_agent')"), run("status_id('aa11bb22')"), run("status_id('a`b')"), run('status_id(null)'), run('status_ago(65000)')], ['m3ultra', 'gen14', 'supervisor', '`aa11bb22`', '`ab`', '·', '1m05s&nbsp;ago'])
 
 // the coordinator's roles over the observed set
 const coordinator = `{
@@ -132,23 +133,23 @@ run(`_this._global_store = {_owner: {}, _status: {v: 1, hosts: {m3: ${entry_m3},
 const warn = t => `<span class="warn">${t}</span>`
 const mark = name => `<mark class="link" title="${name}" onmousedown="_handleTagClick('status-id','${name}','${name}',event)" onclick="event.preventDefault();event.stopPropagation();">${name}</mark>`
 const hostRows = run(`status_host_rows(status_hosts(), status_snapshot(status_hosts()), ${now})`)
-check('hosts: a punctuated host name is a literal cell', run(`status_host_rows({'a|b.c': {updated: ${now}}}, null, ${now})`)[0][0], 'a\\|b\\.c')
-check('hosts: a publishing host with its listing age and boot, its coordinator role, status, heartbeat and tasks', hostRows[0], ['m3', '20s ago', '1h00m', 'standby', 'ready', '30s ago', 'tasks\\.a\\.b'])
-check('hosts: a stale publisher is marked; its coordinator row is a standby', hostRows[1], ['m4', '4m00s ago ' + warn('stale'), '5m00s', 'standby', 'initializing', '1m00s ago', '·'])
-check('hosts: a coordinator-only host has no listing; a stale heartbeat is marked; a suspended one says so', [hostRows[2], hostRows[3]], [['old', '·', '·', warn('stale'), 'ready', '4m00s ago', '·'], ['susp', '·', '·', 'suspended', 'ready', '0s ago', '·']])
+check('hosts: a punctuated host name is a literal cell, its .local suffix dropped', run(`status_host_rows({'a|b.c.local': {updated: ${now}}}, null, ${now})`)[0][0], 'a\\|b\\.c')
+check('hosts: a publishing host with its listing age and boot, its coordinator role, status, heartbeat and tasks', hostRows[0], ['m3', '20s&nbsp;ago', '1h00m', 'standby', 'ready', '30s&nbsp;ago', 'tasks\\.a\\.b'])
+check('hosts: a stale publisher is marked; its coordinator row is a standby', hostRows[1], ['m4', '4m00s&nbsp;ago ' + warn('stale'), '5m00s', 'standby', 'initializing', '1m00s&nbsp;ago', '·'])
+check('hosts: a coordinator-only host has no listing; a stale heartbeat is marked; a suspended one says so', [hostRows[2], hostRows[3]], [['old', '·', '·', warn('stale'), 'ready', '4m00s&nbsp;ago', '·'], ['susp', '·', '·', 'suspended', 'ready', '0s&nbsp;ago', '·']])
 const stamp = run(`status_stamp(status_snapshot(status_hosts()), vault_listing(), ${now})`)
-check('stamp: the snapshot origin, the bridge from the #vault store, the sync loop observation, the unreadable count, the #vault link',
-  [/^_snapshot from m3 at .* \(20s ago\) · bridge on m3\\\.local listed 5s ago, up 2h00m · sync loop last run applied at .* \(1m30s ago\), 0 holds, 2 pending · 1 unreadable state files · actions on <mark class="link" title="#vault"/.test(stamp), stamp.endsWith('>#vault</mark>_')], [true, true])
-check('stamp: without any entry the note says so', run(`status_stamp(null, null, ${now})`), 'no status yet: the bridge publishes one when it starts')
+check('stamp: one part per line: the snapshot origin, the bridge from the #vault store (no .local), the sync loop observation, the unreadable count, the #vault link',
+  [stamp.length, /^snapshot from m3 at .* \(20s&nbsp;ago\)$/.test(stamp[0]), stamp[1], /^sync loop last run applied at .* \(1m30s&nbsp;ago\), 0 holds, 2 pending$/.test(stamp[2]), stamp[3], stamp[4].startsWith('actions on <mark class="link" title="#vault"') && stamp[4].endsWith('>#vault</mark>')], [5, true, 'bridge on m3ultra listed 5s&nbsp;ago, up 2h00m', true, '1 unreadable state files', true])
+check('stamp: without any entry the note says so', run(`status_stamp(null, null, ${now})`), ['no status yet: the bridge publishes one when it starts'])
 const vaultItemForStamp = items['vault-id']
 delete items['vault-id']
-check('stamp: without a #vault item there is no actions link', run(`status_stamp(status_snapshot(status_hosts()), null, ${now})`).includes('actions on'), false)
+check('stamp: without a #vault item there is no actions link', run(`status_stamp(status_snapshot(status_hosts()), null, ${now})`).some(p => p.includes('actions on')), false)
 items['vault-id'] = vaultItemForStamp
-check('stamp: a paused loop without a last result (a pause or an exit clears it), no bridge listing', run(`status_stamp({host: 'h', entry: {updated: ${now}, sync_loop: {time: null, paused: true, holds: 1, pending: 0, last_run: null}, unreadable: 0}}, null, ${now})`).includes('· sync loop paused, no last result, 1 holds, 0 pending'), true)
+check('stamp: a paused loop without a last result (a pause or an exit clears it), no bridge listing', run(`status_stamp({host: 'h', entry: {updated: ${now}, sync_loop: {time: null, paused: true, holds: 1, pending: 0, last_run: null}, unreadable: 0}}, null, ${now})`)[1], 'sync loop paused, no last result, 1 holds, 0 pending')
 const runRows = run(`status_run_rows(status_snapshot(status_hosts()), vault_listing(), ${now})`)
-check('runs: a live run with its cost and the chat item the #vault listing names for its bridge id', runRows[0], ['aa11bb22', 'supervisor\\_agent', 'm3', '1m05s', '$0.1234 (sub)', 'running', mark('#chat/topic')])
-check('runs: a dead row (an orphaned state file) in the warning style, the agent and run names joined, its elapsed since the start, no bridge id: no link', runRows[1], ['cc33dd44', 'review \\/ nightly', 'm3', '2h05m', '·', warn('dead'), '·'])
-check('runs: another host\'s file is unjudged (@host); its bridge id still links', runRows[2], ['ee55ff66', 'remote', 'other', '1s', '$2.0000', '@other', mark('#chat/topic')])
+check('runs: a live run with its cost in cents and the chat item the #vault listing names for its bridge id; the id in code style, the agent without _agent', runRows[0], ['`aa11bb22`', 'supervisor', 'm3', '1m05s', '$0.12&nbsp;(sub)', 'running', mark('#chat/topic')])
+check('runs: a dead row (an orphaned state file) in the warning style, the agent and run names joined, its elapsed since the start, no bridge id: no link', runRows[1], ['`cc33dd44`', 'review \\/ nightly', 'm3', '2h05m', '·', warn('dead'), '·'])
+check('runs: another host\'s file is unjudged (@host); its bridge id still links', runRows[2], ['`ee55ff66`', 'remote', 'other', '1s', '$2.00', '@other', mark('#chat/topic')])
 const vaultItem = items['vault-id']
 delete items['vault-id']
 check('runs: a missing #vault item leaves the rows without links and breaks nothing', run(`status_run_rows(status_snapshot(status_hosts()), vault_listing(), ${now})`).map(r => r[6]), ['·', '·', '·'])
@@ -156,17 +157,19 @@ items['vault-id'] = vaultItem
 check('runs: no snapshot renders no rows', run(`status_run_rows(null, vault_listing(), ${now})`), [])
 const finishedRows = run(`status_finished_rows(status_snapshot(status_hosts()), ${now})`)
 check('finished: an ok run, an error run with its first line as a literal cell, a file clean.sh moved shows its last write (nothing invented)', finishedRows,
-  [['11223344', 'worker', 'm3', '40s ago', '1m00s', 'ok', '$2.5000'], ['55667788', 'worker', 'm3', '50s ago', '1s', warn('error') + ' RuntimeError\\: boom \\| bang', '· (sub)'], ['ddeeff00', 'orphan', 'm3', 'written 3s ago', '·', '·', '·']])
+  [['`11223344`', 'worker', 'm3', '40s&nbsp;ago', '1m00s', 'ok', '$2.50'], ['`55667788`', 'worker', 'm3', '50s&nbsp;ago', '1s', warn('error') + ' RuntimeError\\: boom \\| bang', '·&nbsp;(sub)'], ['`ddeeff00`', 'orphan', 'm3', 'written 3s&nbsp;ago', '·', '·', '·']])
 check('tasks: due, a countdown, never run; a suspended host is marked', run(`status_task_rows(status_snapshot(status_hosts()), ${now})`),
-  [['bin\\/tasks\\/hello\\.py\\:5', 'due', '1h00m ago', 'm3'], ['bin\\/tasks\\/b\\.py', '2m05s', '1m00s ago', 'm4'], ['tasks\\.never', '·', '·', '·']])
+  [['bin\\/tasks\\/hello\\.py\\:5', 'due', '1h00m&nbsp;ago', 'm3'], ['bin\\/tasks\\/b\\.py', '2m05s', '1m00s&nbsp;ago', 'm4'], ['tasks\\.never', '·', '·', '·']])
 check('tasks: the global suspension marks every row', run(`(() => { const s = status_snapshot(status_hosts()); s.entry.suspended_all = true; const rows = status_task_rows(s, ${now}); s.entry.suspended_all = false; return rows.map(r => r[3]) })()`), ['m3 ' + warn('suspended'), 'm4 ' + warn('suspended'), '· ' + warn('suspended')])
 
 // the real parser over the tables: one body row per entry, the literal cells intact
 const hostsHtml = marked.parse(run(`status_hosts_md(${now})`))
-check('parser: the hosts table has one body row per host and the stamp paragraph', [(hostsHtml.match(/<tr>/g) || []).length, /<p><em>snapshot from m3 at /.test(hostsHtml)], [5, true])
+check('parser: the hosts table has one body row per host and no stamp', [(hostsHtml.match(/<tr>/g) || []).length, hostsHtml.includes('snapshot from')], [5, false])
+const footerHtml = marked.parse(run(`status_footer_md(${now})`))
+check('parser: the footer is one italic paragraph per part, the link mark intact', [(footerHtml.match(/<p><em>/g) || []).length, footerHtml.includes(mark('#vault')), footerHtml.includes('20s&nbsp;ago')], [5, true, true])
 const runsHtml = run(`status_runs_html(${now})`)
 check('parser: the running table with the link mark and the warning span, then the fold-out with the finished table and the omitted count',
-  [(runsHtml.match(/<tbody>/g) || []).length, runsHtml.includes(mark('#chat/topic')), runsHtml.includes(warn('dead')), /<details data-fold="finished"><summary onclick="event.stopPropagation\(\)">finished \(24 h\): 3 \(3 finished omitted\)<\/summary>/.test(runsHtml), runsHtml.includes('<td>RuntimeError: boom | bang</td>') || runsHtml.includes('boom | bang')], [2, true, true, true, true])
+  [(runsHtml.match(/<tbody>/g) || []).length, runsHtml.includes(mark('#chat/topic')), runsHtml.includes(warn('dead')), /<details data-fold="finished"><summary onclick="event.stopPropagation\(\)">finished \(24 h\): 3 \(3 finished omitted\)<\/summary>/.test(runsHtml), runsHtml.includes('boom | bang'), runsHtml.includes('<code>aa11bb22</code>')], [2, true, true, true, true, true])
 const tasksHtml = marked.parse(run(`status_tasks_md(${now})`))
 check('parser: the tasks table renders the location literally', [(tasksHtml.match(/<tr>/g) || []).length, tasksHtml.includes('bin/tasks/hello.py:5</td>')], [4, true])
 
@@ -176,14 +179,14 @@ if (!script) throw new Error('no _uncached script in status.md')
 const tasks = []
 env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
 run(script[1])
-check('the script renders the instances line and the three sections at once and registers the task', [divs['.instances'].writes, divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes, tasks.map(t => [t.name, t.delay, t.repeat])], [1, 1, 1, 1, [['update', 1000, 1000]]])
+check('the script renders the instances line, the three sections and the footer at once and registers the task', [divs['.instances'].writes, divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes, divs['.footer'].writes, tasks.map(t => [t.name, t.delay, t.repeat])], [1, 1, 1, 1, 1, [['update', 1000, 1000]]])
 check('the instances line keeps its own rendering', divs['.instances'].innerHTML.startsWith('<p>0 instances live on ~0 devices:'), true)
 check('nothing saves during rendering', saves, [])
 tasks[0].fn()
 check('a tick without a clock change rewrites nothing', [divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes], [1, 1, 1])
 clock.now += 2000
 tasks[0].fn()
-check('a tick after two seconds advances the ages in every section', [divs['.hosts'].writes, divs['.runs'].innerHTML.includes('1m07s</td>'), divs['.tasks'].innerHTML.includes('2m03s</td>')], [2, true, true])
+check('a tick after two seconds advances the ages in every section and the footer', [divs['.hosts'].writes, divs['.runs'].innerHTML.includes('1m07s</td>'), divs['.tasks'].innerHTML.includes('2m03s</td>'), divs['.footer'].innerHTML.includes('22s&nbsp;ago')], [2, true, true, true])
 items['vault-id']._global_store._bridge.runs = {}
 tasks[0].fn()
 check('a change of #vault alone (its listing emptied) reaches the page at the next tick: the links are gone', divs['.runs'].innerHTML.includes(mark('#chat/topic')), false)
@@ -212,7 +215,7 @@ run('_on_welcome()')
 check('a provisioned store is left alone', saves.length, 1)
 run(`_this._global_store = {_owner: {}}`)
 tasks[0].fn()
-check('without any entry the sections render their notes', [divs['.hosts'].innerHTML.includes('no status yet'), divs['.runs'].innerHTML.startsWith('<p><em>none</em></p>'), divs['.tasks'].innerHTML.startsWith('<p><em>none</em></p>')], [true, true, true])
+check('without any entry the sections render their notes', [divs['.hosts'].innerHTML.includes('no hosts yet'), divs['.footer'].innerHTML.includes('no status yet'), divs['.runs'].innerHTML.startsWith('<p><em>none</em></p>'), divs['.tasks'].innerHTML.startsWith('<p><em>none</em></p>')], [true, true, true, true])
 
 if (failures) { console.log(`${failures} failures`); process.exit(1) }
 console.log('all ok')

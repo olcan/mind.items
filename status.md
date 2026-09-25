@@ -1,11 +1,9 @@
 #status <div class="instances"></div>
-- the vault side below is what the bridge publishes from the state files: `dead` is an orphaned state file (`clean.sh` moves it), `stale` a host that stopped publishing; the actions (stop, approve, reject) live on the vault item, linked in the stamp under the hosts when it is installed.
-#### Hosts
 <div class="hosts"></div>
+<div class="tasks"></div>
 #### Runs
 <div class="runs"></div>
-#### Tasks
-<div class="tasks"></div>
+<div class="footer"></div>
 ```_html_hidden
 <script _uncached>
 update_status() // do first update synchronously (on script eval)
@@ -15,7 +13,9 @@ dispatch_task('update', update_status, 1000, 1000) // update every second
 <style>
 #item p:first-child { display: inline }
 #item .instances { display: inline }
-#item table { /*white-space: nowrap;*/ border-spacing: 0 5px /* extra spacing */ }
+#item table { width: 100%; border-spacing: 0 5px /* extra spacing */ }
+#item table code { font-size: 90% }
+#item .footer p { margin: 0; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 #item table th { text-align: left; background: transparent }
 #item table :not(thead) > tr { background: #171717 }
 #item table :not(thead) > tr:first-of-type { background: #222 }
@@ -106,6 +106,14 @@ const status_cell = text =>
   text == null || text === '' ? '·' : String(text).replace(/\r\n|\r|\n/g, ' ').replace(/[!-\/:-@\[-`{-~]/g, c => '\\' + c)
 const status_warn = text => `<span class="warn">${_.escape(text)}</span>`
 
+// the display forms (owner feedback 2026-09-24): a host without its `.local` suffix, an agent
+// without its `_agent` suffix, an age with its `ago` and a cost with its `(sub)` kept on one
+// line, a state id in code style
+const status_host_name = host => (host == null ? host : String(host).replace(/\.local$/, ''))
+const status_agent_name = agent => (agent == null ? agent : String(agent).replace(/_agent$/, ''))
+const status_ago = ms => status_age(ms) + '&nbsp;ago'
+const status_id = id => (id == null || id === '' ? '·' : '`' + String(id).replace(/[`\\]/g, '') + '`')
+
 // the app's clickable tag markup for an item (as the #vault item renders its item cells)
 function status_item_link(id) {
   const item = _item(id, { silent: true })
@@ -132,32 +140,33 @@ function status_host_rows(hosts, snapshot, now) {
   const names = [...new Set([...keys(hosts), ...keys(coordinator)])].sort()
   return names.map(name => {
     const entry = hosts[name]
-    const listed = typeof entry?.updated == 'number' ? status_age(now - entry.updated) + ' ago' + (now - entry.updated > STATUS_STALE_MS ? ' ' + status_warn('stale') : '') : '·'
+    const listed = typeof entry?.updated == 'number' ? status_ago(now - entry.updated) + (now - entry.updated > STATUS_STALE_MS ? ' ' + status_warn('stale') : '') : '·'
     const boot = typeof entry?.boot == 'number' ? status_age(now - entry.boot) : '·'
     const h = coordinator[name]
     const role = h ? (roles[name] == 'stale' ? status_warn('stale') : roles[name]) : '·'
-    const heartbeat = typeof h?.heartbeat == 'number' ? status_age(now - h.heartbeat) + ' ago' : '·'
+    const heartbeat = typeof h?.heartbeat == 'number' ? status_ago(now - h.heartbeat) : '·'
     const tasks = h?.running_tasks?.length ? h.running_tasks.map(status_cell).join(', ') : '·'
-    return [status_cell(name), listed, boot, role, status_cell(h?.status), heartbeat, tasks]
+    return [status_cell(status_host_name(name)), listed, boot, role, status_cell(h?.status), heartbeat, tasks]
   })
 }
 
-// the stamp under the hosts table: the snapshot's origin, the bridge's own listing (from the
-// #vault store, read at every tick), and the sync loop's shared observation
+// the footer under every section, one line per part (owner feedback: no wrapping): the
+// snapshot's origin, the bridge's own listing (from the #vault store, read at every tick), the
+// sync loop's shared observation, the unreadable count, and the vault item's actions link
 function status_stamp(snapshot, bridge, now) {
-  if (!snapshot) return 'no status yet: the bridge publishes one when it starts'
-  const parts = [`snapshot from ${status_cell(snapshot.host)} at ${new Date(snapshot.entry.updated).toLocaleTimeString()} (${status_age(now - snapshot.entry.updated)} ago)`]
-  if (typeof bridge?.updated == 'number') parts.push(`bridge on ${status_cell(bridge.host)} listed ${status_age(now - bridge.updated)} ago` + (typeof bridge.boot == 'number' ? `, up ${status_age(now - bridge.boot)}` : ''))
+  if (!snapshot) return ['no status yet: the bridge publishes one when it starts']
+  const parts = [`snapshot from ${status_cell(status_host_name(snapshot.host))} at ${new Date(snapshot.entry.updated).toLocaleTimeString()} (${status_ago(now - snapshot.entry.updated)})`]
+  if (typeof bridge?.updated == 'number') parts.push(`bridge on ${status_cell(status_host_name(bridge.host))} listed ${status_ago(now - bridge.updated)}` + (typeof bridge.boot == 'number' ? `, up ${status_age(now - bridge.boot)}` : ''))
   const loop = snapshot.entry.sync_loop
   if (loop) {
     const last = loop.last_run ? `last run ${status_cell(loop.last_run.status)}` : 'no last result'
-    const when = typeof loop.time == 'number' ? ` at ${new Date(loop.time).toLocaleTimeString()} (${status_age(now - loop.time)} ago)` : ''
+    const when = typeof loop.time == 'number' ? ` at ${new Date(loop.time).toLocaleTimeString()} (${status_ago(now - loop.time)})` : ''
     parts.push(`sync loop ${loop.paused ? 'paused, ' : ''}${last}${when}, ${loop.holds} holds, ${loop.pending} pending`)
   }
   if (snapshot.entry.unreadable) parts.push(`${snapshot.entry.unreadable} unreadable state files`)
   const vault = _item('#vault', { silent: true })
   if (vault) parts.push(`actions on ${status_item_link(vault.id)}`)
-  return '_' + parts.join(' · ') + '_'
+  return parts
 }
 
 // the running rows of the snapshot: the state id, the agent or run name, the host, the elapsed
@@ -166,23 +175,23 @@ function status_stamp(snapshot, bridge, now) {
 // task item the #vault listing names for the bridge's run id
 function status_run_rows(snapshot, bridge, now) {
   return (snapshot?.entry.runs ?? []).map(r => {
-    const status = r.alive === false ? status_warn('dead') : r.alive == null ? '@' + status_cell(r.host) : 'running'
+    const status = r.alive === false ? status_warn('dead') : r.alive == null ? '@' + status_cell(status_host_name(r.host)) : 'running'
     const item = r.run && bridge?.runs?.[r.run]?.item
-    return [status_cell(r.state), status_name(r), status_cell(r.host), typeof r.started == 'number' ? status_age(now - r.started) : '·', status_cost(r), status, item ? status_item_link(item) : '·']
+    return [status_id(r.state), status_name(r), status_cell(status_host_name(r.host)), typeof r.started == 'number' ? status_age(now - r.started) : '·', status_cost(r), status, item ? status_item_link(item) : '·']
   })
 }
-// the agent and run names as list_agents.sh joins them
-const status_name = r => status_cell([r.agent, r.name].filter(Boolean).join(' / '))
-const status_cost = r => (typeof r.cost == 'number' ? '$' + r.cost.toFixed(4) : '·') + (r.subscription ? ' (sub)' : '')
+// the agent and run names as list_agents.sh joins them (the agent without its `_agent` suffix)
+const status_name = r => status_cell([status_agent_name(r.agent), r.name].filter(Boolean).join(' / '))
+const status_cost = r => (typeof r.cost == 'number' ? '$' + r.cost.toFixed(2) : '·') + (r.subscription ? '&nbsp;(sub)' : '')
 
 // the finished rows of the day (the newest first as published): the finish age, or the last
 // write's age for a file clean.sh moved (no finish fields, nothing invented), the elapsed, the
 // status with the error's first line, the cost
 function status_finished_rows(snapshot, now) {
   return (snapshot?.entry.finished ?? []).map(r => {
-    const when = typeof r.finished == 'number' ? status_age(now - r.finished) + ' ago' : typeof r.modified == 'number' ? 'written ' + status_age(now - r.modified) + ' ago' : '·'
+    const when = typeof r.finished == 'number' ? status_ago(now - r.finished) : typeof r.modified == 'number' ? 'written ' + status_ago(now - r.modified) : '·'
     const status = r.status == null ? '·' : r.status == 'ok' ? 'ok' : status_warn(r.status) + (r.error ? ' ' + status_cell(r.error) : '')
-    return [status_cell(r.state), status_name(r), status_cell(r.host), when, typeof r.elapsed == 'number' ? status_age(r.elapsed * 1000) : '·', status, status_cost(r)]
+    return [status_id(r.state), status_name(r), status_cell(status_host_name(r.host)), when, typeof r.elapsed == 'number' ? status_age(r.elapsed * 1000) : '·', status, status_cost(r)]
   })
 }
 
@@ -193,18 +202,21 @@ function status_task_rows(snapshot, now) {
   const suspended_all = snapshot?.entry.suspended_all ?? false
   return (snapshot?.entry.tasks ?? []).map(t => {
     const next = typeof t.next_run != 'number' ? '·' : t.next_run <= now ? 'due' : status_age(t.next_run - now)
-    const last = typeof t.last_run == 'number' ? status_age(now - t.last_run) + ' ago' : '·'
+    const last = typeof t.last_run == 'number' ? status_ago(now - t.last_run) : '·'
     const suspended = suspended_all || coordinator[t.host]?.suspended ? ' ' + status_warn('suspended') : ''
-    return [status_cell(t.task), next, last, status_cell(t.host) + suspended]
+    return [status_cell(t.task), next, last, status_cell(status_host_name(t.host)) + suspended]
   })
 }
 
 function status_hosts_md(now) {
   const hosts = status_hosts()
-  const snapshot = status_snapshot(hosts)
-  const rows = status_host_rows(hosts, snapshot, now)
-  const tbl = rows.length ? table(rows, { headers: ['host', 'listed', 'boot', 'role', 'status', 'heartbeat', 'tasks'] }) : '_none_'
-  return tbl + '\n\n' + status_stamp(snapshot, vault_listing(), now)
+  const rows = status_host_rows(hosts, status_snapshot(hosts), now)
+  return rows.length ? table(rows, { headers: ['host', 'listed', 'boot', 'role', 'status', 'heartbeat', 'tasks'] }) : '_no hosts yet_'
+}
+
+// the footer: every part its own paragraph, so nothing wraps (the css clips a long one)
+function status_footer_md(now) {
+  return status_stamp(status_snapshot(status_hosts()), vault_listing(), now).map(part => '_' + part + '_').join('\n\n')
 }
 
 function status_runs_html(now) {
@@ -243,8 +255,9 @@ function status_render(selector, render) {
 function update_vault_status() {
   const now = Date.now()
   status_render('.hosts', () => marked.parse(status_hosts_md(now)))
-  status_render('.runs', () => status_runs_html(now))
   status_render('.tasks', () => marked.parse(status_tasks_md(now)))
+  status_render('.runs', () => status_runs_html(now))
+  status_render('.footer', () => marked.parse(status_footer_md(now)))
 }
 
 // this store's changes (the bridge's entries; this tab's provisioning): the sections rewritten
