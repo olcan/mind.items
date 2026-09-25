@@ -199,9 +199,9 @@ function status_finished_rows(snapshot, now) {
 }
 
 // the tasks of the snapshot: the location, the next run (`running` while a coordinator file
-// lists the task as running, with its host when that is not the row's; else `due` or the
-// countdown), the last run (its age and host, with the host's suspension when any), in the
-// order list_tasks.sh prints
+// lists the task as running, else `due` or the countdown), the last run's age, and the host:
+// the one running the task now, else the last run's (with the host's suspension when any), in
+// the order list_tasks.sh prints
 function status_task_rows(snapshot, now) {
   const coordinator = snapshot?.entry.hosts ?? {}
   const suspended_all = snapshot?.entry.suspended_all ?? false
@@ -209,10 +209,11 @@ function status_task_rows(snapshot, now) {
   for (const [host, h] of entries(coordinator)) for (const name of h.running_tasks ?? []) running[name] = host
   return (snapshot?.entry.tasks ?? []).map(t => {
     const on = running[t.name]
-    const next = on ? 'running' + (on == t.host ? '' : ` on ${status_cell(status_host_name(on))}`) : typeof t.next_run != 'number' ? '·' : t.next_run <= now ? 'due' : status_age(t.next_run - now)
+    const next = on ? 'running' : typeof t.next_run != 'number' ? '·' : t.next_run <= now ? 'due' : status_age(t.next_run - now)
     const last = typeof t.last_run == 'number' ? status_ago(now - t.last_run) : '·'
-    const suspended = suspended_all || coordinator[t.host]?.suspended ? ' ' + status_warn('suspended') : ''
-    return [status_cell(t.task), next, last, status_cell(status_host_name(t.host)) + suspended]
+    const host = on ?? t.host
+    const suspended = suspended_all || coordinator[host]?.suspended ? ' ' + status_warn('suspended') : ''
+    return [status_cell(t.task), next, last, status_cell(status_host_name(host)) + suspended]
   })
 }
 
