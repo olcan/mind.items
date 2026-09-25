@@ -400,13 +400,19 @@ function __render(widget, widget_item) {
                 const saved_ids = sortable
                   .toArray()
                   .map(id => _item(id).saved_id)
-                if (saved_ids.includes(null)) return // try again later
-
-                // store the merged order under storage_key (ids this tab does not show are
-                // kept in place: see _merged_order), never pruned by what this tab has loaded
                 const gs = widget_item._global_store // saved manually below
                 gs._todoer ??= {}
-                if (_order_blocked(gs._todoer)) {
+                // one decision per turn (see _order_save_step): the writes below wait for the
+                // corpus to settle (marked by this tab's welcome, or confirmed by the server:
+                // a tab whose welcome ran under the previous todoer build has no mark) and for
+                // every listed item to be saved
+                const step = _order_save_step({
+                  settled: !!(_todoer.store.settled || window._server_confirmed),
+                  saved_ids,
+                  todoer_store: gs._todoer,
+                })
+                if (step == 'wait') return // try again later
+                if (step == 'blocked') {
                   // a newer build wrote the store: this one stops writing orders (once told);
                   // null ends the save task (a later render schedules the next attempt)
                   if (!_todoer.store.reload_notice) {
@@ -415,6 +421,9 @@ function __render(widget, widget_item) {
                   }
                   return null
                 }
+
+                // store the merged order under storage_key (ids this tab does not show are
+                // kept in place: see _merged_order), never pruned by what this tab has loaded
                 const prev_state = clone_deep(gs._todoer) // to detect changes
                 gs._todoer[storage_key] = _merged_order(saved_ids, gs._todoer[storage_key])
                 gs._todoer = pick_by(gs._todoer, v => typeof v != 'string' || v.length > 0)
@@ -743,6 +752,24 @@ function _order_blocked(todoer_store) {
   return (todoer_store?.version ?? 0) > TODOER_VERSION
 }
 
+// one turn of a widget's order save (its store.set task, polled every second): the corpus must
+// have SETTLED first (the todoer's _on_welcome marks it; index.svelte settleCorpusForWelcome:
+// the server confirmation, else a fallback after 10 s or offline), since the save writes the
+// pinned item's store and every listed item's cleared unsnooze flag WHOLE from this tab's
+// copies, and at the first render of a cache-initialized tab those copies are whatever the
+// cache last saw: a phone returning after days wrote its stale copies over snoozes made
+// elsewhere meanwhile (2026-09-25); a drag made before the settlement is saved at it unless a
+// re-render rebuilt the list from the stored order first (the row jumps back: visible and
+// redoable, the trade the app accepts for an attribute toggle before the confirmation). then
+// every listed item must be saved (an id), and a store stamped by a newer build blocks this
+// one (see _order_blocked)
+function _order_save_step({ settled, saved_ids, todoer_store }) {
+  if (!settled) return 'wait'
+  if (saved_ids.includes(null)) return 'wait'
+  if (_order_blocked(todoer_store)) return 'blocked'
+  return 'save'
+}
+
 // a long press on a touch screen should start the delayed drag (Sortable's delayOnTouchOnly),
 // but on the owner's touch-screen laptop under Chrome it opened the context menu instead (Chrome
 // opens it on a long press; the rows' -webkit-touch-callout CSS quiets only iOS, and Sortable
@@ -991,6 +1018,7 @@ function _on_search(text) {
 
 // start unsnooze task on welcome
 function _on_welcome() {
+  _todoer.store.settled = true // the corpus settled: the widgets' store writes may begin (see _order_save_step)
   _this.dispatch_task(
     'unsnooze',
     () => {
