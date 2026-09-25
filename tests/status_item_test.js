@@ -182,6 +182,21 @@ env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, r
 run(script[1])
 check('the script renders the instances line, the three sections and the footer at once and registers the task', [divs['.instances'].writes, divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes, divs['.footer'].writes, tasks.map(t => [t.name, t.delay, t.repeat])], [1, 1, 1, 1, 1, [['update', 1000, 1000]]])
 check('the instances line keeps its own rendering', divs['.instances'].innerHTML.startsWith('<p>0 instances live on ~0 devices:'), true)
+// the instances with a device name (/device <name>): the name in place of the ip with the ip in
+// its tooltip; without one the ip as before; a local client shows the server's host name
+const instance = (extra) => ({ user_agent: 'ua', screen_size: { width: 1, height: 2 }, focus_time: clock.now, update_time: clock.now, client_ip: '1.2.3.4', server_name: 'srv', server_domain: 'olcan.com', screen_colors: { color_depth: 24 }, hardware_concurrency: 8, gpu: 'g', ...extra })
+env._instances = [instance({ device_name: 'gen14 <x>' }), instance({}), instance({ client_ip: '::1' })]
+run('update_status()')
+check('instances: the device name replaces the ip (escaped, the ip in the tooltip); the others keep the ip or the local server name', [divs['.instances'].innerHTML.includes('<span title="1.2.3.4">gen14 &lt;x&gt;</span>'), divs['.instances'].innerHTML.includes('1.2.3.4<br>'), divs['.instances'].innerHTML.includes('srv<br>')], [true, true, true])
+// a name is never interpreted: markdown punctuation (a pipe, emphasis, a backslash), quotes,
+// angle brackets and ampersands stay text through the real parser, the row keeps its four cells,
+// the tooltip and the domain line stay intact, a newline is flattened
+env._instances = [instance({ device_name: 'gen14 | **office** "q" <b> & \\x\nnext' })]
+run('update_status()')
+const named = divs['.instances'].innerHTML
+check('instances: the name is a literal cell through the parser', [(named.match(/<td/g) || []).length, named.includes('<span title="1.2.3.4">gen14 | **office** &quot;q&quot; &lt;b&gt; &amp; \\x next</span><br>&nbsp;&nbsp;↳ olcan.com'), named.includes('<strong>')], [4, true, false])
+env._instances = []
+run('update_status()')
 check('nothing saves during rendering', saves, [])
 tasks[0].fn()
 check('a tick without a clock change rewrites nothing', [divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes], [1, 1, 1])

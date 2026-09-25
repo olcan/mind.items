@@ -1,4 +1,4 @@
-#status <div class="instances"></div>
+#status (names from `/device <name>`) <div class="instances"></div>
 <div class="hosts"></div>
 <div class="tasks"></div>
 #### Runs
@@ -50,6 +50,8 @@ function list_instances() {
         const uage = round((Date.now() - x.update_time) / 1000)
         // if client is connected locally, take server host name instead
         const ip = x.client_ip == '::1' ? x.server_name : x.client_ip
+        // the device's name when the profile set one (/device <name>), the ip in its tooltip
+        const where = x.device_name ? `<span title="${_.escape(ip)}">${status_cell(x.device_name)}</span>` : ip // a literal cell: markdown punctuation stays text
         // shorten gpu name on ANGLE (...) gpu reported by Chrome on Apple devices
         const bits = x.screen_colors.color_depth + '-bit'
         const cpu = x.hardware_concurrency + '-core'
@@ -62,7 +64,7 @@ function list_instances() {
           [fage+'s', uage+'s'].join('<br>'),
           [res, ua.os.name].join('<br>'),
           [ua.browser.name, cpu, /*bits,*/ gpu].join('<br>'),
-          [ip, '&nbsp;&nbsp;↳ '+x.server_domain].join('<br>'),
+          [where, '&nbsp;&nbsp;↳ '+x.server_domain].join('<br>'),
         ]
       }), {headers:[device], alignments:'rrll'})
     ).join('\n\n')
