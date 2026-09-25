@@ -93,13 +93,13 @@ const run = code => vm.runInContext(code, ctx)
 // the snapshot and the ages
 check('snapshot: the newest entry wins; entries without a stamp are skipped; none is null',
   [run(`status_snapshot({a: {updated: 5}, b: {updated: 9}, c: {}, d: null})`).host, run('status_snapshot({})'), run('status_snapshot({c: {}})')], ['b', null, null])
-check('ages as list_agents.sh prints them, never negative', [run('status_age(7000)'), run('status_age(182000)'), run('status_age(7500000)'), run('status_age(-5)')], ['7s', '3m02s', '2h05m', '0s'])
+check('ages as list_agents.sh prints them, with days past 24 hours, never negative', [run('status_age(7000)'), run('status_age(182000)'), run('status_age(7500000)'), run('status_age(5129 * 3600000 + 5 * 60000)'), run('status_age(-5)')], ['7s', '3m02s', '2h05m', '213d17h05m', '0s'])
 check('cells: literal text (a pipe cannot split the row, markup stays text); an empty value is ·', [run("status_cell('rg a | b <x>')"), run("status_cell('')"), run('status_cell(null)')], ['rg a \\| b \\<x\\>', '·', '·'])
 check('display forms: no .local, no _agent, an id in code style without backticks, an age with its ago unbroken', [run("status_host_name('m3ultra.local')"), run("status_host_name('gen14')"), run("status_agent_name('supervisor_agent')"), run("status_id('aa11bb22')"), run("status_id('a`b')"), run('status_id(null)'), run('status_ago(65000)')], ['m3ultra', 'gen14', 'supervisor', '`aa11bb22`', '`ab`', '·', '1m05s&nbsp;ago'])
 
 // the coordinator's roles over the observed set
 const coordinator = `{
-  m3: {started: ${now - 10 * MIN}, heartbeat: ${now - 30000}, status: 'ready', running_tasks: ['tasks.a.b'], suspended: false},
+  m3: {started: ${now - 10 * MIN}, heartbeat: ${now - 30000}, status: 'ready', running_tasks: ['tasks.hello.hello', 'tasks.b.c'], suspended: false},
   m4: {started: ${now - 5 * MIN}, heartbeat: ${now - 60000}, status: 'initializing', running_tasks: [], suspended: false},
   old: {started: ${now - 99 * MIN}, heartbeat: ${now - 4 * MIN}, status: 'ready', running_tasks: [], suspended: false},
   susp: {started: ${now}, heartbeat: ${now}, status: 'ready', running_tasks: [], suspended: true},
@@ -134,7 +134,7 @@ const warn = t => `<span class="warn">${t}</span>`
 const mark = name => `<mark class="link" title="${name}" onmousedown="_handleTagClick('status-id','${name}','${name}',event)" onclick="event.preventDefault();event.stopPropagation();">${name}</mark>`
 const hostRows = run(`status_host_rows(status_hosts(), status_snapshot(status_hosts()), ${now})`)
 check('hosts: a punctuated host name is a literal cell, its .local suffix dropped', run(`status_host_rows({'a|b.c.local': {updated: ${now}}}, null, ${now})`)[0][0], 'a\\|b\\.c')
-check('hosts: a publishing host with its listing age and boot, its coordinator role, status, heartbeat and tasks', hostRows[0], ['m3', '20s&nbsp;ago', '1h00m', 'standby', 'ready', '30s&nbsp;ago', 'tasks\\.a\\.b'])
+check('hosts: a publishing host with its listing age and boot, its coordinator role, status, heartbeat and tasks', hostRows[0], ['m3', '20s&nbsp;ago', '1h00m', 'standby', 'ready', '30s&nbsp;ago', 'tasks\\.hello\\.hello, tasks\\.b\\.c'])
 check('hosts: a stale publisher is marked; its coordinator row is a standby', hostRows[1], ['m4', '4m00s&nbsp;ago ' + warn('stale'), '5m00s', 'standby', 'initializing', '1m00s&nbsp;ago', '·'])
 check('hosts: a coordinator-only host has no listing; a stale heartbeat is marked; a suspended one says so', [hostRows[2], hostRows[3]], [['old', '·', '·', warn('stale'), 'ready', '4m00s&nbsp;ago', '·'], ['susp', '·', '·', 'suspended', 'ready', '0s&nbsp;ago', '·']])
 const stamp = run(`status_stamp(status_snapshot(status_hosts()), vault_listing(), ${now})`)
@@ -158,8 +158,9 @@ check('runs: no snapshot renders no rows', run(`status_run_rows(null, vault_list
 const finishedRows = run(`status_finished_rows(status_snapshot(status_hosts()), ${now})`)
 check('finished: an ok run, an error run with its first line as a literal cell, a file clean.sh moved shows its last write (nothing invented)', finishedRows,
   [['`11223344`', 'worker', 'm3', '40s&nbsp;ago', '1m00s', 'ok', '$2.50'], ['`55667788`', 'worker', 'm3', '50s&nbsp;ago', '1s', warn('error') + ' RuntimeError\\: boom \\| bang', '·&nbsp;(sub)'], ['`ddeeff00`', 'orphan', 'm3', 'written 3s&nbsp;ago', '·', '·', '·']])
-check('tasks: due, a countdown, never run; a suspended host is marked', run(`status_task_rows(status_snapshot(status_hosts()), ${now})`),
-  [['bin\\/tasks\\/hello\\.py\\:5', 'due', '1h00m&nbsp;ago', 'm3'], ['bin\\/tasks\\/b\\.py', '2m05s', '1m00s&nbsp;ago', 'm4'], ['tasks\\.never', '·', '·', '·']])
+check('tasks: running (on the row\'s host, or naming another), never run; a suspended host is marked', run(`status_task_rows(status_snapshot(status_hosts()), ${now})`),
+  [['bin\\/tasks\\/hello\\.py\\:5', 'running', '1h00m&nbsp;ago', 'm3'], ['bin\\/tasks\\/b\\.py', 'running on m3', '1m00s&nbsp;ago', 'm4'], ['tasks\\.never', '·', '·', '·']])
+check('tasks: due and a countdown once nothing runs', run(`(() => { const s = status_snapshot(status_hosts()); const saved = s.entry.hosts.m3.running_tasks; s.entry.hosts.m3.running_tasks = []; const rows = status_task_rows(s, ${now}); s.entry.hosts.m3.running_tasks = saved; return rows.map(r => r[1]) })()`), ['due', '2m05s', '·'])
 check('tasks: the global suspension marks every row', run(`(() => { const s = status_snapshot(status_hosts()); s.entry.suspended_all = true; const rows = status_task_rows(s, ${now}); s.entry.suspended_all = false; return rows.map(r => r[3]) })()`), ['m3 ' + warn('suspended'), 'm4 ' + warn('suspended'), '· ' + warn('suspended')])
 
 // the real parser over the tables: one body row per entry, the literal cells intact
@@ -172,7 +173,7 @@ const runsHtml = run(`status_runs_html(${now})`)
 check('parser: the running table with the link mark and the warning span, then the fold-out with the finished table and the omitted count',
   [(runsHtml.match(/<tbody>/g) || []).length, runsHtml.includes(mark('#chat/topic')), runsHtml.includes(warn('dead')), /<details data-fold="finished"><summary onclick="event.stopPropagation\(\)">finished \(24 h\): 3 \(3 finished omitted\)<\/summary>/.test(runsHtml), runsHtml.includes('boom | bang'), runsHtml.includes('<code>aa11bb22</code>'), runsHtml.includes('<th align="right">elapsed</th>'), runsHtml.includes('<th align="right">cost</th>')], [2, true, true, true, true, true, true, true])
 const tasksHtml = marked.parse(run(`status_tasks_md(${now})`))
-check('parser: the tasks table renders the location literally, its next and last columns right-aligned under their headers', [(tasksHtml.match(/<tr>/g) || []).length, tasksHtml.includes('bin/tasks/hello.py:5</td>'), tasksHtml.includes('<th align="right">next</th>'), tasksHtml.includes('<td align="right">due</td>')], [4, true, true, true])
+check('parser: the tasks table renders the location literally, its next and last columns right-aligned under their headers', [(tasksHtml.match(/<tr>/g) || []).length, tasksHtml.includes('bin/tasks/hello.py:5</td>'), tasksHtml.includes('<th align="right">next</th>'), tasksHtml.includes('<td align="right">running</td>')], [4, true, true, true])
 
 // the startup script: an immediate render of every section, the one-second task, ticking ages
 const script = item.match(/<script _uncached>\n([\s\S]*?)<\/script>/)
@@ -202,7 +203,7 @@ tasks[0].fn()
 check('a tick without a clock change rewrites nothing', [divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes], [1, 1, 1])
 clock.now += 2000
 tasks[0].fn()
-check('a tick after two seconds advances the ages in every section and the footer', [divs['.hosts'].writes, divs['.runs'].innerHTML.includes('1m07s</td>'), divs['.tasks'].innerHTML.includes('2m03s</td>'), divs['.footer'].innerHTML.includes('22s&nbsp;ago')], [2, true, true, true])
+check('a tick after two seconds advances the ages in every section and the footer', [divs['.hosts'].writes, divs['.runs'].innerHTML.includes('1m07s</td>'), divs['.hosts'].innerHTML.includes('32s&nbsp;ago</td>'), divs['.footer'].innerHTML.includes('22s&nbsp;ago')], [2, true, true, true])
 items['vault-id']._global_store._bridge.runs = {}
 tasks[0].fn()
 check('a change of #vault alone (its listing emptied) reaches the page at the next tick: the links are gone', divs['.runs'].innerHTML.includes(mark('#chat/topic')), false)

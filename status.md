@@ -97,9 +97,9 @@ function status_snapshot(hosts) {
 // an age as list_agents.sh prints it (`2h05m`, `3m02s`, `7s`); never negative
 function status_age(ms) {
   const s = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), r = s % 60
   const pad = n => String(n).padStart(2, '0')
-  return h ? `${h}h${pad(m)}m` : m ? `${m}m${pad(r)}s` : `${r}s`
+  return d ? `${d}d${pad(h)}h${pad(m)}m` : h ? `${h}h${pad(m)}m` : m ? `${m}m${pad(r)}s` : `${r}s`
 }
 
 // literal text as a markdown table cell (the #vault item's rule: line breaks flattened, every
@@ -198,13 +198,18 @@ function status_finished_rows(snapshot, now) {
   })
 }
 
-// the tasks of the snapshot: the location, the next run (`due` or the countdown), the last run
-// (its age and host, with the host's suspension when any), in the order list_tasks.sh prints
+// the tasks of the snapshot: the location, the next run (`running` while a coordinator file
+// lists the task as running, with its host when that is not the row's; else `due` or the
+// countdown), the last run (its age and host, with the host's suspension when any), in the
+// order list_tasks.sh prints
 function status_task_rows(snapshot, now) {
   const coordinator = snapshot?.entry.hosts ?? {}
   const suspended_all = snapshot?.entry.suspended_all ?? false
+  const running = {} // task name -> the host whose coordinator file lists it as running
+  for (const [host, h] of entries(coordinator)) for (const name of h.running_tasks ?? []) running[name] = host
   return (snapshot?.entry.tasks ?? []).map(t => {
-    const next = typeof t.next_run != 'number' ? '·' : t.next_run <= now ? 'due' : status_age(t.next_run - now)
+    const on = running[t.name]
+    const next = on ? 'running' + (on == t.host ? '' : ` on ${status_cell(status_host_name(on))}`) : typeof t.next_run != 'number' ? '·' : t.next_run <= now ? 'due' : status_age(t.next_run - now)
     const last = typeof t.last_run == 'number' ? status_ago(now - t.last_run) : '·'
     const suspended = suspended_all || coordinator[t.host]?.suspended ? ' ' + status_warn('suspended') : ''
     return [status_cell(t.task), next, last, status_cell(status_host_name(t.host)) + suspended]
