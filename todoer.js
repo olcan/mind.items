@@ -1063,10 +1063,13 @@ function _age(updated, now) {
 }
 
 // the row's stats suffix (design 9.6): ` · 2w · $14.50` from the projection's stats (workers
-// started, the summed nominal cost), nothing for a projection without them
+// started, the summed nominal cost; a project's active children ahead, ` · 3c · 5w · $41.20`,
+// the vault's project design 2.5), nothing for a projection without them
 function _stats_suffix(stats) {
   if (!stats || typeof stats != 'object') return ''
   const parts = []
+  // a project's active children first (the vault's project design 2.5), then the workers
+  if (typeof stats.children == 'number' && stats.children > 0) parts.push(stats.children + 'c')
   if (typeof stats.workers == 'number' && stats.workers > 0) parts.push(stats.workers + 'w')
   // the cost keeps its uncertainty: the known sum, `+?` when some paid work's cost is unknown,
   // `$?` when only unknown costs exist; then the subscription runtime's share as the chat
