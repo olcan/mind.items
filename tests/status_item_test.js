@@ -165,13 +165,14 @@ check('tasks: the global suspension marks every row', run(`(() => { const s = st
 // the real parser over the tables: one body row per entry, the literal cells intact
 const hostsHtml = marked.parse(run(`status_hosts_md(${now})`))
 check('parser: the hosts table has one body row per host and no stamp', [(hostsHtml.match(/<tr>/g) || []).length, hostsHtml.includes('snapshot from')], [5, false])
+check('parser: explicit alignments, the header following its column (a duration right, a name left), whatever the first row holds', [hostsHtml.includes('<th align="right">listed</th>'), hostsHtml.includes('<td align="right">20s&nbsp;ago</td>'), hostsHtml.includes('<th align="left">role</th>'), hostsHtml.includes('<td align="left">standby</td>')], [true, true, true, true])
 const footerHtml = marked.parse(run(`status_footer_md(${now})`))
 check('parser: the footer is one italic paragraph per part, the link mark intact', [(footerHtml.match(/<p><em>/g) || []).length, footerHtml.includes(mark('#vault')), footerHtml.includes('20s&nbsp;ago')], [5, true, true])
 const runsHtml = run(`status_runs_html(${now})`)
 check('parser: the running table with the link mark and the warning span, then the fold-out with the finished table and the omitted count',
-  [(runsHtml.match(/<tbody>/g) || []).length, runsHtml.includes(mark('#chat/topic')), runsHtml.includes(warn('dead')), /<details data-fold="finished"><summary onclick="event.stopPropagation\(\)">finished \(24 h\): 3 \(3 finished omitted\)<\/summary>/.test(runsHtml), runsHtml.includes('boom | bang'), runsHtml.includes('<code>aa11bb22</code>')], [2, true, true, true, true, true])
+  [(runsHtml.match(/<tbody>/g) || []).length, runsHtml.includes(mark('#chat/topic')), runsHtml.includes(warn('dead')), /<details data-fold="finished"><summary onclick="event.stopPropagation\(\)">finished \(24 h\): 3 \(3 finished omitted\)<\/summary>/.test(runsHtml), runsHtml.includes('boom | bang'), runsHtml.includes('<code>aa11bb22</code>'), runsHtml.includes('<th align="right">elapsed</th>'), runsHtml.includes('<th align="right">cost</th>')], [2, true, true, true, true, true, true, true])
 const tasksHtml = marked.parse(run(`status_tasks_md(${now})`))
-check('parser: the tasks table renders the location literally', [(tasksHtml.match(/<tr>/g) || []).length, tasksHtml.includes('bin/tasks/hello.py:5</td>')], [4, true])
+check('parser: the tasks table renders the location literally, its next and last columns right-aligned under their headers', [(tasksHtml.match(/<tr>/g) || []).length, tasksHtml.includes('bin/tasks/hello.py:5</td>'), tasksHtml.includes('<th align="right">next</th>'), tasksHtml.includes('<td align="right">due</td>')], [4, true, true, true])
 
 // the startup script: an immediate render of every section, the one-second task, ticking ages
 const script = item.match(/<script _uncached>\n([\s\S]*?)<\/script>/)

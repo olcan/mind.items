@@ -16,7 +16,8 @@ dispatch_task('update', update_status, 1000, 1000) // update every second
 #item table { width: 100%; border-spacing: 0 5px /* extra spacing */ }
 #item table code { font-size: 90% }
 #item .footer p { margin: 0; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-#item table th { text-align: left; background: transparent }
+#item table th { background: transparent } /* a header follows its column's alignment */
+#item .instances th { text-align: left }
 #item table :not(thead) > tr { background: #171717 }
 #item table :not(thead) > tr:first-of-type { background: #222 }
 #item table td { padding: 2px 10px }
@@ -211,7 +212,7 @@ function status_task_rows(snapshot, now) {
 function status_hosts_md(now) {
   const hosts = status_hosts()
   const rows = status_host_rows(hosts, status_snapshot(hosts), now)
-  return rows.length ? table(rows, { headers: ['host', 'listed', 'boot', 'role', 'status', 'heartbeat', 'tasks'] }) : '_no hosts yet_'
+  return rows.length ? table(rows, { headers: ['host', 'listed', 'boot', 'role', 'status', 'heartbeat', 'tasks'], alignments: 'lrrllrl' }) : '_no hosts yet_'
 }
 
 // the footer: every part its own paragraph, so nothing wraps (the css clips a long one)
@@ -222,17 +223,17 @@ function status_footer_md(now) {
 function status_runs_html(now) {
   const snapshot = status_snapshot(status_hosts())
   const rows = status_run_rows(snapshot, vault_listing(), now)
-  const running = rows.length ? marked.parse(table(rows, { headers: ['state', 'agent', 'host', 'elapsed', 'cost', 'status', 'item'] })) : marked.parse('_none_')
+  const running = rows.length ? marked.parse(table(rows, { headers: ['state', 'agent', 'host', 'elapsed', 'cost', 'status', 'item'], alignments: 'lllrrll' })) : marked.parse('_none_')
   const finished = status_finished_rows(snapshot, now)
   const omitted = snapshot?.entry.omitted
   const more = omitted ? ` (${keys(omitted).map(k => `${omitted[k]} ${k} omitted`).join(', ')})` : ''
-  const body = finished.length ? marked.parse(table(finished, { headers: ['state', 'agent', 'host', 'finished', 'elapsed', 'status', 'cost'] })) : marked.parse('_none_')
+  const body = finished.length ? marked.parse(table(finished, { headers: ['state', 'agent', 'host', 'finished', 'elapsed', 'status', 'cost'], alignments: 'lllrrlr' })) : marked.parse('_none_')
   return running + `<details data-fold="finished"><summary onclick="event.stopPropagation()">finished (24 h): ${finished.length}${_.escape(more)}</summary>${body}</details>`
 }
 
 function status_tasks_md(now) {
   const rows = status_task_rows(status_snapshot(status_hosts()), now)
-  return rows.length ? table(rows, { headers: ['task', 'next', 'last', 'host'] }) : '_none_'
+  return rows.length ? table(rows, { headers: ['task', 'next', 'last', 'host'], alignments: 'lrrl' }) : '_none_'
 }
 
 // render into one of this item's own elements, skipping an unchanged rendering (the #vault
