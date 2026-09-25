@@ -217,5 +217,34 @@
     font-weight: 300;
     padding: 1px 4px;
   }
+  /* the row dragged into a bin adopts the bin's color for its border and its text (tags, links
+     and the age mark included): on a touch screen the finger and the row hide the bin's
+     brightened stripes (2026-09-25). The condition is the bin's own active state (the placeholder
+     inside it, as for the brighter stripes above), so the color follows the bin's highlight and
+     resets when the placeholder returns to the list; the clone that follows the pointer sits in
+     the list (Sortable's fallback without fallbackOnBody, todoer.js), where :has() on the widget
+     sees both. Each color is the bin's most legible stripe on the row's #171717 */
+  #widget:has(.bin.cancel:not(:empty)) {
+    --bin-color: #f66;
+  }
+  #widget:has(.bin.done:not(:empty)) {
+    --bin-color: #6f6;
+  }
+  #widget:has(.bin.snooze:not(:empty)) {
+    --bin-color: #ff6;
+  }
+  #widget:has(.bin.agent:not(:empty)) {
+    --bin-color: #6af;
+  }
+  #widget:has(.bin.owner:not(:empty)) {
+    --bin-color: #eee;
+  }
+  #widget:has(.bin:not(:empty)) .list > .list-item-container.sortable-drag {
+    border-color: var(--bin-color);
+    color: var(--bin-color);
+  }
+  #widget:has(.bin:not(:empty)) .list > .list-item-container.sortable-drag :is(a, mark) {
+    color: inherit;
+  }
   /* __styles__ */
 </style>
