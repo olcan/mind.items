@@ -21,7 +21,7 @@ dispatch_task('update', update_status, 1000, 1000) // update every second
 #item table th { background: transparent; padding: 2px 10px } /* the cells' padding, so the headers line up; a header follows its column's alignment */
 #item .instances th { text-align: left }
 #item table :not(thead) > tr { background: #171717 }
-#item table :not(thead) > tr:first-of-type { background: #222 }
+#item table :not(thead) > tr:nth-child(odd) { background: #222 } /* alternating rows (the original lightened the first row alone, which read as alternating with two instances) */
 #item table td { padding: 2px 10px }
 #item table td:first-child { border-radius: 4px 0 0 4px }
 #item table td:last-child {  border-radius: 0 4px 4px 0 }
