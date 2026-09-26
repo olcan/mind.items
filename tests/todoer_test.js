@@ -32,7 +32,6 @@ const context = {
   warn: () => {},
   fatal: msg => { throw new Error(msg) },
   _todoer: { store: {} },
-  _this: { dispatch_task: () => {} }, // _on_welcome's unsnooze task, not started here
   crypto: { getRandomValues: a => a.fill(7) },
   Sortable: { dragged: null }, // the row of the pending press, as Sortable exposes it
   PointerEvent: class {}, // present: the grab follows the touch through pointer events
@@ -61,7 +60,7 @@ vm.runInContext(
     '_suppress_touch_context_menu',
     '_order_blocked',
     '_order_save_step',
-    '_on_welcome',
+    '_sweep_step',
     '_sideways',
     '_grab_on_sideways_touch',
     '_delegated_view',
@@ -79,8 +78,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const _todoer_store = () => vm.runInContext('_todoer.store', context)
-const { _order_save_step, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
+const { _order_save_step, _sweep_step, _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -427,13 +425,17 @@ check('order: nothing stored', _merged_order(['a', 'b'], undefined), 'a,b')
 check('order: an empty DOM keeps the stored ids', _merged_order([], 'a,b'), 'a,b')
 check('version: a newer writer blocks this build', _order_blocked({ version: TODOER_VERSION + 1 }), true)
 check('version: the same or an older writer does not', [_order_blocked({ version: TODOER_VERSION }), _order_blocked({}), _order_blocked(undefined)], [false, false, false])
-// one turn of the order save: the corpus settled first (the todoer's welcome), then every
-// listed item saved, then the build check; the unsettled turn waits whatever else holds
-check('order save: an unsettled corpus waits', _order_save_step({ settled: false, saved_ids: ['a', 'b'], todoer_store: { version: TODOER_VERSION } }), 'wait')
-check('order save: an unsaved listed item waits', _order_save_step({ settled: true, saved_ids: ['a', null], todoer_store: {} }), 'wait')
-check('order save: a newer build blocks', _order_save_step({ settled: true, saved_ids: ['a'], todoer_store: { version: TODOER_VERSION + 1 } }), 'blocked')
-check('order save: otherwise saves', [_order_save_step({ settled: true, saved_ids: ['a'], todoer_store: {} }), _order_save_step({ settled: true, saved_ids: [], todoer_store: undefined })], ['save', 'save'])
-check('order save: the welcome marks the corpus settled', [!!_todoer_store().settled, (_on_welcome(), !!_todoer_store().settled)], [false, true])
+// one turn of the order save: the corpus server-confirmed first, then every listed item saved,
+// then the build check; the unconfirmed turn waits whatever else holds (a newer stamp included)
+check('order save: an unconfirmed corpus waits', [_order_save_step({ confirmed: false, saved_ids: ['a', 'b'], todoer_store: {} }), _order_save_step({ confirmed: false, saved_ids: ['a'], todoer_store: { version: TODOER_VERSION + 1 } })], ['wait', 'wait'])
+check('order save: an unsaved listed item waits', _order_save_step({ confirmed: true, saved_ids: ['a', null], todoer_store: {} }), 'wait')
+check('order save: a newer build blocks', _order_save_step({ confirmed: true, saved_ids: ['a'], todoer_store: { version: TODOER_VERSION + 1 } }), 'blocked')
+check('order save: otherwise saves', [_order_save_step({ confirmed: true, saved_ids: ['a'], todoer_store: {} }), _order_save_step({ confirmed: true, saved_ids: [], todoer_store: undefined })], ['save', 'save'])
+// one tick of the unsnooze sweep: the primary instance only, on a confirmed corpus, online
+check('sweep: not the primary instance skips', _sweep_step({ primary: false, confirmed: true, online: true }), 'skip')
+check('sweep: an unconfirmed corpus waits', _sweep_step({ primary: true, confirmed: false, online: true }), 'wait')
+check('sweep: offline waits', _sweep_step({ primary: true, confirmed: true, online: false }), 'wait')
+check('sweep: otherwise sweeps', _sweep_step({ primary: true, confirmed: true, online: true }), 'sweep')
 
 // the context menu on the list is prevented after a touch press and kept for every other
 // origin (2026-09-12): the event's own pointer type decides where the browser provides it

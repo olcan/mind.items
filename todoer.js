@@ -403,14 +403,8 @@ function __render(widget, widget_item) {
                 const gs = widget_item._global_store // saved manually below
                 gs._todoer ??= {}
                 // one decision per turn (see _order_save_step): the writes below wait for the
-                // corpus to settle (marked by this tab's welcome, or confirmed by the server:
-                // a tab whose welcome ran under the previous todoer build has no mark) and for
-                // every listed item to be saved
-                const step = _order_save_step({
-                  settled: !!(_todoer.store.settled || window._server_confirmed),
-                  saved_ids,
-                  todoer_store: gs._todoer,
-                })
+                // server-confirmed corpus and for every listed item to be saved
+                const step = _order_save_step({ confirmed: !!window._server_confirmed, saved_ids, todoer_store: gs._todoer })
                 if (step == 'wait') return // try again later
                 if (step == 'blocked') {
                   // a newer build wrote the store: this one stops writing orders (once told);
@@ -753,21 +747,33 @@ function _order_blocked(todoer_store) {
 }
 
 // one turn of a widget's order save (its store.set task, polled every second): the corpus must
-// have SETTLED first (the todoer's _on_welcome marks it; index.svelte settleCorpusForWelcome:
-// the server confirmation, else a fallback after 10 s or offline), since the save writes the
-// pinned item's store and every listed item's cleared unsnooze flag WHOLE from this tab's
-// copies, and at the first render of a cache-initialized tab those copies are whatever the
-// cache last saw: a phone returning after days wrote its stale copies over snoozes made
-// elsewhere meanwhile (2026-09-25); a drag made before the settlement is saved at it unless a
+// be SERVER-CONFIRMED first (window._server_confirmed: a current server revision applied; a
+// secondary tab of the shared persistent cache confirms on its own, which the app's editor2 row
+// pins), since the save writes the pinned item's store and every listed item's
+// cleared unsnooze flag WHOLE from this tab's copies, and until the confirmation those copies
+// are whatever the cache last saw: a phone returning after days wrote its stale copies over
+// snoozes made elsewhere meanwhile (2026-09-25). a tab loaded offline or on a slow link waits
+// as long as it takes, and a drag made before the confirmation is saved at it unless a
 // re-render rebuilt the list from the stored order first (the row jumps back: visible and
 // redoable, the trade the app accepts for an attribute toggle before the confirmation). then
 // every listed item must be saved (an id), and a store stamped by a newer build blocks this
 // one (see _order_blocked)
-function _order_save_step({ settled, saved_ids, todoer_store }) {
-  if (!settled) return 'wait'
+function _order_save_step({ confirmed, saved_ids, todoer_store }) {
+  if (!confirmed) return 'wait'
   if (saved_ids.includes(null)) return 'wait'
   if (_order_blocked(todoer_store)) return 'blocked'
   return 'save'
+}
+
+// one tick of the unsnooze sweep (_on_welcome's minute task): only the primary instance (the
+// most recently focused live tab of the account, across devices) sweeps, and only on a
+// server-confirmed corpus while the device reports online, since an unsnooze writes the item's
+// store whole from this tab's copy and a stale or offline-queued write lands over a snooze made
+// elsewhere meanwhile (2026-09-25); 'wait' tries again at the next tick
+function _sweep_step({ primary, confirmed, online }) {
+  if (!primary) return 'skip'
+  if (!confirmed || !online) return 'wait'
+  return 'sweep'
 }
 
 // a long press on a touch screen should start the delayed drag (Sortable's delayOnTouchOnly),
@@ -1018,11 +1024,10 @@ function _on_search(text) {
 
 // start unsnooze task on welcome
 function _on_welcome() {
-  _todoer.store.settled = true // the corpus settled: the widgets' store writes may begin (see _order_save_step)
   _this.dispatch_task(
     'unsnooze',
     () => {
-      if (!_primary) return
+      if (_sweep_step({ primary: _primary, confirmed: !!window._server_confirmed, online: navigator.onLine }) != 'sweep') return
       each(_items(), item => {
         const snoozed = item._global_store._todoer?.snoozed
         if (snoozed && Date.now() >= snoozed) _unsnooze(item)
