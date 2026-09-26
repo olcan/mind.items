@@ -17,7 +17,8 @@ dispatch_task('update', update_status, 1000, 1000) // update every second
 #item table { width: 100%; border-spacing: 0 5px /* extra spacing */ }
 #item table code { font-size: 90% }
 #item .footer p, #item .sync p { margin: 0; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-#item .sync pre { font-size: 85%; margin: 2px 0 6px }
+#item .sync .log { font-family: monospace; font-size: 85%; margin: 2px 0 6px }
+#item .sync .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis } /* one line each, clipped to the item's width; the full line in the tooltip */
 #item table th { background: transparent; padding: 2px 10px } /* the cells' padding, so the headers line up; a header follows its column's alignment */
 #item .instances th { text-align: left }
 #item table :not(thead) > tr { background: #171717 }
@@ -242,7 +243,7 @@ function status_sync_html(hosts) {
     const text = _.escape(bits.join(' · '))
     const ok = o.status == 'synced' && o.fresh && !o.paused && !o.error
     parts.push(`<p><em>sync on ${_.escape(status_host_name(name))}: ${ok ? text : `<span class="warn">${text}</span>`}</em></p>`)
-    if (o.log?.length) parts.push(`<details data-fold="sync-${_.escape(name)}"><summary onclick="event.stopPropagation()">sync log</summary><pre>${o.log.map(l => _.escape(l)).join('\n')}</pre></details>`)
+    if (o.log?.length) parts.push(`<details data-fold="sync-${_.escape(name)}"><summary onclick="event.stopPropagation()">sync log</summary><div class="log">${o.log.map(l => `<div title="${_.escape(l)}">${_.escape(l)}</div>`).join('')}</div></details>`)
   }
   return parts.join('')
 }
