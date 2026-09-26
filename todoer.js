@@ -62,10 +62,17 @@ function _link_urls(text) {
 // internal helper for _render_todoer_widget, assumes Sortable loaded
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
-  // if dragging, set flag and return to avoid breaking drag
-  if (widget.classList.contains('dragging')) {
+  // if ANY widget on the page is dragging, set the flag and return to avoid breaking the drag
+  // (2026-09-25; before, only the dragging widget's own render waited): Sortable 1.15 keeps the
+  // drag's state (the dragged row, its ghost and clone, the root list) in variables shared by
+  // every instance, and destroying an instance, this render's first step for the old list and
+  // bins, ends the drag WITHOUT its events and nulls that state: the release then finds no
+  // drag to end, the ghost row stays, unchoose never fires and the dragging widget keeps its
+  // class for good. the deferred renders run at the drag's end (onUnchoose), each with the
+  // item it was asked for
+  if (widget.classList.contains('dragging') || document.querySelector('.todoer-widget.dragging')) {
     debug('delaying render due to dragging')
-    widget._renderPendingDragging = true
+    widget._renderPendingDragging = widget_item
     return
   }
   widget.querySelectorAll(':is(.list,.bin)')?.forEach(col => {
@@ -464,13 +471,21 @@ function __render(widget, widget_item) {
       if (chosen) last_unchoose_time = Date.now()
       chosen = false
       widget.classList.remove('dragging')
-      // _update_dom().then(() => widget_item.touch())
-      // _delay(1000).then(_update_dom).then(() => widget_item.touch())
-      // trigger pending render if any
-      if (widget._renderPendingDragging) {
-        delete widget._renderPendingDragging
-        setTimeout(() => __render(widget, widget_item))
-      }
+      // the drag's result for the pending render of this widget (see __render), for a drop back
+      // INTO the list only: the renders run after Sortable's end and the old instance's save()
+      // (timers), the old save task cancels itself on its detached list, and a rebuilt list
+      // would hand the new save the STORED order, so the next render puts the rows in this
+      // order and its own save persists it. a bin took the row otherwise, and a refused or
+      // cancelled bin drop restores it, which a hint without it would move to the head
+      if (widget._renderPendingDragging && e.to == list) widget._orderAfterDrag = list.sortable.toArray()
+      // trigger the pending renders, this widget's and every other widget's deferred by this
+      // drag (see __render), each with the item it was asked for
+      document.querySelectorAll('.todoer-widget').forEach(w => {
+        const item = w._renderPendingDragging
+        if (!item) return
+        delete w._renderPendingDragging
+        setTimeout(() => __render(w, item))
+      })
     },
     onEnd: e => {
       // debug('onEnd')
@@ -584,6 +599,15 @@ function __render(widget, widget_item) {
 
   for (const elem of [done_bin, snooze_bin, cancel_bin, owner_bin, agent_bin])
     if (elem) elem.sortable = Sortable.create(elem, { group: widget.id })
+
+  // a render deferred by a drag on this widget puts the rows in the drag's order (see
+  // onUnchoose), which the list's save below then persists; rows the order lacks (a row a bin
+  // took, a row that arrived meanwhile) stay ahead of it, as Sortable's sort leaves them
+  if (widget._orderAfterDrag) {
+    const order = widget._orderAfterDrag
+    delete widget._orderAfterDrag
+    if (!snoozed) list.sortable.sort(order)
+  }
 
   // NOTE: this is no longer needed w/ 'dragging' class moved to onStart instead of onChoose, preventing the list item div from being shrunk under the cursor prematurely, sending clicks to the widget instead
   // widget.onclick = e => {
