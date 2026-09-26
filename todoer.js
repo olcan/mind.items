@@ -185,6 +185,9 @@ function __render(widget, widget_item) {
   widget_item.store._todoer.items ??= {}
   const members = (widget_item.store._todoer.items[widget.id] = new Set())
 
+  // the item the box targets by NAME (the unique label or the id reference the rows' clicks set;
+  // an ambiguous label or any other text targets nothing): its row is marked selected
+  const selected = _item(MindBox.get().trim(), { silent: true })?.id
   // insert all todo items into list
   let have_unsnoozed = false
   let review_anchor // the #vault item's review-anchor builder, resolved at the first task row that needs it
@@ -230,8 +233,7 @@ function __render(widget, widget_item) {
     const container = document.createElement('div')
     container.className = 'list-item-container'
     if (pending) container.setAttribute('data-pending', pending.kind) // the overlay, until acked
-    if (MindBox.get().trim() == 'id:' + item.id)
-      container.classList.add('selected')
+    if (item.id == selected) container.classList.add('selected')
     list.appendChild(container)
     container.appendChild(div)
     container.setAttribute('data-id', item.id) // used for saving below
@@ -344,8 +346,11 @@ function __render(widget, widget_item) {
       // block dropped, which a task's tree and log make non-contiguous in the item's text (the
       // app then logged "could not find text" on a [done] task's row and selected nothing)
       const selection = _todo_line(text)
+      // the item is targeted by its NAME (the app's: the unique label when it has one, else the
+      // id reference): under its label the app lists the item's children below it and its
+      // keyboard navigation and child creation work, which an id reference never gives
       MindBox.set(
-        'id:' + item.id,
+        item.name,
         edit ? { edit: selection } : { scroll: true, select: selection }
       )
     }
@@ -1089,7 +1094,8 @@ function _on_global_store_change(id, remote) {
   if (item?.tags.includes('#todo')) _on_item_change(id)
 }
 
-// detect changes to search query, specifically for id:<todo_item_id>
+// detect changes to search query, specifically for a todo's name (its unique label or its id
+// reference, `id:<todo_item_id>`), as the rows' clicks set it
 function _on_search(text) {
   const target_item = _item(text.trim(), { silent: true }) // null if text does not match item
   const is_todo_item = target_item?.tags.includes('#todo')
