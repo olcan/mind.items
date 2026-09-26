@@ -1,9 +1,9 @@
 #status <div class="instances"></div>
-<div class="hosts"></div>
-<div class="sync"></div>
 <div class="tasks"></div>
 #### Runs
 <div class="runs"></div>
+<div class="hosts"></div>
+<div class="sync"></div>
 <div class="footer"></div>
 ```_html_hidden
 <script _uncached>
@@ -292,10 +292,10 @@ function status_render(selector, render) {
 
 function update_vault_status() {
   const now = Date.now()
-  status_render('.hosts', () => marked.parse(status_hosts_md(now)))
-  status_render('.sync', () => status_sync_html(status_hosts()))
   status_render('.tasks', () => marked.parse(status_tasks_md(now)))
   status_render('.runs', () => status_runs_html(now))
+  status_render('.hosts', () => marked.parse(status_hosts_md(now)))
+  status_render('.sync', () => status_sync_html(status_hosts()))
   status_render('.footer', () => marked.parse(status_footer_md(now)))
 }
 
