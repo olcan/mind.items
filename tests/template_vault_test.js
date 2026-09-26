@@ -334,6 +334,46 @@ check('source view: managed references are the current item\'s tag links', view.
 check('source view: an unmanaged reference is a hinted placeholder', view.includes('<span class="template_placeholder" title="not a managed file">&#91;&#91;notes&#47;x&#93;&#93;</span>') && view.includes('title="not a managed file">&#91;&#91;Agents&#93;&#93;</span>'), true)
 check('source view: root references are tag links (7.5)', view.includes('title="#vault/AGENTS" onmousedown="_handleTagClick(\'id_x\',\'#vault/AGENTS\'') && view.includes('title="#vault/learnings"'), true)
 check('source view: task items are static markers', view.includes('&#9744;') && !view.includes('checkbox'), true)
+// wiki links (the vault's design notes/design/wiki_links.md 2.3): under the app's shared grammar
+// (the REAL src/wiki_links.ts, loaded by node's type stripping, exposed as the app does) an
+// unmanaged reference goes to the app's builder with its target and alias and is its anchor; a
+// managed alias shows on the item link, its handler argument a JavaScript string the browser
+// compiles after decoding the attribute (an apostrophe and a backslash included); a reference the
+// app refuses, or every reference without the seam (the rows above), keeps the hint; an app
+// without the shared grammar (the fallback) still splits the old spelling at its first pipe
+{
+  const wiki = require(path.join(__dirname, '..', '..', 'mind.page', 'src', 'wiki_links.ts'))
+  const seen = []
+  ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
+  ctx.window._wiki_link_html = (target, alias, options) => {
+    seen.push([target, alias, options])
+    return wiki.wikiLinkHtml({ url: 'x://h/f' }, target, alias, options)
+  }
+  const linked = h._vault_source_view("[[notes/x|The Note]] and [[../out]] and [[agents/worker|W]] and `[[notes/code]]` and [[docs/x|see [x](y)]] and [[notes/a]b]] and [[agents/worker|Worker's \\ config]]")
+  check('source view: an unmanaged reference reaches the app\'s builder with its target and alias', seen[0], ['notes/x', 'The Note', { refs: true }])
+  check('source view: the builder\'s anchor is the reference\'s rendering', linked.includes('<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;notes&#37;2Fx" title="notes&#47;x" data-wiki-link>The Note</a>'), true)
+  check('source view: a reference the app refuses keeps the hint', linked.includes('title="not a managed file">&#91;&#91;&#46;&#46;&#47;out&#93;&#93;</span>'), true)
+  check('source view: a managed alias shows on the item link, never through the builder', linked.includes('title="#vault/agents/worker"') && linked.includes('>W</mark>') && !seen.some(([t]) => t.startsWith('agents/')), true)
+  check('source view: a code span keeps a reference literal under the seam', seen.some(([t]) => t === 'notes/code'), false)
+  check('source view: the shared grammar takes an alias with a markdown link and a lone bracket in a target', seen.slice(1), [['../out', null, { refs: true }], ['docs/x', 'see [x](y)', { refs: true }], ['notes/a]b', null, { refs: true }]])
+  check('source view: the rich alias is the anchor\'s text under the carrier', linked.includes('data-wiki-link>see &#91;x&#93;&#40;y&#41;</a>'), true)
+  // the managed alias's handler: the attribute decoded as the browser does, then compiled and run
+  // with the app's callback stubbed, which unescapes its argument (the app's tag-link contract)
+  const marks = Array.from(linked.matchAll(/<mark class="link" title="#vault\/agents\/worker" onmousedown="([^"]*)"[^>]*>([^<]*)<\/mark>/g))
+  check('source view: two managed marks', marks.length, 2)
+  const decode = s => s.replace(/&#(\d+);/g, (m, n) => String.fromCodePoint(+n)).replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+  const unescape = s => s.replace(/&(amp|lt|gt|quot|#39);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" })[e])
+  const handled = []
+  const run = attr => new Function('_handleTagClick', 'event', decode(attr))((id, tag, shown) => handled.push([id, tag, unescape(shown)]), {})
+  marks.forEach(([, attr]) => run(attr))
+  check('source view: the handlers compile and pass the aliases decoded once (an apostrophe and a backslash included)', handled, [['id_x', '#vault/agents/worker', 'W'], ['id_x', '#vault/agents/worker', "Worker's \\ config"]])
+  check('source view: the visible alias is under the carrier', marks[1][2], 'Worker&#39;s &#92; config')
+  delete ctx.window._wiki_link_regexp
+  delete ctx.window._wiki_link_html
+  // the fallback without the shared grammar: the old spelling split at its first pipe
+  const fallback = h._vault_source_view('[[agents/worker|W]] and [[notes/x|N]]')
+  check('source view: without the shared grammar a managed alias still shows on the item link and an unmanaged one keeps the hint', fallback.includes('>W</mark>') && fallback.includes('title="not a managed file">&#91;&#91;notes&#47;x&#124;N&#93;&#93;</span>'), true)
+}
 const codeBlock = /<pre><code class="hljs language-js">(.*?)<\/code><\/pre>/.exec(view)
 check('source view: heading, list, and code render; fenced code with a language is highlighted (7.3)', /<h1>/.test(view) && /<li>/.test(view) && codeBlock !== null && codeBlock[1].replace(/<[^>]+>/g, '') == 'fenced &#60;script&#62; &#35;tag', true)
 check('source view: fenced code without a language stays plain', h._vault_source_view('```\n<a> #b\n```\n').includes('<pre><code>&#60;a&#62; &#35;b</code></pre>'), true)

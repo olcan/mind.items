@@ -284,9 +284,27 @@ const vault_run_progress = sup => (typeof sup?.progress == 'number' ? sup.progre
 // character backslash-escaped (the parser's escape rule): a pipe cannot split the row whatever
 // precedes it (a literal backslash doubles, so the backslashes before a pipe stay odd: `grep
 // 'foo\|bar'` is one cell), backticks and emphasis stay text, and `<`, `>`, `&` reach the
-// renderer as text it escapes (a status line is shell output; `rg todo | head` stays one cell)
-const vault_cell = text =>
-  String(text).replace(/\r\n|\r|\n/g, ' ').replace(/[!-\/:-@\[-`{-~]/g, c => '\\' + c)
+// renderer as text it escapes (a status line is shell output; `rg todo | head` stays one cell).
+// The one exception: a wiki link the app accepts under the account's setting (the vault's
+// design notes/design/wiki_links.md 2.3) is the app's own anchor, its text and title as
+// character references (nothing the escape would need to see), the text around it escaped as
+// before; without the setting, or for a reference the app refuses, the span is literal text
+const vault_cell = text => {
+  const flat = String(text).replace(/\r\n|\r|\n/g, ' ')
+  const literal = s => s.replace(/[!-\/:-@\[-`{-~]/g, c => '\\' + c)
+  const regexp = window._wiki_link_regexp?.()
+  const build = window._wiki_link_html
+  if (!regexp || !build) return literal(flat)
+  let out = ''
+  let last = 0
+  for (const m of flat.matchAll(regexp)) {
+    const anchor = build(m[2], m[3] ?? null, { refs: true })
+    if (!anchor) continue
+    out += literal(flat.slice(last, m.index)) + anchor
+    last = m.index + m[0].length
+  }
+  return out + literal(flat.slice(last))
+}
 
 // the table rows for a listing (side-effect-free; `stop` maps run ids to flags, `link` renders one,
 // `sup` maps run ids to supervisor entries)
@@ -406,6 +424,10 @@ function vault_render(selector, render) {
   if (div._vault_html === html) return
   div._vault_html = html
   div.innerHTML = html
+  // a wiki link's anchor in a table (data only, the app's builder): the click stop, so a click
+  // opens the editor url in place and never the item's editor (the app's own anchor pass runs at
+  // the item's render, not at this rewrite; design wiki_links 2.4)
+  for (const a of Array.from(div.querySelectorAll?.('a[data-wiki-link]') ?? [])) a.onclick = e => e.stopPropagation()
   const open = (_this.store._vault_open ??= {})
   for (const d of Array.from(div.querySelectorAll?.('details[data-run]') ?? [])) {
     if (open[d.dataset.run]) d.open = true

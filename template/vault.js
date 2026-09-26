@@ -278,20 +278,45 @@ function _vault_decode_entities(text) {
   })
 }
 
+// the html escape for an attribute or a text node
+const _vault_html_escape = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+// the displayed text as the tag-click callback's argument (the app's tag-link contract,
+// Item.svelte's renderer.link): the callback unescapes its argument, so the text is html-escaped
+// first, the JavaScript string literal is built by JSON.stringify (quotes and backslashes
+// escaped), and the whole is html-escaped once more for the attribute, which the browser
+// decodes before compiling the handler (an alias with an apostrophe used to break the handler)
+const _vault_js_arg = text => _vault_html_escape(JSON.stringify(_vault_html_escape(text)))
+
 // the app's own tag-link markup for a managed wiki reference (a TRUSTED generated segment,
 // never passed through the grammar carrier): the mark the app renders for a hash-href link,
-// bound to the current item like the app's, so a click opens the referenced item
+// bound to the current item like the app's, so a click opens the referenced item; `spelling`
+// is the displayed text (an alias), the path without its suffix otherwise
 function _vault_item_link(path, spelling = null) {
   const label = _vault_label(path)
-  const shown = _vault_grammar_refs(spelling ?? path.replace(/\.md$/, ''))
+  const text = spelling ?? path.replace(/\.md$/, '')
   return (
-    '<mark class="link" title="' + label + '" onmousedown="_handleTagClick(\'' + _this.id + '\',\'' + label + '\',\'' + shown + '\',event)"' +
-    ' onclick="event.preventDefault();event.stopPropagation();">' + shown + '</mark>'
+    '<mark class="link" title="' + label + '" onmousedown="_handleTagClick(\'' + _this.id + '\',\'' + label + '\',' + _vault_js_arg(text) + ',event)"' +
+    ' onclick="event.preventDefault();event.stopPropagation();">' + _vault_grammar_refs(text) + '</mark>'
   )
 }
 const _vault_hint = (text, title) => '<span class="template_placeholder" title="' + title + '">' + _vault_grammar_refs(text) + '</span>'
 const _VAULT_LINK_SCHEME = /^(?:https?|mailto):/i
+// a wiki reference at the start of `src`: the app's shared grammar when the app exposes it
+// (`window._wiki_link_regexp`: an optional `!`, a target without brackets, pipes or newlines, an
+// optional alias after a pipe; the vault's design notes/design/wiki_links.md 2.3), else the
+// old spelling split at its first pipe (an app before the shared grammar)
 const _VAULT_WIKI = /^(!?)\[\[([^\]\n]+?)\]\]/
+function _vault_wiki_at(src) {
+  const shared = typeof window != 'undefined' ? window._wiki_link_regexp : undefined
+  if (shared) {
+    const m = new RegExp('^(?:' + shared().source + ')').exec(src)
+    return m ? { raw: m[0], target: m[2], alias: m[3] ?? null } : null
+  }
+  const m = _VAULT_WIKI.exec(src)
+  if (!m) return null
+  const pipe = m[2].indexOf('|')
+  return { raw: m[0], target: pipe < 0 ? m[2] : m[2].slice(0, pipe), alias: pipe < 0 ? null : m[2].slice(pipe + 1) }
+}
 // exactly one html comment (presentation design 8.2), spelled without the literal marker
 const _VAULT_COMMENT_CLOSE = '--' + '>'
 const _VAULT_COMMENT = new RegExp('^\\s*<!' + '--[\\s\\S]*?' + _VAULT_COMMENT_CLOSE + '\\s*$')
@@ -370,8 +395,10 @@ const _VAULT_MANAGED_TARGET = /^(?:agents(?:\/[a-z0-9_]+)+|AGENTS|learnings)$/
 const _VAULT_WIKI_ANYWHERE = /(!?\[\[(?:agents(?:\/[a-z0-9_]+)+|AGENTS|learnings)(?:\.md)?\]\])/
 
 // one Marked instance per render, the app's exposed class under the policy above; the
-// wiki-reference extension recognizes only the managed spelling, and a code span keeps a
-// reference literal because the extension's pattern does not match an opening backtick
+// wiki-reference extension links a managed spelling to its item and hands every other
+// reference to the app's wiki links (an editor anchor under the account's setting, the hint
+// without one), and a code span keeps a reference literal because the extension's pattern
+// does not match an opening backtick
 function _vault_marked() {
   const Marked = typeof window != 'undefined' ? window.Marked : undefined
   if (typeof Marked != 'function') return null
@@ -417,14 +444,18 @@ function _vault_marked() {
           return m ? m.index : undefined
         },
         tokenizer(src) {
-          const m = _VAULT_WIKI.exec(src)
+          const m = _vault_wiki_at(src)
           if (!m) return undefined
-          return { type: 'vault_wiki', raw: m[0], target: m[2] }
+          return { type: 'vault_wiki', raw: m.raw, target: m.target, alias: m.alias }
         },
         renderer(token) {
+          // a managed target keeps the in-app item link (the alias shown when given); any other
+          // reference is the app's editor anchor under the account's setting (the app's builder,
+          // the carrier over its text and title), else the hint as before
           const target = token.target.replace(/\.md$/, '')
-          if (_VAULT_MANAGED_TARGET.test(target)) return _vault_item_link(target + '.md')
-          return _vault_hint(token.raw, 'not a managed file')
+          if (_VAULT_MANAGED_TARGET.test(target)) return _vault_item_link(target + '.md', token.alias)
+          const build = typeof window != 'undefined' ? window._wiki_link_html : undefined
+          return (build && build(token.target, token.alias, { refs: true })) || _vault_hint(token.raw, 'not a managed file')
         },
       },
     ],

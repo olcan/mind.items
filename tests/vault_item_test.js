@@ -576,5 +576,43 @@ check('the item source has no unescaped macro delimiters (the app expands macros
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])
 check('nothing else saved the store (a welcome with a provisioned store, the marks, the statuses)', saves, [])
 
+// wiki links in a cell (the vault's design notes/design/wiki_links.md 2.3): an accepted reference
+// is the app's anchor (the REAL builder, src/wiki_links.ts loaded by node's type stripping), the
+// text around it escaped as before; a refused reference, or a cell without the app's seams, is
+// literal as before; a table with such cells parses through the REAL Marked with the app's vendored
+// table extension (a fresh instance, not the app's global one) into the expected cells. The table rewrite wires the anchors it inserts
+// (the app's own anchor pass runs at the item's render, not here)
+{
+  const app = path.join(__dirname, '..', '..', 'mind.page')
+  const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
+  const { Marked } = require(path.join(app, 'node_modules', 'marked'))
+  const tables = require(path.join(app, 'src', 'vendor', 'marked-extended-tables.js')).default
+  const cell = text => vm.runInContext('vault_cell(' + JSON.stringify(text) + ')', ctx)
+  const text = "see [[docs/x|the guide]] and [[../x]] | `b` <c> it's"
+  check('cell: without the app seams every reference is literal (escaped as before)', cell(text), "see \\[\\[docs\\/x\\|the guide\\]\\] and \\[\\[\\.\\.\\/x\\]\\] \\| \\`b\\` \\<c\\> it\\'s")
+  env.window._wiki_link_regexp = wiki.wikiLinkRegExp
+  env.window._wiki_link_html = (target, alias, options) => wiki.wikiLinkHtml({ url: 'x://h/f' }, target, alias, options)
+  const linked = cell(text)
+  check('cell: the accepted reference is the anchor, the rest escaped, the refused one literal', linked,
+    "see <a href=\"x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx\" title=\"docs&#47;x\" data-wiki-link>the guide</a> and \\[\\[\\.\\.\\/x\\]\\] \\| \\`b\\` \\<c\\> it\\'s")
+  const marked = new Marked({ gfm: true })
+  marked.use(tables())
+  const parsed = marked.parse('| a | b |\n| - | - |\n| ' + cell("rg todo | head [[notes/A&B|A's & B]] x") + ' | ' + cell("[[a|b]] | c") + ' |\n', { async: false })
+  const cells = Array.from(parsed.matchAll(/<td>([\s\S]*?)<\/td>/g), m => m[1])
+  check('cell: the parsed table keeps its two cells, the pipes literal and the anchors intact', cells.length, 2)
+  check('cell: the first cell', cells[0], 'rg todo | head <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;notes&#37;2FA&#37;26B" title="notes&#47;A&#38;B" data-wiki-link>A&#39;s &#38; B</a> x')
+  check('cell: the second cell', cells[1], '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;a" title="a" data-wiki-link>b</a> | c')
+  delete env.window._wiki_link_regexp
+  delete env.window._wiki_link_html
+  const anchors = [{}, {}]
+  runs_div.querySelectorAll = sel => (sel === 'a[data-wiki-link]' ? anchors : [])
+  vm.runInContext("vault_render('.runs', () => '<a data-wiki-link>x</a>')", ctx)
+  const event = { stopped: 0, stopPropagation() { this.stopped++ } }
+  anchors.forEach(a => a.onclick(event))
+  check('the table rewrite wires every wiki anchor with the click stop', [anchors.every(a => typeof a.onclick === 'function'), event.stopped], [true, 2])
+  delete runs_div.querySelectorAll
+  delete runs_div._vault_html
+}
+
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
 console.log('all checks passed')

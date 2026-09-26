@@ -59,6 +59,64 @@ function _link_urls(text) {
   )
 }
 
+// the tag marks of a row's escaped snippet (the tag regex of util.js in the mind.page repo)
+function _mark_tags(text) {
+  return text.replace(/(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)/g, '$1<mark>$2</mark>')
+}
+
+// the markdown links of a row's escaped snippet as anchors
+function _link_markdown_links(text) {
+  return text.replace(/\[\s*(.*?)\s*\]\(\s*(.*?)\s*\)/g, (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`)
+}
+
+// the wiki links of a row's escaped snippet (the app's grammar and builder; the vault's design
+// notes/design/wiki_links.md 2.3): a `[[path]]` or `[[path|text]]` reference, unescaped back to
+// the owner's text, becomes the app's anchor with its text and title as character references,
+// so the tag, markdown-link and url passes that follow find nothing inside it; a reference the
+// app has no setting for or refuses stays as written. Runs first over the escaped snippet
+function _link_wiki(text) {
+  const regexp = window._wiki_link_regexp?.()
+  const build = window._wiki_link_html
+  if (!regexp || !build) return text
+  return text.replace(regexp, (m, embed, target, alias) => build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
+}
+
+// the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url passes
+function _row_html(shown) {
+  return _link_urls(_link_markdown_links(_mark_tags(_link_wiki(_.escape(shown)))))
+}
+
+// the anchors of a rendered row (`div`): a wiki link's anchor (data only, the app's builder) gets
+// the click stop alone and NO target, so the editor url opens in place, as the marker's review
+// anchor does (the vault's design notes/design/wiki_links.md 2.4; a target would leave an empty
+// tab behind); an anchor that carries its own inline onclick is authored, and is left exactly as
+// written — the app's own passes over item content read the attribute the same way
+// (Item.svelte). The task marker's review anchor is #vault's (its href, tooltip and click stop,
+// no target), so a click on it takes #vault's path: the browser's in-place navigation hands the
+// vscode: url straight to the editor. The rewriting is for the row's PLAIN web links, which do
+// want a new tab (and the shortened text)
+function _wire_row_links(div) {
+  div.querySelectorAll('a').forEach(elem => {
+    if (elem.hasAttribute('data-wiki-link')) {
+      elem.onclick = e => e.stopPropagation()
+      return
+    }
+    if (elem.getAttribute('onclick')) return
+    const url = elem.href || elem.innerText
+    elem.title ||= url // default title is url
+    // simplify naked url links by trimming out protocol & path/query/fragment
+    if (elem.innerText == url)
+      elem.innerText = url
+        .replace(/(:\/\/.+?)\/(.+)/, '$1/…')
+        .replace(/^.*:\/\//, '')
+    // note setting href/target on <a> ausually works better than window.open
+    // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
+    elem.href = url
+    elem.target = '_blank'
+    elem.onclick = e => e.stopPropagation()
+  })
+}
+
 // internal helper for _render_todoer_widget, assumes Sortable loaded
 function __render(widget, widget_item) {
   if (!widget) fatal(`invalid/missing widget`)
@@ -192,22 +250,6 @@ function __render(widget, widget_item) {
       ) // try every 250ms until saved
     }
 
-    // helper function to tagify hashtags
-    const mark_tags = (
-      text // tag regex from util.js in mind.page repo
-    ) =>
-      text.replace(
-        /(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)/g,
-        '$1<mark>$2</mark>'
-      )
-
-    // helper function to linkify markdown links
-    const link_markdown_links = text =>
-      text.replace(
-        /\[\s*(.*?)\s*\]\(\s*(.*?)\s*\)/g,
-        (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`
-      )
-
     // the row (and its tooltip) shows the snippet without its hidden tags (#_…, hidden everywhere
     // else in the app; a task's route tag is not part of what the owner wrote) and without the
     // grammar view's inert-region tokens (⟦…⟧: the agent's answers and plans read as tokens)
@@ -215,10 +257,11 @@ function __render(widget, widget_item) {
     container.title = (parent ? `child of ${parent}\n` : '') + visible(text) // original whitespace for title
     const shown = visible(text).replace(/\s+/g, ' ')
 
-    // the row's html: the escaped snippet through the tag, markdown-link and url passes, then a
-    // task's marker linked to its worktree's review (design 2.4: presentation only, the text
-    // keeps its one bracketed word; the #vault item's builder, resolved once per render)
-    let html = _link_urls(link_markdown_links(mark_tags(_.escape(shown))))
+    // the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url
+    // passes (_row_html), then a task's marker linked to its worktree's review (design 2.4:
+    // presentation only, the text keeps its one bracketed word; the #vault item's builder,
+    // resolved once per render)
+    let html = _row_html(shown)
     if (state?.worktree && review_anchor === undefined) review_anchor = _review_anchor_builder()
     html = _decorate_row(html, text, state, review_anchor, parent)
 
@@ -276,27 +319,7 @@ function __render(widget, widget_item) {
     })
 
     // handle clicks on urls
-    div.querySelectorAll('a').forEach(elem => {
-      // an anchor that carries its own inline onclick is authored, and is left exactly as
-      // written — the app's own passes over item content read the attribute the same way
-      // (Item.svelte). The task marker's review anchor is #vault's (its href, tooltip and click
-      // stop, no target), so a click on it takes #vault's path: the browser's in-place
-      // navigation hands the vscode: url straight to the editor. The rewriting below is for the
-      // row's PLAIN web links, which do want a new tab (and the shortened text)
-      if (elem.getAttribute('onclick')) return
-      const url = elem.href || elem.innerText
-      elem.title ||= url // default title is url
-      // simplify naked url links by trimming out protocol & path/query/fragment
-      if (elem.innerText == url)
-        elem.innerText = url
-          .replace(/(:\/\/.+?)\/(.+)/, '$1/…')
-          .replace(/^.*:\/\//, '')
-      // note setting href/target on <a> ausually works better than window.open
-      // e.g. avoids an extra tab if launching other apps (e.g. mail) in safari
-      elem.href = url
-      elem.target = '_blank'
-      elem.onclick = e => e.stopPropagation()
-    })
+    _wire_row_links(div)
 
     // handle click on list item
     div.onclick = e => {

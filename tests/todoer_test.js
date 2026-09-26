@@ -54,8 +54,12 @@ const context = {
   __now: null,
   crypto: { getRandomValues: a => a.fill(7) },
   Sortable: { dragged: null }, // the row of the pending press, as Sortable exposes it
+  window: {}, // the app's seams (the wiki links rows install them)
   PointerEvent: class {}, // present: the grab follows the touch through pointer events
-  _: { escape: s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }, // lodash, as the app has it
+  _: { // lodash, as the app has it
+    escape: s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
+    unescape: s => String(s).replace(/&(amp|lt|gt|quot|#39);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[e])),
+  },
 }
 vm.createContext(context)
 vm.runInContext(
@@ -74,6 +78,11 @@ vm.runInContext(
     '_review_anchor_builder',
     '_without_log',
     '_link_urls',
+    '_mark_tags',
+    '_link_markdown_links',
+    '_link_wiki',
+    '_row_html',
+    '_wire_row_links',
     '_extract_todo_snippet',
     '_todo_line',
     '_merged_order',
@@ -433,6 +442,77 @@ const tick = () => new Promise(r => setTimeout(r, 0))
   check('delegate: a missing name that merely starts with #todo is refused', [await _on_command_delegate('#todox', '#todox'), alerts.at(-1), docs.length], ['/delegate #todox', '/delegate: #todox missing or ambiguous', 5])
   make('i8', '#todox', '#todo x\n', 's8')
   check('delegate: a name that merely starts with #todo is a reference, delegated by its saved id', [await _on_command_delegate('#todox', '#todox'), docs.at(-1).cmd.task, docs.length], [null, 's8', 6])
+  // wiki links in a row (the vault's design notes/design/wiki_links.md 2.3): the app's REAL grammar
+  // and builder (src/wiki_links.ts, loaded by node's type stripping) through window, and the app's
+  // REAL tag-exclusion replacer for the url pass (replaceTags and its exclusions, evaluated from
+  // src/util.js; the harness's stub rewrites nothing); the escaped snippet's reference reaches the
+  // builder unescaped, the anchor comes back opaque to the tag, markdown-link and url passes that
+  // follow, the plain url still links; without the seams, or for a reference the builder refuses,
+  // the snippet is as before
+  {
+    const app = path.join(__dirname, '..', '..', 'mind.page')
+    const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
+    const util = fs.readFileSync(path.join(app, 'src', 'util.js'), 'utf8')
+    // the pieces by their boundaries: an exclusion array to its join, a delimiter's line, a function to its closing brace
+    const piece = (name, kind) => {
+      const start = util.indexOf(`export ${kind} ${name}`)
+      if (start < 0) throw new Error(`${name} not found in util.js`)
+      const stop = kind === 'function' ? util.indexOf('\n}\n', start) + 3 : name.startsWith('tagRegexExclusions') ? util.indexOf("].join('|')", start) + "].join('|')".length : util.indexOf('\n', start) + 1
+      return util.slice(start, stop).replace('export ', '')
+    }
+    const utilCtx = vm.createContext({ _: context._ })
+    vm.runInContext(
+      [['tagRegexExclusions', 'const'], ['tagRegexExclusionsEscaped', 'const'], ['tagRegexDelimiter', 'const'], ['tagRegexDelimiterEscaped', 'const'], ['skipExclusions', 'function'], ['replaceTags', 'function']]
+        .map(([name, kind]) => piece(name, kind))
+        .join('\n'),
+      utilCtx
+    )
+    const replaceTags = vm.runInContext('replaceTags', utilCtx)
+    const stub = context._replace_tags
+    context._replace_tags = (text, pattern, fn) => replaceTags(text, pattern, fn)
+    const _row_html = vm.runInContext('_row_html', context)
+    const config = { url: 'x://h/f' }
+    const plain = _row_html('#todo see [[notes/A&B|see #topic]] and #tag https://h/p and [[../x]]')
+    check('row: without the app seams the snippet is as before (tags marked inside the references too, the url linked, the references literal)', plain,
+      '<mark>#todo</mark> see [[notes/A&amp;B|see <mark>#topic</mark>]] and <mark>#tag</mark> <a>https://h/p</a> and [[../x]]')
+    context.window._wiki_link_regexp = wiki.wikiLinkRegExp
+    context.window._wiki_link_html = (target, alias, options) => wiki.wikiLinkHtml(config, target, alias, options)
+    const html = _row_html('#todo see [[notes/A&B|see #topic [x](y)]] and #tag https://h/p and [[../x]]')
+    check('row: the anchor is opaque to the passes after it (no mark, link or url inside), the url still linked, the refused reference literal', html,
+      '<mark>#todo</mark> see <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;notes&#37;2FA&#37;26B" title="notes&#47;A&#38;B" data-wiki-link>see &#35;topic &#91;x&#93;&#40;y&#41;</a> and <mark>#tag</mark> <a>https://h/p</a> and [[../x]]')
+    check('row: the anchor carries no target, rel or handler', /target=|rel=|\son\w+=/.test(html), false)
+    check('row: a reference without an alias shows its target, an apostrophe and a quote reach the builder unescaped', _row_html("[[docs/x]] [[a'b|c\"d]]"),
+      '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;a&#39;b" title="a&#39;b" data-wiki-link>c&#34;d</a>') // encodeURIComponent keeps an apostrophe; the carrier references it
+    context._replace_tags = stub
+    delete context.window._wiki_link_regexp
+    delete context.window._wiki_link_html
+  }
+
+  // the row's anchors (_wire_row_links, the pass __render runs over the rendered row): a wiki
+  // link's anchor gets the click stop alone and NO target (its default stays: the editor url opens
+  // in place), a plain web link gets its target and the shortened text, an authored anchor (an
+  // inline onclick) is left alone; over fake elements with the DOM surface the pass reads
+  {
+    const _wire_row_links = vm.runInContext('_wire_row_links', context)
+    const anchor = (attrs, text) => ({
+      attrs, innerText: text, href: attrs.href ?? '', title: attrs.title ?? '', target: undefined, onclick: null,
+      hasAttribute(name) { return name in this.attrs },
+      getAttribute(name) { return this.attrs[name] ?? null },
+    })
+    const wikiAnchor = anchor({ href: 'x://h/f?path=docs', title: 'docs', 'data-wiki-link': '' }, 'docs')
+    const webAnchor = anchor({}, 'https://h/p/q')
+    const authored = anchor({ href: 'vscode-insiders://x/review', onclick: 'event.stopPropagation()' }, 'r')
+    _wire_row_links({ querySelectorAll: sel => (sel === 'a' ? [wikiAnchor, webAnchor, authored] : []) })
+    const click = () => ({ stopped: 0, prevented: 0, stopPropagation() { this.stopped++ }, preventDefault() { this.prevented++ } })
+    const wikiClick = click()
+    wikiAnchor.onclick(wikiClick)
+    check('anchors: the wiki anchor has no target, its click stops and keeps its default', [wikiAnchor.target, wikiAnchor.href, wikiClick.stopped, wikiClick.prevented], [undefined, 'x://h/f?path=docs', 1, 0])
+    const webClick = click()
+    webAnchor.onclick(webClick)
+    check('anchors: the plain web link gets its target, the shortened text and the click stop', [webAnchor.target, webAnchor.href, webAnchor.innerText, webAnchor.title, webClick.stopped], ['_blank', 'https://h/p/q', 'h/…', 'https://h/p/q', 1])
+    check('anchors: an authored anchor is left alone', [authored.target, authored.onclick], [undefined, null])
+  }
+
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()
