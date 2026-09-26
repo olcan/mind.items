@@ -1,5 +1,6 @@
 #status <div class="instances"></div>
 <div class="hosts"></div>
+<div class="sync"></div>
 <div class="tasks"></div>
 #### Runs
 <div class="runs"></div>
@@ -15,7 +16,8 @@ dispatch_task('update', update_status, 1000, 1000) // update every second
 #item .instances { display: inline }
 #item table { width: 100%; border-spacing: 0 5px /* extra spacing */ }
 #item table code { font-size: 90% }
-#item .footer p { margin: 0; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+#item .footer p, #item .sync p { margin: 0; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+#item .sync pre { font-size: 85%; margin: 2px 0 6px }
 #item table th { background: transparent; padding: 2px 10px } /* the cells' padding, so the headers line up; a header follows its column's alignment */
 #item .instances th { text-align: left }
 #item table :not(thead) > tr { background: #171717 }
@@ -220,6 +222,30 @@ function status_task_rows(snapshot, now) {
   })
 }
 
+// the Obsidian Sync client of each publishing host (the entry's `obsidian`, from the plugin's
+// status file): one line, in the warning style unless synced and fresh (a file no longer
+// rewritten means the plugin's writer stopped: a dead window, a stalled renderer), with the
+// retry and skip backlogs and the client's error flag (its messages are in the log); the
+// client's log tail in a fold-out remembered like the finished runs
+function status_sync_html(hosts) {
+  const parts = []
+  for (const name of keys(hosts).sort()) {
+    const o = hosts[name]?.obsidian
+    if (!o) continue
+    const bits = [o.status]
+    if (o.paused) bits.push('paused')
+    if (!o.fresh) bits.push('stale')
+    if (o.retries) bits.push(`${o.retries} retries`)
+    if (o.skipped) bits.push(`${o.skipped} skipped`)
+    if (o.error) bits.push('error')
+    const text = _.escape(bits.join(' · '))
+    const ok = o.status == 'synced' && o.fresh && !o.paused && !o.error
+    parts.push(`<p><em>sync on ${_.escape(status_host_name(name))}: ${ok ? text : `<span class="warn">${text}</span>`}</em></p>`)
+    if (o.log?.length) parts.push(`<details data-fold="sync-${_.escape(name)}"><summary onclick="event.stopPropagation()">sync log</summary><pre>${o.log.map(l => _.escape(l)).join('\n')}</pre></details>`)
+  }
+  return parts.join('')
+}
+
 function status_hosts_md(now) {
   const hosts = status_hosts()
   const rows = status_host_rows(hosts, status_snapshot(hosts), now)
@@ -267,6 +293,7 @@ function status_render(selector, render) {
 function update_vault_status() {
   const now = Date.now()
   status_render('.hosts', () => marked.parse(status_hosts_md(now)))
+  status_render('.sync', () => status_sync_html(status_hosts()))
   status_render('.tasks', () => marked.parse(status_tasks_md(now)))
   status_render('.runs', () => status_runs_html(now))
   status_render('.footer', () => marked.parse(status_footer_md(now)))

@@ -46,7 +46,7 @@ const fake_div = () => ({
   set innerHTML(v) { this.writes++; this._html = v; this.details = Array.from(v.matchAll(/data-fold="([^"]*)"/g), m => fake_details(m[1])) },
   querySelectorAll(sel) { return sel.includes('[open]') ? this.details.filter(d => d.open) : this.details },
 })
-const divs = { '.instances': fake_div(), '.hosts': fake_div(), '.runs': fake_div(), '.tasks': fake_div(), '.footer': fake_div() }
+const divs = { '.instances': fake_div(), '.hosts': fake_div(), '.runs': fake_div(), '.tasks': fake_div(), '.footer': fake_div(), '.sync': fake_div() }
 const items = {
   'chat-id': { id: 'chat-id', name: '#chat/topic' },
   'vault-id': { id: 'vault-id', name: '#vault', _global_store: { _bridge: { updated: now - 5000, host: 'm3ultra.local', boot: now - 2 * 3600000, runs: { '5ad5b172': { item: 'chat-id', persona: 'default' } } } } },
@@ -128,8 +128,9 @@ const entry_m3 = `{v: 1, updated: ${now - 20000}, boot: ${now - 3600000}, publis
   ],
   hosts: ${coordinator}, suspended_all: false,
   sync_loop: {time: ${now - 90000}, paused: false, holds: 0, pending: 2, runs: 719, last_run: {status: 'applied', observation: 'complete', refusal: null, mutations: 0}},
+  obsidian: {status: 'uploading', fresh: true, error: false, paused: false, retries: 6, skipped: 2, log: ['17:06:30 Connected', '17:06:31 ERR ENOENT tmp/x.lock', '17:06:32 Uploading a/b <c>']},
   omitted: {finished: 3}}`
-const entry_m4 = `{v: 1, updated: ${now - 4 * MIN}, boot: ${now - 5 * MIN}, publisher: 'cli', runs: [], finished: [], tasks: [], hosts: {}, suspended_all: false, sync_loop: null, unreadable: 0}`
+const entry_m4 = `{v: 1, updated: ${now - 4 * MIN}, boot: ${now - 5 * MIN}, publisher: 'cli', runs: [], finished: [], tasks: [], hosts: {}, suspended_all: false, sync_loop: null, obsidian: {status: 'synced', fresh: true, error: false, paused: false, retries: 0, skipped: 0, log: []}, unreadable: 0}`
 run(`_this._global_store = {_owner: {}, _status: {v: 1, hosts: {m3: ${entry_m3}, m4: ${entry_m4}}}}`)
 const warn = t => `<span class="warn">${t}</span>`
 const mark = name => `<mark class="link" title="${name}" onmousedown="_handleTagClick('status-id','${name}','${name}',event)" onclick="event.preventDefault();event.stopPropagation();">${name}</mark>`
@@ -138,6 +139,12 @@ check('hosts: a punctuated host name is a literal cell, its .local suffix droppe
 check('hosts: a publishing host with its listing age and boot, its coordinator role, status, heartbeat and tasks', hostRows[0], ['m3', '20s&nbsp;ago', '1h00m', 'standby', 'ready', '30s&nbsp;ago', 'tasks\\.hello\\.hello, tasks\\.b\\.c'])
 check('hosts: a stale publisher is marked; its coordinator row is a standby', hostRows[1], ['m4', '4m00s&nbsp;ago ' + warn('stale'), '5m00s', 'standby', 'initializing', '1m00s&nbsp;ago', '·'])
 check('hosts: a coordinator-only host has no listing; a stale heartbeat is marked; a suspended one says so', [hostRows[2], hostRows[3]], [['old', '·', '·', warn('stale'), 'ready', '4m00s&nbsp;ago', '·'], ['susp', '·', '·', 'suspended', 'ready', '0s&nbsp;ago', '·']])
+const syncHtml = run('status_sync_html(status_hosts())')
+check('sync: a busy client in the warning style with its backlogs and a log fold-out (escaped); a synced fresh one plain without a fold-out', syncHtml,
+  '<p><em>sync on m3: <span class="warn">uploading · 6 retries · 2 skipped</span></em></p><details data-fold="sync-m3"><summary onclick="event.stopPropagation()">sync log</summary><pre>17:06:30 Connected\n17:06:31 ERR ENOENT tmp/x.lock\n17:06:32 Uploading a/b &lt;c&gt;</pre></details><p><em>sync on m4: synced</em></p>')
+check('sync: stale, paused and the error flag read in the line (the messages are in the log)', run(`status_sync_html({h: {obsidian: {status: 'resumed', fresh: false, error: true, paused: true, retries: 0, skipped: 0, log: []}}})`),
+  '<p><em>sync on h: <span class="warn">resumed · paused · stale · error</span></em></p>')
+check('sync: a host without the plugin\'s file shows nothing', run(`status_sync_html({h: {obsidian: null}, g: {}})`), '')
 const stamp = run(`status_stamp(status_snapshot(status_hosts()), vault_listing(), ${now})`)
 check('stamp: one part per line: the snapshot origin, the bridge from the #vault store (no .local), the sync loop observation, the unreadable count, the #vault link',
   [stamp.length, /^snapshot from m3 at .* \(20s&nbsp;ago\)$/.test(stamp[0]), stamp[1], /^sync loop last run applied at .* \(1m30s&nbsp;ago\), 0 holds, 2 pending$/.test(stamp[2]), stamp[3], stamp[4].startsWith('actions on <mark class="link" title="#vault"') && stamp[4].endsWith('>#vault</mark>')], [5, true, 'bridge on m3ultra listed 5s&nbsp;ago, up 2h00m', true, '1 unreadable state files', true])
@@ -182,7 +189,7 @@ if (!script) throw new Error('no _uncached script in status.md')
 const tasks = []
 env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
 run(script[1])
-check('the script renders the instances line, the three sections and the footer at once and registers the task', [divs['.instances'].writes, divs['.hosts'].writes, divs['.runs'].writes, divs['.tasks'].writes, divs['.footer'].writes, tasks.map(t => [t.name, t.delay, t.repeat])], [1, 1, 1, 1, 1, [['update', 1000, 1000]]])
+check('the script renders the instances line, the sections, the sync lines and the footer at once and registers the task', [divs['.instances'].writes, divs['.hosts'].writes, divs['.sync'].writes, divs['.runs'].writes, divs['.tasks'].writes, divs['.footer'].writes, tasks.map(t => [t.name, t.delay, t.repeat])], [1, 1, 1, 1, 1, 1, [['update', 1000, 1000]]])
 check('the instances line keeps its own rendering, the reminder after the summary', divs['.instances'].innerHTML.startsWith('<p>0 instances live on ~0 devices (names from <code>/device &lt;name&gt;</code>):'), true)
 // the instances with a device name (/device <name>): the name in place of the ip with the ip in
 // its tooltip; without one the ip as before; a local client shows the server's host name
@@ -221,6 +228,7 @@ run(script[1])
 check('a re-render restores it too and registers the task again', [fold().open, tasks.length], [true, 2])
 fold().click()
 check('a user close is remembered', run('_this.store._status_open'), { finished: false })
+check('the sync log fold-out is remembered by its host name beside the finished one', (() => { divs['.sync'].details[0].click(); return run('_this.store._status_open') })(), { finished: false, 'sync-m3': true })
 
 // the store change handler and welcome
 const before = divs['.hosts'].writes
