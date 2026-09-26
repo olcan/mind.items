@@ -121,9 +121,10 @@ const entry_m3 = `{v: 1, updated: ${now - 20000}, boot: ${now - 3600000}, publis
     {state: 'ddeeff00', run: null, agent: 'orphan', name: null, host: 'm3', started: ${now - 100000}, finished: null, elapsed: null, status: null, error: null, cost: null, subscription: false, modified: ${now - 3000}},
   ],
   tasks: [
-    {name: 'tasks.hello.hello', task: 'bin/tasks/hello.py:5', last_run: ${now - 3600000}, host: 'm3', next_run: ${now - 1}},
-    {name: 'tasks.b.c', task: 'bin/tasks/b.py', last_run: ${now - 60000}, host: 'm4', next_run: ${now + 125000}},
     {name: 'tasks.never', task: 'tasks.never', last_run: null, host: null, next_run: null},
+    {name: 'tasks.b.c', task: 'bin/tasks/b.py', last_run: ${now - 60000}, host: 'm4', next_run: ${now + 125000}},
+    {name: 'tasks.hello.hello', task: 'bin/tasks/hello.py:5', last_run: ${now - 3600000}, host: 'm3', next_run: ${now - 1}},
+    {name: 'tasks.z.soon', task: 'bin/tasks/z.py', last_run: ${now - 60000}, host: 'm4', next_run: ${now + 5000}},
   ],
   hosts: ${coordinator}, suspended_all: false,
   sync_loop: {time: ${now - 90000}, paused: false, holds: 0, pending: 2, runs: 719, last_run: {status: 'applied', observation: 'complete', refusal: null, mutations: 0}},
@@ -158,10 +159,10 @@ check('runs: no snapshot renders no rows', run(`status_run_rows(null, vault_list
 const finishedRows = run(`status_finished_rows(status_snapshot(status_hosts()), ${now})`)
 check('finished: an ok run, an error run with its first line as a literal cell, a file clean.sh moved shows its last write (nothing invented)', finishedRows,
   [['`11223344`', 'worker', 'm3', '40s&nbsp;ago', '1m00s', 'ok', '$2.50'], ['`55667788`', 'worker', 'm3', '50s&nbsp;ago', '1s', warn('error') + ' RuntimeError\\: boom \\| bang', '·&nbsp;(sub)'], ['`ddeeff00`', 'orphan', 'm3', 'written 3s&nbsp;ago', '·', '·', '·']])
-check('tasks: running, the host column the running host (m3 runs b.c, last run on m4), never run; a suspended host is marked', run(`status_task_rows(status_snapshot(status_hosts()), ${now})`),
-  [['bin\\/tasks\\/hello\\.py\\:5', 'running', '1h00m&nbsp;ago', 'm3'], ['bin\\/tasks\\/b\\.py', 'running', '1m00s&nbsp;ago', 'm3'], ['tasks\\.never', '·', '·', '·']])
-check('tasks: due and a countdown once nothing runs', run(`(() => { const s = status_snapshot(status_hosts()); const saved = s.entry.hosts.m3.running_tasks; s.entry.hosts.m3.running_tasks = []; const rows = status_task_rows(s, ${now}); s.entry.hosts.m3.running_tasks = saved; return rows.map(r => r[1]) })()`), ['due', '2m05s', '·'])
-check('tasks: the global suspension marks every row', run(`(() => { const s = status_snapshot(status_hosts()); s.entry.suspended_all = true; const rows = status_task_rows(s, ${now}); s.entry.suspended_all = false; return rows.map(r => r[3]) })()`), ['m3 ' + warn('suspended'), 'm3 ' + warn('suspended'), '· ' + warn('suspended')])
+check('tasks: ordered by state (the running ones first, alphabetical), the host column the running host (m3 runs b.c, last run on m4), a countdown, the never-run last; a suspended host is marked', run(`status_task_rows(status_snapshot(status_hosts()), ${now})`),
+  [['bin\\/tasks\\/b\\.py', 'running', '1m00s&nbsp;ago', 'm3'], ['bin\\/tasks\\/hello\\.py\\:5', 'running', '1h00m&nbsp;ago', 'm3'], ['bin\\/tasks\\/z\\.py', '5s', '1m00s&nbsp;ago', 'm4'], ['tasks\\.never', '·', '·', '·']])
+check('tasks: once nothing runs, due first, then by the next run (the sooner before the later), the never-run last', run(`(() => { const s = status_snapshot(status_hosts()); const saved = s.entry.hosts.m3.running_tasks; s.entry.hosts.m3.running_tasks = []; const rows = status_task_rows(s, ${now}); s.entry.hosts.m3.running_tasks = saved; return rows.map(r => [r[0], r[1]]) })()`), [['bin\\/tasks\\/hello\\.py\\:5', 'due'], ['bin\\/tasks\\/z\\.py', '5s'], ['bin\\/tasks\\/b\\.py', '2m05s'], ['tasks\\.never', '·']])
+check('tasks: the global suspension marks every row', run(`(() => { const s = status_snapshot(status_hosts()); s.entry.suspended_all = true; const rows = status_task_rows(s, ${now}); s.entry.suspended_all = false; return rows.map(r => r[3]) })()`), ['m3 ' + warn('suspended'), 'm3 ' + warn('suspended'), 'm4 ' + warn('suspended'), '· ' + warn('suspended')])
 
 // the real parser over the tables: one body row per entry, the literal cells intact
 const hostsHtml = marked.parse(run(`status_hosts_md(${now})`))
@@ -173,7 +174,7 @@ const runsHtml = run(`status_runs_html(${now})`)
 check('parser: the running table with the link mark and the warning span, then the fold-out with the finished table and the omitted count',
   [(runsHtml.match(/<tbody>/g) || []).length, runsHtml.includes(mark('#chat/topic')), runsHtml.includes(warn('dead')), /<details data-fold="finished"><summary onclick="event.stopPropagation\(\)">finished \(24 h\): 3 \(3 finished omitted\)<\/summary>/.test(runsHtml), runsHtml.includes('boom | bang'), runsHtml.includes('<code>aa11bb22</code>'), runsHtml.includes('<th align="right">elapsed</th>'), runsHtml.includes('<th align="right">cost</th>')], [2, true, true, true, true, true, true, true])
 const tasksHtml = marked.parse(run(`status_tasks_md(${now})`))
-check('parser: the tasks table renders the location literally, its next and last columns right-aligned under their headers', [(tasksHtml.match(/<tr>/g) || []).length, tasksHtml.includes('bin/tasks/hello.py:5</td>'), tasksHtml.includes('<th align="right">next</th>'), tasksHtml.includes('<td align="right">running</td>')], [4, true, true, true])
+check('parser: the tasks table renders the location literally, its next and last columns right-aligned under their headers', [(tasksHtml.match(/<tr>/g) || []).length, tasksHtml.includes('bin/tasks/hello.py:5</td>'), tasksHtml.includes('<th align="right">next</th>'), tasksHtml.includes('<td align="right">running</td>')], [5, true, true, true])
 
 // the startup script: an immediate render of every section, the one-second task, ticking ages
 const script = item.match(/<script _uncached>\n([\s\S]*?)<\/script>/)

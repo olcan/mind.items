@@ -200,14 +200,17 @@ function status_finished_rows(snapshot, now) {
 
 // the tasks of the snapshot: the location, the next run (`running` while a coordinator file
 // lists the task as running, else `due` or the countdown), the last run's age, and the host:
-// the one running the task now, else the last run's (with the host's suspension when any), in
-// the order list_tasks.sh prints
+// the one running the task now, else the last run's (with the host's suspension when any);
+// ordered by state as list_tasks.sh orders them: running, due, then by the next run's time,
+// the unscheduled last, alphabetical by name within a state
 function status_task_rows(snapshot, now) {
   const coordinator = snapshot?.entry.hosts ?? {}
   const suspended_all = snapshot?.entry.suspended_all ?? false
   const running = {} // task name -> the host whose coordinator file lists it as running
   for (const [host, h] of entries(coordinator)) for (const name of h.running_tasks ?? []) running[name] = host
-  return (snapshot?.entry.tasks ?? []).map(t => {
+  const state = t => (running[t.name] ? 0 : typeof t.next_run != 'number' ? 3 : t.next_run <= now ? 1 : 2)
+  const tasks = [...(snapshot?.entry.tasks ?? [])].sort((a, b) => state(a) - state(b) || (state(a) == 2 ? a.next_run - b.next_run : 0) || String(a.name).localeCompare(String(b.name)))
+  return tasks.map(t => {
     const on = running[t.name]
     const next = on ? 'running' : typeof t.next_run != 'number' ? '·' : t.next_run <= now ? 'due' : status_age(t.next_run - now)
     const last = typeof t.last_run == 'number' ? status_ago(now - t.last_run) : '·'
