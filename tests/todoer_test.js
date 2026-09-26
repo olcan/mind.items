@@ -18,8 +18,15 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', '_url_char'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
+// the clock the evaluated source reads: live, or frozen at __now by the callback rows below
+const RealDate = Date
+class ClockDate extends RealDate {
+  static now() {
+    return context.__now ?? RealDate.now()
+  }
+}
 const context = {
   console,
   _replace_tags: (text, pattern, fn) => {
@@ -32,6 +39,19 @@ const context = {
   warn: () => {},
   fatal: msg => { throw new Error(msg) },
   _todoer: { store: {} },
+  // the sweep callback's world (the callback tests below): a fake clock, the stubs it reads
+  _this: { dispatch_task: (name, fn) => (context.__captured[name] = fn) },
+  __captured: {},
+  _primary: true,
+  navigator: { onLine: true },
+  _items: () => context.__items,
+  __items: [],
+  merge: (a, b) => Object.assign(a, b),
+  each: (xs, f) => xs.forEach(f),
+  values: o => Object.values(o ?? {}),
+  _extract_todo_snippet: () => '',
+  Date: ClockDate,
+  __now: null,
   crypto: { getRandomValues: a => a.fill(7) },
   Sortable: { dragged: null }, // the row of the pending press, as Sortable exposes it
   PointerEvent: class {}, // present: the grab follows the touch through pointer events
@@ -61,6 +81,11 @@ vm.runInContext(
     '_order_blocked',
     '_order_save_step',
     '_sweep_step',
+    '_corpus_current',
+    '_resume_hold',
+    '_held',
+    '_on_welcome',
+    '_unsnooze',
     '_sideways',
     '_grab_on_sideways_touch',
     '_delegated_view',
@@ -78,7 +103,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _order_save_step, _sweep_step, _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -428,14 +453,80 @@ check('version: the same or an older writer does not', [_order_blocked({ version
 // one turn of the order save: the corpus server-confirmed first, then every listed item saved,
 // then the build check; the unconfirmed turn waits whatever else holds (a newer stamp included)
 check('order save: an unconfirmed corpus waits', [_order_save_step({ confirmed: false, saved_ids: ['a', 'b'], todoer_store: {} }), _order_save_step({ confirmed: false, saved_ids: ['a'], todoer_store: { version: TODOER_VERSION + 1 } })], ['wait', 'wait'])
+check('order save: a resume hold waits', _order_save_step({ confirmed: true, held: true, saved_ids: ['a'], todoer_store: {} }), 'wait')
 check('order save: an unsaved listed item waits', _order_save_step({ confirmed: true, saved_ids: ['a', null], todoer_store: {} }), 'wait')
 check('order save: a newer build blocks', _order_save_step({ confirmed: true, saved_ids: ['a'], todoer_store: { version: TODOER_VERSION + 1 } }), 'blocked')
-check('order save: otherwise saves', [_order_save_step({ confirmed: true, saved_ids: ['a'], todoer_store: {} }), _order_save_step({ confirmed: true, saved_ids: [], todoer_store: undefined })], ['save', 'save'])
-// one tick of the unsnooze sweep: the primary instance only, on a confirmed corpus, online
+check('order save: otherwise saves', [_order_save_step({ confirmed: true, saved_ids: ['a'], todoer_store: {} }), _order_save_step({ confirmed: true, held: false, saved_ids: [], todoer_store: undefined })], ['save', 'save'])
+// one tick of the unsnooze sweep: the primary instance only, on a confirmed corpus, online, past a resume hold
 check('sweep: not the primary instance skips', _sweep_step({ primary: false, confirmed: true, online: true }), 'skip')
 check('sweep: an unconfirmed corpus waits', _sweep_step({ primary: true, confirmed: false, online: true }), 'wait')
 check('sweep: offline waits', _sweep_step({ primary: true, confirmed: true, online: false }), 'wait')
+check('sweep: a resume hold waits', _sweep_step({ primary: true, confirmed: true, online: true, held: true }), 'wait')
 check('sweep: otherwise sweeps', _sweep_step({ primary: true, confirmed: true, online: true }), 'sweep')
+// the corpus is current when confirmed AND currently served; an app without the live flag decides by the confirmation
+check('current: confirmed and served', _corpus_current({ _server_confirmed: true, _server_current: true }), true)
+check('current: confirmed, the stream dead', _corpus_current({ _server_confirmed: true, _server_current: false }), false)
+check('current: confirmed on an app without the live flag', _corpus_current({ _server_confirmed: true }), true)
+check('current: unconfirmed, whatever the flag', [_corpus_current({ _server_confirmed: false, _server_current: true }), _corpus_current({})], [false, false])
+// the resume hold: a long gap between ticks holds the writers for RESUME_HOLD_MS; a minute's gap (a throttled tab) does not; a first tick has no gap
+const RESUME_GAP_MS = vm.runInContext('RESUME_GAP_MS', context)
+const RESUME_HOLD_MS = vm.runInContext('RESUME_HOLD_MS', context)
+check('resume: the first tick holds nothing', _resume_hold({ last_tick: undefined, now: 1000, hold_until: undefined }), 0)
+check('resume: a minute since the last tick holds nothing', _resume_hold({ last_tick: 1000, now: 1000 + 60_000, hold_until: 0 }), 0)
+check('resume: a gap past the limit holds for the hold span', _resume_hold({ last_tick: 1000, now: 1000 + RESUME_GAP_MS + 1, hold_until: 0 }), 1000 + RESUME_GAP_MS + 1 + RESUME_HOLD_MS)
+check('resume: an existing hold stands through ordinary ticks', _resume_hold({ last_tick: 5000, now: 5000 + 60_000, hold_until: 999_999 }), 999_999)
+// THE SWEEP CALLBACK ITSELF, with the world stubbed and the clock faked (the wiring, not the
+// predicates): _on_welcome registers it under `unsnooze`; a due item is one whose snooze time
+// passed; _unsnooze writes snoozed 0 on it
+const sweep = () => context.__captured.unsnooze()
+const due = () => (context.__items = [{ _global_store: { _todoer: { snoozed: 100 } }, global_store: { _todoer: { snoozed: 100 } } }])
+const unsnoozed = () => context.__items[0].global_store._todoer.snoozed === 0
+_on_welcome()
+Object.assign(context.window, { _server_confirmed: true, _server_current: true }) // the harness's window stub, the app's flags added
+context.__now = 1000
+due(); sweep()
+check('callback: a due item is unsnoozed on a current corpus', unsnoozed(), true)
+context.window._server_current = false
+due(); sweep()
+check('callback: not while the stream is dead (the live flag off)', unsnoozed(), false)
+context.window._server_current = true
+context.navigator.onLine = false
+due(); sweep()
+check('callback: not while offline', unsnoozed(), false)
+context.navigator.onLine = true
+// the resume hold from the callback's own observation: a tick after a long gap holds
+context.__now = 1000 + 10 * 60_000
+due(); sweep()
+check('callback: the first tick after a long gap holds (no unsnooze)', [unsnoozed(), context._todoer.store.hold_until], [false, 1000 + 10 * 60_000 + RESUME_HOLD_MS])
+context.__now += 60_000
+due(); sweep()
+check('callback: a tick inside the hold still waits', unsnoozed(), false)
+context.__now += 60_001
+due(); sweep()
+check('callback: the tick past the hold sweeps', unsnoozed(), true)
+// THE ORDER SAVE'S OBSERVATION (review 0's B3): after a second suspension the order task can
+// wake before the sweep; its own _held() sees the gap and holds, whatever the sweep saw
+context.__now += 60_000
+sweep() // an ordinary tick: last_tick fresh, no hold
+check('held: an ordinary observation holds nothing', _held(), false)
+context.__now += 20 * 60_000 // asleep: the order task wakes first
+check('held: the first observation after a gap holds, before any sweep', [_held(), context._todoer.store.hold_until > context.__now], [true, true])
+const woke = context.__now
+context.__now += 5000 // dragging during the hold: observed every second
+check('held: inside the hold', _held(), true)
+context.__now = woke + RESUME_HOLD_MS + 1000 // asleep again until past the hold's end
+check('held: a second suspension that outlives the hold is a new gap: held again', _held(), true)
+context.__now += 30_000
+check('held: still inside the new hold', _held(), true)
+// observed every minute meanwhile (the sweep's cadence, under the gap threshold): the hold ends
+const end = context._todoer.store.hold_until
+while (context.__now + 60_000 <= end) {
+  context.__now += 60_000
+  _held()
+}
+context.__now += 60_000
+check('held: past the new hold, observed every minute meanwhile', _held(), false)
+context.__now = null // the clock runs live again for the rows below
 
 // the context menu on the list is prevented after a touch press and kept for every other
 // origin (2026-09-12): the event's own pointer type decides where the browser provides it

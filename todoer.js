@@ -410,12 +410,15 @@ function __render(widget, widget_item) {
                 const gs = widget_item._global_store // saved manually below
                 gs._todoer ??= {}
                 // one decision per turn (see _order_save_step): the writes below wait for the
-                // server-confirmed corpus and for every listed item to be saved
-                const step = _order_save_step({ confirmed: !!window._server_confirmed, saved_ids, todoer_store: gs._todoer })
+                // server-confirmed, currently served corpus, past a resume hold, with every
+                // listed item saved
+                const step = _order_save_step({ confirmed: _corpus_current(window), held: _held(), saved_ids, todoer_store: gs._todoer })
                 if (step == 'wait') return // try again later
                 if (step == 'blocked') {
-                  // a newer build wrote the store: this one stops writing orders (once told);
-                  // null ends the save task (a later render schedules the next attempt)
+                  // a newer build wrote the store: this one stops writing orders (once told;
+                  // logged every time, so a trace shows the refusal); null ends the save task
+                  // (a later render schedules the next attempt)
+                  debug(`order save of ${storage_key} refused: a newer build wrote the store`)
                   if (!_todoer.store.reload_notice) {
                     _todoer.store.reload_notice = true
                     alert('please reload to keep your todo order (todoer update required)')
@@ -447,6 +450,7 @@ function __render(widget, widget_item) {
                     invalidate_elem_cache: false,
                   })
                 }
+                delete widget._orderAfterDrag // the drag's order is persisted (or was already)
                 return null // finish repeating task
               },
               0,
@@ -470,14 +474,19 @@ function __render(widget, widget_item) {
       // note on a regular click, onUnchoose is called w/o onChoose (may be bug)
       if (chosen) last_unchoose_time = Date.now()
       chosen = false
+      const dragged = widget.classList.contains('dragging') // a drag started (onStart), not a mere press or click
       widget.classList.remove('dragging')
-      // the drag's result for the pending render of this widget (see __render), for a drop back
-      // INTO the list only: the renders run after Sortable's end and the old instance's save()
-      // (timers), the old save task cancels itself on its detached list, and a rebuilt list
-      // would hand the new save the STORED order, so the next render puts the rows in this
-      // order and its own save persists it. a bin took the row otherwise, and a refused or
-      // cancelled bin drop restores it, which a hint without it would move to the head
-      if (widget._renderPendingDragging && e.to == list) widget._orderAfterDrag = list.sortable.toArray()
+      // the drag's result, for every render of this widget until a save persists it (see
+      // __render and the save task's end), for a drop back INTO the list only: a rebuilt list
+      // would otherwise hand the save the STORED order (the renders pending from the drag run
+      // after Sortable's end and the old instance's save(), timers; the old save task cancels
+      // itself on its detached list), and a save that waits (an unconfirmed or held corpus)
+      // would lose the drag to any render meanwhile. a bin took the row otherwise, and a
+      // refused or cancelled bin drop restores it, which a hint without it would move to the head.
+      // a started drag only: Sortable fires unchoose for a plain click too (a press without a
+      // move), which saves nothing, so a hint recorded then would outlive it and a later remote
+      // reorder's render would apply it and persist it (review 0)
+      if (dragged && e.to == list) widget._orderAfterDrag = list.sortable.toArray()
       // trigger the pending renders, this widget's and every other widget's deferred by this
       // drag (see __render), each with the item it was asked for
       document.querySelectorAll('.todoer-widget').forEach(w => {
@@ -600,14 +609,11 @@ function __render(widget, widget_item) {
   for (const elem of [done_bin, snooze_bin, cancel_bin, owner_bin, agent_bin])
     if (elem) elem.sortable = Sortable.create(elem, { group: widget.id })
 
-  // a render deferred by a drag on this widget puts the rows in the drag's order (see
-  // onUnchoose), which the list's save below then persists; rows the order lacks (a row a bin
-  // took, a row that arrived meanwhile) stay ahead of it, as Sortable's sort leaves them
-  if (widget._orderAfterDrag) {
-    const order = widget._orderAfterDrag
-    delete widget._orderAfterDrag
-    if (!snoozed) list.sortable.sort(order)
-  }
+  // a drag's order not yet persisted (see onUnchoose) puts the rows in that order at every
+  // render until the list's save persists it (the save task deletes it); rows the order lacks
+  // (a row a bin took, a row that arrived meanwhile) stay ahead of it, as Sortable's sort
+  // leaves them
+  if (widget._orderAfterDrag && !snoozed) list.sortable.sort(widget._orderAfterDrag)
 
   // NOTE: this is no longer needed w/ 'dragging' class moved to onStart instead of onChoose, preventing the list item div from being shrunk under the cursor prematurely, sending clicks to the widget instead
   // widget.onclick = e => {
@@ -777,13 +783,13 @@ function _order_blocked(todoer_store) {
 // cleared unsnooze flag WHOLE from this tab's copies, and until the confirmation those copies
 // are whatever the cache last saw: a phone returning after days wrote its stale copies over
 // snoozes made elsewhere meanwhile (2026-09-25). a tab loaded offline or on a slow link waits
-// as long as it takes, and a drag made before the confirmation is saved at it unless a
-// re-render rebuilt the list from the stored order first (the row jumps back: visible and
-// redoable, the trade the app accepts for an attribute toggle before the confirmation). then
-// every listed item must be saved (an id), and a store stamped by a newer build blocks this
-// one (see _order_blocked)
-function _order_save_step({ confirmed, saved_ids, todoer_store }) {
-  if (!confirmed) return 'wait'
+// as long as it takes, and a drag made before the confirmation keeps its order through the
+// renders meanwhile (the order hint, see onUnchoose) and is saved when the wait ends; the
+// corpus must also be currently served and past a resume hold (see _corpus_current, _held).
+// then every listed item must be saved (an id), and a store stamped by a newer build blocks
+// this one (see _order_blocked)
+function _order_save_step({ confirmed, held, saved_ids, todoer_store }) {
+  if (!confirmed || held) return 'wait'
   if (saved_ids.includes(null)) return 'wait'
   if (_order_blocked(todoer_store)) return 'blocked'
   return 'save'
@@ -794,10 +800,43 @@ function _order_save_step({ confirmed, saved_ids, todoer_store }) {
 // server-confirmed corpus while the device reports online, since an unsnooze writes the item's
 // store whole from this tab's copy and a stale or offline-queued write lands over a snooze made
 // elsewhere meanwhile (2026-09-25); 'wait' tries again at the next tick
-function _sweep_step({ primary, confirmed, online }) {
+function _sweep_step({ primary, confirmed, online, held }) {
   if (!primary) return 'skip'
-  if (!confirmed || !online) return 'wait'
+  if (!confirmed || !online || held) return 'wait'
   return 'sweep'
+}
+
+// the corpus this tab's copies come from is server-confirmed AND currently served: the app's
+// sticky `_server_confirmed` (a current server revision applied once) and its live
+// `_server_current` (the latest items snapshot from the server, not the cache: it drops when
+// the SDK notices a dead stream and rises with the catch-up; absent on an app build before
+// 2026-09-26, then the confirmation alone decides)
+function _corpus_current(w) {
+  return !!w._server_confirmed && (w._server_current ?? true)
+}
+
+// the RESUME HOLD (2026-09-26): a gap longer than RESUME_GAP_MS between OBSERVATIONS (the
+// sweep's minute tick, and every turn of an order save task) means the page was frozen or the
+// device asleep (Chrome's throttling of a background tab's timers aligns them to the minute,
+// so a throttled tab ordinarily observes within it; a starved one earns a harmless hold), and its
+// copies may be missing what other tabs wrote meanwhile until the SDK notices the dead stream
+// and catches up (seconds to a minute); the housekeeping writers wait RESUME_HOLD_MS from the
+// observation that saw the gap. both writers observe (review 0: the order save's one-second
+// task could wake before the sweep after a second suspension and see an expired hold), so the
+// gap threshold sits under the hold's span and over the sweep's interval. returns the hold's end
+const RESUME_GAP_MS = 90 * 1000
+const RESUME_HOLD_MS = 2 * 60 * 1000
+function _resume_hold({ last_tick, now, hold_until }) {
+  if (last_tick != null && now - last_tick > RESUME_GAP_MS) return now + RESUME_HOLD_MS
+  return hold_until ?? 0
+}
+// whether the writers are held now: ONE observation of the clock (see _resume_hold), by
+// whichever writer runs first after a gap
+function _held() {
+  const now = Date.now()
+  _todoer.store.hold_until = _resume_hold({ last_tick: _todoer.store.last_tick, now, hold_until: _todoer.store.hold_until })
+  _todoer.store.last_tick = now
+  return now < _todoer.store.hold_until
 }
 
 // a long press on a touch screen should start the delayed drag (Sortable's delayOnTouchOnly),
@@ -1051,7 +1090,7 @@ function _on_welcome() {
   _this.dispatch_task(
     'unsnooze',
     () => {
-      if (_sweep_step({ primary: _primary, confirmed: !!window._server_confirmed, online: navigator.onLine }) != 'sweep') return
+      if (_sweep_step({ primary: _primary, confirmed: _corpus_current(window), online: navigator.onLine, held: _held() }) != 'sweep') return
       each(_items(), item => {
         const snoozed = item._global_store._todoer?.snoozed
         if (snoozed && Date.now() >= snoozed) _unsnooze(item)
