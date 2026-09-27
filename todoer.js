@@ -262,10 +262,10 @@ function __render(widget, widget_item) {
     // the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url
     // passes (_row_html), then a task's marker linked to its worktree's review (design 2.4:
     // presentation only, the text keeps its one bracketed word; the #vault item's builder,
-    // resolved once per render)
+    // resolved once per render) and a NAMED item's label first (_row_label)
     let html = _row_html(shown)
     if (state?.worktree && review_anchor === undefined) review_anchor = _review_anchor_builder()
-    html = _decorate_row(html, text, state, review_anchor, parent)
+    html = _decorate_row(html, text, state, review_anchor, parent, _row_label(item, shown))
 
     // determine suffix vs prefix snippet based on #todo suffix match
     if (!text.match(/(?:^|\s|\()#todo$/)) {
@@ -307,7 +307,8 @@ function __render(widget, widget_item) {
       div.prepend(age, ' ')
     }
 
-    // handle clicks and modify styling for non-todo tags (the age mark is not a tag)
+    // handle clicks and modify styling for non-todo tags (the age mark is not a tag; a named
+    // item's label mark is one, and its click targets the label as the row's own click does)
     div.querySelectorAll('mark:not(.age)').forEach(elem => {
       let tag = elem.innerText.replace(/#_/, '#')
       if (item.label) tag = _resolve_tag(item.label, tag) ?? tag
@@ -1159,15 +1160,34 @@ function _task_list(state, pending) {
 }
 
 // a task row's decorations over its linked html: the marker linked to its worktree's review
-// FIRST (design 2.4: the link reads the row's start, `#todo [word]`, so the prefix must not
-// precede it), then a child's ↳ prefix (the vault's project design 2.7); presentation only
-function _decorate_row(html, text, state, anchor_builder, parent) {
+// FIRST (design 2.4: the link reads the row's start, `#todo [word]`, so nothing may precede it),
+// then a named item's label (_row_label) as a tag mark, the form the row's tag pass gives every
+// tag (the render's mark wiring gives it the tag click), then a child's ↳ prefix (the vault's
+// project design 2.7); presentation only
+function _decorate_row(html, text, state, anchor_builder, parent, label = null) {
   const marker = state?.worktree ? _marker_of(text) : null
   if (marker) {
     const anchor = anchor_builder?.(state.worktree, marker.word, `${state.worktree} · its changes against main in VS Code`)
     if (anchor) html = _link_marker(html, marker, anchor)
   }
+  if (label) html = `<mark>${_.escape(label)}</mark> ${html}`
   return parent ? '↳ ' + html : html
+}
+
+// the label a row shows FIRST when its item is NAMED (the app's name: the unique label when the
+// item has one, else the id reference): the row's click targets a named item by its label (since
+// 2026-09-26), under which the app lists its children, and a suffix snippet (from the #todo tag
+// on) never shows it. The label as the owner wrote it (`item.label` is the app's case-preserving
+// text; a label is the text's first VISIBLE tag, so nothing hidden is shown); null for an unnamed
+// item (its label shared, or none) or when the row already starts with the label as a whole tag
+// (a prefix snippet that begins where the text does, or the label #todo itself)
+function _row_label(item, shown) {
+  const label = item.label
+  if (!label || item.name != label) return null // unnamed: the name is the id reference
+  const head = shown.substring(0, label.length)
+  const rest = shown.substring(label.length)
+  if (head.toLowerCase() == label.toLowerCase() && /^(?:$|[#\s<>&?!,.;:"'`(){}\[\]])/.test(rest)) return null
+  return label
 }
 
 // the parent project's snippet for a child's tooltip (the item resolved silently), or its id

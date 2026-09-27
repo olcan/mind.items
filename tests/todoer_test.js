@@ -75,6 +75,7 @@ vm.runInContext(
     '_marker_of',
     '_link_marker',
     '_decorate_row',
+    '_row_label',
     '_review_anchor_builder',
     '_without_log',
     '_link_urls',
@@ -112,7 +113,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -252,6 +253,24 @@ check('decorate: a child in prefix mode', _decorate_row('fix [question] <mark>#t
 check('decorate: a child without a worktree gets the prefix and no link', _decorate_row('<mark>#todo</mark> [question] fix', '#todo [question] fix', { worktree: null }, builder, 'the parent'), '↳ <mark>#todo</mark> [question] fix')
 check('decorate: an ordinary task links without a prefix', _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', { worktree: 'chat_x_1' }, builder, null), `<mark>#todo</mark> ${slot('proposal')} fix`)
 check('decorate: no builder (no #vault item), no link', _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', { worktree: 'chat_x_1' }, null, 'the parent'), '↳ <mark>#todo</mark> [proposal] fix')
+// a named item's label first, as a tag mark, behind a child's prefix and ahead of the linked marker
+check('decorate: a named item\'s label ahead of the linked marker', _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', { worktree: 'chat_x_1' }, builder, null, '#Proj'), `<mark>#Proj</mark> <mark>#todo</mark> ${slot('proposal')} fix`)
+check('decorate: a named child: the prefix, the label, the row', _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', { worktree: 'chat_x_1' }, builder, 'the parent', '#Proj'), `↳ <mark>#Proj</mark> <mark>#todo</mark> ${slot('proposal')} fix`)
+check('decorate: a named item in prefix mode', _decorate_row('fix [question] <mark>#todo</mark>', 'fix [question] #todo', { worktree: 'chat_x_1' }, builder, null, '#Proj'), `<mark>#Proj</mark> fix ${slot('question')} <mark>#todo</mark>`)
+// the label a row shows first (_row_label): the app's name is the unique label (item.label, the
+// case-preserving text) or the id reference; dropped when the row already starts with it as a
+// whole tag (a prefix snippet from the text's start, the label #todo of a lone #todo item)
+const named = (label, name = label) => ({ id: 'i1', label, name })
+check('label: a named item in suffix mode', _row_label(named('#Proj'), '#todo fix the cache'), '#Proj')
+check('label: an unnamed item (its label shared)', _row_label(named('#todo', 'id:i1'), '#todo twin one'), null)
+check('label: an item without a label', _row_label(named('', 'id:i1'), 'fix #todo'), null)
+check('label: a prefix snippet that begins with the label', _row_label(named('#Proj'), '#Proj fix the cache #todo'), null)
+check('label: the label #todo of a lone #todo item', _row_label(named('#todo'), '#todo twin one'), null)
+check('label: a truncated prefix snippet', _row_label(named('#proj'), '… the cache #todo'), '#proj')
+check('label: a longer tag at the start is not the label', _row_label(named('#proj'), '#project fix #todo'), '#proj')
+check('label: the label followed by punctuation', _row_label(named('#proj'), '#proj, fix #todo'), null)
+check('label: the label alone', _row_label(named('#proj'), '#proj'), null)
+check('label: the text\'s case decides nothing', _row_label(named('#Proj'), '#proj fix #todo'), null)
 check('link: suffix, the anchor wraps the word on the tag\'s mark; brackets, the rest of the row, and a bracketed word in the text kept', _link_marker('<mark>#todo</mark> [proposal] fix the <a>https://x.y/z</a> [x] cache', { word: 'proposal', suffix: true }, anchor('proposal')), `<mark>#todo</mark> ${slot('proposal')} fix the <a>https://x.y/z</a> [x] cache`)
 check('link: prefix, the anchor replaces the marker at the row\'s end and the rest is kept verbatim (the leading &lrm; is just such text here: the widget prepends its own after this pass)', _link_marker('&lrm;fix the [x] cache [question] <mark>#todo</mark>', { word: 'question', suffix: false }, anchor('question')), `&lrm;fix the [x] cache ${slot('question')} <mark>#todo</mark>`)
 check('link: a marker-only row (the collapsed newline after it kept)', _link_marker('<mark>#todo</mark> [done] ', { word: 'done', suffix: true }, anchor('done')), `<mark>#todo</mark> ${slot('done')} `)
