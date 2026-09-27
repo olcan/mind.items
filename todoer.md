@@ -24,8 +24,9 @@
 // the child-customization hook (the vault's notes/design/mind_task_chat.md, section 3): the app
 // calls window._customize_child(parent, text) after it allocates a child's label (Ctrl/Shift+Enter
 // on a unique label) and APPENDS what it returns after the label. A child of a #todo becomes a
-// TASK CHAT (the route tag and the first user turn); a child of a VAULT CHAT becomes its
-// continuation (the parent's label as a hidden tag and the first user turn), a vault chat being
+// TASK CHAT (the route tag on the label's line, the first user turn on the next); a child of a
+// VAULT CHAT becomes its continuation (the parent's label as a hidden tag beside the label, the
+// first user turn on the next line), a vault chat being
 // a chat item whose direct-chat lineage (the app's own rule, as agent/chat.js walks it and the
 // bridge's resolve_chain resolves it: the ONE chat dependency named by a hidden tag or by the
 // item's label prefix) is VALID TO ITS ROOT (an ambiguous step or a cycle anywhere on it, a
@@ -120,8 +121,8 @@ function _init() {
     // the macro opener is escaped for the app (an item's text is a macro source, code blocks
     // included: an unescaped opener here evaluated `user` in the todoer's own context on every
     // render, 2026-09-26); JavaScript reads `\<` as `<`, so the appended text is the plain turn
-    if ((parent.tags ?? []).includes('#todo')) return '\n#_chat/vault\n\<<user>> '
-    if (vault_chat(parent)) return `\n#_${(parent.label ?? '').replace(/^#/, '')}\n\<<user>> `
+    if ((parent.tags ?? []).includes('#todo')) return ' #_chat/vault\n\<<user>> '
+    if (vault_chat(parent)) return ` #_${(parent.label ?? '').replace(/^#/, '')}\n\<<user>> `
     return null
   }
 }

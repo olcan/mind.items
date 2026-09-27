@@ -207,10 +207,23 @@ check('the delegated view: an existing route tag is kept single', _delegated_vie
 const vault_src = fs.readFileSync(path.join(__dirname, '..', 'vault.md'), 'utf8')
 const vault_ctx = vm.createContext({ _: context._ })
 const vault_fn = name => vault_src.match(new RegExp(`\\nfunction ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}\\n`))[0]
+const vault_arrow = name => vault_src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n[\\s\\S]*?\\n\\}\\n`))[0]
 vm.runInContext(
-  vault_src.match(/\nconst VAULT_EDITOR = [^\n]*\n/)[0] + ['vault_review_url', 'vault_review_anchor', 'vault_review_links'].map(vault_fn).join(''),
+  vault_src.match(/\nconst VAULT_EDITOR = [^\n]*\n/)[0] +
+    vault_src.match(/\nconst VAULT_OPENER = [^\n]*\n/)[0] +
+    vault_arrow('vault_last_turn_is_user') +
+    ['vault_review_url', 'vault_review_anchor', 'vault_review_links'].map(vault_fn).join(''),
   vault_ctx
 )
+// the pending-request predicate over the grammar view (the vault's notes/design/mind_vault_item.md
+// section 13): the last opener must be a user turn AND that turn must not be blank (the bridge's
+// pending_turn rule: a fresh chat item's opener alone is no request; 2026-09-26)
+const last_user = text => vm.runInContext(`vault_last_turn_is_user(${JSON.stringify(text)})`, vault_ctx)
+check('pending: a user turn with text', last_user('#x/0 #_chat/vault\n<<user>> hi'), true)
+check('pending: text on the lines after the opener', last_user('#x/0 #_chat/vault\n<<user>>\n\nhi there\n'), true)
+check('pending: a blank last user turn (a fresh chat item) is no request', [last_user('#x/0 #_chat/vault\n<<user>> '), last_user('#x/0 #_chat/vault\n<<user>>\n\n'), last_user('<<user>> a\n<<agent>> b\n<<user>> ')], [false, false, false])
+check('pending: a reply ends the request', last_user('<<user>> a\n<<agent(x)>> b'), false)
+check('pending: an escaped mention is no opener', last_user('text with \\<<user>> inside'), false)
 const vault_item = (bridge, evaluate = js => vm.runInContext(js, vault_ctx)) => ({ _global_store: { _bridge: bridge }, eval: evaluate })
 const listing = { root: '/Users/olcan/vault', worktrees: { chat_a1: { item: 'i', commits: 2 } } }
 const review = 'vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&root=%2FUsers%2Folcan%2Fvault'
@@ -402,23 +415,23 @@ const chat = () => define('chat', '#chat', '#chat #_autodep', [])
 const vault = () => define('chat_vault', '#chat/vault', '#chat/vault #_agent/vault', ['chat'])
 check('hook: defined by _init', typeof customize, 'function')
 reset()
-check('hook: a child of a #todo becomes a task chat (the route tag, the first user turn)', customize(define('work', '#work', '#work #todo fix', []), '#work/0 '), '\n#_chat/vault\n<<user>> ')
+check('hook: a child of a #todo becomes a task chat (the route tag, the first user turn)', customize(define('work', '#work', '#work #todo fix', []), '#work/0 '), ' #_chat/vault\n<<user>> ')
 reset(); chat(); vault()
 const task_chat = define('work0', '#work/0', '#work/0 #_chat/vault <<user>> hi', ['chat', 'chat_vault'])
-check('hook: a child of a task chat continues it (the parent\'s label hidden, the first user turn)', customize(task_chat, '#work/0/0 '), '\n#_work/0\n<<user>> ')
+check('hook: a child of a task chat continues it (the parent\'s label hidden, the first user turn)', customize(task_chat, '#work/0/0 '), ' #_work/0\n<<user>> ')
 const continued = define('work00', '#work/0/0', '#work/0/0 #_work/0 <<user>> more', ['chat', 'chat_vault', 'work0'])
-check('hook: a continuation\'s child continues it (the walk through the hidden tag)', customize(continued, '#work/0/0/0 '), '\n#_work/0/0\n<<user>> ')
+check('hook: a continuation\'s child continues it (the walk through the hidden tag)', customize(continued, '#work/0/0/0 '), ' #_work/0/0\n<<user>> ')
 check('hook: an ordinary item under the chat by label prefix alone (no dependency) gets nothing', customize(define('plain', '#work/0/plain', '#work/0/plain notes', []), '#work/0/plain/0 '), null)
 define('chat_gpt', '#chat/gpt', '#chat/gpt', ['chat'])
 check('hook: a chat of another route under the vault chat\'s label gets nothing', customize(define('gpt', '#work/0/gpt', '#work/0/gpt #_chat/gpt <<user>> q', ['chat', 'chat_gpt']), '#work/0/gpt/0 '), null)
 const conversation = define('conv', '#conversation', '#conversation #_chat/vault <<user>> a', ['chat', 'chat_vault'])
-check('hook: a continuation named by a hidden tag without a slash continues', customize(define('followup', '#followup', '#followup #_conversation <<user>> b', ['chat', 'chat_vault', 'conv']), '#followup/0 '), '\n#_followup\n<<user>> ')
-check('hook: the stock /vault chat (an #_agent/vault route, under #chat/vault by autodep) continues', customize(define('cv0', '#chat/vault/0', '#chat/vault/0 #_agent/vault <<user>> c', ['chat', 'chat_vault']), '#chat/vault/0/0 '), '\n#_chat/vault/0\n<<user>> ')
-check('hook: an automatic-prefix continuation (the app\'s autodep dependency, no tag) continues', customize(define('cv00', '#chat/vault/0/0', '#chat/vault/0/0 <<user>> d', ['chat', 'chat_vault', 'cv0']), '#chat/vault/0/0/0 '), '\n#_chat/vault/0/0\n<<user>> ')
+check('hook: a continuation named by a hidden tag without a slash continues', customize(define('followup', '#followup', '#followup #_conversation <<user>> b', ['chat', 'chat_vault', 'conv']), '#followup/0 '), ' #_followup\n<<user>> ')
+check('hook: the stock /vault chat (an #_agent/vault route, under #chat/vault by autodep) continues', customize(define('cv0', '#chat/vault/0', '#chat/vault/0 #_agent/vault <<user>> c', ['chat', 'chat_vault']), '#chat/vault/0/0 '), ' #_chat/vault/0\n<<user>> ')
+check('hook: an automatic-prefix continuation (the app\'s autodep dependency, no tag) continues', customize(define('cv00', '#chat/vault/0/0', '#chat/vault/0/0 <<user>> d', ['chat', 'chat_vault', 'cv0']), '#chat/vault/0/0/0 '), ' #_chat/vault/0/0\n<<user>> ')
 let last = task_chat
 for (let n = 1; n <= 12; n++) last = define(`deep${n}`, `${last.label}/0`, `${last.label}/0 #_${last.label.slice(1)} <<user>> ${n}`, [...last.dependencies, last.id])
 lookups.count = 0
-check('hook: repeated continuations by this very hook keep continuing (no depth cap; each item once)', [customize(last, `${last.label}/0 `), lookups.count <= 16], [`\n#_${last.label.slice(1)}\n<<user>> `, true])
+check('hook: repeated continuations by this very hook keep continuing (no depth cap; each item once)', [customize(last, `${last.label}/0 `), lookups.count <= 16], [` #_${last.label.slice(1)}\n<<user>> `, true])
 last = define('deep99', `${last.label}/0`, `${last.label}/0 #_${last.label.slice(1)} <<user>> n`, [...last.dependencies, last.id])
 for (let n = 100; n < 170; n++) last = define(`deep${n}`, `${last.label}/0`, `${last.label}/0 #_${last.label.slice(1)} <<user>> ${n}`, [...last.dependencies, last.id])
 check('hook: a lineage past the lookup bound gets nothing (logged, never a long synchronous walk)', [customize(last, `${last.label}/0 `), warned.length, /more than 64 lookups/.test(warned[0] ?? '')], [null, 1, true])

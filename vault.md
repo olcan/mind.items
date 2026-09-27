@@ -179,9 +179,9 @@ function vault_reconcile_running() {
 // (item.read(), macros unevaluated, inert reply regions opaque) is a user turn, and the app's
 // routing predicate (window._grammar.routed: a vault route among the tags of the grammar view)
 // holds over the item's raw text or, for a chained item without a route of its own, over its
-// nearest label-prefix ancestor's (vault_routed). Only the role openers are read, never a whole
-// request, so an edit of an old turn that still ends with a user turn, or a route the bridge
-// never answers, marks too and lapses at the timeout below; a change that leaves no pending
+// nearest label-prefix ancestor's (vault_routed). Only the role openers and the last turn's
+// blankness are read, never a whole request, so an edit of an old turn that still ends with a
+// user turn, or a route the bridge never answers, marks too and lapses at the timeout below; a change that leaves no pending
 // request (the reply, a deletion, a removed route or turn) releases the mark. The listing takes
 // the reference over when it lists the item (vault_mark_running); until then it is released at
 // the item's next change that ends the request, at its deletion, or at the first tick or
@@ -190,11 +190,14 @@ const VAULT_PENDING_MS = 30000
 // the editor the review links open (the vault's own VS Code extension `auto-open-obsidian`
 // handles the URI): `vscode-insiders`, or `vscode` for the stable build
 const VAULT_EDITOR = 'vscode-insiders'
-// a chat REQUEST the app routes to the vault: the item's raw text ENDS with a user turn (the
-// last delimiter opener at a line start is the chat grammar's `\<<user>>`, ASCII spaces before
-// and inside allowed: an escaped mention inside prose or code, as in the route, command, and
-// persona items /update re-saves, is not one; a reply ends with an agent turn; only the role
-// openers are read, over the grammar view, never a whole request) and the app's routing predicate holds over the item or,
+// a chat REQUEST the app routes to the vault: the item's raw text ENDS with a NONBLANK user turn
+// (the last delimiter opener at a line start is the chat grammar's `\<<user>>`, ASCII spaces
+// before and inside allowed: an escaped mention inside prose or code, as in the route, command,
+// and persona items /update re-saves, is not one; a reply ends with an agent turn; the role
+// openers and the last turn's LITERAL blankness are read, over the grammar view, never a whole
+// request: this is the optimistic indicator's heuristic, while the bridge decides blankness on
+// the restored final message, so a turn holding only an inert region or a _log block still
+// marks and lapses) and the app's routing predicate holds over the item or,
 // for a chained item (`…/N`, created by the app under a chat) without a route of its own, over
 // its nearest label-prefix ancestor, as the bridge inherits a route through the direct-chat
 // lineage and the web framework through the dependency closure. The patterns are built from
@@ -202,8 +205,12 @@ const VAULT_EDITOR = 'vscode-insiders'
 const VAULT_OPENER = new RegExp('^ *\<< *(system|user|_?agent|tool)(?: *\\([^\\n]*\\))? *>>', 'gm')
 const vault_last_turn_is_user = text => {
   let role = null
-  for (const m of text.matchAll(VAULT_OPENER)) role = m[1]
-  return role === 'user'
+  let end = 0
+  for (const m of text.matchAll(VAULT_OPENER)) [role, end] = [m[1], m.index + m[0].length]
+  // a blank last user turn (the opener alone, as a fresh chat item carries it) is no request:
+  // the bridge never answers it (its pending_turn rule), so marking it would only show the item
+  // running until the timeout (2026-09-26, the owner's report)
+  return role === 'user' && text.slice(end).trim() !== ''
 }
 const vault_route_text = id => {
   // the item's own text when the app routes it, else the nearest label-prefix ancestor's
