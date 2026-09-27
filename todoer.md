@@ -117,8 +117,11 @@ function _init() {
   }
   window._customize_child = (parent, text) => {
     if (!parent || typeof text != 'string') return null
-    if ((parent.tags ?? []).includes('#todo')) return '\n#_chat/vault\n<<user>> '
-    if (vault_chat(parent)) return `\n#_${(parent.label ?? '').replace(/^#/, '')}\n<<user>> `
+    // the macro opener is escaped for the app (an item's text is a macro source, code blocks
+    // included: an unescaped opener here evaluated `user` in the todoer's own context on every
+    // render, 2026-09-26); JavaScript reads `\<` as `<`, so the appended text is the plain turn
+    if ((parent.tags ?? []).includes('#todo')) return '\n#_chat/vault\n\<<user>> '
+    if (vault_chat(parent)) return `\n#_${(parent.label ?? '').replace(/^#/, '')}\n\<<user>> `
     return null
   }
 }
