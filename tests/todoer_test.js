@@ -362,6 +362,99 @@ context.alert = () => {}
 context.each = (xs, f) => (xs ?? []).forEach(f)
 context._todoer.dependents = []
 const tick = () => new Promise(r => setTimeout(r, 0))
+// the child-customization hook (the vault's notes/design/mind_task_chat.md, section 3): the
+// todoer's js_init block defines window._customize_child, which the app calls with the creation
+// parent (an _Item handle) and the allocated child text and appends the returned string after
+// the label. Evaluated from todoer.md's block under a stub app whose items carry the app's REAL
+// dependency semantics (ids in dependency order, the #chat root first for a chat item; a label
+// prefix alone is a dependency only where the app's autodep rules make it one), its label form
+// (with the #) and its tag views (the hiding underscore dropped); the vault route is the app's
+// grammar predicate (stubbed: an #_agent/vault tag in the text)
+const init_src = fs.readFileSync(path.join(__dirname, '..', 'todoer.md'), 'utf8').match(/```js:js_init_removed\n([\s\S]*?)\n```/)[1]
+const corpus = {} // id -> {id, label, text, tags, tags_hidden, dependencies}
+const lookups = { count: 0 }
+const by_label = label => Object.values(corpus).filter(item => item.label == label)
+const warned = []
+const init_ctx = vm.createContext({
+  console: { warn: (...args) => warned.push(args.join(' ')) },
+  window: { _grammar: { routed: text => /(^|\s)#_agent\/vault(\s|$)/.test(text) } },
+  _exists: (ref, multiple = true) => (multiple ? by_label(ref).length > 0 : by_label(ref).length == 1),
+  _item: ref => {
+    lookups.count++
+    if (corpus[ref]) return corpus[ref]
+    const found = by_label(ref)
+    return found.length == 1 ? found[0] : null // ambiguous or missing: null (the app logs)
+  },
+})
+vm.runInContext(init_src + '\n_init()', init_ctx)
+const customize = init_ctx.window._customize_child
+const define = (id, label, text, dependencies, tags = []) => {
+  const all = [label, ...text.split(/\s+/).filter(w => w.startsWith('#') && w != label).map(t => t.replace(/^#_/, '#'))]
+  const hidden = text.split(/\s+/).filter(w => w.startsWith('#_')).map(t => t.replace(/^#_/, '#'))
+  corpus[id] = { id, label, text, tags: [...new Set([...all, ...tags])], tags_hidden: hidden, dependencies }
+  return corpus[id]
+}
+const reset = () => {
+  for (const id of Object.keys(corpus)) delete corpus[id]
+  lookups.count = 0
+}
+const chat = () => define('chat', '#chat', '#chat #_autodep', [])
+const vault = () => define('chat_vault', '#chat/vault', '#chat/vault #_agent/vault', ['chat'])
+check('hook: defined by _init', typeof customize, 'function')
+reset()
+check('hook: a child of a #todo becomes a task chat (the route tag, the first user turn)', customize(define('work', '#work', '#work #todo fix', []), '#work/0 '), '\n#_chat/vault\n<<user>> ')
+reset(); chat(); vault()
+const task_chat = define('work0', '#work/0', '#work/0 #_chat/vault <<user>> hi', ['chat', 'chat_vault'])
+check('hook: a child of a task chat continues it (the parent\'s label hidden, the first user turn)', customize(task_chat, '#work/0/0 '), '\n#_work/0\n<<user>> ')
+const continued = define('work00', '#work/0/0', '#work/0/0 #_work/0 <<user>> more', ['chat', 'chat_vault', 'work0'])
+check('hook: a continuation\'s child continues it (the walk through the hidden tag)', customize(continued, '#work/0/0/0 '), '\n#_work/0/0\n<<user>> ')
+check('hook: an ordinary item under the chat by label prefix alone (no dependency) gets nothing', customize(define('plain', '#work/0/plain', '#work/0/plain notes', []), '#work/0/plain/0 '), null)
+define('chat_gpt', '#chat/gpt', '#chat/gpt', ['chat'])
+check('hook: a chat of another route under the vault chat\'s label gets nothing', customize(define('gpt', '#work/0/gpt', '#work/0/gpt #_chat/gpt <<user>> q', ['chat', 'chat_gpt']), '#work/0/gpt/0 '), null)
+const conversation = define('conv', '#conversation', '#conversation #_chat/vault <<user>> a', ['chat', 'chat_vault'])
+check('hook: a continuation named by a hidden tag without a slash continues', customize(define('followup', '#followup', '#followup #_conversation <<user>> b', ['chat', 'chat_vault', 'conv']), '#followup/0 '), '\n#_followup\n<<user>> ')
+check('hook: the stock /vault chat (an #_agent/vault route, under #chat/vault by autodep) continues', customize(define('cv0', '#chat/vault/0', '#chat/vault/0 #_agent/vault <<user>> c', ['chat', 'chat_vault']), '#chat/vault/0/0 '), '\n#_chat/vault/0\n<<user>> ')
+check('hook: an automatic-prefix continuation (the app\'s autodep dependency, no tag) continues', customize(define('cv00', '#chat/vault/0/0', '#chat/vault/0/0 <<user>> d', ['chat', 'chat_vault', 'cv0']), '#chat/vault/0/0/0 '), '\n#_chat/vault/0/0\n<<user>> ')
+let last = task_chat
+for (let n = 1; n <= 12; n++) last = define(`deep${n}`, `${last.label}/0`, `${last.label}/0 #_${last.label.slice(1)} <<user>> ${n}`, [...last.dependencies, last.id])
+lookups.count = 0
+check('hook: repeated continuations by this very hook keep continuing (no depth cap; each item once)', [customize(last, `${last.label}/0 `), lookups.count <= 16], [`\n#_${last.label.slice(1)}\n<<user>> `, true])
+last = define('deep99', `${last.label}/0`, `${last.label}/0 #_${last.label.slice(1)} <<user>> n`, [...last.dependencies, last.id])
+for (let n = 100; n < 170; n++) last = define(`deep${n}`, `${last.label}/0`, `${last.label}/0 #_${last.label.slice(1)} <<user>> ${n}`, [...last.dependencies, last.id])
+check('hook: a lineage past the lookup bound gets nothing (logged, never a long synchronous walk)', [customize(last, `${last.label}/0 `), warned.length, /more than 64 lookups/.test(warned[0] ?? '')], [null, 1, true])
+
+check('hook: two direct chat parents are ambiguous: nothing', customize(define('amb', '#amb', '#amb #_work/0 #_conversation <<user>> e', ['chat', 'chat_vault', 'work0', 'conv']), '#amb/0 '), null)
+// an ambiguous lineage gives nothing EVEN WHEN the item is routed (review 22 B1: the bridge could
+// not resolve it either), and so does an ancestor's ambiguity
+delete corpus.cv0 // the stock chat's fixture shares this label: one item per label, as the app resolves a hidden reference
+const routed_amb = define('cv0amb', '#chat/vault/0', '#chat/vault/0 #_agent/vault #_conversation <<user>> f', ['chat', 'chat_vault', 'conv'])
+check('hook: a routed item with two direct chat parents (the stock chat referencing another) gets nothing', customize(routed_amb, '#chat/vault/0/0 '), null)
+check('hook: a continuation whose ancestor is ambiguous gets nothing', customize(define('cvamb0', '#cvamb0', '#cvamb0 #_chat/vault/0 <<user>> g', ['chat', 'chat_vault', 'conv', 'cv0amb']), '#cvamb0/0 '), null)
+delete corpus.cv0amb
+check('hook: a chat whose lineage never reaches a route (a vault chat item deleted) gets nothing', (delete corpus.chat_vault, customize(task_chat, '#work/0/0 ')), null)
+vault()
+reset(); chat(); vault()
+const loop_a = define('la', '#la', '#la #_lb <<user>> x', ['chat', 'chat_vault', 'lb'])
+define('lb', '#lb', '#lb #_la <<user>> y', ['chat', 'chat_vault', 'la'])
+lookups.count = 0
+check('hook: a cycle ends the walk (visited), within a few lookups', [customize(loop_a, '#la/0 '), lookups.count <= 8], [null, true])
+reset(); chat(); vault()
+const labels = ['#m1', '#m2', '#m3', '#m4', '#m5']
+for (const [i, label] of labels.entries()) define(`m${i + 1}`, label, `${label} ${labels.filter(l => l != label).map(l => '#_' + l.slice(1)).join(' ')} <<user>> z`, ['chat', 'chat_vault', ...labels.filter(l => l != label).map(l => `m${labels.indexOf(l) + 1}`)])
+lookups.count = 0
+check('hook: a mesh of cross-references is bounded (ambiguous at the first step, each item looked up once)', [customize(corpus.m1, '#m1/0 '), lookups.count <= 7], [null, true])
+// the bound met mid-scan with a parent already found (review 22 B2): the scan stops at once,
+// the provisional parent is discarded, nothing is written, one warning
+warned.length = 0
+reset(); chat(); vault()
+const later = define('later', '#later', '#later #_chat <<user>> h', ['chat'])
+const fillers = Array.from({ length: 62 }, (_, i) => define(`u${i}`, `#u${i}`, `#u${i} filler`, []))
+const heavy = define('heavy', '#heavy', `#heavy #_chat/vault ${fillers.map(f => '#_' + f.label.slice(1)).join(' ')} #_later <<user>> i`, ['chat', 'chat_vault', ...fillers.map(f => f.id), 'later'])
+lookups.count = 0
+check('hook: the bound met with a parent in hand decides nothing (one warning, the scan cut short)', [customize(heavy, '#heavy/0 '), warned.length, lookups.count <= 64], [null, 1, true])
+reset()
+check('hook: any other parent is left to the app', [customize(define('notes', '#notes', '#notes plain', []), '#notes/0 '), customize(null, '#x/0 '), customize(define('work2', '#work2', '#work2 #todo', []), null)], [null, null, null])
+
 ;(async () => {
   const task = { id: 'i1', name: 'task', saved_id: 's1' }
   await _enqueue_command(task, { task: 's1', id: 'd1', kind: 'delegate', epoch: 0, at: 1, body: 'b' })
