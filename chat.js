@@ -19,6 +19,11 @@ const is_chat_item = item =>
 // valid parsed messages have form `{ role, [content, name, item, agent] }`
 // does _not_ eval macros in message content
 // maintains whitespace in message content
+// the message boundaries of a transcript, shared by parse_messages and parse_last_turn: a role
+// opener at a line start (spaces allowed), then the message's content up to the next opener,
+// the end of the text, or an _output|_log block; groups: role, name argument, content
+const _message_regex =
+  /(?:^|\n) *\<< *(system|user|_?agent|tool)(?: *\( *([^\n]*) *\))? *>>(.*?)(?=$|\n *\<< *(?:system|user|_?agent|tool)(?: *\([^\n]*\))? *>>| *```(?:_output|_log)\s*\n)/gis
 function parse_messages(arg = _this) {
   if (!defined(arg)) fatal('missing item|text')
   let item, text
@@ -33,9 +38,7 @@ function parse_messages(arg = _this) {
 
   // parse messages delimited by macros, end of item, or _output/_log blocks
   let messages = Array.from(
-    text.matchAll(
-      /(?:^|\n) *\<< *(system|user|_?agent|tool)(?: *\( *([^\n]*) *\))? *>>(.*?)(?=$|\n *\<< *(?:system|user|_?agent|tool)(?: *\([^\n]*\))? *>>| *```(?:_output|_log)\s*\n)/gis
-    ),
+    text.matchAll(_message_regex),
     ([m, role, name, content]) => {
       if (name) {
         try {
@@ -118,6 +121,18 @@ function parse_messages(arg = _this) {
     }
   }
   return messages
+}
+
+// parse_last_turn(text)
+// the last message of `text` as `{ role, content }` WITHOUT evaluating or reinterpreting
+// anything (the delimiter's name argument, a trailing `agent` block, a `message|msg` block stay
+// text), or `null` for a text without messages: an observer's reading of a transcript (the
+// #vault item's save-time mark decides a pending request on it, as the bridge does on its own
+// restored transcript), at the same boundaries as parse_messages (_message_regex)
+function parse_last_turn(text) {
+  let last = null
+  for (const [, role, , content] of text.matchAll(_message_regex)) last = { role: lower(role), content }
+  return last
 }
 
 function _delete_agent_messages_below(e) {

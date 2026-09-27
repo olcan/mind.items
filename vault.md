@@ -175,13 +175,12 @@ function vault_reconcile_running() {
 // the save-time mark, the way a web agent marks its item at dispatch: a change (a save in this
 // tab, or another tab's save arriving by sync) that leaves an item a pending vault request takes
 // this tab's reference at once, ahead of the bridge's listing (save, watch, admission, store
-// write, delivery: seconds). A pending request: the item's LAST role opener over the grammar view
-// (item.read(), macros unevaluated, inert reply regions opaque) is a user turn, and the app's
-// routing predicate (window._grammar.routed: a vault route among the tags of the grammar view)
-// holds over the item's raw text or, for a chained item without a route of its own, over its
-// nearest label-prefix ancestor's (vault_routed). Only the role openers and the last turn's
-// blankness are read, never a whole request, so an edit of an old turn that still ends with a
-// user turn, or a route the bridge never answers, marks too and lapses at the timeout below; a change that leaves no pending
+// write, delivery: seconds). A pending request (vault_routed, below): the item's transcript over
+// the grammar view ends with a nonblank user turn and the item is routed, both decided by the
+// web responder's own functions (parse_last_turn, vault_routed_item) or, without them, by this
+// item's opener rule and prefix walk; the changed item alone is read, never the corpus, so an
+// edit of an old turn that still ends with a user turn, or a route the bridge never answers
+// (an ambiguous chain), marks too and lapses at the timeout below; a change that leaves no pending
 // request (the reply, a deletion, a removed route or turn) releases the mark. The listing takes
 // the reference over when it lists the item (vault_mark_running); until then it is released at
 // the item's next change that ends the request, at its deletion, or at the first tick or
@@ -190,18 +189,30 @@ const VAULT_PENDING_MS = 30000
 // the editor the review links open (the vault's own VS Code extension `auto-open-obsidian`
 // handles the URI): `vscode-insiders`, or `vscode` for the stable build
 const VAULT_EDITOR = 'vscode-insiders'
-// a chat REQUEST the app routes to the vault: the item's raw text ENDS with a NONBLANK user turn
-// (the last delimiter opener at a line start is the chat grammar's `\<<user>>`, ASCII spaces
-// before and inside allowed: an escaped mention inside prose or code, as in the route, command,
-// and persona items /update re-saves, is not one; a reply ends with an agent turn; the role
-// openers and the last turn's LITERAL blankness are read, over the grammar view, never a whole
-// request: this is the optimistic indicator's heuristic, while the bridge decides blankness on
-// the restored final message, so a turn holding only an inert region or a _log block still
-// marks and lapses) and the app's routing predicate holds over the item or,
-// for a chained item (`…/N`, created by the app under a chat) without a route of its own, over
-// its nearest label-prefix ancestor, as the bridge inherits a route through the direct-chat
-// lineage and the web framework through the dependency closure. The patterns are built from
-// strings so the item source carries no macro delimiter.
+// a chat REQUEST the app routes to the vault, decided as the web responder decides its own
+// (agent/chat.js run_on_chat_item; the owner's ask of 2026-09-27): the item's transcript over
+// the grammar view (item.read(): macros unevaluated, an inert reply body opaque), read by #chat's
+// parse_last_turn (the boundaries of the responder's parse_messages, evaluating and
+// reinterpreting NOTHING: a delimiter's name argument, a trailing agent block and a message
+// block stay text, as the bridge reads them), ENDS with a NONBLANK user turn (content.trim(): a
+// bare opener, a user turn blank before a _log or _output block, or an agent turn last is no
+// request, as the bridge's pending_turn decides on its restored transcript), and the item is
+// ROUTED as #agent/chat's
+// vault_routed_item decides it: its own route tag, else its ONE direct chat dependency's,
+// recursively (a hidden tag naming a chat item, or the immediate label prefix under autodep), so
+// a task chat under an undelegated todo (`#work/0 #_chat/vault`) is routed through the command
+// item; several direct chats fail closed as routed (the bridge refuses them, the mark lapses).
+// Both functions come from their items through the app's eval seam (vault_chat_fn: cached per
+// tab under the source item's deephash, so an /update is picked up), and when one is unavailable
+// (the item missing, its eval throwing or not returning a function, the call throwing) the item
+// falls back to its own reading, warned once per tab and function (whatever the reason, and not
+// again for a later one): the LAST role opener at a line start is a nonblank
+// user turn (vault_last_turn_is_user: `\<<user>>`, ASCII spaces before and inside allowed; an
+// escaped mention inside prose or code, as in the route, command, and persona items /update
+// re-saves, is no opener; a reply ends with an agent turn) and the route among the tags of the
+// item's own grammar view or, for a chained item (`…/N`, created by the app under a chat)
+// without one, its nearest label-prefix ancestor's (vault_route_text). The fallback patterns are
+// built from a string so the item's own text carries no unescaped delimiter (a macro source)
 const VAULT_OPENER = new RegExp('^ *\<< *(system|user|_?agent|tool)(?: *\\([^\\n]*\\))? *>>', 'gm')
 const vault_last_turn_is_user = text => {
   let role = null
@@ -226,13 +237,71 @@ const vault_route_text = id => {
   }
   return null
 }
+// a function of another item's code through the app's eval seam (docs/mind_page_item_code.md:
+// an item's functions are in scope for its dependents only; another item reaches them through
+// _item(ref).eval, which returns the value synchronously for a sync item), cached per tab under
+// the source item's deephash; null (the fallback, warned once per tab and function) when the item
+// is missing, its eval throws or returns anything but a function (a promise included: the call
+// is the synchronous wrapper, its async dependencies excluded), or it defines no such function;
+// a fetch failure of an existing item is cached under its hash, so it is retried once the item
+// changes; a missing item is looked up again at every change
+const vault_chat_fn = (ref, name) => {
+  const source = _item(ref, { silent: true })
+  if (!source) return vault_fallback(name, `${ref} is not installed`)
+  const cache = (_this.store._vault_fns ??= {})
+  const cached = cache[name]
+  if (cached && cached.hash === source.deephash) return cached.fn
+  let fn = null
+  let why = null
+  try {
+    fn = source.eval(`typeof ${name} == 'function' ? ${name} : null`)
+    if (typeof fn?.then == 'function') [fn, why] = [null, `${ref} is async`]
+    else if (typeof fn != 'function') [fn, why] = [null, `${ref} defines no ${name}`]
+  } catch (e) {
+    ;[fn, why] = [null, `${ref} eval failed: ${e}`]
+  }
+  if (why) vault_fallback(name, why)
+  cache[name] = { hash: source.deephash, fn }
+  return fn
+}
+const vault_fallback = (name, why) => {
+  const warned = (_this.store._vault_warned ??= {})
+  if (!warned[name]) console.warn(`#vault: ${name} unavailable (${why}); the save-time mark falls back to the item's own reading`)
+  warned[name] = true
+  return null
+}
+// the request: the last turn at the responder's boundaries, read without evaluation, over the
+// grammar view; else the fallback opener rule (a call that throws falls back for that text)
+const vault_pending_turn = text => {
+  const last_turn = vault_chat_fn('#chat', 'parse_last_turn')
+  if (last_turn) {
+    try {
+      const last = last_turn(text)
+      return !!last && last.role === 'user' && last.content.trim() !== ''
+    } catch (e) {
+      vault_fallback('parse_last_turn', `threw: ${e}`)
+    }
+  }
+  return vault_last_turn_is_user(text)
+}
+// the route: the responder's fence over the direct-chat lineage, else the fallback prefix walk
+const vault_route_of = (item, id) => {
+  const routed_item = vault_chat_fn('#agent/chat', 'vault_routed_item')
+  if (routed_item) {
+    try {
+      return !!routed_item(item)
+    } catch (e) {
+      vault_fallback('vault_routed_item', `threw: ${e}`)
+    }
+  }
+  return vault_route_text(id) !== null
+}
 const vault_routed = id => {
   if (!(window._grammar?.version >= 2)) return false
   const item = _item(id, { silent: true })
   if (!item) return false
-  // the grammar view (item.read(): the app's cached view, macros unevaluated, an inert reply
-  // body opaque), so a delimiter quoted inside a bridge reply is not a turn
-  return vault_last_turn_is_user(item.read() ?? '') && vault_route_text(id) !== null
+  // the route first, so the transcript is read for routed items only
+  return vault_route_of(item, id) && vault_pending_turn(item.read() ?? '')
 }
 
 function vault_mark_saved(id, marked, pending) {

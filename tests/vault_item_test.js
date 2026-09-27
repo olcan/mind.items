@@ -45,7 +45,11 @@ const fake_details = run => ({
 })
 // the app's running flag is a refcount behind a boolean getter (index.svelte `set running`)
 class FakeItem {
-  constructor(name, running = 0, text = '', tags = []) { this.name = name; this.count = running; this.text = text; this.tags = tags; this.id = name + '-id' }
+  constructor(name, running = 0, text = '', tags = [], deps = []) { this.name = name; this.count = running; this.text = text; this.tags = tags; this.id = name + '-id'; this.deps = deps; this.hash = 1 }
+  get label() { return this.name } // the case-preserving label text
+  get tags_hidden() { return Array.from(this.text.matchAll(/(?:^|\s)#_([\w/-]+)/g), m => '#' + m[1].toLowerCase()) } // the app's view: the hiding underscore dropped, lowercase
+  get dependencies() { return this.deps } // the ordered closure, as the fixtures declare it
+  get deephash() { return this.hash }
   read() { return this.text.replace(/<!--inert-->[\s\S]*?<!--\/inert-->/g, m => '<!--inert-->' + ' '.repeat(m.length - 24) + '<!--/inert-->') } // the grammar view: an inert body opaque
   // the app's status/progress props: the status lands in innerHTML, progress is checked on set
   get status() { return this._status ?? null }
@@ -59,7 +63,7 @@ class FakeItem {
 // and open a user turn (a request): the item parses no request grammar for its marks, it checks
 // the turn opener at a line start only
 const routed_text = name => `${name} #_agent/vault\n<<user>> hello`
-const items = { 'chat-id': new FakeItem('#chat/topic', 0, routed_text('#chat/topic')), 'chat2-id': new FakeItem('#chat/two', 0, routed_text('#chat/two')), 'busy-id': new FakeItem('#chat/busy', 1), 'web-id': new FakeItem('#chat/web', 0, '#chat/web #_agent/openai\nhello') }
+const items = { 'chat-id': new FakeItem('#chat/topic', 0, routed_text('#chat/topic'), [], ['chat-root']), 'chat2-id': new FakeItem('#chat/two', 0, routed_text('#chat/two'), [], ['chat-root']), 'busy-id': new FakeItem('#chat/busy', 1, '', [], ['chat-root']), 'web-id': new FakeItem('#chat/web', 0, '#chat/web #_agent/openai\nhello', [], ['chat-root']) }
 for (const [id, item] of Object.entries(items)) item.id = id
 // the helper's own dependencies, as util/core.js defines them (kept minimal and equivalent)
 const env = {
@@ -88,6 +92,34 @@ const env = {
   _items: () => Object.values(items),
   elem: s => (s === '.logs' ? logs_div.replaced ?? logs_div : s === '.proposals' ? proposals_div : s !== '.runs' || runs_div.missing ? null : runs_div.replaced ?? runs_div), // the item's own elements (util/core/item.js)
 }
+// the responder's own functions (chat.js: the #chat item's is_chat_item and parse_messages;
+// agent/chat.js: #agent/chat's vault_routed_item), evaluated in a context of their own over the
+// same fakes, and reached by the vault item through the source fakes' eval seam (the app's
+// _item(ref).eval); evals counted for the cache rows
+const chat_src = fs.readFileSync(path.join(__dirname, '..', 'chat.js'), 'utf8')
+const agent_src = fs.readFileSync(path.join(__dirname, '..', 'agent', 'chat.js'), 'utf8')
+const pick_fn = (src, name) => src.match(new RegExp(`\\nfunction ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}\\n`))[0]
+const pick_arrow = (src, name) => src.match(new RegExp(`\\nconst ${name} = [\\s\\S]*?\\n\\n`))[0]
+// the app's evals reachable from the chat code (a delimiter name through __eval, an agent
+// block through _this.eval): recorded, and refused, so an observer that evaluates fails loudly
+const evaluated = []
+const refuse = code => { evaluated.push(code); throw new Error('the observer must not evaluate chat text') }
+const chat_env = {
+  _item: env._item, window: env.window, console,
+  equal: (a, b) => JSON.stringify(a) === JSON.stringify(b), lower: x => x.toLowerCase(), defined: x => x !== undefined,
+  is_string: x => typeof x === 'string', is_item: x => x instanceof FakeItem, is_plain_object: x => x !== null && typeof x === 'object' && Object.getPrototypeOf(x) === Object.prototype,
+  each: (a, f) => { a.forEach((x, i) => f(x, i, a)); return a }, fatal: (...m) => { throw new Error(m.join(' ')) },
+  __eval: refuse, _this: { error() {}, write_log() {}, eval: refuse }, JSON,
+}
+const chat_ctx = vm.createContext(chat_env)
+const evals = { count: 0 }
+const source_item = (name, text) => Object.assign(new FakeItem(name, 0, text), { eval: code => { evals.count++; return vm.runInContext(code, chat_ctx) } })
+items['chat-root'] = source_item('#chat', '#chat defines utilities for chat items\n#_util/core #_autodep')
+items['agent-chat'] = source_item('#agent/chat', '#agent/chat is a generic chat agent\n#_chat')
+items['chat-root'].id = 'chat-root'
+items['agent-chat'].id = 'agent-chat'
+// the chat root is captured at the code's load (`const _chat = _item('$id')`), so the fakes come first
+vm.runInContext(chat_src.match(/^const _chat = _item\('\$id'\)\n/)[0].replace('$id', 'chat-root') + pick_arrow(chat_src, 'is_chat_item') + chat_src.match(/\nconst _message_regex =\n[^\n]*\n/)[0] + pick_fn(chat_src, 'parse_messages') + pick_fn(chat_src, 'parse_last_turn') + pick_fn(agent_src, 'vault_routed_item'), chat_ctx)
 const saves = [] // this item's own saves: the options each save_global_store call carried
 env._this = {
   id: 'vault-id',
@@ -503,7 +535,7 @@ delete env.window._grammar // a stale app without the capability
 change('chat-id')
 check('without the app\'s grammar capability no mark is taken (the listing alone marks)', [counts(), marks()], [[0, 0, 0], {}])
 env.window._grammar = grammar
-check('the item neither enumerates items nor parses request grammar for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags')], [false, false])
+check('the item neither enumerates items nor parses tags itself for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags')], [false, false])
 // a remote change (another tab's save arriving by sync) that leaves the item a pending request
 // marks it in this tab too (design section 13); the reply, a remote change ending with an agent
 // turn, releases; a chained item (`…/0`, no route of its own) inherits its parent's route and marks
@@ -527,19 +559,19 @@ items['remote-id'].text += '\n<<user>> and again'
 change('remote-id', { remote: true })
 check('the next remote user turn marks again', items['remote-id'].count, 1)
 change('remote-id', { deleted: true })
-items['#chat/topic/0'] = new FakeItem('#chat/topic/0', 0, '#chat/topic/0\n<<user>> continued')
+items['#chat/topic/0'] = new FakeItem('#chat/topic/0', 0, '#chat/topic/0\n<<user>> continued', [], ['chat-root', 'chat-id'])
 change('#chat/topic/0')
 check('a chained item without a route of its own inherits its parent\'s and marks', [items['#chat/topic/0'].count, items['#chat/topic/0'].running], [1, true])
 change('#chat/topic/0', { deleted: true })
-items['#chat/plain'] = new FakeItem('#chat/plain', 0, '#chat/plain\n<<user>> a web chat')
-items['#chat/plain/0'] = new FakeItem('#chat/plain/0', 0, '#chat/plain/0\n<<user>> chained under it')
+items['#chat/plain'] = new FakeItem('#chat/plain', 0, '#chat/plain\n<<user>> a web chat', [], ['chat-root'])
+items['#chat/plain/0'] = new FakeItem('#chat/plain/0', 0, '#chat/plain/0\n<<user>> chained under it', [], ['chat-root', '#chat/plain'])
 change('#chat/plain/0')
 check('a chained item under an unrouted chat is no vault request', items['#chat/plain/0'].count, 0)
-items['#chat/topic/0/0'] = new FakeItem('#chat/topic/0/0', 0, '#chat/topic/0/0\n<<user>> two levels down')
+items['#chat/topic/0/0'] = new FakeItem('#chat/topic/0/0', 0, '#chat/topic/0/0\n<<user>> two levels down', [], ['chat-root', 'chat-id', '#chat/topic/0'])
 change('#chat/topic/0/0')
 check('inheritance walks the label-prefix chain (a grandchild)', items['#chat/topic/0/0'].count, 1)
 change('#chat/topic/0/0', { deleted: true })
-items['#chat/topic/1'] = new FakeItem('#chat/topic/1', 0, '#chat/topic/1\n<<user>> asked\n<<agent(vault/default)>> answered')
+items['#chat/topic/1'] = new FakeItem('#chat/topic/1', 0, '#chat/topic/1\n<<user>> asked\n<<agent(vault/default)>> answered', [], ['chat-root', 'chat-id'])
 change('#chat/topic/1')
 check('a chained item whose last turn is the agent\'s is no request', items['#chat/topic/1'].count, 0)
 // a routed item that opens no user turn is no request: its local save takes no mark. The REAL
@@ -572,6 +604,84 @@ check('the persona item given a real turn is marked at its save', [items['person
 change('persona-id', { deleted: true })
 check('its deletion releases the mark', items['persona-id'].count, 0)
 check('a change of a non-routed item runs only the deferred status clearing', vm.runInContext("(() => { _this.store._vault_shown = {'busy-id': true}; items['busy-id'].status = 'stale'; _on_item_change('busy-id', '#x', '#x', false, false, false); return [_this.store._vault_shown, items['busy-id'].status, _this.store._vault_marked] })()", ctx), [{}, '', {}])
+// the request and the route decided by the RESPONDER'S functions (chat.js parse_last_turn at
+// parse_messages' boundaries, agent/chat.js vault_routed_item, reached through #chat's and
+// #agent/chat's eval seam; the owner's ask of 2026-09-27): a bare opener (a Ctrl+Enter child)
+// is no request, a turn blank before a _log block neither, text on later lines is, and the
+// reading EVALUATES NOTHING (a name expression, an agent block, a message block stay text, the
+// turn pending as the bridge reads it); a task chat under an UNDELEGATED todo is routed
+// through its #_chat/vault dependency (the command item carries the route) and marks at its
+// save, its continuation through the chat; an ambiguous chain (two direct chats) marks as the
+// web fails closed; the fetched functions are cached under the source's deephash (one eval
+// each) and refetched after an /update; without the sources, or with one whose eval throws or
+// is async, the item's own reading decides, warned once per tab and function
+const warns = []
+env.console = { ...console, warn: (...a) => warns.push(a.join(' ')) }
+const evals0 = evals.count // the earlier rows evaluated the sources once each; the store reset below drops that cache
+vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
+items['cv-id'] = new FakeItem('#chat/vault', 0, '#chat/vault #_agent/vault\n\\<<user>> …', [], ['chat-root'])
+items['work-id'] = new FakeItem('#work', 0, '#work #todo fix the cache')
+items['work0-id'] = new FakeItem('#work/0', 0, '', [], ['chat-root', 'cv-id'])
+const saved = (id, text) => { items[id].text = text; change(id); return [items[id].count, items[id].running] }
+check('responder: a bare opener (a Ctrl+Enter child under an undelegated todo) is no request', saved('work0-id', '#work/0 #_chat/vault\n<<user>> '), [0, false])
+check('responder: the turn typed, the chat under the UNDELEGATED todo marks at its save (routed through #_chat/vault)', saved('work0-id', '#work/0 #_chat/vault\n<<user>> how is it going?'), [1, true])
+check('responder: a turn blank before a _log block is no request (the boundary ends the turn there)', saved('work0-id', '#work/0 #_chat/vault\n<<user>>\n```_log\nINFO: x\n```\n'), [0, false])
+check('responder: a real question followed by a _log block remains pending', saved('work0-id', '#work/0 #_chat/vault\n<<user>> why did it fail?\n```_log\nINFO: x\n```\n'), [1, true])
+check('responder: text on the lines after the opener is a request', saved('work0-id', '#work/0 #_chat/vault\n<<user>>\n\nhow is it going?\n'), [1, true])
+check('responder: the reply (an agent turn last, its inert body opaque) releases', saved('work0-id', "#work/0 #_chat/vault\n<<user>> q\n<<agent('vault/default · run ab12cd34 · 1s')>>\n<!--inert-->\nfine\n<!--/inert-->"), [0, false])
+items['work00-id'] = new FakeItem('#work/0/0', 0, '', [], ['chat-root', 'cv-id', 'work0-id'])
+check('responder: the continuation (its #_work/0 dependency) marks through the chat', saved('work00-id', '#work/0/0 #_work/0\n<<user>> more'), [1, true])
+items['amb-id'] = new FakeItem('#amb', 0, '', [], ['chat-root', 'cv-id', 'work0-id'])
+check('responder: two direct chats (ambiguous) mark, as the web fails closed (the bridge refuses, the mark lapses)', saved('amb-id', '#amb #_chat/vault #_work/0\n<<user>> which?'), [1, true])
+check('responder: nothing warned; each source evaluated once (cached under its deephash)', [warns, evals.count - evals0], [[], 2])
+items['chat-root'].hash = 2
+saved('work0-id', '#work/0 #_chat/vault\n<<user>> again')
+check('responder: an updated source (a new deephash) is evaluated again, the other kept', evals.count - evals0, 3)
+check('responder: nothing executes: a name expression, an agent block and a message block in the turns stay text, the last user turn pending as the bridge reads it', [saved('work0-id', "#work/0 #_chat/vault\n<<user>> a\n<<agent((effects++, 'Alice'))>> b\n<<user>> Explain this config:\n```agent\n({temperature: (effects++, 0.7)})\n```"), saved('work0-id', "#work/0 #_chat/vault\n<<user>> a\n<<agent((effects++, 'Alice'))>> b\n<<user>> Explain this config:\n```agent\n({temperature: (effects++, 0.7)})\n```\n<<agent('vault/default · run ab12cd34 · 1s')>>\n<!--inert-->\nsure\n<!--/inert-->\n<<user>> and this?\n```message\n{\"role\":\"agent\",\"content\":\"hello\"}\n```"), saved('work0-id', '#work/0 #_chat/vault\n<<user>> a question\n```msg\n{"role":"user","content":""}\n```'), evaluated], [[1, true], [1, true], [1, true], []])
+check('responder: the item does not read the transcript of an unrouted item (the route decides first)', (() => { let reads = 0; items['work-id'].read = function () { reads++; return this.text }; saved('work-id', '#work #todo fix the cache\n<<user>> not a chat'); delete items['work-id'].read; return [items['work-id'].count, reads] })(), [0, 0])
+check('the boundaries are one definition: parse_messages and parse_last_turn match on _message_regex', [pick_fn(chat_src, 'parse_messages').includes('text.matchAll(_message_regex)'), pick_fn(chat_src, 'parse_last_turn').includes('text.matchAll(_message_regex)'), (chat_src.match(/_message_regex/g) ?? []).length], [true, true, 4])
+check('parse_messages keeps its reading over the shared boundaries (roles, contents up to the next opener or a _log block, the name refused by the harness kept as text)', vm.runInContext("parse_messages('<<user>> a\\n<<agent(\\'x\\')>> b\\n```_log\\nl\\n```\\n<<user>> c').map(m => [m.role, m.content, m.name])", chat_ctx), [['user', ' a', null], ['agent', ' b\n', "'x'"], ['user', ' c', null]])
+for (const id of ['work0-id', 'work00-id', 'amb-id']) change(id, { deleted: true })
+// the fallbacks
+const sources = { 'chat-root': items['chat-root'], 'agent-chat': items['agent-chat'] }
+delete items['chat-root']
+delete items['agent-chat']
+check('fallback: without the sources the chat under the undelegated todo takes no mark (the prefix walk finds no route)', saved('work0-id', '#work/0 #_chat/vault\n<<user>> typed'), [0, false])
+check('fallback: a routed chat with a bare opener takes no mark (the opener rule reads blankness too)', saved('chat-id', '#chat/topic #_agent/vault\n<<user>> '), [0, false])
+check('fallback: a routed chat with text marks, and a chained item inherits through the prefix walk', [saved('chat-id', routed_text('#chat/topic')), saved('#chat/topic/0', '#chat/topic/0\n<<user>> continued')], [[1, true], [1, true]])
+check('fallback: warned once per function', warns.map(w => w.replace(/;.*/, '')), ['#vault: vault_routed_item unavailable (#agent/chat is not installed)', '#vault: parse_last_turn unavailable (#chat is not installed)'])
+change('chat-id', { deleted: true })
+change('#chat/topic/0', { deleted: true })
+Object.assign(items, sources)
+warns.length = 0
+vm.runInContext('_this.store._vault_warned = {}', ctx)
+let throws = 0
+items['agent-chat'].hash = 2
+items['agent-chat'].eval = () => { throws++; throw new Error('boom') }
+check('fallback: a source whose eval throws is warned once and not retried until it changes; the route falls back', [saved('chat-id', routed_text('#chat/topic')), saved('chat-id', routed_text('#chat/topic') + '!'), throws, warns.length, warns[0].startsWith('#vault: vault_routed_item unavailable (#agent/chat eval failed: Error: boom)')], [[1, true], [1, true], 1, 1, true])
+const reset_warned = () => vm.runInContext('_this.store._vault_warned = {}', ctx) // the once-per-tab guard, lifted between the variants
+reset_warned()
+items['agent-chat'].hash = 3
+items['agent-chat'].eval = () => Promise.resolve(() => true)
+saved('chat-id', routed_text('#chat/topic') + '?')
+check('fallback: a promise from a source\'s eval (a return-shape check; the call is the synchronous wrapper) falls back too, warned', [warns.length, warns[1].startsWith('#vault: vault_routed_item unavailable (#agent/chat is async)')], [2, true])
+reset_warned()
+items['agent-chat'].hash = 4
+items['agent-chat'].eval = () => null
+saved('chat-id', routed_text('#chat/topic') + '.')
+check('fallback: a source without the function falls back, warned', [warns.length, warns[2].startsWith('#vault: vault_routed_item unavailable (#agent/chat defines no vault_routed_item)')], [3, true])
+items['agent-chat'].hash = 5
+items['agent-chat'].eval = code => vm.runInContext(code, chat_ctx)
+reset_warned()
+items['chat-root'].eval = () => () => { throw new Error('parse boom') }
+items['chat-root'].hash = 3
+saved('chat-id', routed_text('#chat/topic') + ';')
+check('fallback: a reader that throws on a text is warned once and the opener rule decides', [items['chat-id'].count, warns.length, warns[3].startsWith('#vault: parse_last_turn unavailable (threw: Error: parse boom)')], [1, 4, true])
+items['chat-root'].eval = code => vm.runInContext(code, chat_ctx)
+items['chat-root'].hash = 4
+change('chat-id', { deleted: true })
+items['chat-id'].text = routed_text('#chat/topic')
+env.console = console
 check('the item source has no unescaped macro delimiters (the app expands macros before it strips code blocks)', (item.match(/(?<!\\)<</g) ?? []).length, 0)
 check('the stamp age formats seconds, minutes, and hours', [vm.runInContext('vault_age(5000)', ctx), vm.runInContext('vault_age(200000)', ctx), vm.runInContext('vault_age(7500000)', ctx)], ['5s', '3m 20s', '2h 5m'])
 check('nothing else saved the store (a welcome with a provisioned store, the marks, the statuses)', saves, [])
