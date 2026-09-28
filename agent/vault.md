@@ -2,8 +2,6 @@
 
 `/vault` (#chat/vault) is the one command: it starts the supervisor, read-only at the vault root, which does the work through a worker in the chat's own worktree and reports on the chat item and on #vault; the owner merges the chat's proposal through #vault or by telling the supervisor. Other `#agent/vault/<name>` tags are retired: their conversations stay readable, nothing replies.
 
-```js_input_removed
-// nothing runs web-side; this inert block satisfies the #agent framework, which runs every #agent/* item as an agent item
-```
+Nothing runs web-side, so this item carries no `js_input` block: the agent framework starts no agent for a dependent's change on an item without one (a saved vault chat is answered by the vault host), and a start by hand has nothing to run.
 
 Status: **live** (dispatcher `bin/mind_bridge_v2.py`, registry `agents/bridge.toml`, in the vault).

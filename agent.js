@@ -390,6 +390,15 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
       const dep = _item(id)
       if (is_agent_item(dep)) agent_dep = dep
     }
+    // an agent item WITHOUT a js_input block is passive: nothing to run, so nothing is started
+    // for a dependent's change (the owner, 2026-09-27: #agent/vault, a doc item under #agent,
+    // runs nothing web-side; starting it for every saved vault chat marked it running, which
+    // the app lifts to the top of the list, and wrote the agents map twice; an inert block had
+    // been added only because _run fatals without one, and that block goes with this rule)
+    if (agent_dep && !agent_dep.read('js_input').trim()) {
+      debug(`not starting agent ${agent_dep.name} for modified dependent ${item.name} (no js_input block)`)
+      agent_dep = undefined
+    }
     if (agent_dep) {
       const name = agent_dep.name // agent name
       if (agent_active(name)) {
