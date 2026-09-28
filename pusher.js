@@ -1056,17 +1056,19 @@ async function pull_item(item) {
 // => /push [items]
 // pushes items to your repo
 // `items` can be `pushables`, `all`, or specific `#label` or id
-// default is `pushables` if any exist, or `all` otherwise
+// default is `pushables`; with nothing marked pushable the command says so and pushes
+// nothing: `/push all` sweeps every item (an initialized repo without item files, where the
+// verification marks nothing; a change an unmarked failed or disabled auto-push left behind)
 async function _on_command_push(label) {
   try {
     let items
     if (label == 'all') {
       items = _items()
       label = ''
-    } else if (label == 'pushables') {
-      const pushables = items.filter(item => item.pushable)
+    } else if (label == 'pushables' || !label) {
+      const pushables = _items().filter(item => item.pushable)
       if (!pushables.length) {
-        alert(`/push: no pushable items found`)
+        alert(`/push: nothing is marked pushable; \`/push all\` pushes every item`)
         return '/push ' + label
       }
       items = pushables
@@ -1074,13 +1076,8 @@ async function _on_command_push(label) {
     } else {
       items = _items(label)
       if (items.length == 0) {
-        if (label) alert(`/push: ${label} not found`)
-        else alert(`/push: no items found`)
+        alert(`/push: ${label} not found`)
         return '/push ' + label
-      }
-      if (!label) {
-        const pushables = items.filter(item => item.pushable)
-        if (pushables.length) items = pushables
       }
     }
     const s = items.length > 1 ? 's' : ''
