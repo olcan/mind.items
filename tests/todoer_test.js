@@ -447,12 +447,17 @@ lookups.count = 0
 check('hook: a short lineage under a label of 70 segments: the ancestor walk exhausts the SHARED bound, warns once, and the parent is named explicitly (the binding kept)', [customize(short_lineage, `${long_label}/0 `), warned.length, /label ancestors/.test(warned[0] ?? ''), lookups.count <= 64], [` #_${long_label.slice(1)}\n<<user>> `, 1, true, true])
 
 check('hook: two direct chat parents are ambiguous: nothing', customize(define('amb', '#amb', '#amb #_work/0 #_conversation <<user>> e', ['chat', 'chat_vault', 'work0', 'conv']), '#amb/0 '), null)
-// an ambiguous lineage gives nothing EVEN WHEN the item is routed (review 22 B1: the bridge could
-// not resolve it either), and so does an ancestor's ambiguity
+// a routed item naming another chat beside its prefix chat continues the NAMED one (parent tags,
+// 2026-09-28: the tag wins over the prefix; this shape was the ambiguity of review 22 B1), so its
+// child continues it, and a continuation of it names it (a root label: no autodep ancestor); two
+// tag-named chats stay the ambiguity, for the item and for a continuation below it
 delete corpus.cv0 // the stock chat's fixture shares this label: one item per label, as the app resolves a hidden reference
-const routed_amb = define('cv0amb', '#chat/vault/0', '#chat/vault/0 #_agent/vault #_conversation <<user>> f', ['chat', 'chat_vault', 'conv'])
-check('hook: a routed item with two direct chat parents (the stock chat referencing another) gets nothing', customize(routed_amb, '#chat/vault/0/0 '), null)
-check('hook: a continuation whose ancestor is ambiguous gets nothing', customize(define('cvamb0', '#cvamb0', '#cvamb0 #_chat/vault/0 <<user>> g', ['chat', 'chat_vault', 'conv', 'cv0amb']), '#cvamb0/0 '), null)
+const routed_tagged = define('cv0amb', '#chat/vault/0', '#chat/vault/0 #_agent/vault #_conversation <<user>> f', ['chat', 'chat_vault', 'conv'])
+check('hook: a routed item naming a chat beside its prefix chat continues the named one: its child continues', customize(routed_tagged, '#chat/vault/0/0 '), '\n<<user>> ')
+check('hook: a continuation of it names it (no autodep ancestor of a root label)', customize(define('cvamb0', '#cvamb0', '#cvamb0 #_chat/vault/0 <<user>> g', ['chat', 'chat_vault', 'conv', 'cv0amb']), '#cvamb0/0 '), ' #_cvamb0\n<<user>> ')
+const routed_amb = define('cv0amb2', '#chat/vault/two', '#chat/vault/two #_agent/vault #_conversation #_chat/gpt <<user>> f', ['chat', 'chat_vault', 'conv', 'chat_gpt'])
+check('hook: a routed item with two tag-named chats gets nothing', customize(routed_amb, '#chat/vault/two/0 '), null)
+check('hook: a continuation whose ancestor is ambiguous gets nothing', customize(define('cvamb2', '#cvamb2', '#cvamb2 #_chat/vault/two <<user>> g', ['chat', 'chat_vault', 'conv', 'chat_gpt', 'cv0amb2']), '#cvamb2/0 '), null)
 delete corpus.cv0amb
 check('hook: a chat whose lineage never reaches a route (a vault chat item deleted) gets nothing', (delete corpus.chat_vault, customize(task_chat, '#work/0/0 ')), null)
 vault()
@@ -475,6 +480,28 @@ const fillers = Array.from({ length: 62 }, (_, i) => define(`u${i}`, `#u${i}`, `
 const heavy = define('heavy', '#heavy', `#heavy #_chat/vault ${fillers.map(f => '#_' + f.label.slice(1)).join(' ')} #_later <<user>> i`, ['chat', 'chat_vault', ...fillers.map(f => f.id), 'later'])
 lookups.count = 0
 check('hook: the bound met with a parent in hand decides nothing (one warning, the scan cut short)', [customize(heavy, '#heavy/0 '), warned.length, lookups.count <= 64], [null, 1, true])
+// parent tags (2026-09-28): a renamed node (`#p/plan-b #_p/0/0`) sits under its tag parent in
+// the app's tree; the item view's `ancestors` carries that ancestry, and the hook's ancestor
+// walk follows it, so a child of the renamed node continues with the turn alone; the chat
+// parent prefers the tag-named chat over the prefix chat
+reset(); chat(); vault()
+const renamed_root = define('rp0', '#rp/0', '#rp/0 #_chat/vault #_autodep <<user>> hi', ['chat', 'chat_vault'])
+const renamed_mid = define('rp00', '#rp/0/0', '#rp/0/0 <<user>> more', ['chat', 'chat_vault', 'rp0'])
+const renamed = define('rpb', '#rp/plan-b', '#rp/plan-b #_rp/0/0 <<user>> plan', ['chat', 'chat_vault', 'rp0', 'rp00'])
+renamed.ancestors = ['#rp/0/0', '#rp/0', '#rp']
+lookups.count = 0
+check('hook: a child of a renamed node continues it with the turn alone (the carrier reached through the tag parent)', [customize(renamed, '#rp/plan-b/0 '), lookups.count <= 8], ['\n<<user>> ', true])
+const renamed_child = define('rpb0', '#rp/plan-b/0', '#rp/plan-b/0 <<user>> next', ['chat', 'chat_vault', 'rp0', 'rp00', 'rpb'])
+renamed_child.ancestors = ['#rp/plan-b', '#rp/0/0', '#rp/0', '#rp']
+check('hook: a tag-free child of a renamed node continues too (its ancestry through the splice)', customize(renamed_child, '#rp/plan-b/0/0 '), '\n<<user>> ')
+const competing = define('rp0b', '#rp/0/plan-b', '#rp/0/plan-b #_rp/0/0 <<user>> plan', ['chat', 'chat_vault', 'rp0', 'rp00'])
+competing.ancestors = ['#rp/0/0', '#rp/0', '#rp']
+check('hook: a tag-named chat beside the prefix chat is the parent (the lineage resolves, no ambiguity)', customize(competing, '#rp/0/plan-b/0 '), '\n<<user>> ')
+const two_tags = define('rp2', '#rp/two', '#rp/two #_rp/0/0 #_rp/0 <<user>> both', ['chat', 'chat_vault', 'rp0', 'rp00'])
+two_tags.ancestors = ['#rp']
+check('hook: two tag-named chats stay the ambiguity: nothing', customize(two_tags, '#rp/two/0 '), null)
+const no_view = define('rp0x', '#rp/0/x', '#rp/0/x <<user>> x', ['chat', 'chat_vault', 'rp0'])
+check('hook: an app without the ancestors view: the label prefixes alone, as before', customize(no_view, '#rp/0/x/0 '), '\n<<user>> ')
 reset()
 check('hook: any other parent is left to the app', [customize(define('notes', '#notes', '#notes plain', []), '#notes/0 '), customize(null, '#x/0 '), customize(define('work2', '#work2', '#work2 #todo', []), null)], [null, null, null])
 

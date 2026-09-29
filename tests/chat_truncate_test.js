@@ -18,7 +18,7 @@ const pick = (pattern) => {
 const truncate_src = pick(/\nasync function _delete_agent_messages_below\([^\n]*\) \{[\s\S]*?\n\}\n/)
 const regex_src = pick(/\nconst _message_regex =\n[^\n]*\n/)
 const parse_src = pick(/\nfunction parse_messages\([^\n]*\) \{[\s\S]*?\n\}\n/)
-const direct_src = pick(/\nconst is_direct_chat_dep = [\s\S]*?\n\n/)
+const direct_src = pick(/\nconst chat_parent = [\s\S]*?\n}\n/)
 const descendants_src = pick(/\nfunction inheriting_chats\([^\n]*\) \{[\s\S]*?\n\}\n/)
 const count_src = pick(/\nconst own_message_count = [^\n]*\n/)
 
@@ -44,11 +44,11 @@ const page = ({ text = TEXT, answers = [], grammar = { version: 2, edit: (text, 
   // with its own text; deletions recorded
   const kids = {}
   const kid = (id, label, chat, deps, own = '<<user>> deeper\n', hidden = []) =>
-    (kids[id] = { id, name: label, label, dependencies: deps, tags_hidden: hidden, text: own, read() { return this.text }, delete: confirm => log.deletes.push([id, confirm]), chat })
+    (kids[id] = { id, name: label, label, dependencies: deps, tags_hidden: hidden, text: own, read(type) { return type ? '' : this.text }, delete: confirm => log.deletes.push([id, confirm]), chat })
   log.deletes = []
   const env = {
     console, JSON,
-    _this: { id: 'self', label: '#chat/vault/1', text, dependents: [], tags_hidden: [] },
+    _this: { id: 'self', label: '#chat/vault/1', text, dependents: [], tags_hidden: [], chat: true },
     _item: (id, _opts) => (id === 'self' ? env._this : kids[id] ?? null),
     is_chat_item: item => !!item?.chat,
     kid,
@@ -68,6 +68,7 @@ const page = ({ text = TEXT, answers = [], grammar = { version: 2, edit: (text, 
     },
     window: { _grammar: grammar },
   }
+  env.kids = kids // the rows reach the defined items
   const ctx = vm.createContext(env)
   vm.runInContext(regex_src + parse_src + direct_src + descendants_src + count_src + truncate_src, ctx)
   const click = index => {
@@ -78,7 +79,7 @@ const page = ({ text = TEXT, answers = [], grammar = { version: 2, edit: (text, 
     }
     return vm.runInContext('_delete_agent_messages_below', ctx)(event)
   }
-  return { click, log, env }
+  return { click, log, env, ctx }
 }
 
 ;(async () => {
@@ -207,6 +208,62 @@ const page = ({ text = TEXT, answers = [], grammar = { version: 2, edit: (text, 
   p.env._this.dependents = ['c2', 'e1', 'c1'] // the grandchild first
   await p.click(1)
   check('mixed-case labels and a grandchild first: all three inherit, the grandchild deleted first', [p.log.deletes[0], p.log.deletes.map(d => d[0]).sort(), p.log.writes.length], [['c2', false], ['c1', 'c2', 'e1'], 1])
+  // the chat parent (parent tags, 2026-09-28): the one rule of the chat tree, shared with the
+  // bridge's resolve_chain: over the dependencies, the chat items named by the item's exact
+  // hidden tags are the tag-named candidates, the immediate label-prefix parent (when a chat
+  // item among them) the prefix candidate; one tag-named candidate wins whatever the prefix
+  // candidate, two are the ambiguity, none leaves the prefix candidate or nothing
+  p = page()
+  const parent_of = item => {
+    const { parent, ambiguous } = vm.runInContext('chat_parent', p.ctx)(item)
+    return ambiguous ? 'ambiguous:' + ambiguous.map(d => d.id).join(',') : parent?.id ?? null
+  }
+  p.env.kid('t', '#chat/topic', true, ['chat'])
+  p.env.kid('s', '#chat/second', true, ['chat'])
+  p.env.kid('n', '#note', false, [])
+  check('a tag-named chat beside the prefix chat: the tag', parent_of(p.env.kid('b', '#chat/topic/sub', true, ['chat', 't', 's'], '', ['#chat/second'])), 's')
+  check('two tag-named chats: ambiguous', parent_of(p.env.kid('b2', '#chat/topic/sub2', true, ['chat', 't', 's'], '', ['#chat/second', '#chat/topic'])), 'ambiguous:t,s')
+  check('the prefix chat alone (nesting under a carrier)', parent_of(p.env.kid('c', '#chat/topic/c', true, ['chat', 't'])), 't')
+  check('independent chats: the prefix chat is no dependency', parent_of(p.env.kid('i', '#chat/topic/i', true, ['chat'])), null)
+  check('a renamed node: the tag names the parent, the label only the place', parent_of(p.env.kid('r', '#p/plan-b', true, ['chat', 't', 'n'], '', ['#chat/topic', '#note'])), 't')
+  p.env.kid('fi', '#features/_init', true, ['chat'])
+  check('an alias-expanded dependency is no tag-named candidate', parent_of(p.env.kid('x', '#features/x', true, ['chat', 'fi'], '', ['#init'])), null)
+  check('labels compare case-insensitively', parent_of(p.env.kid('m', '#Chat/Topic/M', true, ['chat', 't'], '', ['#chat/topic'])), 't')
+  check('a root continuation names its parent', parent_of(p.env.kid('e', '#elsewhere', true, ['chat', 't'], '', ['#chat/topic'])), 't')
+  // the transcript through items (review 3 B4): a page whose items ARE items to parse_messages
+  // (the harness parses text otherwise), a tag-over-prefix continuation assembled through its
+  // tag parent, two items naming each other failing on the cycle instead of recursing
+  p = page()
+  p.env.is_item = x => !!x && typeof x === 'object' && 'id' in x
+  const parse = item => vm.runInContext('parse_messages', p.ctx)(item).map(m => m.role + ':' + m.item)
+  p.env.kid('t', '#chat/topic', true, ['chat'], '<<user>> topic\n')
+  p.env.kid('s', '#chat/second', true, ['chat'], '<<user>> second\n')
+  p.env.kid('b', '#chat/topic/sub', true, ['chat', 't', 's'], '<<user>> both\n', ['#chat/second'])
+  check('parse_messages: a tag-named chat beside the prefix chat continues the tag\'s transcript', parse(p.env.kids.b), ['user:#chat/second', 'user:#chat/topic/sub'])
+  p.env.kid('ca', '#p/a', true, ['chat', 'cb'], '<<user>> a\n', ['#p/b'])
+  p.env.kid('cb', '#p/b', true, ['chat', 'ca'], '<<user>> b\n', ['#p/a'])
+  let cycle = null
+  try {
+    parse(p.env.kids.ca)
+  } catch (e) {
+    cycle = e.message
+  }
+  check('parse_messages: two chats naming each other fail on the cycle', cycle, 'chat dependency cycle through #p/a')
+  // the deletion consumer (review 3 B4): a lexical child whose SELECTED parent is another chat,
+  // and a child whose parent is ambiguous, are not chats below this one; a child continuing
+  // this one by its label prefix is
+  p = page({ answers: [true] })
+  p.env.kid('o', '#chat/other', true, ['x'], '<<user>> other\n')
+  p.env.kid('c1', '#chat/vault/1/0', true, ['x', 'self', 'o'], '<<user>> deeper\n', ['#chat/other'])
+  p.env.kid('amb', '#chat/vault/1/1', true, ['x', 'self', 'o'], '<<user>> both\n', ['#chat/other', '#chat/vault/1'])
+  p.env.kid('c2', '#chat/vault/1/2', true, ['x', 'self'], '<<user>> mine\n')
+  p.env._this.dependents = ['c1', 'amb', 'c2']
+  await p.click(1)
+  check('inheriting chats: the tag-parented and the ambiguous children are left, the prefix child deleted', [p.log.confirms, p.log.deletes, p.log.writes.length], [
+    ['Remove 3 messages below this user message, and the chat below it inheriting them (#chat/vault/1/2 with 1 message)? 4 messages in total. The chat continues from there.'],
+    [['c2', false]],
+    1,
+  ])
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()

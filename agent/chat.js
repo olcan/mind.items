@@ -17,7 +17,7 @@ async function run_chat_agent(messages, config = {}) {
 // app under a chat, or an item that names a chat as its direct dependency with a hidden tag), by
 // its direct chat dependency's? The direct chat dependency is selected exactly as parse_messages
 // selects the transcript's (the one chat item among `item.dependencies` whose label is among the
-// item's hidden tags or is the item's immediate label prefix; several fail closed), recursively,
+// item's hidden tags, else the item's immediate label prefix; two tag-named fail closed), recursively,
 // so the web responder yields for the whole chain the bridge owns (the bridge inherits a route
 // through the same direct-chat lineage; vault design mind_vault_item section 13). Labels are
 // compared as normalized lowercase identities (item.label is the case-preserving text, hidden
@@ -28,20 +28,11 @@ function vault_routed_item(item, depth = 0) {
   if (!item) return false
   if (window._grammar.routed(item.text ?? '')) return true
   if (depth > 100) return true // deeper than any ordinary chain: fail closed
-  const item_label = item.label?.toLowerCase()
-  let chat_dep = null
-  for (const id of item.dependencies ?? []) {
-    const dep = _item(id, { silent: true })
-    if (!dep || !is_chat_item(dep)) continue
-    const label = (dep.label ?? dep.name).toLowerCase()
-    const direct =
-      item.tags_hidden?.includes(label) ||
-      (item_label?.startsWith(label + '/') && !item_label.substring(label.length + 1).includes('/'))
-    if (!direct) continue
-    if (chat_dep) return true // multiple chat dependencies: ambiguous, fail closed
-    chat_dep = dep
-  }
-  return chat_dep ? vault_routed_item(chat_dep, depth + 1) : false
+  // the chat parent exactly as parse_messages selects it (chat.js's chat_parent: one tag-named
+  // chat wins over the prefix chat, two are the ambiguity); ambiguity counts as routed
+  const { parent, ambiguous } = chat_parent(item)
+  if (ambiguous) return true // multiple chat dependencies: ambiguous, fail closed
+  return parent ? vault_routed_item(parent, depth + 1) : false
 }
 
 // run_on_chat_item([item|name = _this], [msg])

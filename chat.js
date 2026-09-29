@@ -24,7 +24,10 @@ const is_chat_item = item =>
 // the end of the text, or an _output|_log block; groups: role, name argument, content
 const _message_regex =
   /(?:^|\n) *\<< *(system|user|_?agent|tool)(?: *\( *([^\n]*) *\))? *>>(.*?)(?=$|\n *\<< *(?:system|user|_?agent|tool)(?: *\([^\n]*\))? *>>| *```(?:_output|_log)\s*\n)/gis
-function parse_messages(arg = _this) {
+// `chain` is internal: the items whose transcripts are being assembled below this one, so a
+// chat parent that leads back to one of them (two items naming each other) fails instead of
+// recursing without end
+function parse_messages(arg = _this, chain = []) {
   if (!defined(arg)) fatal('missing item|text')
   let item, text
   if (is_item(arg)) {
@@ -97,58 +100,70 @@ function parse_messages(arg = _this) {
   )
 
   // if parsing from item, prepend any messages in _direct_ dependencies
-  // only a single direct chat dependency is allowed to avoid ambiguity
-  // we also include item name as 'item' in all messages
+  // the transcript continues its ONE chat parent (chat_parent below); we also include item name
+  // as 'item' in all messages
   if (item) {
     each(messages, msg => (msg.item = item.name))
-    let chat_dep // chat dependency item name
-    for (const id of item.dependencies) {
-      const dep = _item(id)
-      if (!is_chat_item(dep)) continue // not a chat item
-      if (!is_direct_chat_dep(item, dep)) continue // not a direct dependency
-      if (chat_dep)
-        fatal('multiple chat dependencies:', dep.name, chat_dep.name)
-      chat_dep = dep
-      const dep_messages = parse_messages(dep)
+    if (chain.includes(item.id)) fatal('chat dependency cycle through', item.name)
+    const { parent, ambiguous } = chat_parent(item)
+    if (ambiguous) fatal('multiple chat dependencies:', ambiguous.map(dep => dep.name).join(', '))
+    if (parent) {
+      const dep_messages = parse_messages(parent, chain.concat(item.id))
       if (dep_messages.length) messages = dep_messages.concat(messages)
     }
   }
   return messages
 }
 
-// is_direct_chat_dep(item, dep)
-// is chat item `dep` a DIRECT chat dependency of `item`, i.e. one whose transcript `item`
-// continues (its messages are the prefix of item's)? by a hidden tag naming dep's label, or as
-// item's immediate label-prefix parent (nesting under #_autodep on #chat); the one rule of the
-// chat tree, shared by parse_messages and the header's descendant deletion
-const is_direct_chat_dep = (item, dep) => {
-  // labels resolve case-insensitively (the app's and the vault's resolvers alike); hidden
-  // tags are lowercase already
+// chat_parent(item)
+// the chat item whose transcript `item` CONTINUES (its messages are the prefix of item's), as
+// `{ parent }` (null for a standalone transcript) or `{ ambiguous: [items] }`: over item's
+// dependencies (its ordered closure, one entry per item, item itself never among them) the chat
+// items named by item's own hidden tags are the tag-named candidates and item's immediate
+// label-prefix parent, when a chat item among the dependencies, the prefix candidate (nesting
+// under #_autodep); exactly one tag-named candidate is the parent whatever the prefix candidate
+// (a renamed node, `#p/plan-b #_p/0/0`: the tag names the parent, the label only the place),
+// none leaves the prefix candidate, two or more are the ambiguity. The one rule of the chat
+// tree, shared by parse_messages and the header's descendant deletion, and the bridge's
+// resolve_chain (lib/mindpage_lineage.py); labels resolve case-insensitively (the app's and
+// the vault's resolvers alike), hidden tags are lowercase already
+const chat_parent = item => {
   const label = lower(item.label ?? '')
-  const parent = lower(dep.label ?? '')
-  return (
-    item.tags_hidden.map(lower).includes(parent) ||
-    (label.startsWith(parent + '/') && !label.substring(parent.length + 1).includes('/'))
-  )
+  const prefix_label = label.includes('/') ? label.slice(0, label.lastIndexOf('/')) : ''
+  const hidden = new Set(item.tags_hidden.map(lower))
+  const tagged = []
+  let prefix = null
+  for (const id of item.dependencies) {
+    const dep = _item(id)
+    if (!is_chat_item(dep)) continue // not a chat item
+    const dep_label = lower(dep.label ?? '')
+    if (hidden.has(dep_label)) tagged.push(dep)
+    else if (prefix_label && dep_label == prefix_label) prefix = dep
+  }
+  if (tagged.length > 1) return { parent: null, ambiguous: tagged }
+  return { parent: tagged[0] ?? prefix, ambiguous: null }
 }
 
 // inheriting_chats(item = _this)
 // the descendant chat items that INHERIT `item`'s messages (a truncation's deleted and rerun
-// messages included) as their transcript prefix, transitively: its children by
-// is_direct_chat_dep, their children, ...; a chat item that merely depends on `item` some other
-// way (through a note, a shared utility) inherits nothing and is not one. NOT evaluating
-// anything (the dependency closure and the labels only)
+// messages included) as their transcript prefix, transitively: the chats whose chat_parent is
+// `item`, theirs, ...; a chat item that merely depends on `item` some other way (through a
+// note, a shared utility, a hidden tag beside its real parent) inherits nothing and is not one,
+// nor is a chat whose parent is ambiguous (it has no transcript to inherit with). NOT
+// evaluating anything (the dependency closure and the labels only)
 function inheriting_chats(item = _this) {
+  // each candidate's chat parent selected once (the passes below only look it up)
   const candidates = (item.dependents ?? [])
     .map(id => _item(id, { silent: true }))
     .filter(d => d && is_chat_item(d))
+    .map(d => ({ item: d, parent: chat_parent(d).parent }))
   const kept = new Map([[item.id, item]])
   let grew = true
   while (grew) {
     grew = false
-    for (const d of candidates) {
+    for (const { item: d, parent } of candidates) {
       if (kept.has(d.id)) continue
-      if (d.dependencies.some(id => kept.has(id) && is_direct_chat_dep(d, kept.get(id)))) {
+      if (parent && kept.has(parent.id)) {
         kept.set(d.id, d)
         grew = true
       }

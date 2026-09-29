@@ -81,26 +81,29 @@ function _init() {
   }
   const AMBIGUOUS = Symbol('ambiguous')
   const EXHAUSTED = Symbol('exhausted')
-  // the ONE direct chat dependency (agent/chat.js, the bridge's resolve_chain): a chat item
-  // among the dependencies named by a hidden tag, or the label's parent by one segment; a
-  // scan the lookup bound cuts short decides nothing (a provisional parent is discarded)
+  // the ONE chat parent (chat.js's chat_parent, the bridge's resolve_chain): among the chat
+  // items of the dependencies, those named by the item's hidden tags are the tag-named
+  // candidates and the label's parent by one segment the prefix candidate; one tag-named
+  // candidate is the parent whatever the prefix candidate (a renamed node, `#p/plan-b
+  // #_p/0/0`), none leaves the prefix candidate, two are the ambiguity; a scan the lookup
+  // bound cuts short decides nothing (a provisional parent is discarded)
   const direct_parent = (item, root, budget) => {
     const label = label_of(item)
+    const prefix_label = label.includes('/') ? label.slice(0, label.lastIndexOf('/')) : ''
     const hidden = (item.tags_hidden ?? []).map(tag => tag.toLowerCase())
-    let found = null
+    let tagged = null
+    let prefix = null
     for (const id of item.dependencies ?? []) {
       const dep = lookup(id, budget)
       if (budget.exhausted) return EXHAUSTED
       if (!dep || !is_chat_item(dep, root)) continue
       const dep_label = label_of(dep)
-      const direct =
-        hidden.includes('#' + dep_label) ||
-        (label.startsWith(dep_label + '/') && !label.slice(dep_label.length + 1).includes('/'))
-      if (!direct) continue
-      if (found) return AMBIGUOUS
-      found = dep
+      if (hidden.includes('#' + dep_label)) {
+        if (tagged) return AMBIGUOUS
+        tagged = dep
+      } else if (prefix_label && dep_label == prefix_label) prefix = dep
     }
-    return found
+    return tagged ?? prefix
   }
   const vault_chat = (parent, budget) => {
     const root = chat_root(budget)
@@ -122,18 +125,24 @@ function _init() {
     }
     return routed // the whole chain valid: a vault chat when a link of it is routed
   }
-  // whether a child of `parent` adopts it as its first dependency by the app's autodep rule: a
-  // label-prefix ancestor of the child (the parent, or one of the parent's own) carries
-  // #_autodep (the hidden-tag view drops the underscore); each ancestor one lookup from the
-  // SAME bound as the lineage walk (64 uncached lookups for both together); past the bound the
-  // walk stops with a warning and the child keeps the explicit parent tag (its binding intact)
+  // whether a child of `parent` adopts it as its first dependency by the app's autodep rule: an
+  // ancestor of the child in the app's tree (the parent, or one of the parent's own: the item
+  // view's `ancestors`, the label prefixes with the tag parents of renamed nodes spliced in;
+  // the label prefixes alone on an app without the view) carries #_autodep (the hidden-tag view
+  // drops the underscore); each ancestor one lookup from the SAME bound as the lineage walk
+  // (64 uncached lookups for both together); past the bound the walk stops with a warning and
+  // the child keeps the explicit parent tag (its binding intact)
   const autodep_ancestor = (parent, budget) => {
     const carries = item => (item?.tags_hidden ?? []).some(tag => tag.toLowerCase() == '#autodep')
     if (carries(parent)) return true
-    let label = label_of(parent)
-    while (label.includes('/')) {
-      label = label.slice(0, label.lastIndexOf('/'))
-      const ancestor = lookup('#' + label, budget)
+    let levels = parent.ancestors
+    if (!Array.isArray(levels)) {
+      levels = []
+      let label = label_of(parent)
+      while (label.includes('/')) levels.push('#' + (label = label.slice(0, label.lastIndexOf('/'))))
+    }
+    for (const level of levels) {
+      const ancestor = lookup(level.toLowerCase(), budget)
       if (budget.exhausted) {
         console.warn(`_customize_child: the label ancestors of ${parent.label} need more than ${LOOKUPS} lookups with its lineage; the parent is named explicitly`)
         return false

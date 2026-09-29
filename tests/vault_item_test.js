@@ -119,7 +119,7 @@ items['agent-chat'] = source_item('#agent/chat', '#agent/chat is a generic chat 
 items['chat-root'].id = 'chat-root'
 items['agent-chat'].id = 'agent-chat'
 // the chat root is captured at the code's load (`const _chat = _item('$id')`), so the fakes come first
-vm.runInContext(chat_src.match(/^const _chat = _item\('\$id'\)\n/)[0].replace('$id', 'chat-root') + pick_arrow(chat_src, 'is_chat_item') + pick_arrow(chat_src, 'is_direct_chat_dep') + chat_src.match(/\nconst _message_regex =\n[^\n]*\n/)[0] + pick_fn(chat_src, 'parse_messages') + pick_fn(chat_src, 'parse_last_turn') + pick_fn(agent_src, 'vault_routed_item'), chat_ctx)
+vm.runInContext(chat_src.match(/^const _chat = _item\('\$id'\)\n/)[0].replace('$id', 'chat-root') + pick_arrow(chat_src, 'is_chat_item') + pick_arrow(chat_src, 'chat_parent') + chat_src.match(/\nconst _message_regex =\n[^\n]*\n/)[0] + pick_fn(chat_src, 'parse_messages') + pick_fn(chat_src, 'parse_last_turn') + pick_fn(agent_src, 'vault_routed_item'), chat_ctx)
 const saves = [] // this item's own saves: the options each save_global_store call carried
 env._this = {
   id: 'vault-id',

@@ -11,6 +11,8 @@ const path = require('path')
 const vm = require('vm')
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'agent', 'chat.js'), 'utf8')
+// the chat parent selector the fence shares with parse_messages (chat.js's chat_parent, the real one)
+const chat_parent_src = fs.readFileSync(path.join(__dirname, '..', 'chat.js'), 'utf8').match(/\nconst chat_parent = [\s\S]*?\n}\n/)[0]
 
 let failures = 0
 const check = (name, actual, expected) => {
@@ -71,11 +73,23 @@ add('work6-id', '#work6', '#work6 #_chat/gpt/6\n<<user>> continued by a lowercas
 add('gpt7-id', '#chat/gpt/7', '#chat/gpt/7 #_agent/vault\n<<user>> migrated, lowercase label', { deps: [chat, 'agent-id'] })
 add('GpT70-id', '#chat/GpT/7/0', '#chat/GpT/7/0\n<<user>> chained with a differently cased prefix', { deps: [chat, 'agent-id', 'gpt7-id'] })
 add('amb-id', '#chat/gpt/5', '#chat/gpt/5 #_chat/gpt/3 #_chat/gpt/4\n<<user>> two chat parents', { deps: [chat, 'agent-id', 'gpt3-id', 'gpt4-id'], hidden: ['#chat/gpt/3', '#chat/gpt/4'] })
+// parent tags (2026-09-28): a tag-named chat beside the prefix chat is the parent, the prefix
+// ignored: a chain with no vault marker anywhere stays the web's; a route on the SELECTED parent
+// (an independent tagged chat) fences the child, a route only on the ignored prefix does not
+add('pa-id', '#p/a', '#p/a\n<<user>> a', { deps: [chat, 'agent-id'] })
+add('pab-id', '#p/a/b', '#p/a/b\n<<user>> b', { deps: [chat, 'agent-id', 'pa-id'] })
+add('pac-id', '#p/a/c', '#p/a/c #_p/a/b\n<<user>> c continues b beside its prefix a', { deps: [chat, 'agent-id', 'pa-id', 'pab-id'], hidden: ['#p/a/b'] })
+add('ob-id', '#other/b', '#other/b #_agent/vault\n<<user>> routed elsewhere', { deps: [chat, 'agent-id'] })
+add('pad-id', '#p/a/d', '#p/a/d #_other/b\n<<user>> d continues a routed chat beside its unrouted prefix', { deps: [chat, 'agent-id', 'pa-id', 'ob-id'], hidden: ['#other/b'] })
+add('px-id', '#p/x', '#p/x #_agent/vault\n<<user>> a routed prefix', { deps: [chat, 'agent-id'] })
+add('oc-id', '#other/c', '#other/c\n<<user>> unrouted elsewhere', { deps: [chat, 'agent-id'] })
+add('pxf-id', '#p/x/f', '#p/x/f #_other/c\n<<user>> f continues an unrouted chat beside its routed prefix', { deps: [chat, 'agent-id', 'px-id', 'oc-id'], hidden: ['#other/c'] })
 items['agent-id'].dependents = ['gpt3-id', 'gpt30-id', 'work-id', 'gpt4-id', 'gpt40-id', 'amb-id', 'GPT6-id', 'work6-id', 'gpt7-id', 'GpT70-id']
 const env = {
   window: { _grammar: { version: 2, routed: text => /#_?agent\/(vault|native)(\/|\b)/i.test(text) } },
   _item: (key, _opts) => items[key] ?? Object.values(items).find(i => i.name === key) ?? null,
   is_chat_item: item => !!item && item.dependencies[0] === chat,
+  lower: x => x.toLowerCase(),
   parse_messages: item => [{ role: 'user', content: item.text.split('\n').pop().replace(/^<<user>> ?/, '') }],
   fatal: msg => { throw new Error('fatal: ' + msg) },
   debug: msg => log.debug.push(msg),
@@ -97,7 +111,7 @@ const env = {
 }
 env._this = items['agent-id']
 const ctx = vm.createContext(env)
-vm.runInContext(source, ctx)
+vm.runInContext(chat_parent_src + source, ctx)
 const routed = id => vm.runInContext(`vault_routed_item(_item(${JSON.stringify(id)}))`, ctx)
 check('the tagged command item routes by its own text', routed('cmd-id'), true)
 check('an untagged first item under the command inherits (immediate label prefix)', routed('vault0-id'), true)
@@ -110,6 +124,9 @@ check('nor does its chained child', routed('gpt40-id'), false)
 check('two direct chat dependencies: ambiguous, fails closed toward the vault', routed('amb-id'), true)
 check('an uppercase parent label with a lowercase hidden reference inherits (normalized identity)', routed('work6-id'), true)
 check('a child whose label prefix is cased differently from its parent inherits', routed('GpT70-id'), true)
+check('parent tags: a tag-named chat beside the prefix chat is the parent; no marker anywhere, not routed', routed('pac-id'), false)
+check('parent tags: a route on the SELECTED parent (an independent tagged chat) fences the child', routed('pad-id'), true)
+check('parent tags: a route only on the ignored prefix chat does not', routed('pxf-id'), false)
 
 ;(async () => {
   // the dispatch boundary: run_on_dependents over the web agent's dependents answers only the
@@ -120,6 +137,12 @@ check('a child whose label prefix is cased differently from its parent inherits'
   check('the vault-owned dependents were skipped with a debug line each (the casing variants included)', log.debug.length, 8)
   check('the replies were written to the web-owned chats only', log.writes.map(w => w.item).sort(), ['gpt4-id', 'gpt40-id'])
   check('nothing marked running afterwards', Object.values(items).some(i => i.running), false)
+  // the actual consumer over the parent-tag shapes: the web answers the chain with no marker and
+  // the child of a routed-but-ignored prefix, and skips the child whose selected parent is routed
+  log.provider.length = log.writes.length = log.debug.length = 0
+  for (const id of ['pac-id', 'pad-id', 'pxf-id']) await vm.runInContext(`run_on_chat_item(_item(${JSON.stringify(id)}))`, ctx)
+  check('parent tags: the provider answered the unrouted continuations only', log.provider.map(c => c.item), ['pac-id', 'pxf-id'])
+  check('parent tags: the child of the routed selected parent was skipped', log.debug, ['skipping web dispatch for vault-routed item #p/a/d'])
   // the completion boundary: a call outstanding when the route appears through the parent
   log.provider.length = log.writes.length = log.warn.length = 0
   let release
