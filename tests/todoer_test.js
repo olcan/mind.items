@@ -13,6 +13,9 @@ const path = require('path')
 const vm = require('vm')
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'todoer.js'), 'utf8')
+// the WHOLE script compiles (2026-09-30: a duplicate `const` in the render loop parsed nowhere the
+// table looked, since it picks functions; the shipped script would have failed to load)
+new vm.Script(src, { filename: 'todoer.js' })
 const pick = names => names.map(name => {
   const m = src.match(new RegExp(`\\n(?:async )?function ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}\\n`))
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
@@ -142,7 +145,16 @@ check('an agent-held project blocked: main', _task_list({ held: 'agent', reason:
 check('an agent-held project out of budget: main', _task_list({ held: 'agent', reason: 'budget', project: true, acked: {} }, null), 'main')
 check('an agent-held project working: delegated', _task_list({ held: 'agent', reason: 'delegated', project: true, acked: {} }, null), 'delegated')
 check('an agent-held task asking (no project): delegated', _task_list({ held: 'agent', reason: 'question', acked: {} }, null), 'delegated')
-check('an owner-held bound child: delegated', _task_list({ held: 'owner', reason: 'proposal', parent: 'p1', acked: {} }, null), 'delegated')
+// a bound child (2.9): delegated while its parent can act, the main list in the two states only
+// the owner can resolve: a proposal on a project without a standing /land, blocked after a final refusal
+const lands = { standing_land: true }
+check('an owner-held bound child proposing under a standing /land: delegated', _task_list({ held: 'owner', reason: 'proposal', parent: 'p1', acked: {} }, null, lands), 'delegated')
+check('an owner-held bound child proposing with no standing /land: main', _task_list({ held: 'owner', reason: 'proposal', parent: 'p1', acked: {} }, null, { standing_land: false }), 'main')
+check('an owner-held bound child proposing with no parent state yet: main', _task_list({ held: 'owner', reason: 'proposal', parent: 'p1', acked: {} }, null, null), 'main')
+check('an owner-held bound child blocked after a final refusal: main', _task_list({ held: 'owner', reason: 'blocked', final: true, parent: 'p1', acked: {} }, null, lands), 'main')
+check('an owner-held bound child blocked otherwise: delegated', _task_list({ held: 'owner', reason: 'blocked', final: false, parent: 'p1', acked: {} }, null, lands), 'delegated')
+check('an owner-held bound child done or asking: delegated', [_task_list({ held: 'owner', reason: 'done', parent: 'p1', acked: {} }, null, null), _task_list({ held: 'owner', reason: 'question', parent: 'p1', acked: {} }, null, null)], ['delegated', 'delegated'])
+check('an agent-held bound child: delegated whatever the parent', _task_list({ held: 'agent', reason: 'delegated', parent: 'p1', acked: {} }, null, { standing_land: false }), 'delegated')
 check('an owner-held reclaimed child (no parent): main', _task_list({ held: 'owner', reason: 'taken', acked: {} }, null), 'main')
 check('a pending take-back overlays a bound child', _task_list({ held: 'owner', reason: 'proposal', parent: 'p1', acked: {} }, { id: 'c9', kind: 'takeback' }), 'main')
 check('a pending delegate overlays a project asking', _task_list({ held: 'agent', reason: 'question', project: true, acked: {} }, { id: 'c8', kind: 'delegate' }), 'delegated')

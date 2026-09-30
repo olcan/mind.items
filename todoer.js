@@ -209,7 +209,10 @@ function __render(widget, widget_item) {
       delete _pending_commands()[item.id] // acknowledged: the projection decides from here
       pending = null
     }
-    const task_list = _task_list(state, pending)
+    // a bound child's list reads its parent's projection too (the standing /land, design 2.9)
+    const parent_item = state?.parent ? _item(state.parent, { silent: true }) : null
+    const parent_state = parent_item ? _task_state(parent_item) : null
+    const task_list = _task_list(state, pending, parent_state)
     if (delegated) {
       if (task_list != 'delegated') continue
     } else {
@@ -1153,10 +1156,17 @@ const SAVE_POLL_MS = 250 // polled as the widget's detect_save task polls
 // budget goes to the main list (the owner must act while its work continues), else delegated;
 // then an owner-held item: a project's bound child (`parent`) stays in the delegated list (its
 // parent decides), else main
-function _task_list(state, pending) {
+function _task_list(state, pending, parent_state = null) {
   if (pending && !state?.acked?.[pending.id]) return pending.kind == 'takeback' ? 'main' : 'delegated'
   if (state?.held == 'agent') return state.project && ['question', 'blocked', 'budget'].includes(state.reason) ? 'main' : 'delegated'
-  return state?.parent ? 'delegated' : 'main'
+  if (!state?.parent) return 'main'
+  // a bound child (the vault's project design 2.9): its parent decides on it, so it sits in the
+  // delegated list, EXCEPT in the two states only the owner can resolve: a proposal on a project
+  // without a standing /land (the owner accepts it on the child), and blocked after a FINAL
+  // refusal of its landing (the protected-path guard, a conflict: the owner's review)
+  if (state.reason == 'proposal' && !parent_state?.standing_land) return 'main'
+  if (state.reason == 'blocked' && state.final) return 'main'
+  return 'delegated'
 }
 
 // a task row's decorations over its linked html: the marker linked to its worktree's review
