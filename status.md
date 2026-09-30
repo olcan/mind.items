@@ -65,14 +65,39 @@ function list_instances() {
         // but we still sort by last _confirmed_ focus so we display that
         // info listed after browser tends to be browser-dependent and thus unreliable
         return [
-          [fage+'s', uage+'s'].join('<br>'),
+          [fage+'s', uage+'s', sync_age(x)].join('<br>'),
           [res, ua.os.name].join('<br>'),
           [ua.browser.name, cpu, /*bits,*/ gpu].join('<br>'),
-          [where, '&nbsp;&nbsp;↳ '+x.server_domain].join('<br>'),
+          [where, '&nbsp;&nbsp;↳ '+x.server_domain, sync_note(x)].filter(Boolean).join('<br>'),
         ]
       }), {headers:[device], alignments:'rrll'})
     ).join('\n\n')
   ].join('\n')
+}
+
+// the SYNC FACTS of an instance (the app, 2026-09-30: onVisibilityChange in index.svelte): the age
+// of its last items snapshot that satisfied the app's current-view predicate (not from the cache,
+// no pending write overlaid; a local deletion alone satisfies it too, so this is no clock of
+// server replies) as a third line under the focus and update ages (`?` for a page without one
+// yet, or a record from before the facts), and a note under the domain line for the last resume probe (a page turning visible after a long hide asks the server
+// with a deadline: ok, timeout, error) and the recovery reload that produced the page, if any
+// (a page-cache restore, or a probe that got no answer); a dead client publishes nothing, so its
+// record ages and leaves this live listing after two minutes (the app's instance query): a device
+// in use that is missing here is a symptom, and the recovery reload's note is the evidence
+const sync_age = x => typeof x.sync_time == 'number' && x.sync_time > 0 ? round((Date.now() - x.sync_time) / 1000) + 's' : '?'
+function sync_note(x) {
+  const parts = []
+  const r = x.reloaded
+  if (r && typeof r.time == 'number') {
+    const why = r.reason == 'probe'
+      ? `probe timeout after ${r.ms ?? '?'}ms, hidden ${round((r.hidden_ms ?? 0) / 1000)}s`
+      : 'page-cache restore'
+    parts.push(`reloaded ${round((Date.now() - r.time) / 1000)}s ago (${why})`)
+  }
+  const p = x.probe
+  if (p && typeof p.time == 'number')
+    parts.push(`probe ${p.outcome} ${p.ms ?? '?'}ms (hidden ${round((p.hidden_ms ?? 0) / 1000)}s, ${round((Date.now() - p.time) / 1000)}s ago)`)
+  return parts.length ? '&nbsp;&nbsp;' + _.escape(parts.join(' · ')) : ''
 }
 
 // the vault side (design notes/design/mind_status_item.md): this item's hidden store carries

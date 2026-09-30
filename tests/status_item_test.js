@@ -204,6 +204,26 @@ env._instances = [instance({ device_name: 'gen14 | **office** "q" <b> & \\x\nnex
 run('update_status()')
 const named = divs['.instances'].innerHTML
 check('instances: the name is a literal cell through the parser', [(named.match(/<td/g) || []).length, named.includes('<span title="1.2.3.4">gen14 | **office** &quot;q&quot; &lt;b&gt; &amp; \\x next</span><br>&nbsp;&nbsp;↳ olcan.com'), named.includes('<strong>')], [4, true, false])
+// the sync facts (2026-09-30): the sync age as a third line under the focus and update ages, `?`
+// for a record without one (an older app, or no server snapshot yet); the note under the domain
+// line names the recovery reload that produced the page and the last resume probe; a record
+// without either has no note
+env._instances = [
+  instance({ sync_time: clock.now - 7000, probe: { time: clock.now - 30000, hidden_ms: 125000, ms: 412, outcome: 'ok' }, reloaded: { reason: 'probe', time: clock.now - 90000, hidden_ms: 7200000, ms: 8003 } }),
+  instance({ sync_time: clock.now - 2000, reloaded: { reason: 'restore', time: clock.now - 5000 } }),
+  instance({}),
+  instance({ sync_time: clock.now, probe: { time: clock.now, hidden_ms: 0, ms: 1, outcome: '<b>ok</b> & "x"' } }), // a foreign value stays text
+]
+run('update_status()')
+const synced = divs['.instances'].innerHTML
+check('instances: the sync age under the ages, `?` without one', [synced.includes('0s<br>0s<br>7s</td>'), synced.includes('0s<br>0s<br>2s</td>'), synced.includes('0s<br>0s<br>?</td>')], [true, true, true])
+check('instances: the recovery reload and the probe in the note after the domain line, a foreign value escaped', [
+  synced.includes('↳ olcan.com<br>&nbsp;&nbsp;reloaded 90s ago (probe timeout after 8003ms, hidden 7200s) · probe ok 412ms (hidden 125s, 30s ago)</td>'),
+  synced.includes('↳ olcan.com<br>&nbsp;&nbsp;reloaded 5s ago (page-cache restore)</td>'),
+  (synced.match(/↳ olcan.com<\/td>/g) || []).length,
+  synced.includes('probe &lt;b&gt;ok&lt;/b&gt; &amp; &quot;x&quot; 1ms (hidden 0s, 0s ago)</td>'),
+  synced.includes('<b>ok</b>'),
+], [true, true, 1, true, false])
 env._instances = []
 run('update_status()')
 check('nothing saves during rendering', saves, [])
