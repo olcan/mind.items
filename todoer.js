@@ -305,8 +305,8 @@ function __render(widget, widget_item) {
       age.className = 'age'
       // the age since the last state change, then the stats the bridge projects (vault design
       // mind_task_agents 9.6): workers started and the summed nominal cost, when present
-      age.innerText = _age(updated, Date.now()) + _stats_suffix(state?.stats)
-      age.title = _age_title(updated, state?.stats)
+      age.innerText = _age(updated, Date.now()) + _stats_suffix(state?.stats) + _wake_suffix(state?.wake, Date.now())
+      age.title = _age_title(updated, state?.stats, state?.wake)
       div.prepend(age, ' ')
     }
 
@@ -1247,11 +1247,27 @@ function _stats_suffix(stats) {
 }
 
 // the age mark's tooltip: the absolute time of the last state change, and the first delegation
-function _age_title(updated, stats) {
+function _age_title(updated, stats, wake = undefined) {
   const lines = [updated ? new Date(updated).toLocaleString() : 'not acknowledged yet']
   if (stats && typeof stats == 'object' && typeof stats.since == 'number' && stats.since > 0)
     lines.push('delegated ' + new Date(stats.since).toLocaleString())
+  if (typeof wake == 'number' && wake > 0) lines.push('next wake ' + new Date(wake).toLocaleString())
   return lines.join('\n')
+}
+
+// a project's next wake as a row suffix (the projection's `wake`, the vault's project design
+// 2.10): ` · ⏰ 18:14` for a wake later today, ` · ⏰ 10/1 18:14` on another day, ` · ⏰ due` when
+// rendered after its deadline (the suffix describes the clock at render time; the bridge's tick
+// clears the wake as it claims the turn); nothing without one; the browser's zone (the owner's,
+// assumed the bridge host's). Without it a project between turns looked like one mid-turn:
+// `[working]` with no run in `#vault` (the owner, 2026-09-30)
+function _wake_suffix(wake, now) {
+  if (typeof wake != 'number' || !(wake > 0)) return ''
+  if (wake <= now) return ' · ⏰ due'
+  const at = new Date(wake), today = new Date(now)
+  const hhmm = String(at.getHours()).padStart(2, '0') + ':' + String(at.getMinutes()).padStart(2, '0')
+  const same_day = at.getFullYear() == today.getFullYear() && at.getMonth() == today.getMonth() && at.getDate() == today.getDate()
+  return ' · ⏰ ' + (same_day ? hhmm : `${at.getMonth() + 1}/${at.getDate()} ${hhmm}`)
 }
 
 // a fresh command id (the wrapper name suffix; the bridge disposes of every id it observes once)

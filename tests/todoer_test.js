@@ -72,6 +72,7 @@ vm.runInContext(
     '_age',
     '_stats_suffix',
     '_age_title',
+    '_wake_suffix',
     '_snippet_uses_suffix',
     '_todo_offset',
     '_set_marker',
@@ -116,7 +117,7 @@ vm.runInContext(
     src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
   context
 )
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -188,6 +189,22 @@ check('stats: an older projection without the share', _stats_suffix({ workers: 1
 check('age title: since', _age_title(now, { since: now - 60_000 }).split('\n').length, 2)
 check('age title: no stats', _age_title(now, undefined).includes('\n'), false)
 check('age title: unacknowledged', _age_title(undefined, undefined), 'not acknowledged yet')
+check('age title: next wake', _age_title(now, undefined, now + 3_600_000).split('\n')[1].startsWith('next wake '), true)
+// the wake suffix (the vault's project design 2.10): a project's next wake in the browser's local
+// time, so a project between turns is told apart from one mid-turn; the rows pin the zone (`now` is
+// 2023-11-14 22:13 UTC, 14:13 in Los Angeles): the day boundary is the LOCAL one
+const tz = process.env.TZ
+process.env.TZ = 'UTC'
+check('wake: none', _wake_suffix(undefined, now), '')
+check('wake: not a time', _wake_suffix('soon', now), '')
+check('wake: later today', _wake_suffix(now + 3_600_000, now), ' · ⏰ 23:13')
+check('wake: another day', _wake_suffix(now + 3 * 3_600_000, now), ' · ⏰ 11/15 01:13')
+check('wake: due (rendered after the deadline)', _wake_suffix(now - 1000, now), ' · ⏰ due')
+process.env.TZ = 'America/Los_Angeles'
+check('wake: the local day, not the UTC one', _wake_suffix(now + 3 * 3_600_000, now), ' · ⏰ 17:13')
+check('wake: another local day', _wake_suffix(now + 12 * 3_600_000, now), ' · ⏰ 11/15 02:13')
+if (tz === undefined) delete process.env.TZ
+else process.env.TZ = tz
 
 // the marker on the todo line (design 2.4)
 check('suffix: written after the tag', _set_marker('#todo fix the cache\nbody\n', 'delegated'), '#todo [delegated] fix the cache\nbody\n')
