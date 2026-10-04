@@ -26,7 +26,7 @@
   cursor: pointer;
   padding-bottom: 2px /* centers text vertically even as hr border grows */;
   display: inline-block;
-  max-width: 50%;
+  max-width: 80%; /* the label is cut from the left (rtl ellipsis); a child's attribution needs the room (2026-10-04) */
   text-wrap: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
