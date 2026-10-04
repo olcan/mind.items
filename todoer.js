@@ -1544,16 +1544,17 @@ function _visible(text) {
   return text.replace(/(^|\s)#_[^#\s<>&?!,.;:"'`(){}\[\]]+/g, '$1').replace(/⟦[^⟧]*⟧/g, '')
 }
 
-// the hand-back reasons that wait on the owner (the default set; their notification stays on
-// screen until dismissed), then the other reasons an owner may name (`all` names every one)
-const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget']
-const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'done', 'interrupted', 'taken']
+// the hand-back reasons that wait on the owner (the default set, `done` included since the todo
+// then waits to be closed; their notification stays on screen until clicked), then the other
+// reasons an owner may add (their notification shows for the shell's default; `all` names every one)
+const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done']
+const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'interrupted', 'taken']
 const NOTIFIER_KEY = 'mindpage_todoer_notifier' // localStorage: the device's elected window
 const NOTIFIER_STALE_MS = 5 * 60 * 1000 // an election not refreshed for this long is vacant
 const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its gesture stamps' spacing
 
-// => /notify [on [reason...]|off|test]
-// desktop notifications for tasks that come back to the main list: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`; name others such as `done`, or `all`) and asks this device's permission; `off` disables them on every device; `test` shows one; no word shows the setting and this device's permission
+// => /notify [on [reason...]|off [reason...]|test]
+// desktop notifications for tasks that come back to the main list: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
@@ -1573,11 +1574,12 @@ async function _on_command_notify(args) {
   // this device's permission is asked from the command's own gesture (the browser prompts only
   // then), the setting saved meanwhile: it is the account's, the permission each device's own
   const asked = parsed.on && _notify_permission() == 'default' ? Notification.requestPermission() : null
-  if (parsed.off) delete store.notify
-  else store.notify = { reasons: parsed.reasons }
+  const setting = _notify_setting(store.notify, parsed)
+  if (setting) store.notify = setting
+  else delete store.notify
   _todoer.save_global_store({ invalidate_elem_cache: false })
   if (parsed.off) {
-    alert('notifications: off')
+    alert(`notifications: ${_notify_text(setting)}`)
     return null
   }
   const permission = asked ? await asked : _notify_permission()
@@ -1585,17 +1587,32 @@ async function _on_command_notify(args) {
   return null
 }
 
-// the words of /notify: nothing (the status), `on [reason...]` (the attention set when none is
-// named; `all` every reason), `off`, `test`: {status} | {on, reasons} | {off} | {test} | {error}
+// the words of /notify: nothing (the status), `on [reason...]`, `off [reason...]`, `test`; the
+// reasons validated (`all` names every one): {status} | {on, reasons} | {off, reasons} | {test} |
+// {error}, `reasons` the named ones (every one for `all`), or null when none was named
 function _parse_notify(args) {
   const [word, ...rest] = String(args ?? '').trim().split(/\s+/).filter(w => w)
   if (!word) return { status: true }
-  if (word == 'off' || word == 'test') return rest.length ? { error: `${word} takes no words` } : { [word]: true }
-  if (word != 'on') return { error: `unknown word ${word} (usage: /notify [on [reason...]|off|test])` }
+  if (word == 'test') return rest.length ? { error: 'test takes no words' } : { test: true }
+  if (word != 'on' && word != 'off') return { error: `unknown word ${word} (usage: /notify [on [reason...]|off [reason...]|test])` }
   const unknown = rest.filter(r => r != 'all' && !NOTIFY_REASONS.includes(r))
   if (unknown.length) return { error: `unknown reason ${unknown.join(', ')} (one of ${NOTIFY_REASONS.join(', ')}, or all)` }
-  const reasons = rest.includes('all') ? NOTIFY_REASONS : rest.length ? [...new Set(rest)] : NOTIFY_ATTENTION
-  return { on: true, reasons }
+  const reasons = rest.includes('all') ? NOTIFY_REASONS : rest.length ? [...new Set(rest)] : null
+  return { [word]: true, reasons }
+}
+
+// the setting after a /notify word over the current one: `on` alone the default set (the
+// attention reasons), `on <reasons>` the current set (the default when off) plus the named ones,
+// `off <reasons>` the current set minus the named ones, `off` alone none; the reasons kept in
+// their canonical order; null for none left
+function _notify_setting(current, parsed) {
+  if (parsed.off && !parsed.reasons) return null
+  const base = current?.reasons?.length ? current.reasons : NOTIFY_ATTENTION
+  let reasons
+  if (parsed.on) reasons = parsed.reasons ? [...base, ...parsed.reasons] : NOTIFY_ATTENTION
+  else reasons = (current?.reasons ?? []).filter(r => !parsed.reasons.includes(r))
+  reasons = NOTIFY_REASONS.filter(r => reasons.includes(r))
+  return reasons.length ? { reasons } : null
 }
 
 const _notify_text = setting => (setting?.reasons?.length ? `on for ${setting.reasons.join(', ')}` : 'off')

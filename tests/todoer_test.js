@@ -116,6 +116,7 @@ const picked =
     '_visible',
     '_on_command_notify',
     '_parse_notify',
+    '_notify_setting',
     '_state_key',
     '_notify_step',
     '_notify_change',
@@ -138,7 +139,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _state_key, _notify_step, _notify_change, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _state_key, _notify_step, _notify_change, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -562,14 +563,27 @@ const NOTIFIER_STALE_MS = vm.runInContext('NOTIFIER_STALE_MS', context)
 const NOTIFIER_REFRESH_MS = vm.runInContext('NOTIFIER_REFRESH_MS', context)
 // the words of /notify
 check('notify words: none is the status', _parse_notify(''), { status: true })
-check('notify words: on alone is the attention set', _parse_notify('on'), { on: true, reasons: ['question', 'blocked', 'proposal', 'budget'] })
-check('notify words: on with reasons, deduplicated', _parse_notify('on done question question'), { on: true, reasons: ['done', 'question'] })
+check('notify words: on alone names no reason (the default set)', _parse_notify('on'), { on: true, reasons: null })
+check('notify words: on with reasons, deduplicated', _parse_notify('on taken question question'), { on: true, reasons: ['taken', 'question'] })
 check('notify words: on all', _parse_notify('on all done').reasons, NOTIFY_REASONS)
+check('notify words: off with reasons', _parse_notify('off done taken'), { off: true, reasons: ['done', 'taken'] })
 check('notify words: an unknown reason', _parse_notify('on soon').error.startsWith('unknown reason soon ('), true)
 check('notify words: an unknown word beside all is refused too', _parse_notify('on all typo').error.startsWith('unknown reason typo ('), true)
-check('notify words: off and test', [_parse_notify('off'), _parse_notify(' test ')], [{ off: true }, { test: true }])
-check('notify words: off takes no words', _parse_notify('off now').error, 'off takes no words')
+check('notify words: off and test', [_parse_notify('off'), _parse_notify(' test ')], [{ off: true, reasons: null }, { test: true }])
+check('notify words: test takes no words', _parse_notify('test now').error, 'test takes no words')
 check('notify words: an unknown word', _parse_notify('maybe').error.startsWith('unknown word maybe ('), true)
+// the setting after a word (additive: the owner's ask of 2026-10-03)
+const ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done']
+check('setting: on from off is the default set, done included', _notify_setting(undefined, _parse_notify('on')), { reasons: ATTENTION })
+check('setting: on alone restores the default set over a custom one (an opt-in dropped, the defaults back)', _notify_setting({ reasons: ['question', 'taken'] }, _parse_notify('on')), { reasons: ATTENTION })
+check('setting: on <reason> adds to the current set', _notify_setting({ reasons: ['question', 'done'] }, _parse_notify('on taken')), { reasons: ['question', 'done', 'taken'] })
+check('setting: on <reason> from off adds to the default set', _notify_setting(null, _parse_notify('on taken')), { reasons: [...ATTENTION, 'taken'] })
+check('setting: on all', _notify_setting({ reasons: ['question'] }, _parse_notify('on all')), { reasons: NOTIFY_REASONS })
+check('setting: a reason already there is kept once, in the canonical order', _notify_setting({ reasons: ['done', 'question'] }, _parse_notify('on question blocked')), { reasons: ['question', 'blocked', 'done'] })
+check('setting: off <reason> removes it', _notify_setting({ reasons: ATTENTION }, _parse_notify('off done proposal')), { reasons: ['question', 'blocked', 'budget'] })
+check('setting: off <reason> leaving none is off', _notify_setting({ reasons: ['done'] }, _parse_notify('off done')), null)
+check('setting: off <reason> while off stays off', _notify_setting(undefined, _parse_notify('off done')), null)
+check('setting: off alone is off', _notify_setting({ reasons: ATTENTION }, _parse_notify('off')), null)
 // the key: possession, reason and epoch; a stats refresh, a repair or the widget's save changes none
 check('key: no projection', _state_key(null), '')
 check('key: the facts (a projection from an older bridge: no count)', _state_key({ held: 'owner', reason: 'question', epoch: 3, rev: 9, updated: 1 }), 'owner:question:3:')
@@ -584,11 +598,12 @@ check('step: off without a setting or without reasons', [notify_step({ setting: 
 check('step: an unchanged key', notify_step({ prev: 'owner:question:1' }), 'unchanged')
 check('step: a first sight is a change', notify_step({ prev: undefined }), 'notify')
 check('step: the delegated list', notify_step({ list: 'delegated' }), 'not in the main list')
-check('step: a reason not enabled, no reason', [notify_step({ reason: 'done' }), notify_step({ reason: undefined, key: '' })], ['reason done', 'reason none'])
+check('step: a reason not enabled, no reason', [notify_step({ reason: 'taken' }), notify_step({ reason: undefined, key: '' })], ['reason taken', 'reason none'])
 check('step: the permission last (the cause the owner can act on)', [notify_step({ permission: 'default' }), notify_step({ permission: 'denied', list: 'delegated' })], ['permission default', 'not in the main list'])
 // the notification's facts: the reason first, the row's text without the tag and the marker
 check('facts: a suffix snippet, a labelled item', _notification_of({ reason: 'question', shown: '#todo [question] fix the cache reverts on a returning device', label: '#e2e_task', parent: null, id: 's1' }), { title: '[question] fix the cache reverts on a returning device', options: { body: '#e2e_task', tag: 'todoer:s1', renotify: true, requireInteraction: true, icon: '/favicon.ico' } })
-check('facts: a prefix snippet, no label, a child', _notification_of({ reason: 'done', shown: 'fix the cache [done] #todo', label: null, parent: '#todo the project', id: 's2' }), { title: '[done] fix the cache', options: { body: 'child of #todo the project', tag: 'todoer:s2', renotify: true, requireInteraction: false, icon: '/favicon.ico' } })
+check('facts: a prefix snippet, no label, a child, an opt-in reason (not kept on screen)', _notification_of({ reason: 'taken', shown: 'fix the cache [taken] #todo', label: null, parent: '#todo the project', id: 's2' }), { title: '[taken] fix the cache', options: { body: 'child of #todo the project', tag: 'todoer:s2', renotify: true, requireInteraction: false, icon: '/favicon.ico' } })
+check('facts: done is kept on screen (the todo waits to be closed)', _notification_of({ reason: 'done', shown: '#todo [done] fix', label: null, parent: null, id: 's5' }).options.requireInteraction, true)
 check('facts: a long text is shortened', _notification_of({ reason: 'blocked', shown: '#todo ' + 'x'.repeat(100), label: null, parent: null, id: 's3' }).title, '[blocked] ' + 'x'.repeat(79) + '…')
 check('facts: the owner\'s own bracketed word elsewhere stays', _notification_of({ reason: 'budget', shown: '#todo [budget] [x] fix', label: null, parent: null, id: 's4' }).title, '[budget] [x] fix')
 // the election (the device's windows share localStorage)
@@ -644,7 +659,7 @@ context.window.focus = () => (context.__focused = (context.__focused ?? 0) + 1)
 context.window.addEventListener = () => {}
 context.document = { addEventListener: () => {}, hasFocus: () => false }
 context._todoer.dispatch_task = (name, fn) => (context.__captured[name] = fn)
-context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }
+context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done'] } }
 const todo = (id, state, text = '#todo fix the cache\nmore') => ({ id, saved_id: 's' + id, name: '#t' + id, label: null, tags: ['#todo'], read: () => text, _global_store: state ? { _agent: { state } } : {} })
 context.__todos = {}
 context._item = ref => context.__todos[ref] ?? null
@@ -656,7 +671,7 @@ check('change: a baseline state notifies nothing', _notify_change(todo('a', { he
 check('change: a delegation (the delegated list) notifies nothing', _notify_change(todo('a', { held: 'agent', reason: 'delegated', epoch: 1 })), 'not in the main list')
 check('change: the hand-back notifies from the elected window', [_notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 2 })), notified.length, notified[0].title, notified[0].options.tag, notified[0].options.requireInteraction], ['notify', 1, '[question] fix the cache more', 'todoer:sa', true])
 check('change: the same state again (a render after the hook) is nothing', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 2 })), 'unchanged')
-check('change: a done hand-back is not enabled', _notify_change(todo('a', { held: 'owner', reason: 'done', epoch: 3 })), 'reason done')
+check('change: a taken hand-back is not enabled', _notify_change(todo('a', { held: 'owner', reason: 'taken', epoch: 3 })), 'reason taken')
 check('change: an agent-held project blocked (the main list) notifies', _notify_change(todo('a', { held: 'agent', reason: 'blocked', epoch: 3, project: true })), 'notify')
 check('change: the project\'s same reason again without a new count is nothing', _notify_change(todo('a', { held: 'agent', reason: 'blocked', epoch: 3, project: true, rev: 9 })), 'unchanged')
 check('change: a second check-in under the same epoch and reason (the count advanced) notifies again', _notify_change(todo('a', { held: 'agent', reason: 'blocked', epoch: 3, project: true, surfaced: 1 })), 'notify')
@@ -995,13 +1010,14 @@ delete context.__todos.p
     }
     check('/notify: the status', [await _on_command_notify(''), said.pop()], [null, 'notifications: off; this device: default'])
     check('/notify test: no permission yet', [await _on_command_notify('test'), said.pop()], [null, "notifications: this device's permission is default (/notify on asks for it)"])
-    check('/notify on: asks this device, saves the setting', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget; this device: granted'])
-    check('/notify on done: granted already, no second ask', [await _on_command_notify('on done'), asked, said.pop()], [null, 1, 'notifications: on for done; this device: granted'])
+    check('/notify on: asks this device, saves the default set', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget', 'done'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget, done; this device: granted'])
+    check('/notify on taken: adds to the set, granted already, no second ask', [await _on_command_notify('on taken'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, taken; this device: granted'])
+    check('/notify off done taken: removes them', [await _on_command_notify('off done taken'), context._todoer._global_store.notify, said.pop()], [null, { reasons: ['question', 'blocked', 'proposal', 'budget'] }, 'notifications: on for question, blocked, proposal, budget'])
     check('/notify test: shows one', [await _on_command_notify('test'), said.pop()], [null, 'shown: [question] a test of the desktop notifications'])
     check('/notify on soon: refused, the command kept', [await _on_command_notify('on soon'), said.pop().startsWith('/notify: unknown reason soon')], ['/notify on soon', true])
-    check('/notify off: clears the setting', [await _on_command_notify('off'), context._todoer._global_store.notify, saves.length, said.pop()], [null, undefined, 3, 'notifications: off'])
+    check('/notify off: clears the setting', [await _on_command_notify('off'), context._todoer._global_store.notify, saves.length, said.pop()], [null, undefined, 4, 'notifications: off'])
     context.Notification.permission = 'denied'
-    check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
+    check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
     check('/notify: nothing else was said', said, [])
   }
 

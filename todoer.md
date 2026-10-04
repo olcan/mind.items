@@ -3,7 +3,7 @@
 - Try using the `/todo [text]` command to quickly create new items.
 - Delegate a todo to the vault agent by dragging it to the widget's agent bin (or `/delegate`; `/delegate text` creates `#todo text` and delegates it, a `#todo` first word kept as written); it moves to the delegated list below the main one, and comes back when the agent hands it back (design: the vault's `notes/design/mind_task_agents.md`).
 - A pinned item created before the delegated list exists shows only the main widget: add `\<<todoer_widget({delegated: true})>>` below it (new pins carry both).
-- `/notify on` asks for desktop notifications when a task comes back to the main list waiting on you (`question`, `blocked`, `proposal`, `budget`; name others such as `done`, or `all`): one per device, from the window you used last, kept on screen until you click it (the click opens the item); `/notify off` turns them off everywhere, `/notify test` shows one, `/notify` shows the setting and this device's permission.
+- `/notify on` asks for desktop notifications when a task comes back to the main list waiting on you (`question`, `blocked`, `proposal`, `budget`, `done`): one per device, from the window you used last, kept on screen until you click it (the click opens the item); `/notify on taken` adds a reason (`interrupted`, `taken`, or `all`) and asks the permission too (the way to grant a second device without resetting a custom set, since `/notify on` alone resets it to the five), `/notify off done` removes one, `/notify off` turns them off everywhere, `/notify test` shows one, `/notify` shows the setting and this device's permission.
 #### Commands
 << command_table() >>
 #### Functions
