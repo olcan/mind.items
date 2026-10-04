@@ -255,12 +255,12 @@ function __render(widget, widget_item) {
       ) // try every 250ms until saved
     }
 
-    // the row (and its tooltip) shows the snippet without its hidden tags (#_…, hidden everywhere
-    // else in the app; a task's route tag is not part of what the owner wrote) and without the
-    // grammar view's inert-region tokens (⟦…⟧: the agent's answers and plans read as tokens)
-    const visible = s => s.replace(/(^|\s)#_[^#\s<>&?!,.;:"'`(){}\[\]]+/g, '$1').replace(/\u27e6[^\u27e7]*\u27e7/g, '')
-    container.title = (parent ? `child of ${parent}\n` : '') + visible(text) // original whitespace for title
-    const shown = visible(text).replace(/\s+/g, ' ')
+    // the row (and its tooltip) shows the snippet's visible text (_visible)
+    container.title = (parent ? `child of ${parent}\n` : '') + _visible(text) // original whitespace for title
+    const shown = _visible(text).replace(/\s+/g, ' ')
+    // a projection change this tab has not notified yet (the hook notifies first; a render
+    // catches a delivery the hook did not see, see _notify_change)
+    _notify_change(item, { state, list: task_list, parent })
 
     // the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url
     // passes (_row_html), then a task's marker linked to its worktree's review (design 2.4:
@@ -1092,10 +1092,15 @@ function _listed(pinned, id) {
   return Object.values(pinned.store._todoer?.items ?? {}).some(set => set.has(id))
 }
 
-// detect any changes to global stores on todo items
+// detect any changes to global stores on todo items: the desktop notification of a projection
+// change first (independent of any widget on the page; a project's bound children follow its
+// projection, so they are compared too), then the widgets' re-render
 function _on_global_store_change(id, remote) {
   const item = _item(id, { silent: true }) // can be null if item deleted
-  if (item?.tags.includes('#todo')) _on_item_change(id)
+  if (!item?.tags.includes('#todo')) return
+  _notify_change(item)
+  _notify_children(item)
+  _on_item_change(id)
 }
 
 // detect changes to search query, specifically for a todo's name (its unique label or its id
@@ -1132,6 +1137,7 @@ function _on_welcome() {
     0,
     60 * 1000
   ) // run now and every minute
+  _start_notifier()
 }
 
 
@@ -1526,4 +1532,305 @@ async function _on_command_takeback(args, name) {
   const item = _command_target(name, '/takeback')
   if (!item || !(await _takeback(item))) return `/takeback ${args}`
   return null
+}
+
+
+// ---- desktop notifications (the vault's notes/design/mind_task_agents.md 2.7, 2026-10-03) ----
+
+// the snippet's VISIBLE text: without its hidden tags (#_…, hidden everywhere else in the app; a
+// task's route tag is not part of what the owner wrote) and without the grammar view's
+// inert-region tokens (⟦…⟧: the agent's answers and plans read as tokens)
+function _visible(text) {
+  return text.replace(/(^|\s)#_[^#\s<>&?!,.;:"'`(){}\[\]]+/g, '$1').replace(/⟦[^⟧]*⟧/g, '')
+}
+
+// the hand-back reasons that wait on the owner (the default set; their notification stays on
+// screen until dismissed), then the other reasons an owner may name (`all` names every one)
+const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget']
+const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'done', 'interrupted', 'taken']
+const NOTIFIER_KEY = 'mindpage_todoer_notifier' // localStorage: the device's elected window
+const NOTIFIER_STALE_MS = 5 * 60 * 1000 // an election not refreshed for this long is vacant
+const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its gesture stamps' spacing
+
+// => /notify [on [reason...]|off|test]
+// desktop notifications for tasks that come back to the main list: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`; name others such as `done`, or `all`) and asks this device's permission; `off` disables them on every device; `test` shows one; no word shows the setting and this device's permission
+async function _on_command_notify(args) {
+  const parsed = _parse_notify(args)
+  if (parsed.error) {
+    alert(`/notify: ${parsed.error}`)
+    return `/notify ${args}`
+  }
+  const store = _todoer._global_store
+  if (parsed.status) {
+    alert(`notifications: ${_notify_text(store.notify)}; this device: ${_notify_permission()}`)
+    return null
+  }
+  if (parsed.test) {
+    if (_notify_permission() != 'granted') alert(`notifications: this device's permission is ${_notify_permission()} (/notify on asks for it)`)
+    else if (!_notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test' }, () => window.focus())) alert('notification refused by the browser')
+    return null
+  }
+  // this device's permission is asked from the command's own gesture (the browser prompts only
+  // then), the setting saved meanwhile: it is the account's, the permission each device's own
+  const asked = parsed.on && _notify_permission() == 'default' ? Notification.requestPermission() : null
+  if (parsed.off) delete store.notify
+  else store.notify = { reasons: parsed.reasons }
+  _todoer.save_global_store({ invalidate_elem_cache: false })
+  if (parsed.off) {
+    alert('notifications: off')
+    return null
+  }
+  const permission = asked ? await asked : _notify_permission()
+  alert(`notifications: ${_notify_text(store.notify)}; this device: ${permission}` + (permission == 'denied' ? ' (allow notifications for this site in the browser, then /notify on again)' : ''))
+  return null
+}
+
+// the words of /notify: nothing (the status), `on [reason...]` (the attention set when none is
+// named; `all` every reason), `off`, `test`: {status} | {on, reasons} | {off} | {test} | {error}
+function _parse_notify(args) {
+  const [word, ...rest] = String(args ?? '').trim().split(/\s+/).filter(w => w)
+  if (!word) return { status: true }
+  if (word == 'off' || word == 'test') return rest.length ? { error: `${word} takes no words` } : { [word]: true }
+  if (word != 'on') return { error: `unknown word ${word} (usage: /notify [on [reason...]|off|test])` }
+  const unknown = rest.filter(r => r != 'all' && !NOTIFY_REASONS.includes(r))
+  if (unknown.length) return { error: `unknown reason ${unknown.join(', ')} (one of ${NOTIFY_REASONS.join(', ')}, or all)` }
+  const reasons = rest.includes('all') ? NOTIFY_REASONS : rest.length ? [...new Set(rest)] : NOTIFY_ATTENTION
+  return { on: true, reasons }
+}
+
+const _notify_text = setting => (setting?.reasons?.length ? `on for ${setting.reasons.join(', ')}` : 'off')
+// this device's notification permission: granted, denied, default, or unsupported (no API)
+const _notify_permission = () => (typeof Notification == 'undefined' ? 'unsupported' : Notification.permission)
+
+// the projection facts a notification keys on: possession, reason and epoch, which a hand-back
+// changes (the epoch advances) and a stats refresh or the widget's own save never does; ''
+// without a projection. A bridge repair restores the authoritative fields: against a current
+// projection it changes nothing, but where an older store delivery had rolled this tab's view
+// back it restores a key already notified, which alerts again (duplicate suppression is a
+// backfill). A project's check-in that repeats its current reason under the same epoch (a
+// second question before the first is answered) changes none of them and is not told apart
+// (the projection carries no event discriminator: `rev` and `updated` advance on routine
+// changes too), a known limit
+function _state_key(state) {
+  return state ? `${state.held ?? ''}:${state.reason ?? ''}:${state.epoch ?? ''}` : ''
+}
+
+// one decision for a todo whose projection this tab compares (the setting's reasons, the seen
+// record against the current one, the row's list, the reason, this device's permission):
+// 'notify', or the cause of the skip
+function _notify_step({ setting, prev, key, list, reason, permission }) {
+  if (!setting?.reasons?.length) return 'off'
+  if (prev === key) return 'unchanged'
+  if (list != 'main') return 'not in the main list'
+  if (!setting.reasons.includes(reason)) return `reason ${reason ?? 'none'}`
+  if (permission != 'granted') return `permission ${permission}`
+  return 'notify'
+}
+
+// the list a todo belongs to (_task_list over its projection, this tab's pending command and its
+// parent's projection)
+function _list_of(item, state) {
+  const parent_item = state?.parent ? _item(state.parent, { silent: true }) : null
+  return _task_list(state, _pending_commands()[item.id], parent_item ? _task_state(parent_item) : null)
+}
+
+// what this tab records of a todo: its state key AND its list, so a row ENTERING the main list
+// with an unchanged state (a bound child's proposal once its project's standing /land is gone;
+// a child released by its project) is a change too
+const _seen_record = (state, list) => `${_state_key(state)}|${list}`
+
+// a todo's projection compared with what this tab last saw of it (the baseline at welcome, then
+// every change observed): a change into a state the owner must act on, in the main list, notifies
+// from the device's elected window (one notification per device: the window the owner used last,
+// see _notifier_step) under a granted permission. Called from the store hook (prompt, before any
+// render), from each row's render and from the notifier's minute scan (_scan_notify: a delivery
+// the hook did not announce, see there), idempotent through the seen records; returns the step
+function _notify_change(item, { state = _task_state(item), list = null, parent = null } = {}) {
+  const seen = _todoer.store.notify_seen
+  if (!seen) return 'baseline' // before the welcome: the baseline records what stands then
+  list ??= _list_of(item, state)
+  const key = _seen_record(state, list)
+  const prev = seen[item.id]
+  seen[item.id] = key
+  const step = _notify_step({ setting: _todoer._global_store.notify, prev, key, list, reason: state?.reason, permission: _notify_permission() })
+  if (step != 'notify') return step
+  if (!_notifier_elected()) return 'another window'
+  if (parent == null && state?.parent) parent = _parent_of(state.parent)
+  const shown = _visible(_extract_todo_snippet(item) ?? '').replace(/\s+/g, ' ')
+  const facts = { reason: state.reason, shown, label: item.label, parent, id: item.saved_id ?? item.id }
+  return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+}
+
+// a project's bound children compared after its own projection changed: their list follows it
+// (a standing /land gone puts a child's proposal in the main list; the project design 2.9)
+function _notify_children(item) {
+  if (!_task_state(item)?.project) return 0
+  let compared = 0
+  each(_items(), child => {
+    if (child.id == item.id || !child.tags.includes('#todo')) return
+    const parent = _task_state(child)?.parent
+    if (!parent || _item(parent, { silent: true })?.id != item.id) return
+    _notify_change(child)
+    compared++
+  })
+  return compared
+}
+
+// every todo compared (the notifier's minute scan): the app announces no store hook for a
+// delivery that arrives while this tab owes a save for that store (the foreign `_agent` key is
+// overlaid and the task item alone re-rendered), nor for its settlement, so such a hand-back
+// is noticed by this scan instead, up to a minute later (longer in a hidden window, whose timers
+// the browser throttles)
+function _scan_notify() {
+  let compared = 0
+  each(_items(), item => {
+    if (!item.tags.includes('#todo')) return
+    _notify_change(item)
+    compared++
+  })
+  return compared
+}
+
+// the facts of a task's notification: the title is the reason, then the row's text without the
+// tag and the marker (shortened); the body names a labelled item and a child's parent; one
+// notification per item (the tag: a newer one replaces the older and alerts again), the
+// attention reasons kept on screen until dismissed
+function _notification_of({ reason, shown, label, parent, id }) {
+  const text = shown.replace(/(^|\s)#todo(?=\s|$)/g, '$1').replace(/(^|\s)\[[a-z]+\](?=\s|$)/, '$1').replace(/\s+/g, ' ').trim()
+  const title = `[${reason}] ${text.length > 80 ? text.slice(0, 79).trimEnd() + '…' : text}`
+  const body = [label, parent ? `child of ${parent}` : null].filter(s => s).join('\n')
+  return { title, options: { body, tag: `todoer:${id}`, renotify: true, requireInteraction: NOTIFY_ATTENTION.includes(reason), icon: '/favicon.ico' } }
+}
+
+// the notification itself; `onclick` runs on its click (the notification closed first); false
+// when the browser refuses the constructor
+function _notify_show(facts, onclick) {
+  const { title, options } = _notification_of(facts)
+  let notification
+  try {
+    notification = new Notification(title, options)
+  } catch (e) {
+    console.warn(`todoer: notification refused: ${e?.message ?? e}`)
+    return false
+  }
+  notification.onclick = () => {
+    notification.close()
+    onclick()
+  }
+  return true
+}
+
+// a notification's click: this window forward (the browser grants the click's activation to the
+// window that showed it), then the item targeted as its row's click does: its name (the unique
+// label, else the id reference) with the todo line selected; false for an item deleted meanwhile
+function _notify_click(id) {
+  window.focus()
+  const item = _item(id, { silent: true })
+  if (!item) return false
+  const text = _extract_todo_snippet(item)
+  MindBox.set(item.name, text ? { scroll: true, select: _todo_line(text) } : { scroll: true })
+  return true
+}
+
+// this window's id in the device's election (session-lived)
+const _notifier_id = () => (_todoer.store.notifier_id ??= _command_id())
+
+// the election record a window stored ({id, time}), or null for none or an unreadable one
+function _notifier_parse(stored) {
+  try {
+    const record = stored ? JSON.parse(stored) : null
+    return record?.id && typeof record.time == 'number' ? record : null
+  } catch (e) {
+    return null
+  }
+}
+
+// the device's election, shared by its windows through localStorage (one browser profile): 'me'
+// when this window holds a fresh record, 'other' when another window does, 'vacant' when none
+// does or the record is older than NOTIFIER_STALE_MS (a closed or discarded window, or one
+// asleep: the elected window refreshes its record every NOTIFIER_REFRESH_MS and releases it when
+// its page hides for good, see _start_notifier; after a sleep the first window with something to
+// notify takes a vacant election, the owner's next focus or gesture restoring the last-used rule).
+// A read and a claim are two storage operations: two windows claiming at once are best effort
+function _notifier_step({ record, me, now, stale = NOTIFIER_STALE_MS }) {
+  if (!record || !(now - record.time < stale)) return 'vacant'
+  return record.id == me ? 'me' : 'other'
+}
+
+// the stored election record's text, null without storage
+function _notifier_stored() {
+  try {
+    return localStorage.getItem(NOTIFIER_KEY)
+  } catch (e) {
+    return null
+  }
+}
+
+// claim the election for this window (a focus or a gesture: the last-used window), an own record
+// refreshed once per NOTIFIER_REFRESH_MS (a stamp per keystroke would be noise); `refresh`
+// renews an own record alone (the heartbeat; a stale own record too: a window back from sleep
+// keeps its election unless another window claimed the vacancy first) and claims nothing. false
+// without storage
+function _claim_notifier(refresh = false) {
+  const record = _notifier_parse(_notifier_stored())
+  const now = Date.now()
+  const step = _notifier_step({ record, me: _notifier_id(), now })
+  if (refresh && record?.id != _notifier_id()) return false
+  if (step == 'me' && now - record.time < NOTIFIER_REFRESH_MS) return true
+  try {
+    localStorage.setItem(NOTIFIER_KEY, JSON.stringify({ id: _notifier_id(), time: now }))
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+// whether this window notifies: the elected one; a vacant election is claimed by the window that
+// asks first; without storage every window notifies (the notification's tag collapses them)
+function _notifier_elected() {
+  const step = _notifier_step({ record: _notifier_parse(_notifier_stored()), me: _notifier_id(), now: Date.now() })
+  if (step == 'other') return false
+  if (step == 'vacant') _claim_notifier()
+  return true
+}
+
+// this window's page hiding for good (a close, a navigation away): its election released
+function _release_notifier() {
+  if (_notifier_step({ record: _notifier_parse(_notifier_stored()), me: _notifier_id(), now: Date.now() }) != 'me') return false
+  try {
+    localStorage.removeItem(NOTIFIER_KEY)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+// the notifier at welcome: the baseline of every todo's projection and list (what stands then
+// never notifies: a reload replays no hand-back the owner saw), the election's listeners once per
+// page (an update of this item re-evaluates the script; the first evaluation's listeners keep
+// working on the same store) and the minute task: the elected window's heartbeat and the scan
+function _start_notifier() {
+  const seen = (_todoer.store.notify_seen = {})
+  each(_items(), item => {
+    if (!item.tags.includes('#todo')) return
+    const state = _task_state(item)
+    seen[item.id] = _seen_record(state, _list_of(item, state))
+  })
+  if (!window._todoer_notifier) {
+    window._todoer_notifier = true
+    window.addEventListener('focus', () => void _claim_notifier())
+    document.addEventListener('pointerdown', () => void _claim_notifier(), { capture: true, passive: true })
+    document.addEventListener('keydown', () => void _claim_notifier(), true)
+    window.addEventListener('pagehide', () => void _release_notifier())
+    if (document.hasFocus()) _claim_notifier()
+  }
+  _todoer.dispatch_task(
+    'notifier',
+    () => {
+      _claim_notifier(true)
+      _scan_notify()
+    },
+    NOTIFIER_REFRESH_MS,
+    NOTIFIER_REFRESH_MS
+  )
 }

@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -40,6 +40,7 @@ const context = {
   },
   error: () => {},
   warn: () => {},
+  debug: () => {},
   fatal: msg => { throw new Error(msg) },
   _todoer: { store: {} },
   // the sweep callback's world (the callback tests below): a fake clock, the stubs it reads
@@ -65,7 +66,7 @@ const context = {
   },
 }
 vm.createContext(context)
-vm.runInContext(
+const picked =
   pick([
     '_task_state',
     '_task_list',
@@ -112,12 +113,32 @@ vm.runInContext(
     '_delegate_text',
     '_delegate_created',
     '_wait_for_save',
+    '_visible',
+    '_on_command_notify',
+    '_parse_notify',
+    '_state_key',
+    '_notify_step',
+    '_notify_change',
+    '_notification_of',
+    '_notify_show',
+    '_notify_click',
+    '_notifier_parse',
+    '_notifier_step',
+    '_notifier_stored',
+    '_claim_notifier',
+    '_notifier_elected',
+    '_release_notifier',
+    '_start_notifier',
+    '_parent_of',
+    '_list_of',
+    '_notify_children',
+    '_scan_notify',
+    '_on_global_store_change',
   ]).join('\n') +
-    consts +
-    src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0],
-  context
-)
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls } = context
+  consts +
+  src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
+vm.runInContext(picked, context)
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _state_key, _notify_step, _notify_change, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -534,6 +555,248 @@ check('hook: an app without the ancestors view: the label prefixes alone, as bef
 reset()
 check('hook: any other parent is left to the app', [customize(define('notes', '#notes', '#notes plain', []), '#notes/0 '), customize(null, '#x/0 '), customize(define('work2', '#work2', '#work2 #todo', []), null)], [null, null, null])
 
+// ---- desktop notifications (the vault's design notes/design/mind_task_agents.md 2.7, 2026-10-03) ----
+const NOTIFY_REASONS = vm.runInContext('NOTIFY_REASONS', context)
+const NOTIFIER_KEY = vm.runInContext('NOTIFIER_KEY', context)
+const NOTIFIER_STALE_MS = vm.runInContext('NOTIFIER_STALE_MS', context)
+const NOTIFIER_REFRESH_MS = vm.runInContext('NOTIFIER_REFRESH_MS', context)
+// the words of /notify
+check('notify words: none is the status', _parse_notify(''), { status: true })
+check('notify words: on alone is the attention set', _parse_notify('on'), { on: true, reasons: ['question', 'blocked', 'proposal', 'budget'] })
+check('notify words: on with reasons, deduplicated', _parse_notify('on done question question'), { on: true, reasons: ['done', 'question'] })
+check('notify words: on all', _parse_notify('on all done').reasons, NOTIFY_REASONS)
+check('notify words: an unknown reason', _parse_notify('on soon').error.startsWith('unknown reason soon ('), true)
+check('notify words: an unknown word beside all is refused too', _parse_notify('on all typo').error.startsWith('unknown reason typo ('), true)
+check('notify words: off and test', [_parse_notify('off'), _parse_notify(' test ')], [{ off: true }, { test: true }])
+check('notify words: off takes no words', _parse_notify('off now').error, 'off takes no words')
+check('notify words: an unknown word', _parse_notify('maybe').error.startsWith('unknown word maybe ('), true)
+// the key: possession, reason and epoch; a stats refresh, a repair or the widget's save changes none
+check('key: no projection', _state_key(null), '')
+check('key: the facts', _state_key({ held: 'owner', reason: 'question', epoch: 3, rev: 9, updated: 1 }), 'owner:question:3')
+check('key: a stats refresh keeps it', _state_key({ held: 'agent', reason: 'delegated', epoch: 1, rev: 2, stats: { cost: 1 } }), _state_key({ held: 'agent', reason: 'delegated', epoch: 1, rev: 3, stats: { cost: 2 } }))
+// the step
+const notify_setting = { reasons: ['question', 'blocked'] }
+const notify_step = over => _notify_step({ setting: notify_setting, prev: 'agent:delegated:0', key: 'owner:question:1', list: 'main', reason: 'question', permission: 'granted', ...over })
+check('step: a change into an enabled reason in the main list notifies', notify_step({}), 'notify')
+check('step: off without a setting or without reasons', [notify_step({ setting: null }), notify_step({ setting: { reasons: [] } })], ['off', 'off'])
+check('step: an unchanged key', notify_step({ prev: 'owner:question:1' }), 'unchanged')
+check('step: a first sight is a change', notify_step({ prev: undefined }), 'notify')
+check('step: the delegated list', notify_step({ list: 'delegated' }), 'not in the main list')
+check('step: a reason not enabled, no reason', [notify_step({ reason: 'done' }), notify_step({ reason: undefined, key: '' })], ['reason done', 'reason none'])
+check('step: the permission last (the cause the owner can act on)', [notify_step({ permission: 'default' }), notify_step({ permission: 'denied', list: 'delegated' })], ['permission default', 'not in the main list'])
+// the notification's facts: the reason first, the row's text without the tag and the marker
+check('facts: a suffix snippet, a labelled item', _notification_of({ reason: 'question', shown: '#todo [question] fix the cache reverts on a returning device', label: '#e2e_task', parent: null, id: 's1' }), { title: '[question] fix the cache reverts on a returning device', options: { body: '#e2e_task', tag: 'todoer:s1', renotify: true, requireInteraction: true, icon: '/favicon.ico' } })
+check('facts: a prefix snippet, no label, a child', _notification_of({ reason: 'done', shown: 'fix the cache [done] #todo', label: null, parent: '#todo the project', id: 's2' }), { title: '[done] fix the cache', options: { body: 'child of #todo the project', tag: 'todoer:s2', renotify: true, requireInteraction: false, icon: '/favicon.ico' } })
+check('facts: a long text is shortened', _notification_of({ reason: 'blocked', shown: '#todo ' + 'x'.repeat(100), label: null, parent: null, id: 's3' }).title, '[blocked] ' + 'x'.repeat(79) + '…')
+check('facts: the owner\'s own bracketed word elsewhere stays', _notification_of({ reason: 'budget', shown: '#todo [budget] [x] fix', label: null, parent: null, id: 's4' }).title, '[budget] [x] fix')
+// the election (the device's windows share localStorage)
+const me = 'tab-me'
+check('election: no record is vacant', _notifier_step({ record: null, me, now: 1000 }), 'vacant')
+check('election: an unreadable record is none', [_notifier_parse('{'), _notifier_parse('{"id":"x"}'), _notifier_parse(null), _notifier_parse('{"id":"x","time":5}')], [null, null, null, { id: 'x', time: 5 }])
+check('election: an own fresh record', _notifier_step({ record: { id: me, time: 1000 }, me, now: 1000 + 60_000 }), 'me')
+check('election: another window\'s fresh record', _notifier_step({ record: { id: 'tab-other', time: 1000 }, me, now: 1000 + 60_000 }), 'other')
+check('election: a stale record is vacant (a closed or discarded window)', _notifier_step({ record: { id: 'tab-other', time: 1000 }, me, now: 1000 + NOTIFIER_STALE_MS }), 'vacant')
+check('election: a stale own record too', _notifier_step({ record: { id: me, time: 1000 }, me, now: 1000 + NOTIFIER_STALE_MS + 1 }), 'vacant')
+// the claims over a fake storage, the clock frozen
+const storage = new Map()
+context.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) }
+context._command_id = () => 'tab-me' // this window's id (cached by _notifier_id)
+context.__now = 10_000
+check('claim: a vacant election is claimed', [_claim_notifier(), JSON.parse(storage.get(NOTIFIER_KEY))], [true, { id: 'tab-me', time: 10_000 }])
+context.__now = 10_000 + 30_000
+check('claim: an own fresh record is left alone (no stamp per keystroke)', [_claim_notifier(), JSON.parse(storage.get(NOTIFIER_KEY)).time], [true, 10_000])
+context.__now = 10_000 + NOTIFIER_REFRESH_MS
+check('claim: an own record past the spacing is refreshed', [_claim_notifier(), JSON.parse(storage.get(NOTIFIER_KEY)).time], [true, 10_000 + NOTIFIER_REFRESH_MS])
+storage.set(NOTIFIER_KEY, JSON.stringify({ id: 'tab-other', time: context.__now }))
+check('elected: another window holds it', _notifier_elected(), false)
+check('claim: a gesture takes it over', [_claim_notifier(), JSON.parse(storage.get(NOTIFIER_KEY)).id], [true, 'tab-me'])
+check('elected: the holder', _notifier_elected(), true)
+storage.set(NOTIFIER_KEY, JSON.stringify({ id: 'tab-other', time: context.__now - NOTIFIER_STALE_MS }))
+check('heartbeat: refreshes an own record only', [_claim_notifier(true), JSON.parse(storage.get(NOTIFIER_KEY)).id], [false, 'tab-other'])
+check('elected: a stale record is taken over', [_notifier_elected(), JSON.parse(storage.get(NOTIFIER_KEY)).id], [true, 'tab-me'])
+check('release: the own record is removed', [_release_notifier(), storage.has(NOTIFIER_KEY)], [true, false])
+check('release: nothing to release', _release_notifier(), false)
+storage.set(NOTIFIER_KEY, JSON.stringify({ id: 'tab-other', time: context.__now }))
+check('release: another window\'s record stays', [_release_notifier(), storage.has(NOTIFIER_KEY)], [false, true])
+storage.clear()
+context.localStorage = { getItem: () => { throw new Error('no storage') }, setItem: () => { throw new Error('no storage') }, removeItem: () => { throw new Error('no storage') } }
+check('without storage: every window notifies, claims and releases nothing', [_notifier_elected(), _claim_notifier(), _release_notifier()], [true, false, false])
+context.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) }
+// THE CHANGE DETECTION with the world stubbed: a fake Notification records what is shown, the
+// click's effects are captured (the welcome's baseline, the hook's and the render's calls)
+const notified = []
+class FakeNotification {
+  static permission = 'granted'
+  constructor(title, options) {
+    this.title = title
+    this.options = options
+    notified.push(this)
+  }
+  close() {
+    this.closed = true
+  }
+}
+context.Notification = FakeNotification
+context.MindBox = { set: (...args) => (context.__mindbox = args) }
+context.window.focus = () => (context.__focused = (context.__focused ?? 0) + 1)
+context.window.addEventListener = () => {}
+context.document = { addEventListener: () => {}, hasFocus: () => false }
+context._todoer.dispatch_task = (name, fn) => (context.__captured[name] = fn)
+context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }
+const todo = (id, state, text = '#todo fix the cache\nmore') => ({ id, saved_id: 's' + id, name: '#t' + id, label: null, tags: ['#todo'], read: () => text, _global_store: state ? { _agent: { state } } : {} })
+context.__todos = {}
+context._item = ref => context.__todos[ref] ?? null
+check('change: before the welcome nothing notifies (the baseline is pending)', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 1 })), 'baseline')
+context.__items = [todo('a', { held: 'owner', reason: 'question', epoch: 1 }), todo('b', null)]
+_start_notifier()
+check('welcome: the baseline records every todo\'s key and list, the minute task is dispatched', [context._todoer.store.notify_seen, typeof context.__captured.notifier], [{ a: 'owner:question:1|main', b: '|main' }, 'function'])
+check('change: a baseline state notifies nothing', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 1 })), 'unchanged')
+check('change: a delegation (the delegated list) notifies nothing', _notify_change(todo('a', { held: 'agent', reason: 'delegated', epoch: 1 })), 'not in the main list')
+check('change: the hand-back notifies from the elected window', [_notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 2 })), notified.length, notified[0].title, notified[0].options.tag, notified[0].options.requireInteraction], ['notify', 1, '[question] fix the cache more', 'todoer:sa', true])
+check('change: the same state again (a render after the hook) is nothing', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 2 })), 'unchanged')
+check('change: a done hand-back is not enabled', _notify_change(todo('a', { held: 'owner', reason: 'done', epoch: 3 })), 'reason done')
+check('change: an agent-held project blocked (the main list) notifies', _notify_change(todo('a', { held: 'agent', reason: 'blocked', epoch: 3, project: true })), 'notify')
+check('change: a todo without a projection', _notify_change(todo('c', null)), 'reason none')
+check('change: the render\'s facts (the list and the parent given)', _notify_change(todo('a', { held: 'owner', reason: 'proposal', epoch: 4 }), { state: { held: 'owner', reason: 'proposal', epoch: 4 }, list: 'main', parent: null }), 'notify')
+context.__todos.p = todo('p', { held: 'agent', reason: 'delegated', epoch: 0, project: true }, '#todo the project')
+check('change: a bound child proposing with no standing /land names its parent', [_notify_change(todo('d', { held: 'owner', reason: 'proposal', epoch: 1, parent: 'p' })), notified[notified.length - 1].options.body], ['notify', 'child of #todo the project'])
+check('change: a bound child under a standing /land stays delegated', (context.__todos.p._global_store._agent.state.standing_land = true, _notify_change(todo('d', { held: 'owner', reason: 'proposal', epoch: 2, parent: 'p' }))), 'not in the main list')
+storage.set(NOTIFIER_KEY, JSON.stringify({ id: 'tab-other', time: context.__now }))
+check('change: another window is elected', _notify_change(todo('a', { held: 'owner', reason: 'blocked', epoch: 5 })), 'another window')
+storage.clear()
+FakeNotification.permission = 'default'
+check('change: no permission on this device', _notify_change(todo('a', { held: 'owner', reason: 'blocked', epoch: 6 })), 'permission default')
+FakeNotification.permission = 'granted'
+context._todoer._global_store = {}
+check('change: the setting off', _notify_change(todo('a', { held: 'owner', reason: 'blocked', epoch: 7 })), 'off')
+context._todoer._global_store = { notify: { reasons: ['question'] } }
+context.Notification = class { static permission = 'granted'; constructor() { throw new Error('no') } }
+const warn = console.warn
+console.warn = () => {}
+check('change: a constructor the browser refuses', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 8 })), 'refused')
+console.warn = warn
+context.Notification = FakeNotification
+// the click: the notification closed, this window forward, the item targeted by name with its
+// todo line selected (as its row's click does); a deleted item: the window alone
+context.__todos.a = todo('a', { held: 'owner', reason: 'question', epoch: 9 })
+check('change: a question again under a new epoch', _notify_change(context.__todos.a), 'notify')
+notified[notified.length - 1].onclick()
+check('click: closed, the window focused, the item targeted', [notified[notified.length - 1].closed, context.__focused, context.__mindbox], [true, 1, ['#ta', { scroll: true, select: '#todo fix the cache' }]])
+context.__mindbox = null
+delete context.__todos.a
+notified[notified.length - 1].onclick()
+check('click: a deleted item focuses the window alone', [context.__focused, context.__mindbox], [2, null])
+// ENTERING THE MAIN LIST with an unchanged state (review 0, B2): a bound child's proposal under
+// its project's standing /land is delegated; the project's grant gone (the owner removed /land
+// and delegated it again), the child belongs to the main list with the same key, and the
+// project's store change compares its children (the hook's second pass)
+context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }
+context.__todos.p = todo('p', { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: true }, '#todo the project')
+context.__todos.e = todo('e', { held: 'owner', reason: 'proposal', epoch: 1, parent: 'p' })
+context.__items = [context.__todos.p, context.__todos.e]
+const notified_before = notified.length
+check('entering main: the child under a standing /land is delegated (recorded)', _notify_change(context.__todos.e), 'not in the main list')
+check('entering main: the child compared again, unchanged', _notify_change(context.__todos.e), 'unchanged')
+context.__todos.p._global_store._agent.state = { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: false }
+check('entering main: the project\'s change compares its children, the child\'s proposal notifies', [_notify_children(context.__todos.p), notified.length - notified_before, notified[notified.length - 1].title], [1, 1, '[proposal] fix the cache more'])
+check('entering main: compared once more, unchanged', _notify_children(context.__todos.p), 1) // compared, nothing shown
+check('entering main: no more notifications from the repeat', notified.length - notified_before, 1)
+check('children: a plain task compares no children', _notify_children(context.__todos.e), 0)
+// a child RELEASED by its project (the owner removed /project): its parent cleared, possession,
+// reason and epoch kept; an owner-held question moves from the delegated list to the main one
+context.__todos.p._global_store._agent.state = { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: true }
+context.__todos.f = todo('f', { held: 'owner', reason: 'question', epoch: 1, parent: 'p' })
+check('released: the child\'s question under its project is delegated', _notify_change(context.__todos.f), 'not in the main list')
+context.__todos.f._global_store._agent.state = { held: 'owner', reason: 'question', epoch: 1 }
+check('released: the same state without the parent notifies', [_notify_change(context.__todos.f), notified.length - notified_before, notified[notified.length - 1].title], ['notify', 2, '[question] fix the cache more'])
+// THE HOOK (the production call site): a todo's store change compares it and its children, then
+// re-renders; another item's store change does nothing
+const rerenders = []
+context._on_item_change = id => rerenders.push(id)
+context.__todos.g = todo('g', { held: 'owner', reason: 'blocked', epoch: 1 })
+context.__todos.n = { id: 'n', tags: ['#note'] }
+check('hook: a todo\'s store change notifies then re-renders', [_on_global_store_change('g', true), notified.length - notified_before, notified[notified.length - 1].title, rerenders], [undefined, 3, '[blocked] fix the cache more', ['g']])
+check('hook: another item\'s store change does nothing', [_on_global_store_change('n', true), _on_global_store_change('missing', true), rerenders, notified.length - notified_before], [undefined, undefined, ['g'], 3])
+// the hook's second pass: a project's store change (its standing /land gone) notifies the bound
+// child whose proposal thereby enters the main list (B2's first route through the production hook)
+context.__todos.q = todo('q', { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: true }, '#todo another project')
+context.__todos.r = todo('r', { held: 'owner', reason: 'proposal', epoch: 1, parent: 'q' })
+context.__items = [context.__todos.q, context.__todos.r]
+check('hook: the child under a standing /land is recorded as delegated', _notify_change(context.__todos.r), 'not in the main list')
+context.__todos.q._global_store._agent.state = { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: false }
+check('hook: the project\'s store change notifies its child entering the main list', [_on_global_store_change('q', true), notified.length - notified_before, notified[notified.length - 1].options.body, rerenders], [undefined, 4, 'child of #todo another project', ['g', 'q']])
+// THE SCAN (review 0, B1): a delivery the app announced to no hook (this tab owed a save for that
+// store) is noticed by the minute task, which also keeps the election; nothing seen changes twice
+context.__todos.g._global_store._agent.state = { held: 'owner', reason: 'question', epoch: 2 }
+context.__items = [context.__todos.g, context.__todos.e]
+context.__captured.notifier()
+check('scan: the minute task notices the state the hook never saw', [notified.length - notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.tag], [5, '[question] fix the cache more', 'todoer:sg'])
+check('scan: the heartbeat kept the election', JSON.parse(storage.get(NOTIFIER_KEY)).id, 'tab-me')
+context.__captured.notifier()
+check('scan: a second tick shows nothing more', notified.length - notified_before, 5)
+check('scan: compares every todo', _scan_notify(), 2)
+// the render's call site cannot run here (__render needs the DOM): pinned by the source
+check('render: each row compares its projection (the call site the table cannot run)', /\n    _notify_change\(item, \{ state, list: task_list, parent \}\)\n/.test(src), true)
+// TWO WINDOWS of one device (a second evaluation of the source sharing the storage and the frozen
+// clock): the listeners _start_notifier installs, exercised: a focus takes the election over, the
+// heartbeat renews an own record only, a pagehide releases, a sleep lets the first observer take
+// a vacant election (review 0 backfill) while an undisturbed sleeper renews its own
+const window_of = (tab, items) => {
+  const listeners = {}
+  const shown = []
+  const ctx = {
+    console, debug: () => {}, warn: () => {}, error: () => {}, fatal: msg => { throw new Error(msg) },
+    _replace_tags: context._replace_tags, each: (xs, f) => xs.forEach(f), values: o => Object.values(o ?? {}), merge: (a, b) => Object.assign(a, b),
+    Date: ClockDate, localStorage: context.localStorage, _command_id: () => tab,
+    _todoer: { store: {}, _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }, dispatch_task: (name, fn) => (listeners[name] = fn) },
+    _items: () => items, _item: ref => items.find(i => i.id == ref) ?? null,
+    Notification: class { static permission = 'granted'; constructor(title, options) { shown.push({ title, tag: options.tag }) } },
+    MindBox: { set: () => {} },
+    window: { focus: () => {}, addEventListener: (type, fn) => (listeners[type] = fn) },
+    document: { addEventListener: (type, fn) => (listeners[type] = fn), hasFocus: () => false },
+  }
+  vm.createContext(ctx)
+  vm.runInContext(picked, ctx)
+  return { ctx, listeners, shown, change: item => vm.runInContext('_notify_change', ctx)(item), start: () => vm.runInContext('_start_notifier', ctx)() }
+}
+storage.clear()
+const shared = [todo('w', { held: 'agent', reason: 'delegated', epoch: 1 })]
+const A = window_of('tab-a', shared)
+const B = window_of('tab-b', shared)
+A.start()
+B.start()
+check('two windows: the listeners installed once each (focus, pointerdown, keydown, pagehide, the minute task)', [Object.keys(A.listeners).sort(), Object.keys(B.listeners).sort()], [['focus', 'keydown', 'notifier', 'pagehide', 'pointerdown'], ['focus', 'keydown', 'notifier', 'pagehide', 'pointerdown']])
+context.__now = 100_000
+A.listeners.focus()
+check('two windows: the focused window claims', JSON.parse(storage.get(NOTIFIER_KEY)).id, 'tab-a')
+context.__now += 1000
+B.listeners.pointerdown()
+check('two windows: a gesture in the other takes it over (the last-used window)', JSON.parse(storage.get(NOTIFIER_KEY)).id, 'tab-b')
+shared[0]._global_store._agent.state = { held: 'owner', reason: 'question', epoch: 2 }
+check('two windows: the delivery notifies in the last-used window only', [A.change(shared[0]), B.change(shared[0]), A.shown.length, B.shown.length], ['another window', 'notify', 0, 1])
+context.__now += NOTIFIER_REFRESH_MS
+A.listeners.notifier()
+check('two windows: the other window\'s heartbeat renews nothing', JSON.parse(storage.get(NOTIFIER_KEY)), { id: 'tab-b', time: 101_000 })
+B.listeners.notifier()
+check('two windows: the elected window\'s heartbeat renews its record', JSON.parse(storage.get(NOTIFIER_KEY)), { id: 'tab-b', time: 101_000 + NOTIFIER_REFRESH_MS })
+B.listeners.pagehide()
+check('two windows: the elected window closing releases the election', storage.has(NOTIFIER_KEY), false)
+shared[0]._global_store._agent.state = { held: 'owner', reason: 'blocked', epoch: 3 }
+check('two windows: the next delivery is taken by the window left', [A.change(shared[0]), A.shown.length, JSON.parse(storage.get(NOTIFIER_KEY)).id], ['notify', 1, 'tab-a'])
+context.__now += NOTIFIER_STALE_MS + 1000 // the device slept past the stale bound
+A.listeners.notifier()
+check('sleep: an undisturbed sleeper\'s heartbeat renews its own stale record', JSON.parse(storage.get(NOTIFIER_KEY)), { id: 'tab-a', time: context.__now })
+context.__now += NOTIFIER_STALE_MS + 1000 // another sleep
+shared[0]._global_store._agent.state = { held: 'owner', reason: 'question', epoch: 4 }
+check('sleep: the first window to observe a delivery takes the vacant election', [B.change(shared[0]), JSON.parse(storage.get(NOTIFIER_KEY)).id, B.shown.length], ['notify', 'tab-b', 2])
+A.listeners.notifier()
+check('sleep: the sleeper\'s heartbeat then renews nothing and its scan shows nothing (the owner\'s next focus restores the rule)', [JSON.parse(storage.get(NOTIFIER_KEY)).id, A.shown.length], ['tab-b', 1])
+A.listeners.focus()
+check('sleep: the sleeper\'s focus takes the election back', JSON.parse(storage.get(NOTIFIER_KEY)).id, 'tab-a')
+storage.clear()
+context.__items = []
+delete context.__todos.p
+
 ;(async () => {
   const task = { id: 'i1', name: 'task', saved_id: 's1' }
   await _enqueue_command(task, { task: 's1', id: 'd1', kind: 'delegate', epoch: 0, at: 1, body: 'b' })
@@ -702,6 +965,40 @@ check('hook: any other parent is left to the app', [customize(define('notes', '#
     webAnchor.onclick(webClick)
     check('anchors: the plain web link gets its target, the shortened text and the click stop', [webAnchor.target, webAnchor.href, webAnchor.innerText, webAnchor.title, webClick.stopped], ['_blank', 'https://h/p/q', 'h/…', 'https://h/p/q', 1])
     check('anchors: an authored anchor is left alone', [authored.target, authored.onclick], [undefined, null])
+  }
+
+  // the /notify command: the status, on (this device's permission asked from the gesture, the
+  // setting saved for every device), off, test, a refused word
+  {
+    const said = []
+    context.alert = m => said.push(m)
+    const saves = []
+    context._todoer._global_store = {}
+    context._todoer.save_global_store = opts => saves.push(opts)
+    let asked = 0
+    context.Notification = class {
+      static permission = 'default'
+      static async requestPermission() {
+        asked++
+        context.Notification.permission = 'granted'
+        return 'granted'
+      }
+      constructor(title, options) {
+        this.title = title
+        this.options = options
+        said.push(`shown: ${title}`)
+      }
+    }
+    check('/notify: the status', [await _on_command_notify(''), said.pop()], [null, 'notifications: off; this device: default'])
+    check('/notify test: no permission yet', [await _on_command_notify('test'), said.pop()], [null, "notifications: this device's permission is default (/notify on asks for it)"])
+    check('/notify on: asks this device, saves the setting', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget; this device: granted'])
+    check('/notify on done: granted already, no second ask', [await _on_command_notify('on done'), asked, said.pop()], [null, 1, 'notifications: on for done; this device: granted'])
+    check('/notify test: shows one', [await _on_command_notify('test'), said.pop()], [null, 'shown: [question] a test of the desktop notifications'])
+    check('/notify on soon: refused, the command kept', [await _on_command_notify('on soon'), said.pop().startsWith('/notify: unknown reason soon')], ['/notify on soon', true])
+    check('/notify off: clears the setting', [await _on_command_notify('off'), context._todoer._global_store.notify, saves.length, said.pop()], [null, undefined, 3, 'notifications: off'])
+    context.Notification.permission = 'denied'
+    check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
+    check('/notify: nothing else was said', said, [])
   }
 
   console.log(failures ? `${failures} FAILED` : 'all ok')
