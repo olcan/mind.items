@@ -1070,10 +1070,13 @@ function _on_command_todo(text) {
   return { text: '#todo ' + text, edit: false }
 }
 
-// detect any changes to todo items & re-render widgets as needed
+// detect any changes to todo items & re-render widgets as needed; a text change of any item is
+// compared for a bridge reply first (a vault or task chat's new agent turn, _notify_reply: a
+// remote one may notify, a local one moves the baseline)
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
   const item = _item(id, { silent: true }) // can be null if item deleted
+  if (item) _notify_reply(item, remote)
   // item must exist and be tagged with #todo (to be added or updated)
   // OR it must listed in a widget on a dependent (to be removed)
   const is_todo_item = item?.tags.includes('#todo')
@@ -1544,17 +1547,18 @@ function _visible(text) {
   return text.replace(/(^|\s)#_[^#\s<>&?!,.;:"'`(){}\[\]]+/g, '$1').replace(/⟦[^⟧]*⟧/g, '')
 }
 
-// the hand-back reasons that wait on the owner (the default set, `done` included since the todo
-// then waits to be closed; their notification stays on screen until clicked), then the other
+// the reasons that wait on the owner (the default set; their notification stays on screen until
+// clicked): the hand-back reasons, `done` included since the todo then waits to be closed, and
+// `reply`, a bridge reply on a vault or task chat (the owner's ask of 2026-10-04); then the other
 // reasons an owner may add (their notification shows for the shell's default; `all` names every one)
-const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done']
+const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply']
 const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'interrupted', 'taken']
 const NOTIFIER_KEY = 'mindpage_todoer_notifier' // localStorage: the device's elected window
 const NOTIFIER_STALE_MS = 5 * 60 * 1000 // an election not refreshed for this long is vacant
 const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its gesture stamps' spacing
 
 // => /notify [on [reason...]|off [reason...]|test]
-// desktop notifications for tasks that come back to the main list: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission
+// desktop notifications for tasks that come back to the main list and for the agent's replies on vault and task chats: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
@@ -1638,9 +1642,84 @@ function _notify_step({ setting, prev, key, list, reason, permission }) {
   if (!setting?.reasons?.length) return 'off'
   if (prev === key) return 'unchanged'
   if (list != 'main') return 'not in the main list'
+  return _notify_gate({ setting, reason, permission })
+}
+
+// the checks every notification shares: the setting on and naming the reason, this device's
+// permission granted; 'notify', or the cause of the skip
+function _notify_gate({ setting, reason, permission }) {
+  if (!setting?.reasons?.length) return 'off'
   if (!setting.reasons.includes(reason)) return `reason ${reason ?? 'none'}`
   if (permission != 'granted') return `permission ${permission}`
   return 'notify'
+}
+
+// the chat delimiters as chat.js parses them (system, user, agent, _agent, tool, in any case; an
+// optional argument; spaces allowed), at a line start
+const CHAT_DELIMITER = /^ *<< *(system|user|_?agent|tool)(?: *\(([^\n]*)\))? *>>/gim
+
+// the bridge's replies among a chat's turns, read from the GRAMMAR VIEW (`item.read()`: an inert
+// body is an opaque token there, so a delimiter quoted inside a reply is no turn; the raw text
+// keeps such quotes verbatim), one forward pass: the count of agent turns whose argument begins
+// with `vault/` (the publisher footer and the child attribution of the bridge; the web
+// responder's turns carry another attribution), the last such turn's attribution (a replacement
+// under the same count is told apart by its run id) and whether the chat's last turn is one of
+// them (a reply the owner has not answered yet); {replies, last, footer}
+function _vault_replies(view) {
+  let replies = 0
+  let footer = ''
+  let last = false
+  for (const m of String(view ?? '').matchAll(CHAT_DELIMITER)) {
+    const argument = (m[2] ?? '').trim()
+    if (m[1].toLowerCase() == 'agent' && /^['"]vault\//.test(argument)) {
+      replies++
+      footer = argument
+      last = true
+    } else last = false
+  }
+  return { replies, last, footer }
+}
+
+// the first text line of the last inert region in a chat's raw text (the bridge's reply body in
+// its canonical frame; the escaping of lib/mindpage_inert.py keeps a body line from closing the
+// frame early), shortened; '' without one. The ordinary case, not a guarantee: an opener line
+// quoted inside a body is not escaped and would start the preview after it, and an inline
+// opener followed by a newline gives no preview (a framing-aware extraction is a backfill)
+function _reply_line(text) {
+  const raw = String(text ?? '')
+  const open = raw.lastIndexOf('<!--inert-->\n')
+  if (open < 0 || (open > 0 && raw[open - 1] != '\n')) return ''
+  const start = open + '<!--inert-->\n'.length
+  const close = raw.indexOf('\n<!--/inert-->', start)
+  const body = raw.slice(start, close < 0 ? raw.length : close)
+  const line = body.split('\n').find(l => l.trim()) ?? ''
+  const clean = line.replace(/\s+/g, ' ').trim()
+  return clean.length > 120 ? clean.slice(0, 119).trimEnd() + '…' : clean
+}
+
+// a chat's text change compared with the bridge replies this tab last saw in it (the baseline
+// at welcome, then every change, local ones included: a typed turn or a truncation moves the
+// baseline and shows nothing, so the replacement a rerun publishes is one more reply again):
+// one more reply, or a replacement with another attribution under the same count, that is the
+// chat's last turn notifies from the elected window under the setting's `reply` (the owner's
+// ask of 2026-10-04: a response on a vault chat or a task chat); the owner's answer from another
+// device arrives remote and ends the turn, so nothing shows; returns the step
+function _notify_reply(item, remote = true) {
+  const seen = _todoer.store.reply_seen
+  if (!seen) return 'baseline'
+  const { replies, last, footer } = _vault_replies(item.read())
+  const prev = seen[item.id] ?? { replies: 0, footer: '' }
+  seen[item.id] = { replies, footer }
+  if (!remote) return 'local'
+  if (replies < prev.replies || replies == 0) return 'unchanged'
+  if (replies == prev.replies && footer == prev.footer) return 'unchanged'
+  if (!last) return 'answered' // the owner answered it elsewhere already
+  const step = _notify_gate({ setting: _todoer._global_store.notify, reason: 'reply', permission: _notify_permission() })
+  if (step != 'notify') return step
+  if (!_notifier_elected()) return 'another window'
+  const shown = item.label || _visible(String(item.text ?? '').split('\n')[0] ?? '')
+  const facts = { reason: 'reply', shown, label: null, parent: null, id: item.saved_id ?? item.id, body: _reply_line(item.text) }
+  return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
 }
 
 // the list a todo belongs to (_task_list over its projection, this tab's pending command and its
@@ -1711,10 +1790,10 @@ function _scan_notify() {
 // tag and the marker (shortened); the body names a labelled item and a child's parent; one
 // notification per item (the tag: a newer one replaces the older and alerts again), the
 // attention reasons kept on screen until dismissed
-function _notification_of({ reason, shown, label, parent, id }) {
+function _notification_of({ reason, shown, label, parent, id, body = null }) {
   const text = shown.replace(/(^|\s)#todo(?=\s|$)/g, '$1').replace(/(^|\s)\[[a-z]+\](?=\s|$)/, '$1').replace(/\s+/g, ' ').trim()
   const title = `[${reason}] ${text.length > 80 ? text.slice(0, 79).trimEnd() + '…' : text}`
-  const body = [label, parent ? `child of ${parent}` : null].filter(s => s).join('\n')
+  body ??= [label, parent ? `child of ${parent}` : null].filter(s => s).join('\n')
   return { title, options: { body, tag: `todoer:${id}`, renotify: true, requireInteraction: NOTIFY_ATTENTION.includes(reason), icon: '/favicon.ico' } }
 }
 
@@ -1738,12 +1817,13 @@ function _notify_show(facts, onclick) {
 
 // a notification's click: this window forward (the browser grants the click's activation to the
 // window that showed it), then the item targeted as its row's click does: its name (the unique
-// label, else the id reference) with the todo line selected; false for an item deleted meanwhile
+// label, else the id reference), a todo's line selected (a chat is targeted alone); false for an
+// item deleted meanwhile
 function _notify_click(id) {
   window.focus()
   const item = _item(id, { silent: true })
   if (!item) return false
-  const text = _extract_todo_snippet(item)
+  const text = item.tags.includes('#todo') ? _extract_todo_snippet(item) : null
   MindBox.set(item.name, text ? { scroll: true, select: _todo_line(text) } : { scroll: true })
   return true
 }
@@ -1821,13 +1901,16 @@ function _release_notifier() {
   }
 }
 
-// the notifier at welcome: the baseline of every todo's projection and list (what stands then
-// never notifies: a reload replays no hand-back the owner saw), the election's listeners once per
+// the notifier at welcome: the baseline of every todo's projection and list and of every chat's
+// bridge replies (what stands then never notifies: a reload replays nothing the owner saw), the election's listeners once per
 // page (an update of this item re-evaluates the script; the first evaluation's listeners keep
 // working on the same store) and the minute task: the elected window's heartbeat and the scan
 function _start_notifier() {
   const seen = (_todoer.store.notify_seen = {})
+  const replies = (_todoer.store.reply_seen = {})
   each(_items(), item => {
+    const { replies: count, footer } = _vault_replies(item.read())
+    if (count) replies[item.id] = { replies: count, footer }
     if (!item.tags.includes('#todo')) return
     const state = _task_state(item)
     seen[item.id] = _seen_record(state, _list_of(item, state))

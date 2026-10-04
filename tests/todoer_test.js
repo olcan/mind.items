@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -117,6 +117,11 @@ const picked =
     '_on_command_notify',
     '_parse_notify',
     '_notify_setting',
+    '_notify_gate',
+    '_vault_replies',
+    '_reply_line',
+    '_notify_reply',
+    '_on_item_change',
     '_state_key',
     '_notify_step',
     '_notify_change',
@@ -139,7 +144,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _state_key, _notify_step, _notify_change, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -573,14 +578,14 @@ check('notify words: off and test', [_parse_notify('off'), _parse_notify(' test 
 check('notify words: test takes no words', _parse_notify('test now').error, 'test takes no words')
 check('notify words: an unknown word', _parse_notify('maybe').error.startsWith('unknown word maybe ('), true)
 // the setting after a word (additive: the owner's ask of 2026-10-03)
-const ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done']
+const ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply']
 check('setting: on from off is the default set, done included', _notify_setting(undefined, _parse_notify('on')), { reasons: ATTENTION })
 check('setting: on alone restores the default set over a custom one (an opt-in dropped, the defaults back)', _notify_setting({ reasons: ['question', 'taken'] }, _parse_notify('on')), { reasons: ATTENTION })
 check('setting: on <reason> adds to the current set', _notify_setting({ reasons: ['question', 'done'] }, _parse_notify('on taken')), { reasons: ['question', 'done', 'taken'] })
 check('setting: on <reason> from off adds to the default set', _notify_setting(null, _parse_notify('on taken')), { reasons: [...ATTENTION, 'taken'] })
 check('setting: on all', _notify_setting({ reasons: ['question'] }, _parse_notify('on all')), { reasons: NOTIFY_REASONS })
 check('setting: a reason already there is kept once, in the canonical order', _notify_setting({ reasons: ['done', 'question'] }, _parse_notify('on question blocked')), { reasons: ['question', 'blocked', 'done'] })
-check('setting: off <reason> removes it', _notify_setting({ reasons: ATTENTION }, _parse_notify('off done proposal')), { reasons: ['question', 'blocked', 'budget'] })
+check('setting: off <reason> removes it', _notify_setting({ reasons: ATTENTION }, _parse_notify('off done proposal')), { reasons: ['question', 'blocked', 'budget', 'reply'] })
 check('setting: off <reason> leaving none is off', _notify_setting({ reasons: ['done'] }, _parse_notify('off done')), null)
 check('setting: off <reason> while off stays off', _notify_setting(undefined, _parse_notify('off done')), null)
 check('setting: off alone is off', _notify_setting({ reasons: ATTENTION }, _parse_notify('off')), null)
@@ -659,7 +664,7 @@ context.window.focus = () => (context.__focused = (context.__focused ?? 0) + 1)
 context.window.addEventListener = () => {}
 context.document = { addEventListener: () => {}, hasFocus: () => false }
 context._todoer.dispatch_task = (name, fn) => (context.__captured[name] = fn)
-context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done'] } }
+context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] } }
 const todo = (id, state, text = '#todo fix the cache\nmore') => ({ id, saved_id: 's' + id, name: '#t' + id, label: null, tags: ['#todo'], read: () => text, _global_store: state ? { _agent: { state } } : {} })
 context.__todos = {}
 context._item = ref => context.__todos[ref] ?? null
@@ -705,6 +710,84 @@ context.__mindbox = null
 delete context.__todos.a
 notified[notified.length - 1].onclick()
 check('click: a deleted item focuses the window alone', [context.__focused, context.__mindbox], [2, null])
+// CHAT REPLIES (the owner's ask of 2026-10-04): the bridge's agent turns among a chat's turns,
+// read from the GRAMMAR VIEW (an inert body is an opaque token there: review 5 B1), the raw text
+// for the reply's first line; the fixtures' view tokenizes the canonical inert frames as the app does
+context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] } }
+const FOOTER = "<<agent('vault/default · run ab12cd34 · 1s')>>"
+const FOOTER2 = "<<agent('vault/default · run ef56ab78 · 2s')>>"
+const inert = body => `<!--inert-->\n${body}\n<!--/inert-->`
+const view = text => String(text ?? '').replace(/^<!--inert-->\n[\s\S]*?\n<!--\/inert-->$/gm, '⟦inert:0:0⟧')
+const REPLY = `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> what now?\n${FOOTER}\n${inert('\nTwo parts: alpha and beta.\nmore')}`
+check('replies: none in a fresh chat', _vault_replies(view('#x/0 #_chat/vault\n<<user>> hi')), { replies: 0, last: false, footer: '' })
+check('replies: one, the last turn, its attribution', _vault_replies(view(REPLY)), { replies: 1, last: true, footer: "'vault/default · run ab12cd34 · 1s'" })
+check('replies: answered by the owner since', _vault_replies(view(REPLY + '\n<<user>> thanks')).last, false)
+check('replies: answered with a named user delimiter', _vault_replies(view(REPLY + "\n<<user('owner')>> thanks")).last, false)
+check('replies: answered with a spaced delimiter', _vault_replies(view(REPLY + '\n<< user >> thanks')).last, false)
+check('replies: answered with an upper-case delimiter (chat.js reads roles case-insensitively)', _vault_replies(view(REPLY + '\n<<USER>> thanks')).last, false)
+check('replies: an upper-case agent turn with the attribution counts', _vault_replies(view(REPLY + `\n<<user>> go on\n<<AGENT('vault/default · run ef56ab78 · 2s')>>\n${inert('more')}`)).replies, 2)
+check('replies: a system or tool turn after the reply ends it too', [_vault_replies(view(REPLY + '\n<<system>> note')).last, _vault_replies(view(REPLY + '\n<<tool(x)>> out')).last], [false, false])
+check('replies: two, the last attribution', _vault_replies(view(REPLY + `\n<<user>> go on\n${FOOTER2}\n${inert('more')}`)), { replies: 2, last: true, footer: "'vault/default · run ef56ab78 · 2s'" })
+check('replies: the web responder\'s turns are not the bridge\'s', _vault_replies(view("<<user>> hi\n<<agent('claude')>>\nhello")), { replies: 0, last: false, footer: '' })
+check('replies: a child\'s attribution counts as the bridge\'s', _vault_replies(view(`#c/0/alpha\n<<agent('vault/default · created in run ab12cd34')>>\n${inert('Alpha body')}`)), { replies: 1, last: true, footer: "'vault/default · created in run ab12cd34'" })
+check('replies: no text', _vault_replies(undefined), { replies: 0, last: false, footer: '' })
+// review 5 B1: a delimiter inside a reply's body is no turn in the view (the raw text would mistake it)
+const QUOTING_USER = `<<user>> Explain the chat syntax.\n${FOOTER}\n${inert('The string <<user>> denotes a user turn.')}`
+check('replies: a reply mentioning <<user>> stays the last turn', _vault_replies(view(QUOTING_USER)), { replies: 1, last: true, footer: "'vault/default · run ab12cd34 · 1s'" })
+const QUOTING_AGENT = `<<user>> Show me a footer.\n${FOOTER}\n${inert(`Like this line:\n${FOOTER2}\nthat is all`)}`
+check('replies: a quoted vault opener inside the body counts nothing', _vault_replies(view(QUOTING_AGENT)), { replies: 1, last: true, footer: "'vault/default · run ab12cd34 · 1s'" })
+check('reply line: the first text line of the last inert region, the frame dropped', _reply_line(REPLY), 'Two parts: alpha and beta.')
+check('reply line: the real reply\'s first line, not the quoted opener', _reply_line(QUOTING_AGENT), 'Like this line:')
+check('reply line: the last region (an earlier reply\'s body is not it)', _reply_line(REPLY + `\n<<user>> go on\n${FOOTER2}\n${inert('The second answer.')}`), 'The second answer.')
+check('reply line: shortened', _reply_line(inert('x'.repeat(200))).length, 120)
+check('reply line: none', _reply_line('<<user>> hi'), '')
+// the flow: the baseline at welcome, a remote change with one more reply notifies with the chat's
+// label and the reply's first line, the same text again is nothing, the owner's answer is not
+const chat_item = (id, text, label = '#e2e_chatty/0') => ({ id, saved_id: 's' + id, name: label || 'id:' + id, label, tags: ['#chat'], text, read: () => view(text), _global_store: {} })
+context._todoer.store.reply_seen = undefined
+check('reply: before the welcome, the baseline is pending', _notify_reply(chat_item('k', REPLY)), 'baseline')
+context.__items = [chat_item('k', REPLY), todo('a', null)]
+_start_notifier()
+check('welcome: the baseline records the chats\' reply counts and attributions', context._todoer.store.reply_seen, { k: { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" } })
+check('reply: the baseline\'s reply notifies nothing', _notify_reply(chat_item('k', REPLY)), 'unchanged')
+const replied = REPLY + `\n<<user>> go on\n${FOOTER2}\n${inert('The second answer.')}`
+check('reply: one more reply notifies with the label, the first line and the chat\'s tag', [_notify_reply(chat_item('k', replied)), notified[notified.length - 1].title, notified[notified.length - 1].options.body, notified[notified.length - 1].options.tag, notified[notified.length - 1].options.requireInteraction], ['notify', '[reply] #e2e_chatty/0', 'The second answer.', 'todoer:sk', true])
+check('reply: the same text again is nothing', _notify_reply(chat_item('k', replied)), 'unchanged')
+const answered = replied + `\n<<user>> ok\n${FOOTER}\n${inert('third')}\n<<user>> noted`
+check('reply: a new reply the owner answered elsewhere already', _notify_reply(chat_item('k', answered)), 'answered')
+// a replacement under the same count (a disconnected tab receiving the final snapshot of a rerun):
+// another run id in the attribution
+const RERUN = "<<agent('vault/default · run 0badf00d · 3s')>>"
+check('reply: a replacement under the same count with another run id notifies', [_notify_reply(chat_item('k', replied + `\n<<user>> ok\n${RERUN}\n${inert('third, again')}`)), notified[notified.length - 1].options.body], ['notify', 'third, again'])
+check('reply: a chat with the app\'s empty label is titled by its first line', (_notify_reply(chat_item('m', `the first line\n<<user>> hi\n${FOOTER}\n${inert('reply')}`, '')), notified[notified.length - 1].title), '[reply] the first line')
+// the caller reads the grammar view (review 6): a response quoting a vault opener inside its body
+// is one stored reply and one notification with the real first line
+check('reply: the quoted opener inside a body is no reply at the caller either', [_notify_reply(chat_item('o', QUOTING_AGENT)), context._todoer.store.reply_seen.o, notified[notified.length - 1].options.body], ['notify', { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" }, 'Like this line:'])
+context._todoer._global_store = { notify: { reasons: ['question'] } }
+check('reply: not enabled', _notify_reply(chat_item('n', REPLY)), 'reason reply')
+context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] } }
+// the hook: a remote change compares the item for a reply; a LOCAL change moves the baseline and
+// shows nothing (review 5 B2: chat.js's truncation removes the reply and reruns the chat; the
+// replacement is one more reply again); a dependency change is ignored
+context._this.dependents = []
+const notified_before_hook = notified.length
+context.__todos.q = chat_item('q', REPLY)
+context._todoer.store.reply_seen.q = { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" } // the baseline saw the reply
+context.__todos.q = chat_item('q', '#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> what now?') // truncated locally
+_on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, false, false)
+check('hook: a local truncation moves the baseline and shows nothing', [notified.length - notified_before_hook, context._todoer.store.reply_seen.q], [0, { replies: 0, footer: '' }])
+context.__todos.q = chat_item('q', `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> what now?\n${RERUN}\n${inert('The rerun answer.')}`)
+_on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
+check('hook: the rerun\'s replacement reply notifies once', [notified.length - notified_before_hook, notified[notified.length - 1].options.body], [1, 'The rerun answer.'])
+_on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
+check('hook: the same remote text again is nothing', notified.length - notified_before_hook, 1)
+context.__todos.q = chat_item('q', context.__todos.q.text + `\n<<user>> more\n${FOOTER}\n${inert('Fifth.')}`)
+_on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, true, true)
+check('hook: a dependency change is ignored', notified.length - notified_before_hook, 1)
+// the click on a chat: targeted by name, nothing selected
+notified[notified.length - 1].onclick()
+check('click: a chat is targeted by its name alone', context.__mindbox, ['#e2e_chatty/0', { scroll: true }])
+delete context.__todos.q
 // ENTERING THE MAIN LIST with an unchanged state (review 0, B2): a bound child's proposal under
 // its project's standing /land is delegated; the project's grant gone (the owner removed /land
 // and delegated it again), the child belongs to the main list with the same key, and the
@@ -1010,14 +1093,14 @@ delete context.__todos.p
     }
     check('/notify: the status', [await _on_command_notify(''), said.pop()], [null, 'notifications: off; this device: default'])
     check('/notify test: no permission yet', [await _on_command_notify('test'), said.pop()], [null, "notifications: this device's permission is default (/notify on asks for it)"])
-    check('/notify on: asks this device, saves the default set', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget', 'done'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget, done; this device: granted'])
-    check('/notify on taken: adds to the set, granted already, no second ask', [await _on_command_notify('on taken'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, taken; this device: granted'])
-    check('/notify off done taken: removes them', [await _on_command_notify('off done taken'), context._todoer._global_store.notify, said.pop()], [null, { reasons: ['question', 'blocked', 'proposal', 'budget'] }, 'notifications: on for question, blocked, proposal, budget'])
+    check('/notify on: asks this device, saves the default set', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget, done, reply; this device: granted'])
+    check('/notify on taken: adds to the set, granted already, no second ask', [await _on_command_notify('on taken'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply, taken; this device: granted'])
+    check('/notify off done taken: removes them', [await _on_command_notify('off done taken'), context._todoer._global_store.notify, said.pop()], [null, { reasons: ['question', 'blocked', 'proposal', 'budget', 'reply'] }, 'notifications: on for question, blocked, proposal, budget, reply'])
     check('/notify test: shows one', [await _on_command_notify('test'), said.pop()], [null, 'shown: [question] a test of the desktop notifications'])
     check('/notify on soon: refused, the command kept', [await _on_command_notify('on soon'), said.pop().startsWith('/notify: unknown reason soon')], ['/notify on soon', true])
     check('/notify off: clears the setting', [await _on_command_notify('off'), context._todoer._global_store.notify, saves.length, said.pop()], [null, undefined, 4, 'notifications: off'])
     context.Notification.permission = 'denied'
-    check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
+    check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
     check('/notify: nothing else was said', said, [])
   }
 
