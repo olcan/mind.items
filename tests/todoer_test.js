@@ -839,6 +839,9 @@ check('scan: a second tick shows nothing more', notified.length - notified_befor
 check('scan: compares every todo', _scan_notify(), 2)
 // the render's call site cannot run here (__render needs the DOM): pinned by the source
 check('render: each row compares its projection (the call site the table cannot run)', /\n    _notify_change\(item, \{ state, list: task_list, parent \}\)\n/.test(src), true)
+// the app's macro pass reads the item's whole text, code included: every opener in the source is
+// escaped (an unescaped one in a regex was evaluated as a macro at the item's render, 2026-10-04)
+check('source: no unescaped macro opener in the item code', src.split('\n').filter(l => /(^|[^\\])<</.test(l)), [])
 // TWO WINDOWS of one device (a second evaluation of the source sharing the storage and the frozen
 // clock): the listeners _start_notifier installs, exercised: a focus takes the election over, the
 // heartbeat renews an own record only, a pagehide releases, a sleep lets the first observer take

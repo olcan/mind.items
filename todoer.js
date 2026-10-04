@@ -1655,8 +1655,10 @@ function _notify_gate({ setting, reason, permission }) {
 }
 
 // the chat delimiters as chat.js parses them (system, user, agent, _agent, tool, in any case; an
-// optional argument; spaces allowed), at a line start
-const CHAT_DELIMITER = /^ *<< *(system|user|_?agent|tool)(?: *\(([^\n]*)\))? *>>/gim
+// optional argument; spaces allowed), at a line start. The opener is ESCAPED for the app, whose
+// macro pass reads this item's whole text, code included (an unescaped opener here was evaluated
+// as a macro at the item's render and threw, 2026-10-04); a regex reads `\<` as `<`
+const CHAT_DELIMITER = /^ *\<< *(system|user|_?agent|tool)(?: *\(([^\n]*)\))? *>>/gim
 
 // the bridge's replies among a chat's turns, read from the GRAMMAR VIEW (`item.read()`: an inert
 // body is an opaque token there, so a delimiter quoted inside a reply is no turn; the raw text
