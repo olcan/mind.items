@@ -1602,17 +1602,16 @@ const _notify_text = setting => (setting?.reasons?.length ? `on for ${setting.re
 // this device's notification permission: granted, denied, default, or unsupported (no API)
 const _notify_permission = () => (typeof Notification == 'undefined' ? 'unsupported' : Notification.permission)
 
-// the projection facts a notification keys on: possession, reason and epoch, which a hand-back
-// changes (the epoch advances) and a stats refresh or the widget's own save never does; ''
-// without a projection. A bridge repair restores the authoritative fields: against a current
-// projection it changes nothing, but where an older store delivery had rolled this tab's view
-// back it restores a key already notified, which alerts again (duplicate suppression is a
-// backfill). A project's check-in that repeats its current reason under the same epoch (a
-// second question before the first is answered) changes none of them and is not told apart
-// (the projection carries no event discriminator: `rev` and `updated` advance on routine
-// changes too), a known limit
+// the projection facts a notification keys on: possession, reason, epoch and the count of
+// resurfacings published (`surfaced`, the bridge's since 2026-10-03: a hand-back advances the
+// epoch, a check-in the count, so a project's second question under one epoch is told apart; a
+// projection from an older bridge carries no count and reads as before); a stats refresh or the
+// widget's own save changes none of them; '' without a projection. A bridge repair restores the
+// authoritative fields: against a current projection it changes nothing, but where an older
+// store delivery had rolled this tab's view back it restores a key already notified, which
+// alerts again (duplicate suppression is a backfill)
 function _state_key(state) {
-  return state ? `${state.held ?? ''}:${state.reason ?? ''}:${state.epoch ?? ''}` : ''
+  return state ? `${state.held ?? ''}:${state.reason ?? ''}:${state.epoch ?? ''}:${state.surfaced ?? ''}` : ''
 }
 
 // one decision for a todo whose projection this tab compares (the setting's reasons, the seen

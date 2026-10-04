@@ -572,8 +572,10 @@ check('notify words: off takes no words', _parse_notify('off now').error, 'off t
 check('notify words: an unknown word', _parse_notify('maybe').error.startsWith('unknown word maybe ('), true)
 // the key: possession, reason and epoch; a stats refresh, a repair or the widget's save changes none
 check('key: no projection', _state_key(null), '')
-check('key: the facts', _state_key({ held: 'owner', reason: 'question', epoch: 3, rev: 9, updated: 1 }), 'owner:question:3')
-check('key: a stats refresh keeps it', _state_key({ held: 'agent', reason: 'delegated', epoch: 1, rev: 2, stats: { cost: 1 } }), _state_key({ held: 'agent', reason: 'delegated', epoch: 1, rev: 3, stats: { cost: 2 } }))
+check('key: the facts (a projection from an older bridge: no count)', _state_key({ held: 'owner', reason: 'question', epoch: 3, rev: 9, updated: 1 }), 'owner:question:3:')
+check('key: the count of resurfacings', _state_key({ held: 'agent', reason: 'question', epoch: 1, surfaced: 2, project: true }), 'agent:question:1:2')
+check('key: a stats refresh keeps it', _state_key({ held: 'agent', reason: 'delegated', epoch: 1, rev: 2, surfaced: 1, stats: { cost: 1 } }), _state_key({ held: 'agent', reason: 'delegated', epoch: 1, rev: 3, surfaced: 1, stats: { cost: 2 } }))
+check('key: a project\'s second question under one epoch differs by the count alone', _state_key({ held: 'agent', reason: 'question', epoch: 1, surfaced: 1 }) != _state_key({ held: 'agent', reason: 'question', epoch: 1, surfaced: 2 }), true)
 // the step
 const notify_setting = { reasons: ['question', 'blocked'] }
 const notify_step = over => _notify_step({ setting: notify_setting, prev: 'agent:delegated:0', key: 'owner:question:1', list: 'main', reason: 'question', permission: 'granted', ...over })
@@ -649,13 +651,15 @@ context._item = ref => context.__todos[ref] ?? null
 check('change: before the welcome nothing notifies (the baseline is pending)', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 1 })), 'baseline')
 context.__items = [todo('a', { held: 'owner', reason: 'question', epoch: 1 }), todo('b', null)]
 _start_notifier()
-check('welcome: the baseline records every todo\'s key and list, the minute task is dispatched', [context._todoer.store.notify_seen, typeof context.__captured.notifier], [{ a: 'owner:question:1|main', b: '|main' }, 'function'])
+check('welcome: the baseline records every todo\'s key and list, the minute task is dispatched', [context._todoer.store.notify_seen, typeof context.__captured.notifier], [{ a: 'owner:question:1:|main', b: '|main' }, 'function'])
 check('change: a baseline state notifies nothing', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 1 })), 'unchanged')
 check('change: a delegation (the delegated list) notifies nothing', _notify_change(todo('a', { held: 'agent', reason: 'delegated', epoch: 1 })), 'not in the main list')
 check('change: the hand-back notifies from the elected window', [_notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 2 })), notified.length, notified[0].title, notified[0].options.tag, notified[0].options.requireInteraction], ['notify', 1, '[question] fix the cache more', 'todoer:sa', true])
 check('change: the same state again (a render after the hook) is nothing', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 2 })), 'unchanged')
 check('change: a done hand-back is not enabled', _notify_change(todo('a', { held: 'owner', reason: 'done', epoch: 3 })), 'reason done')
 check('change: an agent-held project blocked (the main list) notifies', _notify_change(todo('a', { held: 'agent', reason: 'blocked', epoch: 3, project: true })), 'notify')
+check('change: the project\'s same reason again without a new count is nothing', _notify_change(todo('a', { held: 'agent', reason: 'blocked', epoch: 3, project: true, rev: 9 })), 'unchanged')
+check('change: a second check-in under the same epoch and reason (the count advanced) notifies again', _notify_change(todo('a', { held: 'agent', reason: 'blocked', epoch: 3, project: true, surfaced: 1 })), 'notify')
 check('change: a todo without a projection', _notify_change(todo('c', null)), 'reason none')
 check('change: the render\'s facts (the list and the parent given)', _notify_change(todo('a', { held: 'owner', reason: 'proposal', epoch: 4 }), { state: { held: 'owner', reason: 'proposal', epoch: 4 }, list: 'main', parent: null }), 'notify')
 context.__todos.p = todo('p', { held: 'agent', reason: 'delegated', epoch: 0, project: true }, '#todo the project')
