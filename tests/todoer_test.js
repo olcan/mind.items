@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -729,7 +729,9 @@ check('replies: an upper-case agent turn with the attribution counts', _vault_re
 check('replies: a system or tool turn after the reply ends it too', [_vault_replies(view(REPLY + '\n<<system>> note')).last, _vault_replies(view(REPLY + '\n<<tool(x)>> out')).last], [false, false])
 check('replies: two, the last attribution', _vault_replies(view(REPLY + `\n<<user>> go on\n${FOOTER2}\n${inert('more')}`)), { replies: 2, last: true, footer: "'vault/default · run ef56ab78 · 2s'" })
 check('replies: the web responder\'s turns are not the bridge\'s', _vault_replies(view("<<user>> hi\n<<agent('claude')>>\nhello")), { replies: 0, last: false, footer: '' })
-check('replies: a child\'s attribution counts as the bridge\'s', _vault_replies(view(`#c/0/alpha\n<<agent('vault/default · created in run ab12cd34')>>\n${inert('Alpha body')}`)), { replies: 1, last: true, footer: "'vault/default · created in run ab12cd34'" })
+check('replies: a child the reply created is no reply (its attribution is not the footer)', _vault_replies(view(`#c/0/alpha\n<<agent('vault/default · created in run ab12cd34')>>\n${inert('Alpha body')}`)), { replies: 0, last: false, footer: '' })
+check('replies: the footer with a cost and the subscription marker', _vault_replies(view(`<<user>> hi\n<<agent('vault/default · run ab12cd34 · $0.13 (sub) · 42s')>>\n${inert('x')}`)), { replies: 1, last: true, footer: "'vault/default · run ab12cd34 · $0.13 (sub) · 42s'" })
+check('replies: the footer of another persona', _vault_replies(view(`<<user>> hi\n<<agent('vault/worker_opus · run 0badf00d · 3s')>>\n${inert('x')}`)).replies, 1)
 check('replies: no text', _vault_replies(undefined), { replies: 0, last: false, footer: '' })
 // review 5 B1: a delimiter inside a reply's body is no turn in the view (the raw text would mistake it)
 const QUOTING_USER = `<<user>> Explain the chat syntax.\n${FOOTER}\n${inert('The string <<user>> denotes a user turn.')}`

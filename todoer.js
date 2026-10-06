@@ -1660,20 +1660,25 @@ function _notify_gate({ setting, reason, permission }) {
 // as a macro at the item's render and threw, 2026-10-04); a regex reads `\<` as `<`
 const CHAT_DELIMITER = /^ *\<< *(system|user|_?agent|tool)(?: *\(([^\n]*)\))? *>>/gim
 
+// the bridge's reply footer as an agent turn's argument: `vault/<persona> · run <id> …` (the
+// publisher footer of lib/mindpage_inert_bridge.py); a child item the reply created carries
+// `vault/<persona> · created in run <id>` instead and is NO reply (the owner, 2026-10-05: a reply
+// with children notifies for the parent alone), the web responder's turns another attribution
+const REPLY_FOOTER = /^['"]vault\/\S+ · run [0-9a-f]+\b/
+
 // the bridge's replies among a chat's turns, read from the GRAMMAR VIEW (`item.read()`: an inert
 // body is an opaque token there, so a delimiter quoted inside a reply is no turn; the raw text
-// keeps such quotes verbatim), one forward pass: the count of agent turns whose argument begins
-// with `vault/` (the publisher footer and the child attribution of the bridge; the web
-// responder's turns carry another attribution), the last such turn's attribution (a replacement
-// under the same count is told apart by its run id) and whether the chat's last turn is one of
-// them (a reply the owner has not answered yet); {replies, last, footer}
+// keeps such quotes verbatim), one forward pass: the count of agent turns whose argument is the
+// reply footer (REPLY_FOOTER), the last such turn's attribution (a replacement under the same
+// count is told apart by its run id) and whether the chat's last turn is one of them (a reply
+// the owner has not answered yet); {replies, last, footer}
 function _vault_replies(view) {
   let replies = 0
   let footer = ''
   let last = false
   for (const m of String(view ?? '').matchAll(CHAT_DELIMITER)) {
     const argument = (m[2] ?? '').trim()
-    if (m[1].toLowerCase() == 'agent' && /^['"]vault\//.test(argument)) {
+    if (m[1].toLowerCase() == 'agent' && REPLY_FOOTER.test(argument)) {
       replies++
       footer = argument
       last = true
