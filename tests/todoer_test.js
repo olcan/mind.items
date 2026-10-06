@@ -1096,14 +1096,17 @@ delete context.__todos.p
         said.push(`shown: ${title}`)
       }
     }
-    check('/notify: the status', [await _on_command_notify(''), said.pop()], [null, 'notifications: off; this device: default'])
+    // a handled command returns undefined (the app clears the box), a refused word the command (kept)
+    const status = await _on_command_notify('')
+    check('/notify: the status, the box cleared', [status === undefined, said.pop()], [true, 'notifications: off; this device: default'])
     check('/notify test: no permission yet', [await _on_command_notify('test'), said.pop()], [null, "notifications: this device's permission is default (/notify on asks for it)"])
     check('/notify on: asks this device, saves the default set', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget, done, reply; this device: granted'])
     check('/notify on taken: adds to the set, granted already, no second ask', [await _on_command_notify('on taken'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply, taken; this device: granted'])
     check('/notify off done taken: removes them', [await _on_command_notify('off done taken'), context._todoer._global_store.notify, said.pop()], [null, { reasons: ['question', 'blocked', 'proposal', 'budget', 'reply'] }, 'notifications: on for question, blocked, proposal, budget, reply'])
     check('/notify test: shows one', [await _on_command_notify('test'), said.pop()], [null, 'shown: [question] a test of the desktop notifications'])
     check('/notify on soon: refused, the command kept', [await _on_command_notify('on soon'), said.pop().startsWith('/notify: unknown reason soon')], ['/notify on soon', true])
-    check('/notify off: clears the setting', [await _on_command_notify('off'), context._todoer._global_store.notify, saves.length, said.pop()], [null, undefined, 4, 'notifications: off'])
+    const off = await _on_command_notify('off')
+    check('/notify off: clears the setting, the box cleared', [off === undefined, context._todoer._global_store.notify, saves.length, said.pop()], [true, undefined, 4, 'notifications: off'])
     context.Notification.permission = 'denied'
     check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
     check('/notify: nothing else was said', said, [])

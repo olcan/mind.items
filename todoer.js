@@ -1565,15 +1565,17 @@ async function _on_command_notify(args) {
     alert(`/notify: ${parsed.error}`)
     return `/notify ${args}`
   }
+  // a handled command returns nothing: the app then clears the box (a null return would leave the
+  // command in it; the owner, 2026-10-05); a refused word returns the command, which stays
   const store = _todoer._global_store
   if (parsed.status) {
     alert(`notifications: ${_notify_text(store.notify)}; this device: ${_notify_permission()}`)
-    return null
+    return
   }
   if (parsed.test) {
     if (_notify_permission() != 'granted') alert(`notifications: this device's permission is ${_notify_permission()} (/notify on asks for it)`)
     else if (!_notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test' }, () => window.focus())) alert('notification refused by the browser')
-    return null
+    return
   }
   // this device's permission is asked from the command's own gesture (the browser prompts only
   // then), the setting saved meanwhile: it is the account's, the permission each device's own
@@ -1584,11 +1586,10 @@ async function _on_command_notify(args) {
   _todoer.save_global_store({ invalidate_elem_cache: false })
   if (parsed.off) {
     alert(`notifications: ${_notify_text(setting)}`)
-    return null
+    return
   }
   const permission = asked ? await asked : _notify_permission()
   alert(`notifications: ${_notify_text(store.notify)}; this device: ${permission}` + (permission == 'denied' ? ' (allow notifications for this site in the browser, then /notify on again)' : ''))
-  return null
 }
 
 // the words of /notify: nothing (the status), `on [reason...]`, `off [reason...]`, `test`; the
