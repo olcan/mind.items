@@ -17,9 +17,10 @@ dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column tic
 <style>
 #item .runs, #item .proposals { overflow-x: auto; container-type: inline-size } /* a table wider than the item scrolls inside its own element instead of widening the item; the element is the width reference (cqw) of the full-span cells below */
 #item .runs :is(td, th), #item .proposals :is(td, th) { white-space: nowrap } /* the main rows hold short words and links: one line each, whatever the width */
-#item .runs td[colspan], #item .proposals td[colspan] { white-space: normal; overflow-wrap: anywhere; font-size: 90%; line-height: 1.4; opacity: 0.8; padding: 0 5px 4px 1.5em } /* an entry's free text (a status line, an outcome; design mind_vault_item 17): one cell spanning every column, wrapping at any point, read as the entry's sub-line */
+#item .runs td[colspan], #item .proposals td[colspan] { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; opacity: 0.9; padding: 0 5px 4px 1.5em } /* an entry's free text (a status line, an outcome; design mind_vault_item 17): one cell spanning every column, wrapping at any point, read as the entry's sub-line; the rows' own size (a smaller one dimmed the text the row exists to show on a phone) */
 #item .runs td[colspan] > span, #item .proposals td[colspan] > span { display: block; position: sticky; left: 1.5em; max-width: calc(100cqw - 1.5em - 5px) } /* the text wraps at the element's VISIBLE width and stays in view while a wide table scrolls under it */
 #item .logs pre { overflow-x: auto } /* a log tail's long lines scroll inside the block */
+#item .runs, #item .proposals, #item .logs pre { scrollbar-width: thin } /* a classic scrollbar (Linux, Windows) is a slim strip under the rows, not a full one; an overlay one (macOS, iOS) shows nothing either way */
 </style>
 ```
 ```js:js_removed
@@ -482,7 +483,7 @@ function vault_runs_table() {
   )
   if (!rows.length) return `_none_ ${stamp}`
   // the blank line closes the table (the parser would read the stamp as another row otherwise)
-  return table(rows, { headers: ['item', 'persona', 'run', 'elapsed', 'worktree', 'status', ''] }) + '\n\n' + stamp
+  return table(rows, { headers: ['item', 'persona', 'run', 'elapsed', 'worktree', 'progress', ''] }) + '\n\n' + stamp
 }
 
 // the log tails and supervisor notes: their own element, replaced only when their content

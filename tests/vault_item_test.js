@@ -167,7 +167,7 @@ check('details: one block per run with a log tail or notes, escaped; the summary
 vm.runInContext("delete _this._global_store._bridge.runs.r2.status; delete _this._global_store._bridge.runs.r2.log", ctx)
 const rendered = vm.runInContext('vault_runs_table()', ctx)
 check('table: the real helper renders both rows with the headers, then a blank line and the stamp', rendered.split('\n').length, 6)
-check('table: header row', rendered.split('\n')[0], '| item | persona | run | elapsed | worktree | status |  |')
+check('table: header row (the progress column: the status line itself is the row below)', rendered.split('\n')[0], '| item | persona | run | elapsed | worktree | progress |  |')
 check('table: the listing stamp follows as its own paragraph, with its age', /\n\n_listed by test-host at .* \(0s ago\)_$/.test(rendered), true)
 const one = vm.runInContext(
   "(() => { const b = {updated: " + now + ", host: 'h', runs: {r3: {item: 'x', persona: 'p', started: " + now + ", worktree: null}}};" +
@@ -260,10 +260,11 @@ runs_div.replaced = { writes: 0, _html: '', get innerHTML() { return this._html 
 vm.runInContext(script[1], ctx) // the item re-rendered: a fresh element, the script runs again
 check('a re-render renders the fresh element and re-registers the task', [runs_div.replaced.writes, tasks.length], [1, 2])
 // the real parser, when the app checkout is reachable (the sibling mind.page; MIND_PAGE_DIR names
-// another, which then MUST load; a review worktree leaves external/mind.page empty), built as the
-// app's global parser is (client-globals.ts: marked with the vendored marked-extended-tables,
-// whose colspan syntax the table helper's repeated pipes are): a main row per run, its status
-// line as a second row of one cell spanning the columns, the stamp as a separate paragraph
+// another, which then MUST load; a review worktree leaves external/mind.page empty, which skips
+// these rows and the wiki rows at the end, a printed line each), built as the app's global parser
+// is (client-globals.ts: marked with the vendored marked-extended-tables, whose colspan syntax the
+// table helper's repeated pipes are): a main row per run, its status line as a second row of one
+// cell spanning the columns, the stamp as a separate paragraph
 const app = process.env.MIND_PAGE_DIR ?? path.join(__dirname, '..', '..', 'mind.page')
 let realMarked = null
 try {
@@ -283,8 +284,9 @@ if (realMarked) {
   const rows = parsed_rows(html)
   check('real parser: one run is a main row of seven cells ending with the stop link, then ONE cell spanning the seven columns with the status in its span, its pipe and markup kept as text', [rows.length, rows[0].length, rows[0][6], rows[1]], [2, 7, ['align=left', `<a href="stop_run('r8')">stop</a>`], [['colspan=7 align=left', '<span>Executing bash: rg todo | head &lt;x&gt;</span>']]])
   // literal status text: bare and escaped pipes (any backslash parity; a trailing one before the
-  // span's own pipes), backticks, emphasis, a link, HTML, quotes, line breaks, and the extension's
-  // rowspan marker all render as the status text itself, in one full-span cell
+  // span's own pipes), a trailing backslash, backticks, emphasis, a link, HTML, quotes, line
+  // breaks, and the extension's rowspan marker all render as the status text itself, in one
+  // full-span cell
   const visible = html => html.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
   for (const [text, shown] of [
     ["Executing bash: grep 'foo\\|bar' file.txt", null],
@@ -294,6 +296,7 @@ if (realMarked) {
     ['Reading file docs/README.md ... done.', null],
     ['line one\r\nline two\rline three\nline four', 'line one line two line three line four'],
     ['^', null],
+    ['abc\\', null],
   ]) {
     vm.runInContext("_this._global_store._bridge.runs.r8.status = " + JSON.stringify(text), ctx)
     const rows = parsed_rows(realMarked.parse(vm.runInContext('vault_runs_table()', ctx)))
@@ -722,8 +725,9 @@ check('nothing else saved the store (a welcome with a provisioned store, the mar
 // text around it escaped as before; a refused reference, or a cell without the app's seams, is
 // literal as before; a table with such cells parses through the REAL Marked with the app's vendored
 // table extension (a fresh instance, not the app's global one) into the expected cells. The table rewrite wires the anchors it inserts
-// (the app's own anchor pass runs at the item's render, not here)
-{
+// (the app's own anchor pass runs at the item's render, not here); skipped with the real parser
+// rows above when the app checkout is not reachable
+if (realMarked) {
   const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
   const { Marked } = require(path.join(app, 'node_modules', 'marked'))
   const tables = require(path.join(app, 'src', 'vendor', 'marked-extended-tables.js')).default
@@ -742,6 +746,15 @@ check('nothing else saved the store (a welcome with a provisioned store, the mar
   check('cell: the parsed table keeps its two cells, the pipes literal and the anchors intact', cells.length, 2)
   check('cell: the first cell', cells[0], 'rg todo | head <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;notes&#37;2FA&#37;26B" title="notes&#47;A&#38;B" data-wiki-link>A&#39;s &#38; B</a> x')
   check('cell: the second cell', cells[1], '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;a" title="a" data-wiki-link>b</a> | c')
+  // a status line with a reference, through the row builder and the real parser: the sub-row's
+  // one cell holds the anchor with the text around it escaped as before, and parsed it is the one
+  // anchor inside the cell spanning the seven columns, the pipe and the markup around it literal
+  vm.runInContext("_this._global_store._bridge.runs = {r8: {item: 'chat-id', persona: 'p', started: " + clock.now + ", worktree: null, status: 'see [[docs/x|the guide]] | <x>'}}", ctx)
+  const anchor = '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>the guide</a>'
+  check('rows: a status line with a wiki reference is a sub-row whose span holds the anchor, the text around it escaped', vm.runInContext("vault_runs_rows(_this._global_store._bridge, {}, " + clock.now + ", id => 'stop')", ctx), [[mark('#chat/topic'), 'p', 'r8', '0s', '(read-only)', '·', 'stop'], sub(`see ${anchor} \\| \\<x\\>`)])
+  const linked_rows = parsed_rows(realMarked.parse(vm.runInContext('vault_runs_table()', ctx)))
+  check('real parser: the one anchor sits inside the cell spanning the seven columns under the main row', [linked_rows.length, linked_rows[0].length, linked_rows[1].map(([attrs]) => attrs), (linked_rows[1][0][1].match(/<a /g) ?? []).length, unspan(linked_rows[1][0][1])], [2, 7, ['colspan=7 align=left'], 1, `see ${anchor} | &lt;x&gt;`])
+  vm.runInContext('_this._global_store._bridge.runs = {}', ctx)
   delete env.window._wiki_link_regexp
   delete env.window._wiki_link_html
   const anchors = [{}, {}]
@@ -752,7 +765,7 @@ check('nothing else saved the store (a welcome with a provisioned store, the mar
   check('the table rewrite wires every wiki anchor with the click stop', [anchors.every(a => typeof a.onclick === 'function'), event.stopped], [true, 2])
   delete runs_div.querySelectorAll
   delete runs_div._vault_html
-}
+} else console.log('skip wiki link rows (the app checkout is not reachable; set MIND_PAGE_DIR)')
 
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
 console.log('all checks passed')
