@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // plain-node table for the #vault item (vault.md): the row builder over the REAL `table` helper of
 // util/core.js (extracted by name), so a read-only run (no worktree) renders, a stop flag or a
-// bridge-reported stop shows "stopping…", and the empty and missing listings render their notes.
+// bridge-reported stop shows "stopping…", a status line or an outcome is a second row of one cell
+// spanning the columns, and the empty and missing listings render their notes.
 // run: node external/mind.items/tests/vault_item_test.js
 const fs = require('fs')
 const path = require('path')
@@ -151,7 +152,16 @@ check('rows: an unknown item id shows the id; a bridge-reported stop shows stopp
   ['other-id', 'fable_wt', 'r2', '65s', 'chat_x', '·', 'stopping…'])
 const sup = { r1: { status: 'supervisor: reviewing the diff', progress: 0.25, notes: [{ t: now, text: 'looks fine <b>' }] } }
 const withStatus = vm.runInContext("(() => { const b = _this._global_store._bridge; b.runs.r2.status = 'Reading file docs/x.md'; b.runs.r2.log = ['00:00:01 Reading file docs/x.md', '00:00:02 Executing bash: ls']; return vault_runs_rows(b, {}, " + now + ", id => 'stop', " + JSON.stringify(sup) + ") })()", ctx)
-check('rows: the supervisor status with its progress overrides the bridge activity; a bridge status shows as is', [withStatus[0][5], withStatus[1][5]], ['25% supervisor\\: reviewing the diff', 'Reading file docs\\/x\\.md'] /* the parser's escapes, undone at render */)
+// an entry's free text: a second row of ONE cell (the table helper spans it over the columns), the
+// text in the span the item's style wraps at the visible width and keeps in view
+const sub = text => [`<span>${text}</span>`]
+const unspan = html => html.match(/^<span>([\s\S]*)<\/span>$/)?.[1] ?? 'NO SPAN: ' + html
+check('rows: a status line is a second row of ONE cell under its run; the main row keeps the progress alone, or a dot; the supervisor status overrides the bridge activity', withStatus, [
+  [mark('#chat/topic'), 'fable', 'r1', '5s', '(read-only)', '25%', 'stop'],
+  sub('supervisor\\: reviewing the diff'), /* the parser's escapes, undone at render */
+  ['other-id', 'fable_wt', 'r2', '65s', 'chat_x', '·', 'stopping…'],
+  sub('Reading file docs\\/x\\.md'),
+])
 const details = vm.runInContext("vault_runs_details(_this._global_store._bridge, " + JSON.stringify(sup) + ")", ctx)
 check('details: one block per run with a log tail or notes, escaped; the summary shows the hand cursor and keeps its click from the item', details, '<details data-run="r1"><summary style="cursor:pointer" onclick="event.stopPropagation()">r1 log</summary><pre>note looks fine &lt;b&gt;</pre></details>\n<details data-run="r2"><summary style="cursor:pointer" onclick="event.stopPropagation()">r2 log</summary><pre>00:00:01 Reading file docs/x.md\n00:00:02 Executing bash: ls</pre></details>')
 vm.runInContext("delete _this._global_store._bridge.runs.r2.status; delete _this._global_store._bridge.runs.r2.log", ctx)
@@ -237,7 +247,7 @@ check('a tick after two seconds advances the elapsed column without a store deli
 // force on a remote delivery (design 2026-09-19: fresh empty elements painted before this script
 // refilled them, the item collapsed for a frame); another store's change is not this item's
 const changed = vm.runInContext("_this._global_store._bridge.runs.r7.status = 'Reading file x'; _on_global_store_change('vault-id', true)", ctx)
-check('a store change rewrites the listing in place and reports it rendered', [changed, runs_div.writes, runs_div.innerHTML.includes('| r7 | 5s | (read-only) | Reading file x |')], [true, 3, true])
+check('a store change rewrites the listing in place and reports it rendered: the status line a full-span row under its run', [changed, runs_div.writes, runs_div.innerHTML.includes("| r7 | 5s | (read-only) | · | [stop](stop_run('r7')) |\n| <span>Reading file x</span> |||||||")], [true, 3, true])
 check('a foreign store\'s change rewrites nothing and reports nothing', [vm.runInContext("_on_global_store_change('other-id', true)", ctx), runs_div.writes], [undefined, 3])
 vm.runInContext("_this._global_store._bridge.runs = {}", ctx)
 tasks[0].fn()
@@ -249,36 +259,51 @@ runs_div.missing = false
 runs_div.replaced = { writes: 0, _html: '', get innerHTML() { return this._html }, set innerHTML(v) { this.writes++; this._html = v } }
 vm.runInContext(script[1], ctx) // the item re-rendered: a fresh element, the script runs again
 check('a re-render renders the fresh element and re-registers the task', [runs_div.replaced.writes, tasks.length], [1, 2])
-// the real parser, when the app's dependency is reachable (the main checkout; a review worktree
-// leaves external/mind.page empty): one body row per run, the stamp as a separate paragraph
+// the real parser, when the app checkout is reachable (the sibling mind.page; MIND_PAGE_DIR names
+// another, which then MUST load; a review worktree leaves external/mind.page empty), built as the
+// app's global parser is (client-globals.ts: marked with the vendored marked-extended-tables,
+// whose colspan syntax the table helper's repeated pipes are): a main row per run, its status
+// line as a second row of one cell spanning the columns, the stamp as a separate paragraph
+const app = process.env.MIND_PAGE_DIR ?? path.join(__dirname, '..', '..', 'mind.page')
 let realMarked = null
-for (const dir of [path.join(__dirname, '..', '..', 'mind.page', 'node_modules', 'marked'), process.env.MARKED_DIR].filter(Boolean)) {
-  try { realMarked = require(dir).marked; break } catch (e) { /* the next candidate */ }
+try {
+  const { Marked } = require(path.join(app, 'node_modules', 'marked'))
+  const tables = require(path.join(app, 'src', 'vendor', 'marked-extended-tables.js')).default
+  realMarked = new Marked({ gfm: true })
+  realMarked.use(tables())
+} catch (e) {
+  if (process.env.MIND_PAGE_DIR) throw e
+  console.log('skip real parser rows (the app checkout is not reachable; set MIND_PAGE_DIR)')
 }
-if (!realMarked) console.log('skip real parser rows (marked not reachable; set MARKED_DIR)')
+// the body rows of a parsed table, each a list of [attributes, content] cells
+const parsed_rows = html => Array.from((html.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? '').matchAll(/<tr>([\s\S]*?)<\/tr>/g), r => Array.from(r[1].matchAll(/<td([^>]*)>([\s\S]*?)<\/td>/g), c => [c[1].trim(), c[2]]))
 if (realMarked) {
   vm.runInContext("_this._global_store._bridge.runs = {r8: {item: 'chat-id', persona: 'p', started: " + clock.now + ", worktree: null, status: 'Executing bash: rg todo | head <x>'}}", ctx)
   const html = realMarked.parse(vm.runInContext('vault_runs_table()', ctx))
-  const body = html.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? ''
-  check('real parser: one body row for one run', (body.match(/<tr>/g) ?? []).length, 1)
-  check('real parser: seven cells, the status with its pipe and markup kept as text, the stop link last', [(body.match(/<td[ >]/g) ?? []).length, body.includes('<td align="left">Executing bash: rg todo | head &lt;x&gt;</td>'), /<td align="left"><a href="stop_run\('r8'\)">stop<\/a><\/td>\s*<\/tr>\s*$/.test(body)], [7, true, true])
-  // literal status text: bare and escaped pipes (any backslash parity), backticks, emphasis, a
-  // link, HTML, quotes, and line breaks all render as the status text itself, in one cell
+  const rows = parsed_rows(html)
+  check('real parser: one run is a main row of seven cells ending with the stop link, then ONE cell spanning the seven columns with the status in its span, its pipe and markup kept as text', [rows.length, rows[0].length, rows[0][6], rows[1]], [2, 7, ['align=left', `<a href="stop_run('r8')">stop</a>`], [['colspan=7 align=left', '<span>Executing bash: rg todo | head &lt;x&gt;</span>']]])
+  // literal status text: bare and escaped pipes (any backslash parity; a trailing one before the
+  // span's own pipes), backticks, emphasis, a link, HTML, quotes, line breaks, and the extension's
+  // rowspan marker all render as the status text itself, in one full-span cell
   const visible = html => html.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
   for (const [text, shown] of [
     ["Executing bash: grep 'foo\\|bar' file.txt", null],
     ['Executing bash: grep "a\\\\|b" f', null],
+    ['Executing bash: cat x |', null],
     ['Executing bash: echo `x` **y** _z_ [q](u) ~~w~~ a\\b & <i>t</i> #h', null],
     ['Reading file docs/README.md ... done.', null],
     ['line one\r\nline two\rline three\nline four', 'line one line two line three line four'],
+    ['^', null],
   ]) {
     vm.runInContext("_this._global_store._bridge.runs.r8.status = " + JSON.stringify(text), ctx)
-    const row = realMarked.parse(vm.runInContext('vault_runs_table()', ctx)).match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? ''
-    const cells = Array.from(row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g), m => m[1])
-    check(`real parser: ${JSON.stringify(text)} is one literal cell with the stop link last`, [cells.length, /<[a-z]/.test(cells[5]), visible(cells[5]), cells[6]], [7, false, shown ?? text, `<a href="stop_run('r8')">stop</a>`])
+    const rows = parsed_rows(realMarked.parse(vm.runInContext('vault_runs_table()', ctx)))
+    const span = unspan(rows[1][0][1])
+    check(`real parser: ${JSON.stringify(text)} is one literal full-span cell under the seven-cell row with the stop link last`, [rows.length, rows[0].length, rows[0][6][1], rows[1].map(([attrs]) => attrs), /<[a-z]/.test(span), visible(span)], [2, 7, `<a href="stop_run('r8')">stop</a>`, ['colspan=7 align=left'], false, shown ?? text])
   }
   check('real parser: the stamp is a paragraph after the table', /<\/table>\s*<p><em>listed by h at .* \(\d+s ago\)<\/em><\/p>/.test(html), true)
-  check('real parser: the item cell carries the clickable tag markup', body.includes("onmousedown=\"_handleTagClick('vault-id','#chat/topic','#chat/topic',event)\""), true)
+  check('real parser: the item cell carries the clickable tag markup', html.includes("onmousedown=\"_handleTagClick('vault-id','#chat/topic','#chat/topic',event)\""), true)
+  vm.runInContext('delete _this._global_store._bridge.runs.r8.status', ctx)
+  check('real parser: a run without a status line is its main row alone', parsed_rows(realMarked.parse(vm.runInContext('vault_runs_table()', ctx))).map(r => r.length), [7])
 }
 
 // the log tails: their own element, rewritten only when the content changes, with the open
@@ -314,19 +339,21 @@ runs_div.replaced = null
 vm.runInContext("_this._global_store = {_bridge: {runs: {}, worktrees: {chat_a1: {item: 'chat-id', generation: 1, commits: 2, result: null, decided: 0}, chat_b2: {item: 'other-id', generation: 2, commits: 0, result: 'refused: test.sh failed (exit 3) | see log', decided: " + now + "}, chat_c3: {item: 'other-id', generation: 1, commits: 1, result: 'refused: chat_c3 has a running run; decide again when it ends', decided: " + (now - 5) + "}}}, _owner: {stop: {}, decide: {chat_b2: {decision: 'accepted', t: " + now + "}, chat_c3: {decision: 'accepted', t: " + now + "}}}}; _this.global_store = _this._global_store", ctx)
 const proposalLink = "(n, d, t) => `[${t}](${d}:${n})`"
 const prows = vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, " + proposalLink + ")", ctx)
-check('proposal rows: the item cell, the worktree, its commits, the state (a chat\'s), the links; a completed refusal shows the outcome WITH the links (retry or switch); a decision the bridge has not answered yet is in flight', prows, [
+check('proposal rows: the item cell, the worktree, its commits, the state (a chat\'s), the links; a completed refusal is the entry\'s second row (one cell, spanned over the columns) WITH the links (retry or switch); a decision the bridge has not answered yet is in flight', prows, [
   [mark('#chat/topic'), 'chat_a1', '2', 'chat', '[approve](accepted:chat_a1) · [reject](rejected:chat_a1)'],
-  ['other-id', 'chat_b2', '0', 'chat', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log [approve](accepted:chat_b2) · [reject](rejected:chat_b2)'],
-  ['other-id', 'chat_c3', '1', 'chat', 'refused\\: chat\\_c3 has a running run\\; decide again when it ends accepted…'],
+  ['other-id', 'chat_b2', '0', 'chat', '[approve](accepted:chat_b2) · [reject](rejected:chat_b2)'],
+  sub('refused\\: test\\.sh failed \\(exit 3\\) \\| see log'),
+  ['other-id', 'chat_c3', '1', 'chat', 'accepted…'],
+  sub('refused\\: chat\\_c3 has a running run\\; decide again when it ends'),
 ])
 vm.runInContext("_this._global_store._bridge.worktrees.chat_a1.result = 'refused: chat_a1 is already decided'", ctx)
-check('a supervisor refusal (no owner flag) is shown with the links', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][4], 'refused\\: chat\\_a1 is already decided [approve](accepted:chat_a1) · [reject](rejected:chat_a1)')
+check('a supervisor refusal (no owner flag) is shown under the row, the links kept', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx).slice(0, 2), [[mark('#chat/topic'), 'chat_a1', '2', 'chat', '[approve](accepted:chat_a1) · [reject](rejected:chat_a1)'], sub('refused\\: chat\\_a1 is already decided')])
 vm.runInContext("decide_worktree('chat_b2', 'rejected')", ctx)
-check('after a refusal the owner can switch the decision: a new flag, newer than the outcome, is in flight', [vm.runInContext('_this.global_store._owner.decide.chat_b2.decision', ctx), vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this.global_store._owner.decide, " + proposalLink + ")", ctx)[1][4]], ['rejected', 'refused\\: test\\.sh failed \\(exit 3\\) \\| see log rejected…'])
+check('after a refusal the owner can switch the decision: a new flag, newer than the outcome, is in flight, the outcome still under the row', [vm.runInContext('_this.global_store._owner.decide.chat_b2.decision', ctx), vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this.global_store._owner.decide, " + proposalLink + ")", ctx).slice(2, 4)], ['rejected', [['other-id', 'chat_b2', '0', 'chat', 'rejected…'], sub('refused\\: test\\.sh failed \\(exit 3\\) \\| see log')]])
 // task worktrees (design mind_vault_item 15): the state column is the task's marker word, the
 // links are the decisions the bridge admits (its rule, published per decision: no rule here), a
-// row admitting nothing shows why (beside the outcome of a flag it refused; an unreadable
-// record likewise), and a flag still unanswered is in flight whatever the row admits
+// row admitting nothing shows a dot and why under it (after the outcome of a flag it refused; an
+// unreadable record likewise), and a flag still unanswered is in flight whatever the row admits
 const why = w => `agent-held (${w}); decide after it hands back`
 vm.runInContext("Object.assign(_this._global_store._bridge.worktrees, {" +
   "chat_t1: {item: 'chat-id', generation: 1, commits: 3, result: 'refused: " + why('working') + "', decided: " + now + ", task: {held: 'agent', reason: 'working'}, admits: {accepted: '" + why('working') + "', rejected: '" + why('working') + "'}}, " +
@@ -335,11 +362,13 @@ vm.runInContext("Object.assign(_this._global_store._bridge.worktrees, {" +
   "chat_t4: {item: 'other-id', generation: 1, commits: 1, result: null, decided: 0, task: {held: null, reason: 'unreadable'}, admits: {accepted: 'task record unreadable; see the bridge log', rejected: 'task record unreadable; see the bridge log'}}, " +
   "chat_t5: {item: 'other-id', generation: 1, commits: 1, result: null, decided: 0, task: {held: 'agent', reason: 'checkin'}, admits: {accepted: '" + why('checkin') + "', rejected: '" + why('checkin') + "'}}}); " +
   "_this._global_store._owner.decide.chat_t1 = {decision: 'rejected', t: " + now + "}; _this._global_store._owner.decide.chat_t5 = {decision: 'rejected', t: " + now + "}", ctx)
-check('task rows: the state column, the admitted links only, the why in place of none (with a refused flag\'s outcome), an unreadable record, a flag in flight', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, " + proposalLink + ").slice(3)", ctx), [
-  [mark('#chat/topic'), 'chat_t1', '3', 'working', 'refused\\: agent\\-held \\(working\\)\\; decide after it hands back agent\\-held \\(working\\)\\; decide after it hands back'],
+check('task rows: the state column, the admitted links only, a dot and the why under the row for none (after a refused flag\'s outcome), an unreadable record, a flag in flight', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, _this._global_store._owner.decide, " + proposalLink + ").slice(6)", ctx), [
+  [mark('#chat/topic'), 'chat_t1', '3', 'working', '·'],
+  sub('refused\\: agent\\-held \\(working\\)\\; decide after it hands back · agent\\-held \\(working\\)\\; decide after it hands back'),
   ['other-id', 'chat_t2', '1', 'taken', '[reject](rejected:chat_t2)'],
   ['other-id', 'chat_t3', '1', 'proposal', '[approve](accepted:chat_t3) · [reject](rejected:chat_t3)'],
-  ['other-id', 'chat_t4', '1', 'unreadable', 'task record unreadable\\; see the bridge log'],
+  ['other-id', 'chat_t4', '1', 'unreadable', '·'],
+  sub('task record unreadable\\; see the bridge log'),
   ['other-id', 'chat_t5', '1', 'checkin', 'rejected…'],
 ])
 vm.runInContext("for (const name of ['chat_t1', 'chat_t2', 'chat_t3', 'chat_t4', 'chat_t5']) delete _this._global_store._bridge.worktrees[name]; delete _this._global_store._owner.decide.chat_t1; delete _this._global_store._owner.decide.chat_t5", ctx)
@@ -367,9 +396,11 @@ vm.runInContext("_this._global_store._bridge.root = '/Users/olcan/vault'", ctx)
 check('the rows carry the links once the listing names the root', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][1], '<a href="vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">chat_a1</a> · <a href="vscode-insiders://olcan.auto-open-obsidian/open?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">dir</a>')
 if (realMarked) {
   // the table reaches the page through the real parser: the anchors survive in the cell (a
-  // markdown link would have rendered without the app's click handler and opened the editor)
-  const cells = Array.from((realMarked.parse(vm.runInContext('vault_proposals_table()', ctx)).match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? '').matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g), m => m[1])
-  check('real parser: the worktree cell keeps both anchors, the click stopped and the query escaped', cells[1], '<a href="vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">chat_a1</a> · <a href="vscode-insiders://olcan.auto-open-obsidian/open?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">dir</a>')
+  // markdown link would have rendered without the app's click handler and opened the editor), and
+  // the outcome is the entry's second row, one cell spanning the five columns
+  const rows = parsed_rows(realMarked.parse(vm.runInContext('vault_proposals_table()', ctx)))
+  check('real parser: the worktree cell keeps both anchors, the click stopped and the query escaped', rows[0][1][1], '<a href="vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">chat_a1</a> · <a href="vscode-insiders://olcan.auto-open-obsidian/open?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">dir</a>')
+  check('real parser: the outcome is one cell spanning the five columns under its row', [rows[0].length, rows[1]], [5, [['colspan=5 align=left', '<span>refused: chat_a1 is already decided</span>']]])
 }
 vm.runInContext("delete _this._global_store._bridge.root", ctx)
 vm.runInContext("decide_worktree('chat_a1', 'rejected')", ctx)
@@ -435,9 +466,9 @@ const w_queued = "{'chat2-id': {worker: 'w0000aaaa', phase: 'queued', run: null,
 bridge('{}', w_queued)
 check('a queued worker has a compact row', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa | 5s | chat_two | queued | · |`])
 bridge(`{${s3}}`, w_queued)
-check('under its chat\'s supervisor turn the worker keeps its row beside the supervisor\'s', table().map(r => r.split(' | ')[2]), ['w0000aaaa', 's3'])
+check('under its chat\'s supervisor turn the worker keeps its row beside the supervisor\'s (its status line the row under it)', table().map(r => r.split(' | ')[2] ?? r), ['w0000aaaa', 's3', '| <span>Thinking</span> |||||||'])
 bridge(`{${w1}}`, "{'chat2-id': {worker: 'w0000aaaa', phase: 'executing', run: 'w1', worktree: 'chat_two', since: " + (clock.now - 5000) + "}}")
-check('an executing worker is its run\'s row only (no duplicate)', table().map(r => r.split(' | ')[2]), ['w1'])
+check('an executing worker is its run\'s row only (no duplicate), with its status line under it', table().map(r => r.split(' | ')[2] ?? r), ['w1', '| <span>Reading x</span> |||||||'])
 bridge('{}', "{'chat2-id': {worker: 'w0000aaaa', phase: 'finishing', run: 'w1', worktree: 'chat_two', since: " + (clock.now - 5000) + "}}")
 check('a finishing worker (delisted) has its row back', table(), [`| ${mark('#chat/two')} | worker | w0000aaaa | 5s | chat_two | finishing | · |`])
 bridge('{}')
@@ -693,7 +724,6 @@ check('nothing else saved the store (a welcome with a provisioned store, the mar
 // table extension (a fresh instance, not the app's global one) into the expected cells. The table rewrite wires the anchors it inserts
 // (the app's own anchor pass runs at the item's render, not here)
 {
-  const app = path.join(__dirname, '..', '..', 'mind.page')
   const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
   const { Marked } = require(path.join(app, 'node_modules', 'marked'))
   const tables = require(path.join(app, 'src', 'vendor', 'marked-extended-tables.js')).default

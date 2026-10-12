@@ -14,6 +14,13 @@
 update_vault_runs() // the first update synchronously (on script eval, i.e. at every render)
 dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column ticks every second
 </script>
+<style>
+#item .runs, #item .proposals { overflow-x: auto; container-type: inline-size } /* a table wider than the item scrolls inside its own element instead of widening the item; the element is the width reference (cqw) of the full-span cells below */
+#item .runs :is(td, th), #item .proposals :is(td, th) { white-space: nowrap } /* the main rows hold short words and links: one line each, whatever the width */
+#item .runs td[colspan], #item .proposals td[colspan] { white-space: normal; overflow-wrap: anywhere; font-size: 90%; line-height: 1.4; opacity: 0.8; padding: 0 5px 4px 1.5em } /* an entry's free text (a status line, an outcome; design mind_vault_item 17): one cell spanning every column, wrapping at any point, read as the entry's sub-line */
+#item .runs td[colspan] > span, #item .proposals td[colspan] > span { display: block; position: sticky; left: 1.5em; max-width: calc(100cqw - 1.5em - 5px) } /* the text wraps at the element's VISIBLE width and stays in view while a wide table scrolls under it */
+#item .logs pre { overflow-x: auto } /* a log tail's long lines scroll inside the block */
+</style>
 ```
 ```js:js_removed
 // this item's hidden store carries three subtrees: _bridge, written by the vault bridge
@@ -382,8 +389,17 @@ const vault_cell = text => {
   return out + literal(flat.slice(last))
 }
 
+// a table entry: the main row and, when there is one, the entry's free text (a status line, an
+// outcome) as a second row of ONE cell, which the table helper extends with repeated pipes over
+// every column (the colspan syntax of marked-extended-tables, installed on the app's global parser
+// used below). The main row's cells are short words and links that the item's style keeps on one
+// line each (nowrap; a table wider than the item scrolls inside its element), and the full-span
+// cell wraps at any point under its entry, its span the style's handle to wrap the text at the
+// item's visible width and keep it in view while the table scrolls (design mind_vault_item 17)
+const vault_entry = (row, detail) => (detail ? [row, [`<span>${detail}</span>`]] : [row])
+
 // the table rows for a listing (side-effect-free; `stop` maps run ids to flags, `link` renders one,
-// `sup` maps run ids to supervisor entries)
+// `sup` maps run ids to supervisor entries): a run's status line is its entry's second row
 function vault_runs_rows(bridge, stop, now, link, sup = {}) {
   const queued = entries(bridge?.queued ?? {}).map(([itemId, q]) => [
     vault_item_cell(itemId),
@@ -409,18 +425,18 @@ function vault_runs_rows(bridge, stop, now, link, sup = {}) {
       String(w.phase ?? 'queued'),
       '·',
     ])
-  return queued.concat(workers, entries(runs).map(([id, run]) => {
+  return queued.concat(workers, entries(runs).flatMap(([id, run]) => {
     const progress = vault_run_progress(sup[id])
-    const status = vault_run_status(run, sup[id]) || '·' // no activity yet
-    return [
+    const status = String(vault_run_status(run, sup[id])).trim() // '' before the first activity
+    return vault_entry([
       vault_item_cell(run.item),
       run.persona,
       id,
       Math.round((now - run.started) / 1000) + 's',
       run.worktree ?? '(read-only)', // nonempty: the table helper needs a value in every column
-      (progress === null ? '' : Math.round(progress * 100) + '% ') + vault_cell(status),
+      progress === null ? '·' : Math.round(progress * 100) + '%', // the line itself is the row below
       run.stopping || stop?.[id] ? 'stopping…' : link(id),
-    ]
+    ], status && vault_cell(status))
   }))
 }
 
@@ -519,18 +535,20 @@ function vault_render(selector, render) {
 // answer per decision, `admits`, and enforces it, so no rule lives here; a row it admits nothing
 // on shows why instead), or the decision in flight (the owner's flag newer than the outcome the
 // bridge answered: the links return once the bridge has answered, so a refused decision can be
-// retried or switched) (side-effect-free; `decide` maps worktrees to the owner's flags, `link`
-// renders one action)
+// retried or switched); the outcome and the why are the entry's second row (vault_entry), the
+// links or the decision in flight the main row's last cell (side-effect-free; `decide` maps
+// worktrees to the owner's flags, `link` renders one action)
 function vault_proposal_rows(bridge, decide, link) {
-  return entries(bridge?.worktrees ?? {}).map(([name, wt]) => {
+  return entries(bridge?.worktrees ?? {}).flatMap(([name, wt]) => {
     const worktree = vault_review_links(name, bridge?.root)
     const flag = decide?.[name]
-    const outcome = wt.result ? vault_cell(wt.result) : ''
     const inFlight = !!flag && !(wt.decided >= flag.t)
     const admits = wt.admits ?? {} // an older bridge admits both
     const links = [['accepted', 'approve'], ['rejected', 'reject']].filter(([d]) => admits[d] == null).map(([d, text]) => link(name, d, text))
-    const actions = inFlight ? `${flag.decision}…` : links.length ? links.join(' · ') : vault_cell(admits.accepted ?? admits.rejected)
-    return [vault_item_cell(wt.item), worktree, String(wt.commits ?? 0), wt.task?.reason ?? 'chat', [outcome, actions].filter(Boolean).join(' ')]
+    const actions = inFlight ? `${flag.decision}…` : links.length ? links.join(' · ') : '·' // the why is the row below
+    const why = inFlight || links.length ? '' : admits.accepted ?? admits.rejected
+    const detail = [wt.result, why].filter(Boolean).map(vault_cell).join(' · ')
+    return vault_entry([vault_item_cell(wt.item), worktree, String(wt.commits ?? 0), wt.task?.reason ?? 'chat', actions], detail)
   })
 }
 
