@@ -20,7 +20,6 @@ dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column tic
 #item .runs td[colspan], #item .proposals td[colspan] { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; opacity: 0.9; padding: 0 5px 4px 1.5em } /* an entry's free text (a status line, an outcome; design mind_vault_item 17): one cell spanning every column, wrapping at any point, read as the entry's sub-line; the rows' own size (a smaller one dimmed the text the row exists to show on a phone) */
 #item .runs td[colspan] > span, #item .proposals td[colspan] > span { display: block; position: sticky; left: 1.5em; max-width: calc(100cqw - 1.5em - 5px) } /* the text wraps at the element's VISIBLE width and stays in view while a wide table scrolls under it */
 #item .logs pre { overflow-x: auto } /* a log tail's long lines scroll inside the block */
-#item .runs, #item .proposals, #item .logs pre { scrollbar-width: thin } /* a classic scrollbar (Linux, Windows) is a slim strip under the rows, not a full one; an overlay one (macOS, iOS) shows nothing either way */
 </style>
 ```
 ```js:js_removed
