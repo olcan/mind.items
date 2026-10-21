@@ -16,6 +16,10 @@
     <input type="datetime-local" onchange="__onchange__" />
     <div class="button snooze" onclick="__onclick__">snooze</div>
   </div>
+  <div class="notify">
+    <label><input type="checkbox" onchange="__onnotify__" />notify on unsnooze</label>
+    <span class="hint"></span>
+  </div>
 </div>
 <style>
   .snooze-modal {
@@ -31,7 +35,7 @@
     height: 40px;
     box-sizing: border-box;
   }
-  .snooze-modal input {
+  .snooze-modal .custom input {
     border: 1px solid #ddd;
     border-radius: 5px;
     padding: 5px;
@@ -71,5 +75,34 @@
     border-color: #ddd;
     color: #999;
     cursor: not-allowed;
+  }
+  .snooze-modal .notify {
+    margin-top: 15px;
+    font-size: 15px;
+    color: #666;
+  }
+  .snooze-modal .notify label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .snooze-modal .notify input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #59f;
+    cursor: pointer;
+  }
+  .snooze-modal .notify .hint {
+    margin-left: 8px;
+    font-weight: 400;
+    color: #999;
+  }
+  .snooze-modal .notify .hint:empty {
+    display: none;
   }
 </style>

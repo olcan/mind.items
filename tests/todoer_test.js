@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', '_snooze_record'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -101,6 +101,10 @@ const picked =
     '_held',
     '_on_welcome',
     '_unsnooze',
+    '_snooze_close',
+    '_snooze',
+    '_on_snooze_notify',
+    '_snooze_hint',
     '_sideways',
     '_grab_on_sideways_touch',
     '_delegated_view',
@@ -125,6 +129,9 @@ const picked =
     '_state_key',
     '_notify_step',
     '_notify_change',
+    '_notify_todo',
+    '_unsnooze_step',
+    '_notify_unsnooze',
     '_notification_of',
     '_notify_show',
     '_notify_click',
@@ -144,7 +151,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -905,6 +912,129 @@ check('sleep: the sleeper\'s focus takes the election back', JSON.parse(storage.
 storage.clear()
 context.__items = []
 delete context.__todos.p
+// THE SNOOZE DIALOG'S BOX (the owner's ask of 2026-10-21: a notification when a snoozed todo comes
+// back): the confirm writes the box as the todo's `notify` beside its snooze time, in one save of
+// the todo's own store; the sweep's unsnooze keeps the flag, the owner's drag out of the snoozed
+// list removes it
+{
+  const closed = []
+  context._modal_close = (modal, answer) => closed.push([modal, answer])
+  context._todoer.store._snooze_modal = 'the-modal'
+  const dialog = { box: { checked: true } }
+  context.document.querySelector = sel => (sel == '.snooze-modal .notify input' ? dialog.box : null)
+  _snooze_close(5000)
+  dialog.box = { checked: false }
+  _snooze_close(6000)
+  dialog.box = null // a dialog without the box
+  _snooze_close(7000)
+  check('confirm: the answer is the time and the box, read before the dialog closes', closed, [['the-modal', { time: 5000, notify: true }], ['the-modal', { time: 6000, notify: false }], ['the-modal', { time: 7000, notify: false }]])
+  delete context.document.querySelector
+  delete context._modal_close
+  const snoozable = { global_store: {} }
+  _snooze(snoozable, { time: 5000, notify: true })
+  check('confirm: a checked box writes the flag beside the snooze time', snoozable.global_store, { _todoer: { snoozed: 5000, notify: true } })
+  _snooze(snoozable, { time: 9000, notify: false })
+  check('confirm: an unchecked box writes the time alone, removing an earlier flag', snoozable.global_store, { _todoer: { snoozed: 9000 } })
+  // the drop's handler and the dialog's markup (the render, which the table cannot run): pinned by the sources
+  const modal_html = fs.readFileSync(path.join(__dirname, '..', 'todoer-snooze-modal.html'), 'utf8')
+  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {12}else _snooze\(item, answer\)\n/.test(src), /\n {14}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
+  check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\n\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
+  check('drag: the snoozed list\'s bin unsnoozes as the owner\'s own act', /\n {10}_unsnooze\(item, true\) \/\//.test(src), true)
+  const swept = { global_store: { _todoer: { snoozed: 100, notify: true } } }
+  const dragged = { global_store: { _todoer: { snoozed: 100, notify: true } } }
+  context.__now = 200
+  _unsnooze(swept)
+  _unsnooze(dragged, true)
+  check('unsnooze: the sweep\'s keeps the flag, the owner\'s drag removes it with the unsnooze', [swept.global_store._todoer, dragged.global_store._todoer], [{ snoozed: 0, notify: true, unsnoozed: 200 }, { snoozed: 0, unsnoozed: 200 }])
+}
+// one decision for a todo's snooze: the snooze this tab saw (its time) ended BY ITS TIME (the
+// devices' clocks within the skew), the flag still set, in the main list, this device's permission
+{
+  const T = 1_000_000_000
+  const SKEW = vm.runInContext('UNSNOOZE_SKEW_MS', context)
+  const ended = (more = {}) => _unsnooze_step({ prev: T, snoozed: 0, notify: true, list: 'main', now: T, permission: 'granted', ...more })
+  check('unsnooze step: a snooze that ended by its time with the box set notifies', ended(), 'notify')
+  check('unsnooze step: still (or again) snoozed', ended({ snoozed: T + 1000 }), 'snoozed')
+  check('unsnooze step: no snooze seen (a plain todo, one ended before the baseline, an end already compared)', ended({ prev: 0 }), 'not snoozed')
+  check('unsnooze step: without the flag (an unchecked box, the owner\'s drag)', ended({ notify: undefined }), 'no flag')
+  check('unsnooze step: an end within the clocks\' skew before the time counts, an earlier one is no reminder (a bridge hand-back)', [ended({ now: T - SKEW }), ended({ now: T - SKEW - 1 })], ['notify', 'ended early'])
+  check('unsnooze step: a delegated todo is not in the main list', ended({ list: 'delegated' }), 'not in the main list')
+  check('unsnooze step: this device\'s permission (no /notify reason: the box is the opt-in)', [ended({ permission: 'default' }), ended({ permission: 'denied' })], ['permission default', 'permission denied'])
+}
+// the flow: the welcome's baseline records every todo's snooze; the sweep's unsnooze of a flagged
+// snooze notifies `[unsnoozed]` once across the hook, the row's render and the scan, with the
+// /notify setting OFF; nothing for an unflagged snooze, a todo unsnoozed before the welcome, a
+// delegated todo, an early end, or the owner's drag
+{
+  storage.clear()
+  context.__now = 5_000_000
+  const until = context.__now + 3 * 3_600_000 // a 3h snooze
+  const snoozed_todo = (id, todoer, state = null) => {
+    const item = todo(id, state)
+    item._global_store._todoer = todoer
+    item.global_store = item._global_store // one store, as the app's accessors give
+    return (context.__todos[id] = item)
+  }
+  const u1 = snoozed_todo('u1', { snoozed: until, notify: true })
+  const u2 = snoozed_todo('u2', { snoozed: until })
+  const u3 = snoozed_todo('u3', { snoozed: 0, notify: true }) // its snooze ended before the welcome
+  const u4 = snoozed_todo('u4', { snoozed: until, notify: true }, { held: 'agent', reason: 'delegated', epoch: 1 })
+  const u5 = snoozed_todo('u5', { snoozed: until + 3_600_000, notify: true })
+  const u6 = snoozed_todo('u6', { snoozed: until, notify: true })
+  context.__items = [u1, u2, u3, u4, u5, u6]
+  context._todoer._global_store = {} // /notify off: the box is the todo's own opt-in
+  _start_notifier()
+  check('snooze baseline: every todo\'s snooze time, 0 for none', context._todoer.store.snooze_seen, { u1: until, u2: until, u3: 0, u4: until, u5: until + 3_600_000, u6: until })
+  const before = notified.length
+  context.__now = until
+  ;[u1, u2, u4].forEach(item => _unsnooze(item)) // the sweep, its time come
+  _on_global_store_change('u1', true)
+  const shown = notified[notified.length - 1]
+  check('unsnoozed: the hook notifies, titled as a task\'s, kept on screen until clicked', [notified.length - before, shown.title, shown.options.tag, shown.options.body, shown.options.requireInteraction], [1, '[unsnoozed] fix the cache more', 'todoer:su1', '', true])
+  _notify_change(u1, { state: null, list: 'main', parent: null }) // the row's render after the hook
+  check('unsnoozed: the render and the scan add nothing (the flagless, the ended before the welcome, the delegated, the still snoozed)', [_scan_notify(), notified.length - before], [6, 1])
+  check('unsnoozed: the records after the scan', context._todoer.store.snooze_seen, { u1: 0, u2: 0, u3: 0, u4: 0, u5: until + 3_600_000, u6: until })
+  shown.onclick()
+  check('unsnoozed: the click targets the todo as its row\'s does', [shown.closed, context.__mindbox], [true, ['#tu1', { scroll: true, select: '#todo fix the cache' }]])
+  delete u5._global_store._todoer.snoozed // a bridge hand-back's patch: `snoozed` removed, the flag kept
+  check('unsnoozed: an end before the time is no reminder (a bridge hand-back: its own reason tells it)', _notify_unsnooze(u5), 'ended early')
+  _unsnooze(u6, true)
+  check('unsnoozed: the owner\'s drag out of the snoozed list, past the time, notifies nothing', _notify_unsnooze(u6), 'no flag')
+  // a todo first seen snoozed after the welcome is recorded then; this device's permission, the election
+  const u7 = snoozed_todo('u7', { snoozed: until + 60_000, notify: true })
+  check('unsnoozed: a snooze first observed after the welcome is recorded', [_notify_change(u7), context._todoer.store.snooze_seen.u7], ['off', until + 60_000])
+  context.__now = until + 60_000
+  _unsnooze(u7)
+  FakeNotification.permission = 'default'
+  check('unsnoozed: no permission on this device', _notify_unsnooze(u7), 'permission default')
+  FakeNotification.permission = 'granted'
+  check('unsnoozed: the skipped end stays skipped', _notify_unsnooze(u7), 'not snoozed')
+  const u8 = snoozed_todo('u8', { snoozed: until + 120_000, notify: true })
+  _notify_unsnooze(u8)
+  _unsnooze(u8)
+  storage.set(NOTIFIER_KEY, JSON.stringify({ id: 'tab-other', time: context.__now }))
+  check('unsnoozed: another window is elected', _notify_unsnooze(u8), 'another window')
+  storage.clear()
+  const u9 = snoozed_todo('u9', { snoozed: context.__now + 30_000, notify: true })
+  _notify_unsnooze(u9)
+  _unsnooze(u9) // the sweep on a device whose clock runs 30 s ahead of this one's
+  check('unsnoozed: an observer\'s clock behind the sweep\'s, within the skew', [_notify_unsnooze(u9), notified.length - before], ['notify', 2])
+  check('unsnoozed: the step before the welcome', (context._todoer.store.snooze_seen = undefined, _notify_unsnooze(u9)), 'baseline')
+  context._todoer.store.snooze_seen = {}
+  // two windows of one device sharing storage: the last-used one shows it, the other records it
+  const shared_snooze = [snoozed_todo('w9', { snoozed: until + 300_000, notify: true })]
+  const C = window_of('tab-c', shared_snooze)
+  const D = window_of('tab-d', shared_snooze)
+  C.start()
+  D.start()
+  D.listeners.focus()
+  context.__now = until + 300_000
+  _unsnooze(shared_snooze[0])
+  check('two windows: the unsnooze notifies in the last-used window only', [C.change(shared_snooze[0]), D.change(shared_snooze[0]), C.shown.length, D.shown, C.change(shared_snooze[0]), D.change(shared_snooze[0]), D.shown.length], ['unchanged', 'unchanged', 0, [{ title: '[unsnoozed] fix the cache more', tag: 'todoer:sw9' }], 'unchanged', 'unchanged', 1])
+  storage.clear()
+  context.__items = []
+  for (const id of ['u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8', 'u9', 'w9']) delete context.__todos[id]
+}
 
 ;(async () => {
   const task = { id: 'i1', name: 'task', saved_id: 's1' }
@@ -1112,6 +1242,52 @@ delete context.__todos.p
     context.Notification.permission = 'denied'
     check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
     check('/notify: nothing else was said', said, [])
+  }
+
+  // the snooze dialog's box: a check asks this device's permission when it was never asked (the
+  // box's click is the gesture), the hint following the answer; the hint tells a permission not
+  // granted (nothing before the ask while the box is unchecked: a check asks)
+  {
+    const hint = { innerText: 'stale' }
+    const box = { checked: false }
+    context.document.querySelector = sel => ({ '.snooze-modal .notify .hint': hint, '.snooze-modal .notify input': box })[sel] ?? null
+    let asks = 0
+    context.Notification = class {
+      static permission = 'default'
+      static async requestPermission() {
+        asks++
+        context.Notification.permission = 'granted'
+        return 'granted'
+      }
+    }
+    _snooze_hint()
+    check('box: never asked, unchecked: no hint (a check asks)', hint.innerText, '')
+    _on_snooze_notify({ target: box })
+    check('box: an uncheck asks nothing', [asks, hint.innerText], [0, ''])
+    box.checked = true
+    hint.innerText = 'pending'
+    _on_snooze_notify({ target: box })
+    check('box: a check asks this device from its own click, the hint waits for the answer', [asks, hint.innerText], [1, 'pending'])
+    await tick()
+    check('box: the answer granted, no hint', hint.innerText, '')
+    _on_snooze_notify({ target: box })
+    check('box: granted already, no second ask', asks, 1)
+    context.Notification.permission = 'default' // the prompt dismissed
+    context.Notification.requestPermission = async () => (asks++, 'default')
+    _on_snooze_notify({ target: box })
+    await tick()
+    check('box: a dismissed prompt is told while the box is checked', [asks, hint.innerText], [2, 'this device: default'])
+    context.Notification.permission = 'denied'
+    box.checked = false
+    _on_snooze_notify({ target: box })
+    check('box: a denied permission is told whatever the box', hint.innerText, 'this device: denied')
+    box.checked = true
+    _on_snooze_notify({ target: box })
+    check('box: denied: no ask', [asks, hint.innerText], [2, 'this device: denied'])
+    delete context.Notification
+    _snooze_hint()
+    check('box: a browser without notifications', hint.innerText, 'this device: unsupported')
+    delete context.document.querySelector
   }
 
   console.log(failures ? `${failures} FAILED` : 'all ok')

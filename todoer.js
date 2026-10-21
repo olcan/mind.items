@@ -591,7 +591,7 @@ function __render(widget, widget_item) {
         snooze_bin.firstChild.remove()
         item.global_store._todoer ??= {}
         if (snoozed) {
-          _unsnooze(item)
+          _unsnooze(item, true) // the owner's own drag out of the snoozed list
         } else {
           // item.global_store._todoer.snoozed = Date.now() + 5 * 1000
           _todoer.store._snooze_modal = _modal(
@@ -604,24 +604,29 @@ function __render(widget, widget_item) {
               .replaceAll(
                 '__onchange__',
                 `_item('#todoer').eval('_on_snooze_input_change(event)')`
+              )
+              .replaceAll(
+                '__onnotify__',
+                `_item('#todoer').eval('_on_snooze_notify(event)')`
               ),
             {
               canConfirm: () => false, // toggled in _on_snooze_input_change
-              onConfirm: () =>
-                _modal_close(_todoer.store._snooze_modal, _snooze_input()),
+              onConfirm: () => _snooze_close(_snooze_input()),
             }
           )
-          _todoer.store._snooze_modal.then(snooze_time => {
+          // the answer is the time and the dialog's box ({time, notify}, see _snooze_close)
+          _todoer.store._snooze_modal.then(answer => {
             if (
-              !is_number(snooze_time)
-              // || !confirm(`Snooze to ${new Date(snooze_time)}?`)
+              !is_number(answer?.time)
+              // || !confirm(`Snooze to ${new Date(answer.time)}?`)
             )
               list.insertBefore(e.item, list.children[e.oldIndex])
-            else item.global_store._todoer.snoozed = snooze_time
+            else _snooze(item, answer)
           })
           _update_dom().then(() => {
-            document.querySelector('.snooze-modal input').value =
+            document.querySelector('.snooze-modal .custom input').value =
               new Date().toInputValue()
+            _snooze_hint() // this device's permission beside the box (the box starts unchecked)
             // force trigger input change call now & every second (for Date.now)
             _todoer.dispatch_task(
               'snooze-modal-update',
@@ -695,11 +700,11 @@ function _on_snooze(e) {
   const label = e.target.innerText
   const time = _snooze_time(label)
   if (time < Date.now()) alert('future date/time required for snooze')
-  else _modal_close(_todoer.store._snooze_modal, time)
+  else _snooze_close(time)
 }
 
 function _snooze_input() {
-  const input = document.querySelector('.snooze-modal input')
+  const input = document.querySelector('.snooze-modal .custom input')
   return input.valueAsNumber + new Date().getTimezoneOffset() * 60 * 1000
 }
 
@@ -709,6 +714,42 @@ function _on_snooze_input_change() {
   document
     .querySelector('.snooze-modal .button.snooze')
     .classList.toggle('disabled', !can_confirm)
+}
+
+// the snooze dialog's answer, read before it closes: the time and its box ("notify on
+// unsnooze"), {time, notify}, which the drop's handler writes on the todo (_snooze)
+function _snooze_close(time) {
+  const notify = !!document.querySelector('.snooze-modal .notify input')?.checked
+  _modal_close(_todoer.store._snooze_modal, { time, notify })
+}
+
+// a todo snoozed until `time` with the dialog's box written beside it as `notify` (a desktop
+// notification when the snooze ends by its time, see _notify_unsnooze), both in the SAME save of
+// the todo's own store (every device sees them together); an unchecked box removes a flag an
+// earlier snooze left
+function _snooze(item, { time, notify }) {
+  const store = (item.global_store._todoer ??= {})
+  store.snoozed = time
+  if (notify) store.notify = true
+  else delete store.notify
+}
+
+// the snooze dialog's box changed: a check asks THIS device's notification permission when the
+// browser has not asked yet (the box's click is the gesture a browser prompts from; the box is
+// the todo's own opt-in, no /notify reason needed), the hint beside the box following the answer
+function _on_snooze_notify(e) {
+  if (e?.target?.checked && _notify_permission() == 'default') Promise.resolve(Notification.requestPermission()).then(_snooze_hint, _snooze_hint)
+  else _snooze_hint()
+}
+
+// the hint beside the snooze dialog's box: this device's permission unless granted, or not asked
+// yet while the box is unchecked (a check asks); the notification shows on every device whose
+// permission is granted, from its last-used window, so the box stands whatever the hint says
+function _snooze_hint() {
+  const hint = document.querySelector('.snooze-modal .notify .hint')
+  const checked = !!document.querySelector('.snooze-modal .notify input')?.checked
+  const permission = _notify_permission()
+  if (hint) hint.innerText = permission == 'granted' || (permission == 'default' && !checked) ? '' : `this device: ${permission}`
 }
 
 function _snooze_tomorrow() {
@@ -734,9 +775,13 @@ function _snooze_next_week() {
   return date
 }
 
-// unsnooze todo item
-function _unsnooze(item) {
+// unsnooze todo item: the sweep's unsnooze once its time came, or the owner's own drag out of the
+// snoozed list (`manual`), which also removes the snooze dialog's flag in the same save (their
+// own act notifies on no device, see _notify_unsnooze); the sweep's keeps the flag, which every
+// device's notifier reads
+function _unsnooze(item, manual = false) {
   merge(item.global_store._todoer, { snoozed: 0, unsnoozed: Date.now() })
+  if (manual) delete item.global_store._todoer.notify
   // invoke unsnooze listeners for each unsnoozed todo item
   // listeners must register on object item('#todoer').store.on_unsnooze
   each(values(_todoer.store.on_unsnooze ?? {}), f =>
@@ -1556,9 +1601,10 @@ const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'interrupted', 'taken']
 const NOTIFIER_KEY = 'mindpage_todoer_notifier' // localStorage: the device's elected window
 const NOTIFIER_STALE_MS = 5 * 60 * 1000 // an election not refreshed for this long is vacant
 const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its gesture stamps' spacing
+const UNSNOOZE_SKEW_MS = 60 * 1000 // a snooze that ended this close before its time ended by it (the devices' clocks differ)
 
 // => /notify [on [reason...]|off [reason...]|test]
-// desktop notifications for tasks that come back to the main list and for the agent's replies on vault and task chats: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission
+// desktop notifications for tasks that come back to the main list and for the agent's replies on vault and task chats: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
@@ -1753,21 +1799,68 @@ const _seen_record = (state, list) => `${_state_key(state)}|${list}`
 // from the device's elected window (one notification per device: the window the owner used last,
 // see _notifier_step) under a granted permission. Called from the store hook (prompt, before any
 // render), from each row's render and from the notifier's minute scan (_scan_notify: a delivery
-// the hook did not announce, see there), idempotent through the seen records; returns the step
+// the hook did not announce, see there), idempotent through the seen records; the todo's snooze
+// is compared first (_notify_unsnooze, its own records), so a task's own notification from the
+// same observation shows after it and replaces it (one tag per item); returns the step
 function _notify_change(item, { state = _task_state(item), list = null, parent = null } = {}) {
   const seen = _todoer.store.notify_seen
   if (!seen) return 'baseline' // before the welcome: the baseline records what stands then
   list ??= _list_of(item, state)
+  _notify_unsnooze(item, { state, list, parent })
   const key = _seen_record(state, list)
   const prev = seen[item.id]
   seen[item.id] = key
   const step = _notify_step({ setting: _todoer._global_store.notify, prev, key, list, reason: state?.reason, permission: _notify_permission() })
   if (step != 'notify') return step
+  return _notify_todo(item, state.reason, { state, parent })
+}
+
+// a todo's notification under `reason` from the device's elected window: the row's text, the
+// body naming a labelled item and a child's parent, the click targeting the item; the step
+function _notify_todo(item, reason, { state = null, parent = null } = {}) {
   if (!_notifier_elected()) return 'another window'
   if (parent == null && state?.parent) parent = _parent_of(state.parent)
   const shown = _visible(_extract_todo_snippet(item) ?? '').replace(/\s+/g, ' ')
-  const facts = { reason: state.reason, shown, label: item.label, parent, id: item.saved_id ?? item.id }
+  const facts = { reason, shown, label: item.label, parent, id: item.saved_id ?? item.id }
   return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+}
+
+// a todo's snooze as the notifier records it: its snooze time while snoozed, else 0
+const _snooze_record = item => item._global_store?._todoer?.snoozed || 0
+
+// one decision for a todo's snooze (the snooze dialog's box is the todo's own opt-in: no /notify
+// reason, this device's permission alone): the snooze this tab last saw (its time, 0 for none)
+// against the todo's store now. 'notify' when that snooze ENDED BY ITS TIME (the sweep's
+// unsnooze, on the primary instance: no earlier than UNSNOOZE_SKEW_MS before the time, since the
+// devices' clocks differ) with the box's flag still set (the owner's own drag out of the snoozed
+// list removes it) and the todo in the main list; an earlier end (a bridge hand-back, which
+// keeps the flag: the task's own reason announces it) is no reminder; else the cause of the skip
+function _unsnooze_step({ prev, snoozed, notify, list, now, permission }) {
+  if (snoozed) return 'snoozed'
+  if (!prev) return 'not snoozed'
+  if (!notify) return 'no flag'
+  if (now < prev - UNSNOOZE_SKEW_MS) return 'ended early'
+  if (list != 'main') return 'not in the main list'
+  if (permission != 'granted') return `permission ${permission}`
+  return 'notify'
+}
+
+// a todo's snooze compared with what this tab last saw of it (the baseline at welcome, then every
+// observation: _notify_change compares it first, from the hook, each row's render and the minute
+// scan, idempotent through the records; the time this tab saw, not the one-shot `unsnoozed`,
+// which the list's save clears): a snooze that ended by its time, the dialog's box set, notifies
+// `[unsnoozed]` from the device's elected window, kept on screen until clicked (a reminder the
+// owner asked for waits on them, as the attention reasons do); returns the step
+function _notify_unsnooze(item, { state = _task_state(item), list = null, parent = null } = {}) {
+  const seen = _todoer.store.snooze_seen
+  if (!seen) return 'baseline' // before the welcome: the baseline records what stands then
+  const store = item._global_store?._todoer
+  const prev = seen[item.id]
+  seen[item.id] = _snooze_record(item)
+  list ??= _list_of(item, state)
+  const step = _unsnooze_step({ prev, snoozed: store?.snoozed, notify: store?.notify, list, now: Date.now(), permission: _notify_permission() })
+  if (step != 'notify') return step
+  return _notify_todo(item, 'unsnoozed', { state, parent })
 }
 
 // a project's bound children compared after its own projection changed: their list follows it
@@ -1803,12 +1896,12 @@ function _scan_notify() {
 // the facts of a task's notification: the title is the reason, then the row's text without the
 // tag and the marker (shortened); the body names a labelled item and a child's parent; one
 // notification per item (the tag: a newer one replaces the older and alerts again), the
-// attention reasons kept on screen until dismissed
+// attention reasons and a snooze's reminder (`unsnoozed`) kept on screen until dismissed
 function _notification_of({ reason, shown, label, parent, id, body = null }) {
   const text = shown.replace(/(^|\s)#todo(?=\s|$)/g, '$1').replace(/(^|\s)\[[a-z]+\](?=\s|$)/, '$1').replace(/\s+/g, ' ').trim()
   const title = `[${reason}] ${text.length > 80 ? text.slice(0, 79).trimEnd() + '…' : text}`
   body ??= [label, parent ? `child of ${parent}` : null].filter(s => s).join('\n')
-  return { title, options: { body, tag: `todoer:${id}`, renotify: true, requireInteraction: NOTIFY_ATTENTION.includes(reason), icon: '/favicon.ico' } }
+  return { title, options: { body, tag: `todoer:${id}`, renotify: true, requireInteraction: NOTIFY_ATTENTION.includes(reason) || reason == 'unsnoozed', icon: '/favicon.ico' } }
 }
 
 // the notification itself; `onclick` runs on its click (the notification closed first); false
@@ -1915,12 +2008,13 @@ function _release_notifier() {
   }
 }
 
-// the notifier at welcome: the baseline of every todo's projection and list and of every chat's
-// bridge replies (what stands then never notifies: a reload replays nothing the owner saw), the election's listeners once per
+// the notifier at welcome: the baseline of every todo's projection and list and snooze and of
+// every chat's bridge replies (what stands then never notifies: a reload replays nothing the owner saw), the election's listeners once per
 // page (an update of this item re-evaluates the script; the first evaluation's listeners keep
 // working on the same store) and the minute task: the elected window's heartbeat and the scan
 function _start_notifier() {
   const seen = (_todoer.store.notify_seen = {})
+  const snoozes = (_todoer.store.snooze_seen = {})
   const replies = (_todoer.store.reply_seen = {})
   each(_items(), item => {
     const { replies: count, footer } = _vault_replies(item.read())
@@ -1928,6 +2022,7 @@ function _start_notifier() {
     if (!item.tags.includes('#todo')) return
     const state = _task_state(item)
     seen[item.id] = _seen_record(state, _list_of(item, state))
+    snoozes[item.id] = _snooze_record(item)
   })
   if (!window._todoer_notifier) {
     window._todoer_notifier = true
