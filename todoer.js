@@ -626,7 +626,9 @@ function __render(widget, widget_item) {
           _update_dom().then(() => {
             document.querySelector('.snooze-modal .custom input').value =
               new Date().toInputValue()
-            _snooze_hint() // this device's permission beside the box (the box starts unchecked)
+            const notify_box = document.querySelector('.snooze-modal .notify input')
+            if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
+            _snooze_hint() // this device's permission beside the box (the box starts unchecked, reset above)
             // force trigger input change call now & every second (for Date.now)
             _todoer.dispatch_task(
               'snooze-modal-update',
