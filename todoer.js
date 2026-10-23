@@ -942,12 +942,17 @@ function _resume_hold({ last_tick, now, hold_until }) {
   return hold_until ?? 0
 }
 // whether the writers are held now: ONE observation of the clock (see _resume_hold), by
-// whichever writer runs first after a gap
+// whichever writer runs first after a gap; a hold it starts is told on the console, the gap seen
+// and the hold's end, so that a needless hold shows in a report
 function _held() {
   const now = Date.now()
-  _todoer.store.hold_until = _resume_hold({ last_tick: _todoer.store.last_tick, now, hold_until: _todoer.store.hold_until })
+  const { last_tick, hold_until = 0 } = _todoer.store
+  const until = _resume_hold({ last_tick, now, hold_until })
+  _todoer.store.hold_until = until
   _todoer.store.last_tick = now
-  return now < _todoer.store.hold_until
+  if (until != hold_until)
+    console.info(`todoer: writers held until ${new Date(until).toLocaleTimeString()}, after a gap of ${Math.round((now - last_tick) / 1000)} s`)
+  return now < until
 }
 
 // a long press on a touch screen should start the delayed drag (Sortable's delayOnTouchOnly),
@@ -1205,16 +1210,20 @@ function _on_search(text) {
   })
 }
 
-// start the unsnooze sweep on welcome, and run it again at once when the page shows, gains focus
-// or goes online, so a return finds a todo whose time passed meanwhile back without waiting for
-// the tick (a held sweep stays held: _held observes the gap first); the listeners once per page
-// (an update of this item re-evaluates the script; the first evaluation's keep working), as
-// _start_notifier's
+// start the unsnooze sweep on welcome, and run it again at once when the page shows or hides,
+// gains focus or goes online: a return finds a todo whose time passed meanwhile back without
+// waiting for the tick (a held sweep stays held: _held observes the gap first), and a hide
+// trades the visible delay pending (up to a minute, the one timer the hidden cap does not bound)
+// for a hidden one on a new chain: left pending, a delay set by a visible tick just before the
+// hide could fall due just as Chrome's intensive throttling starts (a minute after the hide) and
+// wait for the next point of its minute grid, one gap of about 120 s and a needless hold (the
+// review of 2026-10-23); the listeners once per page (an update of this item re-evaluates the
+// script; the first evaluation's keep working), as _start_notifier's
 function _on_welcome() {
   _start_sweep()
   if (!window._todoer_sweeper) {
     window._todoer_sweeper = true
-    document.addEventListener('visibilitychange', () => void (document.visibilityState == 'visible' && _start_sweep()))
+    document.addEventListener('visibilitychange', () => void _start_sweep())
     window.addEventListener('focus', () => void _start_sweep())
     window.addEventListener('online', () => void _start_sweep())
   }
@@ -1231,8 +1240,11 @@ function _start_sweep() {
 // one tick of the unsnooze sweep: every todo whose snooze time passed is unsnoozed when the
 // step allows it (_sweep_step), its unsnooze observed at once (the reminder, _notify_change: the
 // store's own hook runs from the store's save task, which a throttled hidden page runs up to a
-// minute later, 60 s measured; the records keep it to one), and the delay to the next tick is
-// returned
+// minute later, 60 s measured; the records keep it to one; a throw of it is logged, so that it
+// neither stops the pass, leaving the later due todos snoozed, nor ends the task, as the app's
+// dispatch_task ends a task whose function throws), and the delay to the next tick is returned,
+// from the clock reading the pass decided by: a second reading after the pass saw a time this
+// tick woke a millisecond early for as past and slept to the next minute (60 s late)
 function _sweep() {
   const step = _sweep_step({ primary: _primary, confirmed: _corpus_current(window), online: navigator.onLine, held: _held() })
   const now = Date.now()
@@ -1242,10 +1254,14 @@ function _sweep() {
     if (!snoozed) return
     if (step == 'sweep' && now >= snoozed) {
       _unsnooze(item)
-      _notify_change(item)
+      try {
+        _notify_change(item)
+      } catch (e) {
+        console.error(`todoer: unsnooze reminder failed for ${item.name}: ${e?.message ?? e}`)
+      }
     } else snoozes.push(snoozed)
   })
-  return _sweep_delay({ now: Date.now(), snoozes, hold_until: _todoer.store.hold_until, hidden: document.visibilityState == 'hidden' })
+  return _sweep_delay({ now, snoozes, hold_until: _todoer.store.hold_until, hidden: document.visibilityState == 'hidden' })
 }
 
 
