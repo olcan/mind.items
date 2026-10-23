@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', '_snooze_record'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', '_snooze_record'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -99,7 +99,10 @@ const picked =
     '_corpus_current',
     '_resume_hold',
     '_held',
+    '_sweep_delay',
     '_on_welcome',
+    '_start_sweep',
+    '_sweep',
     '_unsnooze',
     '_snooze_close',
     '_snooze',
@@ -151,7 +154,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -1332,17 +1335,123 @@ check('resume: the first tick holds nothing', _resume_hold({ last_tick: undefine
 check('resume: a minute since the last tick holds nothing', _resume_hold({ last_tick: 1000, now: 1000 + 60_000, hold_until: 0 }), 0)
 check('resume: a gap past the limit holds for the hold span', _resume_hold({ last_tick: 1000, now: 1000 + RESUME_GAP_MS + 1, hold_until: 0 }), 1000 + RESUME_GAP_MS + 1 + RESUME_HOLD_MS)
 check('resume: an existing hold stands through ordinary ticks', _resume_hold({ last_tick: 5000, now: 5000 + 60_000, hold_until: 999_999 }), 999_999)
+// the sweep's next tick (2026-10-23): the next whole minute of the clock, sooner a snooze time or
+// a hold's end still ahead; in a hidden page within SWEEP_HIDDEN_MS
+const SWEEP_PERIOD_MS = vm.runInContext('SWEEP_PERIOD_MS', context)
+const SWEEP_HIDDEN_MS = vm.runInContext('SWEEP_HIDDEN_MS', context)
+const minute = 28_333_333 * 60_000 // a whole minute of the clock
+check('delay: to the next whole minute', _sweep_delay({ now: minute + 12_345 }), 60_000 - 12_345)
+check('delay: a tick at a whole minute waits for the next', _sweep_delay({ now: minute }), 60_000)
+check('delay: the earliest snooze time ahead before it', _sweep_delay({ now: minute + 10_000, snoozes: [minute + 50_000, minute + 30_000] }), 20_000)
+check('delay: times past, at the next minute or beyond it leave the minute', _sweep_delay({ now: minute + 10_000, snoozes: [minute + 10_000, minute - 5_000, minute + 60_000, minute + 3_600_000] }), 50_000)
+check('delay: a timer a millisecond early on this clock ticks again at the time', _sweep_delay({ now: minute - 1, snoozes: [minute] }), 1)
+check('delay: a resume hold ending before the minute, an ended one not', [_sweep_delay({ now: minute + 1_000, hold_until: minute + 40_000 }), _sweep_delay({ now: minute + 1_000, hold_until: minute - 1 })], [39_000, 59_000])
+check('delay: hidden, capped (a nearer time stands)', [_sweep_delay({ now: minute + 1_000, hidden: true }), _sweep_delay({ now: minute + 50_000, hidden: true }), _sweep_delay({ now: minute + 1_000, snoozes: [minute + 2_000], hidden: true })], [SWEEP_HIDDEN_MS, 10_000, 1_000])
+// THE THROTTLED PAGE (2026-10-23, the owner's report of unsnoozes 2-3 minutes late): a model of
+// Chrome's intensive wake-up throttling (WakeUpBudgetPool::GetNextAllowedRunTime, a loaded page
+// hidden over a minute): the page's chained timers run at one wake-up a minute on a fixed grid,
+// here `phase` ms into each minute of the clock, and the app's 250 ms macro loop is due at every
+// point of it, so the page wakes at each; a timer due within the wake-up's 3 ms runs in it (at its
+// due time), a later one at the next point. A tick observes the clock and sets its next timer
+// `work` ms after it starts (the batch before it and its own pass); the first tick runs `start` ms
+// after a grid point (off the grid: a chain's first throttled timer, Chrome throttling a chain
+// from its 7th timer on, and every re-dispatch starting a new chain)
+const GRID = 60_000
+const fire = (due, phase) => {
+  const point = phase + Math.floor((due - phase) / GRID) * GRID // the grid point at or before due
+  return due - point < 3 ? due : point + GRID
+}
+const throttled = (next_due, { phase, work, start = 0, ticks = 8 }) => {
+  const seen = [] // the ticks' observations of the clock
+  for (let at = minute + phase + start + work; seen.length < ticks; at = fire(next_due(at), phase) + work) seen.push(at)
+  return seen
+}
+const gaps = seen => seen.slice(1).map((t, i) => t - seen[i])
+const holds = seen => {
+  let hold_until = 0
+  return seen.map((now, i) => (hold_until = _resume_hold({ last_tick: seen[i - 1], now, hold_until })) > now)
+}
+const chained = now => now + 60_000 // until 2026-10-23: 60 s from the end of each run
+const ticked = hidden => now => now + _sweep_delay({ now, hidden })
+check('throttled: the old chain slips to every 120 s', gaps(throttled(chained, { phase: 17_000, work: 20 })), Array(7).fill(120_000))
+check('throttled: so every tick after the first re-arms the resume hold, and the page never sweeps', holds(throttled(chained, { phase: 17_000, work: 20 })), [false, ...Array(7).fill(true)])
+check('throttled: a 1 ms run only defers the slip: the due time creeps by the run at each tick, a minute lost once past the 3 ms', gaps(throttled(chained, { phase: 17_000, work: 1 })), [60_001, 60_001, 119_998, 60_001, 60_001, 119_998, 60_001])
+{
+  const phases = [0, 1, 2_999, 17_000, 30_000, 59_000, 59_990, 59_999]
+  const works = [0, 1, 20, 500, 4_000]
+  const cases = phases.flatMap(phase => works.map(work => throttled(ticked(true), { phase, work })))
+  check('throttled: from a tick on the grid the new tick never waits past the next grid point, whatever its phase and the work before it', cases.every(seen => gaps(seen).every(gap => gap <= GRID)), true)
+  const starts = Array.from({ length: 60 }, (_, i) => i * 1_000 + 500)
+  const off = phases.flatMap(phase => starts.map(start => throttled(ticked(true), { phase, start, work: 20 })))
+  check('throttled: from a tick off the grid every gap stays under a period and the cap', off.every(seen => gaps(seen).every(gap => gap < SWEEP_PERIOD_MS + SWEEP_HIDDEN_MS + 20)), true)
+  check('throttled: so the new tick never holds', [...cases, ...off].every(seen => !holds(seen).includes(true)), true)
+  check('throttled: a grid point just before the whole minute ticks again in its own wake-up, at the minute', gaps(throttled(ticked(true), { phase: 59_999, work: 0, ticks: 3 })), [1, 59_999])
+}
+// the measured case: the grid 52.5 s into each minute of the clock, a tick 0.5 s past the whole minute (8 s past a grid point)
+check('throttled: a cap near a whole period slips once from a tick off the grid (112 s measured in Chrome 151 with 55 s)', gaps(throttled(now => now + Math.min(_sweep_delay({ now }), 55_000), { phase: 52_500, start: 8_000, work: 0, ticks: 3 })), [112_000, 60_000])
+check('throttled: the whole minute alone would slip where the grid falls just before it (the guard\'s reason)', gaps(throttled(ticked(false), { phase: 59_990, work: 20 })), Array(7).fill(120_000))
 // THE SWEEP CALLBACK ITSELF, with the world stubbed and the clock faked (the wiring, not the
-// predicates): _on_welcome registers it under `unsnooze`; a due item is one whose snooze time
-// passed; _unsnooze writes snoozed 0 on it
+// predicates): _on_welcome dispatches it now under `unsnooze` and re-dispatches it when the page
+// shows, gains focus or goes online (the listeners once per page); a due item is one whose snooze
+// time passed; _unsnooze writes snoozed 0 on it; each run returns the delay to the next
 const sweep = () => context.__captured.unsnooze()
 const due = () => (context.__items = [{ _global_store: { _todoer: { snoozed: 100 } }, global_store: { _todoer: { snoozed: 100 } } }])
 const unsnoozed = () => context.__items[0].global_store._todoer.snoozed === 0
-_on_welcome()
+{
+  const listeners = []
+  const dispatched = []
+  const { addEventListener: window_add } = context.window
+  const { addEventListener: document_add } = context.document
+  const capture = context._todoer.dispatch_task
+  context.window.addEventListener = (type, fn) => listeners.push(['window', type, fn])
+  context.document.addEventListener = (type, fn) => listeners.push(['document', type, fn])
+  context._todoer.dispatch_task = (name, fn, delay, repeat) => (dispatched.push([name, delay, repeat]), capture(name, fn))
+  _on_welcome()
+  const swept = () => dispatched.filter(([name]) => name == 'unsnooze')
+  const kicks = listeners.filter(([, type]) => ['visibilitychange', 'focus', 'online'].includes(type))
+  check('welcome: the sweep dispatched now, the period its fallback', swept(), [['unsnooze', 0, SWEEP_PERIOD_MS]])
+  check('welcome: the showing, focus and online listeners', kicks.map(([target, type]) => `${target}:${type}`), ['document:visibilitychange', 'window:focus', 'window:online'])
+  const run = type => kicks.find(([, t]) => t == type)[2]()
+  context.document.visibilityState = 'hidden'
+  run('visibilitychange')
+  check('welcome: the page hiding dispatches nothing', swept().length, 1)
+  context.document.visibilityState = 'visible'
+  run('visibilitychange')
+  run('focus')
+  run('online')
+  check('welcome: showing, focus and online each dispatch the sweep now', swept().slice(1), Array(3).fill(['unsnooze', 0, SWEEP_PERIOD_MS]))
+  _on_welcome()
+  check('welcome: a second welcome dispatches the sweep again, its listeners not registered again', [swept().length, listeners.filter(([, type]) => type == 'online').length], [5, 1])
+  Object.assign(context.window, { addEventListener: window_add })
+  Object.assign(context.document, { addEventListener: document_add })
+  context._todoer.dispatch_task = capture
+  delete context.document.visibilityState
+}
 Object.assign(context.window, { _server_confirmed: true, _server_current: true }) // the harness's window stub, the app's flags added
 context.__now = 1000
-due(); sweep()
-check('callback: a due item is unsnoozed on a current corpus', unsnoozed(), true)
+due()
+check('callback: a due item is unsnoozed on a current corpus, the next tick at the next whole minute', [sweep(), unsnoozed()], [59_000, true])
+context.__items = [{ _global_store: { _todoer: { snoozed: 5_000 } }, global_store: { _todoer: { snoozed: 5_000 } } }]
+check('callback: a snooze time ahead is the next tick', [sweep(), unsnoozed()], [4_000, false])
+context.document.visibilityState = 'hidden'
+context.__now = 61_000
+check('callback: a hidden page\'s next tick capped', [sweep(), unsnoozed()], [SWEEP_HIDDEN_MS, true])
+delete context.document.visibilityState
+// the sweep's own unsnooze is observed at once (2026-10-23): the reminder shows from the tick, not
+// from the store's save task, which a throttled hidden page runs up to a minute later; the hook
+// that save runs adds nothing
+{
+  const store = { _todoer: { snoozed: 2_000, notify: true } } // the app's global_store is the _global_store object
+  const reminded = { id: 'r', saved_id: 'sr', name: '#tr', label: null, tags: ['#todo'], read: () => '#todo the reminder', _global_store: store, global_store: store }
+  context._todoer.store.snooze_seen.r = 2_000 // the snooze this tab saw
+  storage.delete(NOTIFIER_KEY) // a vacant election: this window takes it
+  context.__items = [reminded]
+  context.__now = 2_000
+  const before = notified.length
+  sweep()
+  check('callback: the sweep\'s unsnooze shows its reminder from the tick itself', [store._todoer.snoozed, notified.length - before, notified.at(-1).title], [0, 1, '[unsnoozed] the reminder'])
+  check('callback: the store hook after it adds nothing (the record already ended)', [_notify_unsnooze(reminded), _notify_change(reminded) && notified.length - before], ['not snoozed', 1])
+}
 context.window._server_current = false
 due(); sweep()
 check('callback: not while the stream is dead (the live flag off)', unsnoozed(), false)
@@ -1356,11 +1465,14 @@ context.__now = 1000 + 10 * 60_000
 due(); sweep()
 check('callback: the first tick after a long gap holds (no unsnooze)', [unsnoozed(), context._todoer.store.hold_until], [false, 1000 + 10 * 60_000 + RESUME_HOLD_MS])
 context.__now += 60_000
+due()
+check('callback: a tick inside the hold still waits, the next tick at the next whole minute before the hold\'s end', [sweep(), unsnoozed()], [59_000, false])
+context.__now += 59_000
+due()
+check('callback: a tick a second before the hold\'s end waits, the next tick at that end', [sweep(), unsnoozed()], [1_000, false])
+context.__now += 1_000
 due(); sweep()
-check('callback: a tick inside the hold still waits', unsnoozed(), false)
-context.__now += 60_001
-due(); sweep()
-check('callback: the tick past the hold sweeps', unsnoozed(), true)
+check('callback: the tick at the hold\'s end sweeps', unsnoozed(), true)
 // THE ORDER SAVE'S OBSERVATION (review 0's B3): after a second suspension the order task can
 // wake before the sweep; its own _held() sees the gap and holds, whatever the sweep saw
 context.__now += 60_000

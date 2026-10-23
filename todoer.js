@@ -874,8 +874,8 @@ function _order_save_step({ confirmed, held, saved_ids, todoer_store }) {
   return 'save'
 }
 
-// one tick of the unsnooze sweep (_on_welcome's minute task): only the primary instance (the
-// most recently focused live tab of the account, across devices) sweeps, and only on a
+// one tick of the unsnooze sweep (_sweep, the task _on_welcome starts): only the primary instance
+// (the most recently focused live tab of the account, across devices) sweeps, and only on a
 // server-confirmed corpus while the device reports online, since an unsnooze writes the item's
 // store whole from this tab's copy and a stale or offline-queued write lands over a snooze made
 // elsewhere meanwhile (2026-09-25); 'wait' tries again at the next tick
@@ -883,6 +883,34 @@ function _sweep_step({ primary, confirmed, online, held }) {
   if (!primary) return 'skip'
   if (!confirmed || !online || held) return 'wait'
   return 'sweep'
+}
+
+// the sweep's cadence (2026-10-23): a tick at every whole minute of the clock at the latest,
+// sooner at a snooze time or a resume hold's end ahead, and in a hidden page at most
+// SWEEP_HIDDEN_MS after the tick that schedules it (_sweep_delay)
+const SWEEP_PERIOD_MS = 60 * 1000
+const SWEEP_HIDDEN_MS = 20 * 1000
+
+// the delay to the sweep's next tick, the number its task returns (the app's dispatch_task runs
+// the task again that many ms later): the next whole minute of the clock (the snooze dialog's
+// time input sets whole minutes), or sooner the earliest snooze time or resume hold end still
+// ahead (`snoozes`, `hold_until`), so a visible page unsnoozes at the time itself; a timer that
+// fires a little early on this clock sees the time ahead and ticks again at it, and a time
+// already past (a sweep that waited) is retried at the next minute. In a hidden page (`hidden`)
+// at most SWEEP_HIDDEN_MS: Chrome's intensive throttling (a loaded page hidden over a minute; a
+// chain's timers from its 7th on, a promise's callbacks inside a timer's task included) runs
+// them at one wake-up a minute on a fixed grid the page cannot see, and the app's macro
+// expansion loop (every 250 ms) wakes the page at every point of it, so a timer due even a few
+// ms past one waits for the next: a timer runs up to a minute after it is due, and the gap
+// between two ticks stays under SWEEP_PERIOD_MS + SWEEP_HIDDEN_MS, under the resume hold's
+// threshold whatever the grid's phase. The old chain (60 s from the end of each run) ticked
+// every 120 s there, and every tick re-armed the hold (measured in Chrome 151, 2026-10-23); a
+// cap near a whole period still slips once from a tick off the grid (a chain's first throttled
+// timer: each re-dispatch starts a new chain), 112 s measured with 55 s
+function _sweep_delay({ now, snoozes = [], hold_until = 0, hidden = false }) {
+  let next = (Math.floor(now / SWEEP_PERIOD_MS) + 1) * SWEEP_PERIOD_MS
+  for (const time of [...snoozes, hold_until]) if (time > now && time < next) next = time
+  return hidden ? Math.min(next - now, SWEEP_HIDDEN_MS) : next - now
 }
 
 // the corpus this tab's copies come from is server-confirmed AND currently served: the app's
@@ -895,14 +923,18 @@ function _corpus_current(w) {
 }
 
 // the RESUME HOLD (2026-09-26): a gap longer than RESUME_GAP_MS between OBSERVATIONS (the
-// sweep's minute tick, and every turn of an order save task) means the page was frozen or the
-// device asleep (Chrome's throttling of a background tab's timers aligns them to the minute,
-// so a throttled tab ordinarily observes within it; a starved one earns a harmless hold), and its
-// copies may be missing what other tabs wrote meanwhile until the SDK notices the dead stream
-// and catches up (seconds to a minute); the housekeeping writers wait RESUME_HOLD_MS from the
-// observation that saw the gap. both writers observe (review 0: the order save's one-second
-// task could wake before the sweep after a second suspension and see an expired hold), so the
-// gap threshold sits under the hold's span and over the sweep's interval. returns the hold's end
+// sweep's tick, and every turn of an order save task) means the page was frozen or the device
+// asleep, and its copies may be missing what other tabs wrote meanwhile until the SDK notices
+// the dead stream and catches up (seconds to a minute); the housekeeping writers wait
+// RESUME_HOLD_MS from the observation that saw the gap. A throttled hidden page observes at
+// least every 80 s: Chrome runs its chained timers at one wake-up a minute, a timer up to a
+// minute after it is due, and the sweep's tick is due within 20 s (see _sweep_delay; until
+// 2026-10-23 its chain slipped to every 120 s there, and every tick re-armed this hold, so a
+// long-hidden page never swept and a return waited up to two minutes more); a starved page
+// (Chrome's 1% CPU budget for a hidden page's timers, used up) earns a harmless hold. both
+// writers observe (review 0: the order save's one-second task could wake before the sweep after
+// a second suspension and see an expired hold), so the gap threshold sits under the hold's span
+// and over the sweep's period. returns the hold's end
 const RESUME_GAP_MS = 90 * 1000
 const RESUME_HOLD_MS = 2 * 60 * 1000
 function _resume_hold({ last_tick, now, hold_until }) {
@@ -1173,21 +1205,47 @@ function _on_search(text) {
   })
 }
 
-// start unsnooze task on welcome
+// start the unsnooze sweep on welcome, and run it again at once when the page shows, gains focus
+// or goes online, so a return finds a todo whose time passed meanwhile back without waiting for
+// the tick (a held sweep stays held: _held observes the gap first); the listeners once per page
+// (an update of this item re-evaluates the script; the first evaluation's keep working), as
+// _start_notifier's
 function _on_welcome() {
-  _this.dispatch_task(
-    'unsnooze',
-    () => {
-      if (_sweep_step({ primary: _primary, confirmed: _corpus_current(window), online: navigator.onLine, held: _held() }) != 'sweep') return
-      each(_items(), item => {
-        const snoozed = item._global_store._todoer?.snoozed
-        if (snoozed && Date.now() >= snoozed) _unsnooze(item)
-      })
-    },
-    0,
-    60 * 1000
-  ) // run now and every minute
+  _start_sweep()
+  if (!window._todoer_sweeper) {
+    window._todoer_sweeper = true
+    document.addEventListener('visibilitychange', () => void (document.visibilityState == 'visible' && _start_sweep()))
+    window.addEventListener('focus', () => void _start_sweep())
+    window.addEventListener('online', () => void _start_sweep())
+  }
   _start_notifier()
+}
+
+// the sweep's task, dispatched now: the app's dispatch_task replaces a pending tick of the same
+// name and serializes the runs (one in progress finishes first), so a second sweep never runs
+// beside it; each run returns the delay to the next (see _sweep_delay)
+function _start_sweep() {
+  _todoer.dispatch_task('unsnooze', _sweep, 0, SWEEP_PERIOD_MS)
+}
+
+// one tick of the unsnooze sweep: every todo whose snooze time passed is unsnoozed when the
+// step allows it (_sweep_step), its unsnooze observed at once (the reminder, _notify_change: the
+// store's own hook runs from the store's save task, which a throttled hidden page runs up to a
+// minute later, 60 s measured; the records keep it to one), and the delay to the next tick is
+// returned
+function _sweep() {
+  const step = _sweep_step({ primary: _primary, confirmed: _corpus_current(window), online: navigator.onLine, held: _held() })
+  const now = Date.now()
+  const snoozes = [] // the snooze times left
+  each(_items(), item => {
+    const snoozed = item._global_store._todoer?.snoozed
+    if (!snoozed) return
+    if (step == 'sweep' && now >= snoozed) {
+      _unsnooze(item)
+      _notify_change(item)
+    } else snoozes.push(snoozed)
+  })
+  return _sweep_delay({ now: Date.now(), snoozes, hold_until: _todoer.store.hold_until, hidden: document.visibilityState == 'hidden' })
 }
 
 
