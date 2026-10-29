@@ -108,6 +108,7 @@ const picked =
     '_snooze',
     '_on_snooze_notify',
     '_snooze_hint',
+    '_run_deferred_renders',
     '_sideways',
     '_grab_on_sideways_touch',
     '_delegated_view',
@@ -154,7 +155,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -1293,6 +1294,76 @@ delete context.__todos.p
     delete context.document.querySelector
   }
 
+  // THE RENDERS A PENDING PRESS DEFERRED (2026-10-28; lane_races review 0 asked for these rows): __render
+  // defers a widget's render while Sortable.dragged is a row of a widget and marks the widget with the item
+  // it was asked for; the marks run at the release through _run_deferred_renders (Sortable's unchoose,
+  // onUnchoose), each widget's with its own latest item, cleared at once and rendered on a timeout (at
+  // unchoose Sortable.dragged is still set, nulled by _nulling at the end of _onDrop, so a render then would
+  // defer itself again); the e2e tasks lane pins the deferral through a real Sortable
+  {
+    const renders = []
+    const widgets = [{ id: 'w1', _renderPendingDragging: 'item1' }, { id: 'w2', _renderPendingDragging: 'item2' }, { id: 'w3' }]
+    context.document = { querySelectorAll: sel => (sel == '.todoer-widget' ? widgets : []) }
+    context.__render = (w, item) => renders.push([w.id, item])
+    _run_deferred_renders()
+    check('deferred renders: the marks cleared at once, the renders scheduled, none run yet', [widgets.map(w => w._renderPendingDragging ?? null), renders], [[null, null, null], []])
+    await tick()
+    check('deferred renders: each marked widget rendered once with its own item, the unmarked one not', renders, [['w1', 'item1'], ['w2', 'item2']])
+    renders.length = 0
+    _run_deferred_renders()
+    await tick()
+    check('deferred renders: nothing marked, nothing rendered', renders, [])
+  }
+  // the sideways grab releases the first press without events (_onDrop with no event nulls
+  // Sortable.dragged, as _nulling does) and presses again; a second press that takes sets the static
+  // again (as _prepareDragStart does) and the renders deferred for the first press stay deferred for its
+  // release; a second press that does not take leaves no release to run them, so the grab runs them
+  {
+    const calls = []
+    const renders = []
+    const handlers = {}
+    const list = { addEventListener: (type, fn) => (handlers[type] = fn) }
+    const row = { parentNode: list, classList: { contains: () => false } }
+    const { Sortable } = context
+    let takes = true
+    const sortable = {
+      options: { delay: 250, chosenClass: 'chosen' },
+      option(name, value) {
+        if (value === undefined) return this.options[name]
+        this.options[name] = value
+      },
+      _disableDelayedDrag: () => {},
+      _onDrop: () => ((Sortable.dragged = null), calls.push('_onDrop')),
+      _onTapStart: () => (takes && (Sortable.dragged = row), calls.push('_onTapStart')),
+    }
+    list.sortable = sortable
+    const widgets = [{ id: 'w1' }, { id: 'w2' }]
+    context.document = { querySelectorAll: sel => (sel == '.todoer-widget' ? widgets : []) }
+    context.__render = (w, item) => renders.push([w.id, item])
+    _grab_on_sideways_touch(list)
+    const pointer = (type, clientX, clientY) => handlers[type]({ type, pointerType: 'touch', pointerId: 1, isPrimary: true, clientX, clientY, target: 'text' })
+    const press = () => {
+      handlers.pointerup({})
+      Sortable.dragged = row
+      widgets.forEach((w, i) => (w._renderPendingDragging = 'item' + (i + 1)))
+      calls.length = 0
+      renders.length = 0
+    }
+    press()
+    pointer('pointerdown', 100, 50)
+    pointer('pointermove', 112, 50)
+    await tick()
+    check('grab: the second press took, the renders stay deferred for its release', [calls, Sortable.dragged === row, widgets.map(w => w._renderPendingDragging), renders], [['_onDrop', '_onTapStart'], true, ['item1', 'item2'], []])
+    takes = false
+    press()
+    pointer('pointerdown', 100, 50)
+    pointer('pointermove', 112, 50)
+    check('grab: the second press did not take, the deferred renders run, the delay restored', [calls, Sortable.dragged, widgets.map(w => w._renderPendingDragging ?? null), sortable.options.delay], [['_onDrop', '_onTapStart'], null, [null, null], 250])
+    await tick()
+    check('grab: each widget rendered with its own item', renders, [['w1', 'item1'], ['w2', 'item2']])
+    handlers.pointerup({})
+    Sortable.dragged = null
+  }
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()
