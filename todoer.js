@@ -128,8 +128,22 @@ function __render(widget, widget_item) {
   // drag to end, the ghost row stays, unchoose never fires and the dragging widget keeps its
   // class for good. the deferred renders run at the drag's end (onUnchoose), each with the
   // item it was asked for
-  if (widget.classList.contains('dragging') || document.querySelector('.todoer-widget.dragging')) {
-    debug('delaying render due to dragging')
+  // a press pending on a widget's row defers the render the same way (2026-10-28): Sortable
+  // 1.15's static `dragged` names the row of a press from the pointer's down to its release (a
+  // touch awaiting its delay, a chosen row awaiting the move that starts the drag), and
+  // destroying an instance releases that press without events (destroy calls _onDrop with no
+  // event), so the drag it was about to start finds nothing: the tasks lane's snooze drag lost
+  // its grabbed row this way to the pinned item's re-render landing between the grab and the
+  // drag's first move. a press ends in a release that dispatches unchoose whether a drag
+  // started or not (a tap, and a touch scroll that began on a row, included), which runs the
+  // renders deferred; the sideways grab releases a press without events itself and presses
+  // again, so it runs them when the second press fails (_grab_on_sideways_touch)
+  if (
+    widget.classList.contains('dragging') ||
+    document.querySelector('.todoer-widget.dragging') ||
+    Sortable.dragged?.closest('.todoer-widget')
+  ) {
+    debug('delaying render due to dragging or pending press')
     widget._renderPendingDragging = widget_item
     return
   }
@@ -520,13 +534,8 @@ function __render(widget, widget_item) {
       // reorder's render would apply it and persist it (review 0)
       if (dragged && e.to == list) widget._orderAfterDrag = list.sortable.toArray()
       // trigger the pending renders, this widget's and every other widget's deferred by this
-      // drag (see __render), each with the item it was asked for
-      document.querySelectorAll('.todoer-widget').forEach(w => {
-        const item = w._renderPendingDragging
-        if (!item) return
-        delete w._renderPendingDragging
-        setTimeout(() => __render(w, item))
-      })
+      // drag or press (see __render), each with the item it was asked for
+      _run_deferred_renders()
     },
     onEnd: e => {
       // debug('onEnd')
@@ -1054,6 +1063,9 @@ function _grab_on_sideways_touch(list) {
       } finally {
         sortable.option('delay', delay)
       }
+      // the release above dispatched no unchoose: a second press that did not take (a row still
+      // animating) leaves the renders deferred for the first press (see __render) to run here
+      if (!Sortable.dragged) _run_deferred_renders()
     },
     true
   )
@@ -1121,6 +1133,17 @@ function _extract_todo_snippet(item) {
   }
 
   return text
+}
+
+// runs the renders deferred by a drag or a pending press (see __render), each widget's with
+// the item it was asked for; called at the release (onUnchoose) and after a failed re-press
+function _run_deferred_renders() {
+  document.querySelectorAll('.todoer-widget').forEach(w => {
+    const item = w._renderPendingDragging
+    if (!item) return
+    delete w._renderPendingDragging
+    setTimeout(() => __render(w, item))
+  })
 }
 
 // render widget in item
