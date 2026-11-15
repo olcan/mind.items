@@ -767,5 +767,334 @@ if (realMarked) {
   delete runs_div._vault_html
 } else console.log('skip wiki link rows (the app checkout is not reachable; set MIND_PAGE_DIR)')
 
-if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
-console.log('all checks passed')
+// ---- the sparkle (vault design mind_bridge_watcher 6.2, 6.3) ---------------------------------
+// what it shows is a pure function of the bridge's listing, the #status item's hosts and the
+// time; the command it sends; and the controller's lifetime over a small fake DOM (the real
+// page's focus, keys and viewport are the browser lane's: mind.page tests/e2e/sparkle.spec.ts)
+{
+  const TOOK = '2026-11-15T10:00:00.000Z'
+  const T = clock.now
+  const watching = { name: 'claude-fable-5-2-max', took: TOOK, state: 'watching' }
+  const fresh = { 'test-host': { v: 1, updated: T - 60000, boot: 1, publisher: 'bridge' } }
+  const state = (bridge, hosts, now = T, stopping = null) => {
+    ctx.__args = { bridge, hosts, now, stopping }
+    return vm.runInContext('vault_sparkle_state(__args.bridge, __args.hosts, __args.now, __args.stopping)', ctx)
+  }
+  const listed = (watcher, host = 'test-host') => ({ host, watcher })
+  const shown = { name: watching.name, took: TOOK, busy: false, title: 'claude-fable-5-2-max is watching' }
+  check('sparkle: a fresh watcher is shown watching', state(listed(watching), fresh), shown)
+  check('sparkle: an answering watcher pulses under its own name', state(listed({ ...watching, state: 'answering' }), fresh),
+    { ...shown, busy: true, title: 'claude-fable-5-2-max is answering a request' })
+  check('sparkle: a hand-off names the agent that answers', state(listed({ ...watching, state: 'answering', by: 'gpt-6-astra-ultra' }), fresh).title,
+    'gpt-6-astra-ultra is answering a request')
+  check('sparkle: a watching watcher never shows a by', state(listed({ ...watching, by: 'gpt-6-astra-ultra' }), fresh).title, shown.title)
+  check('sparkle: nothing without a watcher, or with one that names no agent or no take',
+    [null, undefined, 'x', { ...watching, name: '' }, { ...watching, name: 5 }, { ...watching, took: '' }, { name: 'a' }].map(w => state(listed(w), fresh)),
+    [null, null, null, null, null, null, null])
+  const at = updated => ({ 'test-host': { ...fresh['test-host'], updated } })
+  check('sparkle: the bridge is fresh up to the #status stale interval, and stale past it',
+    [state(listed(watching), at(T - 3 * 60000)) != null, state(listed(watching), at(T - 3 * 60000 - 1))], [true, null])
+  check('sparkle: it fails closed: no hosts, no entry for the listing\'s host, the one-shot publisher, a time that is no number, a host that names no entry of its own',
+    [
+      state(listed(watching), null),
+      state(listed(watching), {}),
+      state(listed(watching, 'other-host'), fresh),
+      state(listed(watching), { 'test-host': { ...fresh['test-host'], publisher: 'cli' } }),
+      state(listed(watching), { 'test-host': { publisher: 'bridge' } }),
+      state(listed(watching), at('1700000000000')),
+      state(listed(watching), at(NaN)),
+      state(listed(watching, '__proto__'), fresh),
+      state({ watcher: watching }, fresh),
+      state(null, fresh),
+    ], Array(10).fill(null))
+  const stopping = { took: TOOK, at: T - 1000 }
+  check('sparkle: a stop this tab sent shows as stopping, while its watch is the one listed and for half a minute',
+    [state(listed(watching), fresh, T, stopping), state(listed(watching), fresh, T + 29000, stopping).title,
+      state(listed(watching), fresh, T + 29001, stopping).title, state(listed({ ...watching, took: 'another' }), fresh, T, stopping).title],
+    [{ ...shown, busy: true, title: "Stopping claude-fable-5-2-max's watch" }, "Stopping claude-fable-5-2-max's watch", shown.title, shown.title])
+  const keyboard = win => { ctx.__win = win; return vm.runInContext('vault_keyboard_open(__win)', ctx) }
+  check('sparkle: a keyboard is a visual viewport much shorter than the window, a pinch zoom is not',
+    [keyboard({ innerHeight: 800 }), keyboard({ innerHeight: 800, visualViewport: { height: 800, scale: 1 } }), keyboard({ innerHeight: 800, visualViewport: { height: 650, scale: 1 } }),
+      keyboard({ innerHeight: 800, visualViewport: { height: 649, scale: 1 } }), keyboard({ innerHeight: 800, visualViewport: { height: 400, scale: 2 } })],
+    [false, false, false, true, false])
+  check('sparkle: the stop command names its id, its kind, the take and the time',
+    vm.runInContext(`vault_watch_stop('ab12', '${TOOK}', 7)`, ctx), { id: 'ab12', kind: 'stop', took: TOOK, at: 7 })
+
+  // the controller, over a fake page: nodes with listeners, the app's task seam (a same-named
+  // dispatch calls the earlier task's _on_cancel at once), and one item code evaluation per
+  // deephash (the app evaluates the item's code afresh at every hook)
+  const log = []
+  class FakeNode {
+    constructor(tag) { this.tag = tag; this.children = []; this.parent = null; this.listeners = {}; this.dataset = {}; this.attrs = {}; this.hidden = false; this.title = ''; this.classes = new Set() }
+    appendChild(child) { child.parent = this; this.children.push(child); log.push(`+${child.dataset.vaultSparkle ?? child.tag}`); return child }
+    remove() { if (!this.parent) return; this.parent.children = this.parent.children.filter(c => c !== this); this.parent = null; log.push(`-${this.dataset.vaultSparkle ?? this.tag}`) }
+    contains(node) { for (let n = node; n; n = n.parent) if (n === this) return true; return false }
+    addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
+    removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] ?? []).filter(f => f !== fn) }
+    setAttribute(name, value) { this.attrs[name] = value }
+    removeAttribute(name) { delete this.attrs[name] }
+    get classList() { return { toggle: (name, on) => (on ? this.classes.add(name) : this.classes.delete(name)), contains: name => this.classes.has(name) } }
+    focus() { page.activeElement = this }
+    fire(type, more = {}) {
+      const event = { type, target: this, prevented: 0, stopped: 0, preventDefault() { this.prevented++ }, stopPropagation() { this.stopped++ }, ...more }
+      for (const fn of [...(this.listeners[type] ?? [])]) fn(event)
+      return event
+    }
+  }
+  const page = new FakeNode('document')
+  Object.assign(page, {
+    head: new FakeNode('head'), body: new FakeNode('body'), activeElement: null,
+    createElement: tag => new FakeNode(tag),
+    all() { const out = []; const walk = n => { out.push(n); n.children.forEach(walk) }; walk(this.head); walk(this.body); return out },
+    querySelectorAll(selector) { if (selector != '[data-vault-sparkle]') throw new Error(selector); return this.all().filter(n => 'vaultSparkle' in n.dataset) },
+  })
+  const parts = kind => page.all().filter(n => n.dataset.vaultSparkle == kind)
+  const viewport = new FakeNode('viewport')
+  Object.assign(viewport, { height: 800, scale: 1 })
+  const sent = []
+  const alerts = []
+  const writes = { fail: 0 }
+  const win = Object.assign(env.window, {
+    innerHeight: 800, visualViewport: viewport, modal: false, _modal_visible: () => win.modal,
+    _enqueue_hidden_document: async (name, item, id = null) => {
+      sent.push({ name, item, id })
+      return { id: id ?? 'doc-' + sent.length, written: writes.fail-- > 0 ? Promise.reject(new Error('offline')) : Promise.resolve() }
+    },
+  })
+  const tasks = {}
+  const store = { _bridge: { host: 'test-host', watcher: { ...watching } } }
+  const status = new FakeItem('#status')
+  status._global_store = { _status: { hosts: fresh } }
+  items['status-id'] = status
+  status.id = 'status-id'
+  // the page's #vault: the label names this item, and a renamed copy would not be it
+  items['vault-id'] = new FakeItem('#vault')
+  items['vault-id'].id = 'vault-id'
+  // one evaluation of an item's code, as a hook's: `_this` with the deephash of the text then,
+  // and the item's own store and tasks (the app keeps both per item)
+  const evaluation = (deephash, id = 'vault-id', own = { store, tasks }) => {
+    const _this = {
+      id, deephash, _global_store: own.store, store: {}, save_global_store() {},
+      dispatch_task(name, fn, delay, repeat) {
+        own.tasks[name]?._on_cancel?.() // the app: cancel any existing task under the name
+        const task = { fn, delay, repeat }
+        log.push(`task ${name}`)
+        return (own.tasks[name] = task)
+      },
+    }
+    const context = vm.createContext({ ...env, _this, document: page, crypto: require('crypto').webcrypto, alert: m => alerts.push(m) })
+    vm.runInContext(tableSrc[0] + '\n' + block[1], context)
+    return code => vm.runInContext(code, context)
+  }
+  const v1 = evaluation(1)
+  v1('_on_welcome()')
+  check('sparkle: the page\'s welcome draws it', parts('node').length, 1)
+  const [node] = parts('node')
+  check('sparkle: a hook draws one element and its style, shown with the watcher\'s words, and one task',
+    [log, parts('node').length, parts('style').length, node.parent === page.body, node.hidden, node.title, node.attrs['aria-label'], node.classes.has('answering'), tasks.sparkle.delay, tasks.sparkle.repeat],
+    [['+style', '+node', 'task sparkle'], 1, 1, true, false, shown.title, shown.title, false, 15000, 15000])
+  store._bridge.watcher.state = 'answering'
+  v1('_on_global_store_change(_this.id)')
+  check('sparkle: a store change updates the same element in place', [parts('node')[0] === node, log.length, node.classes.has('answering'), node.title],
+    [true, 3, true, 'claude-fable-5-2-max is answering a request'])
+  status._global_store._status.hosts = at(T - 4 * 60000)
+  v1("_on_global_store_change('status-id')")
+  check('sparkle: the #status item\'s store counts too: a stale bridge hides it', node.hidden, true)
+  status._global_store._status.hosts = fresh
+  v1("_on_global_store_change('busy-id')")
+  check('sparkle: another item\'s store is nothing to it', node.hidden, true)
+  v1('_on_focus()')
+  store._bridge.watcher.state = 'watching'
+  check('sparkle: a return to the page looks at once', node.hidden, false)
+  // the menu: it captures the watch it shows
+  node.fire('click')
+  const menu = () => parts('menu')[0]
+  const stop = () => menu().children[0]
+  check('sparkle: a click opens the menu above it, its one entry focused',
+    [parts('menu').length, stop().tag, stop().textContent, page.activeElement === stop(), node.attrs['aria-expanded'], (page.listeners.pointerdown ?? []).length],
+    [1, 'button', 'Stop Watching', true, 'true', 1])
+  const escape = menu().fire('keydown', { key: 'Escape' })
+  check('sparkle: Escape closes the menu and returns the focus, and is the menu\'s key alone',
+    [parts('menu').length, page.activeElement === node, escape.stopped, escape.prevented, (page.listeners.pointerdown ?? []).length, 'aria-expanded' in node.attrs], [0, true, 1, 1, 0, false])
+  node.fire('keydown', { key: ' ' })
+  check('sparkle: Space on the focused sparkle opens the menu', parts('menu').length, 1)
+  win.modal = true
+  const under = menu()?.fire('keydown', { key: 'Enter' }) ?? {}
+  check('sparkle: under a modal the key is the modal\'s: the menu closes and sends nothing', [parts('menu').length, under.stopped, under.prevented, sent.length], [0, 0, 0, 0])
+  win.modal = false
+  node.fire('contextmenu')
+  node.fire('contextmenu')
+  check('sparkle: the context menu opens it, once', parts('menu').length, 1)
+  page.fire('pointerdown', { target: node })
+  check('sparkle: a press on the sparkle itself is not a press outside', parts('menu').length, 1)
+  page.fire('pointerdown', { target: page.body })
+  check('sparkle: a press outside closes the menu', parts('menu').length, 0)
+  node.fire('click')
+  menu().fire('focusout', { relatedTarget: node })
+  check('sparkle: the focus moving to the sparkle itself leaves the menu to its click', parts('menu').length, 1)
+  node.fire('focusout', { relatedTarget: stop() })
+  check('sparkle: the focus going from the sparkle back into the menu keeps it', parts('menu').length, 1)
+  node.fire('focusout', { relatedTarget: null })
+  check('sparkle: the focus leaving the sparkle for elsewhere closes its menu', parts('menu').length, 0)
+  node.fire('click')
+  menu().fire('focusout', { relatedTarget: null })
+  check('sparkle: the focus leaving the menu closes it (a modal blurs the page\'s element)', parts('menu').length, 0)
+  node.fire('click')
+  const released = menu().fire('keyup', { key: 'Enter' })
+  win.modal = true
+  const under_up = menu().fire('keyup', { key: 'Enter' })
+  win.modal = false
+  check('sparkle: a key\'s release in the menu is the menu\'s, and the modal\'s under a modal', [released.stopped, released.prevented, under_up.stopped, under_up.prevented], [1, 1, 0, 0])
+  delete store._bridge.watcher
+  v1('_on_global_store_change(_this.id)')
+  check('sparkle: a watcher that goes takes its menu and the sparkle with it', [parts('menu').length, node.hidden], [0, true])
+  store._bridge.watcher = { ...watching }
+  v1('_on_global_store_change(_this.id)')
+  node.fire('click')
+  viewport.height = 400
+  viewport.fire('resize')
+  check('sparkle: a keyboard closes an open menu', [parts('menu').length, node.hidden], [0, true])
+  viewport.height = 800
+  viewport.fire('resize')
+  node.fire('click')
+  store._bridge.watcher.took = 'a later take' // the watch is replaced while the menu is open
+  const first = stop()
+  first.fire('click')
+  check('sparkle: Stop Watching stops the watch the menu SHOWED, as one command document',
+    [sent.length, sent[0]?.name == 'watch_command_' + sent[0]?.item.id, /^[0-9a-f]{16}$/.test(sent[0]?.item.id), sent[0]?.item.kind, sent[0]?.item.took, sent[0]?.item.at, sent[0]?.id, parts('menu').length],
+    [1, true, true, 'stop', TOOK, T, null, 0])
+  store._bridge.watcher.took = TOOK
+  v1('_on_global_store_change(_this.id)')
+  node.fire('click')
+  store._bridge.watcher.took = 'a later take'
+  v1('_on_global_store_change(_this.id)')
+  check('sparkle: a replaced watch closes the menu that showed the earlier one', [parts('menu').length, node.title], [0, shown.title])
+  store._bridge.watcher.took = TOOK
+  v1('vault_sparkle_reconcile()')
+  node.fire('keydown', { key: 'Enter' })
+  const pressed = menu()?.fire('keydown', { key: ' ' }) ?? {}
+  check('sparkle: the keyboard reaches the entry, and a sent stop shows as stopping', [sent.length, sent[1]?.item.took, pressed.stopped, pressed.prevented, node.title, node.classes.has('answering')],
+    [2, TOOK, 2, 1, "Stopping claude-fable-5-2-max's watch", true])
+  const up = node.fire('keyup', { key: ' ' })
+  check('sparkle: the key\'s release is not a second activation', [up.prevented, up.stopped, parts('menu').length], [1, 1, 0])
+  clock.now = T + 31000
+  status._global_store._status.hosts = at(clock.now)
+  tasks.sparkle.fn()
+  check('sparkle: the task\'s look ends the stopping after half a minute', node.title, shown.title)
+  clock.now = T
+  status._global_store._status.hosts = fresh
+  // a phone's keyboard
+  viewport.height = 400
+  viewport.fire('resize')
+  check('sparkle: a short visual viewport hides it at the viewport\'s own event', node.hidden, true)
+  viewport.height = 800
+  viewport.fire('resize')
+  check('sparkle: and its return shows it again', node.hidden, false)
+  // an update of the item's code: the old controller goes BEFORE the new one draws, and the old
+  // task's cancellation, which the app runs when the new task is dispatched, removes nothing new
+  node.fire('click')
+  log.length = 0
+  const old = win._vault_sparkle
+  const v2 = evaluation(2)
+  v2("_on_item_change('vault-id', '#vault', '#vault', false, true, false)")
+  const [node2] = parts('node')
+  check('sparkle: another tab\'s update replaces the controller: the old menu, element and style go first, then the new draw, then the task',
+    [log, node2 !== node, parts('node').length, parts('style').length, parts('menu').length, (page.listeners.pointerdown ?? []).length, (viewport.listeners.resize ?? []).length, win._vault_sparkle.code],
+    [['-menu', '-node', '-style', '+style', '+node', 'task sparkle'], true, 1, 1, 0, 0, 1, 2])
+  // (the old code's hooks no longer run; its closures may)
+  const sent_before = sent.length
+  node.fire('click')
+  old.open()
+  old.stop({ took: TOOK })
+  viewport.fire('resize')
+  check('sparkle: the old controller opens no menu and sends no stop', [parts('menu').length, sent.length - sent_before, parts('node')[0] === node2, node2.hidden], [0, 0, true, false])
+  // a controller whose window reference was lost: its task's cancellation, at the new task's
+  // dispatch, releases what it owned and does not take the new controller's reference
+  delete win._vault_sparkle
+  v2('_on_focus()')
+  check('sparkle: a lost controller is released by its task, and its late dispose leaves the new one alone',
+    [parts('node').length, parts('style').length, win._vault_sparkle?.node === parts('node')[0], parts('node')[0] !== node2], [1, 1, true, true])
+  const kept = parts('node')[0]
+  log.length = 0
+  v2('_on_focus()')
+  v2('_on_welcome()')
+  v2("_on_item_change('vault-id', '#vault', '#vault', false, true, true)") // a dependency's change that left the hash as it was
+  check('sparkle: the same code keeps its controller across hooks', [parts('node')[0] === kept, log], [true, []])
+  // the item is deleted: the app cancels its task at the task's next run
+  tasks.sparkle._on_cancel?.()
+  check('sparkle: the task\'s cancellation releases everything the controller owns',
+    [parts('node').length, parts('style').length, '_vault_sparkle' in win, (viewport.listeners.resize ?? []).length, tasks.sparkle.fn() === null, parts('node').length], [0, 0, false, 0, true, 0])
+  // an install after the page's welcome: the item's own change draws the sparkle, in this tab
+  // and in another, and provisions nothing; the app's install hook provisions the store
+  delete store._owner
+  v2("_on_item_change('vault-id', '#vault', '#vault', false, true, false)")
+  check('sparkle: another tab\'s change of the item draws the sparkle and leaves the store alone', [parts('node').length, '_owner' in store], [1, false])
+  tasks.sparkle._on_cancel?.()
+  v2("_on_item_change('vault-id', '#vault', '', false, false, false)")
+  check('sparkle: the item\'s own creation in this tab draws it, and provisions nothing either', [parts('node').length, '_owner' in store], [1, false])
+  store._bridge.watcher.state = 'answering'
+  v2("_on_item_change('status-id', '#status', '#status', false, false, false)")
+  check('sparkle: another item\'s change is nothing to it', parts('node')[0].classes.has('answering'), false)
+  store._bridge.watcher.state = 'watching'
+  v2('_on_install()')
+  v2('_on_install()')
+  check('sparkle: the install hook provisions the store, once', [parts('node').length, store._owner], [1, { stop: {} }])
+  delete store._owner
+  // two items carry this code (review 27): the page's #vault, and a renamed copy of it whose
+  // store still names a watcher while the bridge's entry stays fresh. Only the item the label
+  // names draws; the other releases what it drew, draws nothing at its later hooks, and leaves
+  // the current item's sparkle alone whatever the order of their hooks
+  parts('node')[0].fire('click')
+  items['vault-id'].name = '#vault_old'
+  v2("_on_item_change('vault-id', '#vault_old', '#vault', false, false, false)")
+  check('sparkle: a renamed item releases its sparkle, its store still naming a watcher',
+    [parts('node').length, parts('style').length, parts('menu').length, '_vault_sparkle' in win, tasks.sparkle.fn() === null, store._bridge.watcher.name],
+    [0, 0, 0, false, true, watching.name])
+  for (const hook of ['_on_focus()', "_on_global_store_change('status-id')", '_on_global_store_change(_this.id)']) v2(hook)
+  check('sparkle: and draws nothing at its later hooks', [parts('node').length, '_vault_sparkle' in win], [0, false])
+  const current = { store: { _bridge: { host: 'test-host', watcher: { ...watching, name: 'current-agent' } } }, tasks: {} }
+  items['vault2-id'] = new FakeItem('#vault')
+  items['vault2-id'].id = 'vault2-id'
+  const c1 = evaluation(1, 'vault2-id', current)
+  c1("_on_item_change('vault2-id', '#vault', '', false, false, false)")
+  c1('_on_install()')
+  const mine = parts('node')[0]
+  const owned = () => [parts('node')[0] === mine, parts('node').length, mine?.title, win._vault_sparkle?.item]
+  check('sparkle: the item under the label draws its own watcher', [...owned(), current.store._owner], [true, 1, 'current-agent is watching', 'vault2-id', { stop: {} }])
+  for (const hook of ['_on_focus()', "_on_global_store_change('status-id')", '_on_global_store_change(_this.id)', '_on_welcome()']) v2(hook)
+  tasks.sparkle.fn()
+  check('sparkle: the renamed item\'s hooks and task leave the current sparkle alone', owned(), [true, 1, 'current-agent is watching', 'vault2-id'])
+  c1('_on_focus()')
+  v2('_on_focus()')
+  const then_old = owned()
+  v2('_on_focus()')
+  c1('_on_focus()')
+  check('sparkle: in either order of the two items\' hooks', [then_old, owned()], [[true, 1, 'current-agent is watching', 'vault2-id'], [true, 1, 'current-agent is watching', 'vault2-id']])
+  items['vault-id'].name = '#vault' // two items under the label: neither is the page's #vault
+  c1('_on_focus()')
+  check('sparkle: two items under the label show nothing', [parts('node').length, '_vault_sparkle' in win], [0, false])
+  items['vault-id'].name = '#vault_old'
+  tasks.sparkle._on_cancel?.()
+  // the command's transport: one retry at the same document id, then said
+  ;(async () => {
+    sent.length = 0
+    writes.fail = 1
+    const command = { id: 'c1', kind: 'stop', took: TOOK, at: 1 }
+    ctx.__command = command
+    Object.assign(ctx, { alert: m => alerts.push(m) })
+    const ok = await vm.runInContext('vault_send_watch_command(__command)', ctx)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    check('sparkle: a failed write is retried once at the same document id', [ok, sent.map(s => [s.name, s.item === command, s.id]), alerts], [true, [['watch_command_c1', true, null], ['watch_command_c1', true, 'doc-1']], []])
+    sent.length = 0
+    writes.fail = 2
+    await vm.runInContext('vault_send_watch_command(__command)', ctx)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    check('sparkle: a second failure is said, not retried again', [sent.length, alerts], [2, ["the watch's stop was not saved: offline"]])
+    alerts.length = 0
+    win._enqueue_hidden_document = async () => { throw new Error('enqueueHiddenDocument called on anonymous account') }
+    check('sparkle: a command that cannot be prepared is said', [await vm.runInContext('vault_send_watch_command(__command)', ctx), alerts],
+      [false, ['could not stop the watch: enqueueHiddenDocument called on anonymous account']])
+    if (failures) { console.log(`${failures} failure(s)`); process.exit(1) }
+    console.log('all checks passed')
+  })()
+}
