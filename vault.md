@@ -818,12 +818,12 @@ async function vault_send_watch_command(command, retry_id = null) {
 }
 
 const VAULT_SPARKLE_CSS = `
-.vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: black; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .vault-sparkle[hidden] { display: none }
 .vault-sparkle:focus { outline: none }
 .vault-sparkle:focus-visible { outline: 1px solid #f5e389 }
-.vault-sparkle.idle { opacity: 0.45 }
-@media (hover: hover) { .vault-sparkle.idle:hover { opacity: 0.9 } }
+.vault-sparkle.idle { color: rgba(245, 227, 137, 0.45) }
+@media (hover: hover) { .vault-sparkle.idle:hover { color: rgba(245, 227, 137, 0.9) } }
 .vault-sparkle > svg { display: block; width: 16px; height: 16px }
 .vault-sparkle.answering > svg { animation: vault-sparkle-pulse 1.2s ease-in-out infinite }
 @keyframes vault-sparkle-pulse { 50% { opacity: 0.3 } }
