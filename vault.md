@@ -1,7 +1,7 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
-- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, it offers to start one: click it for Claude, shift-click for Codex. Its menu (a click while an agent watches; a right click or a long press at any time) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
+- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap; a right click or a long press too) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -767,7 +767,7 @@ function vault_sparkle_state(bridge, hosts, now, marks = {}) {
     const what = start.state == 'unknown' ? "A start's outcome is unknown" : start.resume ? 'The last watcher was not resumed' : `${VAULT_AGENTS[start.agent] ?? 'The agent'} did not start`
     return shown(start.state, start.id, start.note ? `${what}: ${start.note}` : what, { tab: start.tab })
   }
-  return shown('offer', null, 'Start Claude Watcher (Shift: Codex)')
+  return shown('offer', null, 'Start a watcher')
 }
 
 // the menu's entries for what the sparkle shows, each [key, label]: with a watcher its stop
@@ -1041,18 +1041,14 @@ function vault_sparkle_create() {
     self.show()
   }
 
-  // a click: with a watcher, and with a start under way or one that did not go as asked, it
-  // opens the menu (or closes it); on the plain offer it starts a watcher, Claude, or Codex
-  // with Shift, and gives the keyboard back to the page. So a start whose outcome is not
-  // known is never asked for again by a blind tap
+  // a click or a tap opens the menu (or closes it), whatever is shown: nothing is started,
+  // stopped or closed but by an entry of it, so no stray tap starts an agent's session
   const click = e => {
     e.preventDefault()
     e.stopPropagation()
     if (self.pressed) return void (self.pressed = false) // the click that ends a long press, whose menu is open
     if (self.menu) return self.close()
-    if (self.shown?.kind != 'offer') return self.open()
-    self.act(e.shiftKey ? 'codex' : 'claude', self.shown)
-    node.blur()
+    self.open()
   }
   const toggle = e => {
     e.preventDefault()
@@ -1066,7 +1062,7 @@ function vault_sparkle_create() {
     e.stopPropagation()
     self.open()
   })
-  // a long press opens the menu, where a touch has no right click (and the click is the start):
+  // a long press opens the menu too, where a touch has no right click:
   // a press held VAULT_LONG_PRESS_MS that did not move, was not cancelled and did not leave the
   // sparkle. Only the click that ends such a press is swallowed
   const release = () => {
