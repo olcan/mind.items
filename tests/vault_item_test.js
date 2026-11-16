@@ -782,14 +782,14 @@ if (realMarked) {
   }
   const listed = (watcher, host = 'test-host') => ({ host, watcher })
   const SEEN = T - 60000 // the bridge's heartbeat as the page has it
-  const shown = { kind: 'watching', key: 'watching:' + TOOK, name: watching.name, took: TOOK, tab: false, busy: false, dim: false, title: 'claude-fable-5-2-max is watching', seen: SEEN }
+  const shown = { kind: 'watching', key: 'watching:' + TOOK, name: watching.name, took: TOOK, tab: false, jump: null, busy: false, dim: false, title: 'claude-fable-5-2-max is watching', seen: SEEN }
   check('sparkle: a fresh watcher is shown watching', state(listed(watching), fresh), shown)
   check('sparkle: an answering watcher pulses under its own name', state(listed({ ...watching, state: 'answering' }), fresh),
     { ...shown, busy: true, title: 'claude-fable-5-2-max is answering a request' })
   check('sparkle: a hand-off names the agent that answers', state(listed({ ...watching, state: 'answering', by: 'gpt-6-astra-ultra' }), fresh).title,
     'gpt-6-astra-ultra is answering a request')
   check('sparkle: a watching watcher never shows a by', state(listed({ ...watching, by: 'gpt-6-astra-ultra' }), fresh).title, shown.title)
-  const offer = { kind: 'offer', key: 'offer::', start: null, tab: false, busy: false, dim: true, title: 'Start a watcher', last: null, seen: SEEN }
+  const offer = { kind: 'offer', key: 'offer::', start: null, tab: false, jump: null, busy: false, dim: true, title: 'Start a watcher', last: null, seen: SEEN }
   check('sparkle: with no watcher, or one that names no agent or no take, a fresh bridge shows the offer to start one, dim',
     [null, undefined, 'x', { ...watching, name: '' }, { ...watching, name: 5 }, { ...watching, took: '' }, { name: 'a' }, { state: 'none' }].map(w => state(listed(w), fresh)),
     Array(8).fill(offer))
@@ -828,7 +828,7 @@ if (realMarked) {
   const none = (start, last) => listed({ state: 'none', ...(start ? { start } : {}), ...(last ? { last } : {}) })
   const START = { id: 'start-1', agent: 'claude', at: TOOK, state: 'starting' }
   const LAST = { name: 'gpt-6-astra-ultra', agent: 'codex', key: 'k1' }
-  const starting = { kind: 'starting', key: 'starting:start-1:', start: 'start-1', tab: false, busy: true, dim: true, title: 'An agent is starting to watch', last: null, seen: SEEN }
+  const starting = { kind: 'starting', key: 'starting:start-1:', start: 'start-1', tab: false, jump: null, busy: true, dim: true, title: 'An agent is starting to watch', last: null, seen: SEEN }
   check('sparkle: a start the bridge shows as starting pulses dim, and says whether its tab is known',
     [state(none(START), fresh), state(none({ ...START, tab: true }), fresh).tab], [starting, true])
   check('sparkle: the last watcher that can be resumed is kept with what is shown, when it reads as one',
@@ -867,6 +867,15 @@ if (realMarked) {
     [['starting', 'start-1', true, starting.title], ['starting', 'start-1', true, starting.title], ['starting', 'mine-1', true, starting.title], UNCONFIRMED, UNCONFIRMED])
   check('sparkle: a watcher is shown whatever else is said, with its tab when the bridge can close it',
     [state(listed({ ...watching, tab: true, start: START, last: LAST }), fresh, T, unnamed), state(listed({ ...watching, tab: 'yes' }), fresh).tab], [{ ...shown, tab: true }, false])
+  // the jump: what brings up a watching or starting agent's herdr tab, for the browser's extension
+  const JUMP = { tab: 'w4:tB', host: 'm3ultra', herdr: 'm3ultra:default', session: 'sess-1' }
+  check('sparkle: a watching agent\'s herdr tab, and that of a start under way, are kept with what is shown as the bridge gave them; nothing else has one',
+    [state(listed({ ...watching, jump: JUMP }), fresh).jump, state(none({ ...START, tab: true, jump: JUMP }), fresh).jump,
+      state(none({ ...START, state: 'unknown', tab: true, jump: JUMP }), fresh).jump, state(none({ ...START, state: 'failed', jump: JUMP }), fresh).jump, state(none(null, LAST), fresh).jump],
+    [JUMP, JUMP, null, null, null])
+  check('sparkle: a jump is its strings alone, and none without a tab',
+    [{ tab: 'w1:t2' }, { ...JUMP, host: 5, session: '' }, { ...JUMP, extra: 'x', tab: 'w1:t2' }, { host: 'm3ultra' }, { ...JUMP, tab: 7 }, 'w1:t2', null].map(jump => state(listed({ ...watching, jump }), fresh).jump),
+    [{ tab: 'w1:t2' }, { tab: 'w4:tB', herdr: 'm3ultra:default' }, { tab: 'w1:t2', host: 'm3ultra', herdr: 'm3ultra:default', session: 'sess-1' }, null, null, null, null])
   const closing = { closing: { took: TOOK, at: T - 1000 }, stopping: { took: TOOK, at: T - 1000 } }
   check('sparkle: a close this tab sent shows as closing, before a stop, for its watch and for half a minute',
     [state(listed(watching), fresh, T, closing).title, state(listed(watching), fresh, T, closing).busy, state(listed(watching), fresh, T + 29001, closing).title, state(listed({ ...watching, took: 'another' }), fresh, T, closing).title],
@@ -959,6 +968,20 @@ if (realMarked) {
   check('sparkle: a hook draws one element and its style, shown with the watcher\'s words, and one task',
     [log, parts('node').length, parts('style').length, node.parent === page.body, node.hidden, node.title, node.attrs['aria-label'], node.classes.has('answering'), tasks.sparkle.delay, tasks.sparkle.repeat],
     [['+style', '+node', 'task sparkle'], 1, 1, true, false, shown.title, shown.title, false, 15000, 15000])
+  store._bridge.watcher.jump = JUMP
+  v1('_on_global_store_change(_this.id)')
+  const hung = node.dataset.vaultJump
+  delete store._bridge.watcher.jump
+  v1('_on_global_store_change(_this.id)')
+  check('sparkle: the watching agent\'s herdr tab hangs on the element, for the browser\'s extension, and goes with it', [hung, 'vaultJump' in node.dataset], [JSON.stringify(JUMP), false])
+  store._bridge.watcher.jump = JUMP
+  v1('_on_global_store_change(_this.id)')
+  status._global_store._status.hosts = at(T - 4 * 60000) // review 37: the bridge goes stale while a tab hangs there
+  v1("_on_global_store_change('status-id')")
+  check('sparkle: a bridge that goes stale takes the tab off the hidden element too', [node.hidden, 'vaultJump' in node.dataset], [true, false])
+  status._global_store._status.hosts = fresh
+  delete store._bridge.watcher.jump
+  v1("_on_global_store_change('status-id')")
   store._bridge.watcher.state = 'answering'
   v1('_on_global_store_change(_this.id)')
   check('sparkle: a store change updates the same element in place', [parts('node')[0] === node, log.length, node.classes.has('answering'), node.title],
@@ -1203,8 +1226,9 @@ if (realMarked) {
     status._global_store._status.hosts = fresh
     c1("_on_global_store_change('status-id')")
     spark.fire('click')
-    bridge.watcher = { state: 'none', start: { id: first.id, agent: 'claude', at: TOOK, state: 'starting', tab: true } }
+    bridge.watcher = { state: 'none', start: { id: first.id, agent: 'claude', at: TOOK, state: 'starting', tab: true, jump: JUMP } }
     hook()
+    check('sparkle: a start under way hangs its tab on the element too', spark.dataset.vaultJump, JSON.stringify(JUMP))
     check('sparkle: the bridge naming the start keeps it shown, its menu open, and ends this tab\'s own mark', [spark.title, parts('menu').length, win._vault_sparkle.marks.started], [starting.title, 1, null])
     status._global_store._status.hosts = at(T - 5000) // the bridge's heartbeat moves on while the menu is open
     c1("_on_global_store_change('status-id')")
@@ -1215,8 +1239,8 @@ if (realMarked) {
     bridge.watcher.start = { ...bridge.watcher.start, state: 'unknown', note: 'no watcher appeared' }
     hook()
     spark.fire('click')
-    check('sparkle: after an outcome that is not known a click starts nothing: it opens the menu, with the starts and the cancel, none of them focused',
-      [sent.length, spark.title, offered(), spark.classes.has('answering'), page.activeElement === menu()], [2, "A start's outcome is unknown: no watcher appeared", ['claude', 'codex', 'cancel'], false, true])
+    check('sparkle: after an outcome that is not known a click starts nothing: it opens the menu, with the starts and the cancel, none of them focused; and no tab hangs on the element',
+      [sent.length, spark.title, offered(), spark.classes.has('answering'), page.activeElement === menu(), 'vaultJump' in spark.dataset], [2, "A start's outcome is unknown: no watcher appeared", ['claude', 'codex', 'cancel'], false, true, false])
     const idle = ['Enter', ' '].map(key => menu().fire('keydown', { key }))
     check('sparkle: with no entry focused Enter and Space act on nothing, and are the menu\'s all the same (Space would scroll the page)',
       [sent.length, parts('menu').length, idle.map(e => [e.prevented, e.stopped])], [2, 1, [[1, 1], [1, 1]]])
