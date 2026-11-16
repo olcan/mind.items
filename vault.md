@@ -1,7 +1,7 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
-- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, it offers to start one: click it for Claude, shift-click for Codex. Its menu (a click while an agent watches; a right click or a long press at any time) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
+- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -699,8 +699,6 @@ const VAULT_STATUS_STALE_MS = 3 * 60000 // the #status item's own stale interval
 const VAULT_SPARKLE_TICK_MS = 15000 // the look at the time's part of the bridge's freshness
 const VAULT_MARK_MS = 30000 // how long a command this tab sent shows as under way
 const VAULT_KEYBOARD_PX = 150 // a visual viewport this much shorter than the window: a keyboard, probably
-const VAULT_LONG_PRESS_MS = 550 // a press held this long opens the menu (a phone has no right click)
-const VAULT_PRESS_SLOP_PX = 10 // a held press that moved further than this is no long press
 const VAULT_AGENTS = { claude: 'Claude', codex: 'Codex' } // the agents a start can ask for
 const VAULT_NOTE_CHARS = 200 // how much of the bridge's note on a start the sparkle's title takes
 // this evaluation's code version: the item's text and its dependencies' (a controller drawn by
@@ -767,7 +765,7 @@ function vault_sparkle_state(bridge, hosts, now, marks = {}) {
     const what = start.state == 'unknown' ? "A start's outcome is unknown" : start.resume ? 'The last watcher was not resumed' : `${VAULT_AGENTS[start.agent] ?? 'The agent'} did not start`
     return shown(start.state, start.id, start.note ? `${what}: ${start.note}` : what, { tab: start.tab })
   }
-  return shown('offer', null, 'Start Claude Watcher (Shift: Codex)')
+  return shown('offer', null, 'Start a watcher')
 }
 
 // the menu's entries for what the sparkle shows, each [key, label]: with a watcher its stop
@@ -818,25 +816,28 @@ async function vault_send_watch_command(command, retry_id = null) {
 }
 
 const VAULT_SPARKLE_CSS = `
-.vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: black; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .vault-sparkle[hidden] { display: none }
 .vault-sparkle:focus { outline: none }
 .vault-sparkle:focus-visible { outline: 1px solid #f5e389 }
-.vault-sparkle.idle { opacity: 0.45 }
-.vault-sparkle.idle:hover, .vault-sparkle.idle:focus-visible { opacity: 0.9 }
+.vault-sparkle.idle { color: rgba(245, 227, 137, 0.45) }
+@media (hover: hover) { .vault-sparkle.idle:hover { color: rgba(245, 227, 137, 0.9) } }
 .vault-sparkle > svg { display: block; width: 16px; height: 16px }
 .vault-sparkle.answering > svg { animation: vault-sparkle-pulse 1.2s ease-in-out infinite }
 @keyframes vault-sparkle-pulse { 50% { opacity: 0.3 } }
+.vault-sparkle-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); animation: vault-sparkle-fade 0.12s ease-out }
+@keyframes vault-sparkle-fade { from { opacity: 0 } }
 .vault-sparkle-menu { position: fixed; right: 14px; bottom: 42px; z-index: 90; padding: 4px; border: 1px solid #444; border-radius: 6px; background: #1b1b1b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) }
+.vault-sparkle-menu:focus { outline: none }
 .vault-sparkle-menu > button { display: block; width: 100%; margin: 0; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: #ddd; font: 14px/1.2 sans-serif; text-align: left; white-space: nowrap; cursor: pointer }
-.vault-sparkle-menu > button:hover, .vault-sparkle-menu > button:focus { background: #333; outline: none }
+.vault-sparkle-menu > button:focus { background: #333; outline: none }
 `
 const VAULT_SPARKLE_SVG =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>'
 
 // draw or update the page's one sparkle. Its controller lives on window, since the item's code
 // is evaluated afresh at every hook and nothing else outlives one: it OWNS the element, its
-// style, the menu, the viewport listener, a held press's timer and the task that looks at the
+// style, the menu, the viewport listener and the task that looks at the
 // time, and its dispose() releases all of them and nothing of a newer controller's (a disposed
 // controller opens no menu and sends nothing, and its task ends). A controller drawn by other code (an update of this item or of a
 // dependency, in this tab or another) or for another item is disposed BEFORE the new one
@@ -859,7 +860,7 @@ function vault_sparkle_reconcile() {
 }
 
 function vault_sparkle_create() {
-  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, press: null, pressed: false, disposed: false }
+  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false }
   const style = (self.style = document.createElement('style'))
   style.dataset.vaultSparkle = 'style'
   style.textContent = VAULT_SPARKLE_CSS
@@ -897,9 +898,15 @@ function vault_sparkle_create() {
   // the menu, above the sparkle. It captures what it shows, so an entry acts on that watch,
   // that start or that last watcher and on no other; its keys are its own while it has the
   // focus (the app's window handlers bubble, so a stop here keeps them out), except under a
-  // modal, which gets the key and closes the menu; it closes on Escape, on a press outside,
-  // when the focus leaves it, and when what it showed is no longer what the sparkle shows
-  self.open = () => {
+  // modal, which gets the key and closes the menu; it closes on Escape, on a click outside,
+  // when the focus leaves it, and when what it showed is no longer what the sparkle shows.
+  // ONE entry is highlighted at most, the one with the focus, which follows the last input: a
+  // pointer over an entry takes it there, an arrow moves it, and a mouse that leaves the menu
+  // leaves no entry with it. Opened from the keyboard (`keyboard`) the first entry has it;
+  // opened by a pointer none has, until the pointer or an arrow comes. A layer under the menu
+  // covers the page while it is open, so a click or a tap outside closes the menu and is
+  // nothing to the page under it
+  self.open = (keyboard = false) => {
     if (self.disposed || self.menu || !self.shown || node.hidden) return
     const target = self.shown
     const entries = vault_sparkle_entries(target)
@@ -907,6 +914,7 @@ function vault_sparkle_create() {
     menu.className = 'vault-sparkle-menu'
     menu.dataset.vaultSparkle = 'menu'
     menu.setAttribute('role', 'menu')
+    menu.tabIndex = -1
     const act = (e, key) => {
       e.preventDefault()
       e.stopPropagation()
@@ -920,7 +928,12 @@ function vault_sparkle_create() {
       button.dataset.vaultEntry = key
       button.textContent = label
       button.addEventListener('click', e => act(e, key))
+      for (const type of ['pointermove', 'pointerdown'])
+        button.addEventListener(type, () => button.focus({ preventScroll: true }))
       return menu.appendChild(button)
+    })
+    menu.addEventListener('pointerleave', e => {
+      if (e.pointerType == 'mouse' && buttons.includes(document.activeElement)) menu.focus({ preventScroll: true })
     })
     menu.addEventListener('keydown', e => {
       if (window._modal_visible?.()) return self.close() // the modal's key
@@ -934,8 +947,8 @@ function vault_sparkle_create() {
         const next = e.key == 'ArrowDown' ? at + 1 : (at < 0 ? 0 : at) - 1 + buttons.length
         buttons[next % buttons.length].focus({ preventScroll: true })
       } else if (e.key == 'Enter' || e.key == ' ') {
-        if (e.repeat) e.preventDefault() // a held key repeats: only the press itself acts
-        else if (at >= 0) act(e, entries[at][0])
+        if (e.repeat || at < 0) e.preventDefault() // only the press itself acts, and on the entry that has the focus
+        else act(e, entries[at][0])
       }
     })
     menu.addEventListener('keyup', e => {
@@ -947,24 +960,49 @@ function vault_sparkle_create() {
     menu.addEventListener('focusout', e => {
       if (!menu.contains(e.relatedTarget) && e.relatedTarget !== node) self.close()
     })
+    // the layer: a press on it is not the page's or the app's, and takes no focus; its click
+    // (the whole press, so nothing of it is left for what lies under) closes the menu
+    const backdrop = document.createElement('div')
+    backdrop.className = 'vault-sparkle-backdrop'
+    backdrop.dataset.vaultSparkle = 'backdrop'
+    for (const type of ['pointerdown', 'mousedown'])
+      backdrop.addEventListener(type, e => {
+        e.preventDefault()
+        e.stopPropagation()
+      })
+    backdrop.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+    for (const type of ['click', 'contextmenu'])
+      backdrop.addEventListener(type, e => {
+        e.preventDefault()
+        e.stopPropagation()
+        self.close()
+      })
+    // a press on anything else that is not the menu or the sparkle (something drawn above the layer)
     const outside = e => {
-      if (!menu.contains(e.target) && !node.contains(e.target)) self.close()
+      if (!menu.contains(e.target) && !node.contains(e.target) && e.target !== backdrop) self.close()
     }
     document.addEventListener('pointerdown', outside, true)
-    self.menu = { element: menu, key: target.key, outside }
+    self.menu = { element: menu, key: target.key, outside, backdrop, keyboard }
     node.setAttribute('aria-expanded', 'true')
+    document.body.appendChild(backdrop)
     document.body.appendChild(menu)
-    buttons[0].focus({ preventScroll: true })
+    ;(keyboard ? buttons[0] : menu).focus({ preventScroll: true })
   }
 
+  // close the menu. The focus it held goes back to the sparkle only where `refocus` asks and
+  // the menu was opened from the keyboard (Escape, or an entry chosen there); otherwise it is
+  // given up, so the keyboard is the page's again and the sparkle shows no focus ring
   self.close = (refocus = false) => {
     const menu = self.menu
     if (!menu) return
     self.menu = null
     document.removeEventListener('pointerdown', menu.outside, true)
+    const held = menu.element.contains(document.activeElement) ? document.activeElement : null
+    if (refocus && menu.keyboard && !self.disposed) node.focus({ preventScroll: true })
+    else held?.blur()
     menu.element.remove()
+    menu.backdrop.remove()
     node.removeAttribute('aria-expanded')
-    if (refocus && !self.disposed) node.focus({ preventScroll: true })
   }
 
   // one entry's action, on what the menu showed (`target`), sent with the bridge's heartbeat
@@ -1001,24 +1039,19 @@ function vault_sparkle_create() {
     self.show()
   }
 
-  // a click: with a watcher, and with a start under way or one that did not go as asked, it
-  // opens the menu (or closes it); on the plain offer it starts a watcher, Claude, or Codex
-  // with Shift, and gives the keyboard back to the page. So a start whose outcome is not
-  // known is never asked for again by a blind tap
+  // a click or a tap opens the menu (or closes it), whatever is shown: nothing is started,
+  // stopped or closed but by an entry of it, so no stray tap starts an agent's session
   const click = e => {
     e.preventDefault()
     e.stopPropagation()
-    if (self.pressed) return void (self.pressed = false) // the click that ends a long press, whose menu is open
     if (self.menu) return self.close()
-    if (self.shown?.kind != 'offer') return self.open()
-    self.act(e.shiftKey ? 'codex' : 'claude', self.shown)
-    node.blur()
+    self.open()
   }
   const toggle = e => {
     e.preventDefault()
     e.stopPropagation()
     if (self.menu) self.close()
-    else self.open()
+    else self.open(true)
   }
   node.addEventListener('click', click)
   node.addEventListener('contextmenu', e => {
@@ -1026,29 +1059,6 @@ function vault_sparkle_create() {
     e.stopPropagation()
     self.open()
   })
-  // a long press opens the menu, where a touch has no right click (and the click is the start):
-  // a press held VAULT_LONG_PRESS_MS that did not move, was not cancelled and did not leave the
-  // sparkle. Only the click that ends such a press is swallowed
-  const release = () => {
-    clearTimeout(self.press?.timer)
-    self.press = null
-  }
-  node.addEventListener('pointerdown', e => {
-    release()
-    self.pressed = false
-    if (e.pointerType == 'mouse') return
-    const held = () => {
-      self.press = null
-      if (self.disposed) return
-      self.pressed = true
-      self.open()
-    }
-    self.press = { timer: setTimeout(held, VAULT_LONG_PRESS_MS), x: e.clientX, y: e.clientY }
-  })
-  node.addEventListener('pointermove', e => {
-    if (self.press && Math.hypot(e.clientX - self.press.x, e.clientY - self.press.y) > VAULT_PRESS_SLOP_PX) release()
-  })
-  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(type, release)
   // Enter and Space are the sparkle's while it has the focus (the app's window handlers take
   // them otherwise, and its keyup handler cancels a button's own activation). They open the
   // menu whatever is shown, the offer too: the sparkle keeps the focus after its menu closes,
@@ -1079,7 +1089,6 @@ function vault_sparkle_create() {
   self.dispose = () => {
     if (self.disposed) return
     self.close()
-    release()
     self.disposed = true
     viewport?.removeEventListener('resize', on_viewport)
     node.remove()
