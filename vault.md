@@ -1,7 +1,7 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
-- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap; a right click or a long press too) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
+- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -699,8 +699,6 @@ const VAULT_STATUS_STALE_MS = 3 * 60000 // the #status item's own stale interval
 const VAULT_SPARKLE_TICK_MS = 15000 // the look at the time's part of the bridge's freshness
 const VAULT_MARK_MS = 30000 // how long a command this tab sent shows as under way
 const VAULT_KEYBOARD_PX = 150 // a visual viewport this much shorter than the window: a keyboard, probably
-const VAULT_LONG_PRESS_MS = 550 // a press held this long opens the menu (a phone has no right click)
-const VAULT_PRESS_SLOP_PX = 10 // a held press that moved further than this is no long press
 const VAULT_AGENTS = { claude: 'Claude', codex: 'Codex' } // the agents a start can ask for
 const VAULT_NOTE_CHARS = 200 // how much of the bridge's note on a start the sparkle's title takes
 // this evaluation's code version: the item's text and its dependencies' (a controller drawn by
@@ -839,7 +837,7 @@ const VAULT_SPARKLE_SVG =
 
 // draw or update the page's one sparkle. Its controller lives on window, since the item's code
 // is evaluated afresh at every hook and nothing else outlives one: it OWNS the element, its
-// style, the menu, the viewport listener, a held press's timer and the task that looks at the
+// style, the menu, the viewport listener and the task that looks at the
 // time, and its dispose() releases all of them and nothing of a newer controller's (a disposed
 // controller opens no menu and sends nothing, and its task ends). A controller drawn by other code (an update of this item or of a
 // dependency, in this tab or another) or for another item is disposed BEFORE the new one
@@ -862,7 +860,7 @@ function vault_sparkle_reconcile() {
 }
 
 function vault_sparkle_create() {
-  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, press: null, pressed: false, disposed: false }
+  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false }
   const style = (self.style = document.createElement('style'))
   style.dataset.vaultSparkle = 'style'
   style.textContent = VAULT_SPARKLE_CSS
@@ -1046,7 +1044,6 @@ function vault_sparkle_create() {
   const click = e => {
     e.preventDefault()
     e.stopPropagation()
-    if (self.pressed) return void (self.pressed = false) // the click that ends a long press, whose menu is open
     if (self.menu) return self.close()
     self.open()
   }
@@ -1062,29 +1059,6 @@ function vault_sparkle_create() {
     e.stopPropagation()
     self.open()
   })
-  // a long press opens the menu too, where a touch has no right click:
-  // a press held VAULT_LONG_PRESS_MS that did not move, was not cancelled and did not leave the
-  // sparkle. Only the click that ends such a press is swallowed
-  const release = () => {
-    clearTimeout(self.press?.timer)
-    self.press = null
-  }
-  node.addEventListener('pointerdown', e => {
-    release()
-    self.pressed = false
-    if (e.pointerType == 'mouse') return
-    const held = () => {
-      self.press = null
-      if (self.disposed) return
-      self.pressed = true
-      self.open()
-    }
-    self.press = { timer: setTimeout(held, VAULT_LONG_PRESS_MS), x: e.clientX, y: e.clientY }
-  })
-  node.addEventListener('pointermove', e => {
-    if (self.press && Math.hypot(e.clientX - self.press.x, e.clientY - self.press.y) > VAULT_PRESS_SLOP_PX) release()
-  })
-  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(type, release)
   // Enter and Space are the sparkle's while it has the focus (the app's window handlers take
   // them otherwise, and its keyup handler cancels a button's own activation). They open the
   // menu whatever is shown, the offer too: the sparkle keeps the focus after its menu closes,
@@ -1115,7 +1089,6 @@ function vault_sparkle_create() {
   self.dispose = () => {
     if (self.disposed) return
     self.close()
-    release()
     self.disposed = true
     viewport?.removeEventListener('resize', on_viewport)
     node.remove()

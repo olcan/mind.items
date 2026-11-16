@@ -789,7 +789,7 @@ if (realMarked) {
   check('sparkle: a hand-off names the agent that answers', state(listed({ ...watching, state: 'answering', by: 'gpt-6-astra-ultra' }), fresh).title,
     'gpt-6-astra-ultra is answering a request')
   check('sparkle: a watching watcher never shows a by', state(listed({ ...watching, by: 'gpt-6-astra-ultra' }), fresh).title, shown.title)
-  const offer = { kind: 'offer', key: 'offer::', start: null, tab: false, busy: false, dim: true, title: 'Start Claude Watcher (Shift: Codex)', last: null, seen: SEEN }
+  const offer = { kind: 'offer', key: 'offer::', start: null, tab: false, busy: false, dim: true, title: 'Start a watcher', last: null, seen: SEEN }
   check('sparkle: with no watcher, or one that names no agent or no take, a fresh bridge shows the offer to start one, dim',
     [null, undefined, 'x', { ...watching, name: '' }, { ...watching, name: 5 }, { ...watching, took: '' }, { name: 'a' }, { state: 'none' }].map(w => state(listed(w), fresh)),
     Array(8).fill(offer))
@@ -928,12 +928,6 @@ if (realMarked) {
     },
   })
   const tasks = {}
-  // the page's timers, run by the witness: a held press's is the only one this code sets
-  const timers = []
-  const timing = {
-    setTimeout: (fn, ms) => timers.push({ fn, ms, on: true }),
-    clearTimeout: id => { if (timers[id - 1]) timers[id - 1].on = false },
-  }
   const store = { _bridge: { host: 'test-host', watcher: { ...watching } } }
   const status = new FakeItem('#status')
   status._global_store = { _status: { hosts: fresh } }
@@ -954,7 +948,7 @@ if (realMarked) {
         return (own.tasks[name] = task)
       },
     }
-    const context = vm.createContext({ ...env, ...timing, _this, document: page, crypto: require('crypto').webcrypto, alert: m => alerts.push(m) })
+    const context = vm.createContext({ ...env, _this, document: page, crypto: require('crypto').webcrypto, alert: m => alerts.push(m) })
     vm.runInContext(tableSrc[0] + '\n' + block[1], context)
     return code => vm.runInContext(code, context)
   }
@@ -985,7 +979,7 @@ if (realMarked) {
   const nowhere = () => page.activeElement === null // the focus is given up: the keyboard is the page's
   const layer = () => parts('backdrop')[0]
   check('sparkle: a click opens the menu above it, over a layer that covers the page; the menu has the focus and no entry does',
-    [parts('menu').length, stop().tag, stop().textContent, page.activeElement === menu(), menu().tabIndex, node.attrs['aria-expanded'], (page.listeners.pointerdown ?? []).length, parts('backdrop').length, log.slice(-2)],
+    [parts('menu').length, stop()?.tag, stop()?.textContent, parts('menu').length == 1 && page.activeElement === menu(), menu()?.tabIndex, node.attrs['aria-expanded'], (page.listeners.pointerdown ?? []).length, parts('backdrop').length, log.slice(-2)],
     [1, 'button', 'Stop Watching', true, -1, 'true', 1, 1, ['+backdrop', '+menu']])
   const escape = menu().fire('keydown', { key: 'Escape' })
   check('sparkle: Escape closes a menu a pointer opened, with its layer, and gives the focus up: the keyboard is the page\'s, and the key was the menu\'s alone',
@@ -1168,11 +1162,10 @@ if (realMarked) {
   ;(async () => {
     // ---- slice 6: the controller over the same fake page, for the page's #vault (vault2-id):
     // the offer and its click, the menu's entries and keys, this tab's start that the bridge
-    // never names, the long press, and the close's dialog
+    // never names, and the close's dialog
     const modals = []
     win._modal = (content, options) => new Promise(resolve => modals.push({ content, options, resolve }))
     const settle = () => new Promise(resolve => setTimeout(resolve, 0))
-    const elapse = () => { for (const timer of timers.filter(timer => timer.on)) { timer.on = false; timer.fn() } } // every pending timer comes due
     const bridge = current.store._bridge
     const hook = () => c1('_on_global_store_change(_this.id)')
     const item = (n = -1) => ({ ...sent.at(n)?.item, id: 'x' })
@@ -1190,15 +1183,17 @@ if (realMarked) {
     const again = spark.fire('keydown', { key: 'Enter', repeat: true }) // held on the sparkle: the menu stays as it is
     check('sparkle: a held key\'s repeats on the sparkle toggle nothing', [parts('menu').length, sent.length, again.prevented, again.stopped], [1, 0, 1, 1])
     spark.fire('keydown', { key: ' ' })
-    spark.focus()
     spark.fire('click')
+    check('sparkle: a click on the offer starts nothing: it opens the menu, with the starts, none of them focused',
+      [sent.length, offered(), page.activeElement === menu()], [0, ['claude', 'codex'], true])
+    menu().children[0].fire('click')
     const first = sent[0]?.item
-    check('sparkle: a click on the offer sends one start, for Claude, with the bridge\'s heartbeat as the page has it, and gives the keyboard back to the page',
-      [sent.length, sent[0]?.name == 'watch_command_' + first?.id, /^[0-9a-f]{16}$/.test(first?.id), item(0), sent[0]?.id, parts('menu').length, page.activeElement === spark],
-      [1, true, true, { id: 'x', kind: 'start', agent: 'claude', seen: SEEN, at: T }, null, 0, false])
+    check('sparkle: Start Claude Watcher sends one start, with the bridge\'s heartbeat as the page has it, and the keyboard is the page\'s after it',
+      [sent.length, sent[0]?.name == 'watch_command_' + first?.id, /^[0-9a-f]{16}$/.test(first?.id), item(0), sent[0]?.id, parts('menu').length, page.activeElement === null],
+      [1, true, true, { id: 'x', kind: 'start', agent: 'claude', seen: SEEN, at: T }, null, 0, true])
     check('sparkle: and shows it as starting at once, dim and pulsing', [spark.title, spark.classes.has('answering'), spark.classes.has('idle')], [starting.title, true, true])
     spark.fire('click')
-    check('sparkle: a second click sends no second start: it opens the menu, whose one entry is the cancel', [sent.length, menu()?.children.map(button => button.textContent)], [1, ['Cancel Start']])
+    check('sparkle: while it starts a click sends no second start: the menu\'s one entry is the cancel', [sent.length, menu()?.children.map(button => button.textContent)], [1, ['Cancel Start']])
     status._global_store._status.hosts = at(T - 4 * 60000)
     c1("_on_global_store_change('status-id')")
     check('sparkle: a bridge that goes stale takes the open menu and the sparkle with it', [parts('menu').length, spark.hidden], [0, true])
@@ -1264,7 +1259,9 @@ if (realMarked) {
     delete bridge.watcher
     hook()
     spark.fire('click', { shiftKey: true })
-    check('sparkle: a shift-click on the offer starts Codex', [item(), sent.length], [{ id: 'x', kind: 'start', agent: 'codex', seen: SEEN, at: T }, 5])
+    check('sparkle: a shift-click is a click like any other: the menu, and nothing started', [sent.length, offered()], [4, ['claude', 'codex']])
+    menu().children[1].fire('click')
+    check('sparkle: Start Codex Watcher starts Codex', [item(), sent.length], [{ id: 'x', kind: 'start', agent: 'codex', seen: SEEN, at: T }, 5])
     // review 34, B1: an agent that watches hides this tab's unnamed start and is no word on it
     const third = sent.at(-1).item
     clock.now = T + 31000
@@ -1297,47 +1294,6 @@ if (realMarked) {
     bridge.watcher.last = { ...LAST, key: 'k3' }
     hook()
     check('sparkle: a menu whose last watcher was replaced closes', [parts('menu').length, spark.title], [0, offer.title])
-    // a long press opens the menu where a touch has no right click; the click that ends it is swallowed
-    const press = (more = {}) => spark.fire('pointerdown', { pointerType: 'touch', clientX: 100, clientY: 100, ...more })
-    press()
-    const [held] = timers.filter(timer => timer.on)
-    elapse()
-    spark.fire('pointerup')
-    spark.fire('click')
-    check('sparkle: a press held 550 ms opens the menu, and the click that ends it starts nothing', [held?.ms, offered(), sent.length], [550, ['claude', 'codex', 'resume'], 6])
-    press()
-    spark.fire('pointerup')
-    spark.fire('click')
-    check('sparkle: the next click is a click again: it closes the open menu', parts('menu').length, 0)
-    press()
-    elapse()
-    spark.fire('pointerup') // a long press that no click follows (a touch need not send one)
-    press()
-    spark.fire('pointerup')
-    spark.fire('click')
-    check('sparkle: a long press that no click followed swallows no later click', [parts('menu').length, sent.length], [0, 6])
-    const quick = how => { // a press that ends, or moves away, before it is long: no menu when its time comes
-      press()
-      spark.fire(...how)
-      elapse()
-      return parts('menu').length
-    }
-    check('sparkle: a press that is lifted, cancelled, leaves the sparkle or moves away is no long press',
-      [quick(['pointerup']), quick(['pointercancel']), quick(['pointerleave']), quick(['pointermove', { clientX: 100, clientY: 111 }]), timers.some(timer => timer.on)], [0, 0, 0, 0, false])
-    press()
-    press() // a second press, the first never lifted: the first one's timer goes with it
-    spark.fire('pointerup')
-    elapse()
-    check('sparkle: a press that another press replaced opens nothing', parts('menu').length, 0)
-    press()
-    spark.fire('pointermove', { clientX: 106, clientY: 108 }) // within the slop: a finger is not still
-    elapse()
-    check('sparkle: a press that barely moves is still one', parts('menu').length, 1)
-    spark.fire('click')
-    spark.fire('click')
-    const pending = timers.length
-    spark.fire('pointerdown', { pointerType: 'mouse', clientX: 100, clientY: 100 })
-    check('sparkle: a mouse press starts no timer (it has its right click), and the swallowed click was the long press\'s alone', [timers.length - pending, parts('menu').length, sent.length], [0, 0, 6])
     // Close Agent Session: the app's dialog first, then the take the menu showed
     bridge.watcher = { ...watching, tab: true }
     hook()
@@ -1369,13 +1325,11 @@ if (realMarked) {
     spark.fire('click')
     menu().children[1].fire('click')
     await settle()
-    press() // and a press is pending when the controller goes
     win._vault_sparkle.dispose()
-    const timed = timers.some(timer => timer.on) // the dispose released the press's timer
     modals.at(-1).resolve(true)
     await settle()
-    check('sparkle: a close that is not confirmed, or whose controller is gone, sends nothing; a disposed controller\'s press is not timed',
-      [modals.length, sent.length, parts('menu').length, parts('node').length, timed], [4, 7, 0, 0, false])
+    check('sparkle: a close that is not confirmed, or whose controller is gone, sends nothing',
+      [modals.length, sent.length, parts('menu').length, parts('node').length], [4, 7, 0, 0])
     sent.length = 0
     writes.fail = 1
     const command = { id: 'c1', kind: 'stop', took: TOOK, at: 1 }
