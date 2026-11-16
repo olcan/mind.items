@@ -1005,7 +1005,8 @@ function vault_sparkle_create() {
 
   // close the menu. The focus it held goes back to the sparkle only where `refocus` asks and
   // the menu was opened from the keyboard (Escape, or an entry chosen there); otherwise it is
-  // given up, so the keyboard is the page's again and the sparkle shows no focus ring
+  // given up, so the keyboard is the page's again and the sparkle shows no focus ring (a click
+  // on the sparkle that closes its menu too: the press took no focus from the menu)
   self.close = (refocus = false) => {
     const menu = self.menu
     if (!menu) return
@@ -1089,7 +1090,16 @@ function vault_sparkle_create() {
     e.preventDefault()
     e.stopPropagation()
   })
-  for (const type of ['mousedown', 'touchstart']) node.addEventListener(type, e => e.stopPropagation(), { passive: true })
+  // a press on the sparkle is not the app's, and a mouse's gives it no focus: a button that a
+  // click focused shows no ring at first, and a later key can show it (seen in Chromium, where
+  // the Super key alone did). Focus the keyboard gave stays (Tab, and the return from a menu
+  // the keyboard opened), and the ring says so. A touch is only kept from the app: its tap is
+  // the click
+  node.addEventListener('mousedown', e => {
+    e.preventDefault()
+    e.stopPropagation()
+  })
+  node.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
   // the focus leaving the sparkle while its menu is open closes the menu, unless it goes into it
   node.addEventListener('focusout', e => {
     if (self.menu && !self.menu.element.contains(e.relatedTarget)) self.close()

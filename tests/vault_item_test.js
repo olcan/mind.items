@@ -1021,6 +1021,12 @@ if (realMarked) {
   check('sparkle: the context menu opens it, once', parts('menu').length, 1)
   page.fire('pointerdown', { target: node })
   check('sparkle: a press on the sparkle itself is not a press outside', parts('menu').length, 1)
+  const pressed_node = ['mousedown', 'touchstart'].map(type => node.fire(type)).map(e => [e.prevented, e.stopped])
+  check('sparkle: a press on the sparkle is not the app\'s, and a mouse\'s gives it no focus (a later key could show a clicked sparkle\'s ring); a touch keeps its tap',
+    [pressed_node, page.activeElement === menu()], [[[1, 1], [0, 1]], true])
+  node.fire('click')
+  check('sparkle: a click on the sparkle closes its menu and the focus is given up, the sparkle\'s too', [parts('menu').length, nowhere()], [0, true])
+  node.fire('contextmenu')
   const pressed_layer = ['pointerdown', 'mousedown', 'touchstart'].map(type => layer().fire(type)).map(e => [e.prevented, e.stopped])
   page.fire('pointerdown', { target: layer() })
   check('sparkle: a press on the layer closes nothing yet, takes no focus, and is nothing to the app or the page',
