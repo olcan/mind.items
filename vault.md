@@ -827,7 +827,8 @@ const VAULT_SPARKLE_CSS = `
 .vault-sparkle > svg { display: block; width: 16px; height: 16px }
 .vault-sparkle.answering > svg { animation: vault-sparkle-pulse 1.2s ease-in-out infinite }
 @keyframes vault-sparkle-pulse { 50% { opacity: 0.3 } }
-.vault-sparkle-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 89 }
+.vault-sparkle-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); animation: vault-sparkle-fade 0.12s ease-out }
+@keyframes vault-sparkle-fade { from { opacity: 0 } }
 .vault-sparkle-menu { position: fixed; right: 14px; bottom: 42px; z-index: 90; padding: 4px; border: 1px solid #444; border-radius: 6px; background: #1b1b1b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) }
 .vault-sparkle-menu:focus { outline: none }
 .vault-sparkle-menu > button { display: block; width: 100%; margin: 0; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: #ddd; font: 14px/1.2 sans-serif; text-align: left; white-space: nowrap; cursor: pointer }
