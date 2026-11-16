@@ -714,9 +714,17 @@ const vault_status_hosts = () => vault_status_item()?._global_store?._status?.ho
 // the bridge's start and last watcher as this code can use them: null for anything else. An
 // agent is one of the two this code names (an inherited property's name is none)
 const vault_agent = agent => (typeof agent == 'string' && Object.hasOwn(VAULT_AGENTS, agent) ? agent : null)
+// what brings an agent's herdr tab up on the owner's machine, as the bridge gives it (the tab,
+// with its host, its herdr session and the agent's own session when it has them): strings
+// alone, and null without a tab. The page does nothing with it but hang it on the sparkle
+// (`data-vault-jump`), for a browser extension that can ask the machine for that tab
+const vault_jump = jump =>
+  jump && typeof jump == 'object' && typeof jump.tab == 'string' && jump.tab
+    ? Object.fromEntries(['tab', 'host', 'herdr', 'session'].filter(key => typeof jump[key] == 'string' && jump[key]).map(key => [key, jump[key]]))
+    : null
 const vault_start = start =>
   start && typeof start == 'object' && typeof start.id == 'string' && start.id && ['starting', 'failed', 'unknown'].includes(start.state)
-    ? { id: start.id, state: start.state, agent: vault_agent(start.agent), resume: start.resume === true, tab: start.tab === true, note: typeof start.note == 'string' ? start.note.slice(0, VAULT_NOTE_CHARS) : '' }
+    ? { id: start.id, state: start.state, agent: vault_agent(start.agent), resume: start.resume === true, tab: start.tab === true, jump: vault_jump(start.jump), note: typeof start.note == 'string' ? start.note.slice(0, VAULT_NOTE_CHARS) : '' }
     : null
 const vault_last_watcher = last =>
   last && typeof last == 'object' && typeof last.key == 'string' && last.key && vault_agent(last.agent)
@@ -749,14 +757,14 @@ function vault_sparkle_state(bridge, hosts, now, marks = {}) {
     const answering = state == 'answering'
     const who = typeof by == 'string' && by ? by : name
     const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering a request` : `${name} is watching`
-    return { kind: 'watching', key: 'watching:' + took, name, took, tab: watcher.tab === true, busy: closing || stopping || answering, dim: false, title, seen }
+    return { kind: 'watching', key: 'watching:' + took, name, took, tab: watcher.tab === true, jump: vault_jump(watcher.jump), busy: closing || stopping || answering, dim: false, title, seen }
   }
   const last = vault_last_watcher(watcher.last)
   const start = vault_start(watcher.start)
-  const shown = (kind, id, title, more = {}) => ({ kind, key: `${kind}:${id ?? ''}:${last?.key ?? ''}`, start: id, tab: false, busy: false, dim: true, title, last, seen, ...more })
+  const shown = (kind, id, title, more = {}) => ({ kind, key: `${kind}:${id ?? ''}:${last?.key ?? ''}`, start: id, tab: false, jump: null, busy: false, dim: true, title, last, seen, ...more })
   if (start?.state == 'starting') {
     const cancelling = live(marks.cancelling) && marks.cancelling.id === start.id
-    return shown('starting', start.id, cancelling ? 'Cancelling the start' : 'An agent is starting to watch', { busy: true, tab: start.tab })
+    return shown('starting', start.id, cancelling ? 'Cancelling the start' : 'An agent is starting to watch', { busy: true, tab: start.tab, jump: start.jump })
   }
   const sent = marks.started && marks.started.id !== start?.id ? marks.started : null
   if (sent && live(sent)) return shown('starting', sent.id, 'An agent is starting to watch', { busy: true })
@@ -886,6 +894,12 @@ function vault_sparkle_create() {
     if (self.menu && (!state || keyboard || state.key !== self.menu.key)) self.close()
     self.shown = state
     node.hidden = !state || keyboard
+    // the watching or starting agent's herdr tab, for an extension of the browser that can
+    // bring it up at a click on the sparkle (the click is the menu's here, as everywhere else):
+    // none while there is nothing to show, the hidden element included (review 37)
+    const jump = state?.jump ? JSON.stringify(state.jump) : null
+    if (jump === null) delete node.dataset.vaultJump
+    else node.dataset.vaultJump = jump
     if (!state) return
     if (node.title !== state.title) {
       node.title = state.title
@@ -991,7 +1005,8 @@ function vault_sparkle_create() {
 
   // close the menu. The focus it held goes back to the sparkle only where `refocus` asks and
   // the menu was opened from the keyboard (Escape, or an entry chosen there); otherwise it is
-  // given up, so the keyboard is the page's again and the sparkle shows no focus ring
+  // given up, so the keyboard is the page's again and the sparkle shows no focus ring (a click
+  // on the sparkle that closes its menu too: the press took no focus from the menu)
   self.close = (refocus = false) => {
     const menu = self.menu
     if (!menu) return
@@ -1075,7 +1090,15 @@ function vault_sparkle_create() {
     e.preventDefault()
     e.stopPropagation()
   })
-  for (const type of ['mousedown', 'touchstart']) node.addEventListener(type, e => e.stopPropagation(), { passive: true })
+  // a press on the sparkle is not the app's, and a mouse's takes no focus: a clicked sparkle
+  // that held it would show its ring at the next key (a browser draws the ring of whatever has
+  // the focus once any key is pressed, a modifier alone included). The focus is the keyboard's
+  // to give, and the ring says so. A touch is only kept from the app: its tap is the click
+  node.addEventListener('mousedown', e => {
+    e.preventDefault()
+    e.stopPropagation()
+  })
+  node.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
   // the focus leaving the sparkle while its menu is open closes the menu, unless it goes into it
   node.addEventListener('focusout', e => {
     if (self.menu && !self.menu.element.contains(e.relatedTarget)) self.close()
