@@ -981,26 +981,42 @@ if (realMarked) {
   // the menu: it captures the watch it shows
   node.fire('click')
   const menu = () => parts('menu')[0]
-  const stop = () => menu().children[0]
-  check('sparkle: a click opens the menu above it, its one entry focused',
-    [parts('menu').length, stop().tag, stop().textContent, page.activeElement === stop(), node.attrs['aria-expanded'], (page.listeners.pointerdown ?? []).length],
-    [1, 'button', 'Stop Watching', true, 'true', 1])
+  const stop = () => menu()?.children[0]
+  const nowhere = () => page.activeElement === null // the focus is given up: the keyboard is the page's
+  const layer = () => parts('backdrop')[0]
+  check('sparkle: a click opens the menu above it, over a layer that covers the page; the menu has the focus and no entry does',
+    [parts('menu').length, stop().tag, stop().textContent, page.activeElement === menu(), menu().tabIndex, node.attrs['aria-expanded'], (page.listeners.pointerdown ?? []).length, parts('backdrop').length, log.slice(-2)],
+    [1, 'button', 'Stop Watching', true, -1, 'true', 1, 1, ['+backdrop', '+menu']])
   const escape = menu().fire('keydown', { key: 'Escape' })
-  check('sparkle: Escape closes the menu and returns the focus, and is the menu\'s key alone',
-    [parts('menu').length, page.activeElement === node, escape.stopped, escape.prevented, (page.listeners.pointerdown ?? []).length, 'aria-expanded' in node.attrs], [0, true, 1, 1, 0, false])
+  check('sparkle: Escape closes a menu a pointer opened, with its layer, and gives the focus up: the keyboard is the page\'s, and the key was the menu\'s alone',
+    [parts('menu').length, parts('backdrop').length, nowhere(), escape.stopped, escape.prevented, (page.listeners.pointerdown ?? []).length, 'aria-expanded' in node.attrs], [0, 0, true, 1, 1, 0, false])
   node.fire('keydown', { key: ' ' })
-  check('sparkle: Space on the focused sparkle opens the menu', parts('menu').length, 1)
+  check('sparkle: Space on the focused sparkle opens the menu, on its first entry', [parts('menu').length, page.activeElement === stop()], [1, true])
+  menu().fire('keydown', { key: 'Escape' })
+  check('sparkle: Escape closes a menu the keyboard opened and returns the focus to the sparkle', [parts('menu').length, page.activeElement === node], [0, true])
+  node.fire('keydown', { key: ' ' })
   win.modal = true
   const under = menu()?.fire('keydown', { key: 'Enter' }) ?? {}
-  check('sparkle: under a modal the key is the modal\'s: the menu closes and sends nothing', [parts('menu').length, under.stopped, under.prevented, sent.length], [0, 0, 0, 0])
+  check('sparkle: under a modal the key is the modal\'s: the menu closes, sends nothing, and the sparkle takes no focus back', [parts('menu').length, under.stopped, under.prevented, sent.length, nowhere()], [0, 0, 0, 0, true])
   win.modal = false
   node.fire('contextmenu')
   node.fire('contextmenu')
   check('sparkle: the context menu opens it, once', parts('menu').length, 1)
   page.fire('pointerdown', { target: node })
   check('sparkle: a press on the sparkle itself is not a press outside', parts('menu').length, 1)
+  const pressed_layer = ['pointerdown', 'mousedown', 'touchstart'].map(type => layer().fire(type)).map(e => [e.prevented, e.stopped])
+  page.fire('pointerdown', { target: layer() })
+  check('sparkle: a press on the layer closes nothing yet, takes no focus, and is nothing to the app or the page',
+    [parts('menu').length, pressed_layer, page.activeElement === menu()], [1, [[1, 1], [1, 1], [0, 1]], true])
+  const clicked_layer = layer().fire('click')
+  check('sparkle: the click on the layer closes the menu, and is the layer\'s alone: nothing is sent, and the focus is given up',
+    [parts('menu').length, parts('backdrop').length, clicked_layer.prevented, clicked_layer.stopped, sent.length, nowhere()], [0, 0, 1, 1, 0, true])
+  node.fire('contextmenu')
+  const menued_layer = layer().fire('contextmenu')
+  check('sparkle: a context menu on the layer closes the menu too, and is not the browser\'s', [parts('menu').length, menued_layer.prevented, menued_layer.stopped], [0, 1, 1])
+  node.fire('contextmenu')
   page.fire('pointerdown', { target: page.body })
-  check('sparkle: a press outside closes the menu', parts('menu').length, 0)
+  check('sparkle: a press on anything else outside (something drawn above the layer) closes the menu', [parts('menu').length, parts('backdrop').length], [0, 0])
   node.fire('click')
   menu().fire('focusout', { relatedTarget: node })
   check('sparkle: the focus moving to the sparkle itself leaves the menu to its click', parts('menu').length, 1)
@@ -1046,8 +1062,8 @@ if (realMarked) {
   v1('vault_sparkle_reconcile()')
   node.fire('keydown', { key: 'Enter' })
   const pressed = menu()?.fire('keydown', { key: ' ' }) ?? {}
-  check('sparkle: the keyboard reaches the entry, and a sent stop shows as stopping', [sent.length, sent[1]?.item.took, pressed.stopped, pressed.prevented, node.title, node.classes.has('answering')],
-    [2, TOOK, 2, 1, "Stopping claude-fable-5-2-max's watch", true])
+  check('sparkle: the keyboard reaches the entry, a sent stop shows as stopping, and the focus is the sparkle\'s again', [sent.length, sent[1]?.item.took, pressed.stopped, pressed.prevented, node.title, node.classes.has('answering'), page.activeElement === node],
+    [2, TOOK, 2, 1, "Stopping claude-fable-5-2-max's watch", true, true])
   const up = node.fire('keyup', { key: ' ' })
   check('sparkle: the key\'s release is not a second activation', [up.prevented, up.stopped, parts('menu').length], [1, 1, 0])
   clock.now = T + 31000
@@ -1071,9 +1087,9 @@ if (realMarked) {
   const v2 = evaluation(2)
   v2("_on_item_change('vault-id', '#vault', '#vault', false, true, false)")
   const [node2] = parts('node')
-  check('sparkle: another tab\'s update replaces the controller: the old menu, element and style go first, then the new draw, then the task',
+  check('sparkle: another tab\'s update replaces the controller: the old menu, its layer, element and style go first, then the new draw, then the task',
     [log, node2 !== node, parts('node').length, parts('style').length, parts('menu').length, (page.listeners.pointerdown ?? []).length, (viewport.listeners.resize ?? []).length, win._vault_sparkle.code],
-    [['-menu', '-node', '-style', '+style', '+node', 'task sparkle'], true, 1, 1, 0, 0, 1, 2])
+    [['-menu', '-backdrop', '-node', '-style', '+style', '+node', 'task sparkle'], true, 1, 1, 0, 0, 1, 2])
   // (the old code's hooks no longer run; its closures may)
   const sent_before = sent.length
   node.fire('click')
@@ -1201,15 +1217,29 @@ if (realMarked) {
     bridge.watcher.start = { ...bridge.watcher.start, state: 'unknown', note: 'no watcher appeared' }
     hook()
     spark.fire('click')
-    check('sparkle: after an outcome that is not known a click starts nothing: it opens the menu, with the starts and the cancel',
-      [sent.length, spark.title, offered(), spark.classes.has('answering'), page.activeElement === menu().children[0]], [2, "A start's outcome is unknown: no watcher appeared", ['claude', 'codex', 'cancel'], false, true])
-    const walk = key => { menu().fire('keydown', { key }); return page.activeElement?.dataset.vaultEntry }
-    check('sparkle: the arrows move through the menu, around its ends', [walk('ArrowDown'), walk('ArrowUp'), walk('ArrowUp'), walk('ArrowDown'), walk('ArrowDown')], ['codex', 'claude', 'cancel', 'claude', 'codex'])
+    check('sparkle: after an outcome that is not known a click starts nothing: it opens the menu, with the starts and the cancel, none of them focused',
+      [sent.length, spark.title, offered(), spark.classes.has('answering'), page.activeElement === menu()], [2, "A start's outcome is unknown: no watcher appeared", ['claude', 'codex', 'cancel'], false, true])
+    const idle = ['Enter', ' '].map(key => menu().fire('keydown', { key }))
+    check('sparkle: with no entry focused Enter and Space act on nothing, and are the menu\'s all the same (Space would scroll the page)',
+      [sent.length, parts('menu').length, idle.map(e => [e.prevented, e.stopped])], [2, 1, [[1, 1], [1, 1]]])
+    const focus = () => (page.activeElement === menu() ? null : page.activeElement?.dataset.vaultEntry)
+    const walk = key => { menu().fire('keydown', { key }); return focus() }
+    const point = (n, type = 'pointermove') => { menu().children[n].fire(type); return focus() }
+    const leave = pointerType => { menu().fire('pointerleave', { pointerType }); return focus() }
+    check('sparkle: with no entry focused the arrows start at the menu\'s ends, and they move through it around them',
+      [walk('ArrowDown'), leave('mouse'), walk('ArrowUp'), walk('ArrowUp'), walk('ArrowDown'), walk('ArrowDown')], ['claude', null, 'cancel', 'codex', 'cancel', 'claude'])
+    check('sparkle: one entry has the focus, which is the highlight: a pointer over an entry or pressed on it takes it there, an arrow moves it on, and a mouse that leaves the menu leaves no entry with it (a touch that leaves does)',
+      [point(1), point(2, 'pointerdown'), walk('ArrowUp'), leave('touch'), leave('mouse'), walk('ArrowDown'), walk('ArrowDown')], ['codex', 'cancel', 'codex', 'codex', null, 'claude', 'codex'])
+    spark.focus()
+    menu().fire('pointerleave', { pointerType: 'mouse' })
+    check('sparkle: a mouse that leaves the menu takes the focus from an entry alone, not from the sparkle', page.activeElement === spark, true)
+    menu().children[1].focus()
     const repeated = menu().fire('keydown', { key: 'Enter', repeat: true }) // a held key: the app's it is not, and it acts on nothing
     check('sparkle: a held key\'s repeats act on no entry', [sent.length, parts('menu').length, repeated.prevented, repeated.stopped], [2, 1, 1, 1])
     const chosen = menu().fire('keydown', { key: 'Enter' })
     const second = sent[2]?.item
-    check('sparkle: Enter acts on the entry that has the focus', [item(), chosen.prevented, parts('menu').length, spark.title], [{ id: 'x', kind: 'start', agent: 'codex', seen: SEEN, at: T }, 1, 0, starting.title])
+    check('sparkle: Enter acts on the entry that has the focus, and a menu a pointer opened gives the focus up after it',
+      [item(), chosen.prevented, parts('menu').length, parts('backdrop').length, spark.title, page.activeElement === null], [{ id: 'x', kind: 'start', agent: 'codex', seen: SEEN, at: T }, 1, 0, 0, starting.title, true])
     // review 29, B2: the bridge never names this start, and what it says of the earlier one is no word on it
     clock.now = T + 31000
     status._global_store._status.hosts = at(clock.now - 1000)

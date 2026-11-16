@@ -823,13 +823,15 @@ const VAULT_SPARKLE_CSS = `
 .vault-sparkle:focus { outline: none }
 .vault-sparkle:focus-visible { outline: 1px solid #f5e389 }
 .vault-sparkle.idle { opacity: 0.45 }
-.vault-sparkle.idle:hover, .vault-sparkle.idle:focus-visible { opacity: 0.9 }
+@media (hover: hover) { .vault-sparkle.idle:hover { opacity: 0.9 } }
 .vault-sparkle > svg { display: block; width: 16px; height: 16px }
 .vault-sparkle.answering > svg { animation: vault-sparkle-pulse 1.2s ease-in-out infinite }
 @keyframes vault-sparkle-pulse { 50% { opacity: 0.3 } }
+.vault-sparkle-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 89 }
 .vault-sparkle-menu { position: fixed; right: 14px; bottom: 42px; z-index: 90; padding: 4px; border: 1px solid #444; border-radius: 6px; background: #1b1b1b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) }
+.vault-sparkle-menu:focus { outline: none }
 .vault-sparkle-menu > button { display: block; width: 100%; margin: 0; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: #ddd; font: 14px/1.2 sans-serif; text-align: left; white-space: nowrap; cursor: pointer }
-.vault-sparkle-menu > button:hover, .vault-sparkle-menu > button:focus { background: #333; outline: none }
+.vault-sparkle-menu > button:focus { background: #333; outline: none }
 `
 const VAULT_SPARKLE_SVG =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>'
@@ -897,9 +899,15 @@ function vault_sparkle_create() {
   // the menu, above the sparkle. It captures what it shows, so an entry acts on that watch,
   // that start or that last watcher and on no other; its keys are its own while it has the
   // focus (the app's window handlers bubble, so a stop here keeps them out), except under a
-  // modal, which gets the key and closes the menu; it closes on Escape, on a press outside,
-  // when the focus leaves it, and when what it showed is no longer what the sparkle shows
-  self.open = () => {
+  // modal, which gets the key and closes the menu; it closes on Escape, on a click outside,
+  // when the focus leaves it, and when what it showed is no longer what the sparkle shows.
+  // ONE entry is highlighted at most, the one with the focus, which follows the last input: a
+  // pointer over an entry takes it there, an arrow moves it, and a mouse that leaves the menu
+  // leaves no entry with it. Opened from the keyboard (`keyboard`) the first entry has it;
+  // opened by a pointer none has, until the pointer or an arrow comes. A layer under the menu
+  // covers the page while it is open, so a click or a tap outside closes the menu and is
+  // nothing to the page under it
+  self.open = (keyboard = false) => {
     if (self.disposed || self.menu || !self.shown || node.hidden) return
     const target = self.shown
     const entries = vault_sparkle_entries(target)
@@ -907,6 +915,7 @@ function vault_sparkle_create() {
     menu.className = 'vault-sparkle-menu'
     menu.dataset.vaultSparkle = 'menu'
     menu.setAttribute('role', 'menu')
+    menu.tabIndex = -1
     const act = (e, key) => {
       e.preventDefault()
       e.stopPropagation()
@@ -920,7 +929,12 @@ function vault_sparkle_create() {
       button.dataset.vaultEntry = key
       button.textContent = label
       button.addEventListener('click', e => act(e, key))
+      for (const type of ['pointermove', 'pointerdown'])
+        button.addEventListener(type, () => button.focus({ preventScroll: true }))
       return menu.appendChild(button)
+    })
+    menu.addEventListener('pointerleave', e => {
+      if (e.pointerType == 'mouse' && buttons.includes(document.activeElement)) menu.focus({ preventScroll: true })
     })
     menu.addEventListener('keydown', e => {
       if (window._modal_visible?.()) return self.close() // the modal's key
@@ -934,8 +948,8 @@ function vault_sparkle_create() {
         const next = e.key == 'ArrowDown' ? at + 1 : (at < 0 ? 0 : at) - 1 + buttons.length
         buttons[next % buttons.length].focus({ preventScroll: true })
       } else if (e.key == 'Enter' || e.key == ' ') {
-        if (e.repeat) e.preventDefault() // a held key repeats: only the press itself acts
-        else if (at >= 0) act(e, entries[at][0])
+        if (e.repeat || at < 0) e.preventDefault() // only the press itself acts, and on the entry that has the focus
+        else act(e, entries[at][0])
       }
     })
     menu.addEventListener('keyup', e => {
@@ -947,24 +961,49 @@ function vault_sparkle_create() {
     menu.addEventListener('focusout', e => {
       if (!menu.contains(e.relatedTarget) && e.relatedTarget !== node) self.close()
     })
+    // the layer: a press on it is not the page's or the app's, and takes no focus; its click
+    // (the whole press, so nothing of it is left for what lies under) closes the menu
+    const backdrop = document.createElement('div')
+    backdrop.className = 'vault-sparkle-backdrop'
+    backdrop.dataset.vaultSparkle = 'backdrop'
+    for (const type of ['pointerdown', 'mousedown'])
+      backdrop.addEventListener(type, e => {
+        e.preventDefault()
+        e.stopPropagation()
+      })
+    backdrop.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+    for (const type of ['click', 'contextmenu'])
+      backdrop.addEventListener(type, e => {
+        e.preventDefault()
+        e.stopPropagation()
+        self.close()
+      })
+    // a press on anything else that is not the menu or the sparkle (something drawn above the layer)
     const outside = e => {
-      if (!menu.contains(e.target) && !node.contains(e.target)) self.close()
+      if (!menu.contains(e.target) && !node.contains(e.target) && e.target !== backdrop) self.close()
     }
     document.addEventListener('pointerdown', outside, true)
-    self.menu = { element: menu, key: target.key, outside }
+    self.menu = { element: menu, key: target.key, outside, backdrop, keyboard }
     node.setAttribute('aria-expanded', 'true')
+    document.body.appendChild(backdrop)
     document.body.appendChild(menu)
-    buttons[0].focus({ preventScroll: true })
+    ;(keyboard ? buttons[0] : menu).focus({ preventScroll: true })
   }
 
+  // close the menu. The focus it held goes back to the sparkle only where `refocus` asks and
+  // the menu was opened from the keyboard (Escape, or an entry chosen there); otherwise it is
+  // given up, so the keyboard is the page's again and the sparkle shows no focus ring
   self.close = (refocus = false) => {
     const menu = self.menu
     if (!menu) return
     self.menu = null
     document.removeEventListener('pointerdown', menu.outside, true)
+    const held = menu.element.contains(document.activeElement) ? document.activeElement : null
+    if (refocus && menu.keyboard && !self.disposed) node.focus({ preventScroll: true })
+    else held?.blur()
     menu.element.remove()
+    menu.backdrop.remove()
     node.removeAttribute('aria-expanded')
-    if (refocus && !self.disposed) node.focus({ preventScroll: true })
   }
 
   // one entry's action, on what the menu showed (`target`), sent with the bridge's heartbeat
@@ -1018,7 +1057,7 @@ function vault_sparkle_create() {
     e.preventDefault()
     e.stopPropagation()
     if (self.menu) self.close()
-    else self.open()
+    else self.open(true)
   }
   node.addEventListener('click', click)
   node.addEventListener('contextmenu', e => {
