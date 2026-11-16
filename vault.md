@@ -1,7 +1,7 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
-- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); click it for **Stop Watching**.
+- the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, it offers to start one: click it for Claude, shift-click for Codex. Its menu (a click while an agent watches; a right click or a long press at any time) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -684,17 +684,25 @@ function _on_focus() {
 }
 
 // the sparkle (vault design notes/design/mind_bridge_watcher.md, 6.2 and 6.3): the agent session
-// that watches this account in the bridge supervisor's place, as ONE fixed element at the page's
-// lower right with Markco's looks and words. The bridge publishes who watches as
-// _bridge.watcher ({name, took, state: 'watching' | 'answering', by?}) in this item's store; the
+// that watches this account in the bridge supervisor's place, and the way to start one, as ONE
+// fixed element at the page's lower right with Markco's looks and words. The bridge publishes
+// _bridge.watcher in this item's store: who watches ({name, took, state: 'watching' |
+// 'answering', by?, tab?}), or with nobody watching what is on offer ({state: 'none', start?,
+// last?}): the start the owner asked for ({id, agent, state: 'starting' | 'failed' | 'unknown',
+// note?, resume?, tab?}) and the last watcher that can be resumed ({name, agent, key}). The
 // element is drawn from this item's hooks and a task, never from its render, so it shows with
-// #vault off screen. Its menu's Stop Watching sends the bridge a hidden command document under
-// a name of its own, `watch_command_<id>` ({id, kind: 'stop', took, at}): `took` is the take
-// time of the watch the menu showed
+// #vault off screen. What the owner asks goes to the bridge as a hidden command document under
+// a name of its own, `watch_command_<id>` ({id, kind, ..., at}). A stop names the take of the
+// watch the menu showed. A start, a resume, a cancel and a close also carry `seen`: the
+// bridge's own heartbeat as this page has it, by which the bridge drops one that comes late
 const VAULT_STATUS_STALE_MS = 3 * 60000 // the #status item's own stale interval (status.md)
 const VAULT_SPARKLE_TICK_MS = 15000 // the look at the time's part of the bridge's freshness
-const VAULT_STOPPING_MS = 30000 // how long a stop this tab sent shows as stopping
+const VAULT_MARK_MS = 30000 // how long a command this tab sent shows as under way
 const VAULT_KEYBOARD_PX = 150 // a visual viewport this much shorter than the window: a keyboard, probably
+const VAULT_LONG_PRESS_MS = 550 // a press held this long opens the menu (a phone has no right click)
+const VAULT_PRESS_SLOP_PX = 10 // a held press that moved further than this is no long press
+const VAULT_AGENTS = { claude: 'Claude', codex: 'Codex' } // the agents a start can ask for
+const VAULT_NOTE_CHARS = 200 // how much of the bridge's note on a start the sparkle's title takes
 // this evaluation's code version: the item's text and its dependencies' (a controller drawn by
 // other code is replaced; captured here, since a closure reads the item's hash as it is later)
 const vault_code = _this.deephash
@@ -705,25 +713,75 @@ const vault_status_item = () => _item('#status', { silent: true })
 const vault_is_current = () => _item('#vault', { silent: true })?.id == _this.id
 const vault_status_hosts = () => vault_status_item()?._global_store?._status?.hosts ?? null
 
+// the bridge's start and last watcher as this code can use them: null for anything else. An
+// agent is one of the two this code names (an inherited property's name is none)
+const vault_agent = agent => (typeof agent == 'string' && Object.hasOwn(VAULT_AGENTS, agent) ? agent : null)
+const vault_start = start =>
+  start && typeof start == 'object' && typeof start.id == 'string' && start.id && ['starting', 'failed', 'unknown'].includes(start.state)
+    ? { id: start.id, state: start.state, agent: vault_agent(start.agent), resume: start.resume === true, tab: start.tab === true, note: typeof start.note == 'string' ? start.note.slice(0, VAULT_NOTE_CHARS) : '' }
+    : null
+const vault_last_watcher = last =>
+  last && typeof last == 'object' && typeof last.key == 'string' && last.key && vault_agent(last.agent)
+    ? { key: last.key, agent: last.agent, name: typeof last.name == 'string' ? last.name : '' }
+    : null
+
 // what the sparkle shows (null: nothing), a pure function of the bridge's listing, the #status
-// item's hosts and the time: the watcher the listing names, while the bridge that wrote it is
-// fresh (its own #status entry, written by the bridge, within the stale interval). It fails
-// closed: no entry for the listing's host, another publisher (the one-shot `cli`), or a time
-// that is no number shows nothing. `stopping` ({took, at}) is a stop this tab sent, shown until
-// the watcher goes, its take changes or VAULT_STOPPING_MS pass
-function vault_sparkle_state(bridge, hosts, now, stopping = null) {
-  const watcher = bridge?.watcher
-  if (!watcher || typeof watcher != 'object') return null
-  const { name, took, state, by } = watcher
-  if (typeof name != 'string' || !name || typeof took != 'string' || !took) return null
-  const entry = typeof bridge.host == 'string' && hosts ? hosts[bridge.host] : null
+// item's hosts, the time and this tab's own marks. Nothing shows unless the bridge that wrote
+// the listing is fresh: its own #status entry, written by the bridge, within the stale interval
+// (it fails closed: no entry for the listing's host, another publisher such as the one-shot
+// `cli`, or a time that is no number shows nothing). `seen` is that entry's time, which a
+// command carries. A watcher is shown solid; with nobody watching the sparkle is dim: the offer
+// to start one, a start under way, or what became of the last one. `marks` are commands this
+// tab sent, each shown for VAULT_MARK_MS at most: `stopping` and `closing` ({took, at}) for the
+// watch listed, `cancelling` ({id, at}) for the start shown, and `started` ({id, at}), a start
+// the bridge has not named yet: starting for that long, then NOT CONFIRMED until the owner acts
+// on it or the bridge names that id (another start's record never acknowledges this one, and
+// an agent that watches only hides it: it need not be the one this start asked for)
+function vault_sparkle_state(bridge, hosts, now, marks = {}) {
+  const entry = typeof bridge?.host == 'string' && hosts ? hosts[bridge.host] : null
   if (!entry || entry.publisher != 'bridge' || typeof entry.updated != 'number') return null
   if (!(now - entry.updated <= VAULT_STATUS_STALE_MS)) return null
-  const pending = !!stopping && stopping.took === took && now - stopping.at <= VAULT_STOPPING_MS
-  const answering = state == 'answering'
-  const who = typeof by == 'string' && by ? by : name
-  const title = pending ? `Stopping ${name}'s watch` : answering ? `${who} is answering a request` : `${name} is watching`
-  return { name, took, busy: pending || answering, title }
+  const seen = entry.updated
+  const watcher = bridge.watcher && typeof bridge.watcher == 'object' ? bridge.watcher : {}
+  const { name, took, state, by } = watcher
+  const live = mark => !!mark && now - mark.at <= VAULT_MARK_MS
+  if (typeof name == 'string' && name && typeof took == 'string' && took) {
+    const closing = live(marks.closing) && marks.closing.took === took
+    const stopping = live(marks.stopping) && marks.stopping.took === took
+    const answering = state == 'answering'
+    const who = typeof by == 'string' && by ? by : name
+    const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering a request` : `${name} is watching`
+    return { kind: 'watching', key: 'watching:' + took, name, took, tab: watcher.tab === true, busy: closing || stopping || answering, dim: false, title, seen }
+  }
+  const last = vault_last_watcher(watcher.last)
+  const start = vault_start(watcher.start)
+  const shown = (kind, id, title, more = {}) => ({ kind, key: `${kind}:${id ?? ''}:${last?.key ?? ''}`, start: id, tab: false, busy: false, dim: true, title, last, seen, ...more })
+  if (start?.state == 'starting') {
+    const cancelling = live(marks.cancelling) && marks.cancelling.id === start.id
+    return shown('starting', start.id, cancelling ? 'Cancelling the start' : 'An agent is starting to watch', { busy: true, tab: start.tab })
+  }
+  const sent = marks.started && marks.started.id !== start?.id ? marks.started : null
+  if (sent && live(sent)) return shown('starting', sent.id, 'An agent is starting to watch', { busy: true })
+  if (sent) return shown('unconfirmed', sent.id, 'The bridge did not confirm the start: open the menu to start again')
+  if (start) {
+    const what = start.state == 'unknown' ? "A start's outcome is unknown" : start.resume ? 'The last watcher was not resumed' : `${VAULT_AGENTS[start.agent] ?? 'The agent'} did not start`
+    return shown(start.state, start.id, start.note ? `${what}: ${start.note}` : what, { tab: start.tab })
+  }
+  return shown('offer', null, 'Start Claude Watcher (Shift: Codex)')
+}
+
+// the menu's entries for what the sparkle shows, each [key, label]: with a watcher its stop
+// and, when its agent runs in a herdr tab the bridge can close, its session's close; with
+// nobody watching the starts, the resume of the last watcher when there is one, and the cancel
+// of a start that may have opened a tab. A start under way offers its cancel alone
+function vault_sparkle_entries(state) {
+  if (!state) return []
+  if (state.kind == 'watching') return [['stop', 'Stop Watching'], ...(state.tab ? [['close', 'Close Agent Session']] : [])]
+  const cancel = [['cancel', 'Cancel Start']]
+  if (state.kind == 'starting') return cancel
+  const resume = state.last ? [['resume', `Resume Last Watcher (${VAULT_AGENTS[state.last.agent]})`]] : []
+  const starts = [['claude', 'Start Claude Watcher'], ['codex', 'Start Codex Watcher'], ...resume]
+  return state.kind == 'unconfirmed' || (state.kind == 'unknown' && state.tab) ? [...starts, ...cancel] : starts
 }
 
 // a phone's keyboard, as far as a page can tell: the visual viewport much shorter than the
@@ -737,10 +795,13 @@ const vault_command_id = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('')
 
 const vault_watch_stop = (id, took, at) => ({ id, kind: 'stop', took, at })
+// a start ({agent}), a resume ({last}), a cancel ({start}) or a close ({took}): what it names
+// is what the menu showed, and `seen` the bridge's heartbeat as the page has it when it is sent
+const vault_watch_command = (kind, id, fields, seen, at) => ({ id, kind, ...fields, seen, at })
 
-// ask the bridge to stop the watch a command names, through the app's narrow hidden-document
-// operation (as the todoer's commands go): a terminal create failure is retried ONCE at the
-// same document id, then said
+// send the bridge a command of the watch, through the app's narrow hidden-document operation
+// (as the todoer's commands go): a terminal create failure is retried ONCE at the same
+// document id, then said
 async function vault_send_watch_command(command, retry_id = null) {
   let enqueued
   try {
@@ -757,15 +818,17 @@ async function vault_send_watch_command(command, retry_id = null) {
 }
 
 const VAULT_SPARKLE_CSS = `
-.vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: black; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent }
+.vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: black; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .vault-sparkle[hidden] { display: none }
 .vault-sparkle:focus { outline: none }
 .vault-sparkle:focus-visible { outline: 1px solid #f5e389 }
+.vault-sparkle.idle { opacity: 0.45 }
+.vault-sparkle.idle:hover, .vault-sparkle.idle:focus-visible { opacity: 0.9 }
 .vault-sparkle > svg { display: block; width: 16px; height: 16px }
 .vault-sparkle.answering > svg { animation: vault-sparkle-pulse 1.2s ease-in-out infinite }
 @keyframes vault-sparkle-pulse { 50% { opacity: 0.3 } }
 .vault-sparkle-menu { position: fixed; right: 14px; bottom: 42px; z-index: 90; padding: 4px; border: 1px solid #444; border-radius: 6px; background: #1b1b1b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) }
-.vault-sparkle-menu > button { display: block; margin: 0; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: #ddd; font: 14px/1.2 sans-serif; white-space: nowrap; cursor: pointer }
+.vault-sparkle-menu > button { display: block; width: 100%; margin: 0; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: #ddd; font: 14px/1.2 sans-serif; text-align: left; white-space: nowrap; cursor: pointer }
 .vault-sparkle-menu > button:hover, .vault-sparkle-menu > button:focus { background: #333; outline: none }
 `
 const VAULT_SPARKLE_SVG =
@@ -773,9 +836,9 @@ const VAULT_SPARKLE_SVG =
 
 // draw or update the page's one sparkle. Its controller lives on window, since the item's code
 // is evaluated afresh at every hook and nothing else outlives one: it OWNS the element, its
-// style, the menu, the viewport listener and the task that looks at the time, and its dispose()
-// releases all of them and nothing of a newer controller's (a disposed controller opens no
-// menu and sends no stop, and its task ends). A controller drawn by other code (an update of this item or of a
+// style, the menu, the viewport listener, a held press's timer and the task that looks at the
+// time, and its dispose() releases all of them and nothing of a newer controller's (a disposed
+// controller opens no menu and sends nothing, and its task ends). A controller drawn by other code (an update of this item or of a
 // dependency, in this tab or another) or for another item is disposed BEFORE the new one
 // draws: the app cancels the earlier controller's task only when the new task is dispatched,
 // and that cancellation is the earlier controller's own dispose again. Only the page's one
@@ -796,7 +859,7 @@ function vault_sparkle_reconcile() {
 }
 
 function vault_sparkle_create() {
-  const self = { code: vault_code, item: _this.id, shown: null, stopping: null, menu: null, disposed: false }
+  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, press: null, pressed: false, disposed: false }
   const style = (self.style = document.createElement('style'))
   style.dataset.vaultSparkle = 'style'
   style.textContent = VAULT_SPARKLE_CSS
@@ -810,12 +873,16 @@ function vault_sparkle_create() {
   node.innerHTML = VAULT_SPARKLE_SVG
   document.body.appendChild(node)
 
-  // what the store, the #status item and the time say now; the watch a menu showed is gone or
-  // replaced: its Stop is offered no longer
+  // what the store, the #status item, the time and this tab's marks say now. A start this tab
+  // sent is the bridge's to show once the bridge names it: nothing else ends its mark here but
+  // the owner's own word on it (its cancel, or another start). A watcher is no word on it.
+  // A menu whose state is no longer the one shown closes: its entries are offered no longer
   self.show = () => {
-    const state = vault_sparkle_state(_this._global_store._bridge, vault_status_hosts(), Date.now(), self.stopping)
+    const bridge = _this._global_store._bridge
+    const state = vault_sparkle_state(bridge, vault_status_hosts(), Date.now(), self.marks)
+    if (self.marks.started && vault_start(bridge?.watcher?.start)?.id === self.marks.started.id) self.marks.started = null
     const keyboard = vault_keyboard_open(window)
-    if (self.menu && (!state || keyboard || state.took !== self.menu.took)) self.close()
+    if (self.menu && (!state || keyboard || state.key !== self.menu.key)) self.close()
     self.shown = state
     node.hidden = !state || keyboard
     if (!state) return
@@ -824,39 +891,52 @@ function vault_sparkle_create() {
       node.setAttribute('aria-label', state.title)
     }
     node.classList.toggle('answering', state.busy)
+    node.classList.toggle('idle', state.dim)
   }
 
-  // the menu, above the sparkle: one entry in this slice. It captures the watch it shows, so
-  // its Stop never stops another; its keys are its own while it has the focus (the app's
-  // window handlers bubble, so a stop here keeps them out), except under a modal, which gets
-  // the key and closes the menu; it closes on Escape, on a press outside, when the focus
-  // leaves it, and when the watch it showed is gone or replaced
+  // the menu, above the sparkle. It captures what it shows, so an entry acts on that watch,
+  // that start or that last watcher and on no other; its keys are its own while it has the
+  // focus (the app's window handlers bubble, so a stop here keeps them out), except under a
+  // modal, which gets the key and closes the menu; it closes on Escape, on a press outside,
+  // when the focus leaves it, and when what it showed is no longer what the sparkle shows
   self.open = () => {
     if (self.disposed || self.menu || !self.shown || node.hidden) return
-    const target = { name: self.shown.name, took: self.shown.took }
+    const target = self.shown
+    const entries = vault_sparkle_entries(target)
     const menu = document.createElement('div')
     menu.className = 'vault-sparkle-menu'
     menu.dataset.vaultSparkle = 'menu'
     menu.setAttribute('role', 'menu')
-    const stop = document.createElement('button')
-    stop.type = 'button'
-    stop.setAttribute('role', 'menuitem')
-    stop.textContent = 'Stop Watching'
-    menu.appendChild(stop)
-    const act = e => {
+    const act = (e, key) => {
       e.preventDefault()
       e.stopPropagation()
       self.close(true)
-      self.stop(target)
+      self.act(key, target)
     }
-    stop.addEventListener('click', act)
+    const buttons = entries.map(([key, label]) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.setAttribute('role', 'menuitem')
+      button.dataset.vaultEntry = key
+      button.textContent = label
+      button.addEventListener('click', e => act(e, key))
+      return menu.appendChild(button)
+    })
     menu.addEventListener('keydown', e => {
       if (window._modal_visible?.()) return self.close() // the modal's key
       e.stopPropagation()
+      const at = buttons.indexOf(document.activeElement)
       if (e.key == 'Escape') {
         e.preventDefault()
         self.close(true)
-      } else if (e.key == 'Enter' || e.key == ' ') act(e)
+      } else if (e.key == 'ArrowDown' || e.key == 'ArrowUp') {
+        e.preventDefault()
+        const next = e.key == 'ArrowDown' ? at + 1 : (at < 0 ? 0 : at) - 1 + buttons.length
+        buttons[next % buttons.length].focus({ preventScroll: true })
+      } else if (e.key == 'Enter' || e.key == ' ') {
+        if (e.repeat) e.preventDefault() // a held key repeats: only the press itself acts
+        else if (at >= 0) act(e, entries[at][0])
+      }
     })
     menu.addEventListener('keyup', e => {
       if (window._modal_visible?.()) return
@@ -871,10 +951,10 @@ function vault_sparkle_create() {
       if (!menu.contains(e.target) && !node.contains(e.target)) self.close()
     }
     document.addEventListener('pointerdown', outside, true)
-    self.menu = { element: menu, took: target.took, outside }
+    self.menu = { element: menu, key: target.key, outside }
     node.setAttribute('aria-expanded', 'true')
     document.body.appendChild(menu)
-    stop.focus({ preventScroll: true })
+    buttons[0].focus({ preventScroll: true })
   }
 
   self.close = (refocus = false) => {
@@ -887,28 +967,99 @@ function vault_sparkle_create() {
     if (refocus && !self.disposed) node.focus({ preventScroll: true })
   }
 
-  self.stop = target => {
+  // one entry's action, on what the menu showed (`target`), sent with the bridge's heartbeat
+  // as the page has it now. A cancel of this tab's own start that the bridge never named also
+  // lets go of that start here: that says nothing of whether the bridge cancelled anything
+  self.act = (key, target) => {
     if (self.disposed) return
-    self.stopping = { took: target.took, at: Date.now() }
+    if (key == 'close') return void self.close_session(target)
+    const [id, at, seen] = [vault_command_id(), Date.now(), self.shown?.seen ?? target.seen]
+    if (key == 'stop') {
+      self.marks.stopping = { took: target.took, at }
+      vault_send_watch_command(vault_watch_stop(id, target.took, at))
+    } else if (key == 'cancel') {
+      self.marks.cancelling = { id: target.start, at }
+      if (self.marks.started?.id === target.start) self.marks.started = null
+      vault_send_watch_command(vault_watch_command('cancel', id, { start: target.start }, seen, at))
+    } else {
+      self.marks.started = { id, at }
+      const resume = key == 'resume'
+      vault_send_watch_command(vault_watch_command(resume ? 'resume' : 'start', id, resume ? { last: target.last.key } : { agent: key }, seen, at))
+    }
     self.show()
-    vault_send_watch_command(vault_watch_stop(vault_command_id(), target.took, Date.now()))
   }
 
+  // Close Agent Session, after the owner's word in the app's own dialog (Markco's words). The
+  // close names the take the menu showed: a watch that took the account while the dialog was
+  // open is not the one closed
+  self.close_session = async target => {
+    const sure = `Close ${_.escape(target.name)}'s session?<br><br>Its herdr tab closes, which ends the agent. Its conversation can be resumed.`
+    if ((await window._modal(sure, { confirm: 'Close', cancel: 'Cancel' })) !== true || self.disposed) return
+    const at = Date.now()
+    self.marks.closing = { took: target.took, at }
+    vault_send_watch_command(vault_watch_command('close', vault_command_id(), { took: target.took }, self.shown?.seen ?? target.seen, at))
+    self.show()
+  }
+
+  // a click: with a watcher, and with a start under way or one that did not go as asked, it
+  // opens the menu (or closes it); on the plain offer it starts a watcher, Claude, or Codex
+  // with Shift, and gives the keyboard back to the page. So a start whose outcome is not
+  // known is never asked for again by a blind tap
+  const click = e => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (self.pressed) return void (self.pressed = false) // the click that ends a long press, whose menu is open
+    if (self.menu) return self.close()
+    if (self.shown?.kind != 'offer') return self.open()
+    self.act(e.shiftKey ? 'codex' : 'claude', self.shown)
+    node.blur()
+  }
   const toggle = e => {
     e.preventDefault()
     e.stopPropagation()
     if (self.menu) self.close()
     else self.open()
   }
-  node.addEventListener('click', toggle)
+  node.addEventListener('click', click)
   node.addEventListener('contextmenu', e => {
     e.preventDefault()
     e.stopPropagation()
     self.open()
   })
+  // a long press opens the menu, where a touch has no right click (and the click is the start):
+  // a press held VAULT_LONG_PRESS_MS that did not move, was not cancelled and did not leave the
+  // sparkle. Only the click that ends such a press is swallowed
+  const release = () => {
+    clearTimeout(self.press?.timer)
+    self.press = null
+  }
+  node.addEventListener('pointerdown', e => {
+    release()
+    self.pressed = false
+    if (e.pointerType == 'mouse') return
+    const held = () => {
+      self.press = null
+      if (self.disposed) return
+      self.pressed = true
+      self.open()
+    }
+    self.press = { timer: setTimeout(held, VAULT_LONG_PRESS_MS), x: e.clientX, y: e.clientY }
+  })
+  node.addEventListener('pointermove', e => {
+    if (self.press && Math.hypot(e.clientX - self.press.x, e.clientY - self.press.y) > VAULT_PRESS_SLOP_PX) release()
+  })
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(type, release)
   // Enter and Space are the sparkle's while it has the focus (the app's window handlers take
-  // them otherwise, and its keyup handler cancels a button's own activation)
-  node.addEventListener('keydown', e => (e.key == 'Enter' || e.key == ' ') && toggle(e))
+  // them otherwise, and its keyup handler cancels a button's own activation). They open the
+  // menu whatever is shown, the offer too: the sparkle keeps the focus after its menu closes,
+  // and a start is never one stray press away. A held key opens the menu and does no more:
+  // its repeats are swallowed, here and in the menu
+  node.addEventListener('keydown', e => {
+    if (e.key != 'Enter' && e.key != ' ') return
+    if (!e.repeat) return toggle(e)
+    e.preventDefault()
+    e.stopPropagation()
+  })
   node.addEventListener('keyup', e => {
     if (e.key != 'Enter' && e.key != ' ') return
     e.preventDefault()
@@ -928,6 +1079,7 @@ function vault_sparkle_create() {
   self.dispose = () => {
     if (self.disposed) return
     self.close()
+    release()
     self.disposed = true
     viewport?.removeEventListener('resize', on_viewport)
     node.remove()
@@ -935,8 +1087,9 @@ function vault_sparkle_create() {
     if (window._vault_sparkle === self) delete window._vault_sparkle
   }
   window._vault_sparkle = self
-  // the time's part of freshness, and this item's deletion: the app cancels the task of a
-  // deleted item at its next run (and of a replaced controller when the next one dispatches)
+  // the time's part of freshness and of this tab's marks, and this item's deletion: the app
+  // cancels the task of a deleted item at its next run (and of a replaced controller when the
+  // next one dispatches)
   const task = _this.dispatch_task('sparkle', () => (self.disposed ? null : void vault_sparkle_reconcile()), VAULT_SPARKLE_TICK_MS, VAULT_SPARKLE_TICK_MS)
   task._on_cancel = self.dispose
   return self
