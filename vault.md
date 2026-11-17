@@ -851,10 +851,13 @@ const vault_watched_css = ids => {
   const mark = px => `url("data:image/svg+xml,${encodeURIComponent(VAULT_SPARKLE_SVG.replace('<svg ', `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" `).replace('currentColor', '#f5e389'))}")`
   return [
     // by the number: an image ON the number's baseline (its box is a line of the number's own
-    // font, centred in the number's box as the number's text is), then lowered by half of what
-    // it is taller than the digits (the font's cap height): its middle is the digits' middle
-    // in whatever font the page has (a browser without the cap unit keeps the pixels before it)
-    `${boxes} .item-menu > .button.index::before { content: ${mark(14)}; flex: none; margin-right: 3px; position: relative; top: 1.6px; top: calc((14px - 1cap) / 2) }`,
+    // font, centred in the number's box as the number's text is), lowered by WHOLE pixels. The
+    // browser rounds the text's baseline and an image's edge to the pixel grid separately, so a
+    // fractional offset left the sparkle half a pixel high on some items and half a pixel low on
+    // others, by where each item sits (measured by pixels in Open Sans at 1x and 2x, 2026-11-16).
+    // A whole one moves the two together, and 15px lowered by 2 puts its middle on the middle of
+    // the digits (13px lowered by 1 does too; 14px can only be half a pixel off, either way)
+    `${boxes} .item-menu > .button.index::before { content: ${mark(15)}; flex: none; margin-right: 3px; position: relative; top: 2px }`,
     // in the editor: centred on the buttons
     `${boxes} .edit-menu::before { content: ''; flex: none; align-self: center; width: 23px; height: 23px; margin-right: 6px; background: ${mark(23)} center / contain no-repeat }`,
   ].join('\n')
