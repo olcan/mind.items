@@ -646,6 +646,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // (vault_sparkle_reconcile); this is the one hook that says so in every tab
   if (id == _this.id) vault_sparkle_reconcile()
   if (dependency) return // a dependency of the changed item, not the item itself
+  vault_watched_changed() // a tag put or taken, an item created or deleted (the preview's mark)
   const [marked, pending] = vault_marks()
   // a change, local or remote, that leaves the item a pending request marks it: a save in this
   // tab, or another tab's save arriving by sync (its reply arrives as a remote change too, and
@@ -823,6 +824,36 @@ async function vault_send_watch_command(command, retry_id = null) {
   return true
 }
 
+// PREVIEW, look only (the owner, 2026-11-16: "let's try the translucent background, let me see it
+// on preview, and let's also add something to the edit menu (can be left of save button) so i can
+// tell either way when the item is being watched"): the mark of a WATCHED item, one whose edit or
+// deletion would wake the watching agent. No watch is behind it yet: the rule is a fixed one, the
+// items that carry VAULT_WATCHED_TAG. The mark is ONE stylesheet whose rules name the items by the
+// id their box carries (data-item-id), so nothing is attached to an item and the app's search,
+// toggles, hiding and column layout cannot lose it: the sparkle's yellow, translucent, behind the
+// item's number (the number's own colours still read: grey, a search match's green), and while
+// the item is edited, when its number is not shown, the sparkle left of the edit menu's buttons
+const VAULT_WATCHED_TAG = '#todo'
+const VAULT_WATCHED_MS = 250 // changes of items within this long are one look at the rule
+const vault_watched_ids = () =>
+  _items()
+    .filter(item => item.tags.includes(VAULT_WATCHED_TAG))
+    .map(item => item.id)
+    .filter(id => /^[\w-]+$/.test(id))
+const vault_watched_css = ids => {
+  if (!ids.length) return ''
+  const boxes = `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
+  const mark = encodeURIComponent(VAULT_SPARKLE_SVG.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ').replace('currentColor', '#f5e389'))
+  return [
+    `${boxes} .item-menu > .button.index { background: rgba(245, 227, 137, 0.2) }`,
+    `${boxes} .edit-menu::before { content: ''; flex: none; width: 25px; height: 25px; margin-right: 4px; border-radius: 5px; background: #1b1b1b url("data:image/svg+xml,${mark}") center / 14px no-repeat }`,
+  ].join('\n')
+}
+// the rule looked at a moment after an item changed (its tag put or taken, the item deleted)
+// and after the sparkle is drawn, by the controller that draws: one look for a burst of
+// changes, and none inside the welcome, which enumerates no item
+const vault_watched_changed = () => dispatch_task('watched', () => void window._vault_sparkle?.mark?.(), VAULT_WATCHED_MS)
+
 const VAULT_SPARKLE_CSS = `
 .vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .vault-sparkle[hidden] { display: none }
@@ -873,6 +904,16 @@ function vault_sparkle_create() {
   style.dataset.vaultSparkle = 'style'
   style.textContent = VAULT_SPARKLE_CSS
   document.head.appendChild(style)
+  // the watched items' mark (the preview above): a stylesheet of its own, rewritten when the
+  // items the rule names are others
+  const watched = (self.watched = document.createElement('style'))
+  watched.dataset.vaultSparkle = 'watched'
+  document.head.appendChild(watched)
+  self.mark = () => {
+    if (self.disposed) return
+    const css = vault_watched_css(vault_watched_ids())
+    if (watched.textContent !== css) watched.textContent = css
+  }
   const node = (self.node = document.createElement('button'))
   node.type = 'button'
   node.className = 'vault-sparkle'
@@ -1117,14 +1158,16 @@ function vault_sparkle_create() {
     viewport?.removeEventListener('resize', on_viewport)
     node.remove()
     style.remove()
+    watched.remove()
     if (window._vault_sparkle === self) delete window._vault_sparkle
   }
   window._vault_sparkle = self
   // the time's part of freshness and of this tab's marks, and this item's deletion: the app
   // cancels the task of a deleted item at its next run (and of a replaced controller when the
   // next one dispatches)
-  const task = _this.dispatch_task('sparkle', () => (self.disposed ? null : void vault_sparkle_reconcile()), VAULT_SPARKLE_TICK_MS, VAULT_SPARKLE_TICK_MS)
+  const task = _this.dispatch_task('sparkle', () => (self.disposed ? null : void (vault_sparkle_reconcile(), self.mark())), VAULT_SPARKLE_TICK_MS, VAULT_SPARKLE_TICK_MS)
   task._on_cancel = self.dispose
+  vault_watched_changed() // the first look at the watched items, a moment from now
   return self
 }
 ```
