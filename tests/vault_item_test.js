@@ -569,7 +569,12 @@ delete env.window._grammar // a stale app without the capability
 change('chat-id')
 check('without the app\'s grammar capability no mark is taken (the listing alone marks)', [counts(), marks()], [[0, 0, 0], {}])
 env.window._grammar = grammar
-check('the item neither enumerates items nor parses tags itself for its marks', [/\b_items\(/.test(block[1]), block[1].includes('_parse_tags')], [false, false])
+// the running marks, the statuses and the welcome come from the store alone. The item enumerates
+// the items in ONE place, the watched mark's tag pass (vault_watched: there is no index of
+// tags), and still parses no tag anywhere
+const enumerations = block[1].split('\n').filter(line => /\b_items\(/.test(line))
+check('the item enumerates items in one place alone, the tag pass of the watched mark, and parses no tag itself',
+  [enumerations.map(line => line.trim()), pick_fn(block[1], 'vault_watched').includes(enumerations[0] + '\n'), block[1].includes('_parse_tags')], [['for (const item of _items()) {'], true, false])
 // a remote change (another tab's save arriving by sync) that leaves the item a pending request
 // marks it in this tab too (design section 13); the reply, a remote change ending with an agent
 // turn, releases; a chained item (`…/0`, no route of its own) inherits its parent's route and marks
@@ -894,6 +899,152 @@ if (realMarked) {
     [vm.runInContext("vault_watch_command('start', 'ab12', { agent: 'codex' }, 5, 7)", ctx), vm.runInContext("vault_watch_command('close', 'ab12', { took: 'T' }, 5, 7)", ctx)],
     [{ id: 'ab12', kind: 'start', agent: 'codex', seen: 5, at: 7 }, { id: 'ab12', kind: 'close', took: 'T', seen: 5, at: 7 }])
 
+  // ---- the watched mark (vault design mind_bridge_watcher D25): what the item watcher follows --
+  // the bridge publishes rules, never items (`_bridge.watcher.follows`, vault
+  // lib/mindpage_follows.py); the item reads them as what they must be, matches them against
+  // the page's items by the app's own lookups, and marks an item only where the app's reading
+  // of it is surely the watcher's
+  const SINCE = '2026-11-17T09:00:00.000Z'
+  const HEAD = { watch: 'todos', name: watching.name, since: SINCE }
+  const NONE = { all: false, ids: [], labels: [], tags: [], more: [] }
+  const follows = watcher => { ctx.__watcher = watcher; return vm.runInContext('vault_follows(__watcher)', ctx) }
+  const read = told => follows({ follows: [told] })
+  const BANK = 'J1Jp8z6uvj01EK8qNju5'
+  check('watched: the published rules are read rule by rule: tags, ids, label globs with words for the rest, and a follow of all items, which is that and nothing else',
+    follows({ ...watching, follows: [{ ...HEAD, tags: ['#todo'] }, { ...HEAD, watch: 'bank', ids: [BANK] }, { ...HEAD, watch: 'markets', labels: ['#markets*'], more: ['/kalshi|polymarket/'] }, { ...HEAD, watch: 'sweep', all: true, tags: ['#todo'] }, { more: ['3 more watches'] }] }),
+    [{ ...HEAD, ...NONE, tags: ['#todo'] }, { ...HEAD, ...NONE, watch: 'bank', ids: [BANK] }, { ...HEAD, ...NONE, watch: 'markets', labels: ['#markets*'], more: ['/kalshi|polymarket/'] }, { ...HEAD, ...NONE, watch: 'sweep', all: true },
+      { watch: '', name: '', since: '', ...NONE, more: ['3 more watches'] }])
+  check('watched: anything else is dropped: no watcher, no list, an entry that is no rule, a member that is no string, an id of another shape, a rule left with nothing, an `all` that is not true',
+    [follows(null), follows('x'), follows({ follows: 'x' }), follows({ follows: [null, 'x', 5, {}, { ...HEAD }, { ...HEAD, tags: 'x', ids: [5, null, ''], all: 1 }] }),
+      read({ ...HEAD, watch: 5, name: ['x'], ids: [BANK, 'a b', 'x'.repeat(65), '#todo', 7], tags: ['#todo', 7, { x: 1 }] })],
+    [[], [], [], [], [{ watch: '', name: '', since: SINCE, ...NONE, ids: [BANK], tags: ['#todo'] }]])
+  check('watched: the bridge\'s bounds hold here too: nine entries, fifty ids, sixteen globs and tags, twelve words, each cut',
+    [follows({ follows: Array(12).fill({ ...HEAD, tags: ['#todo'] }) }).length, read({ ...HEAD, ids: Array.from({ length: 60 }, (_, n) => 'id' + n) })[0].ids.length,
+      read({ ...HEAD, labels: Array.from({ length: 20 }, (_, n) => '#l' + n), tags: Array.from({ length: 20 }, (_, n) => '#t' + n) }).map(rule => [rule.labels.length, rule.tags.length]),
+      read({ ...HEAD, more: Array.from({ length: 20 }, (_, n) => 'word ' + n) })[0].more.length, read({ ...HEAD, more: ['/' + 'x'.repeat(200) + '/'] })[0].more, read({ ...HEAD, name: 'n'.repeat(100), tags: ['#t'] })[0].name.length],
+    [9, 50, [[16, 16]], 12, ['/' + 'x'.repeat(95) + '…'], 64])
+  check('watched: what this page cannot check as the watcher does is said, not matched: a relative tag, a tag or a glob outside printable ASCII, a glob with a bracket; a rule of such alone is words alone',
+    [read({ ...HEAD, tags: ['#todo', '#/1', '#//x', '#café', '#_todo'], labels: ['#markets*', '#chat/[0-9]*', '#café*', '#a?'] }), read({ ...HEAD, tags: ['#/1'] })],
+    [[{ ...HEAD, ...NONE, tags: ['#todo', '#_todo'], labels: ['#markets*', '#a?'], more: ['#/1', '#//x', '#café', 'label #chat/[0-9]*', 'label #café*'] }], [{ ...HEAD, ...NONE, more: ['#/1'] }]])
+  check('watched: a tag and a glob are compared in lowercase, as the watcher holds them; an id is as given', read({ ...HEAD, tags: ['#ToDo'], labels: ['#Markets*'], ids: ['AbC'] }),
+    [{ ...HEAD, ...NONE, ids: ['AbC'], labels: ['#markets*'], tags: ['#todo'] }])
+  const names = (glob, label) => { ctx.__args = { glob, label }; return vm.runInContext('vault_glob_names(__args.glob, __args.label)', ctx) }
+  check('watched: a glob names a label as the watcher\'s fnmatch does: the whole label, `*` any run (a slash too, and none), `?` one character, a star in the label taken as a character',
+    [['#todo', '#todo'], ['#todo', '#todos'], ['#todo', '#tod'], ['#markets*', '#markets'], ['#markets*', '#markets/kalshi'], ['#markets*', '#market'], ['#markets/*', '#markets'], ['#markets/*', '#markets/kalshi'],
+      ['#markets/*', '#markets/a/b'], ['#?', '#a'], ['#?', '#ab'], ['#?', '#'], ['#a?c', '#abc'], ['*', '#anything'], ['#*/1', '#chat/5/1'], ['#*/1', '#chat/5/12'], ['#a*b*c', '#aXbYbZc'], ['#a*b*c', '#aXbYbZ'],
+      ['#*x', '#*yx'], ['#a**', '#a'], ['', ''], ['', '#a']].map(([glob, label]) => names(glob, label)),
+    [true, false, false, true, true, false, false, true, true, true, false, false, true, true, true, false, true, false, true, true, true, false])
+  const began = performance.now() // as a RegExp of thirty-one `.*` this glob would not finish against this label
+  const stars = names('#' + '*a'.repeat(31) + 'b', '#' + 'a'.repeat(63))
+  check('watched: a glob of many stars is a loop\'s work, not a pattern\'s backtracking', [stars, performance.now() - began < 1000], [false, true])
+
+  // the page's items as the app holds them: the id an item's box carries, the saved id the
+  // watcher knows (the same unless the item was created in this tab), the raw text, and the
+  // app's OWN reading of that text, which the item code takes as given and never parses: the
+  // label (the label index's key) and `tags_raw` (lowercase, the hiding underscore kept, a
+  // relative tag resolved against the label, an agent reply's child tags added)
+  const held = (id, text, label, tags_raw, saved = id) => ({ id, saved_id: saved, text, label, tags_raw, tags_hidden: [], dependencies: [] }) // the last two for the save-time mark's route walk, which hears the same changes
+  const corpus = list => {
+    const calls = { items: 0 }
+    const labels = new Map()
+    for (const item of list) if (item.label) labels.set(item.label.toLowerCase(), [...(labels.get(item.label.toLowerCase()) ?? []), item.id])
+    for (const item of list) item.name = item.label && labels.get(item.label.toLowerCase()).length == 1 ? item.label : 'id:' + item.id
+    const seam = env._item
+    return {
+      calls,
+      _items: () => { calls.items++; return [...list] }, // every item (the app: newest first)
+      _labels: selector => [...labels].filter(([label, ids]) => selector(label, ids)).map(([label]) => label), // the app's label index
+      _item: ref => list.find(item => item.saved_id === ref || item.id === ref) ?? seam(ref), // a saved id reaches the item held under a temporary one
+    }
+  }
+  const FENCE = '`'.repeat(3)
+  const page_items = [
+    held('t1', '#todo buy milk', '#todo', ['#todo']),
+    held('t2', '#Todo call the bank', '#Todo', ['#todo']), // the label is shared, and written in another case
+    held('w1', '#work #todo fix the cache', '#work', ['#work', '#todo']),
+    held('h1', '#notes a hidden carrier #_todo', '#notes', ['#notes', '#_todo']),
+    held('n1', '#todo/next is nested under it', '#todo/next', ['#todo/next']),
+    held('u1', 'unlabelled, see #todo', '', ['#todo']),
+    held('m1', '#markets', '#markets', ['#markets']),
+    held('m2', '#markets/kalshi #todo/x', '#markets/kalshi', ['#markets/kalshi', '#todo/x']),
+    held('tmp-1', '#bank statement', '#bank', ['#bank'], BANK), // created in this tab: a temporary id until the reload
+    held('c1', "#chat/5 #_agent/vault\n\\<<user>> q\n#/1", '#chat/5', ['#chat/5', '#_agent/vault', '#chat/5/1']), // a relative tag, resolved by the app
+    held('c2', '#chat #//todo is a sibling of a root label', '#chat', ['#chat', '#todo']),
+    held('u2', 'unlabelled: #/1 stays as written', '', ['#/1']),
+    held('l1', `#work2 #todo x\n${FENCE}_log\n#todo\n${FENCE}`, '#work2', ['#work2', '#todo']), // a log block and a tag that is not the label
+    held('l2', `#todo y\n${FENCE}js_output\n1\n${FENCE}`, '#todo', ['#todo']), // a log block under an item that begins with its label
+    held('l3', `<div class="x">\n#todo z\n${FENCE}_LOG_removed\n${FENCE}`, '#todo', ['#todo']), // the label after a wrapper, and a log block
+    held('l4', '<div class="x">\n#todo w', '#todo', ['#todo']), // the label after a wrapper, and no block
+    held('e1', '#café con leche', '#café', ['#café']),
+  ]
+  const looked = (rules, list = page_items) => {
+    const fake = corpus(list)
+    const kept = { _items: env._items, _item: env._item }
+    Object.assign(env, { _items: fake._items, _labels: fake._labels, _item: fake._item })
+    ctx.__rules = follows({ follows: rules })
+    try { return [vm.runInContext('vault_watched(__rules)', ctx), fake.calls.items] } finally { Object.assign(env, kept); delete env._labels }
+  }
+  const marked = (rule, list) => looked([{ ...HEAD, ...rule }], list)[0].ids
+  // the menu's line for a rule, as a look over the items leaves it
+  const lined = (rule, list) => { ctx.__args = { rule: read({ ...HEAD, ...rule })[0], seen: looked([{ ...HEAD, ...rule }], list)[0].rules[0] }; return vm.runInContext('vault_follow_line(__args.rule, __args.seen, true)', ctx) }
+  check('watched: an id names its item by the saved id, which reaches the item this tab holds under a temporary one; a temporary id, another case and an id of no item name nothing; no item is enumerated',
+    [looked([{ ...HEAD, ids: [BANK, 't1', 'T2', 'tmp-1', 'gone'] }]), marked({ ids: ['tmp-1'] })], [[{ ids: ['t1', 'tmp-1'], rules: [{ n: 2, unsure: 0, name: null }] }, 0], []])
+  check('watched: a rule of one id says its item\'s name when that is a label, not when the label is shared', [looked([{ ...HEAD, ids: [BANK] }])[0].rules, looked([{ ...HEAD, ids: ['t1'] }])[0].rules],
+    [[{ n: 1, unsure: 0, name: '#bank' }], [{ n: 1, unsure: 0, name: null }]])
+  // (review 54, B1) a label outside ASCII is not compared, and the watcher's `#c*` selects `#café` too: the
+  // rule's count is then not whole, and its line says `marked`. Only a glob that may name such a label is
+  // held to it: one with a wildcard, whose text before the wildcard opens the label
+  check('watched: a label glob names every item under each label it matches, shared labels too, whatever the label\'s case; never an unlabelled item or a label outside ASCII, whose items are unsure for a glob that may name it, so that the line says `marked`; no item is enumerated',
+    [looked([{ ...HEAD, labels: ['#todo'] }]), marked({ labels: ['#markets*'] }), marked({ labels: ['#markets/*'] }), marked({ labels: ['#todo*'] }), marked({ labels: ['#c*'] }), marked({ labels: ['*'] }).includes('u1'),
+      looked([{ ...HEAD, labels: ['#c*'] }]), ['#c*', '#caf?', '#cafz', '#markets*', '#chat', '#chat*'].map(glob => lined({ labels: [glob] }))],
+    [[{ ids: ['l2', 'l4', 't1', 't2'], rules: [{ n: 4, unsure: 1, name: null }] }, 0], ['m1', 'm2'], ['m2'], ['l2', 'l4', 'n1', 't1', 't2'], ['c1', 'c2'], false,
+      [{ ids: ['c1', 'c2'], rules: [{ n: 2, unsure: 1, name: null }] }, 0],
+      ['edits: #c* (2 items marked)', 'edits: #caf? (0 items marked)', 'edits: #cafz (0 items)', 'edits: #markets* (2 items)', 'edits: #chat (1 item)', 'edits: #chat* (2 items)']])
+  check('watched: a tag is one of the item\'s raw tags, exactly: its label or a tag in its text, not the hidden form, not a tag nested under it; ONE pass over the items, whatever the rules',
+    [looked([{ ...HEAD, tags: ['#todo'] }]), marked({ tags: ['#_todo'] }), marked({ tags: ['#todo/x'] }), looked([{ ...HEAD, tags: ['#todo', '#work'] }, { ...HEAD, tags: ['#notes'] }])[1]],
+    [[{ ids: ['l2', 'l4', 't1', 't2', 'u1', 'w1'], rules: [{ n: 6, unsure: 3, name: null }] }, 1], ['h1'], ['m2'], 1])
+  check('watched: a tag the app resolved from a relative one is none to the watcher: on a labelled item whose text holds one, a tag that is not the label marks nothing; unlabelled, the tag is as written',
+    [looked([{ ...HEAD, tags: ['#chat/5/1'] }])[0], marked({ tags: ['#chat/5'] }), marked({ tags: ['#_agent/vault'] }), looked([{ ...HEAD, tags: ['#todo'] }])[0].ids.includes('c2'), marked({ tags: ['#/1'] })],
+    [{ ids: [], rules: [{ n: 0, unsure: 1, name: null }] }, ['c1'], [], false, []])
+  check('watched: the watcher masks a log or output block and the app does not: an item that holds a line that could open one is marked by its label alone, and only when its text begins with it',
+    [['l1', 'l2', 'l3', 'l4'].map(id => marked({ tags: ['#todo'] }).includes(id)), ['l2', 'l3', 'l4'].map(id => marked({ labels: ['#todo'] }).includes(id)), marked({ tags: ['#work2'] }), marked({ labels: ['#work2'] })],
+    [[false, true, false, true], [true, false, true], ['l1'], ['l1']])
+  // (the app's header rule stops its `.` at a carriage return and at the two line separators; the watcher's does not)
+  const odd = [held('r1', '<span>\r#todo <b>v</b>', '#todo', ['#todo']), held('r2', '<p>\u2028#todo <i>y</i>', '#todo', ['#todo']), held('r3', '<p>\n#todo', '#todo', ['#todo'])]
+  check('watched: a label after html and a carriage return or a line separator is a label to the app alone: a glob does not mark it; the tag, which both sides read, does',
+    [looked([{ ...HEAD, labels: ['#todo'] }], odd)[0], marked({ tags: ['#todo'] }, odd)], [{ ids: ['r3'], rules: [{ n: 1, unsure: 2, name: null }] }, ['r1', 'r2', 'r3']])
+  check('watched: an item one selector cannot be sure of and another names is named; the marks are the union over the rules, each item once, in a fixed order',
+    looked([{ ...HEAD, tags: ['#todo'], ids: ['l1'], labels: ['#work2'] }, { ...HEAD, labels: ['#markets*'], tags: ['#todo'] }, { ...HEAD, more: ['/x/'] }])[0],
+    { ids: ['l1', 'l2', 'l4', 'm1', 'm2', 't1', 't2', 'u1', 'w1'], rules: [{ n: 7, unsure: 2, name: '#work2' }, { n: 8, unsure: 3, name: null }, { n: 0, unsure: 0, name: null }] })
+  check('watched: an item id that is not letters, digits, `_` and `-` alone never enters the stylesheet: its item is counted and not marked', looked([{ ...HEAD, tags: ['#x'] }], [held('a"] *, [x="', '#x', '#x', ['#x']), held('ok_1-2', '#x', '#x', ['#x'])])[0],
+    { ids: ['ok_1-2'], rules: [{ n: 2, unsure: 0, name: null }] })
+  const line = (rule, seen, drawn = true) => { ctx.__args = { rule: read({ ...HEAD, ...rule })[0], seen, drawn }; return vm.runInContext('vault_follow_line(__args.rule, __args.seen, __args.drawn)', ctx) }
+  const seen = (n, unsure = 0, name = null) => ({ n, unsure, name })
+  check('watched: a rule\'s line says what it selects and what the page did: a count when every item it selects is marked, `marked` when it selects more than the page can tell, `not marked` when its items carry none',
+    [line({ tags: ['#todo'] }, seen(112)), line({ labels: ['#markets*'], ids: ['a', 'b'] }, seen(16)), line({ tags: ['#todo'], more: ['/deadline/'] }, seen(112)), line({ tags: ['#todo'] }, seen(110, 2)),
+      line({ more: ['/deadline/'] }, null), line({ more: ['/deadline/'] }, seen(0)), line({ labels: ['#chat*'] }, seen(1204), false), line({ tags: ['#todo'] }, seen(1)), line({ tags: ['#todo'] }, seen(0))],
+    ['edits: #todo (112 items)', 'edits: #markets*, 2 by id (16 items)', 'edits: #todo, /deadline/ (112 items marked)', 'edits: #todo (110 items marked)',
+      'edits: /deadline/ (not marked)', 'edits: /deadline/ (not marked)', 'edits: #chat* (1,204 items, not marked)', 'edits: #todo (1 item)', 'edits: #todo (0 items)'])
+  check('watched: a follow of all items is its own line; a rule of ids that all resolve is said short, one of them by its item\'s name; before a look there is no count, and beside a follow of all items nothing is marked',
+    [line({ all: true, tags: ['#todo'] }, null), line({ ids: ['a'] }, seen(1, 0, '#bank')), line({ ids: ['a'] }, seen(1)), line({ ids: ['a', 'b', 'c'] }, seen(3)), line({ ids: ['a', 'b', 'c'] }, seen(2)), line({ ids: ['a'] }, seen(0)),
+      line({ ids: ['a'], tags: ['#todo'] }, seen(5, 0, '#bank')), line({ ids: ['a'], more: ['2 more by id'] }, seen(1, 0, '#bank')), line({ tags: ['#todo'] }, null), line({ tags: ['#todo'] }, null, false), line({ ids: ['a'] }, null, false),
+      line({ ids: ['a', 'b'] }, seen(2), false)],
+    ['edits: all items', 'edits: #bank', 'edits: 1 item', 'edits: 3 items', 'edits: 3 by id (2 items)', 'edits: 1 by id (0 items)', 'edits: #todo, #bank (5 items)', 'edits: #bank, 2 more by id (1 item marked)', 'edits: #todo',
+      'edits: #todo (not marked)', 'edits: 1 by id (not marked)', 'edits: 2 by id (2 items, not marked)'])
+  const titled = told => { ctx.__rule = follows({ follows: [told] })[0]; return vm.runInContext('vault_follow_title(__rule)', ctx) }
+  check('watched: a line\'s tooltip names the agent, since when and its watch; the closing entry, which counts watches, has none',
+    [titled({ ...HEAD, tags: ['#todo'] }), titled({ ...HEAD, name: '', since: 'x', tags: ['#todo'] }), titled({ more: ['3 more watches'] })],
+    [`${watching.name} follows since ${new Date(SINCE).toLocaleString()} (watch todos)`, 'An agent follows (watch todos)', ''])
+  // the owner's approved look, exactly (the preview of 2026-11-16): a 15px sparkle by the number,
+  // lowered by two whole pixels, and a 23px one left of the edit menu's buttons, in the sparkle's
+  // yellow, from rules that name the items' boxes by id
+  const sparkle_svg = px => encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 16 16" aria-hidden="true"><path fill="#f5e389" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>`)
+  const BOXES = ids => `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
+  const LOOK = ids => `${BOXES(ids)} .item-menu > .button.index::before { content: url("data:image/svg+xml,${sparkle_svg(15)}"); flex: none; margin-right: 3px; position: relative; top: 2px }\n` +
+    `${BOXES(ids)} .edit-menu::before { content: ''; flex: none; align-self: center; width: 23px; height: 23px; margin-right: 6px; background: url("data:image/svg+xml,${sparkle_svg(23)}") center / contain no-repeat }`
+  check('watched: the mark is the approved look: one sheet of two rules over the items\' boxes, a 15px sparkle by the number and a 23px one in the edit menu; no item, no rule',
+    [vm.runInContext("vault_watched_css(['t1', 'tmp-1'])", ctx), vm.runInContext('vault_watched_css([])', ctx)], [LOOK(['t1', 'tmp-1']), ''])
+
   // the controller, over a fake page: nodes with listeners, the app's task seam (a same-named
   // dispatch calls the earlier task's _on_cancel at once), and one item code evaluation per
   // deephash (the app evaluates the item's code afresh at every hook)
@@ -947,7 +1098,7 @@ if (realMarked) {
   items['vault-id'].id = 'vault-id'
   // one evaluation of an item's code, as a hook's: `_this` with the deephash of the text then,
   // and the item's own store and tasks (the app keeps both per item)
-  const evaluation = (deephash, id = 'vault-id', own = { store, tasks }) => {
+  const evaluation = (deephash, id = 'vault-id', own = { store, tasks }, page_seams = {}) => {
     const _this = {
       id, deephash, _global_store: own.store, store: {}, save_global_store() {},
       dispatch_task(name, fn, delay, repeat) {
@@ -957,7 +1108,7 @@ if (realMarked) {
         return (own.tasks[name] = task)
       },
     }
-    const context = vm.createContext({ ...env, _this, document: page, crypto: require('crypto').webcrypto, alert: m => alerts.push(m) })
+    const context = vm.createContext({ ...env, _this, document: page, crypto: require('crypto').webcrypto, alert: m => alerts.push(m), ...page_seams })
     vm.runInContext(tableSrc[0] + '\n' + block[1], context)
     return code => vm.runInContext(code, context)
   }
@@ -965,9 +1116,9 @@ if (realMarked) {
   v1('_on_welcome()')
   check('sparkle: the page\'s welcome draws it', parts('node').length, 1)
   const [node] = parts('node')
-  check('sparkle: a hook draws one element and its style, shown with the watcher\'s words, and one task',
+  check('sparkle: a hook draws one element, its style and the stylesheet of the watched items\' marks, shown with the watcher\'s words, and one task',
     [log, parts('node').length, parts('style').length, node.parent === page.body, node.hidden, node.title, node.attrs['aria-label'], node.classes.has('answering'), tasks.sparkle.delay, tasks.sparkle.repeat],
-    [['+style', '+node', 'task sparkle'], 1, 1, true, false, shown.title, shown.title, false, 15000, 15000])
+    [['+style', '+watched', '+node', 'task sparkle'], 1, 1, true, false, shown.title, shown.title, false, 15000, 15000])
   store._bridge.watcher.jump = JUMP
   v1('_on_global_store_change(_this.id)')
   const hung = node.dataset.vaultJump
@@ -985,7 +1136,7 @@ if (realMarked) {
   store._bridge.watcher.state = 'answering'
   v1('_on_global_store_change(_this.id)')
   check('sparkle: a store change updates the same element in place', [parts('node')[0] === node, log.length, node.classes.has('answering'), node.title],
-    [true, 3, true, 'claude-fable-5-2-max is answering a request'])
+    [true, 4, true, 'claude-fable-5-2-max is answering a request'])
   status._global_store._status.hosts = at(T - 4 * 60000)
   v1("_on_global_store_change('status-id')")
   check('sparkle: the #status item\'s store counts too: a stale bridge hides it', node.hidden, true)
@@ -1113,9 +1264,9 @@ if (realMarked) {
   const v2 = evaluation(2)
   v2("_on_item_change('vault-id', '#vault', '#vault', false, true, false)")
   const [node2] = parts('node')
-  check('sparkle: another tab\'s update replaces the controller: the old menu, its layer, element and style go first, then the new draw, then the task',
+  check('sparkle: another tab\'s update replaces the controller: the old menu, its layer, element, style and marks go first, then the new draw, then the task',
     [log, node2 !== node, parts('node').length, parts('style').length, parts('menu').length, (page.listeners.pointerdown ?? []).length, (viewport.listeners.resize ?? []).length, win._vault_sparkle.code],
-    [['-menu', '-backdrop', '-node', '-style', '+style', '+node', 'task sparkle'], true, 1, 1, 0, 0, 1, 2])
+    [['-menu', '-backdrop', '-node', '-style', '-watched', '+style', '+watched', '+node', 'task sparkle'], true, 1, 1, 0, 0, 1, 2])
   // (the old code's hooks no longer run; its closures may)
   const sent_before = sent.length
   node.fire('click')
@@ -1190,6 +1341,145 @@ if (realMarked) {
   check('sparkle: two items under the label show nothing', [parts('node').length, '_vault_sparkle' in win], [0, false])
   items['vault-id'].name = '#vault_old'
   tasks.sparkle._on_cancel?.()
+  // ---- the watched mark's controller, over the same fake page: the page's #vault (vault2-id)
+  // with a store of its own, and the page's items as the app holds them (the corpus above).
+  // What it costs and when: nothing while nothing is followed; one look a moment after the
+  // rules or an item changed; never at the time's tick. What it draws: the approved look over
+  // the items the rules surely name, none for a stale bridge, a follow of all items or more
+  // than five hundred; and the lines of the sparkle's menu
+  {
+    const list = page_items.map(item => ({ ...item, tags_raw: [...item.tags_raw] }))
+    const fake = corpus(list)
+    const own = { store: { _bridge: { host: 'test-host', watcher: { ...watching } } }, tasks: {} }
+    const w1 = evaluation(11, 'vault2-id', own, { _items: fake._items, _labels: fake._labels, _item: fake._item })
+    const changed = (id, dependency = false) => w1(`_on_item_change('${id}', '#x', '#x', false, false, ${dependency})`)
+    const publish = (rules, more = watching) => { own.store._bridge.watcher = { ...more, follows: rules }; w1('_on_global_store_change(_this.id)') }
+    const looks = () => log.filter(entry => entry == 'task watched').length
+    const TODO = { ...HEAD, tags: ['#todo'] }
+    const TODOS = ['l2', 'l4', 't1', 't2', 'u1', 'w1'] // the items the tag surely names, as the look rows above have them
+    log.length = 0
+    w1('_on_focus()')
+    const spark = parts('node')[0]
+    const sheet = parts('watched')[0]
+    let [written, css] = [0, sheet.textContent ?? ''] // the sheet's text, its writes counted
+    Object.defineProperty(sheet, 'textContent', { get: () => css, set: text => { written++; css = text } })
+    const menu = () => parts('menu')[0]
+    // what the menu holds below its entries, read by opening it and closing it again
+    const said = () => { spark.fire('click'); const out = menu().children.filter(child => child.tag == 'div').map(child => [child.textContent, child.title]); spark.fire('click'); return out }
+    const TITLE = `${watching.name} follows since ${new Date(SINCE).toLocaleString()} (watch todos)`
+    changed('t1')
+    const drew = [...log]
+    check('watched: the controller owns one more node, the marks\' stylesheet, empty while nothing is followed; an item\'s change then dispatches nothing, reads no item, and the menu has no line',
+      [drew, sheet.tag, sheet.parent === page.head, css, fake.calls.items, said(), spark.title], [['+style', '+watched', '+node', 'task sparkle'], 'style', true, '', 0, [], shown.title])
+    log.length = 0
+    publish([TODO])
+    const asked = [...log]
+    check('watched: published rules with something to check ask for ONE look, 250 ms later, as a task of the item, and no item is read before it; the menu says what is followed, without a count yet',
+      [asked, own.tasks.watched.delay, own.tasks.watched.repeat, fake.calls.items, css, said()], [['task watched'], 250, undefined, 0, '', [['edits: #todo', TITLE]]])
+    own.tasks.watched.fn()
+    check('watched: the look draws the approved look over the items the rule surely names, in one pass over the items, and the menu\'s line has its count',
+      [css, fake.calls.items, said(), spark.title], [LOOK(TODOS), 1, [['edits: #todo (6 items marked)', TITLE]], shown.title])
+    log.length = 0
+    changed('t1')
+    const once = [[...log], own.tasks.watched.delay]
+    changed('t1', true)
+    check('watched: with a rule applied, an item\'s change asks for one look, 250 ms later; a change of one of its dependencies asks for none', [once, looks()], [[['task watched'], 250], 1])
+    written = 0
+    own.tasks.watched.fn()
+    w1('_on_global_store_change(_this.id)') // the same rules again: a store change that says nothing new
+    for (const hook of ['_on_focus()', "_on_global_store_change('status-id')"]) w1(hook)
+    own.tasks.sparkle.fn() // the time's tick
+    check('watched: a look that finds the same items rewrites nothing; the same rules again, a return to the page and the tick ask for no look and read no item', [written, css == LOOK(TODOS), looks(), fake.calls.items], [0, true, 1, 2])
+    const m1 = list.find(item => item.id == 'm1')
+    m1.tags_raw.push('#todo') // the owner saves the tag on an item
+    changed('m1')
+    own.tasks.watched.fn()
+    const gained = css
+    list.splice(list.findIndex(item => item.id == 't1'), 1) // and deletes another
+    w1("_on_item_change('t1', '#todo', '#todo', true, false, false)")
+    own.tasks.watched.fn()
+    check('watched: a tag saved on an item marks it at the next look, and a deleted item\'s mark goes', [gained, css, said().map(([text]) => text)],
+      [LOOK(['l2', 'l4', 'm1', 't1', 't2', 'u1', 'w1']), LOOK(['l2', 'l4', 'm1', 't2', 'u1', 'w1']), ['edits: #todo (6 items marked)']])
+    // a stale bridge: the sparkle's own test. The marks go at once, with no look, and come back with it
+    log.length = 0
+    status._global_store._status.hosts = at(T - 4 * 60000)
+    w1("_on_global_store_change('status-id')")
+    const stale = [css, looks(), spark.hidden]
+    changed('t2')
+    status._global_store._status.hosts = fresh
+    w1("_on_global_store_change('status-id')")
+    const back = [css, looks()]
+    own.tasks.watched.fn()
+    check('watched: a bridge that goes stale clears the marks at once and nothing looks while it is; fresh again, one look brings them back',
+      [stale, back, css], [['', 0, true], ['', 1], LOOK(['l2', 'l4', 'm1', 't2', 'u1', 'w1'])])
+    // a follow of all items: no item is marked, and nothing looks; the line and the sparkle's own words say it
+    log.length = 0
+    const read_before = fake.calls.items
+    publish([TODO, { ...HEAD, watch: 'sweep', all: true }])
+    changed('t2')
+    check('watched: a follow of all items marks none, at once, and reads none: every item is followed, so its line and the sparkle\'s tooltip say it, and the other rules\' lines say not marked',
+      [css, looks(), fake.calls.items - read_before, said().map(([text]) => text), spark.title, spark.attrs['aria-label']],
+      ['', 0, 0, ['edits: #todo (not marked)', 'edits: all items'], shown.title + ' · edits: all items', shown.title + ' · edits: all items'])
+    publish([{ ...HEAD, more: ['/deadline/'] }])
+    changed('t2')
+    check('watched: rules of words alone (a regex) mark nothing and look at nothing; the tooltip is the watcher\'s again', [css, looks(), said().map(([text]) => text), spark.title], ['', 0, ['edits: /deadline/ (not marked)'], shown.title])
+    // the cap: more than five hundred items are not marked, and the line says how many
+    for (let n = 0; n < 500; n++) list.push(held('bulk' + n, 'a note #bulk', '', ['#bulk']))
+    publish([{ ...HEAD, tags: ['#bulk'] }, { ...HEAD, ids: ['w1'] }]) // five hundred and one items between them
+    own.tasks.watched.fn()
+    const over = [css, said().map(([text]) => text)]
+    list.pop()
+    changed('bulk499')
+    own.tasks.watched.fn()
+    check('watched: over five hundred items none is marked and the lines say how many; at five hundred they are',
+      [over, css == LOOK([...Array.from({ length: 499 }, (_, n) => 'bulk' + n), 'w1'].sort()), said().map(([text]) => text)],
+      [['', ['edits: #bulk (500 items, not marked)', 'edits: #work (1 item, not marked)']], true, ['edits: #bulk (499 items)', 'edits: #work']])
+    list.splice(list.findIndex(item => item.id == 'bulk0'), 499)
+    // the menu: the lines are below the entries, text alone; they take no focus and the arrows skip them
+    publish([TODO, { ...HEAD, watch: 'bank', name: '<b>x</b>', ids: [BANK] }], { state: 'none' })
+    own.tasks.watched.fn()
+    spark.fire('keydown', { key: 'Enter' })
+    const drawn = menu().children.map(child => [child.tag, child.dataset.vaultEntry ?? child.textContent, child.attrs.role ?? null, Object.keys(child.listeners).length > 0])
+    const walked = ['ArrowUp', 'ArrowDown', 'ArrowDown'].map(key => { menu().fire('keydown', { key }); return page.activeElement?.dataset.vaultEntry ?? page.activeElement?.tag })
+    check('watched: with nobody on the account the menu has the starts, then the same lines: text alone, below the entries, with no listener of their own, and the arrows move through the entries alone',
+      [spark.classes.has('idle'), drawn, walked, menu().children[3].title],
+      [true, [['button', 'claude', 'menuitem', true], ['button', 'codex', 'menuitem', true], ['div', 'edits: #todo (6 items marked)', null, false], ['div', 'edits: #bank', null, false]], ['codex', 'claude', 'codex'],
+        `<b>x</b> follows since ${new Date(SINCE).toLocaleString()} (watch bank)`])
+    m1.tags_raw.pop() // the counts of an open menu change: the tag is taken off an item
+    changed('m1')
+    const still = parts('menu').length
+    own.tasks.watched.fn()
+    const after_look = parts('menu').length
+    spark.fire('click')
+    publish([TODO], { state: 'none' })
+    check('watched: a menu whose lines are no longer what it shows closes: at the look that changes a count, and at a change of the rules', [still, after_look, parts('menu').length, said().map(([text]) => text)],
+      [1, 0, 0, ['edits: #todo']])
+    own.tasks.watched.fn()
+    // an update of the item's code: the controller that goes takes its marks with it, and the new one looks again
+    log.length = 0
+    const old = win._vault_sparkle
+    const w2 = evaluation(12, 'vault2-id', own, { _items: fake._items, _labels: fake._labels, _item: fake._item })
+    w2("_on_item_change('vault2-id', '#vault', '#vault', false, true, false)")
+    const [sheet2] = parts('watched')
+    const replaced = [[...log], sheet2 !== sheet, sheet.parent, parts('watched').length, sheet2.textContent ?? '']
+    const read_then = fake.calls.items
+    written = 0
+    old.mark()
+    old.look()
+    const idle = [written, fake.calls.items - read_then, looks()]
+    own.tasks.watched.fn()
+    // (the look is asked for twice, at the new controller's first rules and at the item's own change, and is one task: the app replaces a task of the same name)
+    check('watched: a replaced controller takes its marks with it, and then looks at nothing and reads no item; the new one draws its own sheet, empty until its look',
+      [replaced, idle, sheet2.textContent],
+      [[['-node', '-style', '-watched', '+style', '+watched', '+node', 'task sparkle', 'task watched', 'task watched'], true, null, 1, ''], [0, 0, 2], LOOK(['l2', 'l4', 't2', 'u1', 'w1'])])
+    // only the controller's own item asks it to look: the renamed copy (vault-id) hears the same change
+    log.length = 0
+    v2("_on_item_change('t2', '#todo', '#todo', false, false, false)")
+    check('watched: an item change heard by another item that carries this code asks the page\'s controller for nothing', looks(), 0)
+    own.tasks.sparkle._on_cancel?.() // the item is deleted: the app cancels its task
+    own.tasks.watched.fn()
+    check('watched: the controller\'s end removes the marks, and a look still due does nothing', [parts('watched').length, parts('node').length, '_vault_sparkle' in win], [0, 0, false])
+  }
   // the command's transport: one retry at the same document id, then said
   ;(async () => {
     // ---- slice 6: the controller over the same fake page, for the page's #vault (vault2-id):
