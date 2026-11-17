@@ -835,9 +835,9 @@ async function vault_send_watch_command(command, retry_id = null) {
 // so a short number leaves it; a long one pushes the sparkle a few pixels out to the left, which
 // the owner accepts: "even if they did not, it would be fine to insert a little sparkle"), and
 // while the item is edited, when its number is not shown, the same sparkle left of the edit
-// menu's buttons. Its sizes are the owner's: about the height of the number's digits on an item,
-// a little less than the buttons' height in the editor. The first preview's translucent yellow
-// behind the number was not liked
+// menu's buttons. Its sizes are the owner's: about the height of the number's digits on an item
+// and centred on them, a little less than the buttons' height in the editor. The first
+// preview's translucent yellow behind the number was not liked
 const VAULT_WATCHED_TAG = '#todo'
 const VAULT_WATCHED_MS = 250 // changes of items within this long are one look at the rule
 const vault_watched_ids = () =>
@@ -848,11 +848,15 @@ const vault_watched_ids = () =>
 const vault_watched_css = ids => {
   if (!ids.length) return ''
   const boxes = `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
-  const mark = encodeURIComponent(VAULT_SPARKLE_SVG.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ').replace('currentColor', '#f5e389'))
-  const sparkle = `content: ''; flex: none; align-self: center; background: url("data:image/svg+xml,${mark}") center / contain no-repeat`
+  const mark = px => `url("data:image/svg+xml,${encodeURIComponent(VAULT_SPARKLE_SVG.replace('<svg ', `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" `).replace('currentColor', '#f5e389'))}")`
   return [
-    `${boxes} .item-menu > .button.index::before { ${sparkle}; width: 14px; height: 14px; margin-right: 3px }`,
-    `${boxes} .edit-menu::before { ${sparkle}; width: 21px; height: 21px; margin-right: 6px }`,
+    // by the number: an image ON the number's baseline (its box is a line of the number's own
+    // font, centred in the number's box as the number's text is), then lowered by half of what
+    // it is taller than the digits (the font's cap height): its middle is the digits' middle
+    // in whatever font the page has (a browser without the cap unit keeps the pixels before it)
+    `${boxes} .item-menu > .button.index::before { content: ${mark(14)}; flex: none; margin-right: 3px; position: relative; top: 1.6px; top: calc((14px - 1cap) / 2) }`,
+    // in the editor: centred on the buttons
+    `${boxes} .edit-menu::before { content: ''; flex: none; align-self: center; width: 23px; height: 23px; margin-right: 6px; background: ${mark(23)} center / contain no-repeat }`,
   ].join('\n')
 }
 // the rule looked at a moment after an item changed (its tag put or taken, the item deleted)
