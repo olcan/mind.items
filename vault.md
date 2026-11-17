@@ -1038,7 +1038,9 @@ const vault_watched_css = (ids, all = false) => {
 }
 // an item changed: the sparkle's controller of THIS item looks at the rules again a moment later,
 // when a rule with something to check is applied. With none nothing is dispatched and no item
-// is read, so an account where nothing is followed, or all of it is, pays nothing for the mark
+// is read, so an account where nothing is followed, or all of it is, pays no look and no pass
+// over its items for the mark (under a watch of all items the browser still applies the one
+// rule to every item's box)
 const vault_watched_changed = () => {
   const held = window._vault_sparkle
   if (held?.item === _this.id) held.look?.()
