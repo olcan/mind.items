@@ -873,7 +873,9 @@ const vault_follows = watcher =>
 // whether the glob names the label, as the watcher's fnmatch reads the two: `*` is any run of
 // characters (`/` included), `?` one character, and the whole label must match. Both are
 // printable ASCII here, so a character is one unit on either side. A loop and no RegExp: no
-// text of a rule becomes a pattern, and a glob of many stars cannot make a slow one
+// text of a rule becomes a pattern. It is not linear: after a mismatch a star takes one more
+// character and what follows it in the glob is tried again, so the work is at most the
+// label's length times the glob's (64 at most), where a pattern of many stars has no such bound
 function vault_glob_names(glob, label) {
   let [g, l, star, kept] = [0, 0, -1, 0]
   while (l < label.length) {
@@ -885,6 +887,10 @@ function vault_glob_names(glob, label) {
   while (glob[g] == '*') g++
   return g == glob.length
 }
+// whether the glob MAY name a label this page does not compare (one outside printable ASCII,
+// below): only through a wildcard, and only when what it says before its first wildcard opens
+// the label. Nothing of the label is compared beyond that: the rule's count is then not whole
+const vault_glob_may_name = (glob, label) => /[*?]/.test(glob) && label.startsWith(glob.slice(0, glob.search(/[*?]/)))
 
 // THE WATCHER'S READING. An agent is woken for the items its watcher selects (vault
 // lib/mindpage_watch.py, Selection), and the watcher reads an item's label and tags from the
@@ -908,7 +914,9 @@ function vault_glob_names(glob, label) {
 //   not the item's own label therefore counts only on an unlabelled item, where the app
 //   resolves and adds nothing, or on one whose text holds no `#/` at all
 // - the two lowercase a text by different Unicode tables, which agree on printable ASCII: only
-//   such tags, globs and labels are compared (VAULT_FOLLOW_TAG, VAULT_FOLLOW_GLOB, VAULT_ASCII)
+//   such tags, globs and labels are compared (VAULT_FOLLOW_TAG, VAULT_FOLLOW_GLOB, VAULT_ASCII).
+//   A label that is not compared is not forgotten: its items are unsure for a rule whose glob
+//   may name it (vault_glob_may_name), so that rule's count never reads as whole
 // The pattern is built from a string: this code sits in a fenced block, and writes no fence
 const VAULT_LOG_FENCE = new RegExp('`{3}\\S*_(?:output|log)', 'i')
 const vault_label_sure = text => text.startsWith('#') || !(VAULT_LOG_FENCE.test(text) || /[\r\u2028\u2029]/.test(text))
@@ -919,7 +927,8 @@ const vault_tag_sure = (item, tag) => {
 }
 
 // one look at the page's items for the rules: for each rule the items it surely names (`n`),
-// those the app reads under it whose reading by the watcher is not sure (`unsure`, left
+// those the app reads under it whose reading by the watcher is not sure, with those under a
+// label this page does not compare that a glob of the rule may name (`unsure`, left
 // unmarked) and, for a rule of one id, its item's name when it is a label; and the union to
 // mark, as the in-tab ids the items' boxes carry (sorted, so the same items are the same
 // stylesheet). An id reaches its item through the app's own lookup, which finds the item this
@@ -940,7 +949,13 @@ function vault_watched(follows) {
   })
   if (follows.some(rule => rule.labels.length))
     _labels((label, ids) => {
-      if (!VAULT_ASCII.test(label)) return
+      if (!VAULT_ASCII.test(label)) {
+        // not compared: its items are unsure for every rule with a glob that may name it
+        follows.forEach((rule, at) => {
+          if (rule.labels.some(glob => vault_glob_may_name(glob, label))) for (const id of ids) found[at].unsure.add(id)
+        })
+        return
+      }
       follows.forEach((rule, at) => {
         if (!rule.labels.some(glob => vault_glob_names(glob, label))) return
         for (const id of ids) {
@@ -964,9 +979,13 @@ function vault_watched(follows) {
 
 // the menu's line for a rule: what it selects, as the watcher was told it, then what this
 // page did about it at its last look (`seen`, null when none was made). A count alone
-// (`112 items`) says that every item the rule selects is marked; `marked` after it, that the
-// rule selects more than the page can tell (a regex, a selector over a bound, an item whose
-// reading is not sure); `not marked`, that the rule's items carry no mark (`drawn` is false:
+// (`112 items`) says that the page marked every item it reads under the rule and left none
+// out; `marked` after it, that the rule may select more than is marked: it holds words (a
+// regex, a selector over a bound), or the look left something out (`unsure`: an item whose
+// reading is not sure, the items of a label that was not compared and that a glob may name).
+// Neither says anything of an item that the watcher alone reads under the rule: where the two
+// readings differ that way the page sees nothing to count. `not marked` says that the rule's
+// items carry no mark (`drawn` is false:
 // another watch follows all items, or the marks would be more than VAULT_WATCHED_MOST; or
 // the rule has nothing a page checks). A rule of ids alone that all resolve is said short,
 // one of them by its item's name
@@ -1035,7 +1054,7 @@ const VAULT_SPARKLE_CSS = `
 @keyframes vault-sparkle-pulse { 50% { opacity: 0.3 } }
 .vault-sparkle-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); animation: vault-sparkle-fade 0.12s ease-out }
 @keyframes vault-sparkle-fade { from { opacity: 0 } }
-.vault-sparkle-menu { position: fixed; right: 14px; bottom: 42px; z-index: 90; padding: 4px; border: 1px solid #444; border-radius: 6px; background: #1b1b1b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) }
+.vault-sparkle-menu { position: fixed; right: 14px; bottom: 42px; z-index: 90; box-sizing: border-box; max-height: calc(100vh - 52px); max-height: calc(100dvh - 52px); overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid #444; border-radius: 6px; background: #1b1b1b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) }
 .vault-sparkle-menu:focus { outline: none }
 .vault-sparkle-menu > button { display: block; width: 100%; margin: 0; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: #ddd; font: 14px/1.2 sans-serif; text-align: left; white-space: nowrap; cursor: pointer }
 .vault-sparkle-menu > button:focus { background: #333; outline: none }
@@ -1166,7 +1185,9 @@ function vault_sparkle_create() {
   // covers the page while it is open, so a click or a tap outside closes the menu and is
   // nothing to the page under it. Below the entries, one line of text for each rule the item
   // watcher follows (vault_follow_line): no entry, so it takes no focus and the arrows skip
-  // it, and a menu whose lines are no longer what the page would show closes
+  // it, and a menu whose lines are no longer what the page would show closes. The menu is
+  // never taller than the window (its style): what does not fit scrolls inside it, and the
+  // entries are its first rows, in view when it opens
   self.open = (keyboard = false) => {
     if (self.disposed || self.menu || !self.shown || node.hidden) return
     const target = self.shown

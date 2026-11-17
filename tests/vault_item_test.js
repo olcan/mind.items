@@ -985,13 +985,21 @@ if (realMarked) {
     try { return [vm.runInContext('vault_watched(__rules)', ctx), fake.calls.items] } finally { Object.assign(env, kept); delete env._labels }
   }
   const marked = (rule, list) => looked([{ ...HEAD, ...rule }], list)[0].ids
+  // the menu's line for a rule, as a look over the items leaves it
+  const lined = (rule, list) => { ctx.__args = { rule: read({ ...HEAD, ...rule })[0], seen: looked([{ ...HEAD, ...rule }], list)[0].rules[0] }; return vm.runInContext('vault_follow_line(__args.rule, __args.seen, true)', ctx) }
   check('watched: an id names its item by the saved id, which reaches the item this tab holds under a temporary one; a temporary id, another case and an id of no item name nothing; no item is enumerated',
     [looked([{ ...HEAD, ids: [BANK, 't1', 'T2', 'tmp-1', 'gone'] }]), marked({ ids: ['tmp-1'] })], [[{ ids: ['t1', 'tmp-1'], rules: [{ n: 2, unsure: 0, name: null }] }, 0], []])
   check('watched: a rule of one id says its item\'s name when that is a label, not when the label is shared', [looked([{ ...HEAD, ids: [BANK] }])[0].rules, looked([{ ...HEAD, ids: ['t1'] }])[0].rules],
     [[{ n: 1, unsure: 0, name: '#bank' }], [{ n: 1, unsure: 0, name: null }]])
-  check('watched: a label glob names every item under each label it matches, shared labels too, whatever the label\'s case; never an unlabelled item or a label outside ASCII; no item is enumerated',
-    [looked([{ ...HEAD, labels: ['#todo'] }]), marked({ labels: ['#markets*'] }), marked({ labels: ['#markets/*'] }), marked({ labels: ['#todo*'] }), marked({ labels: ['#c*'] }), marked({ labels: ['*'] }).includes('u1')],
-    [[{ ids: ['l2', 'l4', 't1', 't2'], rules: [{ n: 4, unsure: 1, name: null }] }, 0], ['m1', 'm2'], ['m2'], ['l2', 'l4', 'n1', 't1', 't2'], ['c1', 'c2'], false])
+  // (review 54, B1) a label outside ASCII is not compared, and the watcher's `#c*` selects `#café` too: the
+  // rule's count is then not whole, and its line says `marked`. Only a glob that may name such a label is
+  // held to it: one with a wildcard, whose text before the wildcard opens the label
+  check('watched: a label glob names every item under each label it matches, shared labels too, whatever the label\'s case; never an unlabelled item or a label outside ASCII, whose items are unsure for a glob that may name it, so that the line says `marked`; no item is enumerated',
+    [looked([{ ...HEAD, labels: ['#todo'] }]), marked({ labels: ['#markets*'] }), marked({ labels: ['#markets/*'] }), marked({ labels: ['#todo*'] }), marked({ labels: ['#c*'] }), marked({ labels: ['*'] }).includes('u1'),
+      looked([{ ...HEAD, labels: ['#c*'] }]), ['#c*', '#caf?', '#cafz', '#markets*', '#chat', '#chat*'].map(glob => lined({ labels: [glob] }))],
+    [[{ ids: ['l2', 'l4', 't1', 't2'], rules: [{ n: 4, unsure: 1, name: null }] }, 0], ['m1', 'm2'], ['m2'], ['l2', 'l4', 'n1', 't1', 't2'], ['c1', 'c2'], false,
+      [{ ids: ['c1', 'c2'], rules: [{ n: 2, unsure: 1, name: null }] }, 0],
+      ['edits: #c* (2 items marked)', 'edits: #caf? (0 items marked)', 'edits: #cafz (0 items)', 'edits: #markets* (2 items)', 'edits: #chat (1 item)', 'edits: #chat* (2 items)']])
   check('watched: a tag is one of the item\'s raw tags, exactly: its label or a tag in its text, not the hidden form, not a tag nested under it; ONE pass over the items, whatever the rules',
     [looked([{ ...HEAD, tags: ['#todo'] }]), marked({ tags: ['#_todo'] }), marked({ tags: ['#todo/x'] }), looked([{ ...HEAD, tags: ['#todo', '#work'] }, { ...HEAD, tags: ['#notes'] }])[1]],
     [[{ ids: ['l2', 'l4', 't1', 't2', 'u1', 'w1'], rules: [{ n: 6, unsure: 3, name: null }] }, 1], ['h1'], ['m2'], 1])
