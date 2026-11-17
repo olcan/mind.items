@@ -2,6 +2,7 @@
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
 - the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
+- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **edits:** lines say what each agent follows and how many items are marked for it; what is followed by its text alone, or all at once, is said there and carries no mark.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -646,7 +647,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // (vault_sparkle_reconcile); this is the one hook that says so in every tab
   if (id == _this.id) vault_sparkle_reconcile()
   if (dependency) return // a dependency of the changed item, not the item itself
-  vault_watched_changed() // a tag put or taken, an item created or deleted (the preview's mark)
+  vault_watched_changed() // a tag or a label put or taken, an item created or deleted (the watched mark)
   const [marked, pending] = vault_marks()
   // a change, local or remote, that leaves the item a pending request marks it: a save in this
   // tab, or another tab's save arriving by sync (its reply arrives as a remote change too, and
@@ -690,7 +691,8 @@ function _on_focus() {
 // _bridge.watcher in this item's store: who watches ({name, took, state: 'watching' |
 // 'answering', by?, tab?}), or with nobody watching what is on offer ({state: 'none', start?,
 // last?}): the start the owner asked for ({id, agent, state: 'starting' | 'failed' | 'unknown',
-// note?, resume?, tab?}) and the last watcher that can be resumed ({name, agent, key}). The
+// note?, resume?, tab?}) and the last watcher that can be resumed ({name, agent, key}). Beside
+// either it lists what the item watcher follows (`follows`: the watched mark, further down). The
 // element is drawn from this item's hooks and a task, never from its render, so it shows with
 // #vault off screen. What the owner asks goes to the bridge as a hidden command document under
 // a name of its own, `watch_command_<id>` ({id, kind, ..., at}). A stop names the take of the
@@ -824,29 +826,178 @@ async function vault_send_watch_command(command, retry_id = null) {
   return true
 }
 
-// PREVIEW, look only (the owner, 2026-11-16: "let's try the translucent background, let me see it
-// on preview, and let's also add something to the edit menu (can be left of save button) so i can
-// tell either way when the item is being watched"): the mark of a WATCHED item, one whose edit or
-// deletion would wake the watching agent. No watch is behind it yet: the rule is a fixed one, the
-// items that carry one of VAULT_WATCHED_TAGS (`#watch` is there for the owner to try the mark on
-// any item: put on or taken off in the editor, it shows or goes at the save). The mark is ONE
-// stylesheet whose rules name the items by the
-// id their box carries (data-item-id), so nothing is attached to an item and the app's search,
-// toggles, hiding and column layout cannot lose it: a little sparkle, with no background, left
-// of the item's number, inside the number's box where there is room (the box has a fixed width,
-// so a short number leaves it; a long one pushes the sparkle a few pixels out to the left, which
-// the owner accepts: "even if they did not, it would be fine to insert a little sparkle"), and
-// while the item is edited, when its number is not shown, the same sparkle left of the edit
-// menu's buttons. Its sizes are the owner's: about the height of the number's digits on an item
-// and centred on them, a little less than the buttons' height in the editor. The first
-// preview's translucent yellow behind the number was not liked
-const VAULT_WATCHED_TAGS = ['#todo', '#watch']
-const VAULT_WATCHED_MS = 250 // changes of items within this long are one look at the rule
-const vault_watched_ids = () =>
-  _items()
-    .filter(item => VAULT_WATCHED_TAGS.some(tag => item.tags.includes(tag)))
-    .map(item => item.id)
-    .filter(id => /^[\w-]+$/.test(id))
+// the watched mark (vault design notes/design/mind_bridge_watcher.md, D25): the mark of an item
+// whose edit or deletion would wake an agent, i.e. one that a running `mind_watch.py follow` or
+// `await` selects. The bridge publishes WHAT each such follow selects, never a list of items, as
+// `_bridge.watcher.follows` (vault lib/mindpage_follows.py): up to eight rules and a closing
+// entry, each `{watch, name, since}` with `all: true`, or with those of `ids`, `labels` (globs
+// with `*` and `?`), `tags` and `more` (words for what no page checks: a regex, a count) that
+// are not empty. The sparkle's controller matches the rules against this page's items, marks
+// the ones they name, and says in its menu what is followed, one line a rule
+const VAULT_FOLLOWS = 9 // the bridge's eight rules and its closing entry
+const VAULT_WATCHED_MOST = 500 // over this many items none is marked: the menu's lines say how many
+const VAULT_WATCHED_MS = 250 // changes of items within this long are one look at the rules
+// what this page checks, by shape: an id; a glob without a bracket (the watcher's fnmatch reads
+// one as a set) and an absolute tag (a relative one, `#/x`, is another tag on every item), both
+// of printable ASCII, where the app's and the watcher's lowercase agree (THE WATCHER'S READING,
+// below). The rest of a rule is said in the menu's line and marks nothing
+const VAULT_FOLLOW_ID = /^[A-Za-z0-9_-]{1,64}$/
+const VAULT_FOLLOW_GLOB = /^[!-Z\\^-~]{1,64}$/
+const VAULT_FOLLOW_TAG = /^#[!-.0-~][!-~]{0,62}$/
+const VAULT_ASCII = /^[!-~]+$/
+
+// the published rules as this code can use them, like the start and the last watcher above:
+// strings of those shapes within the bridge's own bounds, and nothing else. A selector of
+// another shape joins `more`, the words of the menu's line; a rule left with nothing is none
+const vault_follow = told => {
+  if (!told || typeof told != 'object') return null
+  const text = (key, most) => (typeof told[key] == 'string' ? told[key].slice(0, most) : '')
+  const head = { watch: text('watch', 64), name: text('name', 64), since: text('since', 32) }
+  if (told.all === true) return { ...head, all: true, ids: [], labels: [], tags: [], more: [] }
+  const list = (key, most) => (Array.isArray(told[key]) ? told[key].filter(s => typeof s == 'string' && s).slice(0, most) : [])
+  const [globs, tags] = [list('labels', 16), list('tags', 16)]
+  const said = [...tags.filter(tag => !VAULT_FOLLOW_TAG.test(tag)), ...globs.filter(glob => !VAULT_FOLLOW_GLOB.test(glob)).map(glob => 'label ' + glob), ...list('more', 12)]
+  const rule = {
+    ...head,
+    all: false,
+    ids: list('ids', 50).filter(id => VAULT_FOLLOW_ID.test(id)),
+    labels: globs.filter(glob => VAULT_FOLLOW_GLOB.test(glob)).map(glob => glob.toLowerCase()),
+    tags: tags.filter(tag => VAULT_FOLLOW_TAG.test(tag)).map(tag => tag.toLowerCase()),
+    more: said.map(words => (words.length > 96 ? words.slice(0, 96) + '…' : words)),
+  }
+  return rule.ids.length || rule.labels.length || rule.tags.length || rule.more.length ? rule : null
+}
+const vault_follows = watcher =>
+  watcher && typeof watcher == 'object' && Array.isArray(watcher.follows) ? watcher.follows.slice(0, VAULT_FOLLOWS).map(vault_follow).filter(rule => rule) : []
+
+// whether the glob names the label, as the watcher's fnmatch reads the two: `*` is any run of
+// characters (`/` included), `?` one character, and the whole label must match. Both are
+// printable ASCII here, so a character is one unit on either side. A loop and no RegExp: no
+// text of a rule becomes a pattern, and a glob of many stars cannot make a slow one
+function vault_glob_names(glob, label) {
+  let [g, l, star, kept] = [0, 0, -1, 0]
+  while (l < label.length) {
+    if (glob[g] == '*') [star, kept, g] = [g, l, g + 1]
+    else if (g < glob.length && (glob[g] == '?' || glob[g] == label[l])) [g, l] = [g + 1, l + 1]
+    else if (star >= 0) [g, kept, l] = [star + 1, kept + 1, kept + 1]
+    else return false
+  }
+  while (glob[g] == '*') g++
+  return g == glob.length
+}
+
+// THE WATCHER'S READING. An agent is woken for the items its watcher selects (vault
+// lib/mindpage_watch.py, Selection), and the watcher reads an item's label and tags from the
+// raw text by its own (Python) copy of the app's grammar: exact, lowercase, the hiding
+// underscore kept. This page takes the label and the tags from the app (the label index,
+// `tags_raw`) and parses none itself, so it marks an item only where the app's reading is
+// SURELY the watcher's. The two can differ in four ways, each closed by a test that errs
+// toward no mark:
+// - the watcher masks the body of a `_log` or `_output` block, the app does not: a tag the
+//   app's parser reads inside or after a block it does not skip (an unclosed one, a tab before
+//   its fence, text after its closing fence, an indented line above it) is none to the watcher.
+//   Without a line that could open such a block the two read the same text. With one, an item
+//   is marked by its LABEL alone, and only when its text begins with it (`#`): the first tag
+//   is then the label on both sides, whatever follows
+// - a label may follow html (`<div>` lines) that both sides skip, the app with a `.` that stops
+//   at a carriage return and at the two Unicode line separators, the watcher with one that
+//   does not: for a glob, a label that does not open the text counts only in a text that holds
+//   none of them (as a tag it is read alike: the difference is in whose label it is)
+// - the app resolves a relative tag (`#/x`, `#//x`, `#///x`) against the item's label and
+//   adds the child tags (`#/x`) of an agent's replies; the watcher does neither. A tag that is
+//   not the item's own label therefore counts only on an unlabelled item, where the app
+//   resolves and adds nothing, or on one whose text holds no `#/` at all
+// - the two lowercase a text by different Unicode tables, which agree on printable ASCII: only
+//   such tags, globs and labels are compared (VAULT_FOLLOW_TAG, VAULT_FOLLOW_GLOB, VAULT_ASCII)
+// The pattern is built from a string: this code sits in a fenced block, and writes no fence
+const VAULT_LOG_FENCE = new RegExp('`{3}\\S*_(?:output|log)', 'i')
+const vault_label_sure = text => text.startsWith('#') || !(VAULT_LOG_FENCE.test(text) || /[\r\u2028\u2029]/.test(text))
+const vault_tag_sure = (item, tag) => {
+  const [text, label] = [item.text ?? '', item.label ?? '']
+  if (label.toLowerCase() == tag) return text.startsWith('#') || !VAULT_LOG_FENCE.test(text) // the label is a tag as written
+  return !VAULT_LOG_FENCE.test(text) && (!label || !text.includes('#/'))
+}
+
+// one look at the page's items for the rules: for each rule the items it surely names (`n`),
+// those the app reads under it whose reading by the watcher is not sure (`unsure`, left
+// unmarked) and, for a rule of one id, its item's name when it is a label; and the union to
+// mark, as the in-tab ids the items' boxes carry (sorted, so the same items are the same
+// stylesheet). An id reaches its item through the app's own lookup, which finds the item this
+// tab holds under a temporary id by its saved one, and must BE the saved id, which is what the
+// watcher compares. A glob is tested against the keys of the app's label index, and only the
+// items it names are read. A tag is one of an item's `tags_raw` (the app's own parse, the
+// hiding underscore kept), in ONE pass over the items, made only when some rule has a tag
+function vault_watched(follows) {
+  const found = follows.map(() => ({ sure: new Set(), unsure: new Set(), name: null }))
+  const note = (at, item, sure) => void found[at][sure ? 'sure' : 'unsure'].add(item.id)
+  follows.forEach((rule, at) => {
+    for (const id of rule.ids) {
+      const item = _item(id, { silent: true })
+      if (item?.saved_id !== id) continue
+      note(at, item, true)
+      if (rule.ids.length == 1 && item.name?.startsWith('#')) found[at].name = item.name
+    }
+  })
+  if (follows.some(rule => rule.labels.length))
+    _labels((label, ids) => {
+      if (!VAULT_ASCII.test(label)) return
+      follows.forEach((rule, at) => {
+        if (!rule.labels.some(glob => vault_glob_names(glob, label))) return
+        for (const id of ids) {
+          const item = _item(id, { silent: true })
+          if (item) note(at, item, vault_label_sure(item.text ?? ''))
+        }
+      })
+    })
+  if (follows.some(rule => rule.tags.length))
+    for (const item of _items()) {
+      const tags = item.tags_raw ?? []
+      follows.forEach((rule, at) => {
+        for (const tag of rule.tags) if (tags.includes(tag)) note(at, item, vault_tag_sure(item, tag))
+      })
+    }
+  return {
+    ids: [...new Set(found.flatMap(({ sure }) => [...sure]))].filter(id => /^[\w-]+$/.test(id)).sort(),
+    rules: found.map(({ sure, unsure, name }) => ({ n: sure.size, unsure: [...unsure].filter(id => !sure.has(id)).length, name })),
+  }
+}
+
+// the menu's line for a rule: what it selects, as the watcher was told it, then what this
+// page did about it at its last look (`seen`, null when none was made). A count alone
+// (`112 items`) says that every item the rule selects is marked; `marked` after it, that the
+// rule selects more than the page can tell (a regex, a selector over a bound, an item whose
+// reading is not sure); `not marked`, that the rule's items carry no mark (`drawn` is false:
+// another watch follows all items, or the marks would be more than VAULT_WATCHED_MOST; or
+// the rule has nothing a page checks). A rule of ids alone that all resolve is said short,
+// one of them by its item's name
+const vault_count = n => `${n.toLocaleString('en-US')} item${n == 1 ? '' : 's'}`
+function vault_follow_line(rule, seen, drawn) {
+  if (rule.all) return 'edits: all items'
+  const by_id = rule.ids.length ? [seen?.name ?? `${rule.ids.length} by id`] : []
+  const what = [...rule.tags, ...rule.labels, ...by_id, ...rule.more].join(', ')
+  if (!rule.tags.length && !rule.labels.length && !by_id.length) return `edits: ${what} (not marked)`
+  if (!seen) return `edits: ${what}${drawn ? '' : ' (not marked)'}`
+  if (!drawn) return `edits: ${what} (${vault_count(seen.n)}, not marked)`
+  if (what == by_id[0] && seen.n == rule.ids.length) return `edits: ${seen.name ?? vault_count(seen.n)}`
+  return `edits: ${what} (${vault_count(seen.n)}${rule.more.length || seen.unsure ? ' marked' : ''})`
+}
+// the line's tooltip: the agent that follows, since when, and its watch's name
+const vault_follow_title = rule => {
+  const since = new Date(rule.since)
+  return rule.watch ? `${rule.name || 'An agent'} follows${isNaN(since) ? '' : ` since ${since.toLocaleString()}`} (watch ${rule.watch})` : ''
+}
+
+// the mark itself, the owner's look (2026-11-16): ONE stylesheet whose rules name the items by
+// the id their box carries (data-item-id), so nothing is attached to an item and the app's
+// search, toggles, hiding and column layout cannot lose it: a little sparkle, with no
+// background, left of the item's number, inside the number's box where there is room (the box
+// has a fixed width, so a short number leaves it; a long one pushes the sparkle a few pixels
+// out to the left, which the owner accepts: "even if they did not, it would be fine to insert
+// a little sparkle"), and while the item is edited, when its number is not shown, the same
+// sparkle left of the edit menu's buttons ("so i can tell either way when the item is being
+// watched"). Its sizes are the owner's: about the height of the number's digits on an item and
+// centred on them, a little less than the buttons' height in the editor. No text of a rule
+// enters the stylesheet: the ids are the app's own, kept to `[\w-]+` (vault_watched)
 const vault_watched_css = ids => {
   if (!ids.length) return ''
   const boxes = `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
@@ -864,10 +1015,13 @@ const vault_watched_css = ids => {
     `${boxes} .edit-menu::before { content: ''; flex: none; align-self: center; width: 23px; height: 23px; margin-right: 6px; background: ${mark(23)} center / contain no-repeat }`,
   ].join('\n')
 }
-// the rule looked at a moment after an item changed (its tag put or taken, the item deleted)
-// and after the sparkle is drawn, by the controller that draws: one look for a burst of
-// changes, and none inside the welcome, which enumerates no item
-const vault_watched_changed = () => dispatch_task('watched', () => void window._vault_sparkle?.mark?.(), VAULT_WATCHED_MS)
+// an item changed: the sparkle's controller of THIS item looks at the rules again a moment later,
+// when a rule with something to check is applied. With none nothing is dispatched and no item
+// is read, so an account where nothing is followed pays nothing for the mark
+const vault_watched_changed = () => {
+  const held = window._vault_sparkle
+  if (held?.item === _this.id) held.look?.()
+}
 
 const VAULT_SPARKLE_CSS = `
 .vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
@@ -885,13 +1039,15 @@ const VAULT_SPARKLE_CSS = `
 .vault-sparkle-menu:focus { outline: none }
 .vault-sparkle-menu > button { display: block; width: 100%; margin: 0; padding: 6px 12px; border: 0; border-radius: 4px; background: none; color: #ddd; font: 14px/1.2 sans-serif; text-align: left; white-space: nowrap; cursor: pointer }
 .vault-sparkle-menu > button:focus { background: #333; outline: none }
+.vault-sparkle-menu > div { max-width: min(340px, calc(100vw - 54px)); padding: 3px 12px; color: #999; font: 12px/1.3 sans-serif; overflow-wrap: anywhere; cursor: default; user-select: none; -webkit-user-select: none }
+.vault-sparkle-menu > button + div { margin-top: 4px; padding-top: 7px; border-top: 1px solid #333 }
 `
 const VAULT_SPARKLE_SVG =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>'
 
 // draw or update the page's one sparkle. Its controller lives on window, since the item's code
 // is evaluated afresh at every hook and nothing else outlives one: it OWNS the element, its
-// style, the menu, the viewport listener and the task that looks at the
+// style, the watched items' stylesheet, the menu, the viewport listener and the task that looks at the
 // time, and its dispose() releases all of them and nothing of a newer controller's (a disposed
 // controller opens no menu and sends nothing, and its task ends). A controller drawn by other code (an update of this item or of a
 // dependency, in this tab or another) or for another item is disposed BEFORE the new one
@@ -914,21 +1070,18 @@ function vault_sparkle_reconcile() {
 }
 
 function vault_sparkle_create() {
-  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false }
+  // `rule` is the JSON of the rules last applied (`follows`), `checks` whether they hold anything
+  // this page checks, and `found` what the last look at the items found for them (null: no look)
+  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false, rule: '[]', follows: [], checks: false, found: null }
   const style = (self.style = document.createElement('style'))
   style.dataset.vaultSparkle = 'style'
   style.textContent = VAULT_SPARKLE_CSS
   document.head.appendChild(style)
-  // the watched items' mark (the preview above): a stylesheet of its own, rewritten when the
-  // items the rule names are others
+  // the watched items' mark: a stylesheet of its own, rewritten when the items the rules name
+  // are others, and gone with the controller (a replaced controller takes its marks with it)
   const watched = (self.watched = document.createElement('style'))
   watched.dataset.vaultSparkle = 'watched'
   document.head.appendChild(watched)
-  self.mark = () => {
-    if (self.disposed) return
-    const css = vault_watched_css(vault_watched_ids())
-    if (watched.textContent !== css) watched.textContent = css
-  }
   const node = (self.node = document.createElement('button'))
   node.type = 'button'
   node.className = 'vault-sparkle'
@@ -946,8 +1099,20 @@ function vault_sparkle_create() {
     const bridge = _this._global_store._bridge
     const state = vault_sparkle_state(bridge, vault_status_hosts(), Date.now(), self.marks)
     if (self.marks.started && vault_start(bridge?.watcher?.start)?.id === self.marks.started.id) self.marks.started = null
+    // what the item watcher follows, read only while the bridge is fresh (the sparkle's own
+    // test). Rules that are not the ones applied are applied: with nothing in them to check
+    // (none, a stale bridge, a follow of all items, words alone) the marks go at once, else
+    // a look is asked for. An unchanged rule looks at nothing, so the time's tick never scans
+    const follows = state ? vault_follows(bridge.watcher) : []
+    const rule = JSON.stringify(follows)
+    if (rule !== self.rule) {
+      const checks = !follows.some(told => told.all) && follows.some(told => told.ids.length || told.labels.length || told.tags.length)
+      Object.assign(self, { rule, follows, checks, found: null })
+      if (checks) self.look()
+      else self.mark()
+    }
     const keyboard = vault_keyboard_open(window)
-    if (self.menu && (!state || keyboard || state.key !== self.menu.key)) self.close()
+    if (self.menu && (!state || keyboard || state.key !== self.menu.key || self.lines().key !== self.menu.lines)) self.close()
     self.shown = state
     node.hidden = !state || keyboard
     // the watching or starting agent's herdr tab, for an extension of the browser that can
@@ -957,12 +1122,36 @@ function vault_sparkle_create() {
     if (jump === null) delete node.dataset.vaultJump
     else node.dataset.vaultJump = jump
     if (!state) return
-    if (node.title !== state.title) {
-      node.title = state.title
-      node.setAttribute('aria-label', state.title)
+    // a follow of all items marks none of them, so the sparkle's own words say it too
+    const title = follows.some(told => told.all) ? `${state.title} · edits: all items` : state.title
+    if (node.title !== title) {
+      node.title = title
+      node.setAttribute('aria-label', title)
     }
     node.classList.toggle('answering', state.busy)
     node.classList.toggle('idle', state.dim)
+  }
+
+  // the look at the items for the rules applied: the marks are rewritten when the items are
+  // others, none over VAULT_WATCHED_MOST, and a menu whose lines are no longer the ones it
+  // shows closes. With nothing to check it reads no item and clears the marks
+  self.mark = () => {
+    if (self.disposed) return
+    self.found = self.checks ? vault_watched(self.follows) : null
+    const css = vault_watched_css(self.found && self.found.ids.length <= VAULT_WATCHED_MOST ? self.found.ids : [])
+    if (watched.textContent !== css) watched.textContent = css
+    if (self.menu && self.lines().key !== self.menu.lines) self.close()
+  }
+  // a look a moment from now, as a task of the item: one for a burst of changes (a later
+  // request replaces the task), and none inside the welcome, which enumerates no item
+  self.look = () => {
+    if (!self.disposed && self.checks) _this.dispatch_task('watched', () => void self.mark(), VAULT_WATCHED_MS)
+  }
+  // the menu's lines for the rules applied, by the last look, and their text as one key
+  self.lines = () => {
+    const drawn = self.checks && !(self.found?.ids.length > VAULT_WATCHED_MOST)
+    const lines = self.follows.map((rule, at) => ({ text: vault_follow_line(rule, self.found?.rules[at] ?? null, drawn), title: vault_follow_title(rule) }))
+    return { lines, key: lines.map(line => line.text).join('\n') }
   }
 
   // the menu, above the sparkle. It captures what it shows, so an entry acts on that watch,
@@ -975,11 +1164,14 @@ function vault_sparkle_create() {
   // leaves no entry with it. Opened from the keyboard (`keyboard`) the first entry has it;
   // opened by a pointer none has, until the pointer or an arrow comes. A layer under the menu
   // covers the page while it is open, so a click or a tap outside closes the menu and is
-  // nothing to the page under it
+  // nothing to the page under it. Below the entries, one line of text for each rule the item
+  // watcher follows (vault_follow_line): no entry, so it takes no focus and the arrows skip
+  // it, and a menu whose lines are no longer what the page would show closes
   self.open = (keyboard = false) => {
     if (self.disposed || self.menu || !self.shown || node.hidden) return
     const target = self.shown
     const entries = vault_sparkle_entries(target)
+    const followed = self.lines()
     const menu = document.createElement('div')
     menu.className = 'vault-sparkle-menu'
     menu.dataset.vaultSparkle = 'menu'
@@ -1002,6 +1194,12 @@ function vault_sparkle_create() {
         button.addEventListener(type, () => button.focus({ preventScroll: true }))
       return menu.appendChild(button)
     })
+    for (const { text, title } of followed.lines) {
+      const line = document.createElement('div')
+      line.textContent = text
+      if (title) line.title = title
+      menu.appendChild(line)
+    }
     menu.addEventListener('pointerleave', e => {
       if (e.pointerType == 'mouse' && buttons.includes(document.activeElement)) menu.focus({ preventScroll: true })
     })
@@ -1052,7 +1250,7 @@ function vault_sparkle_create() {
       if (!menu.contains(e.target) && !node.contains(e.target) && e.target !== backdrop) self.close()
     }
     document.addEventListener('pointerdown', outside, true)
-    self.menu = { element: menu, key: target.key, outside, backdrop, keyboard }
+    self.menu = { element: menu, key: target.key, lines: followed.key, outside, backdrop, keyboard }
     node.setAttribute('aria-expanded', 'true')
     document.body.appendChild(backdrop)
     document.body.appendChild(menu)
@@ -1180,9 +1378,8 @@ function vault_sparkle_create() {
   // the time's part of freshness and of this tab's marks, and this item's deletion: the app
   // cancels the task of a deleted item at its next run (and of a replaced controller when the
   // next one dispatches)
-  const task = _this.dispatch_task('sparkle', () => (self.disposed ? null : void (vault_sparkle_reconcile(), self.mark())), VAULT_SPARKLE_TICK_MS, VAULT_SPARKLE_TICK_MS)
+  const task = _this.dispatch_task('sparkle', () => (self.disposed ? null : void vault_sparkle_reconcile()), VAULT_SPARKLE_TICK_MS, VAULT_SPARKLE_TICK_MS)
   task._on_cancel = self.dispose
-  vault_watched_changed() // the first look at the watched items, a moment from now
   return self
 }
 ```
