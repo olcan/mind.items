@@ -1090,10 +1090,11 @@ function vault_sparkle_create() {
     e.preventDefault()
     e.stopPropagation()
   })
-  // a press on the sparkle is not the app's, and a mouse's takes no focus: a clicked sparkle
-  // that held it would show its ring at the next key (a browser draws the ring of whatever has
-  // the focus once any key is pressed, a modifier alone included). The focus is the keyboard's
-  // to give, and the ring says so. A touch is only kept from the app: its tap is the click
+  // a press on the sparkle is not the app's, and a mouse's gives it no focus: a button that a
+  // click focused shows no ring at first, and a later key can show it (seen in Chromium, where
+  // the Super key alone did). Focus the keyboard gave stays (Tab, and the return from a menu
+  // the keyboard opened), and the ring says so. A touch is only kept from the app: its tap is
+  // the click
   node.addEventListener('mousedown', e => {
     e.preventDefault()
     e.stopPropagation()
