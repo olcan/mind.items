@@ -118,6 +118,8 @@ const picked =
     '_command_target',
     '_delegate',
     '_on_command_delegate',
+    '_takeback',
+    '_on_command_takeback',
     '_delegate_text',
     '_delegate_created',
     '_wait_for_save',
@@ -155,7 +157,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -1102,7 +1104,12 @@ delete context.__todos.p
   make('i1', null, '#todo fix\nbody\n', 's1')
   make('i2', '#other', '#todo other\n', 's2')
   target = { getAttribute: () => 'i1' }
-  check('delegate: empty, the targeted item', [await _on_command_delegate('', ''), docs.at(-1)?.cmd.task, items.i1.text], [null, 's1', '#todo [delegated] fix\nbody\n#_agent/vault\n'])
+  const handled = await _on_command_delegate('', '')
+  check('delegate: empty, the targeted item', [handled, docs.at(-1)?.cmd.task, items.i1.text], [null, 's1', '#todo [delegated] fix\nbody\n#_agent/vault\n'])
+  // a handled command returns NOTHING and the app then clears the box; a null return leaves the
+  // command in it (the owner's report of 2026-11-16). check() compares as JSON, where undefined
+  // and null are one inside an array, so the value itself is compared here
+  check('delegate: handled, it returns nothing (the app clears the box), never null', handled === undefined, true)
   target = null
   check('delegate: empty without a target is refused, the command kept', [await _on_command_delegate('', ''), alerts.at(-1), docs.length], ['/delegate ', '/delegate: no target item', 1])
   check('delegate: a #name', [await _on_command_delegate('#other', '#other'), docs.at(-1).cmd.task], [null, 's2'])
@@ -1139,6 +1146,10 @@ delete context.__todos.p
   check('delegate: a missing name that merely starts with #todo is refused', [await _on_command_delegate('#todox', '#todox'), alerts.at(-1), docs.length], ['/delegate #todox', '/delegate: #todox missing or ambiguous', 5])
   make('i8', '#todox', '#todo x\n', 's8')
   check('delegate: a name that merely starts with #todo is a reference, delegated by its saved id', [await _on_command_delegate('#todox', '#todox'), docs.at(-1).cmd.task, docs.length], [null, 's8', 6])
+  // /takeback's two returns are /delegate's: nothing when handled, the command when refused
+  const taken = await _on_command_takeback('#other', '#other')
+  check('takeback: handled, it returns nothing and the command is enqueued', [taken === undefined, docs.at(-1).cmd.kind, docs.at(-1).cmd.task, docs.length], [true, 'takeback', 's2', 7])
+  check('takeback: a missing item is refused, the command kept', [await _on_command_takeback('id:nope', 'id:nope'), alerts.at(-1), docs.length], ['/takeback id:nope', '/takeback: id:nope missing or ambiguous', 7])
   // wiki links in a row (the vault's design notes/design/wiki_links.md 2.3): the app's REAL grammar
   // and builder (src/wiki_links.ts, loaded by node's type stripping) through window, and the app's
   // REAL tag-exclusion replacer for the url pass (replaceTags and its exclusions, evaluated from

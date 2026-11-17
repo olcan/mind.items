@@ -1633,9 +1633,10 @@ async function _on_command_delegate(args, name) {
   const tagged = name == '#todo'
   if (args && (tagged || (!name?.startsWith('#') && !name?.startsWith('id:') && !_exists(args)))) return _delegate_text(args, tagged)
   const item = _command_target(name, '/delegate')
-  // a refused gesture (reported in a dialog) leaves the command in the box, as /edit does
+  // a refused gesture (reported in a dialog) leaves the command in the box, as /edit does; a
+  // handled one returns nothing, and the app then clears the box (a null return left the
+  // command in it; the owner, 2026-11-16)
   if (!item || !(await _delegate(item))) return `/delegate ${args}`
-  return null
 }
 
 // the plain-text form: the todo is created as /todo creates it (the app's {text} return, its
@@ -1677,8 +1678,8 @@ async function _wait_for_save(item, wait = SAVE_WAIT_MS, poll = SAVE_POLL_MS) {
 // take `item` (default: the targeted item) back from the vault agent
 async function _on_command_takeback(args, name) {
   const item = _command_target(name, '/takeback')
+  // handled, it returns nothing: the box is cleared, as after /delegate
   if (!item || !(await _takeback(item))) return `/takeback ${args}`
-  return null
 }
 
 
