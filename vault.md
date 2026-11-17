@@ -2,7 +2,7 @@
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
 - the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
-- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **edits:** lines say what each agent follows and how many items are marked for it; what is followed by its text alone, or all at once, is said there and carries no mark.
+- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items are marked for it; while an agent follows all items, every item is marked.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -831,12 +831,13 @@ async function vault_send_watch_command(command, retry_id = null) {
 // `await` selects. The bridge publishes WHAT each such follow selects, never a list of items, as
 // `_bridge.watcher.follows` (vault lib/mindpage_follows.py): up to eight rules and a closing
 // entry, each `{watch, name, since}` with `all: true`, or with those of `ids`, `labels` (globs
-// with `*` and `?`), `tags` and `more` (words for what no page checks: a regex, a count) that
-// are not empty. The sparkle's controller matches the rules against this page's items, marks
-// the ones they name, and says in its menu what is followed, one line a rule
+// with `*` and `?`), `tags` and `more` (words for what no page checks: a glob with a bracket,
+// a count) that are not empty. The sparkle's controller matches the rules against this page's
+// items, marks the ones they name, however many, and says in its menu what is followed, one
+// line a rule. A rule of all items marks every item, with nothing to match
 const VAULT_FOLLOWS = 9 // the bridge's eight rules and its closing entry
-const VAULT_WATCHED_MOST = 500 // over this many items none is marked: the menu's lines say how many
 const VAULT_WATCHED_MS = 250 // changes of items within this long are one look at the rules
+const VAULT_WATCHED_SLOW_MS = 50 // a look that took longer is said in the menu, and warned of once
 // what this page checks, by shape: an id; a glob without a bracket (the watcher's fnmatch reads
 // one as a set) and an absolute tag (a relative one, `#/x`, is another tag on every item), both
 // of printable ASCII, where the app's and the watcher's lowercase agree (THE WATCHER'S READING,
@@ -981,24 +982,24 @@ function vault_watched(follows) {
 // page did about it at its last look (`seen`, null when none was made). A count alone
 // (`112 items`) says that the page marked every item it reads under the rule and left none
 // out; `marked` after it, that the rule may select more than is marked: it holds words (a
-// regex, a selector over a bound), or the look left something out (`unsure`: an item whose
-// reading is not sure, the items of a label that was not compared and that a glob may name).
-// Neither says anything of an item that the watcher alone reads under the rule: where the two
-// readings differ that way the page sees nothing to count. `not marked` says that the rule's
-// items carry no mark (`drawn` is false:
-// another watch follows all items, or the marks would be more than VAULT_WATCHED_MOST; or
-// the rule has nothing a page checks). A rule of ids alone that all resolve is said short,
-// one of them by its item's name
+// glob with a bracket, a selector over a bound), or the look left something out (`unsure`:
+// an item whose reading is not sure, the items of a label that was not compared and that a
+// glob may name). Neither says anything of an item that the watcher alone reads under the
+// rule: where the two readings differ that way the page sees nothing to count. Whatever a
+// look finds is marked, however many items that is: `not marked` says only that the rule
+// holds nothing a page checks. While some watch follows all items (`all`) every item is
+// marked and no look is made, so each other rule's line is what it selects and no more. A
+// rule of ids alone that all resolve is said short, one of them by its item's name
 const vault_count = n => `${n.toLocaleString('en-US')} item${n == 1 ? '' : 's'}`
-function vault_follow_line(rule, seen, drawn) {
-  if (rule.all) return 'edits: all items'
+function vault_follow_line(rule, seen, all) {
+  if (rule.all) return 'watched: all items'
   const by_id = rule.ids.length ? [seen?.name ?? `${rule.ids.length} by id`] : []
   const what = [...rule.tags, ...rule.labels, ...by_id, ...rule.more].join(', ')
-  if (!rule.tags.length && !rule.labels.length && !by_id.length) return `edits: ${what} (not marked)`
-  if (!seen) return `edits: ${what}${drawn ? '' : ' (not marked)'}`
-  if (!drawn) return `edits: ${what} (${vault_count(seen.n)}, not marked)`
-  if (what == by_id[0] && seen.n == rule.ids.length) return `edits: ${seen.name ?? vault_count(seen.n)}`
-  return `edits: ${what} (${vault_count(seen.n)}${rule.more.length || seen.unsure ? ' marked' : ''})`
+  if (all) return `watched: ${what}`
+  if (!rule.tags.length && !rule.labels.length && !by_id.length) return `watched: ${what} (not marked)`
+  if (!seen) return `watched: ${what}`
+  if (what == by_id[0] && seen.n == rule.ids.length) return `watched: ${seen.name ?? vault_count(seen.n)}`
+  return `watched: ${what} (${vault_count(seen.n)}${rule.more.length || seen.unsure ? ' marked' : ''})`
 }
 // the line's tooltip: the agent that follows, since when, and its watch's name
 const vault_follow_title = rule => {
@@ -1016,10 +1017,11 @@ const vault_follow_title = rule => {
 // sparkle left of the edit menu's buttons ("so i can tell either way when the item is being
 // watched"). Its sizes are the owner's: about the height of the number's digits on an item and
 // centred on them, a little less than the buttons' height in the editor. No text of a rule
-// enters the stylesheet: the ids are the app's own, kept to `[\w-]+` (vault_watched)
-const vault_watched_css = ids => {
-  if (!ids.length) return ''
-  const boxes = `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
+// enters the stylesheet: the ids are the app's own, kept to `[\w-]+` (vault_watched). Under a
+// watch of all items (`all`) the same two rules name no item: they are on every item's box
+const vault_watched_css = (ids, all = false) => {
+  if (!all && !ids.length) return ''
+  const boxes = all ? '.container[data-item-id]' : `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
   const mark = px => `url("data:image/svg+xml,${encodeURIComponent(VAULT_SPARKLE_SVG.replace('<svg ', `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" `).replace('currentColor', '#f5e389'))}")`
   return [
     // by the number: an image ON the number's baseline (its box is a line of the number's own
@@ -1036,7 +1038,9 @@ const vault_watched_css = ids => {
 }
 // an item changed: the sparkle's controller of THIS item looks at the rules again a moment later,
 // when a rule with something to check is applied. With none nothing is dispatched and no item
-// is read, so an account where nothing is followed pays nothing for the mark
+// is read, so an account where nothing is followed, or all of it is, pays no look and no pass
+// over its items for the mark (under a watch of all items the browser still applies the one
+// rule to every item's box)
 const vault_watched_changed = () => {
   const held = window._vault_sparkle
   if (held?.item === _this.id) held.look?.()
@@ -1089,9 +1093,11 @@ function vault_sparkle_reconcile() {
 }
 
 function vault_sparkle_create() {
-  // `rule` is the JSON of the rules last applied (`follows`), `checks` whether they hold anything
-  // this page checks, and `found` what the last look at the items found for them (null: no look)
-  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false, rule: '[]', follows: [], checks: false, found: null }
+  // `rule` is the JSON of the rules last applied (`follows`), `all` whether one of them is of
+  // all items, `checks` whether they hold anything this page checks, `found` what the last
+  // look at the items found for them (null: no look), `took` how long that look took (ms),
+  // and `warned` whether a slow look was warned of
+  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false, rule: '[]', follows: [], all: false, checks: false, found: null, took: 0, warned: false }
   const style = (self.style = document.createElement('style'))
   style.dataset.vaultSparkle = 'style'
   style.textContent = VAULT_SPARKLE_CSS
@@ -1119,14 +1125,16 @@ function vault_sparkle_create() {
     const state = vault_sparkle_state(bridge, vault_status_hosts(), Date.now(), self.marks)
     if (self.marks.started && vault_start(bridge?.watcher?.start)?.id === self.marks.started.id) self.marks.started = null
     // what the item watcher follows, read only while the bridge is fresh (the sparkle's own
-    // test). Rules that are not the ones applied are applied: with nothing in them to check
-    // (none, a stale bridge, a follow of all items, words alone) the marks go at once, else
-    // a look is asked for. An unchanged rule looks at nothing, so the time's tick never scans
+    // test). Rules that are not the ones applied are applied: where nothing has to be worked
+    // out the marks are set at once and no item is read (every item's under a watch of all
+    // items; none's with nothing to check: no rule, a stale bridge, words alone), else a
+    // look is asked for. An unchanged rule looks at nothing, so the time's tick never scans
     const follows = state ? vault_follows(bridge.watcher) : []
     const rule = JSON.stringify(follows)
     if (rule !== self.rule) {
-      const checks = !follows.some(told => told.all) && follows.some(told => told.ids.length || told.labels.length || told.tags.length)
-      Object.assign(self, { rule, follows, checks, found: null })
+      const all = follows.some(told => told.all)
+      const checks = !all && follows.some(told => told.ids.length || told.labels.length || told.tags.length)
+      Object.assign(self, { rule, follows, all, checks, found: null })
       if (checks) self.look()
       else self.mark()
     }
@@ -1141,8 +1149,8 @@ function vault_sparkle_create() {
     if (jump === null) delete node.dataset.vaultJump
     else node.dataset.vaultJump = jump
     if (!state) return
-    // a follow of all items marks none of them, so the sparkle's own words say it too
-    const title = follows.some(told => told.all) ? `${state.title} · edits: all items` : state.title
+    // a watch of all items marks every item, and the sparkle's own words say it too
+    const title = self.all ? `${state.title} · watched: all items` : state.title
     if (node.title !== title) {
       node.title = title
       node.setAttribute('aria-label', title)
@@ -1151,14 +1159,27 @@ function vault_sparkle_create() {
     node.classList.toggle('idle', state.dim)
   }
 
-  // the look at the items for the rules applied: the marks are rewritten when the items are
-  // others, none over VAULT_WATCHED_MOST, and a menu whose lines are no longer the ones it
-  // shows closes. With nothing to check it reads no item and clears the marks
+  // the look at the items for the rules applied: whatever it finds is marked, the marks are
+  // rewritten when the items are others, and a menu whose lines are no longer the ones it
+  // shows closes. With nothing to check it reads no item: the marks are on every item under
+  // a watch of all items, and cleared otherwise. It times its own work (`took`): the listing
+  // and matching (vault_watched) and the stylesheet's replacement, with no style or layout
+  // forced and no frame waited for, so what the browser then does with the sheet is not in
+  // it. A look over VAULT_WATCHED_SLOW_MS is said in the menu (lines) until a later one is
+  // under it, and warned of once in the controller's life: evidence of a slow page, should
+  // there ever be any, is then the owner's own devices'
   self.mark = () => {
     if (self.disposed) return
+    const began = performance.now()
     self.found = self.checks ? vault_watched(self.follows) : null
-    const css = vault_watched_css(self.found && self.found.ids.length <= VAULT_WATCHED_MOST ? self.found.ids : [])
+    const css = vault_watched_css(self.found?.ids ?? [], self.all)
     if (watched.textContent !== css) watched.textContent = css
+    self.took = performance.now() - began
+    if (self.took > VAULT_WATCHED_SLOW_MS && !self.warned) {
+      self.warned = true
+      const [marked, rules] = [self.all ? 'all items' : vault_count(self.found?.ids.length ?? 0), self.follows.length]
+      console.warn(`vault: marking the watched items took ${Math.round(self.took)} ms (${marked} marked, ${rules} rule${rules == 1 ? '' : 's'})`)
+    }
     if (self.menu && self.lines().key !== self.menu.lines) self.close()
   }
   // a look a moment from now, as a task of the item: one for a burst of changes (a later
@@ -1166,10 +1187,11 @@ function vault_sparkle_create() {
   self.look = () => {
     if (!self.disposed && self.checks) _this.dispatch_task('watched', () => void self.mark(), VAULT_WATCHED_MS)
   }
-  // the menu's lines for the rules applied, by the last look, and their text as one key
+  // the menu's lines for the rules applied, by the last look, then one more while that look
+  // was a slow one, and their text as one key
   self.lines = () => {
-    const drawn = self.checks && !(self.found?.ids.length > VAULT_WATCHED_MOST)
-    const lines = self.follows.map((rule, at) => ({ text: vault_follow_line(rule, self.found?.rules[at] ?? null, drawn), title: vault_follow_title(rule) }))
+    const lines = self.follows.map((rule, at) => ({ text: vault_follow_line(rule, self.found?.rules[at] ?? null, self.all), title: vault_follow_title(rule) }))
+    if (self.took > VAULT_WATCHED_SLOW_MS) lines.push({ text: `marking took ${Math.round(self.took)} ms`, title: '' })
     return { lines, key: lines.map(line => line.text).join('\n') }
   }
 
@@ -1184,10 +1206,10 @@ function vault_sparkle_create() {
   // opened by a pointer none has, until the pointer or an arrow comes. A layer under the menu
   // covers the page while it is open, so a click or a tap outside closes the menu and is
   // nothing to the page under it. Below the entries, one line of text for each rule the item
-  // watcher follows (vault_follow_line): no entry, so it takes no focus and the arrows skip
-  // it, and a menu whose lines are no longer what the page would show closes. The menu is
-  // never taller than the window (its style): what does not fit scrolls inside it, and the
-  // entries are its first rows, in view when it opens
+  // watcher follows (vault_follow_line), and one for a slow look: no entry, so it takes no
+  // focus and the arrows skip it, and a menu whose lines are no longer what the page would
+  // show closes. The menu is never taller than the window (its style): what does not fit
+  // scrolls inside it, and the entries are its first rows, in view when it opens
   self.open = (keyboard = false) => {
     if (self.disposed || self.menu || !self.shown || node.hidden) return
     const target = self.shown
