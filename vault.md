@@ -828,7 +828,9 @@ async function vault_send_watch_command(command, retry_id = null) {
 // on preview, and let's also add something to the edit menu (can be left of save button) so i can
 // tell either way when the item is being watched"): the mark of a WATCHED item, one whose edit or
 // deletion would wake the watching agent. No watch is behind it yet: the rule is a fixed one, the
-// items that carry VAULT_WATCHED_TAG. The mark is ONE stylesheet whose rules name the items by the
+// items that carry one of VAULT_WATCHED_TAGS (`#watch` is there for the owner to try the mark on
+// any item: put on or taken off in the editor, it shows or goes at the save). The mark is ONE
+// stylesheet whose rules name the items by the
 // id their box carries (data-item-id), so nothing is attached to an item and the app's search,
 // toggles, hiding and column layout cannot lose it: a little sparkle, with no background, left
 // of the item's number, inside the number's box where there is room (the box has a fixed width,
@@ -838,11 +840,11 @@ async function vault_send_watch_command(command, retry_id = null) {
 // menu's buttons. Its sizes are the owner's: about the height of the number's digits on an item
 // and centred on them, a little less than the buttons' height in the editor. The first
 // preview's translucent yellow behind the number was not liked
-const VAULT_WATCHED_TAG = '#todo'
+const VAULT_WATCHED_TAGS = ['#todo', '#watch']
 const VAULT_WATCHED_MS = 250 // changes of items within this long are one look at the rule
 const vault_watched_ids = () =>
   _items()
-    .filter(item => item.tags.includes(VAULT_WATCHED_TAG))
+    .filter(item => VAULT_WATCHED_TAGS.some(tag => item.tags.includes(tag)))
     .map(item => item.id)
     .filter(id => /^[\w-]+$/.test(id))
 const vault_watched_css = ids => {
