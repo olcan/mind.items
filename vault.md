@@ -2,7 +2,7 @@
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
 - the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
-- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items are marked for it; while an agent follows all items, every item is marked.
+- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items that is, each of which carries the mark; while an agent follows all items, every item is marked.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -829,23 +829,27 @@ async function vault_send_watch_command(command, retry_id = null) {
 // the watched mark (vault design notes/design/mind_bridge_watcher.md, D25): the mark of an item
 // whose edit or deletion would wake an agent, i.e. one that a running `mind_watch.py follow` or
 // `await` selects. The bridge publishes WHAT each such follow selects, never a list of items, as
-// `_bridge.watcher.follows` (vault lib/mindpage_follows.py): up to eight rules and a closing
-// entry, each `{watch, name, since}` with `all: true`, or with those of `ids`, `labels` (globs
-// with `*` and `?`), `tags` and `more` (words for what no page checks: a glob with a bracket,
-// a count) that are not empty. The sparkle's controller matches the rules against this page's
-// items, marks the ones they name, however many, and says in its menu what is followed, one
-// line a rule. A rule of all items marks every item, with nothing to match
+// `_bridge.watcher.follows` (vault lib/mindpage_follows.py): up to eight rules, each
+// `{watch, name, since}` with `all: true`, or with those of `ids`, `labels` (globs with `*` and
+// `?`) and `tags` that are not empty. The watcher refuses a watch that a page cannot show item by
+// item (a selector of another shape, a selection over a bound, a ninth watch), so a rule is the
+// whole watch: the sparkle's controller matches the rules against this page's items, marks the
+// ones they name, however many, and says in its menu what is followed, one line a rule. A rule
+// of all items marks every item, with nothing to match. FOR THE WATCHER'S CODE BEFORE 2026-11-17
+// ALONE, whose follows can still run: a rule's `more` (words for what no page checks: a glob with
+// a bracket, a count of what a bound left out) and a closing entry that counts the rules after
+// the eighth. Such a rule's line says the words and no count
 const VAULT_FOLLOWS = 9 // the bridge's eight rules and its closing entry
 const VAULT_WATCHED_MS = 250 // changes of items within this long are one look at the rules
 const VAULT_WATCHED_SLOW_MS = 50 // a look that took longer is said in the menu, and warned of once
-// what this page checks, by shape: an id; a glob without a bracket (the watcher's fnmatch reads
-// one as a set) and an absolute tag (a relative one, `#/x`, is another tag on every item), both
-// of printable ASCII, where the app's and the watcher's lowercase agree (THE WATCHER'S READING,
-// below). The rest of a rule is said in the menu's line and marks nothing
+// what this page checks, by shape, which is what the watcher admits (ID, GLOB and TAG in vault
+// lib/mindpage_follows.py): an id; a glob without a bracket (the watcher's fnmatch reads one as
+// a set) and an absolute tag (a relative one, `#/x`, is another tag on every item), both of
+// printable ASCII: the app and the watcher lowercase a text by the Unicode tables of their own
+// runtimes, which agree there
 const VAULT_FOLLOW_ID = /^[A-Za-z0-9_-]{1,64}$/
 const VAULT_FOLLOW_GLOB = /^[!-Z\\^-~]{1,64}$/
 const VAULT_FOLLOW_TAG = /^#[!-.0-~][!-~]{0,62}$/
-const VAULT_ASCII = /^[!-~]+$/
 
 // the published rules as this code can use them, like the start and the last watcher above:
 // strings of those shapes within the bridge's own bounds, and nothing else. A selector of
@@ -872,11 +876,12 @@ const vault_follows = watcher =>
   watcher && typeof watcher == 'object' && Array.isArray(watcher.follows) ? watcher.follows.slice(0, VAULT_FOLLOWS).map(vault_follow).filter(rule => rule) : []
 
 // whether the glob names the label, as the watcher's fnmatch reads the two: `*` is any run of
-// characters (`/` included), `?` one character, and the whole label must match. Both are
-// printable ASCII here, so a character is one unit on either side. A loop and no RegExp: no
-// text of a rule becomes a pattern. It is not linear: after a mismatch a star takes one more
-// character and what follows it in the glob is tried again, so the work is at most the
-// label's length times the glob's (64 at most), where a pattern of many stars has no such bound
+// characters (`/` included), `?` one character, and the whole label must match. The label comes
+// as its characters (code points, as fnmatch counts them: a character outside the basic plane is
+// one to `?`); the glob is printable ASCII. A loop and no RegExp: no text of a rule becomes a
+// pattern. It is not linear: after a mismatch a star takes one more character and what follows
+// it in the glob is tried again, so the work is at most the label's length times the glob's (64
+// at most), where a pattern of many stars has no such bound
 function vault_glob_names(glob, label) {
   let [g, l, star, kept] = [0, 0, -1, 0]
   while (l < label.length) {
@@ -888,118 +893,67 @@ function vault_glob_names(glob, label) {
   while (glob[g] == '*') g++
   return g == glob.length
 }
-// whether the glob MAY name a label this page does not compare (one outside printable ASCII,
-// below): only through a wildcard, and only when what it says before its first wildcard opens
-// the label. Nothing of the label is compared beyond that: the rule's count is then not whole
-const vault_glob_may_name = (glob, label) => /[*?]/.test(glob) && label.startsWith(glob.slice(0, glob.search(/[*?]/)))
 
-// THE WATCHER'S READING. An agent is woken for the items its watcher selects (vault
-// lib/mindpage_watch.py, Selection), and the watcher reads an item's label and tags from the
-// raw text by its own (Python) copy of the app's grammar: exact, lowercase, the hiding
-// underscore kept. This page takes the label and the tags from the app (the label index,
-// `tags_raw`) and parses none itself, so it marks an item only where the app's reading is
-// SURELY the watcher's. The two can differ in four ways, each closed by a test that errs
-// toward no mark:
-// - the watcher masks the body of a `_log` or `_output` block, the app does not: a tag the
-//   app's parser reads inside or after a block it does not skip (an unclosed one, a tab before
-//   its fence, text after its closing fence, an indented line above it) is none to the watcher.
-//   Without a line that could open such a block the two read the same text. With one, an item
-//   is marked by its LABEL alone, and only when its text begins with it (`#`): the first tag
-//   is then the label on both sides, whatever follows
-// - a label may follow html (`<div>` lines) that both sides skip, the app with a `.` that stops
-//   at a carriage return and at the two Unicode line separators, the watcher with one that
-//   does not: for a glob, a label that does not open the text counts only in a text that holds
-//   none of them (as a tag it is read alike: the difference is in whose label it is)
-// - the app resolves a relative tag (`#/x`, `#//x`, `#///x`) against the item's label and
-//   adds the child tags (`#/x`) of an agent's replies; the watcher does neither. A tag that is
-//   not the item's own label therefore counts only on an unlabelled item, where the app
-//   resolves and adds nothing, or on one whose text holds no `#/` at all
-// - the two lowercase a text by different Unicode tables, which agree on printable ASCII: only
-//   such tags, globs and labels are compared (VAULT_FOLLOW_TAG, VAULT_FOLLOW_GLOB, VAULT_ASCII).
-//   A label that is not compared is not forgotten: its items are unsure for a rule whose glob
-//   may name it (vault_glob_may_name), so that rule's count never reads as whole
-// The pattern is built from a string: this code sits in a fenced block, and writes no fence
-const VAULT_LOG_FENCE = new RegExp('`{3}\\S*_(?:output|log)', 'i')
-const vault_label_sure = text => text.startsWith('#') || !(VAULT_LOG_FENCE.test(text) || /[\r\u2028\u2029]/.test(text))
-const vault_tag_sure = (item, tag) => {
-  const [text, label] = [item.text ?? '', item.label ?? '']
-  if (label.toLowerCase() == tag) return text.startsWith('#') || !VAULT_LOG_FENCE.test(text) // the label is a tag as written
-  return !VAULT_LOG_FENCE.test(text) && (!label || !text.includes('#/'))
-}
+// ONE READING. An agent is woken for the items its watcher selects (vault lib/mindpage_watch.py,
+// Selection), and the watcher reads an item's label and tags as the app does: its reader (vault
+// lib/mindpage_reading.py) is the app's own passage in Python, relative tags, the child tags of
+// an agent's replies and the app's header rule included, and one corpus that both run over pins
+// the two (mind.page tests/e2e/fixtures/reading_corpus.json). So this page marks by the app's
+// reading as it is, the label index and `tags_raw`, and parses no tag itself
 
-// one look at the page's items for the rules: for each rule the items it surely names (`n`),
-// those the app reads under it whose reading by the watcher is not sure, with those under a
-// label this page does not compare that a glob of the rule may name (`unsure`, left
-// unmarked) and, for a rule of one id, its item's name when it is a label; and the union to
-// mark, as the in-tab ids the items' boxes carry (sorted, so the same items are the same
-// stylesheet). An id reaches its item through the app's own lookup, which finds the item this
-// tab holds under a temporary id by its saved one, and must BE the saved id, which is what the
-// watcher compares. A glob is tested against the keys of the app's label index, and only the
-// items it names are read. A tag is one of an item's `tags_raw` (the app's own parse, the
-// hiding underscore kept), in ONE pass over the items, made only when some rule has a tag
+// one look at the page's items for the rules: for each rule the items it names (`n`) and, for a
+// rule of one id, its item's name when it is a label; and the union to mark, as the in-tab ids
+// the items' boxes carry (sorted, so the same items are the same stylesheet). An id reaches its
+// item through the app's own lookup, which finds the item this tab holds under a temporary id by
+// its saved one, and must BE the saved id, which is what the watcher compares. A glob is tested
+// against the keys of the app's label index, whose ids are marked as they are: no item is read
+// for it. A tag is one of an item's `tags_raw` (the app's own parse, the hiding underscore
+// kept), in ONE pass over the items, made only when some rule has a tag
 function vault_watched(follows) {
-  const found = follows.map(() => ({ sure: new Set(), unsure: new Set(), name: null }))
-  const note = (at, item, sure) => void found[at][sure ? 'sure' : 'unsure'].add(item.id)
+  const found = follows.map(() => ({ ids: new Set(), name: null }))
   follows.forEach((rule, at) => {
     for (const id of rule.ids) {
       const item = _item(id, { silent: true })
       if (item?.saved_id !== id) continue
-      note(at, item, true)
+      found[at].ids.add(item.id)
       if (rule.ids.length == 1 && item.name?.startsWith('#')) found[at].name = item.name
     }
   })
   if (follows.some(rule => rule.labels.length))
     _labels((label, ids) => {
-      if (!VAULT_ASCII.test(label)) {
-        // not compared: its items are unsure for every rule with a glob that may name it
-        follows.forEach((rule, at) => {
-          if (rule.labels.some(glob => vault_glob_may_name(glob, label))) for (const id of ids) found[at].unsure.add(id)
-        })
-        return
-      }
+      const characters = [...label]
       follows.forEach((rule, at) => {
-        if (!rule.labels.some(glob => vault_glob_names(glob, label))) return
-        for (const id of ids) {
-          const item = _item(id, { silent: true })
-          if (item) note(at, item, vault_label_sure(item.text ?? ''))
-        }
+        if (rule.labels.some(glob => vault_glob_names(glob, characters))) for (const id of ids) found[at].ids.add(id)
       })
     })
   if (follows.some(rule => rule.tags.length))
     for (const item of _items()) {
       const tags = item.tags_raw ?? []
       follows.forEach((rule, at) => {
-        for (const tag of rule.tags) if (tags.includes(tag)) note(at, item, vault_tag_sure(item, tag))
+        if (rule.tags.some(tag => tags.includes(tag))) found[at].ids.add(item.id)
       })
     }
   return {
-    ids: [...new Set(found.flatMap(({ sure }) => [...sure]))].filter(id => /^[\w-]+$/.test(id)).sort(),
-    rules: found.map(({ sure, unsure, name }) => ({ n: sure.size, unsure: [...unsure].filter(id => !sure.has(id)).length, name })),
+    ids: [...new Set(found.flatMap(({ ids }) => [...ids]))].filter(id => /^[\w-]+$/.test(id)).sort(),
+    rules: found.map(({ ids, name }) => ({ n: ids.size, name })),
   }
 }
 
-// the menu's line for a rule: what it selects, as the watcher was told it, then what this
-// page did about it at its last look (`seen`, null when none was made). A count alone
-// (`112 items`) says that the page marked every item it reads under the rule and left none
-// out; `marked` after it, that the rule may select more than is marked: it holds words (a
-// glob with a bracket, a selector over a bound), or the look left something out (`unsure`:
-// an item whose reading is not sure, the items of a label that was not compared and that a
-// glob may name). Neither says anything of an item that the watcher alone reads under the
-// rule: where the two readings differ that way the page sees nothing to count. Whatever a
-// look finds is marked, however many items that is: `not marked` says only that the rule
-// holds nothing a page checks. While some watch follows all items (`all`) every item is
-// marked and no look is made, so each other rule's line is what it selects and no more. A
-// rule of ids alone that all resolve is said short, one of them by its item's name
+// the menu's line for a rule: what it selects, as the watcher was told it, then how many items
+// of this page that is at its last look (`seen`, null when none was made). The count is the
+// whole watch: every item the rule names is marked, however many, and it names no other. While
+// some watch follows all items (`all`) every item is marked and no look is made, so each other
+// rule's line is what it selects and no more. A rule of ids alone that all resolve is said
+// short, one of them by its item's name. A rule with words (`more`: the watcher's older code
+// alone) says them and no count, since it selects more than this page checks
 const vault_count = n => `${n.toLocaleString('en-US')} item${n == 1 ? '' : 's'}`
 function vault_follow_line(rule, seen, all) {
   if (rule.all) return 'watched: all items'
   const by_id = rule.ids.length ? [seen?.name ?? `${rule.ids.length} by id`] : []
   const what = [...rule.tags, ...rule.labels, ...by_id, ...rule.more].join(', ')
-  if (all) return `watched: ${what}`
-  if (!rule.tags.length && !rule.labels.length && !by_id.length) return `watched: ${what} (not marked)`
-  if (!seen) return `watched: ${what}`
+  if (all || !seen || rule.more.length) return `watched: ${what}`
   if (what == by_id[0] && seen.n == rule.ids.length) return `watched: ${seen.name ?? vault_count(seen.n)}`
-  return `watched: ${what} (${vault_count(seen.n)}${rule.more.length || seen.unsure ? ' marked' : ''})`
+  return `watched: ${what} (${vault_count(seen.n)})`
 }
 // the line's tooltip: the agent that follows, since when, and its watch's name
 const vault_follow_title = rule => {
