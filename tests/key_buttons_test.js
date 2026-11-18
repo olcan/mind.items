@@ -50,26 +50,34 @@ const parts = kind => all().filter(n => n.dataset.keyButtons == kind)
 const viewport = Object.assign(new FakeNode('viewport'), { width: 390, height: 800, scale: 1, offsetLeft: 0, offsetTop: 0 })
 const pointer = Object.assign(new FakeNode('media'), { matches: false })
 const reloads = [] // what was asked to reload
-// the app as an item sees it for a reload: its items (`open.items`; null: they cannot be read), the editors on
-// the page (`open.fields`, by element id), and its dialog (`asked`: what it was asked; `dialog.answer`: what it
-// resolves to, or a function that returns the promise)
+// the app as an item's handles show it: its items (`open.items`) and the editors on the page (`open.fields`, by
+// element id), which the item does NOT read for a reload (they are here for what it used to read: a fallback
+// that guesses from them again reloads without a question in the last block); its dialog (`asked`: what it was
+// asked; `dialog.answer`: what it resolves to, or a function that returns the promise); and its own reload
+// (`_reload`, the revised app's: what a press asks for. The released app, which has none, is the last block's)
 const open = { items: [], fields: {} }
 const asked = []
 const dialog = { answer: true }
 page.getElementById = id => open.fields[id] ?? null
 const win = Object.assign(new FakeNode('window'), {
   innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }),
-  _items: () => { if (!open.items) throw new Error('the items cannot be read'); return open.items },
+  _items: () => open.items,
+  _reload: () => { reloads.push('page'); return Promise.resolve(true) },
   _modal: text => { asked.push(text); return typeof dialog.answer == 'function' ? dialog.answer() : Promise.resolve(dialog.answer) },
 })
 // the listeners held: the view's size and place, the pointer, the keys, the focus that comes and the focus that leaves
 const listening = () => [viewport.listeners.resize, viewport.listeners.scroll, pointer.listeners.change, win.listeners.keydown, page.listeners.focusin, page.listeners.focusout].map(list => (list ?? []).length)
 class FakeKey { constructor(type, init) { Object.assign(this, { type, ...init }) } }
-// two editors of the app (a textarea in its .editor box), and a textarea that is no editor
-const an_editor = () => Object.assign(new FakeNode('textarea'), { parent: Object.assign(new FakeNode('div'), { className: 'editor' }) })
-const [editor, box] = [an_editor(), an_editor()]
+// two editors of the app, by the names the app gives their textareas (Editor.svelte), each in its .editor box:
+// an item's while it is being edited (`textarea-<item id>`) and the MindBox's (`textarea-mindbox`); a textarea
+// that is no editor; and a textarea of an item's own markup, in a box of class editor as the app's own are
+const boxed = (tag, id) => Object.assign(new FakeNode(tag), { id, parent: Object.assign(new FakeNode('div'), { className: 'editor' }) })
+const [editor, box, widget] = [boxed('textarea', 'textarea-item-1'), boxed('textarea', 'textarea-mindbox'), boxed('textarea', 'widget-notes')]
 const other = new FakeNode('textarea')
-const items = { '#key_buttons': { id: 'keys-id' } } // the label index: what #key_buttons names
+// what the app's _item answers: #key_buttons by its label; an item being edited by its id, and by a label of
+// its own; an item that is not being edited
+const edited = { id: 'item-1', editing: true }
+const items = { '#key_buttons': { id: 'keys-id' }, 'item-1': edited, '#edited': edited, 'item-2': { id: 'item-2', editing: false } }
 const tasks = {}
 const caret = { line: { top: 100, bottom: 120 } } // the caret's line, as the page would measure it
 const low = { top: 700, bottom: 720 }
@@ -219,9 +227,12 @@ check('keyboard: a turned phone is another width with a tallest view of its own:
   [flags(reads(turn(), editor, seen)), flags(reads(turn({ height: 190 }), editor, seen)), seen], [[false, false, false, true], [true, true, true, true], { 390: 844, 844: 390 }])
 check('keyboard: a bar of under 150 px (a hardware keyboard\'s) is no keyboard, and neither is a window without a visual viewport',
   [flags(reads(a_window(844, 784), editor, seen)), reads({ innerHeight: 844 }, editor, seen)], [[false, false, false, true], { up: false, focus: true, editor: true, by_window: false, by_view: false, window: 844, view: null, width: null, tallest: null, scale: null }])
-check('keyboard: it also says whether the focused element is an editor of the app: a textarea in an editor\'s box is, another textarea, an input and a frame are fields that take text and no editor',
-  [editor, box, other, Object.assign(new FakeNode('input'), { type: 'text' }), new FakeNode('iframe'), null].map(active => (read => [read.focus, read.editor])(reads(a_window(844, 508), active, seen))),
-  [[true, true], [true, true], [true, false], [true, false], [true, false], [false, false]])
+check('keyboard: it also says whether the focused element is an editor of the app: an edited item\'s textarea and the MindBox\'s are; a textarea of an item\'s own markup in a box of class editor, another textarea, an input and a frame are fields that take text and no editor',
+  [editor, box, widget, other, Object.assign(new FakeNode('input'), { type: 'text' }), new FakeNode('iframe'), null].map(active => (read => [read.focus, read.editor])(reads(a_window(844, 508), active, seen))),
+  [[true, true], [true, true], [true, false], [true, false], [true, false], [true, false], [false, false]])
+check('editor: the app\'s editors are told by the names the app gives their textareas: the MindBox\'s, and the textarea of an item that is being edited; not a textarea of an item\'s own markup in a box of class editor, nor one named for an item that is not being edited, for no item, by an edited item\'s label, by an id: prefix or by nothing, nor another element under the MindBox\'s name, a textarea with no name, or nothing at all',
+  [box, editor, widget, boxed('textarea', 'textarea-item-2'), boxed('textarea', 'textarea-item-9'), boxed('textarea', 'textarea-#edited'), boxed('textarea', 'textarea-id:item-1'), boxed('textarea', 'textarea-'), boxed('input', 'textarea-mindbox'), other, null].map(element => v1('key_buttons_editor(__args)', element)),
+  [true, true, false, false, false, false, false, false, false, false, false])
 const fingers = coarse => ({ matchMedia: () => ({ matches: coarse }) })
 const shown = (coarse, up, switches, editor = true) => v1('key_buttons_row(__args.win, __args.keyboard, __args.parts ?? KEY_BUTTONS_PARTS)', { win: fingers(coarse), keyboard: { up, editor }, parts: switches })
 check('shown: where the primary pointer is a finger, the main row with no keyboard up and the keyboard\'s row with one; neither on a desktop, nor without the media query',
@@ -240,9 +251,9 @@ const key = (more = {}) => ({ code: 'Space', key: ' ', shiftKey: true, target: e
 const taken = (e, coarse = true) => v1('key_buttons_shift_space(__args.e, __args.win)', { e, win: fingers(coarse) })
 check('shift+space: it is a Tab on a touch device, in an editor of the app, by the code or, from a keyboard that gives none, by the key',
   [taken(key()), taken(key({ code: 'Unidentified' })), taken(key({ code: '' })), taken(key({ getModifierState: () => false }))], [true, true, true, true])
-check('shift+space: not a plain space, another key, a space with one more modifier, one inside a composition or under a caps lock the event names, nor one outside an editor',
-  [{ shiftKey: false }, { code: 'KeyA', key: 'A' }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { isComposing: true }, { getModifierState: name => name == 'CapsLock' }, { target: other }, { target: page.body }, { target: null }].map(more => taken(key(more))),
-  [false, false, false, false, false, false, false, false, false, false])
+check('shift+space: not a plain space, another key, a space with one more modifier, one inside a composition or under a caps lock the event names, nor one outside an editor of the app (a textarea of an item\'s own markup in a box of class editor, another textarea, the page, nothing)',
+  [{ shiftKey: false }, { code: 'KeyA', key: 'A' }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { isComposing: true }, { getModifierState: name => name == 'CapsLock' }, { target: widget }, { target: other }, { target: page.body }, { target: null }].map(more => taken(key(more))),
+  [false, false, false, false, false, false, false, false, false, false, false])
 check('shift+space: never on a desktop, whatever the key', [taken(key(), false), v1('KEY_BUTTONS_SHIFT_SPACE')], [false, { key: 'Tab' }])
 
 // ---- the caret's line and the keyboard ---------------------------------------------------------
@@ -362,11 +373,11 @@ editor.got.length = 0
 page.activeElement = null // the focus has left its editor, and the item has not looked yet: the row still shows
 const lingers = keys.hidden
 button('done').fire('click')
-page.activeElement = other // a field that is no editor of the app
+page.activeElement = widget // a field that is no editor of the app: a textarea of an item's own markup, in a box of class editor
 button('done').fire('click')
 button('indent').fire('click')
-const unsent = [lingers, got(editor), got(other), page.body.got.length]
-focus(other) // the look at the focus that came: no row for this field, and its keyboard hides the main row all the same
+const unsent = [lingers, got(editor), got(widget), page.body.got.length]
+focus(widget) // the look at the focus that came: no row for this field, and its keyboard hides the main row all the same
 const for_a_field = [bar.hidden, keys.hidden, again.hidden]
 focus(editor)
 button('indent').fire('click')
@@ -575,7 +586,7 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome\
 }
 
 ;(async () => {
-  // ---- the reload asks before it would discard an edit ---------------------------------------------
+  // ---- the reload: the app's own where there is one, and a question before every reload where there is none
   calm()
   const own = {}
   const run = evaluation(11, 'keys-id', own)
@@ -586,34 +597,28 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome\
   reloads.length = asked.length = 0
   win._reload = () => { asked.push('the app\'s own reload'); return Promise.resolve(true) }
   await press()
-  delete win._reload
+  delete win._reload // the released app from here on: it has no reload of its own
   check('reload: where the app has a reload of its own, a press asks for that and for nothing else: the item puts no question and reloads nothing itself', [asked, reloads], [['the app\'s own reload'], []])
-  asked.length = 0
-  await press()
-  check('reload: on an app without one, a press with no edit open reloads at once, with no question', [asked, reloads], [[], ['page']])
-  const item = more => ({ id: 'i1', text: 'saved text', saving: false, editing: false, ...more })
-  const cases = [
-    [[item({ saving: true })], null, false], // an item being saved: asked, and cancelled
-    [[item({ editing: true })], { value: 'saved\u200B text' }, false], // edited, the editor holding the item's own text (a zero-width space apart): nothing to lose
-    [[item({ editing: true })], { value: 'saved text and more' }, undefined], // edited, with typed text: asked, and the question closed some other way
-    [[item({ editing: true })], null, false], // edited, and no editor on the page to compare: asked
-    [null, null, false], // the items cannot be read: asked
-    [[item(), item({ id: 'i2', editing: true })], { value: 'saved text' }, true], // typed text in another item's editor (none on the page for it): asked, and confirmed
-  ]
+  const question = run('KEY_BUTTONS_RELOAD_QUESTION')
+  // what an item's handles show of the app, in two states. A draft its owner has just KEPT (the item's close
+  // button, then Cancel in the app's question about the discard): the app has copied the draft into the item's
+  // text by then, so the item and its editor on the page agree, and nothing is being saved. And a page with
+  // nothing open
+  const kept = { items: [{ id: 'i1', text: 'the draft', saving: false, editing: true }], fields: { 'textarea-i1': { value: 'the draft' } } }
+  const clean = { items: [], fields: {} }
   const tried = []
-  for (const [items, field, answer] of cases) {
-    Object.assign(open, { items, fields: field ? { 'textarea-i1': field } : {} })
+  for (const [state, answer] of [[kept, false], [kept, undefined], [kept, true], [clean, false], [clean, true]]) {
+    Object.assign(open, state)
     dialog.answer = answer
     reloads.length = asked.length = 0
     await press()
     tried.push([[...asked], [...reloads]])
   }
-  const question = 'Reload and discard unsaved changes?'
-  check('reload: on an app without one, the item asks first, in the app\'s dialog, wherever an edit would be lost as far as it can tell: an item being saved, an editor holding other text than its item\'s, an edit with no editor on the page, items that cannot be read; only a confirmed question reloads, and an editor holding its item\'s own text asks nothing',
-    tried, [[[question], []], [[], ['page']], [[question], []], [[question], []], [[question], []], [[question], ['page']]])
+  check('reload: on an app without one of its own every press asks first, in the app\'s dialog, whatever the page shows of its items (a draft kept after its discard was cancelled reads as clean there, as a clean page does): only a confirmed question reloads; a cancelled one, and one closed some other way, do not',
+    [question, tried], ['Reload and discard any unsaved changes?', [[[question], []], [[question], []], [[question], ['page']], [[question], []], [[question], ['page']]]])
   let answer = () => {} // (until the question is put: a press that puts none leaves nothing to answer)
   dialog.answer = () => new Promise(resolve => (answer = resolve))
-  Object.assign(open, { items: [item({ saving: true })], fields: {} })
+  Object.assign(open, kept)
   reloads.length = asked.length = 0
   again.fire('click')
   again.fire('click')
@@ -629,7 +634,7 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome\
   answer(true)
   await settled()
   check('reload: a controller that is gone by the time of the answer reloads nothing', [asked.length, reloads], [1, []])
-  Object.assign(open, { items: [], fields: {} })
+  Object.assign(open, clean)
 
   if (failures) {
     console.log(`${failures} FAILED`)

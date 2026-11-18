@@ -18,7 +18,10 @@
 // item's sparkle at the lower right, on every device.
 // After the branch's first review: the reload asks before it would discard an edit, the row
 // above the keyboard is offered to the app's own editors alone, and the task retires a
-// controller whose code is no longer the item's
+// controller whose code is no longer the item's.
+// After its second review: on an app that has no reload of its own the item asks before EVERY
+// reload (it cannot know there what would be lost), and the app's editors are told by the
+// names the app gives their textareas, not by what surrounds a textarea
 
 // ---- what to adjust: the parts, the buttons, their icons, their size and their place -----------
 
@@ -63,9 +66,13 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
   { name: 'done', key: 'Enter', shift: true, title: 'Done: save the item, or create from the box (Shift+Enter)', icon: 'M3 8.5l3.5 3.5L13 4.5' },
 ]
 
-// the reload button: one press reloads the page (the app's own check for unsaved edits is still
-// asked by the browser). An arrow that goes round, drawn as the other icons are
+// the reload button: one press reloads the page, after a question wherever something could be
+// lost: the app's own (window._reload), or on an app without one this item's, before every
+// reload (see self.reload). An arrow that goes round, drawn as the other icons are
 const KEY_BUTTONS_RELOAD = { name: 'reload', title: 'Reload the page', icon: 'M14.6 3.2v3.6H11M13.1 9.8a5.4 5.4 0 1 1-1.3-5.6l2.8 2.6' }
+// what the item asks before a reload on an app that has no reload of its own. It asks every
+// time there, so the question names no edit: whether there is one is what it cannot tell
+const KEY_BUTTONS_RELOAD_QUESTION = 'Reload and discard any unsaved changes?'
 
 // the look, in CSS pixels: a row along the window's bottom edge that ends left of the #vault
 // item's sparkle (a 24 px circle at right 14 and bottom 10, vault.md) and is centred on it. The
@@ -163,9 +170,10 @@ function key_buttons_keyboard(win, doc, tallest = {}) {
 const key_buttons_row = (win, keyboard, parts = KEY_BUTTONS_PARTS) =>
   !key_buttons_device(win) ? null : !keyboard.up ? 'main' : parts.keyboard_row && keyboard.editor ? 'keyboard' : null
 
-// what the two signals read, in words, for whoever reads them out (the #edge_test item's panel
-// shows these lines and copies them): the row shown, the decision now, each signal with its
-// numbers, and the row's last changes with what the signals said at each
+// what the two signals read, in words, for whoever reads them out (window._key_buttons.says()
+// from a console attached to the page: nothing on the page shows the lines since the #edge_test
+// item that did was removed): the row shown, the decision now, each signal with its numbers,
+// and the row's last changes with what the signals said at each
 function key_buttons_says(keyboard, shown, changes, now) {
   const yes = flag => (flag ? 'yes' : 'no')
   const less = from => (keyboard.view === null ? 'no view' : `${from} − view ${keyboard.view} = ${from - keyboard.view}`)
@@ -185,8 +193,23 @@ const key_buttons_place = (view, count, look) => ({
   top: Math.round((view.offsetTop ?? 0) + view.height - look.above - look.size),
 })
 
-// an editor of the app: the textarea of the box or of an item (Editor.svelte)
-const key_buttons_editor = element => element?.tagName == 'TEXTAREA' && !!element.closest?.('.editor')
+// an editor of the app: the MindBox's textarea, or the textarea of an item that is being
+// edited. The app names them (Editor.svelte: `textarea-mindbox`, and `textarea-<item id>` for
+// an item's, Item.svelte), so the name is what is asked, and of an item's that the item with
+// that very id is being edited. A textarea of an item's own markup is no editor of the app,
+// whatever its classes and whatever is around it (a box of class `editor` included): the
+// keyboard's row and Shift+Space are not for it
+const key_buttons_editor = element => {
+  if (element?.tagName != 'TEXTAREA' || typeof element.id != 'string' || !element.id.startsWith('textarea-')) return false
+  const id = element.id.slice('textarea-'.length)
+  if (id == 'mindbox') return true
+  try {
+    const item = _item(id, { silent: true }) // (by id; a label or an `id:` prefix finds an item of another id)
+    return !!item && item.id === id && item.editing === true
+  } catch (e) {
+    return false
+  }
+}
 
 // whether a keydown is the Shift+Space that stands for a Tab: on a touch device alone (on a
 // desktop, a Shift still held while typing capitals makes Shift+Space an accident), in an
@@ -257,15 +280,6 @@ const key_buttons_reload_shown = (win, keyboard, shown, look, parts = KEY_BUTTON
   !!parts.reload_button &&
   !keyboard.up &&
   !(shown == 'main' && win.innerWidth - look.right - (KEY_BUTTONS.length * look.size + (KEY_BUTTONS.length - 1) * look.gap) < look.reload.left + look.reload.size + look.gap)
-
-// whether an edit would be lost by a reload, as far as an item can tell on an app that does not
-// say (window._reload asks the app's own test): an item being saved, or an item being edited
-// whose editor on the page holds text that is not the item's (zero-width spaces apart, which
-// the editor adds), or has no editor on the page to compare
-const key_buttons_unsaved = (win, doc) => {
-  const plain = text => String(text ?? '').replace(/\u200B/g, '')
-  return win._items().some(item => item.saving || (item.editing && (field => !field || plain(field.value) != plain(item.text))(doc.getElementById('textarea-' + item.id))))
-}
 
 const key_buttons_svg = icon => `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${icon}"/></svg>`
 
@@ -389,27 +403,29 @@ function key_buttons_create() {
   // the sparkle can, so Enter and Space are its own while it has it (the app's window handlers
   // take them otherwise, and its keyup handler cancels a button's own activation): the press
   // itself acts, a held key and a key with a modifier do not, and a dialog of the app gets its keys.
-  // An edit that is not saved is never lost without a word: the question comes BEFORE the
-  // reload, since the browser's own (the app's beforeunload) is not asked on a reload by every
-  // browser (iOS Safari is documented to leave it out). The app's own reload (window._reload) asks in its
-  // dialog when an edit is unsaved, by its own test of every item, reloads at once when none
-  // is, and is not asked about again by the browser. An app that has none yet (the item can be
-  // updated before the app is): this item asks, in the app's dialog, where an edit would be
-  // lost as far as it can tell (key_buttons_unsaved; where it cannot tell, it asks), and the
-  // browser may then ask once more. Resolves to whether the page is being reloaded
+  // Nothing is lost without a word: the question comes BEFORE the reload, and from the page, since
+  // the browser's own (the app's beforeunload) is not asked on a reload by every browser (iOS
+  // Safari is documented to leave it out). The app's own reload (window._reload) decides by its
+  // own test of every item, an edit that is not saved and a save that is not finished alike:
+  // it asks in its dialog when there is one, reloads at once when there is none, and is not
+  // asked about again by the browser. An app that has none yet (the released one, until its side
+  // lands: the item can be updated before the app is): this item asks before EVERY reload, in
+  // the app's dialog. It cannot know there what would be lost, and does not guess: a draft its
+  // owner has just kept (the item's close button, then Cancel in the app's question) sits in
+  // the item's text and in its editor alike, with nothing being saved, and a save that failed
+  // leaves nothing an item's handles show. The browser may then ask once more. Resolves to
+  // whether the page is being reloaded
   self.reload = async () => {
     if (typeof window._reload == 'function') return window._reload()
     if (self.asking) return false
-    let unsaved = true
+    self.asking = true
+    let sure = false
     try {
-      unsaved = key_buttons_unsaved(window, document)
-    } catch (e) {}
-    if (unsaved) {
-      self.asking = true
-      const sure = (await window._modal('Reload and discard unsaved changes?', { confirm: 'Reload', cancel: 'Cancel' })) === true
+      sure = (await window._modal(KEY_BUTTONS_RELOAD_QUESTION, { confirm: 'Reload', cancel: 'Cancel' })) === true
+    } finally {
       self.asking = false
-      if (!sure || self.disposed) return false
     }
+    if (!sure || self.disposed) return false
     window.location.reload()
     return true
   }
