@@ -13,7 +13,9 @@
 // After the owner's second try (the same day): the keyboard is read by two signals and decided
 // from both, since the window's test alone chose the wrong row once (key_buttons_keyboard), and
 // the caret's scroll is switched off and, should it be switched on again, acts once for each
-// opening of the keyboard
+// opening of the keyboard.
+// After the third try: a reload button at the page's lower left, the mirror of the #vault
+// item's sparkle at the lower right, on every device
 
 // ---- what to adjust: the parts, the buttons, their icons, their size and their place -----------
 
@@ -26,6 +28,9 @@ const KEY_BUTTONS_PARTS = {
   // each opening of the keyboard. OFF since the owner's second try: what it was built for could
   // not be reproduced on the phone, and a repeated scroll was seen once
   caret_clear: false,
+  // a round button at the page's lower left that reloads the page: the mirror of the #vault
+  // item's sparkle at the lower right, and like it on every device (KEY_BUTTONS_RELOAD)
+  reload_button: true,
 }
 
 // the buttons, in the row's order from left to right. `key` with `ctrl`, `alt` and `shift` is
@@ -55,6 +60,10 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
   { name: 'done', key: 'Enter', shift: true, title: 'Done: save the item, or create from the box (Shift+Enter)', icon: 'M3 8.5l3.5 3.5L13 4.5' },
 ]
 
+// the reload button: one press reloads the page (the app's own check for unsaved edits is still
+// asked by the browser). An arrow that goes round, drawn as the other icons are
+const KEY_BUTTONS_RELOAD = { name: 'reload', title: 'Reload the page', icon: 'M14.6 3.2v3.6H11M13.1 9.8a5.4 5.4 0 1 1-1.3-5.6l2.8 2.6' }
+
 // the look, in CSS pixels: a row along the window's bottom edge that ends left of the #vault
 // item's sparkle (a 24 px circle at right 14 and bottom 10, vault.md) and is centred on it. The
 // sparkle's circle and shadow, white where the sparkle is yellow, and a size a thumb can hit
@@ -71,6 +80,10 @@ const KEY_BUTTONS_LOOK = {
   layer: 88, // under the sparkle's menu and that menu's layer (90 and 89), over the app's own layers (10 at most)
   above: 6, // the keyboard row's bottom edge above the keyboard: above the bottom of what the keyboard leaves in view
   edge: 10, // the keyboard row's right edge from the right edge of what is in view (the sparkle is not shown then)
+  // the reload button, the sparkle's mirror (.vault-sparkle in vault.md: 24 px round at right 14 and
+  // bottom 10, its drawing 16 px, dim at 0.45 while idle and 0.9 under a mouse): the same at the left,
+  // in the icons' white, and at this item's layer (under the sparkle's menu layer, as the rows are)
+  reload: { size: 24, left: 14, bottom: 10, icon: 16, idle: 'rgba(255, 255, 255, 0.45)', hover: 'rgba(255, 255, 255, 0.9)' },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
 // and how long the view has to stay as it is before the one look (the keyboard has taken its room)
@@ -222,7 +235,22 @@ const key_buttons_css = look => `
 .key-buttons > button:focus { outline: none }
 .key-buttons > button:active { background: ${look.pressed} }
 .key-buttons > button > svg { display: block; width: ${look.icon}px; height: ${look.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
+.key-buttons-reload { position: fixed; left: ${look.reload.left}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.reload.idle}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.key-buttons-reload[hidden] { display: none }
+.key-buttons-reload:focus { outline: none }
+.key-buttons-reload:focus-visible { outline: 1px solid ${look.color} }
+@media (hover: hover) { .key-buttons-reload:hover { color: ${look.reload.hover} } }
+.key-buttons-reload:active { color: ${look.color} }
+.key-buttons-reload > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 `
+// whether the reload button shows: on every device, as the sparkle does; not while a keyboard
+// is on the screen (the rows' own reading), and not where the main row, while it shows, would
+// reach it (a window so narrow that the row's left end comes within a gap of the button)
+const key_buttons_reload_shown = (win, keyboard, shown, look, parts = KEY_BUTTONS_PARTS) =>
+  !!parts.reload_button &&
+  !keyboard.up &&
+  !(shown == 'main' && win.innerWidth - look.right - (KEY_BUTTONS.length * look.size + (KEY_BUTTONS.length - 1) * look.gap) < look.reload.left + look.reload.size + look.gap)
+
 const key_buttons_svg = icon => `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${icon}"/></svg>`
 
 // the keyboard events of one press of a button's key, in a keyboard's order: each modifier
@@ -253,7 +281,7 @@ function key_buttons_events(spec) {
 // window, where the app's handler navigates, creates and scrolls
 const key_buttons_target = doc => {
   const active = doc.activeElement
-  return active && active !== doc.documentElement && !active.closest?.('.key-buttons') ? active : doc.body
+  return active && active !== doc.documentElement && !active.closest?.('[data-key-buttons]') ? active : doc.body
 }
 
 // one press: the key's events, on the element that has the focus when the press begins (a
@@ -269,8 +297,8 @@ function key_buttons_press(spec, doc, make = (type, init) => new KeyboardEvent(t
 
 // draw or keep the page's one row of buttons (the pattern of the #vault item's sparkle,
 // vault_sparkle_reconcile in vault.md). Its controller lives on window, since the item's code
-// is evaluated afresh at every hook and nothing else outlives one: it OWNS the two rows, their
-// style, its listeners and its task, and its dispose() releases all of them and nothing of a newer
+// is evaluated afresh at every hook and nothing else outlives one: it OWNS the two rows, the
+// reload button, their style, its listeners and its task, and its dispose() releases all of them and nothing of a newer
 // controller's. A controller drawn by other code (an update of this item, in this tab or
 // another) or for another item is disposed BEFORE the new one draws. Only the page's one
 // #key_buttons draws: any other item that carries this code draws nothing, and releases a
@@ -338,6 +366,40 @@ function key_buttons_create() {
   }
   const bar = (self.bar = row('bar', KEY_BUTTONS, 'Keys'))
   const keys = (self.keys = row('keyboard', KEY_BUTTONS_PARTS.keyboard_row ? KEY_BUTTONS_KEYBOARD_ROW : [], 'Keys above the keyboard'))
+  // the reload button: a press reloads the page, through self.reload. It can take the focus, as
+  // the sparkle can, so Enter and Space are its own while it has it (the app's window handlers
+  // take them otherwise, and its keyup handler cancels a button's own activation): the press
+  // itself acts, a held key and a key with a modifier do not, and a dialog of the app gets its keys
+  self.reload = () => window.location.reload()
+  const reloader = (self.reloader = document.createElement('button'))
+  reloader.type = 'button'
+  reloader.className = 'key-buttons-reload'
+  reloader.dataset.keyButtons = 'reload'
+  reloader.title = KEY_BUTTONS_RELOAD.title
+  reloader.setAttribute('aria-label', KEY_BUTTONS_RELOAD.title)
+  reloader.innerHTML = key_buttons_svg(KEY_BUTTONS_RELOAD.icon)
+  reloader.hidden = true
+  const taken = e => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  const own_key = e => (e.key == 'Enter' || e.key == ' ') && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !window._modal_visible?.()
+  reloader.addEventListener('click', e => {
+    taken(e)
+    if (!self.disposed && !reloader.hidden) self.reload()
+  })
+  reloader.addEventListener('keydown', e => {
+    if (!own_key(e)) return
+    taken(e)
+    if (!e.repeat && !self.disposed && !reloader.hidden) self.reload()
+  })
+  reloader.addEventListener('keyup', e => {
+    if (own_key(e)) taken(e)
+  })
+  reloader.addEventListener('mousedown', taken)
+  reloader.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+  reloader.addEventListener('contextmenu', taken)
+  if (KEY_BUTTONS_PARTS.reload_button) document.body.appendChild(reloader)
   const viewport = window.visualViewport
   Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
@@ -360,6 +422,7 @@ function key_buttons_create() {
     }
     bar.hidden = shown != 'main'
     keys.hidden = shown != 'keyboard'
+    reloader.hidden = !key_buttons_reload_shown(window, keyboard, shown, KEY_BUTTONS_LOOK)
     if (!keys.hidden) {
       const { left, top } = key_buttons_place(viewport, keys.children.length, KEY_BUTTONS_LOOK)
       Object.assign(keys.style, { left: left + 'px', top: top + 'px' })
@@ -433,6 +496,7 @@ function key_buttons_create() {
     window.removeEventListener('keydown', typed, true)
     bar.remove()
     keys.remove()
+    reloader.remove()
     style.remove()
     if (window._key_buttons === self) delete window._key_buttons
   }

@@ -4,7 +4,8 @@
 // by two signals and decided from both (the window's is the sparkle's own test, held to the same
 // answers as vault.md's), which row shows, the place of the keyboard's row from a visual viewport,
 // the Shift+Space that is a Tab and the devices that get it, the scroll that clears the caret's
-// line and its once for each opening of the keyboard, and the controller over a fake page.
+// line and its once for each opening of the keyboard, the reload button as the sparkle's mirror,
+// and the controller over a fake page.
 // What the app does with a sent key is the browser lane's (mind.page tests/e2e/key_buttons.spec.ts).
 // run: node external/mind.items/tests/key_buttons_test.js
 const fs = require('fs')
@@ -32,7 +33,7 @@ class FakeNode {
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
   removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] ?? []).filter(f => f !== fn) }
   setAttribute(name, value) { this.attrs[name] = value }
-  closest(selector) { for (let n = this; n; n = n.parent) if ((n.className ?? '').split(' ').includes(selector.slice(1))) return n; return null }
+  closest(selector) { for (let n = this; n; n = n.parent) if (selector == '[data-key-buttons]' ? n.dataset.keyButtons : (n.className ?? '').split(' ').includes(selector.slice(1))) return n; return null }
   dispatchEvent(event) { this.got.push(event) } // a key sent here
   fire(type, more = {}) {
     const event = { type, target: this, prevented: 0, stopped: 0, preventDefault() { this.prevented++ }, stopPropagation() { this.stopped++ }, ...more }
@@ -48,7 +49,8 @@ const all = () => { const out = []; const walk = n => { out.push(n); n.children.
 const parts = kind => all().filter(n => n.dataset.keyButtons == kind)
 const viewport = Object.assign(new FakeNode('viewport'), { width: 390, height: 800, scale: 1, offsetLeft: 0, offsetTop: 0 })
 const pointer = Object.assign(new FakeNode('media'), { matches: false })
-const win = Object.assign(new FakeNode('window'), { innerHeight: 800, visualViewport: viewport, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }) })
+const reloads = [] // what was asked to reload
+const win = Object.assign(new FakeNode('window'), { innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }) })
 // the listeners held: the view's size and place, the pointer, the keys, the focus that comes and the focus that leaves
 const listening = () => [viewport.listeners.resize, viewport.listeners.scroll, pointer.listeners.change, win.listeners.keydown, page.listeners.focusin, page.listeners.focusout].map(list => (list ?? []).length)
 class FakeKey { constructor(type, init) { Object.assign(this, { type, ...init }) } }
@@ -99,8 +101,8 @@ check('buttons: each sends its key: the arrows bare, Shift+Enter, Ctrl+Alt+Up an
 check('buttons: the row above the keyboard is three: the outdent, the indent and the done, as Shift+Tab, Tab and Shift+Enter',
   [above.map(b => b.name), keys_of(above)], [['outdent', 'indent', 'done'], ['Shift+Tab', 'Tab', 'Shift+Enter']])
 check('buttons: each of both rows has an icon and says what its key does, naming the key', [...buttons, ...above].every(b => /^M[\d\s.,MmLlHhVvAa-]+$/.test(b.icon) && /^\S.* \((Ctrl\+Alt\+)?(Shift\+)?\w+\)$/.test(b.title)), true)
-check('parts: the three later parts each have a switch of their own: the row above the keyboard and Shift+Space on, the caret\'s scroll off',
-  [v1('KEY_BUTTONS_PARTS'), v1('KEY_BUTTONS_CARET')], [{ keyboard_row: true, shift_space_tab: true, caret_clear: false }, { margin: 8, settle: 150 }])
+check('parts: the four later parts each have a switch of their own: the row above the keyboard, Shift+Space and the reload button on, the caret\'s scroll off',
+  [v1('KEY_BUTTONS_PARTS'), v1('KEY_BUTTONS_CARET')], [{ keyboard_row: true, shift_space_tab: true, caret_clear: false, reload_button: true }, { margin: 8, settle: 150 }])
 // the sparkle's place and look, read from vault.md: the row is laid out against them
 const sparkle = vault.match(/\n\.vault-sparkle \{[^}]*right: (\d+)px; bottom: (\d+)px; z-index: (\d+);[^}]*width: (\d+)px; height: (\d+)px;[^}]*background: (#\w+); box-shadow: ([^;]+); color: (#\w+)/)
 const layer = vault.match(/\n\.vault-sparkle-backdrop \{[^}]*z-index: (\d+)/)
@@ -114,6 +116,26 @@ check('look: the sparkle\'s circle and shadow, white where the sparkle is yellow
 const css = v1('key_buttons_css({ ...KEY_BUTTONS_LOOK, size: 40, gap: 9, right: 50, bottom: 3, icon: 20, color: "#eee" })')
 check('look: the stylesheet is the table\'s numbers: a changed size, gap, place, icon or colour is the rule\'s; the keyboard\'s row takes its place from the code',
   ['right: 50px; bottom: 3px;', 'gap: 9px;', 'width: 40px; height: 40px;', 'color: #eee;', 'width: 20px; height: 20px;', '.key-buttons.keyboard { right: auto; bottom: auto }'].map(rule => css.includes(rule)), [true, true, true, true, true, true])
+
+// ---- the reload button: the sparkle's mirror, by the sparkle's own rules in vault.md --------------
+const reload = v1('KEY_BUTTONS_RELOAD')
+const [idle, hover, ring, drawing] = [/\n\.vault-sparkle\.idle \{ color: rgba\(\d+, \d+, \d+, ([\d.]+)\) \}/, /\.vault-sparkle\.idle:hover \{ color: rgba\(\d+, \d+, \d+, ([\d.]+)\) \}/, /\n\.vault-sparkle:focus-visible \{ outline: (\d+px solid) /, /\n\.vault-sparkle > svg \{ display: block; width: (\d+)px; height: (\d+)px \}/].map(rule => vault.match(rule))
+const sheet = v1('key_buttons_css(KEY_BUTTONS_LOOK)')
+check('reload: one button, its icon drawn as the others are, that says what it does', [reload.name, reload.title, /^M[\d\s.,MmLlHhVvAa-]+$/.test(reload.icon)], ['reload', 'Reload the page', true])
+check('reload: the sparkle\'s mirror: as far from the left as the sparkle is from the right, at its height over the bottom, of its size, its drawing of the sparkle\'s size',
+  [look.reload.left, look.reload.bottom, look.reload.size, look.reload.size, look.reload.icon, look.reload.icon], [right, bottom, width, height, Number(drawing[1]), Number(drawing[2])])
+check('reload: its circle and shadow, its dim idle look, its brighter look under a mouse and its focus ring are the sparkle\'s, in the icons\' white; its layer is the rows\', under the sparkle\'s menu layer',
+  [`.key-buttons-reload { position: fixed; left: ${right}px; bottom: ${bottom}px; z-index: ${look.layer};`,
+    `width: ${width}px; height: ${height}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${sparkle[6]}; box-shadow: ${sparkle[7]}; color: rgba(255, 255, 255, ${idle[1]});`,
+    `@media (hover: hover) { .key-buttons-reload:hover { color: rgba(255, 255, 255, ${hover[1]}) } }`,
+    `.key-buttons-reload:focus { outline: none }\n.key-buttons-reload:focus-visible { outline: ${ring[1]} #fff }`,
+    `.key-buttons-reload > svg { display: block; width: ${drawing[1]}px; height: ${drawing[2]}px;`,
+    '.key-buttons-reload[hidden] { display: none }'].map(rule => sheet.includes(rule)).concat(look.layer < Number(layer[1])),
+  [true, true, true, true, true, true, true])
+const reload_shown = (wide, up, shown_row, switches) => v1('key_buttons_reload_shown(__args.win, __args.keyboard, __args.row, KEY_BUTTONS_LOOK, __args.parts ?? KEY_BUTTONS_PARTS)', { win: { innerWidth: wide }, keyboard: { up }, row: shown_row, parts: switches })
+check('reload: it shows on every device, a desktop too; not while a keyboard is on the screen; not where the main row, while it shows, comes within a gap of it (a window under 350 px); and never with its part off',
+  [reload_shown(1280, false, null), reload_shown(390, false, 'main'), reload_shown(390, true, 'keyboard'), reload_shown(390, true, null), reload_shown(350, false, 'main'), reload_shown(349, false, 'main'), reload_shown(320, false, 'main'), reload_shown(320, false, null), reload_shown(390, false, 'main', { reload_button: false })],
+  [true, true, false, false, true, false, false, true, false])
 
 // ---- the keyboard's row: its place from a visual viewport -------------------------------------
 const place = view => v1('key_buttons_place(__args, 3, KEY_BUTTONS_LOOK)', view)
@@ -141,9 +163,10 @@ check('press: every event bubbles to the window and can be prevented', [...butto
 
 // ---- where a press goes ------------------------------------------------------------------------
 const target = active => { page.activeElement = active; const to = v1('key_buttons_target(document)'); page.activeElement = null; return to === page.body ? 'body' : to.tag }
-const own_button = Object.assign(new FakeNode('button'), { parent: Object.assign(new FakeNode('div'), { className: 'key-buttons keyboard' }) })
-check('press: it goes where a key would: to the element that has the focus, else to the body (nothing focused, the body, the root, a button of a row)',
-  [target(editor), target(null), target(page.body), target(page.documentElement), target(own_button)], ['textarea', 'body', 'body', 'body', 'body'])
+const own_button = Object.assign(new FakeNode('button'), { parent: Object.assign(new FakeNode('div'), { className: 'key-buttons keyboard', dataset: { keyButtons: 'keyboard' } }) })
+const own_reload = Object.assign(new FakeNode('button'), { className: 'key-buttons-reload', dataset: { keyButtons: 'reload' } })
+check('press: it goes where a key would: to the element that has the focus, else to the body (nothing focused, the body, the root, a button of a row, the reload button)',
+  [target(editor), target(null), target(page.body), target(page.documentElement), target(own_button), target(own_reload)], ['textarea', 'body', 'body', 'body', 'body', 'body'])
 page.activeElement = editor
 const sent = v1('key_buttons_press(__args, document)', spec('create'))
 page.activeElement = null
@@ -219,16 +242,46 @@ check('clear: the view counts where it is in the window (a view panned down the 
 // ---- the controller ----------------------------------------------------------------------------
 v1('_on_welcome()')
 const [bar, keys] = [parts('bar')[0], parts('keyboard')[0]]
-check('controller: the page\'s welcome draws one style and the two rows under the body, each put there hidden and left hidden on a desktop, and one task',
+check('controller: the page\'s welcome draws one style, the two rows and the reload button under the body, each put there hidden, the rows left hidden on a desktop, and one task',
   [log, parts('style').length, bar.parent === page.body, keys.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), bar.hidden, keys.hidden, tasks.key_buttons.delay, tasks.key_buttons.repeat],
-  [['+style', '+bar hidden', '+keyboard hidden', 'task key_buttons'], 1, true, true, buttons.map(b => b.name), above.map(b => b.name), true, true, 15000, 15000])
+  [['+style', '+bar hidden', '+keyboard hidden', '+reload hidden', 'task key_buttons'], 1, true, true, buttons.map(b => b.name), above.map(b => b.name), true, true, 15000, 15000])
+const again = parts('reload')[0]
+check('reload: drawn under the body with the rows and shown on a desktop; named for a screen reader, its icon a line drawing, and within the Tab order as the sparkle is',
+  [parts('reload').length, again.parent === page.body, again.hidden, again.className, again.title, again.attrs['aria-label'], again.innerHTML, 'tabIndex' in again],
+  [1, true, false, 'key-buttons-reload', 'Reload the page', 'Reload the page', `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${reload.icon}"/></svg>`, false])
+const reloaded = again.fire('click')
+check('reload: a press reloads the page, once, and is nothing else to the page', [reloads, reloaded.prevented, reloaded.stopped], [['page'], 1, 1])
+reloads.length = 0
+const keyed = (more = {}) => again.fire('keydown', { key: 'Enter', ...more })
+const own_keys = [keyed(), keyed({ key: ' ' }), keyed({ repeat: true }), keyed({ shiftKey: true }), keyed({ ctrlKey: true }), keyed({ key: 'a' })]
+win._modal_visible = () => true
+own_keys.push(keyed())
+delete win._modal_visible
+const released = [again.fire('keyup', { key: 'Enter' }), again.fire('keyup', { key: 'a' })]
+check('reload: with the focus, Enter and Space are its own: the press reloads, a held key does not; a key with a modifier, any other key and every key under a dialog are the app\'s; its own keyup is kept from the app',
+  [reloads, own_keys.map(e => [e.prevented, e.stopped]), released.map(e => [e.prevented, e.stopped])], [['page', 'page'], [[1, 1], [1, 1], [1, 1], [0, 0], [0, 0], [0, 0], [0, 0]], [[1, 1], [0, 0]]])
+check('reload: a press takes no focus and is not the app\'s: a mouse press is prevented and stopped, a touch only stopped, a long press opens no menu',
+  ['mousedown', 'touchstart', 'contextmenu'].map(type => again.fire(type)).map(e => [e.prevented, e.stopped]), [[1, 1], [0, 1], [1, 1]])
+reloads.length = 0
+const page_reload = win._key_buttons.reload
+win._key_buttons.reload = () => reloads.push('stood in')
+again.fire('click')
+win._key_buttons.reload = page_reload
+check('reload: the press goes through the controller\'s own reload, which a test can stand in for', reloads, ['stood in'])
+reloads.length = 0
 check('controller: a button is a finger\'s: named for a screen reader by what its key does, outside the Tab order, its icon a line drawing',
   [bar.children[2].attrs['aria-label'], bar.children[2].title, bar.children[2].tabIndex, bar.children[2].innerHTML, keys.children[1].title, keys.className],
   [spec('create').title, spec('create').title, -1, `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${spec('create').icon}"/></svg>`, spec('indent').title, 'key-buttons keyboard'])
 pointer.matches = true
 clock.now += 2000
 pointer.fire('change')
-check('controller: a finger as the primary pointer shows the main row, at the change itself', [bar.hidden, keys.hidden], [false, true])
+check('controller: a finger as the primary pointer shows the main row, at the change itself, the reload button beside it', [bar.hidden, keys.hidden, again.hidden], [false, true, false])
+win.innerWidth = 320
+pointer.fire('change')
+const narrow = [bar.hidden, again.hidden, again.fire('click').prevented, [...reloads]]
+win.innerWidth = 390
+pointer.fire('change')
+check('reload: where the window is too narrow for the main row and the button, the button gives way, and hidden it reloads nothing; wide again it is back', [narrow, bar.hidden, again.hidden], [[false, true, 1, []], false, false])
 focus(editor)
 const focused = [bar.hidden, keys.hidden]
 clock.now += 3000
@@ -239,6 +292,7 @@ viewport.offsetTop = 336
 viewport.fire('scroll')
 check('controller: an editor that takes the focus changes nothing by itself; the keyboard under it hides the main row and shows its own, placed from what is left in view; a view that is panned takes the row along',
   [focused, up, keys.style.top], [[false, true], [true, false, '272px', '426px'], '762px'])
+check('reload: hidden while the keyboard is up', again.hidden, true)
 clock.now += 4000
 check('controller: it says what it reads: the row, the two signals, and the row\'s changes since it was drawn',
   v1('window._key_buttons.says()'),
@@ -269,6 +323,7 @@ viewport.height = 800
 viewport.fire('resize')
 check('controller: a keyboard that goes while the editor keeps the focus puts the main row back; and where the window\'s own height follows the keyboard, the view alone still brings the keyboard\'s row',
   [gone, followed, bar.hidden], [[false, true, true], [true, false, 'keys: row keyboard · keyboard up · by window no (window 464 − view 464 = 0) · by view yes (tallest 800 − view 464 = 336 at width 390) · focus yes · scale 1'], false])
+check('reload: back once the keyboard is down', again.hidden, false)
 blur()
 const button = name => [...bar.children, ...keys.children].find(b => b.dataset.key == name)
 const click = button('down').fire('click')
@@ -332,11 +387,14 @@ const v2 = evaluation(2)
 v2('_on_item_change("keys-id")')
 const [bar2, keys2] = [parts('bar')[0], parts('keyboard')[0]]
 check('controller: an update of the item replaces the rows: the earlier ones go before the new ones are drawn, shown at once, and the earlier task is cancelled',
-  [log, parts('bar').length, parts('keyboard').length, bar2 !== bar, bar2.hidden, parts('style').length], [['-bar', '-keyboard', '-style', '+style', '+bar hidden', '+keyboard hidden', 'task key_buttons'], 1, 1, true, false, 1])
+  [log, parts('bar').length, parts('keyboard').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
+  [['-bar', '-keyboard', '-reload', '-style', '+style', '+bar hidden', '+keyboard hidden', '+reload hidden', 'task key_buttons'], 1, 1, true, false, 1, 1, true])
 bar.hidden = false // as if it were still shown: only its disposal keeps a replaced row quiet
 button('down').fire('click')
-check('controller: the replaced rows send nothing and listen to nothing: one listener each for the view\'s size and place, the pointer, the keys and the focus, the new controller\'s',
-  [page.body.got.length, listening()], [0, [1, 1, 1, 1, 1, 1]])
+again.hidden = false
+again.fire('click')
+check('controller: the replaced rows and button send nothing, reload nothing and listen to nothing: one listener each for the view\'s size and place, the pointer, the keys and the focus, the new controller\'s',
+  [page.body.got.length, reloads, listening()], [0, [], [1, 1, 1, 1, 1, 1]])
 focus(editor)
 viewport.height = 400
 viewport.fire('resize')
@@ -355,14 +413,14 @@ copy('_on_welcome()')
 check('controller: an item that only carries the code draws nothing and leaves the page\'s rows alone', [log, parts('bar')[0] === bar2], [[], true])
 items['#key_buttons'] = { id: 'other-id' }
 v2('_on_item_change("keys-id")')
-check('controller: the item renamed, its code kept, takes its rows away', [log, parts('bar').length, parts('keyboard').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-bar', '-keyboard', '-style'], 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
+check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-bar', '-keyboard', '-reload', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
 items['#key_buttons'] = { id: 'keys-id' }
 v2('_on_item_change("keys-id")')
-check('controller: named #key_buttons again it draws again', [parts('bar').length, parts('keyboard').length], [1, 1])
+check('controller: named #key_buttons again it draws again', [parts('bar').length, parts('keyboard').length, parts('reload').length], [1, 1, 1])
 log.length = 0
 tasks.key_buttons._on_cancel() // the app, at the task's next run after the item's deletion
 check('controller: the item\'s deletion removes the rows, their style and the listeners at the task\'s cancel, and its task then ends',
-  [log, parts('bar').length, listening(), tasks.key_buttons.fn()], [['-bar', '-keyboard', '-style'], 0, [0, 0, 0, 0, 0, 0], null])
+  [log, parts('bar').length, parts('reload').length, listening(), tasks.key_buttons.fn()], [['-bar', '-keyboard', '-reload', '-style'], 0, 0, [0, 0, 0, 0, 0, 0], null])
 
 // ---- the caret's scroll, switched on in the table: once for each opening of the keyboard ---------
 {
@@ -442,13 +500,14 @@ const scene = source => { // a touch device, an editor focused with its caret lo
   viewport.fire('resize')
   own.key_buttons_caret?.fn() // the one look, where the part asked for it
   const typed = win.fire('keydown', key())
-  const seen = { rows: [parts('bar')[0].hidden, parts('keyboard')[0].hidden, parts('keyboard')[0].children.length], typed: [typed.prevented, got(editor)], scrolled: [...scrolled], look: 'key_buttons_caret' in own, listening: listening() }
+  const seen = { rows: [parts('bar')[0].hidden, parts('keyboard')[0].hidden, parts('keyboard')[0].children.length], typed: [typed.prevented, got(editor)], scrolled: [...scrolled], look: 'key_buttons_caret' in own, reload: parts('reload').map(node => node.hidden), listening: listening() }
   run('window._key_buttons.dispose()')
   return seen
 }
 const whole = scene(code)
 check('parts: as the table has them, the keyboard brings its row and Shift+Space is a Tab, and the caret\'s line is left where it is',
-  whole, { rows: [true, false, 3], typed: [1, ['keydown Tab', 'keyup Tab']], scrolled: [], look: false, listening: [1, 1, 1, 1, 1, 1] })
+  whole, { rows: [true, false, 3], typed: [1, ['keydown Tab', 'keyup Tab']], scrolled: [], look: false, reload: [true], listening: [1, 1, 1, 1, 1, 1] })
+check('parts: without the reload button none is drawn', scene(turned('reload_button', false)), { ...whole, reload: [] })
 check('parts: without the keyboard\'s row nothing shows above the keyboard (the main row hides as before)', scene(turned('keyboard_row', false)), { ...whole, rows: [true, true, 0] })
 check('parts: without Shift+Space the key is a space as typed, and nothing listens for it', scene(turned('shift_space_tab', false)), { ...whole, typed: [0, []], listening: [1, 1, 1, 0, 1, 1] })
 check('parts: with the caret\'s scroll switched on, the keyboard\'s opening gets its one look and the covered line is scrolled clear', scene(turned('caret_clear', true)), { ...whole, scrolled: [[0, 308]], look: true })
