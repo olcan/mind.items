@@ -790,9 +790,9 @@ if (realMarked) {
   const shown = { kind: 'watching', key: 'watching:' + TOOK, name: watching.name, took: TOOK, tab: false, jump: null, busy: false, dim: false, title: 'claude-fable-5-2-max is watching', seen: SEEN }
   check('sparkle: a fresh watcher is shown watching', state(listed(watching), fresh), shown)
   check('sparkle: an answering watcher pulses under its own name', state(listed({ ...watching, state: 'answering' }), fresh),
-    { ...shown, busy: true, title: 'claude-fable-5-2-max is answering a request' })
+    { ...shown, busy: true, title: 'claude-fable-5-2-max is answering' })
   check('sparkle: a hand-off names the agent that answers', state(listed({ ...watching, state: 'answering', by: 'gpt-6-astra-ultra' }), fresh).title,
-    'gpt-6-astra-ultra is answering a request')
+    'gpt-6-astra-ultra is answering')
   check('sparkle: a watching watcher never shows a by', state(listed({ ...watching, by: 'gpt-6-astra-ultra' }), fresh).title, shown.title)
   const offer = { kind: 'offer', key: 'offer::', start: null, tab: false, jump: null, busy: false, dim: true, title: 'Start a watcher', last: null, seen: SEEN }
   check('sparkle: with no watcher, or one that names no agent or no take, a fresh bridge shows the offer to start one, dim',
@@ -1150,7 +1150,7 @@ if (realMarked) {
   store._bridge.watcher.state = 'answering'
   v1('_on_global_store_change(_this.id)')
   check('sparkle: a store change updates the same element in place', [parts('node')[0] === node, log.length, node.classes.has('answering'), node.title],
-    [true, 4, true, 'claude-fable-5-2-max is answering a request'])
+    [true, 4, true, 'claude-fable-5-2-max is answering'])
   status._global_store._status.hosts = at(T - 4 * 60000)
   v1("_on_global_store_change('status-id')")
   check('sparkle: the #status item\'s store counts too: a stale bridge hides it', node.hidden, true)

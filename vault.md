@@ -759,7 +759,7 @@ function vault_sparkle_state(bridge, hosts, now, marks = {}) {
     const stopping = live(marks.stopping) && marks.stopping.took === took
     const answering = state == 'answering'
     const who = typeof by == 'string' && by ? by : name
-    const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering a request` : `${name} is watching`
+    const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering` : `${name} is watching`
     return { kind: 'watching', key: 'watching:' + took, name, took, tab: watcher.tab === true, jump: vault_jump(watcher.jump), busy: closing || stopping || answering, dim: false, title, seen }
   }
   const last = vault_last_watcher(watcher.last)
