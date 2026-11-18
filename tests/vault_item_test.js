@@ -1029,10 +1029,11 @@ if (realMarked) {
   check('watched: beside a watch of all items every other rule\'s line is what it selects and no more: no count, and no `not marked` even for words alone',
     [line({ all: true }, null, true), line({ tags: ['#todo'] }, null, true), line({ ids: ['a'] }, null, true), line({ labels: ['#chat*'], more: ['2 more by label'] }, null, true), line({ more: [BRACKET] }, null, true)],
     ['watched: all items', 'watched: #todo', 'watched: 1 by id', 'watched: #chat*, 2 more by label', 'watched: label #chat/[0-9]*'])
-  const titled = told => { ctx.__rule = follows({ follows: [told] })[0]; return vm.runInContext('vault_follow_title(__rule)', ctx) }
-  check('watched: a line\'s tooltip names the agent, since when and its watch; the closing entry, which counts watches, has none',
-    [titled({ ...HEAD, tags: ['#todo'] }), titled({ ...HEAD, name: '', since: 'x', tags: ['#todo'] }), titled({ more: ['3 more watches'] })],
-    [`${watching.name} follows since ${new Date(SINCE).toLocaleString()} (watch todos)`, 'An agent follows (watch todos)', ''])
+  const titled = (told, found = null) => { Object.assign(ctx, { __rule: follows({ follows: [told] })[0], __seen: found }); return vm.runInContext('vault_follow_title(__rule, __seen)', ctx) }
+  const FOLLOWS = what => `${watching.name} follows ${what} since ${new Date(SINCE).toLocaleString()}`
+  check('watched: a line\'s tooltip names the agent, what it follows in the line\'s own words (never the watch\'s name, an agent\'s label) and since when; the closing entry, which counts watches, has none',
+    [titled({ ...HEAD, tags: ['#todo'] }), titled({ ...HEAD, name: '', since: 'x', tags: ['#todo'] }), titled({ ...HEAD, ids: ['a'] }, seen(1, '#bank')), titled({ ...HEAD, ids: ['a'] }), titled({ ...HEAD, all: true }), titled({ more: ['3 more watches'] })],
+    [FOLLOWS('#todo'), 'An agent follows #todo', FOLLOWS('#bank'), FOLLOWS('1 by id'), FOLLOWS('all items'), ''])
   // (review 58, B3) the bridge publishes a rule only for a follow that selects by its own reading, and counts
   // any other in its closing entry: a follow started by the watcher's code before the reading had a version
   const others = [{ ...HEAD, tags: ['#todo'] }, { more: ['1 more watch'] }]
@@ -1388,7 +1389,7 @@ if (realMarked) {
     const menu = () => parts('menu')[0]
     // what the menu holds below its entries, read by opening it and closing it again
     const said = () => { spark.fire('click'); const out = menu().children.filter(child => child.tag == 'div').map(child => [child.textContent, child.title]); spark.fire('click'); return out }
-    const TITLE = `${watching.name} follows since ${new Date(SINCE).toLocaleString()} (watch todos)`
+    const TITLE = FOLLOWS('#todo')
     changed('t1')
     const drew = [...log]
     check('watched: the controller owns one more node, the marks\' stylesheet, empty while nothing is followed; an item\'s change then dispatches nothing, reads no item, and the menu has no line',
@@ -1396,11 +1397,12 @@ if (realMarked) {
     log.length = 0
     publish([TODO])
     const asked = [...log]
-    check('watched: published rules with something to check ask for ONE look, 250 ms later, as a task of the item, and no item is read before it; the menu says what is followed, without a count yet',
-      [asked, own.tasks.watched.delay, own.tasks.watched.repeat, fake.calls.items, css, said()], [['task watched'], 250, undefined, 0, '', [['watched: #todo', TITLE]]])
+    check('watched: published rules with something to check ask for ONE look, 250 ms later, as a task of the item, and no item is read before it; the menu says what is followed, without a count yet, and so does the second line of the sparkle\'s tooltip',
+      [asked, own.tasks.watched.delay, own.tasks.watched.repeat, fake.calls.items, css, said(), spark.title, spark.attrs['aria-label']],
+      [['task watched'], 250, undefined, 0, '', [['watched: #todo', TITLE]], shown.title + '\nwatched: #todo', shown.title + '\nwatched: #todo'])
     own.tasks.watched.fn()
-    check('watched: the look draws the approved look over the items the rule names, in one pass over the items, and the menu\'s line has its count',
-      [css, fake.calls.items, said(), spark.title], [LOOK(TODOS), 1, [['watched: #todo (9 items)', TITLE]], shown.title])
+    check('watched: the look draws the approved look over the items the rule names, in one pass over the items, and the menu\'s line has its count, which the tooltip\'s second line says at once',
+      [css, fake.calls.items, said(), spark.title], [LOOK(TODOS), 1, [['watched: #todo (9 items)', TITLE]], shown.title + '\nwatched: #todo (9 items)'])
     log.length = 0
     changed('t1')
     const once = [[...log], own.tasks.watched.delay]
@@ -1447,12 +1449,13 @@ if (realMarked) {
     const cleared = css
     status._global_store._status.hosts = fresh
     w1("_on_global_store_change('status-id')")
-    check('watched: a watch of all items marks every item, at once, by one sheet that names no item, and reads none: its line and the sparkle\'s tooltip say it, and the other rules\' lines have no count and no `not marked`; a stale bridge clears every mark, and its return brings them back with no look',
+    const ALL = shown.title + '\nwatched: #todo · label #chat/[0-9]* · all items' // the watches on ONE second line, the word said once
+    check('watched: a watch of all items marks every item, at once, by one sheet that names no item, and reads none: its line says it, the other rules\' lines have no count and no `not marked`, and the tooltip\'s second line is those lines; a stale bridge clears every mark, and its return brings them back with no look',
       [every, cleared, css, looks(), fake.calls.items - read_before],
-      [[SHEET(EVERY), 0, 0, ['watched: #todo', 'watched: label #chat/[0-9]*', 'watched: all items'], shown.title + ' · watched: all items', shown.title + ' · watched: all items'], '', SHEET(EVERY), 0, 0])
+      [[SHEET(EVERY), 0, 0, ['watched: #todo', 'watched: label #chat/[0-9]*', 'watched: all items'], ALL, ALL], '', SHEET(EVERY), 0, 0])
     publish([{ ...HEAD, more: [BRACKET] }])
     changed('t2')
-    check('watched: rules of words alone (a glob with a bracket, from the watcher\'s older code) mark nothing and look at nothing, and their line is the words; the tooltip is the watcher\'s again', [css, looks(), said().map(([text]) => text), spark.title], ['', 0, ['watched: label #chat/[0-9]*'], shown.title])
+    check('watched: rules of words alone (a glob with a bracket, from the watcher\'s older code) mark nothing and look at nothing, and their line is the words, in the menu and in the tooltip', [css, looks(), said().map(([text]) => text), spark.title], ['', 0, ['watched: label #chat/[0-9]*'], shown.title + '\nwatched: label #chat/[0-9]*'])
     // no cap: whatever the look finds is marked, and each line has its count (five hundred was the most, once)
     for (let n = 0; n < 1200; n++) list.push(held('bulk' + n, 'a note #bulk', '', ['#bulk']))
     const BULK = () => [...list.filter(item => item.id.startsWith('bulk')).map(item => item.id), 'w1'].sort()
@@ -1473,12 +1476,13 @@ if (realMarked) {
       if (open) spark.fire('click')
       return [css == LOOK(BULK()), open, said(), warned]
     }
-    const RULES = n => [[`watched: #bulk (${n.toLocaleString('en-US')} items)`, TITLE], ['watched: #work', TITLE]]
+    const RULES = n => [[`watched: #bulk (${n.toLocaleString('en-US')} items)`, FOLLOWS('#bulk')], ['watched: #work', FOLLOWS('#work')]]
     const WARNED = 'vault: marking the watched items took 84 ms (1,199 items marked, 2 rules)'
     check('watched: a look that took fifty milliseconds is not a slow one: the menu says nothing of it and nothing is warned of', timed(30, 20), [true, 0, RULES(1199), []])
     spark.fire('click') // an open menu, whose lines are about to change
     check('watched: a look that took more is said in one more line, below the rules\' lines and with no tooltip, in whole milliseconds: the listing and the sheet\'s replacement together; the menu that was open closes, and the controller warns, with the time, the items marked and the rules',
       [parts('menu').length, timed(60, 24)], [1, [true, 0, [...RULES(1198), ['marking took 84 ms', '']], [WARNED]]])
+    check('watched: that line is the menu\'s alone: the sparkle\'s tooltip keeps to the watches', spark.title, shown.title + '\nwatched: #bulk (1,198 items) · #work')
     spark.fire('click') // an open menu again: the next look finds the same items, and only its time is another
     check('watched: a later slow look changes the line, which closes an open menu as any change of its lines does, and warns no more: once in the controller\'s life',
       [parts('menu').length, timed(50.6, 0, false)], [1, [true, 0, [...RULES(1198), ['marking took 51 ms', '']], [WARNED]]])
@@ -1496,7 +1500,7 @@ if (realMarked) {
     check('watched: with nobody on the account the menu has the starts, then the same lines: text alone, below the entries, with no listener of their own, and the arrows move through the entries alone',
       [spark.classes.has('idle'), drawn, walked, menu().children[3].title],
       [true, [['button', 'claude', 'menuitem', true], ['button', 'codex', 'menuitem', true], ['div', 'watched: #todo (9 items)', null, false], ['div', 'watched: #bank', null, false]], ['codex', 'claude', 'codex'],
-        `<b>x</b> follows since ${new Date(SINCE).toLocaleString()} (watch bank)`])
+        `<b>x</b> follows #bank since ${new Date(SINCE).toLocaleString()}`])
     m1.tags_raw.pop() // the counts of an open menu change: the tag is taken off an item
     changed('m1')
     const still = parts('menu').length
