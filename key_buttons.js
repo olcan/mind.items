@@ -15,7 +15,10 @@
 // the caret's scroll is switched off and, should it be switched on again, acts once for each
 // opening of the keyboard.
 // After the third try: a reload button at the page's lower left, the mirror of the #vault
-// item's sparkle at the lower right, on every device
+// item's sparkle at the lower right, on every device.
+// After the branch's first review: the reload asks before it would discard an edit, the row
+// above the keyboard is offered to the app's own editors alone, and the task retires a
+// controller whose code is no longer the item's
 
 // ---- what to adjust: the parts, the buttons, their icons, their size and their place -----------
 
@@ -142,19 +145,23 @@ function key_buttons_keyboard(win, doc, tallest = {}) {
   const view = win.visualViewport
   const focus = key_buttons_editable(doc.activeElement)
   const by_window = key_buttons_keyboard_open(win)
-  if (!view) return { up: false, focus, by_window, by_view: false, window: win.innerHeight, view: null, width: null, tallest: null, scale: null }
+  const editor = key_buttons_editor(doc.activeElement) // the app's own editor: the one field the keyboard's row is for
+  if (!view) return { up: false, focus, editor, by_window, by_view: false, window: win.innerHeight, view: null, width: null, tallest: null, scale: null }
   const scale = view.scale || 1
   const [width, height] = [Math.round(view.width * scale), Math.round(view.height * scale)]
   tallest[width] = Math.max(tallest[width] ?? 0, height)
   const by_view = tallest[width] - height > KEY_BUTTONS_KEYBOARD_PX
-  return { up: focus && (by_window || by_view), focus, by_window, by_view, window: win.innerHeight, view: height, width, tallest: tallest[width], scale }
+  return { up: focus && (by_window || by_view), focus, editor, by_window, by_view, window: win.innerHeight, view: height, width, tallest: tallest[width], scale }
 }
 
 // which row shows on a device without a keyboard of its own: the main row while no keyboard
-// is on the screen, the keyboard's row while one is (none with that part switched off), and
-// nothing on a desktop. `keyboard` is what key_buttons_keyboard read
+// is on the screen; while one is, the keyboard's row, but only for an editor of the app (its
+// Tab and Shift+Enter are that editor's keys: sent to any other field they would reach the
+// app's window, which takes Shift+Enter as "create from the box" and Tab as "go to the box");
+// none with that part switched off, and nothing on a desktop. A keyboard up for any field
+// hides the main row. `keyboard` is what key_buttons_keyboard read
 const key_buttons_row = (win, keyboard, parts = KEY_BUTTONS_PARTS) =>
-  !key_buttons_device(win) ? null : !keyboard.up ? 'main' : parts.keyboard_row ? 'keyboard' : null
+  !key_buttons_device(win) ? null : !keyboard.up ? 'main' : parts.keyboard_row && keyboard.editor ? 'keyboard' : null
 
 // what the two signals read, in words, for whoever reads them out (the #edge_test item's panel
 // shows these lines and copies them): the row shown, the decision now, each signal with its
@@ -163,7 +170,7 @@ function key_buttons_says(keyboard, shown, changes, now) {
   const yes = flag => (flag ? 'yes' : 'no')
   const less = from => (keyboard.view === null ? 'no view' : `${from} − view ${keyboard.view} = ${from - keyboard.view}`)
   return [
-    `keys: row ${shown ?? 'none'} · keyboard ${keyboard.up ? 'up' : 'down'} · by window ${yes(keyboard.by_window)} (window ${less(keyboard.window)}) · by view ${yes(keyboard.by_view)} (tallest ${less(keyboard.tallest)} at width ${keyboard.width}) · focus ${yes(keyboard.focus)} · scale ${Math.round((keyboard.scale ?? 1) * 100) / 100}`,
+    `keys: row ${shown ?? 'none'} · keyboard ${keyboard.up ? 'up' : 'down'} · by window ${yes(keyboard.by_window)} (window ${less(keyboard.window)}) · by view ${yes(keyboard.by_view)} (tallest ${less(keyboard.tallest)} at width ${keyboard.width}) · focus ${yes(keyboard.focus)} · editor ${yes(keyboard.editor)} · scale ${Math.round((keyboard.scale ?? 1) * 100) / 100}`,
     'keys before: ' + (changes.map(was => `${Math.round((now - was.at) / 1000)} s ago ${was.shown ?? 'none'} (window ${yes(was.window)}, view ${yes(was.view)}, focus ${yes(was.focus)})`).join(' · ') || 'nothing yet'),
   ]
 }
@@ -250,6 +257,15 @@ const key_buttons_reload_shown = (win, keyboard, shown, look, parts = KEY_BUTTON
   !!parts.reload_button &&
   !keyboard.up &&
   !(shown == 'main' && win.innerWidth - look.right - (KEY_BUTTONS.length * look.size + (KEY_BUTTONS.length - 1) * look.gap) < look.reload.left + look.reload.size + look.gap)
+
+// whether an edit would be lost by a reload, as far as an item can tell on an app that does not
+// say (window._reload asks the app's own test): an item being saved, or an item being edited
+// whose editor on the page holds text that is not the item's (zero-width spaces apart, which
+// the editor adds), or has no editor on the page to compare
+const key_buttons_unsaved = (win, doc) => {
+  const plain = text => String(text ?? '').replace(/\u200B/g, '')
+  return win._items().some(item => item.saving || (item.editing && (field => !field || plain(field.value) != plain(item.text))(doc.getElementById('textarea-' + item.id))))
+}
 
 const key_buttons_svg = icon => `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${icon}"/></svg>`
 
@@ -341,10 +357,13 @@ function key_buttons_create() {
       button.setAttribute('aria-label', spec.title)
       button.innerHTML = key_buttons_svg(spec.icon)
       // a tap is a click: the press, and nothing else of it reaches the page under the button
+      // The keyboard's row sends its keys to an editor of the app and to nothing else: who has
+      // the focus is asked again at the tap itself (the row can still show for a moment after
+      // the focus has left its editor)
       button.addEventListener('click', e => {
         e.preventDefault()
         e.stopPropagation()
-        if (!self.disposed && !bar.hidden) key_buttons_press(spec, document)
+        if (!self.disposed && !bar.hidden && (kind == 'bar' || key_buttons_editor(document.activeElement))) key_buttons_press(spec, document)
       })
       // a press on a button is not the app's and takes no focus (the sparkle's rule, and the
       // way the app's own create button keeps the box's focus on a phone): the key goes to
@@ -369,8 +388,31 @@ function key_buttons_create() {
   // the reload button: a press reloads the page, through self.reload. It can take the focus, as
   // the sparkle can, so Enter and Space are its own while it has it (the app's window handlers
   // take them otherwise, and its keyup handler cancels a button's own activation): the press
-  // itself acts, a held key and a key with a modifier do not, and a dialog of the app gets its keys
-  self.reload = () => window.location.reload()
+  // itself acts, a held key and a key with a modifier do not, and a dialog of the app gets its keys.
+  // An edit that is not saved is never lost without a word: the question comes BEFORE the
+  // reload, since the browser's own (the app's beforeunload) is not asked on a reload by every
+  // browser (iOS Safari is documented to leave it out). The app's own reload (window._reload) asks in its
+  // dialog when an edit is unsaved, by its own test of every item, reloads at once when none
+  // is, and is not asked about again by the browser. An app that has none yet (the item can be
+  // updated before the app is): this item asks, in the app's dialog, where an edit would be
+  // lost as far as it can tell (key_buttons_unsaved; where it cannot tell, it asks), and the
+  // browser may then ask once more. Resolves to whether the page is being reloaded
+  self.reload = async () => {
+    if (typeof window._reload == 'function') return window._reload()
+    if (self.asking) return false
+    let unsaved = true
+    try {
+      unsaved = key_buttons_unsaved(window, document)
+    } catch (e) {}
+    if (unsaved) {
+      self.asking = true
+      const sure = (await window._modal('Reload and discard unsaved changes?', { confirm: 'Reload', cancel: 'Cancel' })) === true
+      self.asking = false
+      if (!sure || self.disposed) return false
+    }
+    window.location.reload()
+    return true
+  }
   const reloader = (self.reloader = document.createElement('button'))
   reloader.type = 'button'
   reloader.className = 'key-buttons-reload'
@@ -503,14 +545,31 @@ function key_buttons_create() {
   window._key_buttons = self
   // this item's deletion: the app cancels the task of a deleted item at its next run (and of
   // a replaced controller when the next one dispatches)
-  const task = _this.dispatch_task('key_buttons', () => (self.disposed ? null : void key_buttons_reconcile()), KEY_BUTTONS_TICK_MS, KEY_BUTTONS_TICK_MS)
+  // The task also retires a controller whose code is no longer the item's: a text saved without
+  // this code (its block removed, or the app's #_debug tag put on the item) runs no hook of it,
+  // so nothing else would. The item's hash is read as it is NOW, through _this at each run, and
+  // compared with the one this evaluation captured
+  const tick = () => {
+    if (self.disposed) return null
+    let live
+    try {
+      live = _this.deephash
+    } catch (e) {}
+    if (live !== key_buttons_code) {
+      self.dispose()
+      return null
+    }
+    return void key_buttons_reconcile()
+  }
+  const task = _this.dispatch_task('key_buttons', tick, KEY_BUTTONS_TICK_MS, KEY_BUTTONS_TICK_MS)
   task._on_cancel = self.dispose
   return self
 }
 
 // the rows are drawn from the item's hooks, never from the item's render, so they show with the item
 // off screen: at the page's welcome, and when this item itself is installed, updated or
-// edited, in this tab or another (the app calls _on_item_change with the item's own id)
+// edited, in this tab or another (the app calls _on_item_change on the changed item itself,
+// so the item is no listener to other items' changes: it carries no #_listen)
 function _on_welcome() {
   key_buttons_reconcile()
 }

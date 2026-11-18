@@ -50,7 +50,18 @@ const parts = kind => all().filter(n => n.dataset.keyButtons == kind)
 const viewport = Object.assign(new FakeNode('viewport'), { width: 390, height: 800, scale: 1, offsetLeft: 0, offsetTop: 0 })
 const pointer = Object.assign(new FakeNode('media'), { matches: false })
 const reloads = [] // what was asked to reload
-const win = Object.assign(new FakeNode('window'), { innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }) })
+// the app as an item sees it for a reload: its items (`open.items`; null: they cannot be read), the editors on
+// the page (`open.fields`, by element id), and its dialog (`asked`: what it was asked; `dialog.answer`: what it
+// resolves to, or a function that returns the promise)
+const open = { items: [], fields: {} }
+const asked = []
+const dialog = { answer: true }
+page.getElementById = id => open.fields[id] ?? null
+const win = Object.assign(new FakeNode('window'), {
+  innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }),
+  _items: () => { if (!open.items) throw new Error('the items cannot be read'); return open.items },
+  _modal: text => { asked.push(text); return typeof dialog.answer == 'function' ? dialog.answer() : Promise.resolve(dialog.answer) },
+})
 // the listeners held: the view's size and place, the pointer, the keys, the focus that comes and the focus that leaves
 const listening = () => [viewport.listeners.resize, viewport.listeners.scroll, pointer.listeners.change, win.listeners.keydown, page.listeners.focusin, page.listeners.focusout].map(list => (list ?? []).length)
 class FakeKey { constructor(type, init) { Object.assign(this, { type, ...init }) } }
@@ -78,7 +89,7 @@ const evaluation = (deephash, id = 'keys-id', own = tasks, source = code) => {
   const context = vm.createContext({ _this, _item: label => items[label] ?? null, document: page, window: win, KeyboardEvent: FakeKey, Date: { now: () => clock.now } })
   vm.runInContext(source, context)
   context.key_buttons_caret_line = () => caret.line // the measuring is the browser lane's
-  return (src, args) => { context.__args = args; return vm.runInContext(src, context) }
+  return Object.assign((src, args) => { context.__args = args; return vm.runInContext(src, context) }, { item: _this })
 }
 const turned = (part, on) => {
   if (!code.includes(`  ${part}: ${!on},`)) throw new Error(`no switch ${part} to turn`)
@@ -191,7 +202,7 @@ const seen = {} // the tallest view seen at each width, as a controller keeps it
 check('keyboard: with an editor focused and the view at its tallest, none; the view 336 px shorter than the window and than the tallest seen, up by both signals',
   [flags(reads(a_window(844, 844), editor, seen)), flags(reads(a_window(844, 508), editor, seen)), seen], [[false, false, false, true], [true, true, true, true], { 390: 844 }])
 check('keyboard: where the window\'s own height follows the keyboard the window reads nothing, and the view against the tallest seen decides: up',
-  reads(a_window(508, 508), editor, seen), { up: true, focus: true, by_window: false, by_view: true, window: 508, view: 508, width: 390, tallest: 844, scale: 1 })
+  reads(a_window(508, 508), editor, seen), { up: true, focus: true, editor: true, by_window: false, by_view: true, window: 508, view: 508, width: 390, tallest: 844, scale: 1 })
 check('keyboard: where no taller view has been seen at this width (a page drawn with the keyboard up) the view reads nothing, and the window decides: up',
   flags(reads(a_window(844, 508), editor, {})), [true, true, false, true])
 check('keyboard: with no element focused that takes text there is no keyboard, whatever the heights say: nothing focused, the body, a button, a checkbox',
@@ -207,15 +218,20 @@ const turn = more => ({ innerHeight: 390, visualViewport: { width: 844, height: 
 check('keyboard: a turned phone is another width with a tallest view of its own: none at first sight, up with the view much shorter, and the upright record is kept',
   [flags(reads(turn(), editor, seen)), flags(reads(turn({ height: 190 }), editor, seen)), seen], [[false, false, false, true], [true, true, true, true], { 390: 844, 844: 390 }])
 check('keyboard: a bar of under 150 px (a hardware keyboard\'s) is no keyboard, and neither is a window without a visual viewport',
-  [flags(reads(a_window(844, 784), editor, seen)), reads({ innerHeight: 844 }, editor, seen)], [[false, false, false, true], { up: false, focus: true, by_window: false, by_view: false, window: 844, view: null, width: null, tallest: null, scale: null }])
+  [flags(reads(a_window(844, 784), editor, seen)), reads({ innerHeight: 844 }, editor, seen)], [[false, false, false, true], { up: false, focus: true, editor: true, by_window: false, by_view: false, window: 844, view: null, width: null, tallest: null, scale: null }])
+check('keyboard: it also says whether the focused element is an editor of the app: a textarea in an editor\'s box is, another textarea, an input and a frame are fields that take text and no editor',
+  [editor, box, other, Object.assign(new FakeNode('input'), { type: 'text' }), new FakeNode('iframe'), null].map(active => (read => [read.focus, read.editor])(reads(a_window(844, 508), active, seen))),
+  [[true, true], [true, true], [true, false], [true, false], [true, false], [false, false]])
 const fingers = coarse => ({ matchMedia: () => ({ matches: coarse }) })
-const shown = (coarse, up, switches) => v1('key_buttons_row(__args.win, __args.keyboard, __args.parts ?? KEY_BUTTONS_PARTS)', { win: fingers(coarse), keyboard: { up }, parts: switches })
+const shown = (coarse, up, switches, editor = true) => v1('key_buttons_row(__args.win, __args.keyboard, __args.parts ?? KEY_BUTTONS_PARTS)', { win: fingers(coarse), keyboard: { up, editor }, parts: switches })
 check('shown: where the primary pointer is a finger, the main row with no keyboard up and the keyboard\'s row with one; neither on a desktop, nor without the media query',
   [shown(true, false), shown(true, true), shown(false, false), shown(false, true), v1('key_buttons_row({}, { up: true })')], ['main', 'keyboard', null, null, null])
 check('shown: with the keyboard\'s row switched off nothing shows while the keyboard is up, and the main row as before', [shown(true, true, { keyboard_row: false }), shown(true, false, { keyboard_row: false })], [null, 'main'])
+check('shown: the keyboard\'s row is for an editor of the app alone: with the keyboard up for another field no row shows, the main row hidden all the same; with no keyboard the main row, whatever has the focus',
+  [shown(true, true, undefined, false), shown(true, false, undefined, false)], [null, 'main'])
 check('says: the row, the decision, each signal with its numbers, the focus and the zoom; then the row\'s last changes with what the signals read at each',
-  v1('key_buttons_says(__args.read, "keyboard", __args.changes, 60000)', { read: { up: true, focus: true, by_window: false, by_view: true, window: 508, view: 508, width: 390, tallest: 844, scale: 1.004 }, changes: [{ at: 57400, shown: 'keyboard', window: false, view: true, focus: true }, { at: 12000, shown: null, window: true, view: false, focus: false }] }),
-  ['keys: row keyboard · keyboard up · by window no (window 508 − view 508 = 0) · by view yes (tallest 844 − view 508 = 336 at width 390) · focus yes · scale 1',
+  v1('key_buttons_says(__args.read, "keyboard", __args.changes, 60000)', { read: { up: true, focus: true, editor: true, by_window: false, by_view: true, window: 508, view: 508, width: 390, tallest: 844, scale: 1.004 }, changes: [{ at: 57400, shown: 'keyboard', window: false, view: true, focus: true }, { at: 12000, shown: null, window: true, view: false, focus: false }] }),
+  ['keys: row keyboard · keyboard up · by window no (window 508 − view 508 = 0) · by view yes (tallest 844 − view 508 = 336 at width 390) · focus yes · editor yes · scale 1',
     'keys before: 3 s ago keyboard (window no, view yes, focus yes) · 48 s ago none (window yes, view no, focus no)'])
 check('says: with no change yet it says so', v1('key_buttons_says(__args, null, [], 0)', { up: false, focus: false, by_window: false, by_view: false, window: 844, view: 844, width: 390, tallest: 844, scale: 1 })[1], 'keys before: nothing yet')
 
@@ -296,7 +312,7 @@ check('reload: hidden while the keyboard is up', again.hidden, true)
 clock.now += 4000
 check('controller: it says what it reads: the row, the two signals, and the row\'s changes since it was drawn',
   v1('window._key_buttons.says()'),
-  ['keys: row keyboard · keyboard up · by window yes (window 800 − view 464 = 336) · by view yes (tallest 800 − view 464 = 336 at width 390) · focus yes · scale 1',
+  ['keys: row keyboard · keyboard up · by window yes (window 800 − view 464 = 336) · by view yes (tallest 800 − view 464 = 336 at width 390) · focus yes · editor yes · scale 1',
     'keys before: 4 s ago keyboard (window yes, view yes, focus yes) · 7 s ago main (window no, view no, focus no) · 9 s ago none (window no, view no, focus no)'])
 page.activeElement = null
 page.fire('focusout')
@@ -322,7 +338,7 @@ Object.assign(win, { innerHeight: 800 })
 viewport.height = 800
 viewport.fire('resize')
 check('controller: a keyboard that goes while the editor keeps the focus puts the main row back; and where the window\'s own height follows the keyboard, the view alone still brings the keyboard\'s row',
-  [gone, followed, bar.hidden], [[false, true, true], [true, false, 'keys: row keyboard · keyboard up · by window no (window 464 − view 464 = 0) · by view yes (tallest 800 − view 464 = 336 at width 390) · focus yes · scale 1'], false])
+  [gone, followed, bar.hidden], [[false, true, true], [true, false, 'keys: row keyboard · keyboard up · by window no (window 464 − view 464 = 0) · by view yes (tallest 800 − view 464 = 336 at width 390) · focus yes · editor yes · scale 1'], false])
 check('reload: back once the keyboard is down', again.hidden, false)
 blur()
 const button = name => [...bar.children, ...keys.children].find(b => b.dataset.key == name)
@@ -342,6 +358,20 @@ button('outdent').fire('click')
 button('down').fire('click') // the main row is hidden under the keyboard: nothing
 check('controller: above the keyboard a tap sends its key to the editor that has the focus, and the hidden main row sends nothing',
   [indented, got(editor), page.body.got.length, page.activeElement === editor], [told(events('indent')), told(events('outdent')), 0, true])
+editor.got.length = 0
+page.activeElement = null // the focus has left its editor, and the item has not looked yet: the row still shows
+const lingers = keys.hidden
+button('done').fire('click')
+page.activeElement = other // a field that is no editor of the app
+button('done').fire('click')
+button('indent').fire('click')
+const unsent = [lingers, got(editor), got(other), page.body.got.length]
+focus(other) // the look at the focus that came: no row for this field, and its keyboard hides the main row all the same
+const for_a_field = [bar.hidden, keys.hidden, again.hidden]
+focus(editor)
+button('indent').fire('click')
+check('controller: the keyboard\'s row sends to an editor of the app alone, asked again at the tap: after the focus left, the row still showing, and with the focus in another field a tap sends nothing; for another field\'s keyboard no row shows, the main row and the reload button hidden as for any keyboard; back in an editor it shows and sends',
+  [unsent, for_a_field, keys.hidden, got(editor)], [[false, [], [], 0], [true, true, true], false, told(events('indent'))])
 editor.got.length = 0
 const pressed = name => ['mousedown', 'touchstart', 'contextmenu'].map(type => button(name).fire(type)).map(e => [e.prevented, e.stopped])
 check('controller: a press is not the app\'s and takes no focus, in either row: a mouse press is prevented and stopped, a touch only stopped (its tap is the click), a long press opens no menu',
@@ -517,12 +547,93 @@ calm()
 
 // ---- the item ----------------------------------------------------------------------------------
 const prose = item.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
-check('item: its label, its code as an embed of key_buttons.js, and its two hooks\' tags; no other tag, so an install pulls in no other item',
-  [prose.match(/(?:^|\s)#[\w/]+/g).map(tag => tag.trim()), /\n```js_removed:key_buttons\.js\n\/\/ key_buttons\.js\n```\n/.test(item), /<</.test(item)],
-  [['#key_buttons', '#_welcome', '#_listen'], true, false])
+check('item: its label, its code as an embed of key_buttons.js, and the welcome\'s tag; no other tag, so an install pulls in no other item, and no listener\'s tag: the app hands an item its own changes, and this one asks for no other item\'s',
+  [prose.match(/(?:^|\s)#[\w/]+/g).map(tag => tag.trim()), /\n```js_removed:key_buttons\.js\n\/\/ key_buttons\.js\n```\n/.test(item), /<</.test(item), /\n#_welcome\n$/.test(item)],
+  [['#key_buttons', '#_welcome'], true, false, true])
 
-if (failures) {
-  console.log(`${failures} FAILED`)
-  process.exit(1)
+// ---- a controller whose code is no longer the item's: the task retires it --------------------------
+{
+  calm()
+  const own = {}
+  const run = evaluation(5, 'keys-id', own)
+  run('_on_welcome()')
+  const kept = [own.key_buttons.fn(), parts('bar').length, listening()] // a tick with the item as it was
+  run.item.deephash = 6 // the item's text saved without this code: no hook of it runs, and its hash is another
+  log.length = 0
+  const retired = [own.key_buttons.fn(), [...log], ['bar', 'keyboard', 'reload', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
+  log.length = 0
+  check('stale: the task keeps a controller whose code is still the item\'s; once the item\'s hash is another (its code removed, or the app\'s #_debug tag put on it: no hook says so) the next run retires it: the rows, the button, the style and every listener go, the task ends, and a later run does nothing',
+    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-bar', '-keyboard', '-reload', '-style'], [0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
+  const theirs = {}
+  const gone = evaluation(7, 'keys-id', theirs)
+  gone('_on_welcome()')
+  Object.defineProperty(gone.item, 'deephash', { get() { throw new Error('item keys-id is deleted') } })
+  log.length = 0
+  check('stale: a controller whose item can no longer be read (deleted, should the app not have cancelled its task) is retired the same way',
+    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-bar', '-keyboard', '-reload', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
+  log.length = 0
 }
-console.log('all ok')
+
+;(async () => {
+  // ---- the reload asks before it would discard an edit ---------------------------------------------
+  calm()
+  const own = {}
+  const run = evaluation(11, 'keys-id', own)
+  run('_on_welcome()')
+  const again = parts('reload').at(-1)
+  const settled = () => new Promise(resolve => setImmediate(resolve)) // the reload is the page's own promise
+  const press = async () => { again.fire('click'); await settled() }
+  reloads.length = asked.length = 0
+  win._reload = () => { asked.push('the app\'s own reload'); return Promise.resolve(true) }
+  await press()
+  delete win._reload
+  check('reload: where the app has a reload of its own, a press asks for that and for nothing else: the item puts no question and reloads nothing itself', [asked, reloads], [['the app\'s own reload'], []])
+  asked.length = 0
+  await press()
+  check('reload: on an app without one, a press with no edit open reloads at once, with no question', [asked, reloads], [[], ['page']])
+  const item = more => ({ id: 'i1', text: 'saved text', saving: false, editing: false, ...more })
+  const cases = [
+    [[item({ saving: true })], null, false], // an item being saved: asked, and cancelled
+    [[item({ editing: true })], { value: 'saved\u200B text' }, false], // edited, the editor holding the item's own text (a zero-width space apart): nothing to lose
+    [[item({ editing: true })], { value: 'saved text and more' }, undefined], // edited, with typed text: asked, and the question closed some other way
+    [[item({ editing: true })], null, false], // edited, and no editor on the page to compare: asked
+    [null, null, false], // the items cannot be read: asked
+    [[item(), item({ id: 'i2', editing: true })], { value: 'saved text' }, true], // typed text in another item's editor (none on the page for it): asked, and confirmed
+  ]
+  const tried = []
+  for (const [items, field, answer] of cases) {
+    Object.assign(open, { items, fields: field ? { 'textarea-i1': field } : {} })
+    dialog.answer = answer
+    reloads.length = asked.length = 0
+    await press()
+    tried.push([[...asked], [...reloads]])
+  }
+  const question = 'Reload and discard unsaved changes?'
+  check('reload: on an app without one, the item asks first, in the app\'s dialog, wherever an edit would be lost as far as it can tell: an item being saved, an editor holding other text than its item\'s, an edit with no editor on the page, items that cannot be read; only a confirmed question reloads, and an editor holding its item\'s own text asks nothing',
+    tried, [[[question], []], [[], ['page']], [[question], []], [[question], []], [[question], []], [[question], ['page']]])
+  let answer = () => {} // (until the question is put: a press that puts none leaves nothing to answer)
+  dialog.answer = () => new Promise(resolve => (answer = resolve))
+  Object.assign(open, { items: [item({ saving: true })], fields: {} })
+  reloads.length = asked.length = 0
+  again.fire('click')
+  again.fire('click')
+  await settled()
+  const while_open = [asked.length, [...reloads]]
+  answer(true)
+  await settled()
+  check('reload: while its question is open a second press puts no second one; confirmed, the page reloads once', [while_open, asked.length, reloads], [[1, []], 1, ['page']])
+  reloads.length = asked.length = 0
+  again.fire('click')
+  await settled()
+  run('window._key_buttons.dispose()')
+  answer(true)
+  await settled()
+  check('reload: a controller that is gone by the time of the answer reloads nothing', [asked.length, reloads], [1, []])
+  Object.assign(open, { items: [], fields: {} })
+
+  if (failures) {
+    console.log(`${failures} FAILED`)
+    process.exit(1)
+  }
+  console.log('all ok')
+})()
