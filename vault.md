@@ -1010,15 +1010,19 @@ const vault_follow_title = rule => {
 // the mark itself, the owner's look (2026-11-16): ONE stylesheet whose rules name the items by
 // the id their box carries (data-item-id), so nothing is attached to an item and the app's
 // search, toggles, hiding and column layout cannot lose it: a little sparkle, with no
-// background, left of the item's number, inside the number's box where there is room (the box
-// has a fixed width, so a short number leaves it; a long one pushes the sparkle a few pixels
-// out to the left, which the owner accepts: "even if they did not, it would be fine to insert
-// a little sparkle"), and while the item is edited, when its number is not shown, the same
-// sparkle left of the edit menu's buttons ("so i can tell either way when the item is being
-// watched"). Its sizes are the owner's: about the height of the number's digits on an item and
-// centred on them, a little less than the buttons' height in the editor. No text of a rule
-// enters the stylesheet: the ids are the app's own, kept to `[\w-]+` (vault_watched). Under a
-// watch of all items (`all`) the same two rules name no item: they are on every item's box
+// background, left of the item's number, and while the item is edited, when its number is not
+// shown, the same sparkle left of the edit menu's buttons ("so i can tell either way when the
+// item is being watched"). By the number the sparkle has room of its own (2026-11-17: the
+// number's box is as wide as its digits now, where it kept four digits' room that a short
+// number left to the sparkle): it takes none of the box (its margins sum to minus its width),
+// so it is drawn in the 18px left of the digits whatever the box's width, and two rules keep
+// those 18px free, the item's text out of them (the app's placeholder for the menu, the first
+// child of the item's text, floats with that much margin) and a run button to their left
+// (shifted, so the menu's own size, which the app measures once for all items, is not the
+// mark's to change). Its sizes are the owner's: about the height of the number's digits on an
+// item and centred on them, a little less than the buttons' height in the editor. No text of a
+// rule enters the stylesheet: the ids are the app's own, kept to `[\w-]+` (vault_watched). Under
+// a watch of all items (`all`) the same rules name no item: they are on every item's box
 const vault_watched_css = (ids, all = false) => {
   if (!all && !ids.length) return ''
   const boxes = all ? '.container[data-item-id]' : `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
@@ -1031,7 +1035,10 @@ const vault_watched_css = (ids, all = false) => {
     // others, by where each item sits (measured by pixels in Open Sans at 1x and 2x, 2026-11-16).
     // A whole one moves the two together, and 15px lowered by 2 puts its middle on the middle of
     // the digits (13px lowered by 1 does too; 14px can only be half a pixel off, either way)
-    `${boxes} .item-menu > .button.index::before { content: ${mark(15)}; flex: none; margin-right: 3px; position: relative; top: 2px }`,
+    `${boxes} .item-menu > .button.index::before { content: ${mark(15)}; flex: none; margin: 0 3px 0 -18px; position: relative; top: 2px }`,
+    // its room, the 18px left of the digits: the text keeps out of them, and a run button steps aside
+    `${boxes} .item > [id^="menu-"]:first-child { margin-left: 18px }`,
+    `${boxes} .item-menu > .button.run { position: relative; right: 18px }`,
     // in the editor: centred on the buttons
     `${boxes} .edit-menu::before { content: ''; flex: none; align-self: center; width: 23px; height: 23px; margin-right: 6px; background: ${mark(23)} center / contain no-repeat }`,
   ].join('\n')
