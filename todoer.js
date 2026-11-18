@@ -163,8 +163,8 @@ function __render(widget, widget_item) {
   // the bins: the AGENT bin (a delegation) comes FIRST on every widget, followed by
   // done/snooze/cancel on the main and snoozed lists; the delegated list (design 2.2) has the
   // agent bin (a re-delegation) and the OWNER bin (a take-back) only.
-  // NOTE: the widget is a flex row (the list, then the bins), so the append order below is the
-  // row order; the bins' rounded outer edges and drag margins in todoer-widget.html follow it
+  // NOTE: the widget is a flex row (the list, then the bins) while a row is dragged, so the append
+  // order below is the row order; the bins' rounded outer edges and drag margins in todoer-widget.html follow it
   const bin = name => {
     const elem = document.createElement('div')
     elem.className = `${name} bin`

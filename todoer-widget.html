@@ -12,7 +12,15 @@
 </script>
 
 <style>
+  /* a block while no row is dragged, the flex row (the list, then the bins) during a drag only: a flex
+     container is a formatting context of its own, which the app's placeholder beside an item's number
+     (a float at the top right of the content, wider on a watched item) narrows over the widget's WHOLE
+     height; in a block only the rows beside the number give way (a row's .list-item is the box that
+     shrinks, by its overflow) */
   #widget {
+    display: block;
+  }
+  #widget.dragging {
     display: flex;
   }
   #widget .list {
