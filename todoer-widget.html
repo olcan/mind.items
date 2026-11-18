@@ -12,7 +12,15 @@
 </script>
 
 <style>
+  /* a block while no row is dragged, the flex row (the list, then the bins) during a drag only: a flex
+     container is a formatting context of its own, which the app's placeholder beside an item's number
+     (a float at the top right of the content, wider on a watched item) narrows over the widget's WHOLE
+     height; in a block only the rows beside the number give way (a row's .list-item is the box that
+     shrinks, by its overflow, and the box that paints the row: see .list-item below) */
   #widget {
+    display: block;
+  }
+  #widget.dragging {
     display: flex;
   }
   #widget .list {
@@ -35,13 +43,16 @@
   #widget .list:empty {
     text-align: center;
   }
+  /* a row's own box is as wide as its text and paints nothing: beside an item's number it does not
+     give way to the app's placeholder there (it is no formatting context, and one of this width
+     would be moved below the float where it does not fit), so its border and its background are its
+     .list-item's (below). It is shifted 3 px to the left, which its width limit allows for: a long
+     row runs to the list's right edge */
   #widget .list > .list-item-container {
     width: fit-content;
-    max-width: 100%;
+    max-width: calc(100% + 3px);
     min-width: 260px;
     box-sizing: border-box;
-    border: 1px dashed transparent;
-    border-radius: 4px;
     margin-left: -3px;
   }
   #widget .bin {
@@ -172,8 +183,14 @@
     background: #1a1a1a;
     font-size: 90%;
   }
-  #widget .list > .list-item-container[data-pending] {
-    opacity: 0.6; /* the overlay: a command the bridge has not acknowledged */
+  /* the overlay of a command the bridge has not acknowledged: on the row's .list-item, never on the
+     row's own box, which reaches under an item's number where its .list-item gives way (an opacity
+     makes a stacking context of the whole box, above the number's button, and its invisible part
+     then takes the taps meant for the number). As a filter, because todoer.js sets the .list-item's
+     own inline opacity for the unsaved state (0.5, then 1), which a stylesheet's opacity would lose
+     to; the two multiply, as the row's and the .list-item's opacities did */
+  #widget .list > .list-item-container[data-pending] > .list-item {
+    filter: opacity(0.6);
   }
 
   #widget .list-item {
@@ -188,22 +205,29 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    /* the row's border (and its background while chosen or dragged, below): this box gives way to a
+       float beside it, so a selected or dragged row is never drawn under an item's number or its
+       watched mark */
+    border: 1px dashed transparent;
+    border-radius: 4px;
   }
   #widget.dragging .list-item {
     cursor: grabbing;
   }
   #widget .list > .list-item-container.sortable-ghost {
     opacity: 0.5;
+  }
+  #widget .list > .list-item-container.sortable-ghost > .list-item {
     border: 1px dashed #666 !important;
   }
   #widget .bin :is(.sortable-ghost, .list-item) {
     visibility: hidden;
   }
-  #widget .list > .list-item-container:is(.sortable-drag, .sortable-chosen) {
+  #widget .list > .list-item-container:is(.sortable-drag, .sortable-chosen) > .list-item {
     background: #171717;
     border: 1px solid #666;
   }
-  #widget .list > .list-item-container.selected {
+  #widget .list > .list-item-container.selected > .list-item {
     border: 1px solid #242;
   }
   #widget.dragging .list > .list-item-container {
@@ -240,8 +264,10 @@
     --bin-color: #eee;
   }
   #widget:has(.bin:not(:empty)) .list > .list-item-container.sortable-drag {
-    border-color: var(--bin-color);
     color: var(--bin-color);
+  }
+  #widget:has(.bin:not(:empty)) .list > .list-item-container.sortable-drag > .list-item {
+    border-color: var(--bin-color);
   }
   #widget:has(.bin:not(:empty)) .list > .list-item-container.sortable-drag :is(a, mark) {
     color: inherit;
