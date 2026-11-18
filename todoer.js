@@ -206,6 +206,13 @@ function __render(widget, widget_item) {
   let have_unsnoozed = false
   let review_anchor // the #vault item's review-anchor builder, resolved at the first task row that needs it
   for (const item of _items()) {
+    // a todo by its VISIBLE tags: the status tag is the item's own #todo, never a hidden
+    // dependency on it (#_todo, which item.tags lists as #todo too). a completed todo that
+    // keeps one must not come back as a row (review 2 of 2026-11-17: it did at the next
+    // render, its snippet taken from a lower-case #todo that the completion rightly left, a
+    // selector in a stylesheet written in capitals). the widget's other tags are matched
+    // over all of the item's tags, hidden ones included, as before
+    if (!item.tags_visible.includes('#todo')) continue
     if (
       !tags.every(tag => {
         if (tag[0] == '#') return item.tags.includes(tag)
@@ -287,10 +294,8 @@ function __render(widget, widget_item) {
     // determine suffix vs prefix snippet based on #todo suffix match
     if (!text.match(/(?:^|\s|\()#todo$/)) {
       if (!text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
-      if (text.endsWith(' …')) container.setAttribute('data-truncated', true) // used for done/cancel
       div.innerHTML = html
     } else {
-      if (text.startsWith('… ')) container.setAttribute('data-truncated', true) // used for done/cancel
       // use direction=rtl to truncate (and add ellipsis) on the left
       div.style.direction = 'rtl'
       div.style.textAlign = 'left'
@@ -541,7 +546,6 @@ function __render(widget, widget_item) {
       // debug('onEnd')
       // widget.classList.remove('dragging')
       const id = e.item.getAttribute('data-id')
-      const truncated = e.item.getAttribute('data-truncated')
       const item = _item(id)
       if (e.to == agent_bin) {
         // a delegation (or a re-delegation from the delegated list): the command document is
@@ -558,39 +562,106 @@ function __render(widget, widget_item) {
       } else if (e.to == cancel_bin) {
         cancel_bin.firstChild.remove()
         item.delete()
-        // if (!truncated) item.delete()
-        // else item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
+        // alternative (not enabled): delete only a todo whose snippet is whole, else keep it:
+        // item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
         // // log if logger exists
         // if (_exists('#logger'))
         //   MindBox.create('/log cancelled ' + e.item.title.replace(/\s+/g, ' '))
       } else if (e.to == done_bin) {
+        // a todo dropped on the done bin is NEVER deleted (the owner, 2026-11-17): its todo
+        // tag becomes #done whatever its length and whether the item is named, and the item
+        // stays with all it holds. until then only a row whose snippet had been cut was
+        // rewritten and every other one was deleted: a task with its agent's tree and log
+        // (the snippet reads the tree as a token and drops the log), a saved item with a
+        // unique label after the app's "Delete ...?". no deletion, so that question is gone;
+        // the app's own question before a whole-item write of 262,144 UTF-16 units or more
+        // is still asked (write() below).
         // gate ALL side effects (DOM removal, /log) on an ACCEPTED mutation (review 151
         // §2.4): the fail-closed branch must not report completion, and item.write's
         // boolean result is the acceptance signal (a refused write must not log as done)
         const grammar = window._grammar
-        if (truncated && !(grammar?.version >= 2)) {
-          // FAIL CLOSED, never raw (review 150 §2.4): a raw rewrite could alter #todo
-          // bytes inside a vault_result candidate. restore the dragged row (the snooze
-          // branch's cancellation idiom) so the widget matches the unchanged item.
+        if (!(grammar?.version >= 2)) {
+          // FAIL CLOSED, never raw (review 150 §2.4), for every todo now: a raw rewrite
+          // could alter #todo bytes inside a vault_result candidate. restore the dragged
+          // row (the snooze branch's cancellation idiom) so the widget matches the
+          // unchanged item.
           list.insertBefore(e.item, list.children[e.oldIndex])
           alert('please reload to complete todos (app update required)')
           return
         }
-        let completed
-        if (!truncated) {
-          // delete() returns deleteItem()'s boolean: false on fixed/shared mode or a
-          // declined confirmation (review 152 §2.1) -- a declined delete must not log
-          completed = item.delete() === true
-        } else {
-          // over the GRAMMAR VIEW (review 149 §2): a #todo inside a vault_result candidate
-          // must not be rewritten, and the raw envelope must survive
-          completed =
-            item.write(grammar.edit(item.text, view => view.replace(/#todo\b/g, '#done')), '') === true
+        if (item.editing) {
+          // an open editor holds the owner's draft (item.text is assigned when editing ends),
+          // and a whole-item write replaces the editor's text and stays unsaved: nothing is
+          // written, as the app refuses to name an item being edited
+          list.insertBefore(e.item, list.children[e.oldIndex])
+          alert(`can not complete a todo while editing it: finish editing ${item.name} first`)
+          return
         }
+        // over the GRAMMAR VIEW (review 149 §2): a #todo inside a vault_result candidate
+        // must not be rewritten, and the raw envelope must survive. the todo TAG and nothing
+        // else (reviews 0 to 2 of 2026-11-17): the VISIBLE tags the app indexes as #todo
+        // become #done, through the app's tag grammar (_replace_tags), so a longer tag
+        // (#todo-list, which can be the item's own label), a code span or block (the
+        // bridge's _log) and a url's fragment are left as written. the app parses tags from
+        // the LOWERCASED view, so the tags are matched over a copy of the view with its ASCII
+        // capitals folded (the same length, so an offset in it is the view's; toLowerCase()
+        // would not do: it makes two characters of an İ) and edited in the view itself: the
+        // tag in any case (#ToDo), and a stylesheet or script written in capitals (<STYLE>)
+        // skipped as the parser skips it (the replacer's exclusions name those elements in
+        // lower case). the parser also ends a tag at a `#` (#todo#x is the tag #todo), which
+        // the replacer's delimiter does not list: in the copy that `#` reads as a `.`, a
+        // delimiter of the same width, so the tag is matched and the text after it is read as
+        // the parser reads it (#done#x; an eval macro that starts right after that `#` is
+        // skipped: a pattern that took the `#` suffix took the macro's first character with
+        // it, and the macro's own text was edited). the HIDDEN form #_todo is kept on
+        // purpose: the parser records it as a hidden dependency on #todo, which #_done would
+        // retarget (the render takes an item for a todo by its visible tags).
+        // two cases wait for the app's parser and its replacer to agree: a stylesheet whose
+        // element has attributes (<style media="print"> #todo {} </style>) is still changed,
+        // since the app itself indexes that selector as the tag; and a tag glued to an eval
+        // macro whose text holds a #todo keeps a visible #todo in the index, the macro being
+        // preserved
+        let tags = 0
+        const text = grammar.edit(item.text, view => {
+          const spans = [] // where each todo tag starts in the view
+          _replace_tags(
+            view.replace(/[A-Z]/g, c => c.toLowerCase()).replace(/#todo#/g, '#todo.'),
+            '(^|\\s|\\()#todo',
+            (m, pfx, offset) => void spans.push(offset + pfx.length)
+          )
+          tags = spans.length
+          const kept = [] // the view's text around the tags, joined by the new tag once
+          let end = 0
+          for (const at of spans) {
+            kept.push(view.slice(end, at))
+            end = at + 5
+          }
+          return [...kept, view.slice(end)].join('#done')
+        })
+        if (!tags) {
+          // no todo tag left: completed elsewhere while this row was dragged (another tab,
+          // the bridge; the widgets' renders wait for the drag's end). nothing to write, and
+          // no second completion to log: the row just goes
+          done_bin.firstChild.remove()
+          return
+        }
+        // write() returns false in read-only mode, or when the app's question before a
+        // large write (above) is declined
+        const completed = item.write(text, '') === true
         if (!completed) {
           list.insertBefore(e.item, list.children[e.oldIndex])
           alert(`could not complete todo (mutation refused) for ${item.name}`)
           return
+        }
+        // a completed todo's snooze and its reminder (the snooze dialog's box) are cleared:
+        // the sweep walks every item, and at the snooze time it would unsnooze the kept item
+        // and could show its reminder for work already done. not through _unsnooze, which
+        // marks the item unsnoozed and calls the unsnooze listeners
+        const snooze = item._global_store._todoer
+        if (snooze?.snoozed || snooze?.notify) {
+          const store = item.global_store._todoer // reading global_store saves the store
+          store.snoozed = 0
+          delete store.notify
         }
         done_bin.firstChild.remove()
         // log if logger exists
