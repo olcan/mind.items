@@ -790,9 +790,9 @@ if (realMarked) {
   const shown = { kind: 'watching', key: 'watching:' + TOOK, name: watching.name, took: TOOK, tab: false, jump: null, busy: false, dim: false, title: 'claude-fable-5-2-max is watching', seen: SEEN }
   check('sparkle: a fresh watcher is shown watching', state(listed(watching), fresh), shown)
   check('sparkle: an answering watcher pulses under its own name', state(listed({ ...watching, state: 'answering' }), fresh),
-    { ...shown, busy: true, title: 'claude-fable-5-2-max is answering a request' })
+    { ...shown, busy: true, title: 'claude-fable-5-2-max is answering' })
   check('sparkle: a hand-off names the agent that answers', state(listed({ ...watching, state: 'answering', by: 'gpt-6-astra-ultra' }), fresh).title,
-    'gpt-6-astra-ultra is answering a request')
+    'gpt-6-astra-ultra is answering')
   check('sparkle: a watching watcher never shows a by', state(listed({ ...watching, by: 'gpt-6-astra-ultra' }), fresh).title, shown.title)
   const offer = { kind: 'offer', key: 'offer::', start: null, tab: false, jump: null, busy: false, dim: true, title: 'Start a watcher', last: null, seen: SEEN }
   check('sparkle: with no watcher, or one that names no agent or no take, a fresh bridge shows the offer to start one, dim',
@@ -1150,7 +1150,7 @@ if (realMarked) {
   store._bridge.watcher.state = 'answering'
   v1('_on_global_store_change(_this.id)')
   check('sparkle: a store change updates the same element in place', [parts('node')[0] === node, log.length, node.classes.has('answering'), node.title],
-    [true, 4, true, 'claude-fable-5-2-max is answering a request'])
+    [true, 4, true, 'claude-fable-5-2-max is answering'])
   status._global_store._status.hosts = at(T - 4 * 60000)
   v1("_on_global_store_change('status-id')")
   check('sparkle: the #status item\'s store counts too: a stale bridge hides it', node.hidden, true)
@@ -1482,6 +1482,7 @@ if (realMarked) {
     spark.fire('click') // an open menu, whose lines are about to change
     check('watched: a look that took more is said in one more line, below the rules\' lines and with no tooltip, in whole milliseconds: the listing and the sheet\'s replacement together; the menu that was open closes, and the controller warns, with the time, the items marked and the rules',
       [parts('menu').length, timed(60, 24)], [1, [true, 0, [...RULES(1198), ['marking took 84 ms', '']], [WARNED]]])
+    check('watched: that line is the menu\'s alone: the sparkle\'s tooltip keeps to the watches', spark.title, shown.title + '\nwatched: #bulk (1,198 items) · #work')
     spark.fire('click') // an open menu again: the next look finds the same items, and only its time is another
     check('watched: a later slow look changes the line, which closes an open menu as any change of its lines does, and warns no more: once in the controller\'s life',
       [parts('menu').length, timed(50.6, 0, false)], [1, [true, 0, [...RULES(1198), ['marking took 51 ms', '']], [WARNED]]])

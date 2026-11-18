@@ -2,7 +2,7 @@
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
 - the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
-- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items that is, each of which carries the mark; while an agent follows all items, every item is marked. The sparkle's tooltip says the same on its second line.
+- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items that is, each of which carries the mark; while an agent follows all items, every item is marked. The bottom-right sparkle's tooltip says the same on its second line.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -759,7 +759,7 @@ function vault_sparkle_state(bridge, hosts, now, marks = {}) {
     const stopping = live(marks.stopping) && marks.stopping.took === took
     const answering = state == 'answering'
     const who = typeof by == 'string' && by ? by : name
-    const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering a request` : `${name} is watching`
+    const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering` : `${name} is watching`
     return { kind: 'watching', key: 'watching:' + took, name, took, tab: watcher.tab === true, jump: vault_jump(watcher.jump), busy: closing || stopping || answering, dim: false, title, seen }
   }
   const last = vault_last_watcher(watcher.last)
