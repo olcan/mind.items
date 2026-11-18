@@ -52,6 +52,13 @@
     border-radius: 4px;
     margin-left: -3px;
   }
+  /* a row is shifted 3 px to the left, so its width limit allows for them and a long row runs to the
+     list's right edge. Not the first row: beside an item's number its text gives way to the app's
+     placeholder there (see #widget above) while the row's own box does not, and would reach under
+     the digits, with its border when the row is selected or dragged */
+  #widget .list > .list-item-container:not(:first-child) {
+    max-width: calc(100% + 3px);
+  }
   #widget .bin {
     flex-basis: 0;
     flex-grow: 1;
