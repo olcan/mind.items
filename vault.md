@@ -2,7 +2,7 @@
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
 - the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
-- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items that is, each of which carries the mark; while an agent follows all items, every item is marked.
+- a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items that is, each of which carries the mark; while an agent follows all items, every item is marked. The sparkle's tooltip says the same on its second line.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -950,18 +950,35 @@ function vault_watched(follows) {
 // of the watches that have no rule, or an older bridge's words for a selector) says them and no
 // count: nothing of it is checked here
 const vault_count = n => `${n.toLocaleString('en-US')} item${n == 1 ? '' : 's'}`
+// what a rule selects, in its line's words: its tags, its label globs, its ids (the one item's
+// name when the last look found it), then an entry's own words
+const vault_follow_ids = (rule, seen) => (rule.ids.length ? [seen?.name ?? `${rule.ids.length} by id`] : [])
+const vault_follow_what = (rule, seen) => (rule.all ? 'all items' : [...rule.tags, ...rule.labels, ...vault_follow_ids(rule, seen), ...rule.more].join(', '))
 function vault_follow_line(rule, seen, all) {
   if (rule.all) return 'watched: all items'
-  const by_id = rule.ids.length ? [seen?.name ?? `${rule.ids.length} by id`] : []
-  const what = [...rule.tags, ...rule.labels, ...by_id, ...rule.more].join(', ')
+  const by_id = vault_follow_ids(rule, seen)
+  const what = vault_follow_what(rule, seen)
   if (all || !seen || rule.more.length) return `watched: ${what}`
   if (what == by_id[0] && seen.n == rule.ids.length) return `watched: ${seen.name ?? vault_count(seen.n)}`
   return `watched: ${what} (${vault_count(seen.n)})`
 }
-// the line's tooltip: the agent that follows, since when, and its watch's name
-const vault_follow_title = rule => {
+// the line's tooltip: the agent that follows, what it follows as the line says it, and since
+// when. Not the watch's name, an agent's own label for its saved state: a watch of `#watch`
+// named `watch` read "(watch watch)" (the owner, 2026-11-18: "using the tag form `#watch`
+// would be clearer"). An entry that is no watch's own (no name of one) has no tooltip
+const vault_follow_title = (rule, seen) => {
   const since = new Date(rule.since)
-  return rule.watch ? `${rule.name || 'An agent'} follows${isNaN(since) ? '' : ` since ${since.toLocaleString()}`} (watch ${rule.watch})` : ''
+  return rule.watch ? `${rule.name || 'An agent'} follows ${vault_follow_what(rule, seen)}${isNaN(since) ? '' : ` since ${since.toLocaleString()}`}` : ''
+}
+// the sparkle's tooltip: what it shows (`shown`: who watches, a start, a stop), and on a second
+// line what is watched (the owner, 2026-11-18: "i'd like to see it as second line of the
+// tooltip too"): the menu's `watched:` lines on one line, the word said once and a dot
+// between the watches, a rule's own commas being its selectors'. A line that is no watch's (a
+// slow look's) is not in it, and with no watch the tooltip is one line
+const VAULT_WATCHED = 'watched: '
+function vault_sparkle_title(shown, lines) {
+  const watched = lines.filter(line => line.text.startsWith(VAULT_WATCHED)).map(line => line.text.slice(VAULT_WATCHED.length))
+  return watched.length ? `${shown}\n${VAULT_WATCHED}${watched.join(' · ')}` : shown
 }
 
 // the mark itself, the owner's look (2026-11-16): ONE stylesheet whose rules name the items by
@@ -1113,14 +1130,20 @@ function vault_sparkle_create() {
     if (jump === null) delete node.dataset.vaultJump
     else node.dataset.vaultJump = jump
     if (!state) return
-    // a watch of all items marks every item, and the sparkle's own words say it too
-    const title = self.all ? `${state.title} · watched: all items` : state.title
+    self.say()
+    node.classList.toggle('answering', state.busy)
+    node.classList.toggle('idle', state.dim)
+  }
+  // the sparkle's own words, its tooltip: what it shows, and below it what is watched, as the
+  // menu's lines say it now (vault_sparkle_title). Said again after each look, whose counts
+  // the lines carry
+  self.say = () => {
+    if (!self.shown) return
+    const title = vault_sparkle_title(self.shown.title, self.lines().lines)
     if (node.title !== title) {
       node.title = title
       node.setAttribute('aria-label', title)
     }
-    node.classList.toggle('answering', state.busy)
-    node.classList.toggle('idle', state.dim)
   }
 
   // the look at the items for the rules applied: whatever it finds is marked, the marks are
@@ -1145,6 +1168,7 @@ function vault_sparkle_create() {
       console.warn(`vault: marking the watched items took ${Math.round(self.took)} ms (${marked} marked, ${rules} rule${rules == 1 ? '' : 's'})`)
     }
     if (self.menu && self.lines().key !== self.menu.lines) self.close()
+    self.say()
   }
   // a look a moment from now, as a task of the item: one for a burst of changes (a later
   // request replaces the task), and none inside the welcome, which enumerates no item
@@ -1154,7 +1178,10 @@ function vault_sparkle_create() {
   // the menu's lines for the rules applied, by the last look, then one more while that look
   // was a slow one, and their text as one key
   self.lines = () => {
-    const lines = self.follows.map((rule, at) => ({ text: vault_follow_line(rule, self.found?.rules[at] ?? null, self.all), title: vault_follow_title(rule) }))
+    const lines = self.follows.map((rule, at) => {
+      const seen = self.found?.rules[at] ?? null
+      return { text: vault_follow_line(rule, seen, self.all), title: vault_follow_title(rule, seen) }
+    })
     if (self.took > VAULT_WATCHED_SLOW_MS) lines.push({ text: `marking took ${Math.round(self.took)} ms`, title: '' })
     return { lines, key: lines.map(line => line.text).join('\n') }
   }
