@@ -1042,6 +1042,31 @@ delete context.__todos.p
   for (const id of ['u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8', 'u9', 'w9']) delete context.__todos[id]
 }
 
+// the app's REAL tag replacer and tag parser (replaceTags, parseTags and what they read, evaluated
+// from the app's src/util.js), for the rows that must read tags as the app does: the row's url pass
+// (the wiki rows), the done bin's rewrite, and the tags the app indexes of a completed todo; the
+// context's stub above rewrites nothing
+const app = path.join(__dirname, '..', '..', 'mind.page')
+const { replaceTags, parseTags } = (() => {
+  const util = fs.readFileSync(path.join(app, 'src', 'util.js'), 'utf8')
+  // the pieces by their boundaries: an exclusion array to its join, another constant's line, a function to its
+  // closing brace; found by the exact name (tagRegex is also the start of four other names)
+  const piece = (name, kind) => {
+    const start = util.search(new RegExp(`export ${kind} ${name}\\b`))
+    if (start < 0) throw new Error(`${name} not found in util.js`)
+    const stop = kind === 'function' ? util.indexOf('\n}\n', start) + 3 : name.startsWith('tagRegexExclusions') ? util.indexOf("].join('|')", start) + "].join('|')".length : util.indexOf('\n', start) + 1
+    return util.slice(start, stop).replace('export ', '')
+  }
+  const utilCtx = vm.createContext({ _: { ...context._, uniq: xs => [...new Set(xs)] } }) // lodash, as far as the pieces use it
+  vm.runInContext(
+    [['tagRegex', 'const'], ['tagRegexExclusions', 'const'], ['tagRegexExclusionsEscaped', 'const'], ['tagRegexDelimiter', 'const'], ['tagRegexDelimiterEscaped', 'const'], ['skipExclusions', 'function'], ['replaceTags', 'function'], ['parseTags', 'function']]
+      .map(([name, kind]) => piece(name, kind))
+      .join('\n'),
+    utilCtx
+  )
+  return { replaceTags: vm.runInContext('replaceTags', utilCtx), parseTags: vm.runInContext('parseTags', utilCtx) }
+})()
+
 ;(async () => {
   const task = { id: 'i1', name: 'task', saved_id: 's1' }
   await _enqueue_command(task, { task: 's1', id: 'd1', kind: 'delegate', epoch: 0, at: 1, body: 'b' })
@@ -1158,24 +1183,7 @@ delete context.__todos.p
   // follow, the plain url still links; without the seams, or for a reference the builder refuses,
   // the snippet is as before
   {
-    const app = path.join(__dirname, '..', '..', 'mind.page')
     const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
-    const util = fs.readFileSync(path.join(app, 'src', 'util.js'), 'utf8')
-    // the pieces by their boundaries: an exclusion array to its join, a delimiter's line, a function to its closing brace
-    const piece = (name, kind) => {
-      const start = util.indexOf(`export ${kind} ${name}`)
-      if (start < 0) throw new Error(`${name} not found in util.js`)
-      const stop = kind === 'function' ? util.indexOf('\n}\n', start) + 3 : name.startsWith('tagRegexExclusions') ? util.indexOf("].join('|')", start) + "].join('|')".length : util.indexOf('\n', start) + 1
-      return util.slice(start, stop).replace('export ', '')
-    }
-    const utilCtx = vm.createContext({ _: context._ })
-    vm.runInContext(
-      [['tagRegexExclusions', 'const'], ['tagRegexExclusionsEscaped', 'const'], ['tagRegexDelimiter', 'const'], ['tagRegexDelimiterEscaped', 'const'], ['skipExclusions', 'function'], ['replaceTags', 'function']]
-        .map(([name, kind]) => piece(name, kind))
-        .join('\n'),
-      utilCtx
-    )
-    const replaceTags = vm.runInContext('replaceTags', utilCtx)
     const stub = context._replace_tags
     context._replace_tags = (text, pattern, fn) => replaceTags(text, pattern, fn)
     const _row_html = vm.runInContext('_row_html', context)
@@ -1770,4 +1778,174 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   _grab_on_sideways_touch({ addEventListener: (type, fn) => (legacy[type] = fn) })
   context.PointerEvent = PointerEvent
   check('grab: without pointer events nothing is installed (the delayed drag only)', Object.keys(legacy), [])
+}
+
+// THE DONE BIN (the owner, 2026-11-17: "done" never deletes, it always converts the todo to
+// #done, named or not, small or large). The drop's REAL handler runs here (the list's Sortable
+// onEnd inside __render): the widget is rendered over a stub DOM (elements that keep their
+// children, attributes and class) and a stub Sortable that keeps each list's options, so the
+// rows are the render's own and a drop is Sortable's end event as the handler reads it (the row
+// moved into the bin, `to` the bin, `oldIndex` the row's place in the list; the app's tasks lane
+// drops a row on the real bin). Tags are read by the app's REAL replacer and, for what the app
+// indexes of a completed todo, its REAL parser (replaceTags and parseTags, above);
+// the grammar is a stand-in for the app's edit seam: an inert region is a token to the
+// transform and comes back as written. An item is the app's handle as the widget uses it: its
+// tags (all of them, and the visible ones) are parsed from its text at each read, so they follow
+// a completion into the next render; a whole-text write replaces an open editor's draft, as the
+// app's does, and reading `global_store` saves the store. Every write, deletion, store save,
+// question, alert, log line and unsnooze listener call is recorded in order: a deletion is where
+// the app asks ("Delete ...?" for a saved item with a unique label)
+{
+  class Elem {
+    children = []
+    attributes = {}
+    className = ''
+    parentElement = null
+    classList = { contains: name => this.className.split(' ').includes(name) }
+    get firstChild() {
+      return this.children[0] ?? null
+    }
+    setAttribute(name, value) {
+      this.attributes[name] = String(value)
+    }
+    getAttribute(name) {
+      return this.attributes[name] ?? null
+    }
+    appendChild(child) {
+      return this.insertBefore(child)
+    }
+    // moves the child here, before `ref` or last without one, as the DOM does
+    insertBefore(child, ref) {
+      child.remove()
+      this.children.splice(ref ? this.children.indexOf(ref) : this.children.length, 0, child)
+      child.parentElement = this
+      return child
+    }
+    remove() {
+      const siblings = this.parentElement?.children
+      if (siblings) siblings.splice(siblings.indexOf(this), 1)
+      this.parentElement = null
+    }
+    // the render's own query alone: an earlier render's list and bins, which it destroys and
+    // removes; no marks or anchors to wire
+    querySelectorAll(selector) {
+      return selector == ':is(.list,.bin)' ? this.children.filter(child => /\b(list|bin)$/.test(child.className)) : []
+    }
+    addEventListener() {}
+  }
+  const view = (text, held = []) => text.replace(/<!--inert-->\n[\s\S]*?\n<!--\/inert-->/g, region => `⟦${held.push(region) - 1}⟧`)
+  const edit = (text, transform, held = []) => transform(view(text, held)).replace(/⟦(\d+)⟧/g, (token, i) => held[i])
+  // the tags the app indexes of a text: parsed from its lowercased grammar view (index.svelte)
+  const parsed = text => parseTags(view(text).toLowerCase())
+  // four todos: a short one; a task, short by what its owner wrote (the agent's tree a token in
+  // the snippet, the log dropped from it) however long the item; a long one with a second tag;
+  // a NAMED one whose label is a longer tag (#todo-list, a name the app's naming dialog takes).
+  // Its todo tags: the plain one, one in another case, two that a `#` ends (the parser's rule:
+  // #todo#x is the tag #todo), the second with an eval macro right after that `#`, and the
+  // hidden form, a dependency that stays. Its literals that are no tag: a code span, a url's
+  // fragment, the macro's quoted text, a stylesheet and a script whose elements are written
+  // with capitals (the app parses the lowercased text and skips both), and a line of a fenced
+  // _log. An İ stands before the later tags: lowercased it is two characters, so offsets taken
+  // from a wholly lowercased copy would miss them. Completed, the item keeps a hidden #todo and
+  // a lower-case #todo in its stylesheet: what a second render must not take for a todo's row
+  const TASK = `#todo [done] ship it\n<!--inert-->\n- done: the #todo list${' and its long tree'.repeat(20)}\n<!--/inert-->\n\n\`\`\`_log\nINFO: 14:13 handed back: done\n\`\`\`\n#_agent/vault\n`
+  const LONG = `#todo ${'word '.repeat(50)}end\nand a second #todo`
+  const LITERALS = ['<STYLE> #todo { color: red } </STYLE>', '<Script> // #todo later </Script>', '```_log', 'INFO: 14:13 handed back: #todo done', '```', '']
+  const NAMED = ['#todo-list #todo ship it to İzmir, see `#todo` and https://example.com/list#todo', 'then (#ToDo) again, #todo#x too, under #_todo', 'and #todo#@{ "see #todo" }@ with a macro', ...LITERALS].join('\n')
+  const NAMED_DONE = ['#todo-list #done ship it to İzmir, see `#todo` and https://example.com/list#todo', 'then (#done) again, #done#x too, under #_todo', 'and #done#@{ "see #todo" }@ with a macro', ...LITERALS].join('\n')
+  const TEXTS = { short: '#todo fix the cache', task: TASK, long: LONG, named: NAMED }
+  // `snooze` is every todo's own store (the widget is then the snoozed list while a snooze time
+  // stands), `editing` the id of the todo open in its editor, with a draft typed since
+  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null } = {}) => {
+    const calls = []
+    const items = Object.entries(TEXTS).map(([id, text]) => {
+      // the app's label is the text's first tag and its name the label when no other item has it, else the id reference
+      const label = id == 'named' ? '#todo-list' : '#todo'
+      const item = { id, saved_id: 's-' + id, text, label, name: id == 'named' ? label : 'id:' + id, _global_store: snooze ? { _todoer: { ...snooze } } : {} }
+      Object.defineProperty(item, 'tags', { get: () => parsed(item.text).all }) // hidden ones included, their underscore dropped
+      Object.defineProperty(item, 'tags_visible', { get: () => parsed(item.text).visible })
+      if (id == editing) Object.assign(item, { editing: true, draft: text + '\na line typed since' })
+      Object.defineProperty(item, 'global_store', { get: () => (calls.push(['store', id]), item._global_store) })
+      item.read = () => view(item.text)
+      item.write = (text, type) => {
+        calls.push(['write', id, type])
+        if (!accepted) return false
+        item.text = text
+        if (item.editing) item.draft = text
+        return true
+      }
+      item.delete = () => (calls.push(['delete', id]), true)
+      return item
+    })
+    const ctx = {
+      console, debug: () => {}, warn: () => {}, error: () => {}, fatal: msg => { throw new Error(msg) },
+      _replace_tags: replaceTags, _: context._, is_string: x => typeof x == 'string', uniq: xs => [...new Set(xs)], setTimeout: () => 0,
+      sort_by: (xs, f) => xs.sort((a, b) => f(a) - f(b)), // the snoozed list's order
+      // what _unsnooze reads, and a listener of it: a completion that went through it would show as a marked store and a listener call
+      merge: Object.assign, each: (xs, f) => xs.forEach(f), values: Object.values,
+      _todoer: { store: { on_unsnooze: { probe: item => calls.push(['listener', item.id]) } } },
+      _items: () => items, _item: ref => items.find(item => item.id == ref) ?? null, _exists: ref => logger && ref == '#logger',
+      window: { _grammar: { version, edit } }, document: { createElement: () => new Elem(), querySelector: () => null },
+      Sortable: { dragged: null, create: (elem, options) => ({ options, save() {}, sort() {}, destroy() {} }) },
+      MindBox: { get: () => '', create: text => calls.push(['log', text]) },
+      alert: message => calls.push(['alert', message]), confirm: message => calls.push(['asked', message]), _modal: message => calls.push(['asked', message]),
+    }
+    vm.createContext(ctx)
+    vm.runInContext(picked + pick(['__render'])[0], ctx)
+    const widget = Object.assign(new Elem(), { id: 'w' })
+    const pinned = { store: { w: { options: { snoozed: !!snooze?.snoozed } } }, _global_store: {} }
+    const render = () => ctx.__render(widget, pinned) // the first render, and any later one
+    render()
+    const part = name => widget.children.find(child => child.className == name)
+    const rows = () => part('list').children // of the latest render
+    const ids = () => rows().map(row => row.getAttribute('data-id'))
+    // a row dropped on a bin: what stands afterwards, as { text, calls, rows, left }, with the
+    // todo's own store when it has one and its draft when it is open in its editor
+    const drop = (id, bin = 'done') => {
+      const list = part('list')
+      const row = list.children.find(row => row.getAttribute('data-id') == id)
+      const oldIndex = list.children.indexOf(row)
+      const to = part(bin + ' bin')
+      to.appendChild(row)
+      try {
+        list.sortable.options.onEnd({ item: row, to, oldIndex })
+      } catch (e) {
+        calls.push(['threw', e.message]) // a handler that throws fails its row, not the table
+      }
+      const { text, draft, _global_store } = ctx._item(id)
+      return { text, calls, rows: ids(), left: to.children.length, store: _global_store._todoer, draft }
+    }
+    return { rows, ids, drop, render, item: ctx._item }
+  }
+  const ALL = ['short', 'task', 'long', 'named']
+  const { rows, ids } = world()
+  check('done: the rows are the render\'s own, the named one led by its label', [ids(), rows()[3].children[0].innerHTML.split(' ship it')[0]], [ALL, '<mark>#todo-list</mark> <mark>#todo</mark>'])
+  check('done: a short todo becomes #done by one whole-text write, then the log line; nothing deleted, nothing asked, no store saved', world().drop('short'), { text: '#done fix the cache', calls: [['write', 'short', ''], ['log', '/log done #todo fix the cache']], rows: ['task', 'long', 'named'], left: 0 })
+  const kinds = ({ calls, ...rest }) => ({ ...rest, calls: calls.map(([kind]) => kind) })
+  check('done: a task short by its owner\'s words keeps its tree and log (the tree\'s own #todo as written)', kinds(world().drop('task')), { text: TASK.replace('#todo', '#done'), rows: ['short', 'long', 'named'], left: 0, calls: ['write', 'log'] })
+  check('done: a long todo, every tag of it', kinds(world().drop('long')), { text: LONG.replaceAll('#todo', '#done'), rows: ['short', 'task', 'named'], left: 0, calls: ['write', 'log'] })
+  const indexed = text => (({ visible, hidden }) => ({ visible, hidden }))(parsed(text))
+  // the named todo, through a SECOND render after its drop: its row must not come back
+  const completed = world()
+  const named = kinds(completed.drop('named'))
+  completed.render()
+  check('done: the todo tag and nothing else: a named todo keeps its label (a longer tag); every visible todo tag is #done, whatever its case and with a #suffix kept, so the app indexes #done and no #todo; the hidden #_todo stays a hidden #todo; a code span, a url\'s fragment, a macro\'s text right after a tag\'s #, a stylesheet and a script in capitals and a _log line are as written; no row comes back at the next render; no deletion, so no "Delete ...?"', [named, indexed(NAMED), indexed(named.text), { rerendered: completed.ids() }], [{ text: NAMED_DONE, rows: ['short', 'task', 'long'], left: 0, calls: ['write', 'log'] }, { visible: ['#todo-list', '#todo'], hidden: ['#todo'] }, { visible: ['#todo-list', '#done'], hidden: ['#todo'] }, { rerendered: ['short', 'task', 'long'] }])
+  check('done: without a #logger item nothing is logged', world({ logger: false }).drop('short').calls, [['write', 'short', '']])
+  check('done: a refused write leaves the todo, puts the row back in its place and says so; no log line', world({ accepted: false }).drop('task'), { text: TASK, calls: [['write', 'task', ''], ['alert', 'could not complete todo (mutation refused) for id:task']], rows: ALL, left: 0 })
+  const reload = { calls: [['alert', 'please reload to complete todos (app update required)']], rows: ALL, left: 0 }
+  check('done: an app grammar too old to rewrite safely fails closed for every todo, short or long: nothing written or deleted, the row back', [world({ version: 1 }).drop('short'), world({ version: 1 }).drop('long')], [{ text: '#todo fix the cache', ...reload }, { text: LONG, ...reload }])
+  // a todo open in its editor holds a draft the app's whole-text write would replace, unsaved
+  check('done: a todo open in its editor keeps its draft and its row: nothing written, no log line, the owner told to finish editing', world({ editing: 'task' }).drop('task'), { text: TASK, calls: [['alert', 'can not complete a todo while editing it: finish editing id:task first']], rows: ALL, left: 0, draft: TASK + '\na line typed since' })
+  // a completed todo's snooze and reminder: cleared in one store save after the accepted write,
+  // never through _unsnooze (no `unsnoozed` mark, no listener called); the flag also when the
+  // snooze ended already (the sweep keeps it for the other devices' notifiers); both kept by a refusal
+  const snoozed = { snoozed: 1_800_000_000_000, notify: true }
+  const ended = { snoozed: 0, unsnoozed: 1_700_000_000_000, notify: true }
+  check('done: a completed todo\'s snooze and its reminder are cleared, after the write, with no unsnooze', [world({ snooze: snoozed }).drop('short'), world({ snooze: ended }).drop('short')].map(kinds), [{ text: '#done fix the cache', rows: ['task', 'long', 'named'], left: 0, store: { snoozed: 0 }, calls: ['write', 'store', 'log'] }, { text: '#done fix the cache', rows: ['task', 'long', 'named'], left: 0, store: { snoozed: 0, unsnoozed: 1_700_000_000_000 }, calls: ['write', 'store', 'log'] }])
+  check('done: a refused completion keeps the snooze and its reminder, and saves no store', [world({ snooze: snoozed, accepted: false }).drop('short'), world({ snooze: snoozed, editing: 'short' }).drop('short'), world({ snooze: snoozed, version: 1 }).drop('short')].map(kinds), [{ text: '#todo fix the cache', rows: ALL, left: 0, store: snoozed, calls: ['write', 'alert'] }, { text: '#todo fix the cache', rows: ALL, left: 0, store: snoozed, draft: '#todo fix the cache\na line typed since', calls: ['alert'] }, { text: '#todo fix the cache', rows: ALL, left: 0, store: snoozed, calls: ['alert'] }])
+  // completed elsewhere while its row was dragged (another tab, the bridge): no todo tag is left
+  const elsewhere = world({ snooze: snoozed })
+  elsewhere.item('short').text = '#done fix the cache'
+  check('done: a todo completed elsewhere during the drag is not written or logged a second time: the row just goes', elsewhere.drop('short'), { text: '#done fix the cache', calls: [], rows: ['task', 'long', 'named'], left: 0, store: snoozed })
+  check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
 }
