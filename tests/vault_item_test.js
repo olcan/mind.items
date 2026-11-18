@@ -1033,18 +1033,29 @@ if (realMarked) {
   check('watched: a line\'s tooltip names the agent, since when and its watch; the closing entry, which counts watches, has none',
     [titled({ ...HEAD, tags: ['#todo'] }), titled({ ...HEAD, name: '', since: 'x', tags: ['#todo'] }), titled({ more: ['3 more watches'] })],
     [`${watching.name} follows since ${new Date(SINCE).toLocaleString()} (watch todos)`, 'An agent follows (watch todos)', ''])
+  // (review 58, B3) the bridge publishes a rule only for a follow that selects by its own reading, and counts
+  // any other in its closing entry: a follow started by the watcher's code before the reading had a version
+  const others = [{ ...HEAD, tags: ['#todo'] }, { more: ['1 more watch'] }]
+  ctx.__args = { rules: follows({ follows: others }), seen: looked(others)[0].rules }
+  check('watched: a follow the bridge publishes no rule for is one more watch: its line says so, nothing is marked or counted for it, and the rule beside it keeps its whole count',
+    [looked(others)[0], vm.runInContext('__args.rules.map((rule, at) => vault_follow_line(rule, __args.seen[at], false))', ctx), titled(others[1])],
+    [{ ids: ['c2', 'l1', 'l2', 'l3', 'l4', 't1', 't2', 'u1', 'w1'], rules: [{ n: 9, name: null }, { n: 0, name: null }] }, ['watched: #todo (9 items)', 'watched: 1 more watch'], ''])
   // the owner's approved look, exactly (the preview of 2026-11-16): a 15px sparkle by the number,
   // lowered by two whole pixels, and a 23px one left of the edit menu's buttons, in the sparkle's
   // yellow, from rules that name the items' boxes by id
   const sparkle_svg = px => encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 16 16" aria-hidden="true"><path fill="#f5e389" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>`)
   const BOXES = ids => `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
   const EVERY = '.container[data-item-id]' // every item's box: it names no item
-  const SHEET = boxes => `${boxes} .item-menu > .button.index::before { content: url("data:image/svg+xml,${sparkle_svg(15)}"); flex: none; margin-right: 3px; position: relative; top: 2px }\n` +
+  // (by the number the sparkle takes no room of the number's box, which is as wide as its digits:
+  // it is drawn in the 18px left of them, which the text's placeholder and a run button leave free)
+  const SHEET = boxes => `${boxes} .item-menu > .button.index::before { content: url("data:image/svg+xml,${sparkle_svg(15)}"); flex: none; margin: 0 3px 0 -18px; position: relative; top: 2px }\n` +
+    `${boxes} .item > [id^="menu-"]:first-child { margin-left: 18px }\n` +
+    `${boxes} .item-menu > .button.run { position: relative; right: 18px }\n` +
     `${boxes} .edit-menu::before { content: ''; flex: none; align-self: center; width: 23px; height: 23px; margin-right: 6px; background: url("data:image/svg+xml,${sparkle_svg(23)}") center / contain no-repeat }`
   const LOOK = ids => SHEET(BOXES(ids))
-  check('watched: the mark is the approved look: one sheet of two rules over the items\' boxes, a 15px sparkle by the number and a 23px one in the edit menu; no item, no rule',
+  check('watched: the mark is the approved look: one sheet of four rules over the items\' boxes, a 15px sparkle by the number, its room there (the text\'s placeholder and a run button leave it free) and a 23px one in the edit menu; no item, no rule',
     [vm.runInContext("vault_watched_css(['t1', 'tmp-1'])", ctx), vm.runInContext('vault_watched_css([])', ctx)], [LOOK(['t1', 'tmp-1']), ''])
-  check('watched: under a watch of all items the sheet is ONE form, the same two rules on every item\'s box: it names no item, whatever ids come with it',
+  check('watched: under a watch of all items the sheet is ONE form, the same four rules on every item\'s box: it names no item, whatever ids come with it',
     [vm.runInContext('vault_watched_css([], true)', ctx), vm.runInContext("vault_watched_css(['t1', 'tmp-1'], true)", ctx)], [SHEET(EVERY), SHEET(EVERY)])
 
   // the controller, over a fake page: nodes with listeners, the app's task seam (a same-named
