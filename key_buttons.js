@@ -9,7 +9,11 @@
 // a switch of its own (KEY_BUTTONS_PARTS): a short row just above the on-screen keyboard (Tab,
 // Shift+Tab, Shift+Enter), Shift+Space as a Tab in an editor on a touch device, and a scroll
 // that keeps the caret's line clear of a keyboard that comes up. They are built here so that
-// they can be tried on the phone at once; each says below what the app's own version would be
+// they can be tried on the phone at once; each says below what the app's own version would be.
+// After the owner's second try (the same day): the keyboard is read by two signals and decided
+// from both, since the window's test alone chose the wrong row once (key_buttons_keyboard), and
+// the caret's scroll is switched off and, should it be switched on again, acts once for each
+// opening of the keyboard
 
 // ---- what to adjust: the parts, the buttons, their icons, their size and their place -----------
 
@@ -18,7 +22,10 @@
 const KEY_BUTTONS_PARTS = {
   keyboard_row: true, // the short row just above the on-screen keyboard (KEY_BUTTONS_KEYBOARD_ROW)
   shift_space_tab: true, // Shift+Space in an editor of the app is a Tab, on a touch device
-  caret_clear: true, // a keyboard that comes up over the caret's line: the page scrolls the line clear
+  // a keyboard that comes up over the caret's line: the page scrolls the line clear, once for
+  // each opening of the keyboard. OFF since the owner's second try: what it was built for could
+  // not be reproduced on the phone, and a repeated scroll was seen once
+  caret_clear: false,
 }
 
 // the buttons, in the row's order from left to right. `key` with `ctrl`, `alt` and `shift` is
@@ -65,8 +72,9 @@ const KEY_BUTTONS_LOOK = {
   above: 6, // the keyboard row's bottom edge above the keyboard: above the bottom of what the keyboard leaves in view
   edge: 10, // the keyboard row's right edge from the right edge of what is in view (the sparkle is not shown then)
 }
-// the caret's line and a keyboard that comes up: the space kept free above and below the line
-const KEY_BUTTONS_CARET = { margin: 8 }
+// the caret's line and a keyboard that comes up: the space kept free above and below the line,
+// and how long the view has to stay as it is before the one look (the keyboard has taken its room)
+const KEY_BUTTONS_CARET = { margin: 8, settle: 150 }
 // what Shift+Space sends to the editor
 const KEY_BUTTONS_SHIFT_SPACE = { key: 'Tab' }
 
@@ -79,6 +87,8 @@ const KEY_BUTTONS_DEVICE = '(pointer: coarse)'
 // tests/key_buttons_test.js holds the two tests to the same answers)
 const KEY_BUTTONS_KEYBOARD_PX = 150
 const KEY_BUTTONS_TICK_MS = 15000 // the task's look: the item's deletion is noticed at its next run
+const KEY_BUTTONS_FOCUS_MS = 150 // a focus that left is looked at this much later: a focus that moves from one editor to another flips no row
+const KEY_BUTTONS_CHANGES = 5 // how many of the row's last changes are kept, for the lines that say what the signals read
 
 // ---- the code -----------------------------------------------------------------------------
 
@@ -95,11 +105,55 @@ const key_buttons_keyboard_open = win => {
   return !!view && view.scale <= 1.01 && win.innerHeight - view.height > KEY_BUTTONS_KEYBOARD_PX
 }
 const key_buttons_device = win => !!win.matchMedia?.(KEY_BUTTONS_DEVICE).matches
+// an element that takes typed text: a keyboard on the screen belongs to one (a frame may hold
+// one, so a focused frame counts)
+const key_buttons_editable = element =>
+  !!element &&
+  (element.tagName == 'TEXTAREA' ||
+    (element.tagName == 'INPUT' && !/^(button|checkbox|color|file|hidden|image|radio|range|reset|submit)$/i.test(element.type ?? '')) ||
+    element.tagName == 'IFRAME' ||
+    element.isContentEditable === true)
+
+// the keyboard on the screen, read two ways and decided from both (the owner's phone showed
+// the wrong row once, 2026-11-17, with the window's test alone).
+// The WINDOW's signal is the sparkle's test above: the view much shorter than the window. It
+// reads nothing where the window's own height follows the keyboard, and it refuses a pinch zoom.
+// The VIEW's signal needs no window: the view much shorter than the TALLEST view seen at this
+// width (`tallest`, the controller's memory, noted here; a width is an orientation, and a
+// keyboard leaves it alone), with any zoom taken out of both. It reads nothing until a taller
+// view has been seen at this width (a page drawn, or turned, while the keyboard was up).
+// A keyboard belongs to an element that takes text: with none focused there is no keyboard,
+// whatever the heights say (a view that has not caught up with a keyboard that left); with
+// one focused, either signal is enough
+function key_buttons_keyboard(win, doc, tallest = {}) {
+  const view = win.visualViewport
+  const focus = key_buttons_editable(doc.activeElement)
+  const by_window = key_buttons_keyboard_open(win)
+  if (!view) return { up: false, focus, by_window, by_view: false, window: win.innerHeight, view: null, width: null, tallest: null, scale: null }
+  const scale = view.scale || 1
+  const [width, height] = [Math.round(view.width * scale), Math.round(view.height * scale)]
+  tallest[width] = Math.max(tallest[width] ?? 0, height)
+  const by_view = tallest[width] - height > KEY_BUTTONS_KEYBOARD_PX
+  return { up: focus && (by_window || by_view), focus, by_window, by_view, window: win.innerHeight, view: height, width, tallest: tallest[width], scale }
+}
+
 // which row shows on a device without a keyboard of its own: the main row while no keyboard
 // is on the screen, the keyboard's row while one is (none with that part switched off), and
-// nothing on a desktop
-const key_buttons_row = (win, parts = KEY_BUTTONS_PARTS) =>
-  !key_buttons_device(win) ? null : !key_buttons_keyboard_open(win) ? 'main' : parts.keyboard_row ? 'keyboard' : null
+// nothing on a desktop. `keyboard` is what key_buttons_keyboard read
+const key_buttons_row = (win, keyboard, parts = KEY_BUTTONS_PARTS) =>
+  !key_buttons_device(win) ? null : !keyboard.up ? 'main' : parts.keyboard_row ? 'keyboard' : null
+
+// what the two signals read, in words, for whoever reads them out (the #edge_test item's panel
+// shows these lines and copies them): the row shown, the decision now, each signal with its
+// numbers, and the row's last changes with what the signals said at each
+function key_buttons_says(keyboard, shown, changes, now) {
+  const yes = flag => (flag ? 'yes' : 'no')
+  const less = from => (keyboard.view === null ? 'no view' : `${from} − view ${keyboard.view} = ${from - keyboard.view}`)
+  return [
+    `keys: row ${shown ?? 'none'} · keyboard ${keyboard.up ? 'up' : 'down'} · by window ${yes(keyboard.by_window)} (window ${less(keyboard.window)}) · by view ${yes(keyboard.by_view)} (tallest ${less(keyboard.tallest)} at width ${keyboard.width}) · focus ${yes(keyboard.focus)} · scale ${Math.round((keyboard.scale ?? 1) * 100) / 100}`,
+    'keys before: ' + (changes.map(was => `${Math.round((now - was.at) / 1000)} s ago ${was.shown ?? 'none'} (window ${yes(was.window)}, view ${yes(was.view)}, focus ${yes(was.focus)})`).join(' · ') || 'nothing yet'),
+  ]
+}
 
 // where the keyboard's row goes, as the left and top of a fixed element: from the VISUAL
 // viewport, the part of the page the keyboard leaves in view. On iOS the keyboard does not
@@ -285,24 +339,52 @@ function key_buttons_create() {
   const bar = (self.bar = row('bar', KEY_BUTTONS, 'Keys'))
   const keys = (self.keys = row('keyboard', KEY_BUTTONS_PARTS.keyboard_row ? KEY_BUTTONS_KEYBOARD_ROW : [], 'Keys above the keyboard'))
   const viewport = window.visualViewport
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false })
+  // a task of the item a moment from now (a later one of the same name replaces it); nothing
+  // once the item is gone (its own task's cancel disposes this controller)
+  const later = (name, run, ms) => {
+    try {
+      _this.dispatch_task(name, () => void (self.disposed || run()), ms)
+    } catch (e) {}
+  }
 
-  // the look at the device and at the keyboard: which row shows, and where the keyboard's is
+  // the look at the device, the keyboard and the focus: which row shows, and where the
+  // keyboard's is. A row that changes is noted with what the two signals read (self.says)
   self.show = () => {
-    const shown = key_buttons_row(window)
+    const keyboard = key_buttons_keyboard(window, document, self.tallest)
+    const shown = key_buttons_row(window, keyboard)
+    if (shown !== self.shown) {
+      self.changes.unshift({ at: Date.now(), shown, window: keyboard.by_window, view: keyboard.by_view, focus: keyboard.focus })
+      self.changes.length = Math.min(self.changes.length, KEY_BUTTONS_CHANGES)
+      self.shown = shown
+    }
     bar.hidden = shown != 'main'
     keys.hidden = shown != 'keyboard'
-    if (keys.hidden) return
-    const { left, top } = key_buttons_place(viewport, keys.children.length, KEY_BUTTONS_LOOK)
-    Object.assign(keys.style, { left: left + 'px', top: top + 'px' })
+    if (!keys.hidden) {
+      const { left, top } = key_buttons_place(viewport, keys.children.length, KEY_BUTTONS_LOOK)
+      Object.assign(keys.style, { left: left + 'px', top: top + 'px' })
+    }
+    // the caret's line: ONE look for each opening of the keyboard, once the view has stayed as
+    // it is for a moment (every look before that puts the one look off). Whatever that look
+    // does, nothing more is done until the keyboard has closed and opened again
+    if (!keyboard.up) self.cleared = false
+    else if (!self.cleared && KEY_BUTTONS_PARTS.caret_clear && key_buttons_device(window)) later('key_buttons_caret', self.settled, KEY_BUTTONS_CARET.settle)
   }
+  self.settled = () => {
+    if (self.cleared || !key_buttons_keyboard(window, document, self.tallest).up) return
+    self.cleared = true
+    self.clear()
+  }
+  // what the signals read now, and the row's last changes, as lines of text
+  self.says = (now = Date.now()) => key_buttons_says(key_buttons_keyboard(window, document, self.tallest), self.shown, self.changes, now)
 
   // the caret's line scrolled clear of the keyboard, and of the row above it while that shows:
   // the page moves only when the line is not clear, and by no more than it takes (the app
   // scrolls the body, so the body is what moves). Returns how far it moved.
   // The app's own version: its caret check (restoreItemEditor in index.svelte) runs when an
   // editor takes the focus, before the keyboard has taken its room, and counts the window's
-  // full height; run again from the app's viewport listener (onResize) when the visual
-  // viewport's height shrinks under a focused editor, it would see the height that is left
+  // full height; run once more from the app's viewport listener (onResize) when the keyboard
+  // has come up under a focused editor, it would see the height that is left
   self.clear = () => {
     const editor = document.activeElement
     if (self.disposed || !key_buttons_editor(editor)) return 0
@@ -314,24 +396,19 @@ function key_buttons_create() {
     return by
   }
 
-  // a keyboard that comes or goes (the visual viewport's resize) and a view that is panned
-  // (its scroll) are looked at when they happen, not at the task's next run, and so is a
-  // pointer that changes (a mouse attached to a tablet, a desktop browser's device emulation).
-  // A view that got shorter under a focused editor is a keyboard coming up over the page: the
-  // caret's line is looked at then, on a touch device, and at no other time (a later scroll
-  // is the reader's own)
-  let height = viewport?.height ?? 0
-  const resized = () => {
-    const shorter = viewport.height < height - 1
-    height = viewport.height
-    self.show()
-    if (shorter && KEY_BUTTONS_PARTS.caret_clear && key_buttons_device(window)) self.clear()
-  }
+  // a keyboard that comes or goes (the visual viewport's resize), a view that is panned (its
+  // scroll), a focus that comes to an element, and a pointer that changes (a mouse attached to
+  // a tablet, a desktop browser's device emulation) are looked at when they happen, not at the
+  // task's next run. A focus that leaves is looked at a moment later: a focus that moves from
+  // one editor to the next, the keyboard staying up, flips no row in between
   const look = () => self.show()
+  const left = () => later('key_buttons_focus', look, KEY_BUTTONS_FOCUS_MS)
   const device = window.matchMedia?.(KEY_BUTTONS_DEVICE)
-  viewport?.addEventListener('resize', resized)
+  viewport?.addEventListener('resize', look)
   viewport?.addEventListener('scroll', look)
   device?.addEventListener?.('change', look)
+  document.addEventListener('focusin', look, true)
+  document.addEventListener('focusout', left, true)
 
   // Shift+Space as a Tab: the key is caught at the window before the editor sees it (a
   // capturing listener; the editor's is on its textarea), no space is typed, and the editor
@@ -348,9 +425,11 @@ function key_buttons_create() {
   self.dispose = () => {
     if (self.disposed) return
     self.disposed = true
-    viewport?.removeEventListener('resize', resized)
+    viewport?.removeEventListener('resize', look)
     viewport?.removeEventListener('scroll', look)
     device?.removeEventListener?.('change', look)
+    document.removeEventListener('focusin', look, true)
+    document.removeEventListener('focusout', left, true)
     window.removeEventListener('keydown', typed, true)
     bar.remove()
     keys.remove()

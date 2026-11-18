@@ -4,7 +4,7 @@
 - the **arrow up to a bar** is Ctrl+Alt+Up: the page scrolls to its top. The **arrow down to a ring** is Ctrl+Alt+Down: back to the position that left, else to the named item.
 - the row shows where the primary pointer is a finger (a phone, a tablet), and hides while the on-screen keyboard is up.
 - while the keyboard is up, a short row just above it: the **arrows to a bar** are Shift+Tab and Tab, the editor's outdent and indent of the caret's line, and the **tick** is Shift+Enter: an item's editor saves, the box creates.
-- on such a device, **Shift+Space** in an editor is a Tab, and a keyboard that comes up over the caret's line scrolls the line clear of it.
+- on such a device, **Shift+Space** in an editor is a Tab.
 
 ```js_removed:key_buttons.js
 // key_buttons.js
