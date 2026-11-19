@@ -1,6 +1,6 @@
 #vault lists what the vault [bridge](#agent/vault) holds: its queued and running requests, a supervisor's workers, and the proposals of writable runs.
 - **stop** cancels a run at its next step: the work in flight finishes, the reply is `stopped`, and the request stays claimed (edit it to run it again).
-- **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why.
+- **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why. A worktree an agent made itself is listed for its review alone: the bridge neither merges nor removes it, so tell the agent on its todo what to do with it.
 - the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
 - a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items that is, each of which carries the mark; while an agent follows all items, every item is marked. The bottom-right sparkle's tooltip says the same on its second line.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
@@ -33,7 +33,9 @@ dispatch_task('update', update_vault_runs, 1000, 1000) // the elapsed column tic
 // bridge's listing also carries the undecided chat worktrees, the proposals ({worktrees: {name:
 // {item, generation, commits, result, decided, task, admits}}}: task is a delegated todo's
 // state ({held, reason}) or null for a chat's worktree, admits maps each decision to null (the
-// bridge takes it now) or why not); see notes/design/mind_vault_item.md
+// bridge takes it now) or why not); an agent's own worktree that a todo's proposal hand-back
+// named is listed among them with the same fields (generation 0, both decisions refused in
+// admits); see notes/design/mind_vault_item.md
 const vault_runs = () => _this._global_store._bridge?.runs ?? {}
 // the requests admitted to an execution lane and waiting for their run ({item_id: {persona, since}})
 const vault_queued = () => _this._global_store._bridge?.queued ?? {}
@@ -541,11 +543,13 @@ function vault_render(selector, render) {
 // bridge answered: the links return once the bridge has answered, so a refused decision can be
 // retried or switched); the outcome and the why are the entry's second row (vault_entry), the
 // links or the decision in flight the main row's last cell (side-effect-free; `decide` maps
-// worktrees to the owner's flags, `link` renders one action)
+// worktrees to the owner's flags, `link` renders one action). An agent's own worktree (one the
+// bridge did not make, named by its todo's proposal hand-back) is such a row the bridge admits
+// nothing on: its review and folder links, and under it the bridge's phrase for what to do instead
 function vault_proposal_rows(bridge, decide, link) {
   return entries(bridge?.worktrees ?? {}).flatMap(([name, wt]) => {
     const worktree = vault_review_links(name, bridge?.root)
-    const flag = decide?.[name]
+    const flag = Object.hasOwn(decide ?? {}, name) ? decide[name] : undefined // a worktree can be named as an inherited property is
     const inFlight = !!flag && !(wt.decided >= flag.t)
     const admits = wt.admits ?? {} // an older bridge admits both
     const links = [['accepted', 'approve'], ['rejected', 'reject']].filter(([d]) => admits[d] == null).map(([d, text]) => link(name, d, text))
@@ -612,7 +616,7 @@ function vault_proposals_table() {
 function decide_worktree(name, decision) {
   const listed = _this._global_store._bridge?.worktrees ?? {}
   const store = _this._global_store
-  const decide = Object.fromEntries(entries(store._owner?.decide ?? {}).filter(([wt]) => wt in listed))
+  const decide = Object.fromEntries(entries(store._owner?.decide ?? {}).filter(([wt]) => Object.hasOwn(listed, wt)))
   decide[name] = { decision, t: Date.now() }
   store._owner = { ...(store._owner ?? {}), decide }
   vault_save()
