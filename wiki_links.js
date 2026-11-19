@@ -4,7 +4,7 @@
 // null for a clearing, undefined for a refused value, which is never saved)
 
 // => /wiki_links [url|off] [root]
-// shows, sets or clears the account's wiki link handler: `url` the handler's base, e.g. `vscode-insiders://olcan.auto-open-obsidian/file` (the vault's VS Code extension; `vscode://…` for the stable build), `root` the absolute path the files resolve under on the editor's host (optional: the editor's open folder otherwise); `off` clears the setting
+// shows, sets or clears the account's wiki link handler: `url` the handler's address, e.g. `vscode-insiders://olcan.auto-open-obsidian/link/{link}` (the vault's VS Code extension; `vscode://…` for the stable build; `{link}` is where the app packs a link's path, root and view into one text, without it the url gets `?path=…&root=…` and no view), `root` the absolute path the files resolve under on the editor's host (optional: the editor's open folder otherwise); `off` clears the setting
 function _on_command_wiki_links(args) {
   // the url is the first word, the root the rest of the line (a path may hold spaces)
   const line = String(args ?? '').trim()

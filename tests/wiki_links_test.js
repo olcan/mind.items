@@ -52,6 +52,10 @@ check('a url and a root: applied through the setter, the accepted config saved, 
 ], [undefined, [{ url: 'x://h/f', root: '/r' }], { url: 'x://h/f', root: '/r' }, [{ invalidate_elem_cache: false }], ['wiki links: x://h/f under /r']])
 check('shown afterwards', [cmd('', undefined), calls.alerts[1]], [undefined, 'wiki links: x://h/f under /r'])
 reset()
+check('a url with the placeholder: its braces reach the setter and the store as typed', [
+  cmd('x://h/link/{link} /r', 'x://h/link/{link}', '/r'), calls.set, store.wiki_links, calls.alerts,
+], [undefined, [{ url: 'x://h/link/{link}', root: '/r' }], { url: 'x://h/link/{link}', root: '/r' }, ['wiki links: x://h/link/{link} under /r']])
+reset()
 check('a root with spaces: the rest of the line, not the second word', [cmd('x://h/f /Users/o c/v', 'x://h/f', '/Users/o', 'c/v'), store.wiki_links], [undefined, { url: 'x://h/f', root: '/Users/o c/v' }])
 reset()
 check('a url alone: the root left out of the saved config', [cmd('x://h/f', 'x://h/f', undefined), store.wiki_links, calls.alerts], [undefined, { url: 'x://h/f' }, ['wiki links: x://h/f']])
@@ -89,6 +93,7 @@ vm.runInContext('_init()', initCtx)
 check('the init block applies null without a setting', calls.set, [null])
 check('the item declares its hooks (#_listen: the app dispatches a /command to listener items alone)', ['#_init', '#_welcome', '#_listen'].every(tag => item.includes(tag)), true)
 check('the item text spells no macro (it declares no dependency to evaluate one)', /<</.test(item), false)
+check('the item text documents the url with the placeholder, the form the vault\'s extension takes a diff view from', item.includes('`vscode-insiders://olcan.auto-open-obsidian/link/{link}`'), true)
 
 if (failures) {
   console.log(`${failures} FAILED`)
