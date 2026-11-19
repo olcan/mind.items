@@ -155,6 +155,8 @@ const picked =
     '_notify_children',
     '_scan_notify',
     '_on_global_store_change',
+    '_listing_changed',
+    '_render_todoer_widget',
   ]).join('\n') +
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
@@ -325,6 +327,25 @@ context._item = () => vault_item(listing, () => Promise.resolve(() => 'x'))
 check('builder: an async #vault answers with a promise, not the function', _review_anchor_builder(), null)
 context._item = () => vault_item(listing, () => { throw new Error('eval missing dependencies: x') })
 check('builder: a #vault that cannot evaluate', _review_anchor_builder(), null)
+delete context._item
+// an agent's OWN worktree (a watching agent's builder's, named by the todo's `proposal` hand-back,
+// 2026-11-18): the bridge projects its name as the task's worktree and lists it in `_bridge.worktrees`
+// with the fields of any row (both decisions refused in `admits`), so the marker links its review as
+// it does a worktree of the bridge's own, with no change here. Under an older bridge such a todo's
+// projection names no worktree and the listing has no row: the marker is plain text, as it is while
+// the projection is ahead of the listing or the worktree is gone
+const built = '20261118_101500__dev_agent__built__ab12cd34'
+const built_anchor = `<a href="vscode-insiders://olcan.auto-open-obsidian/review?worktree=${built}&amp;root=%2FUsers%2Folcan%2Fvault" title="${built} · its changes against main in VS Code" onclick="event.stopPropagation()">proposal</a>`
+const agents_own = "the agent's own worktree; tell the agent on its todo what to do with it"
+listing.worktrees[built] = { item: 'i', generation: 0, commits: 4, result: null, decided: 0, task: { held: 'owner', reason: 'proposal' }, admits: { accepted: agents_own, rejected: agents_own } }
+context._item = ref => (ref == '#vault' ? vault_item(listing) : null)
+const proposal_row = state => _decorate_row('<mark>#todo</mark> [proposal] fix', '#todo [proposal] fix', state, _review_anchor_builder(), null)
+check('marker: an agent\'s own worktree that the bridge projects and lists is linked to its review', proposal_row({ held: 'owner', reason: 'proposal', worktree: built }), `<mark>#todo</mark> [${built_anchor}] fix`)
+check('marker: an older bridge projects no worktree for such a todo: plain text', proposal_row({ held: 'owner', reason: 'proposal', worktree: null }), '<mark>#todo</mark> [proposal] fix')
+delete listing.worktrees[built]
+check('marker: a projection ahead of the listing (an older bridge\'s, or the worktree gone): plain text', proposal_row({ held: 'owner', reason: 'proposal', worktree: built }), '<mark>#todo</mark> [proposal] fix')
+check('marker: a worktree named as an inherited property is (`constructor`) is linked only when the listing itself names it', [proposal_row({ held: 'owner', reason: 'proposal', worktree: 'constructor' }), (listing.worktrees.constructor = {}, proposal_row({ held: 'owner', reason: 'proposal', worktree: 'constructor' }).includes('review?worktree=constructor&amp;'))], ['<mark>#todo</mark> [proposal] fix', true])
+delete listing.worktrees.constructor
 delete context._item
 const slot = word => `[${anchor(word)}]`
 // the row's decorations (the vault's project design 2.7): the marker is linked FIRST and a
@@ -1959,7 +1980,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       rows().find(row => row.getAttribute('data-id') == id).children[0].onclick({ stopPropagation() {}, preventDefault() {} })
       return calls
     }
-    return { rows, ids, drop, render, click, item: ctx._item }
+    return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned }
   }
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
@@ -1999,4 +2020,40 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['edit', '#todo fix the cache']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
   check('click: on an app without the select the box is set as before', world({ app: false }).click('short'), [['set', 'id:short', { scroll: true, select: '#todo fix the cache' }]])
   check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
+  // A MARKER ALREADY ON THE PAGE PICKS UP A LATER LISTING (review 0 of the bridge's row for an agent's
+  // own worktree, 2026-11-18): the bridge publishes a todo's text and projection first and its listing
+  // after, and a marker is linked only for a listed worktree. The store listener (the production call
+  // site, driven here over a mounted widget) renders the widgets again when the #vault item's listing
+  // changes its root or its SET of worktree names, and for nothing else of that store
+  {
+    const mounted = world()
+    const { ctx } = mounted
+    const marked = mounted.item('short')
+    marked.text = '#todo [proposal] fix the cache'
+    marked._global_store._agent = { state: { held: 'owner', reason: 'proposal', worktree: built } }
+    const bridge = { root: '/Users/olcan/vault', updated: 1, runs: {}, worktrees: {} }
+    const vault = { id: 'vault-id', tags: ['#vault'], ...vault_item(bridge) }
+    ctx._item = ref => (ref == '#vault' || ref == 'vault-id' ? vault : ref == 'pinned' ? mounted.pinned : mounted.item(ref))
+    ctx._todoer.dependents = ['pinned']
+    ctx.window.Sortable = ctx.Sortable
+    mounted.pinned.elem = { querySelectorAll: selector => (selector == '.todoer-widget' ? [mounted.widget] : []) }
+    let renders = 0
+    const render = ctx.__render
+    ctx.__render = (...args) => (renders++, render(...args))
+    const shown = () => mounted.rows()[0].children[0].innerHTML
+    const deliver = () => (ctx._on_global_store_change('vault-id', true), [renders, shown().includes(`review?worktree=${built}&amp;`)])
+    mounted.render() // the first delivery: the todo's own text and projection, the listing not there yet
+    check('delivery: the todo\'s projection first renders a plain marker', [renders, shown()], [1, '<mark>#todo</mark> [proposal] fix the cache'])
+    bridge.worktrees[built] = { item: 'short', generation: 0, commits: 1, admits: {} }
+    check('delivery: the listing that names the worktree renders the widget again, linked, with no third event', deliver(), [2, true])
+    Object.assign(bridge, { updated: 2, runs: { r1: { status: 'working', log: ['a line'] } } })
+    bridge.worktrees[built].commits = 2
+    check('delivery: a run\'s log, a timestamp and a row\'s own fields render nothing', deliver(), [2, true])
+    bridge.root = '/Volumes/vault'
+    check('delivery: another root renders again (the links carry it)', [deliver(), shown().includes('root=%2FVolumes%2Fvault')], [[3, true], true])
+    delete bridge.worktrees[built]
+    check('delivery: the delisting renders again and the marker is plain', [deliver(), shown()], [[4, false], '<mark>#todo</mark> [proposal] fix the cache'])
+    mounted.pinned.tags = []
+    check('delivery: another item\'s store renders nothing, as before', [ctx._on_global_store_change('pinned', true), renders], [undefined, 4])
+  }
 }

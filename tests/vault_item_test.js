@@ -397,6 +397,37 @@ check('the url builder: the review (the default action) and the folder', [vm.run
 check('the url builder: none without the root, or for a name outside the grammar (a space, the dot names)', [vm.runInContext("vault_review_url('chat_a1', undefined)", ctx), vm.runInContext("vault_review_url('a b', '/r')", ctx), vm.runInContext("vault_review_url('..', '/r')", ctx), vm.runInContext("vault_review_url('.', '/r')", ctx)], [null, null, null, null])
 vm.runInContext("_this._global_store._bridge.root = '/Users/olcan/vault'", ctx)
 check('the rows carry the links once the listing names the root', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)[0][1], '<a href="vscode-insiders://olcan.auto-open-obsidian/review?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">chat_a1</a> · <a href="vscode-insiders://olcan.auto-open-obsidian/open?worktree=chat_a1&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">dir</a>')
+// an agent's OWN worktree (a watching agent's builder's, which the bridge did not make: the todo's
+// `proposal` hand-back named it, 2026-11-18): the bridge lists it with the fields of any row and
+// refuses BOTH decisions in `admits`, so the row has the review and the folder links and no approve or
+// reject, with the bridge's phrase under it (what the owner does instead while the todo is theirs, who
+// acts while it is the agent's); no rule lives here, so this item as it was before that day renders
+// the row the same way, and an older bridge, which lists no such row, leaves the table as it was
+const built = '20261118_101500__dev_agent__built__ab12cd34'
+const built_links = ['review', 'open'].map(action => `<a href="vscode-insiders://olcan.auto-open-obsidian/${action}?worktree=${built}&amp;root=%2FUsers%2Folcan%2Fvault" onclick="event.stopPropagation()">${action == 'review' ? built : 'dir'}</a>`).join(' · ')
+const owners = "the agent's own worktree; tell the agent on its todo what to do with it"
+const before_built = vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)
+vm.runInContext(`_this._global_store._bridge.worktrees['${built}'] = {item: 'other-id', generation: 0, commits: 4, result: null, decided: 0, task: {held: 'owner', reason: 'proposal'}, admits: {accepted: "${owners}", rejected: "${owners}"}}`, ctx)
+const with_built = vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx)
+check('an agent\'s own worktree: the review and the folder links, the commits, the todo\'s state, no approve or reject, and under the row what to do instead', with_built.slice(before_built.length), [
+  ['other-id', built_links, '4', 'proposal', '·'],
+  sub("the agent\\'s own worktree\\; tell the agent on its todo what to do with it"),
+])
+check('an agent\'s own worktree: the rows of the bridge\'s own are as they were', with_built.slice(0, before_built.length), before_built)
+vm.runInContext(`Object.assign(_this._global_store._bridge.worktrees['${built}'], {task: {held: 'agent', reason: 'delegated'}, admits: {accepted: "the agent's own worktree; tell the agent on its todo what to do with it", rejected: "the agent's own worktree; tell the agent on its todo what to do with it"}})`, ctx)
+check('an agent\'s own worktree: the row stays once the todo is delegated again, its sentence the same', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx).slice(before_built.length), [
+  ['other-id', built_links, '4', 'delegated', '·'],
+  sub("the agent\\'s own worktree\\; tell the agent on its todo what to do with it"),
+])
+check('an agent\'s own worktree: a flag for it (none of this item\'s links writes one) is never shown in flight once the bridge answered it', [vm.runInContext(`vault_proposal_rows({..._this._global_store._bridge, worktrees: {'${built}': {..._this._global_store._bridge.worktrees['${built}'], decided: 5}}}, {'${built}': {decision: 'accepted', t: 5}}, ` + proposalLink + ")", ctx)[0][4]], ['·'])
+vm.runInContext(`delete _this._global_store._bridge.worktrees['${built}']`, ctx)
+check('an older bridge lists no such row: the table as before', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx), before_built)
+// a worktree can be named as an INHERITED property is (`constructor`, `toString`): the flags and the
+// listing are read by their own keys, so such a row has no flag in flight that nobody set (it showed
+// `undefined…` for its links), and a stale flag of such a name is dropped as one of any unlisted name is
+vm.runInContext("_this._global_store._bridge.worktrees.constructor = {item: 'other-id', generation: 0, commits: 1, result: null, decided: 0, task: null, admits: {accepted: null, rejected: null}}", ctx)
+check('a worktree named `constructor`: its row offers its links, with no decision in flight', vm.runInContext("vault_proposal_rows(_this._global_store._bridge, {}, " + proposalLink + ")", ctx).slice(before_built.length).map(row => row[4]), ['[approve](accepted:constructor) · [reject](rejected:constructor)'])
+vm.runInContext("delete _this._global_store._bridge.worktrees.constructor", ctx)
 if (realMarked) {
   // the table reaches the page through the real parser: the anchors survive in the cell (a
   // markdown link would have rendered without the app's click handler and opened the editor), and
@@ -412,6 +443,8 @@ check('decide_worktree writes the flag with a timestamp, keeps the other listed 
 vm.runInContext("_this._global_store._bridge.worktrees = {chat_a1: {item: 'chat-id', generation: 1, commits: 2}}; decide_worktree('chat_a1', 'accepted')", ctx)
 check('a flag of a worktree no longer listed is dropped on the explicit action', Object.keys(vm.runInContext('_this.global_store._owner.decide', ctx)), ['chat_a1'])
 check('each decision saves the whole store without a forced re-render', saves.splice(0), [{ invalidate_elem_cache: false }, { invalidate_elem_cache: false }, { invalidate_elem_cache: false }])
+vm.runInContext("_this._global_store._owner.decide.toString = {decision: 'rejected', t: 1}; decide_worktree('chat_a1', 'accepted')", ctx)
+check('a flag named as an inherited property is (`toString`) is dropped like any unlisted worktree\'s', [Object.keys(vm.runInContext('_this.global_store._owner.decide', ctx)), saves.splice(0).length], [['chat_a1'], 1])
 vm.runInContext("_this._global_store._bridge.worktrees = {}; update_vault_runs()", ctx)
 check('no proposals renders as none, into the proposals element', proposals_div.innerHTML, '<parsed>_none_</parsed>')
 

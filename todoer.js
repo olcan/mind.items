@@ -1275,13 +1275,33 @@ function _listed(pinned, id) {
 
 // detect any changes to global stores on todo items: the desktop notification of a projection
 // change first (independent of any widget on the page; a project's bound children follow its
-// projection, so they are compared too), then the widgets' re-render
+// projection, so they are compared too), then the widgets' re-render. The #vault item's store
+// is the one other store the rows read (the bridge's listing, for a marker's review link): a
+// change of what they read of it renders every mounted widget again
 function _on_global_store_change(id, remote) {
   const item = _item(id, { silent: true }) // can be null if item deleted
+  if (_listing_changed(item)) return _rerender_todoer_widgets()
   if (!item?.tags.includes('#todo')) return
   _notify_change(item)
   _notify_children(item)
   _on_item_change(id)
+}
+
+// whether a store change of the #vault item changed what the rows' marker links read of the
+// bridge's listing (_review_anchor_builder): the vault root, or the SET of worktree names it
+// lists. A marker is linked only for a listed worktree, and the bridge publishes its listing
+// AFTER the todo's own text and projection (a retry or a reconnect can delay it further), so
+// without this a row already on the page kept a plain marker until its todo changed again, and
+// kept a link after its worktree was delisted. A run's log, a status and the listing's
+// timestamps change neither, so those deliveries render nothing. The last value seen is this
+// tab's (the #todoer item's per-tab store); the first delivery of a session renders once
+function _listing_changed(item) {
+  if (!item || item.id != _item('#vault', { silent: true })?.id) return false
+  const bridge = item._global_store?._bridge
+  const seen = JSON.stringify([bridge?.root ?? null, Object.keys(bridge?.worktrees ?? {}).sort()])
+  if (seen == _todoer.store.listing) return false
+  _todoer.store.listing = seen
+  return true
 }
 
 // detect changes to search query, specifically for a todo's name (its unique label or its id
@@ -1362,7 +1382,8 @@ function _sweep() {
 // ---- tasks (design notes/design/mind_task_agents.md, 2.2 and 2.3) -------------------------
 
 // the task projection the bridge writes into the item's store, or null for a todo the bridge
-// never held ({held, reason, epoch, rev, updated, worktree, phase, acked})
+// never held ({held, reason, epoch, rev, updated, worktree, phase, acked}); `worktree` is the
+// worktree of the task's proposal: the bridge's own, or an agent's own that its hand-back named
 function _task_state(item) {
   const state = item._global_store?._agent?.state
   return state && typeof state == 'object' ? state : null
@@ -1557,8 +1578,9 @@ function _link_marker(html, marker, anchor_html) {
 // functions are in scope for its dependents only, and #vault is nobody's dependency), over the
 // vault root its listing carries (`_bridge.root`), for the worktrees the listing names (the
 // undecided ones that exist: the projection keeps a retired worktree's name, so the listing
-// decides, as it does for #vault's own links). Null without the item, its builder, or a root:
-// the marker stays plain text
+// decides, as it does for #vault's own links; by the listing's OWN keys, since a worktree can
+// be named as an inherited property is, `constructor`). Null without the item, its builder, or
+// a root: the marker stays plain text
 function _review_anchor_builder() {
   try {
     const vault = _item('#vault', { silent: true })
@@ -1567,7 +1589,7 @@ function _review_anchor_builder() {
     const build = vault.eval("typeof vault_review_anchor == 'function' ? vault_review_anchor : null")
     if (typeof build != 'function') return null
     return (name, text, title) =>
-      bridge.worktrees?.[name] ? build(name, bridge.root, 'review', text, title) || null : null
+      Object.hasOwn(bridge.worktrees ?? {}, name) ? build(name, bridge.root, 'review', text, title) || null : null
   } catch (e) {
     return null // a #vault that cannot evaluate (a missing dependency): no link
   }
