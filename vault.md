@@ -986,6 +986,23 @@ function vault_sparkle_title(shown, lines) {
   const watched = lines.filter(line => line.text.startsWith(VAULT_WATCHED)).map(line => line.text.slice(VAULT_WATCHED.length))
   return watched.length ? `${shown}\n${VAULT_WATCHED}${watched.join(' · ')}` : shown
 }
+// WHERE THE PRIMARY POINTER DOES NOT HOVER a tooltip has nothing to come up for (the owner's
+// todo, of an iPhone: "i could not see the tooltip for the sparkle ... tapping the bottom (watch
+// lines) section ... does nothing"), so there the menu itself says what the tooltips say, and
+// a tap on the sparkle is enough to read all of it. It is the browser that says so, of its
+// primary pointer (the media query `(hover: none)`), asked when the menu opens: a tablet with a
+// mouse or a laptop with a touch screen gets the menu its browser reports, whichever input
+// opened it. The rows below the menu's entries, each {text, title?, tip?}: with hover the
+// lines, each with its tooltip, as they always were; without it (`bare`) the sparkle's own
+// words first (`shown`: who watches or answers, a start, a stop; the tooltip's first line, its
+// second being the lines themselves), then each line with its tooltip's words in a row of
+// their own under it. `tip` names whose tooltip a row says, the sparkle's or a line's; a line
+// without a tooltip (a slow look's, the closing entry's) has no such row
+const vault_no_hover = () => typeof matchMedia == 'function' && matchMedia('(hover: none)').matches
+const vault_menu_rows = (shown, lines, bare) =>
+  bare
+    ? [{ text: shown, tip: 'sparkle' }, ...lines.flatMap(({ text, title }) => [{ text }, ...(title ? [{ text: title, tip: 'line' }] : [])])]
+    : lines.map(({ text, title }) => ({ text, title }))
 
 // the mark itself, the owner's look (2026-11-16): ONE stylesheet whose rules name the items by
 // the id their box carries (data-item-id), so nothing is attached to an item and the app's
@@ -1043,6 +1060,15 @@ const vault_watched_changed = () => {
   if (held?.item === _this.id) held.look?.()
 }
 
+// the sparkle's own look. WHERE THE PRIMARY POINTER DOES NOT HOVER nothing of it can be
+// selected (its last rule): the sparkle and the menu's lines never could be, and there the
+// whole menu, its entries and the layer under it cannot either. A finger held on the menu's
+// own edge beside the lines selected a word of the entry above, and one held on an entry a
+// word of its label (Chromium's phone emulation; the owner's todo, of an iPhone: a long press
+// did nothing "except for some accidental text selection"). That is all the item does about
+// a selection: any other is the reader's, and nothing here listens for one or takes one away
+// (a guard that did, after a touch of the sparkle, erased selections made elsewhere, and went
+// at its review, 2026-11-19). What an iPhone does with a long press there is in no lane
 const VAULT_SPARKLE_CSS = `
 .vault-sparkle { position: fixed; right: 14px; bottom: 10px; z-index: 90; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: #f5e389; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .vault-sparkle[hidden] { display: none }
@@ -1061,6 +1087,9 @@ const VAULT_SPARKLE_CSS = `
 .vault-sparkle-menu > button:focus { background: #333; outline: none }
 .vault-sparkle-menu > div { max-width: min(340px, calc(100vw - 54px)); padding: 3px 12px; color: #999; font: 12px/1.3 sans-serif; overflow-wrap: anywhere; cursor: default; user-select: none; -webkit-user-select: none }
 .vault-sparkle-menu > button + div { margin-top: 4px; padding-top: 7px; border-top: 1px solid #333 }
+.vault-sparkle-menu > div[data-vault-tip="sparkle"] { color: #bbb }
+.vault-sparkle-menu > div[data-vault-tip="line"] { max-width: min(330px, calc(100vw - 64px)); padding: 0 12px 3px 22px }
+@media (hover: none) { .vault-sparkle-menu, .vault-sparkle-menu > button, .vault-sparkle-backdrop { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none } }
 `
 const VAULT_SPARKLE_SVG =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>'
@@ -1132,6 +1161,10 @@ function vault_sparkle_create() {
       const all = follows.some(told => told.all)
       const checks = !all && follows.some(told => told.ids.length || told.labels.length || told.tags.length)
       Object.assign(self, { rule, follows, all, checks, found: null })
+      // a menu that says each line's details itself (no hover) says them as they were: under
+      // other rules they can be others while the line's text, the menu's key, stays (the same
+      // follow under another agent, or from another start), so it closes at any change of them
+      if (self.menu?.words) self.close()
       if (checks) self.look()
       else self.mark()
     }
@@ -1160,6 +1193,10 @@ function vault_sparkle_create() {
       node.title = title
       node.setAttribute('aria-label', title)
     }
+    // an open menu that says the sparkle's words itself (no hover) says them as they are now:
+    // it shows the same watch or start (another's closes it), whatever that one does meanwhile
+    const words = self.menu?.words
+    if (words && words.textContent !== self.shown.title) words.textContent = self.shown.title
   }
 
   // the look at the items for the rules applied: whatever it finds is marked, the marks are
@@ -1215,8 +1252,13 @@ function vault_sparkle_create() {
   // nothing to the page under it. Below the entries, one line of text for each rule the item
   // watcher follows (vault_follow_line), and one for a slow look: no entry, so it takes no
   // focus and the arrows skip it, and a menu whose lines are no longer what the page would
-  // show closes. The menu is never taller than the window (its style): what does not fit
-  // scrolls inside it, and the entries are its first rows, in view when it opens
+  // show closes. Where the primary pointer does not hover the tooltips' words are rows there
+  // too, the sparkle's above the lines and each line's under it (vault_menu_rows): text alone
+  // like the lines, and a tap on any of them does nothing. Such a menu's words follow the
+  // sparkle's while it is open (say), and it closes at any change of the rules, since a line's
+  // details are not in the lines' key (show). The menu is never taller than the window (its
+  // style): what does not fit scrolls inside it, and the entries are its first rows, in view
+  // when it opens
   self.open = (keyboard = false) => {
     if (self.disposed || self.menu || !self.shown || node.hidden) return
     const target = self.shown
@@ -1244,12 +1286,14 @@ function vault_sparkle_create() {
         button.addEventListener(type, () => button.focus({ preventScroll: true }))
       return menu.appendChild(button)
     })
-    for (const { text, title } of followed.lines) {
-      const line = document.createElement('div')
-      line.textContent = text
-      if (title) line.title = title
-      menu.appendChild(line)
-    }
+    // the rows below the entries: the lines, and where the primary pointer does not hover the tooltips' words too
+    const rows = vault_menu_rows(target.title, followed.lines, vault_no_hover()).map(({ text, title, tip }) => {
+      const row = document.createElement('div')
+      row.textContent = text
+      if (title) row.title = title
+      if (tip) row.dataset.vaultTip = tip
+      return menu.appendChild(row)
+    })
     menu.addEventListener('pointerleave', e => {
       if (e.pointerType == 'mouse' && buttons.includes(document.activeElement)) menu.focus({ preventScroll: true })
     })
@@ -1300,7 +1344,7 @@ function vault_sparkle_create() {
       if (!menu.contains(e.target) && !node.contains(e.target) && e.target !== backdrop) self.close()
     }
     document.addEventListener('pointerdown', outside, true)
-    self.menu = { element: menu, key: target.key, lines: followed.key, outside, backdrop, keyboard }
+    self.menu = { element: menu, key: target.key, lines: followed.key, outside, backdrop, keyboard, words: rows.find(row => row.dataset.vaultTip == 'sparkle') ?? null }
     node.setAttribute('aria-expanded', 'true')
     document.body.appendChild(backdrop)
     document.body.appendChild(menu)
