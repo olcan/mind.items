@@ -1000,7 +1000,14 @@ function vault_sparkle_title(shown, lines) {
 // mark's to change). Its sizes are the owner's: about the height of the number's digits on an
 // item and centred on them, a little less than the buttons' height in the editor. No text of a
 // rule enters the stylesheet: the ids are the app's own, kept to `[\w-]+` (vault_watched). Under
-// a watch of all items (`all`) the same rules name no item: they are on every item's box
+// a watch of all items (`all`) the same rules name no item: they are on every item's box.
+// The room is SAID, once, and the app keeps it free (2026-11-18): `--item-mark-room` on the
+// item's box, the app's own name for the room of a mark that item code draws left of the number
+// (Item.svelte, THE MARKS LEFT OF AN ITEM'S NUMBER). The app adds the room of its running mark,
+// the circle it draws left of this sparkle while the item runs, so neither knows the other's
+// size. An app from before that day reads no such property: for it alone the two rules that
+// kept the room until then stay, now reading the same property (on the app that keeps the room
+// itself they set what it sets). They go once no tab runs the older app
 const vault_watched_css = (ids, all = false) => {
   if (!all && !ids.length) return ''
   const boxes = all ? '.container[data-item-id]' : `:is(${ids.map(id => `.container[data-item-id="${id}"]`).join(', ')})`
@@ -1014,9 +1021,12 @@ const vault_watched_css = (ids, all = false) => {
     // A whole one moves the two together, and 15px lowered by 2 puts its middle on the middle of
     // the digits (13px lowered by 1 does too; 14px can only be half a pixel off, either way)
     `${boxes} .item-menu > .button.index::before { content: ${mark(15)}; flex: none; margin: 0 3px 0 -18px; position: relative; top: 2px }`,
-    // its room, the 18px left of the digits: the text keeps out of them, and a run button steps aside
-    `${boxes} .item > [id^="menu-"]:first-child { margin-left: 18px }`,
-    `${boxes} .item-menu > .button.run { position: relative; right: 18px }`,
+    // its room, the 18px left of the digits, said to the app, which keeps the item's text out of
+    // them and moves a run button aside
+    `${boxes} { --item-mark-room: 18px }`,
+    // the same for an app from before 2026-11-18, which kept no room for a mark
+    `${boxes} .item > [id^="menu-"]:first-child { margin-left: var(--item-mark-room) }`,
+    `${boxes} .item-menu > .button.run { position: relative; right: var(--item-mark-room) }`,
     // in the editor: centred on the buttons
     `${boxes} .edit-menu::before { content: ''; flex: none; align-self: center; width: 23px; height: 23px; margin-right: 6px; background: ${mark(23)} center / contain no-repeat }`,
   ].join('\n')
