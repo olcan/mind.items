@@ -143,9 +143,9 @@ const show_logs = (...args) => _this.show_logs(...args)
 const hide_logs = () => _this.hide_logs()
 
 // show_status([status], [progress])
-// show `status` on running item
+// show `status` on running item, as tooltip of its running indicator
 // item must be running (`item.running==true`)
-// can also indicate `progress∈[0,1]` in background
+// can also indicate `progress∈[0,1]` by filling the indicator (0 for none)
 const show_status = (...args) => _this.show_status(...args)
 
 // clear (and hide) status on item

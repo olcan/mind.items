@@ -85,10 +85,12 @@ function vault_mark_running(listed, marked, pending = {}) {
 }
 
 // the listed runs' status lines and progress onto their chat items (the app's per-item status
-// and progress props, shown while the item runs; in-tab, nothing saved). The app assigns the
-// status to innerHTML unescaped and its show_status skips an empty status and a zero progress,
-// so the text is escaped here and the props are assigned directly; `shown` records the items
-// this tab set, for the clearing below
+// and progress props, shown while the item runs, by its running mark since 2026-11-19: the
+// status is the mark's tooltip and a progress above 0 fills the mark, where they were a line and
+// a bar at the item's bottom; in-tab, nothing saved). The app reads the status as html,
+// unescaped, and its show_status skips an empty status and a zero progress, so the text is
+// escaped here and the props are assigned directly (a progress of 0 is none: the mark turns);
+// `shown` records the items this tab set, for the clearing below
 function vault_show_status(runs, sup = {}, shown = {}, queued = {}, workers = {}) {
   const set = (itemId, status, progress) => {
     const item = _item(itemId, { silent: true })
