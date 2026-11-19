@@ -141,6 +141,8 @@ const picked =
     '_notification_of',
     '_notify_show',
     '_notify_click',
+    '_select_item',
+    '_edit_item',
     '_notifier_parse',
     '_notifier_step',
     '_notifier_stored',
@@ -157,7 +159,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -723,6 +725,39 @@ context.__mindbox = null
 delete context.__todos.a
 notified[notified.length - 1].onclick()
 check('click: a deleted item focuses the window alone', [context.__focused, context.__mindbox], [2, null])
+// SELECTING: an item is selected by the app's own select (_Item.select, what a click on
+// an item's number does while it is not green: a history entry of its own), then the todo's line
+// is marked for a later edit; the box is not set. The stub items above carry no `select`, as an
+// item of an app before the method: the rows above and below are that app's, the box set as before
+{
+  const calls = []
+  const box = context.MindBox
+  context.MindBox = { set: (...args) => calls.push(['set', ...args]), select_in_target: text => calls.push(['mark', text]), edit_target: text => calls.push(['edit', text]) }
+  const item = (app, selected = true) => ({ name: 'id:x', ...(app ? { select: () => (calls.push(['select']), selected) } : {}) })
+  _select_item(item(true), '#todo fix the cache')
+  check('select: the app\'s select, then the todo\'s line marked; the box is not set', calls.splice(0), [['select'], ['mark', '#todo fix the cache']])
+  _select_item(item(true), null)
+  check('select: nothing to mark without a line (a chat)', calls.splice(0), [['select']])
+  _select_item(item(true, false), '#todo fix the cache')
+  check('select: a refused select marks nothing (the page\'s target is another item, or none)', calls.splice(0), [['select']])
+  _select_item(item(false), '#todo fix the cache')
+  _select_item(item(false), null)
+  check('select: on an app without the method the box is set as before', calls.splice(0), [['set', 'id:x', { scroll: true, select: '#todo fix the cache' }], ['set', 'id:x', { scroll: true }]])
+  // EDITING the target's item: the app's select first (for a selection shown and settled it skips the
+  // query and the history write, and it supersedes a name typed into the box and not yet applied), then
+  // the edit of the page's target
+  _edit_item(item(true), '#todo fix the cache')
+  check('edit: the app\'s select, then the target edited with the todo\'s line; the box is not set', calls.splice(0), [['select'], ['edit', '#todo fix the cache']])
+  _edit_item(item(true, false), '#todo fix the cache')
+  check('edit: no edit after a refused select', calls.splice(0), [['select']])
+  _edit_item(item(false), '#todo fix the cache')
+  check('edit: on an app without the select the box is set and its target edited, as before', calls.splice(0), [['set', 'id:x', { edit: '#todo fix the cache' }]])
+  // a notification's click goes the same way: its item selected, a todo's line marked
+  context.__todos.s = { ...todo('s', { held: 'owner', reason: 'question', epoch: 1 }), select: () => (calls.push(['select']), true) }
+  check('click: a notification selects its todo as its row\'s click does', [context._notify_click('s'), calls.splice(0)], [true, [['select'], ['mark', '#todo fix the cache']]])
+  delete context.__todos.s
+  context.MindBox = box
+}
 // CHAT REPLIES (the owner's ask of 2026-10-04): the bridge's agent turns among a chat's turns,
 // read from the GRAMMAR VIEW (an inert body is an opaque token there: review 5 B1), the raw text
 // for the reply's first line; the fixtures' view tokenizes the canonical inert frames as the app does
@@ -1856,7 +1891,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   const TEXTS = { short: '#todo fix the cache', task: TASK, long: LONG, named: NAMED }
   // `snooze` is every todo's own store (the widget is then the snoozed list while a snooze time
   // stands), `editing` the id of the todo open in its editor, with a draft typed since
-  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null } = {}) => {
+  // `target` is the id of the item the page targets, `app` whether the items carry the app's select
+  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, target = null, app = true } = {}) => {
     const calls = []
     const items = Object.entries(TEXTS).map(([id, text]) => {
       // the app's label is the text's first tag and its name the label when no other item has it, else the id reference
@@ -1875,6 +1911,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         return true
       }
       item.delete = () => (calls.push(['delete', id]), true)
+      if (app) item.select = () => (calls.push(['select', id]), true)
       return item
     })
     const ctx = {
@@ -1885,9 +1922,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       merge: Object.assign, each: (xs, f) => xs.forEach(f), values: Object.values,
       _todoer: { store: { on_unsnooze: { probe: item => calls.push(['listener', item.id]) } } },
       _items: () => items, _item: ref => items.find(item => item.id == ref) ?? null, _exists: ref => logger && ref == '#logger',
-      window: { _grammar: { version, edit } }, document: { createElement: () => new Elem(), querySelector: () => null },
+      window: { _grammar: { version, edit } },
+      // the page's target, as a row's click asks for it
+      document: { createElement: () => new Elem(), querySelector: selector => (selector == '.container.target' && target ? { getAttribute: () => target } : null) },
       Sortable: { dragged: null, create: (elem, options) => ({ options, save() {}, sort() {}, destroy() {} }) },
-      MindBox: { get: () => '', create: text => calls.push(['log', text]) },
+      MindBox: { get: () => '', create: text => calls.push(['log', text]), set: (...args) => calls.push(['set', ...args]), select_in_target: text => calls.push(['mark', text]), edit_target: text => calls.push(['edit', text]) },
       alert: message => calls.push(['alert', message]), confirm: message => calls.push(['asked', message]), _modal: message => calls.push(['asked', message]),
     }
     vm.createContext(ctx)
@@ -1915,7 +1954,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const { text, draft, _global_store } = ctx._item(id)
       return { text, calls, rows: ids(), left: to.children.length, store: _global_store._todoer, draft }
     }
-    return { rows, ids, drop, render, item: ctx._item }
+    // a row's click, as the browser calls the handler the render set on the row; what was called
+    const click = id => {
+      rows().find(row => row.getAttribute('data-id') == id).children[0].onclick({ stopPropagation() {}, preventDefault() {} })
+      return calls
+    }
+    return { rows, ids, drop, render, click, item: ctx._item }
   }
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
@@ -1947,5 +1991,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   const elsewhere = world({ snooze: snoozed })
   elsewhere.item('short').text = '#done fix the cache'
   check('done: a todo completed elsewhere during the drag is not written or logged a second time: the row just goes', elsewhere.drop('short'), { text: '#done fix the cache', calls: [], rows: ['task', 'long', 'named'], left: 0, store: snoozed })
+  // A ROW'S CLICK: the app's select for any row but the target's (the box is not set:
+  // setting it wrote a typed query's entry, which the next row's click replaced), by its id reference
+  // or its label as the app names the item; the target's row edits the item where it is, and
+  // does not set the box either (the item's name there is the tab's own id for an unnamed item)
+  check('click: a row selects its item by the app\'s select and marks the todo\'s line; the box is not set', [world().click('short'), world({ target: 'task' }).click('named')], [[['select', 'short'], ['mark', '#todo fix the cache']], [['select', 'named'], ['mark', NAMED.split('\n')[0].replace('#todo-list ', '')]]]) // the line from its todo tag on, as the snippet starts
+  check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['edit', '#todo fix the cache']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
+  check('click: on an app without the select the box is set as before', world({ app: false }).click('short'), [['set', 'id:short', { scroll: true, select: '#todo fix the cache' }]])
   check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
 }

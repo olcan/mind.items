@@ -371,11 +371,11 @@ function __render(widget, widget_item) {
       const selection = _todo_line(text)
       // the item is targeted by its NAME (the app's: the unique label when it has one, else the
       // id reference): under its label the app lists the item's children below it and its
-      // keyboard navigation and child creation work, which an id reference never gives
-      MindBox.set(
-        item.name,
-        edit ? { edit: selection } : { scroll: true, select: selection }
-      )
+      // keyboard navigation and child creation work, which an id reference never gives.
+      // the target's row EDITS it where it is (_edit_item); any other row SELECTS its item
+      // (_select_item)
+      if (edit) _edit_item(item, selection)
+      else _select_item(item, selection)
     }
   }
 
@@ -2093,6 +2093,42 @@ function _notify_show(facts, onclick) {
   return true
 }
 
+// selects an item, as a click on its number in the app does while the number is not green: the
+// app's own select (_Item.select: the query becomes the item's unique label, else its id
+// reference by its saved id, in a history entry of its own, so Back returns to the view the click
+// was made in; the page scrolls to the item and the box gives up the focus), then `selection` (a
+// todo's line) marked in the item for the edit that may follow. Only where the app selected: a
+// refused select (a shared page, an item gone meanwhile) leaves the page's target as it was, and
+// the mark would go to that one. On an app without the method the box is set as before (a typed
+// query's entry, which the next row's click replaced)
+function _select_item(item, selection) {
+  if (typeof item.select != 'function')
+    return MindBox.set(item.name, selection ? { scroll: true, select: selection } : { scroll: true })
+  if (item.select() && selection) MindBox.select_in_target(selection)
+}
+
+// edits the item of a row clicked while the page shows that item as its target, `selection` (the
+// todo's line) selected in its editor. The app's select comes first, then the edit of the page's
+// target. What the select does there:
+// - with the item the target under an equivalent query that is settled, and nothing typed into
+//   the box since, it skips the query and the history write, so the box keeps its spelling (set
+//   to the item's name, the box held the tab's own id again for an unnamed item the app had
+//   selected by its saved id). It still takes the focus out of the box and asks for a scroll to
+//   the item, which can move the page when the item is out of view;
+// - with the item the target under another query (more terms beside its name, or the explicit
+//   id of an item that has a unique label), it gives the item's own name, and can add a history
+//   entry;
+// - with a name typed into the box and not yet applied (the box's debounce), it supersedes that
+//   name for the clicked item, at once. The target the page SHOWS need not be the one it will
+//   have when the edit is made, two frames on: left pending, the typed name became the target
+//   meanwhile, and the editor opened was that other item's, or the box went over to it afterwards.
+// No edit after a refused select (the item is gone). On an app without the select the box is set
+// to the item's name and its target edited, as before
+function _edit_item(item, selection) {
+  if (typeof item.select != 'function') return MindBox.set(item.name, { edit: selection })
+  if (item.select()) MindBox.edit_target(selection)
+}
+
 // a notification's click: this window forward (the browser grants the click's activation to the
 // window that showed it), then the item targeted as its row's click does: its name (the unique
 // label, else the id reference), a todo's line selected (a chat is targeted alone); false for an
@@ -2102,7 +2138,7 @@ function _notify_click(id) {
   const item = _item(id, { silent: true })
   if (!item) return false
   const text = item.tags.includes('#todo') ? _extract_todo_snippet(item) : null
-  MindBox.set(item.name, text ? { scroll: true, select: _todo_line(text) } : { scroll: true })
+  _select_item(item, text ? _todo_line(text) : null)
   return true
 }
 
