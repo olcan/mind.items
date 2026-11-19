@@ -1067,8 +1067,8 @@ if (realMarked) {
   check('watched: a line\'s tooltip names the agent, what it follows in the line\'s own words (never the watch\'s name, an agent\'s label) and since when; the closing entry, which counts watches, has none',
     [titled({ ...HEAD, tags: ['#todo'] }), titled({ ...HEAD, name: '', since: 'x', tags: ['#todo'] }), titled({ ...HEAD, ids: ['a'] }, seen(1, '#bank')), titled({ ...HEAD, ids: ['a'] }), titled({ ...HEAD, all: true }), titled({ more: ['3 more watches'] })],
     [FOLLOWS('#todo'), 'An agent follows #todo', FOLLOWS('#bank'), FOLLOWS('1 by id'), FOLLOWS('all items'), ''])
-  // a device whose pointer cannot hover shows no tooltip (the owner's phone): there
-  // the rows below the menu's entries say the tooltips' words themselves
+  // where the browser reports that its primary pointer does not hover (the owner's phone), the
+  // rows below the menu's entries say the tooltips' words themselves
   const menu_rows = (words, lines, bare) => { ctx.__args = { words, lines, bare }; return vm.runInContext('vault_menu_rows(__args.words, __args.lines, __args.bare)', ctx) }
   const TOLD = [{ text: 'watched: #todo (9 items)', title: FOLLOWS('#todo') }, { text: 'watched: 1 more watch', title: '' }, { text: 'marking took 84 ms', title: '' }]
   check('menu rows: with hover the rows below the entries are the lines with their tooltips; without it the sparkle\'s own words come first and a line\'s tooltip is a row of its own under the line, a line that has none (the closing entry\'s, a slow look\'s) staying alone; with nothing watched the words alone',
@@ -1451,7 +1451,7 @@ if (realMarked) {
     own.tasks.watched.fn()
     check('watched: the look draws the approved look over the items the rule names, in one pass over the items, and the menu\'s line has its count, which the tooltip\'s second line says at once',
       [css, fake.calls.items, said(), spark.title], [LOOK(TODOS), 1, [['watched: #todo (9 items)', TITLE]], shown.title + '\nwatched: #todo (9 items)'])
-    // a device without hover: the menu says the tooltips' words itself, and follows the sparkle's while it is open
+    // where the primary pointer does not hover: the menu says the tooltips' words itself, and follows the sparkle's while it is open
     const rows = () => menu().children.map(child => [child.dataset.vaultEntry ?? (child.dataset.vaultTip ? 'says:' + child.dataset.vaultTip : 'line'), child.textContent, child.title])
     const STOP = ['stop', 'Stop Watching', '']
     device.bare = true
@@ -1466,34 +1466,29 @@ if (realMarked) {
     spark.fire('click')
     const hovered = rows()
     spark.fire('click')
-    check('watched: on a device without hover the menu says the tooltips\' words below its entries, the sparkle\'s own first and each line\'s under its line, and no row keeps a tooltip; the words follow what the sparkle shows while the menu is open, which stays; with hover the menu is the lines with their tooltips, as it was; no item is read for any of it',
+    check('watched: where the primary pointer does not hover the menu says the tooltips\' words below its entries, the sparkle\'s own first and each line\'s under its line, and no row keeps a tooltip; the words follow what the sparkle shows while the menu is open, which stays; with hover the menu is the lines with their tooltips, as it was; no item is read for any of it',
       [[true, false].map(bare => { device.bare = bare; return w1('vault_no_hover()') }), bare, answered, again, hovered, parts('menu').length, fake.calls.items],
       [[true, false], [STOP, ['says:sparkle', shown.title, ''], ['line', 'watched: #todo (9 items)', ''], ['says:line', TITLE, '']],
         [1, ['says:sparkle', 'gpt-6-astra-ultra is answering', ''], 'gpt-6-astra-ultra is answering\nwatched: #todo (9 items)'], [1, ['says:sparkle', shown.title, '']],
         [STOP, ['line', 'watched: #todo (9 items)', TITLE]], 0, 1])
-    // a finger held on the sparkle or its menu selects nothing: what a browser then selects elsewhere on the page is taken away
-    const picked = { isCollapsed: true, removeAllRanges() { this.isCollapsed = true } }
+    // the sparkle takes nobody's selection away (a guard that did went at this change's first review). Its two cases:
+    // a touch on the sparkle that is cancelled, then a selection made elsewhere with the menu closed; and, where the
+    // primary pointer does not hover, Enter opening the menu with no touch, then a selection in the document
+    const picked = { isCollapsed: false, taken: 0, removeAllRanges() { this.taken++ } }
     win.getSelection = () => picked
-    const select = () => { picked.isCollapsed = false; page.fire('selectionchange'); return picked.isCollapsed ? 'taken away' : 'kept' }
-    const selected = [select()]
     page.fire('touchstart', { target: spark })
-    selected.push(select())
-    page.fire('keydown', { target: page.body })
-    selected.push(select())
-    page.fire('touchstart', { target: page.body })
-    selected.push(select())
-    spark.fire('click')
-    selected.push(select())
-    spark.fire('click')
+    page.fire('touchcancel', { target: spark })
+    page.fire('selectionchange')
     device.bare = true
+    spark.fire('keydown', { key: 'Enter' })
+    const entered = parts('menu').length
+    page.fire('selectionchange')
+    const heard = ['touchstart', 'touchend', 'touchcancel', 'mousedown', 'keydown', 'selectionchange'].map(type => (page.listeners[type] ?? []).length)
     spark.fire('click')
-    selected.push(select())
-    spark.fire('click')
-    selected.push(select())
     device.bare = false
-    check('sparkle: a selection that appears is the page\'s own and is kept, but for one after a touch that began on the sparkle, until any other input (a key, a touch elsewhere), and one under a menu drawn without hover (a hovering menu keeps it, and so does the page once that menu is closed)',
-      [selected, ['touchstart', 'mousedown', 'keydown', 'selectionchange'].map(type => (page.listeners[type] ?? []).length)],
-      [['kept', 'taken away', 'kept', 'kept', 'kept', 'taken away', 'kept'], [1, 1, 1, 1]])
+    delete win.getSelection
+    check('sparkle: a selection in the document is its reader\'s: none is taken away after a touch on the sparkle that was cancelled, nor under a menu that Enter opened where the primary pointer does not hover, and the controller listens on the page for no touch, press, key or selection',
+      [picked.taken, entered, parts('menu').length, heard], [0, 1, 0, [0, 0, 0, 0, 0, 0]])
     log.length = 0
     changed('t1')
     const once = [[...log], own.tasks.watched.delay]
@@ -1637,11 +1632,34 @@ if (realMarked) {
     spark2.fire('click')
     check('watched: the controller that replaced the first warns of its own first slow look, in its own words for one rule and a watch of all items; the line is below that rule\'s',
       [css2 == SHEET(EVERY), looks(), warned.slice(1), said2], [true, 0, ['vault: marking the watched items took 60 ms (all items marked, 1 rule)'], ['watched: all items', 'marking took 60 ms']])
+    // a follow's details change under a line that stays as it is: the same follow under another agent and from another
+    // start, while the account's watcher is the same one (the bridge publishes the follows apart from it). A menu that
+    // says the details itself closes, and says the new ones when it is opened again; a hovering menu, whose details
+    // are tooltips, stays as it always did, and so does either menu when only the watcher's own state changes (above)
+    const sweep = (name, since) => { own.store._bridge.watcher = { ...watching, follows: [{ ...HEAD, watch: 'sweep', name, since, all: true }] }; w2('_on_global_store_change(_this.id)') }
+    const SWEEPS = (name, since) => `${name} follows all items since ${new Date(since).toLocaleString()}`
+    const LATER = '2026-11-18T10:00:00.000Z'
+    sweep('agent-one', SINCE) // (and a quick look: the slow one's line goes, so the lines are the same before and after)
+    device.bare = true
+    spark2.fire('click')
+    const first = rows()
+    sweep('agent-two', LATER)
+    const left = parts('menu').length
+    if (left) spark2.fire('click')
+    spark2.fire('click')
+    const second = rows()
+    spark2.fire('click')
+    device.bare = false
+    spark2.fire('click')
+    sweep('agent-one', SINCE)
+    const hovering = [parts('menu').length, rows()]
+    spark2.fire('click')
+    const SWEPT = name => [STOP, ['says:sparkle', shown.title, ''], ['line', 'watched: all items', ''], ['says:line', SWEEPS(name, name == 'agent-one' ? SINCE : LATER), '']]
+    check('watched: a menu that says a line\'s details itself closes when the rules change under a line whose text stays (the same follow under another agent, from another start), and says the new details when it is opened again; a hovering menu stays open, as it always did, its tooltip the one it was drawn with',
+      [first, left, second, hovering, parts('menu').length], [SWEPT('agent-one'), 0, SWEPT('agent-two'), [1, [STOP, ['line', 'watched: all items', SWEEPS('agent-two', LATER)]]], 0])
     own.tasks.sparkle._on_cancel?.() // the item is deleted: the app cancels its task
     own.tasks.watched.fn()
     check('watched: the controller\'s end removes the marks, and a look still due does nothing', [parts('watched').length, parts('node').length, '_vault_sparkle' in win], [0, 0, false])
-    check('sparkle: the controller\'s end takes its listeners on the page with it: none hears a touch, a press, a key or a selection there any more',
-      ['touchstart', 'mousedown', 'keydown', 'selectionchange'].map(type => (page.listeners[type] ?? []).length), [0, 0, 0, 0])
   }
   // the command's transport: one retry at the same document id, then said
   ;(async () => {
