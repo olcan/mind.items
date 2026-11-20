@@ -52,6 +52,16 @@ const vault_held_items = () =>
 // item's own id, a temporary one for a chat created in this tab until the tab reloads (_item
 // resolves the saved id to that item): this tab's records are keyed by the item's own id
 const vault_item_key = id => _item(id, { silent: true })?.id ?? id
+// a KNOWN LIVE TASK, by the item's OWN task projection: what the bridge holds of a task it
+// writes into the item's store (_agent.state, which the todoer's _task_state reads). The bridge
+// never answers a live task as a chat, whatever its text reads as (its dispatcher's task_live:
+// a task record that is no tombstone and whose reason is not `new`, which a tombstone's is), so
+// nothing waits for an answer there. An item the bridge holds no task for has no projection or
+// one that says `new`, and a chat under a todo has none of its own: neither is a live task
+const vault_live_task = id => {
+  const reason = _item(id, { silent: true })?._global_store?._agent?.state?.reason
+  return typeof reason == 'string' && reason != 'new'
+}
 
 // the app's per-item running flag is a refcount (a web agent's item holds one reference during
 // its call); this tab holds one reference of its own on every chat item the bridge holds, beside
@@ -61,15 +71,38 @@ const vault_item_key = id => _item(id, { silent: true })?.id ?? id
 // under _this.store) records, by item, the save time of a reference taken at a save
 // (vault_mark_saved) that the store does not list yet: the listing takes such a reference over
 // when it lists the item (the entry leaves `pending`, the reference stays, the store owns it from
-// then on) and never releases one it has not taken over
-function vault_mark_running(listed, marked, pending = {}) {
+// then on) and never releases one it has not taken over.
+// A DELISTED CHAT KEEPS ITS MARK FOR ITS ANSWER (the owner's ask of 2026-11-19: the bridge
+// delists a run when its agent hands the answer in and writes the answer into the item after
+// that, so the mark went seconds before the answer came). The decision is this tab's, by what
+// it holds itself, when the listing drops an item's LAST entry (a run's, a queued request's or
+// a worker's): an item that still reads here as a pending request (vault_routed, the save-time
+// mark's own test: its answer has not reached this tab) and is no known live task
+// (vault_live_task) keeps its reference as a PENDING one, recorded as begun VAULT_KEPT_MS short
+// of the pending timeout ago. So what ends a pending mark ends it: the item's next change that
+// ends the request (the answer), its deletion, the first tick or reconciliation that finds its
+// deadline passed, or the listing, which takes it over when it lists the item again; a change
+// that leaves it a request (an edit ahead of the answer) makes it that save's mark, with the
+// save's own VAULT_PENDING_MS. Every other delisted item (answered ahead of the delisting, no
+// request of the vault's, a live task) is released at once, as it always was.
+// A kept mark shows the status this tab last set, and this item writes none for it: the last
+// status stays in place until another writer changes it (a new listing; a web call's own end
+// blanks it) or the mark's release clears it (vault_release_pending).
+// The owner's decision is that the page keeps the mark for the answer: the test above and the
+// deadline are this change's own choices
+function vault_mark_running(listed, marked, pending) {
   listed = new Set([...listed].map(vault_item_key)) // the saved ids as this tab's item ids
   for (const id of keys(marked)) {
     if (listed.has(id)) {
       delete pending[id] // handed over to the listing
       continue
     }
-    if (id in pending) continue // saved here and not listed yet: vault_release_pending's
+    if (id in pending) continue // saved here and not listed yet, or kept below: vault_release_pending's
+    if (!vault_live_task(id) && vault_routed(id)) { // the projection first: a todo's text is then not read
+      pending[id] = Date.now() - VAULT_PENDING_MS + VAULT_KEPT_MS // kept: its deadline is VAULT_KEPT_MS away
+      dispatch_task('pending', vault_expire_pending, 1000, 1000)
+      continue
+    }
     delete marked[id]
     const item = _item(id, { silent: true })
     if (item) item.running = false
@@ -137,7 +170,7 @@ const vault_key_after = (a, b) => {
 // clear (status '' and progress 0) the items this tab set a status on that are no longer listed,
 // once their last running reference is gone: an item still running keeps its status and stays
 // recorded, and the clearing is retried at every release of a reference (the listing mark at a
-// store change) or any later
+// store change, a pending or kept mark where it is released) or any later
 // change of the item (a web call on the same chat posts its own status and clears it when it
 // completes; its reply is an item change)
 function vault_clear_status(shown, listed) {
@@ -199,6 +232,16 @@ function vault_reconcile_running() {
 // the item's next change that ends the request, at its deletion, or at the first tick or
 // reconciliation past its VAULT_PENDING_MS deadline, so a stopped bridge leaves no lasting mark
 const VAULT_PENDING_MS = 30000
+// the DEADLINE of a kept mark (vault_mark_running), counted from the delisting as this tab saw
+// it: a choice of this change, about twice the longest gap in the bridge's own logs. There the
+// answer of a chat under a todo was committed 2.2 to 8.1 s after its agent handed it in (73
+// answers of 2026-11-16 to 19, the median 2.7 s, 6.0 s at most since the 17th; a plain chat's is
+// quicker, 1.4 to 1.9 s over 12 answers by another measure), and the two writes reach a tab by
+// deliveries of their own. It is no promise either way: the deadline is looked at by the
+// pending task's tick (a second apart; later in a hidden or busy tab) and at every
+// reconciliation, so a mark can outlast it, and an answer that comes later than the look that
+// finds it passed has lost its mark by then, as every answer had before
+const VAULT_KEPT_MS = 15000
 // the editor the review links open (the vault's own VS Code extension `auto-open-obsidian`
 // handles the URI): `vscode-insiders`, or `vscode` for the stable build
 const VAULT_EDITOR = 'vscode-insiders'
@@ -330,13 +373,19 @@ function vault_mark_saved(id, marked, pending) {
 }
 
 // release a pending mark (none for an item the listing has taken over): the reference is given
-// back if the item exists (a deleted item's count is gone with it)
+// back if the item exists (a deleted item's count is gone with it). A kept mark (see
+// vault_mark_running) still shows its run's status, so the deferred clearing (vault_clear_status)
+// runs here: nothing else need follow a deadline, and a status is recorded under the id the
+// bridge lists, which is not the id a chat created in this tab changes under (vault_item_key).
+// Where another holder still runs the item (a web call), the clearing stays deferred as before:
+// what is left of the status then goes at a later reconciliation or change of the item
 function vault_release_pending(id, marked, pending) {
   if (!(id in pending)) return
   delete pending[id]
   delete marked[id]
   const item = _item(id, { silent: true })
   if (item) item.running = false
+  if (_this.store._vault_shown) _this.store._vault_shown = vault_clear_status(_this.store._vault_shown, vault_held_items())
 }
 
 // the timeout, as the task above and at every reconciliation: the pending marks past it are

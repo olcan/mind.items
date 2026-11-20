@@ -185,7 +185,17 @@ check('stop_run saves the whole store without the re-render the app forces on a 
 vm.runInContext("_this._global_store = {}; _this.global_store = _this._global_store; _on_welcome()", ctx)
 check('welcome provisions the store', vm.runInContext('_this.global_store', ctx), { _owner: { stop: {} } })
 check('welcome saves the provisioned store the same way', saves.splice(0), [{ invalidate_elem_cache: false }])
-// the running marks: one reference of this tab's own per listed chat item (the app's refcount)
+// the item's tasks, as dispatched (the app's dispatch_task: the pending marks' tick, the listing's)
+const tasks = []
+env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
+// the running marks: one reference of this tab's own per listed chat item (the app's refcount).
+// The chats of these rows are ANSWERED (their last turn is the agent's), so a delisting releases
+// their marks at once; a chat delisted ahead of its answer keeps its mark (the kept mark's rows,
+// with the save-time mark's below, where the chats are requests again)
+// (the bridge's reply as its publisher writes it: the quoted footer, then the inert body)
+const REPLY = "\n<<agent('vault/default · run ab12cd34 · 1s')>>\n<!--inert-->\nfine\n<!--/inert-->"
+const answered_text = name => routed_text(name) + REPLY
+for (const id of ['chat-id', 'chat2-id']) items[id].text = answered_text(items[id].name)
 const counts = () => vm.runInContext("[items['chat-id'].count, items['chat2-id'].count, items['busy-id'].count]", ctx)
 const marks = () => vm.runInContext('_this.store._vault_marked', ctx)
 // a listing of minimal rows: the bridge's rows always carry a persona and a start, and the table,
@@ -229,8 +239,6 @@ check('the delisting after that order releases the reference', [counts(), marks(
 // registration, and ticks that advance the elapsed column without any store delivery
 const script = item.match(/<script _uncached>\n([\s\S]*?)<\/script>/)
 if (!script) throw new Error('no _uncached script in vault.md')
-const tasks = []
-env.dispatch_task = (name, fn, delay, repeat) => tasks.push({ name, fn, delay, repeat })
 runs_div.writes = 0 // the store changes above rendered into it; this section counts the script's own
 delete runs_div._vault_html
 vm.runInContext("_this._global_store = {_bridge: {updated: " + now + ", host: 'h', runs: {r7: {item: 'chat-id', persona: 'p', started: " + (now - 3000) + ", worktree: null}}}, _owner: {stop: {}}}", ctx)
@@ -528,6 +536,11 @@ const change = (id, { remote = false, deleted = false } = {}) => vm.runInContext
 const pending = () => vm.runInContext('_this.store._vault_pending', ctx)
 const pendingTask = () => tasks.findLast(t => t.name === 'pending')
 vm.runInContext("_this.store = {}; _this._global_store = {_bridge: {host: 'h', updated: " + now + ", runs: {}, queued: {}}, _owner: {stop: {}}}; _this.global_store = _this._global_store; _on_welcome()", ctx)
+// the chats are requests from here on (their last turn is the user's): `answer` is the answer as
+// a tab receives it (the text ends with an agent turn, a remote change), `ask` the request again
+const ask = id => { items[id].text = routed_text(items[id].name) }
+const answer = id => { items[id].text += REPLY; change(id, { remote: true }) }
+for (const id of ['chat-id', 'chat2-id']) ask(id)
 const tasksBefore = tasks.length
 change('chat-id')
 check('a local save of a routed item marks at once, records the save time, and starts the pending task', [counts(), marks(), pending(), tasks.length - tasksBefore, [pendingTask().delay, pendingTask().repeat]], [[1, 0, 0], { 'chat-id': true }, { 'chat-id': clock.now }, 1, [1000, 1000]])
@@ -541,13 +554,180 @@ check('the tick after the handoff ends the task', pendingTask().fn() === null, t
 change('chat-id')
 change('chat-id', { remote: true })
 check('while listed, a save and a remote change are the listing\'s: no reference taken or released', [counts(), pending()], [[1, 0, 0], {}])
+// A DELISTED CHAT KEEPS ITS MARK FOR ITS ANSWER (2026-11-19): the bridge delists a run when its
+// agent hands the answer in and writes the answer into the item after that, so an item whose
+// last listing entry goes while it still reads as a request keeps its reference, as a pending
+// mark whose deadline is VAULT_KEPT_MS away. The answer, the first look past the deadline, a
+// new listing, an edit or the deletion ends it, once, in every order; a chat answered ahead of
+// its delisting is released by it (and so is an item that is no request: the rows over the
+// answered chats, above; a chat routed elsewhere and a live task: the rows at this block's end)
+const KEPT_MS = 15000 // VAULT_KEPT_MS
+const held = () => [counts(), { ...marks() }, { ...pending() }] // this tab's references and records, as they are now
+const kept = () => [[1, 0, 0], { 'chat-id': true }, { 'chat-id': clock.now - 30000 + KEPT_MS }] // the first chat's mark kept now
+const is_kept = () => JSON.stringify(held()) === JSON.stringify(kept())
+const NONE = [[0, 0, 0], {}, {}]
+const tasksKept = tasks.length
 listing('{}')
-check('the delisting releases the handed-over reference', [counts(), marks()], [[0, 0, 0], {}])
+const kept_first = kept()
+check('a chat delisted ahead of its answer keeps its mark: the one reference, a pending one with the kept time left of its timeout, and the task ticks',
+  [held(), tasks.length - tasksKept, [pendingTask().delay, pendingTask().repeat]], [kept_first, 1, [1000, 1000]])
+clock.now += 2000
+vm.runInContext("_on_global_store_change('vault-id', true)", ctx) // the listing changes again
+check('a tick and a store change within the limit neither release nor renew it', [pendingTask().fn() === undefined, held()], [true, kept_first])
+check('the text\'s change: the answer (a remote change that ends the request) releases it, and the next tick ends the task',
+  [held(), (answer('chat-id'), held()), pendingTask().fn() === null], [kept_first, NONE, true])
+ask('chat-id')
+sup_store("{r1: {status: 'step 2 of 3', progress: 0.5}}")
+listing("{r1: {item: 'chat-id'}}")
+listing('{}')
+clock.now += KEPT_MS - 1
+check('the limit: a tick just short of it keeps the mark, which shows the run\'s last status and progress; the tick at it releases the mark, clears them and ends the task; an answer that comes late releases nothing more',
+  [pendingTask().fn() === undefined, counts(), status('chat-id'), (clock.now += 1, pendingTask().fn() === null), held(), status('chat-id'), (answer('chat-id'), held())],
+  [true, [1, 0, 0], ['step 2 of 3', 0.5], true, NONE, ['', 0], NONE])
+sup_store('{}')
+ask('chat-id')
+listing("{r1: {item: 'chat-id'}}")
+listing('{}')
+const relisted = [is_kept(), (listing("{r2: {item: 'chat-id'}}"), held())] // listed again within the limit: the owner's next message on the chat
+clock.now += KEPT_MS
+check('listed again while kept: the listing takes the kept mark over, with no second reference, and the limit then releases nothing',
+  [relisted, pendingTask().fn() === null, held()], [[true, [[1, 0, 0], { 'chat-id': true }, {}]], true, [[1, 0, 0], { 'chat-id': true }, {}]])
+listing('{}')
+check('and that run\'s own end keeps the mark again, until its answer', [is_kept(), (answer('chat-id'), held())], [true, NONE])
+ask('chat-id')
+listing("{r1: {item: 'chat-id'}}")
+listing('{}')
+const edited = is_kept()
+clock.now += 2000
+items['chat-id'].text += ' and more' // the owner's edit ahead of the answer: still a request, which the bridge takes as a new one
+change('chat-id')
+check('an edit ahead of the answer (a change that leaves the kept chat a request) makes the mark that save\'s: the one reference, the save\'s own timeout, and the answer releases it',
+  [edited, held(), (answer('chat-id'), held())], [true, [[1, 0, 0], { 'chat-id': true }, { 'chat-id': clock.now }], NONE])
+const lost = (items['lost-id'] = Object.assign(new FakeItem('#chat/lost', 0, routed_text('#chat/lost')), { id: 'lost-id' }))
+listing("{r3: {item: 'lost-id'}}")
+listing('{}')
+const lost_kept = [lost.count, { ...marks() }, { ...pending() }]
+const lost_since = clock.now - 30000 + KEPT_MS
+delete items['lost-id'] // deleted: _item returns null
+change('lost-id', { deleted: true })
+check('a kept chat deleted: its records go without a decrement (the count went with the item), and the limit finds nothing',
+  [lost_kept, lost.count, held(), (clock.now += KEPT_MS, pendingTask().fn() === null)], [[1, { 'lost-id': true }, { 'lost-id': lost_since }], 1, NONE, true])
+// ANOTHER HOLDER: a web agent's call on the same chat, as the responder runs it (agent/chat.js,
+// run_on_chat_item): it takes its own reference and writes its own status at its dispatch, and
+// where the owner routed the chat to the vault during the call it drops its reply, so its end
+// gives the reference back and blanks the status and NO change of the item follows. This item
+// leaves the last status in place until another writer changes it, and defers its own clearing
+// while the item still runs (vault_clear_status): what is left of a status that outlived the
+// vault's mark (the stored progress, this tab's record of it) goes at the next reconciliation
+const web_call = id => { items[id].running = true; items[id].status = 'waiting for #agent/chat/gpt ...' }
+const web_done = id => { items[id].running = false; items[id].status = '' }
+const shown = () => ({ ...vm.runInContext('_this.store._vault_shown', ctx) })
+const reconciled = () => vm.runInContext("_on_global_store_change('vault-id', true)", ctx)
+sup_store("{r4: {status: 'step 2 of 3', progress: 0.6}}")
+ask('chat-id')
+web_call('chat-id')
+listing("{r4: {item: 'chat-id'}}")
+listing('{}')
+check('another holder, the vault\'s answer first: the web call keeps its own reference beside the kept one and after the answer, with the status and the progress left in place; its own end gives the reference back and blanks the status with no change of the item, and the stored progress and this tab\'s record of the status go at the next reconciliation',
+  [counts(), status('chat-id'), (answer('chat-id'), held()), status('chat-id'), shown(), (web_done('chat-id'), held()), status('chat-id'), shown(), (reconciled(), status('chat-id')), shown()],
+  [[2, 0, 0], ['step 2 of 3', 0.6], [[1, 0, 0], {}, {}], ['step 2 of 3', 0.6], { 'chat-id': true }, NONE, ['', 0.6], { 'chat-id': true }, ['', 0], {}])
+ask('chat-id')
+web_call('chat-id')
+listing("{r4: {item: 'chat-id'}}")
+listing('{}')
+check('another holder, the web call\'s end first: it blanks the status under the kept mark, whose fill stays; the vault\'s answer then gives the last reference back and clears the rest',
+  [counts(), (web_done('chat-id'), counts()), status('chat-id'), (answer('chat-id'), held()), status('chat-id'), shown()],
+  [[2, 0, 0], [1, 0, 0], ['', 0.6], NONE, ['', 0], {}])
+sup_store('{}')
+ask('chat-id')
+listing("{r5: {item: 'chat-id'}}")
+listing('{}')
+check('a reload while a mark is kept: the new page has no record of it and holds no reference (the listing no longer lists the chat), and the answer releases nothing',
+  [is_kept(), (vm.runInContext("_this.store = {}; items['chat-id'].count = 0; _on_welcome()", ctx), held()), (answer('chat-id'), held())], [true, NONE, NONE])
+// a second tab: its own evaluation of the item, session store and item records (the app counts a
+// tab's references in that tab), over the same synced listing and the same text
+const chat_b = Object.defineProperty(Object.assign(new FakeItem('#chat/topic', 0, '', [], ['chat-root']), { id: 'chat-id' }), 'text', { get: () => items['chat-id'].text })
+const tab2 = vm.createContext({ ...env, _item: key => (key === 'chat-id' ? chat_b : env._item(key)), _this: { ...env._this, store: {} } })
+vm.runInContext(tableSrc[0] + '\n' + block[1], tab2)
+const tab2_sees = hook => vm.runInContext(hook, tab2)
+const both = () => [items['chat-id'].count, chat_b.count]
+ask('chat-id')
+listing("{r6: {item: 'chat-id'}}")
+tab2_sees("_on_global_store_change('vault-id', true)")
+listing('{}')
+tab2_sees("_on_global_store_change('vault-id', true)")
+check('a second tab keeps a mark of its own: each tab gives its one reference back, the first at the answer and the second, which the answer reaches late, at its limit',
+  [both(), (answer('chat-id'), both()), (clock.now += KEPT_MS, pendingTask().fn() === null), both(), (tab2_sees("_on_item_change('chat-id', '#x', '#x', false, true, false)"), both())],
+  [[1, 1], [0, 1], true, [0, 0], [0, 0]])
+// an update of the item's code while a mark is kept (the session store survives /_update): the
+// new evaluation's hooks read the kept record, and the old evaluation's task still ticks
+ask('chat-id')
+listing("{r7: {item: 'chat-id'}}")
+listing('{}')
+const updated = vm.createContext({ ...env }) // the same item: its store and so its records
+vm.runInContext(tableSrc[0] + '\n' + block[1], updated)
+check('an update of the item\'s code while a mark is kept: the new code\'s hook releases it at the answer, once, and the old code\'s task ends at its next tick',
+  [is_kept(), (items['chat-id'].text += REPLY, vm.runInContext("_on_item_change('chat-id', '#x', '#x', false, true, false)", updated), held()), pendingTask().fn() === null, held()],
+  [true, NONE, true, NONE])
+ask('chat-id')
+listing("{r8: {item: 'chat-id'}, r9: {item: 'chat2-id'}}")
+answer('chat-id') // its answer reaches the tab ahead of the delisting: the mark stays the listing's
+listing('{}')
+check('one delisting of two chats: the one answered ahead of it is released at once (its answer has shown), the unanswered one is kept until its own',
+  [held(), (answer('chat2-id'), held())], [[[0, 1, 0], { 'chat2-id': true }, { 'chat2-id': clock.now - 30000 + KEPT_MS }], NONE])
+for (const id of ['chat-id', 'chat2-id']) ask(id)
+// A KNOWN LIVE TASK DOES NOT WAIT FOR A CHAT'S ANSWER (review 0 of the kept mark, 2026-11-20).
+// The bridge never answers a live task as a chat, whatever its text reads as (the dispatcher's
+// task_live: a task record that is no tombstone and whose reason is not `new`), and it writes
+// what it holds of a task into the item's OWN store (_agent.state, which the todoer's
+// _task_state reads). The example: a delegated todo whose body quotes a transcript (a line that
+// opens a user turn, the delegation's trailing route tag), handed back and held by the owner;
+// its last task listing, then the empty one, with no save between. Before the kept mark the item
+// released it there (0, nothing pending); the kept mark's first version kept it (1, pending,
+// the tooltip still `between turns`) until the deadline
+const todo = (items['task-id'] = Object.assign(new FakeItem('#task', 0, '#task #todo [question] quote the transcript\n<<user>> hello\n#_agent/vault\n'), { id: 'task-id', _global_store: { _agent: { state: { held: 'owner', reason: 'question' } } } }))
+const of = item => [item.count, item.id in pending(), item.status]
+let todo_reads = 0 // the projection decides first: a live task's text is not read for it
+todo.read = function () { todo_reads++; return FakeItem.prototype.read.call(this) }
+listing("{t1: {item: 'task-id', hold: true, status: 'between turns'}}")
+check('a known live task is released when its last listing goes, though its text reads as a request: its own projection says a task, which the bridge never answers as a chat (and its text is not read)',
+  [of(todo), (listing('{}'), of(todo)), held(), todo_reads], [[1, false, 'between turns'], [0, false, ''], NONE, 0])
+// the grace stays where the bridge would answer: a routed item it holds no task for (a
+// projection that says `new`: the record of a refused command, never a task), and an ordinary
+// chat under a live todo, which has no projection of its own (the todo's is not the chat's)
+items['cv-id'] = new FakeItem('#chat/vault', 0, '#chat/vault #_agent/vault\n\\<<user>> …', [], ['chat-root']) // the command item, which carries the chat's route
+const todo_chat = (items['task0-id'] = Object.assign(new FakeItem('#task/0', 0, '#task/0 #_chat/vault\n<<user>> how is it going?', [], ['chat-root', 'cv-id']), { id: 'task0-id' }))
+todo._global_store._agent.state = { held: 'owner', reason: 'new' }
+listing("{c1: {item: 'task-id'}}")
+listing('{}')
+const no_task = [of(todo), (answer('task-id'), of(todo))]
+todo._global_store._agent.state = { held: 'agent', reason: 'working' }
+listing("{c2: {item: 'task0-id'}}")
+listing('{}')
+check('the grace stays for a routed item whose projection says no task was admitted, and for a chat under a live todo: each kept at its delisting and released by its answer',
+  [no_task, of(todo_chat), (answer('task0-id'), of(todo_chat)), held()], [[[1, true, ''], [0, false, '']], [1, true, ''], [0, false, ''], NONE])
+for (const id of ['task-id', 'task0-id', 'cv-id']) delete items[id]
+// the ROUTE's half of the test at the delisting: the owner switches a LISTED chat to a web agent
+// and leaves its question as it is (the save changes nothing: the mark is the listing's)
+listing("{r1: {item: 'chat-id'}}")
+items['chat-id'].text = items['chat-id'].text.replace('#_agent/vault', '#_agent/openai')
+change('chat-id')
+check('a listed chat switched to a web agent, its question intact, is released when its listing goes: the route decides with the unanswered turn, not the turn alone',
+  [held(), (listing('{}'), held())], [[[1, 0, 0], { 'chat-id': true }, {}], NONE])
+ask('chat-id')
+// the LAST ENTRY of any kind decides (a run's, a queued request's, a worker's): a chat whose
+// worker is the last thing the listing holds of it while its newest turn is unanswered here
+bridge('{}', "{'chat2-id': {worker: 'w0000aaaa', phase: 'finishing', run: 'w1', worktree: 'chat_two', since: 1}}")
+check('the last worker entry of a still-unanswered chat gets the same grace: kept, with the worker\'s phase its status, when the worker-only listing goes, and released by the answer',
+  [counts(), (bridge('{}'), held()), status('chat2-id'), (answer('chat2-id'), held()), status('chat2-id')],
+  [[0, 1, 0], [[0, 1, 0], { 'chat2-id': true }, { 'chat2-id': clock.now - 30000 + KEPT_MS }], ['finishing', 0], NONE, ['', 0]])
+ask('chat2-id')
 listing("{r2: {item: 'chat2-id'}}") // the other order: listed first (a request saved on another device)
 change('chat2-id')
 check('listed first: the local save adds no reference and no pending mark', [counts(), pending()], [[0, 1, 0], {}])
 listing('{}')
-check('the delisting then releases the one reference', counts(), [0, 0, 0])
+check('the delisting then keeps the one reference, and the answer releases it', [counts(), (answer('chat2-id'), counts())], [[0, 1, 0], [0, 0, 0]])
+ask('chat2-id')
 change('chat-id')
 items['chat-id'].text += '\n<<agent(vault/default)>> the reply' // the reply: the text ends with an agent turn
 change('chat-id', { remote: true }) // the reply lands with no listing seen
@@ -579,21 +759,27 @@ listing("{r3: {item: 'chat-id'}}")
 vm.runInContext("_this.store._vault_pending = {'chat-id': true}; items['chat-id'].count = 2; _on_global_store_change('vault-id', false)", ctx)
 check('a legacy pending mark beside the listing\'s reference releases only its own and keeps the listing\'s record', [counts(), marks(), pending()], [[1, 0, 0], { 'chat-id': true }, {}])
 listing('{}')
-check('the delisting then releases the listing\'s reference: nothing leaks', [counts(), marks()], [[0, 0, 0], {}])
+check('the delisting then keeps the listing\'s reference for the answer, which releases it: nothing leaks', [is_kept(), (answer('chat-id'), held())], [true, NONE])
+ask('chat-id')
 // a chat created in this tab keeps a temporary id until the tab reloads: the app calls
 // _on_item_change with it, the bridge lists the saved document id, and _item resolves the saved id
 // to the same item, so the records are keyed by the item's own id in both orders (review 0 B1)
 items['chat-saved'] = items['chat-id'] // the saved id resolves to the item whose own id is chat-id
 change('chat-id')
+sup_store("{r4: {status: 'step 2 of 3', progress: 0.5}}")
 listing("{r4: {item: 'chat-saved'}}")
 check('a new chat: the listing by the saved id takes over the mark taken under the temporary id (one reference, not pending)', [counts(), marks(), pending()], [[1, 0, 0], { 'chat-id': true }, {}])
 listing('{}')
-check('and its delisting releases that reference before any reply', counts(), [0, 0, 0])
+check('and its delisting keeps that reference under the temporary id, its status recorded under the saved one; the reply, a change under the temporary id, releases it and clears the status',
+  [is_kept(), status('chat-id'), (answer('chat-id'), held()), status('chat-id'), vm.runInContext('_this.store._vault_shown', ctx)], [true, ['step 2 of 3', 0.5], NONE, ['', 0], {}])
+sup_store('{}')
+ask('chat-id')
 listing("{r5: {item: 'chat-saved'}}")
 change('chat-id')
 check('listed by the saved id first: a local edit under the temporary id adds no reference', [counts(), marks(), pending()], [[1, 0, 0], { 'chat-id': true }, {}])
 listing('{}')
-check('and the delisting releases the one reference', counts(), [0, 0, 0])
+check('and the delisting keeps the one reference, which the answer releases', [is_kept(), (answer('chat-id'), held())], [true, NONE])
+ask('chat-id')
 delete items['chat-saved']
 change('web-id')
 check('a save of a web-routed item takes no mark', [items['web-id'].count, marks()], [0, {}])
