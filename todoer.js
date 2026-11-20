@@ -245,7 +245,8 @@ function __render(widget, widget_item) {
     if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
     // read text and determine todo tag positions
-    let text = _extract_todo_snippet(item)
+    const cut = {} // what the snippet's truncation left out, read by the tooltip (_row_title)
+    let text = _extract_todo_snippet(item, cut)
     if (!text) continue // no #todo tag found (should have logged error)
     // a project's bound child (its projection carries `parent`): the row is marked ↳ and its
     // tooltip names the parent (vault project design 2.7); presentation only
@@ -276,9 +277,15 @@ function __render(widget, widget_item) {
       ) // try every 250ms until saved
     }
 
-    // the row (and its tooltip) shows the snippet's visible text (_visible)
-    container.title = (parent ? `child of ${parent}\n` : '') + _visible(text) // original whitespace for title
+    // the row shows the snippet's visible text (_visible) on one line, its tooltip the same in
+    // its lines (_row_title), under the tooltip's own first lines: a snoozed todo's time, a
+    // child's parent. the done bin logs the row's text under those lines, as it always has
+    const first_lines =
+      (snoozed ? new Date(item._global_store._todoer.snoozed).toLocaleString() + '\n' : '') +
+      (parent ? `child of ${parent}\n` : '')
+    container.title = first_lines + _row_title(text, cut)
     const shown = _visible(text).replace(/\s+/g, ' ')
+    container._log_text = (first_lines + shown).replace(/\s+/g, ' ')
     // a projection change this tab has not notified yet (the hook notifies first; a render
     // catches a delivery the hook did not see, see _notify_change)
     _notify_change(item, { state, list: task_list, parent })
@@ -313,11 +320,6 @@ function __render(widget, widget_item) {
       div.innerHTML = '&lrm;' + html
     }
 
-    if (snoozed)
-      container.title =
-        new Date(item._global_store._todoer.snoozed).toLocaleString() +
-        '\n' +
-        container.title
     if (delegated) {
       const updated = state?.updated
       const age = document.createElement('mark')
@@ -566,7 +568,7 @@ function __render(widget, widget_item) {
         // item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
         // // log if logger exists
         // if (_exists('#logger'))
-        //   MindBox.create('/log cancelled ' + e.item.title.replace(/\s+/g, ' '))
+        //   MindBox.create('/log cancelled ' + e.item._log_text)
       } else if (e.to == done_bin) {
         // a todo dropped on the done bin is NEVER deleted (the owner, 2026-11-17): its todo
         // tag becomes #done whatever its length and whether the item is named, and the item
@@ -666,7 +668,7 @@ function __render(widget, widget_item) {
         done_bin.firstChild.remove()
         // log if logger exists
         if (_exists('#logger'))
-          MindBox.create('/log done ' + e.item.title.replace(/\s+/g, ' '))
+          MindBox.create('/log done ' + e.item._log_text)
       } else if (e.to == snooze_bin) {
         snooze_bin.firstChild.remove()
         item.global_store._todoer ??= {}
@@ -1156,8 +1158,9 @@ function _todo_line(snippet) {
   return line.replace(/^[\s…]+|[\s…]+$/g, '')
 }
 
-// extract todo snippet from item
-function _extract_todo_snippet(item) {
+// extract todo snippet from item; `cut`, when given, receives the text that a truncation
+// left out (`tail` behind a suffix snippet, `head` before a prefix one), for the row's tooltip
+function _extract_todo_snippet(item, cut = {}) {
   // read text and determine todo tag positions (the mode is decided on the text as read, as
   // the marker writer decides it; the bridge's _log block is dropped from the chosen slice)
   let text = item.read()
@@ -1190,7 +1193,10 @@ function _extract_todo_snippet(item) {
       // truncate on first whitespace in tail (index > 200)
       // note we only truncate on whitespace to avoid breaking tags or urls
       const cutoff = text.substr(200).search(/\s/)
-      if (cutoff >= 0) text = text.substr(0, 200 + cutoff) + ' …'
+      if (cutoff >= 0) {
+        cut.tail = text.substr(200 + cutoff)
+        text = text.substr(0, 200 + cutoff) + ' …'
+      }
     }
   } else {
     // use prefix (without the log), truncate (and align) on left
@@ -1199,7 +1205,10 @@ function _extract_todo_snippet(item) {
       // truncate on _last_ whitespace in head (index < end - 200)
       // note we only truncate on whitespace to avoid breaking tags or urls
       const cutoff = text.substr(0, text.length - 200).search(/\s[^\s]*$/)
-      if (cutoff >= 0) text = '… ' + text.substr(cutoff + 1)
+      if (cutoff >= 0) {
+        cut.head = text.substr(0, cutoff + 1)
+        text = '… ' + text.substr(cutoff + 1)
+      }
     }
   }
 
@@ -1443,6 +1452,20 @@ function _row_label(item, shown) {
   const rest = shown.substring(label.length)
   if (head.toLowerCase() == label.toLowerCase() && /^(?:$|[#\s<>&?!,.;:"'`(){}\[\]])/.test(rest)) return null
   return label
+}
+
+// a row's tooltip: the snippet in its lines, each by the row's own rule of what is visible
+// (_visible). A line that the rule leaves empty goes (it held only hidden parts), blank lines
+// go at the two ends, and the ellipsis stands only where the truncation left out something
+// visible (`head`, `tail`: what it left out, see _extract_todo_snippet)
+function _row_title(snippet, { head = '', tail = '' }) {
+  // a text's lines by that rule: those that show something, and those that were blank already
+  const lines = text => text.split('\n').flatMap(line => (_visible(line).trim() || !line.trim() ? [_visible(line)] : []))
+  const shows = text => lines(text).some(line => line.trim())
+  const kept = lines(snippet.slice(head ? 2 : 0, tail ? -2 : undefined)) // without the truncation's own marks
+  while (kept.length && !kept[0].trim()) kept.shift()
+  while (kept.length && !kept[kept.length - 1].trim()) kept.pop()
+  return (shows(head) ? '… ' : '') + kept.join('\n') + (shows(tail) ? ' …' : '')
 }
 
 // the parent project's snippet for a child's tooltip (the item resolved silently), or its id
