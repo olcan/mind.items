@@ -75,7 +75,15 @@ function toggle(content, label = undefined, tooltip = undefined) {
     `'${tag}.template_toggle.${id}')` +
     `.classList.toggle('hidden');`
   const toggle = _if_no_selection(toggle_tag('div') + toggle_tag('span'))
-  const onclick = `onclick="event.stopPropagation();event.preventDefault();${toggle}"`
+  // a press beside a selection that stands in the element ends it, and the browser has
+  // collapsed it before the click comes: the press notes it on the element, and the click
+  // after such a press toggles nothing (the note is written at every press, spent at a click).
+  // the lazy toggle of #template/vault REPEATS this text (template/vault.js), since neither
+  // item may need the other's new version; tests/template_vault_test.js compares the copies
+  const selected = `getSelection().type == 'Range' && (this.contains(getSelection().anchorNode) || this.contains(getSelection().focusNode))`
+  const onclick =
+    `onmousedown="this._selected = ${selected}" ` +
+    `onclick="event.stopPropagation();event.preventDefault();if (this._selected) this._selected = false; else ${toggle}"`
   const classes = extra => `template_toggle ${id} ${extra}`
   return [
     `<span class="${classes()}" title="${tooltip}" ${onclick}>${label}</span>`,

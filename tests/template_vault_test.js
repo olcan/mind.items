@@ -46,6 +46,9 @@ check('source has no raw control characters', /[\u0000-\u0008\u000b-\u001f\u007f
 check('source never reads the saving accessor', /\bglobal_store\b(?!`)/.test(src.replace(/_global_store/g, '')), false)
 
 // the stub template environment: what the app and #template provide to item javascript
+// (a name of #template that is added here must have been released with #template BEFORE the
+// push that first uses it: the app updates the items of a push one after the other, and a
+// vault item can render in between)
 const calls = { template: [], toggle: [] }
 // the app's exposed Marked is the real dependency (mind.page's), so the inert renderer is
 // exercised over real tokenization; the highlighter is a stub that returns known markup
@@ -59,6 +62,11 @@ const hljsStub = {
     language: opts.language,
   }),
 }
+// #template's own toggle() and selection test, the REAL ones (template.js is evaluated as it is:
+// its top level only declares), under stubs of the names they read at a call. the lazy toggle
+// takes the selection test, the one thing of #template in its press and click, and toggle()'s
+// html is what the lazy toggle's copy of that text is compared with below
+const real = vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'template.js'), 'utf8') + ';({ toggle, _if_no_selection, has: { template: typeof template, placeholder: typeof placeholder } })', { window: { _item_eval_context: [], _item_eval_js: [] }, last: a => a[a.length - 1], hash: () => 'h', _that: { id: 'id_t' } })
 const ctx = {
   TextDecoder, String, Set, RegExp, JSON, Object, Array, Math, Error, Number, parseInt,
   window: { _template_dict: [], _item_eval_context: [], Marked, hljs: hljsStub },
@@ -78,7 +86,7 @@ const ctx = {
   // installs one), the lazy toggle hashes ids and guards clicks through the template helpers
   _item: () => undefined,
   hash: s => 'h' + String(s).length + '_' + String(s).replace(/[^a-z0-9]/gi, '').slice(0, 24),
-  _if_no_selection: code => code,
+  _if_no_selection: real._if_no_selection,
 }
 const _VAULT_WINDOW_UNITS = 4096
 const h = vm.runInNewContext(
@@ -101,7 +109,7 @@ const lazy = () => {
   ctx.window._vault_lazy = {}
   return renders.map(r => r()).join('\n')
 }
-const LAZY_TOGGLE = /^<span class="template_toggle (id_\S+)" title="⋮ projection \(the stored sync snapshot\)" onclick="[^"]*">⋮ projection \(the stored sync snapshot\)<\/span>\n<div class="template_toggle \1 hidden" title="⋮ projection \(the stored sync snapshot\)" onclick="[^"]*"><\/div>$/
+const LAZY_TOGGLE = /^<span class="template_toggle (id_\S+)" title="⋮ projection \(the stored sync snapshot\)" onmousedown="[^"]*" onclick="[^"]*">⋮ projection \(the stored sync snapshot\)<\/span>\n<div class="template_toggle \1 hidden" title="⋮ projection \(the stored sync snapshot\)" onmousedown="[^"]*" onclick="[^"]*"><\/div>$/
 
 // the source codec: the design section 5 vectors, the SAME literals as the Python table
 const vectors = [
@@ -515,7 +523,7 @@ ctx._this = full
 ctx._that = full
 const fullRender = h.vault_render()
 check('lazy projection: the render carries the toggle with an EMPTY hidden div and no projection content', [calls.toggle.length, calls.template.length, LAZY_TOGGLE.test(fullRender.split('<div class="vault">')[1].replace(/<\/div>$/, '')), fullRender.includes('instructions (bridge profile)')], [0, 0, true, false])
-check('lazy projection: the toggle click fills through the item and toggles both elements', /onclick="event.stopPropagation\(\);event.preventDefault\(\);window._vault_lazy_fill\('id_f','id_\S+'\);_item\('id_f'\)/.test(fullRender), true)
+check('lazy projection: the toggle click fills through the item and toggles both elements, unless a selection is in its target or stood in the element at the press', /onmousedown="this\._selected = [^"]*" onclick="event.stopPropagation\(\);event.preventDefault\(\);if \(this\._selected\) this\._selected = false; else if \([^"{]*\)\{ window\._vault_lazy_fill\('id_f','id_\S+'\);_item\('id_f'\)/.test(fullRender), true)
 const fullProjection = lazy()
 check('config control order (on the first open)', calls.toggle.map(c => c.label), [
   '⋮ instructions (bridge profile)',
@@ -654,6 +662,16 @@ check('lazy toggle: the expanded context gets the content at once, no registrati
 reset()
 ctx._this = A
 ctx._that = A
+// what template/vault.js takes from #template is still there: between the two updates of a push
+// the RELEASED template/vault.js runs over the new template.js (toggle() and the selection test
+// are called here, the other two are stubs of this table)
+check('#template still defines what template/vault.js takes from it', [typeof real.toggle, typeof real._if_no_selection, real.has], ['function', 'function', { template: 'function', placeholder: 'function' }])
+// TWO COPIES of the press and the click, toggle()'s in template.js and the lazy toggle's in
+// template/vault.js: neither item may need the other's new version (the app updates the items
+// of a push one after the other, and a vault item can render in between), so the text is
+// repeated, and compared here on both elements with the click's own code left out
+const frames = html => [...html.matchAll(/ (onmousedown="[^"]*" onclick="[^"{]*\{ )[^"]*( \}")/g)].map(m => m[1] + m[2])
+check("lazy toggle: its press and click are toggle()'s text around the click's own code, on both elements", [2, frames(h._vault_lazy_toggle(() => 'X', 'L'))], [frames(real.toggle('X', 'L')).length, frames(real.toggle('X', 'L'))])
 // the lazy fill (window._vault_lazy_fill, installed by the first lazy toggle): runs the registered
 // render through the item's eval, keeps the registration, and attaches the app's link
 // handling to the inserted anchors (the enclosing toggle would otherwise swallow their clicks)

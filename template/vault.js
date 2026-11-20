@@ -748,7 +748,11 @@ const _vault_lazy_toggle = (render, label, tooltip = label) => {
   }
   const toggle_tag = tag => "_item('" + _that.id + "').elem?.querySelector('" + tag + '.template_toggle.' + id + "').classList.toggle('hidden');"
   const click = _if_no_selection("window._vault_lazy_fill('" + _that.id + "','" + id + "');" + toggle_tag('div') + toggle_tag('span'))
-  const onclick = 'onclick="event.stopPropagation();event.preventDefault();' + click + '"'
+  // the press and the click as toggle() writes them (template.js): the text is REPEATED here,
+  // not shared, so that this item needs nothing of a newer #template than the released one (the
+  // app updates the items of a push one after the other); tests/template_vault_test.js compares them
+  const selected = "getSelection().type == 'Range' && (this.contains(getSelection().anchorNode) || this.contains(getSelection().focusNode))"
+  const onclick = 'onmousedown="this._selected = ' + selected + '" onclick="event.stopPropagation();event.preventDefault();if (this._selected) this._selected = false; else ' + click + '"'
   return [
     '<span class="template_toggle ' + id + '" title="' + tooltip + '" ' + onclick + '>' + label + '</span>',
     '<div class="template_toggle ' + id + ' hidden" title="' + label + '" ' + onclick + '></div>',
