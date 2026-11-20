@@ -117,6 +117,7 @@ const picked =
     '_task_target',
     '_command_target',
     '_delegate',
+    '_carried_write',
     '_on_command_delegate',
     '_takeback',
     '_on_command_takeback',
@@ -1203,10 +1204,17 @@ const { replaceTags, parseTags } = (() => {
   const ret = await _on_command_delegate('fix the cache', 'fix')
   check('delegate: text creates the todo as /todo does, with an init hook', [ret.text, ret.edit, typeof ret.init], ['#todo fix the cache', false, 'function'])
   const created = make('i3', null, ret.text, null) // the app's created item, not saved yet
+  // the command's intent (the app's window._carry_input) is captured when its init runs, BEFORE the wait for
+  // the save, and the presentation write goes through that capture after the enqueue (captured after the
+  // save, the write came from no input, and the app took it for a passive one: no history step)
+  const order = []
+  context.window._carry_input = f => (order.push('captured'), (...args) => (order.push('written'), f(...args)))
   const done = ret.init(created)
   check('delegate: nothing is enqueued before the save', docs.length, 3)
-  setTimeout(() => (created.saved_id = 's3'), 10)
+  setTimeout(() => (order.push('saved'), (created.saved_id = 's3')), 10)
   check('delegate: the saved todo is delegated under its saved id, the created text the capture', [await done, docs.at(-1).cmd, created.text], [null, { task: 's3', id: docs.at(-1).cmd.id, kind: 'delegate', epoch: 0, at: docs.at(-1).cmd.at, body: '#todo fix the cache' }, '#todo [delegated] fix the cache\n#_agent/vault\n'])
+  check("delegate: the command's intent is captured before the save's wait, and the presentation write goes through it", order, ['captured', 'saved', 'written'])
+  delete context.window._carry_input
   check('delegate: a save that does not come is reported, the command not returned', [await _delegate_created(make('i4', null, '#todo never', null), 20), alerts.at(-1), docs.length], [null, 'cannot delegate i4: not saved after 0.02s; delegate it once it is', 4])
   const gone = make('i5', null, '#todo gone', null)
   const reported = alerts.length

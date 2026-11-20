@@ -1654,10 +1654,20 @@ function _task_target(item, kind) {
   return item
 }
 
+// the presentation write of a delegation, bound to the gesture that asks for it. It is the gesture's (a drop
+// into the agent bin, a command): its intent is captured when this is called, at the gesture and BEFORE any
+// wait (the created todo's save, the command's enqueue), and the write made through it afterwards is the
+// user's (the app's window._carry_input: a write that re-orders the list is a history step only as the user's
+// own; captured after a wait it came from no input). An app without the carry writes as before
+function _carried_write() {
+  const write = (item, text) => item.write(text, '')
+  return typeof window._carry_input == 'function' ? window._carry_input(write) : write
+}
+
 // delegate a todo (design 2.3): the body is captured BEFORE the presentation edits (the route
 // tag and the [delegated] marker) so the instruction is exactly what the owner wrote; a refused
 // enqueue (the size gate) reports and changes nothing; a pending take-back refuses the gesture
-async function _delegate(item) {
+async function _delegate(item, write = _carried_write()) {
   item = _task_target(item, 'delegate')
   if (!item) return false
   const state = _task_state(item)
@@ -1686,7 +1696,7 @@ async function _delegate(item) {
   // grammar view of the CURRENT raw text (an edit made during the await is kept; the inert
   // regions survive the rewrite); a refused write is repaired by the bridge at the next state change
   const text = grammar.edit(item.text, view => _delegated_view(view))
-  if (item.write(text, '') !== true) console.warn(`delegate: presentation write refused for ${item.name}`)
+  if (write(item, text) !== true) console.warn(`delegate: presentation write refused for ${item.name}`)
   // a delegated item cannot be snoozed: delegating a snoozed one clears its snooze (design 2.3)
   if (item._global_store._todoer?.snoozed) item.global_store._todoer.snoozed = 0
   return true
@@ -1749,10 +1759,11 @@ function _delegate_text(text, tagged = false) {
 // reported (the gesture reports its own refusals) and the todo stays on the main list
 async function _delegate_created(item, wait = SAVE_WAIT_MS) {
   if (!item) return null // not created (reported by the app)
+  const write = _carried_write() // the command's intent, before the wait for the save
   const saved = await _wait_for_save(item, wait)
   if (!_exists(item.id)) return null // deleted meanwhile
   if (!saved) alert(`cannot delegate ${item.name}: not saved after ${wait / 1000}s; delegate it once it is`)
-  else await _delegate(item)
+  else await _delegate(item, write)
   return null
 }
 
