@@ -74,7 +74,21 @@ function toggle(content, label = undefined, tooltip = undefined) {
     `_item('${_that.id}').elem?.querySelector(` +
     `'${tag}.template_toggle.${id}')` +
     `.classList.toggle('hidden');`
-  const toggle = _if_no_selection(toggle_tag('div') + toggle_tag('span'))
+  // the press's default takes the keyboard focus from whatever has it (another item's editor,
+  // the MindBox) and starts the selection a drag extends, so it is not prevented: the press
+  // notes what has the focus, and the click that TOGGLES focuses it again, without a scroll (a
+  // click that toggles nothing gives nothing back: a drag keeps the focus). ONE note, on the
+  // window, for one gesture: a primary press writes it (its innermost toggle element alone),
+  // the click takes it, once (only the toggle of the press gives back, and only an element
+  // still in the document), and a moment after the release it is gone whatever became of the
+  // click. the note keeps its listeners' controller: a press whose end was never heard (a
+  // release, a drag's end, a cancelled pointer, the WINDOW's own blur) is ended by the next
+  // press, so one set of listeners is live at most. the toggling click also reports its item's
+  // height as a toggle's (the app then keeps the page where it was tapped, where the editor
+  // it gives the focus back to has moved)
+  const press = `if (!event.button && event.target.closest('.template_toggle') == this) { window._toggle_focus?.[2]?.abort(); const note = (window._toggle_focus = [this, document.activeElement, new AbortController()]); for (const type of ['mouseup', 'dragend', 'pointercancel', 'blur']) window.addEventListener(type, function (e) { if (e.type == 'blur' && e.target != window) return; note[2].abort(); setTimeout(function () { if (window._toggle_focus == note) window._toggle_focus = null }) }, { capture: true, signal: note[2].signal }) }`
+  const focus = `window._item_hooks?.['${_that.id}']?.resize('toggle');if (note?.[0] == this && note[1]?.isConnected) note[1].focus({ preventScroll: true })`
+  const toggle = _if_no_selection(toggle_tag('div') + toggle_tag('span') + focus)
   // a press beside a selection that stands in the element ends it, and the browser has
   // collapsed it before the click comes: the press notes it on the element, and the click
   // after such a press toggles nothing (the note is written at every press, spent at a click).
@@ -82,8 +96,8 @@ function toggle(content, label = undefined, tooltip = undefined) {
   // item may need the other's new version; tests/template_vault_test.js compares the copies
   const selected = `getSelection().type == 'Range' && (this.contains(getSelection().anchorNode) || this.contains(getSelection().focusNode))`
   const onclick =
-    `onmousedown="this._selected = ${selected}" ` +
-    `onclick="event.stopPropagation();event.preventDefault();if (this._selected) this._selected = false; else ${toggle}"`
+    `onmousedown="this._selected = ${selected}; ${press}" ` +
+    `onclick="event.stopPropagation();event.preventDefault();const note = window._toggle_focus; window._toggle_focus = null; if (this._selected) this._selected = false; else ${toggle}"`
   const classes = extra => `template_toggle ${id} ${extra}`
   return [
     `<span class="${classes()}" title="${tooltip}" ${onclick}>${label}</span>`,
