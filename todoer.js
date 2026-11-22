@@ -1485,6 +1485,29 @@ function _age(updated, now) {
   return Math.floor(s / 86400) + 'd'
 }
 
+// the rendered cost (the twin of the vault's format_money, design 9.6): the known sum, `+?`
+// when some paid work's cost is unknown, `$?` when only unknown costs exist; then the
+// subscription runtime's share as the chat footer's qualifier (` (sub)` when every known
+// dollar is the runtime's, ` (sub $2.00)` for a part, nothing when none is); '' when all are zero
+function _cost_text(cost, sub, unknown) {
+  const known = typeof cost == 'number' && Number.isFinite(cost) && cost > 0
+  const has_unknown = typeof unknown == 'number' && Number.isFinite(unknown) && unknown > 0
+  // the cents rule of the vault's format_cost (the scaled float, rounded half-up): a bare
+  // toFixed(2) rounds the exact binary value, so 1.115 would give $1.11 here and $1.12 there,
+  // and the all/part decision below would flip with it
+  const cents = x => (Math.floor(x * 100 + 0.5) / 100).toFixed(2)
+  if (known) {
+    const total = cents(cost)
+    let text = '$' + total + (has_unknown ? '+?' : '')
+    const sub_val = typeof sub == 'number' && Number.isFinite(sub) && sub > 0 ? sub : 0
+    const sub_text = sub_val > 0 ? cents(sub_val) : '0.00'
+    const all = sub_val >= cost || sub_text == total
+    if (sub_text != '0.00') text += all ? ' (sub)' : ' (sub $' + sub_text + ')'
+    return text
+  }
+  return has_unknown ? '$?' : ''
+}
+
 // the row's stats suffix (design 9.6): ` · 2w · $14.50` from the projection's stats (workers
 // started, the summed nominal cost; a project's active children ahead, ` · 3c · 5w · $41.20`,
 // the vault's project design 2.5), nothing for a projection without them
@@ -1494,23 +1517,8 @@ function _stats_suffix(stats) {
   // a project's active children first (the vault's project design 2.5), then the workers
   if (typeof stats.children == 'number' && stats.children > 0) parts.push(stats.children + 'c')
   if (typeof stats.workers == 'number' && stats.workers > 0) parts.push(stats.workers + 'w')
-  // the cost keeps its uncertainty: the known sum, `+?` when some paid work's cost is unknown,
-  // `$?` when only unknown costs exist; then the subscription runtime's share as the chat
-  // footer's qualifier (the twin of the vault's format_money, the one rule): ` (sub)` when every
-  // known dollar is the runtime's, ` (sub $2.00)` for a part, nothing when none is
-  const known = typeof stats.cost == 'number' && stats.cost > 0
-  const unknown = typeof stats.unknown == 'number' && stats.unknown > 0
-  // the cents rule of the vault's format_cost (the scaled float, rounded half-up): a bare
-  // toFixed(2) rounds the exact binary value, so 1.115 would give $1.11 here and $1.12 there,
-  // and the all/part decision below would flip with it
-  const cents = x => (Math.floor(x * 100 + 0.5) / 100).toFixed(2)
-  if (known) {
-    let text = '$' + cents(stats.cost) + (unknown ? '+?' : '')
-    const sub = typeof stats.sub == 'number' && stats.sub > 0 ? cents(stats.sub) : '0.00'
-    const all = stats.sub >= stats.cost || sub == cents(stats.cost)
-    if (sub != '0.00') text += all ? ' (sub)' : ' (sub $' + sub + ')'
-    parts.push(text)
-  } else if (unknown) parts.push('$?')
+  const cost = _cost_text(stats.cost, stats.sub, stats.unknown)
+  if (cost) parts.push(cost)
   return parts.length ? ' · ' + parts.join(' · ') : ''
 }
 
@@ -1522,19 +1530,28 @@ function _age_title(updated, stats, wake = undefined) {
     lines.push('delegated ' + new Date(stats.since).toLocaleString())
   if (typeof wake == 'number' && wake > 0) lines.push('next wake ' + new Date(wake).toLocaleString())
   if (stats && typeof stats == 'object' && Array.isArray(stats.agents)) {
+    const nonneg = x => typeof x == 'number' && Number.isFinite(x) && x >= 0
     for (const entry of stats.agents) {
-      if (!Array.isArray(entry) || entry.length != 3) continue
+      if (!Array.isArray(entry) || (entry.length != 3 && entry.length != 6)) continue
       const [raw_name, raw_model, count] = entry
       if (typeof raw_name != 'string' || typeof raw_model != 'string') continue
       if (!Number.isInteger(count) || count <= 0) continue
+      let cost_str = ''
+      if (entry.length == 6) {
+        const [, , , cost, sub, unknown] = entry
+        if (!nonneg(cost) || !nonneg(sub) || !nonneg(unknown)) continue
+        cost_str = _cost_text(cost, sub, unknown)
+      }
       const name = raw_name.replace(/\s+/g, ' ').trim()
       const model = raw_model.replace(/\s+/g, ' ').trim()
+      let line
       if (!name && !model) {
-        lines.push('and ' + count + (count == 1 ? ' other' : ' others'))
-        continue
+        line = 'and ' + count + (count == 1 ? ' other' : ' others')
+      } else {
+        const label = name && model ? name + ' · ' + model : name || model
+        line = count > 1 ? label + ' ×' + count : label
       }
-      const label = name && model ? name + ' · ' + model : name || model
-      lines.push(count > 1 ? label + ' ×' + count : label)
+      lines.push(cost_str ? line + ' · ' + cost_str : line)
     }
   }
   return lines.join('\n')
