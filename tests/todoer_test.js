@@ -117,6 +117,7 @@ const picked =
     '_task_target',
     '_command_target',
     '_delegate',
+    '_carried_write',
     '_on_command_delegate',
     '_takeback',
     '_on_command_takeback',
@@ -124,6 +125,7 @@ const picked =
     '_delegate_created',
     '_wait_for_save',
     '_visible',
+    '_row_title',
     '_on_command_notify',
     '_parse_notify',
     '_notify_setting',
@@ -234,6 +236,50 @@ check('age title: since', _age_title(now, { since: now - 60_000 }).split('\n').l
 check('age title: no stats', _age_title(now, undefined).includes('\n'), false)
 check('age title: unacknowledged', _age_title(undefined, undefined), 'not acknowledged yet')
 check('age title: next wake', _age_title(now, undefined, now + 3_600_000).split('\n')[1].startsWith('next wake '), true)
+// stats.agents in the tooltip (design 9.6): one line per entry in order, after the existing lines
+const base_title = _age_title(now, { since: now - 60_000 }, now + 3_600_000)
+check(
+  'age title: agents with name, model, counts, partial entries, and overflow',
+  _age_title(
+    now,
+    {
+      since: now - 60_000,
+      agents: [
+        ['worker', 'claude-fable-5-2', 2],
+        ['neon4_agent', 'gemini-4-neon-xhigh', 1],
+        ['worker_opus', '', 1],
+        ['solo', '', 3],
+        ['', 'gpt-6-astra', 1],
+        ['', 'gemini-4-carbon-high', 2],
+        ['', '', 3],
+      ],
+    },
+    now + 3_600_000
+  ),
+  base_title +
+    '\nworker · claude-fable-5-2 ×2' +
+    '\nneon4_agent · gemini-4-neon-xhigh' +
+    '\nworker_opus' +
+    '\nsolo ×3' +
+    '\ngpt-6-astra' +
+    '\ngemini-4-carbon-high ×2' +
+    '\nand 3 others'
+)
+check('age title: empty agents matches absent', _age_title(now, { since: now - 60_000, agents: [] }, now + 3_600_000), base_title)
+for (const bad of [
+  null,
+  'worker',
+  42,
+  { worker: 1 },
+  [null, 'worker', ['a'], ['a', 'b', 1, 2], [1, 'm', 1], ['a', null, 1], ['a', 'm', 0], ['a', 'm', -2], ['a', 'm', 1.5], ['a', 'm', '2'], ['a', 'm', true]],
+]) {
+  check('age title: malformed agents ignored', _age_title(now, { since: now - 60_000, agents: bad }, now + 3_600_000), base_title)
+}
+check(
+  'stats: agents leaves the row suffix unchanged',
+  _stats_suffix({ workers: 2, cost: 14.5, agents: [['worker', 'claude-fable-5-2', 2]] }),
+  ' · 2w · $14.50'
+)
 // the wake suffix (the vault's project design 2.10): a project's next wake in the browser's local
 // time, so a project between turns is told apart from one mid-turn; the rows pin the zone (`now` is
 // 2023-11-14 22:13 UTC, 14:13 in Los Angeles): the day boundary is the LOCAL one
@@ -1203,10 +1249,17 @@ const { replaceTags, parseTags } = (() => {
   const ret = await _on_command_delegate('fix the cache', 'fix')
   check('delegate: text creates the todo as /todo does, with an init hook', [ret.text, ret.edit, typeof ret.init], ['#todo fix the cache', false, 'function'])
   const created = make('i3', null, ret.text, null) // the app's created item, not saved yet
+  // the command's intent (the app's window._carry_input) is captured when its init runs, BEFORE the wait for
+  // the save, and the presentation write goes through that capture after the enqueue (captured after the
+  // save, the write came from no input, and the app took it for a passive one: no history step)
+  const order = []
+  context.window._carry_input = f => (order.push('captured'), (...args) => (order.push('written'), f(...args)))
   const done = ret.init(created)
   check('delegate: nothing is enqueued before the save', docs.length, 3)
-  setTimeout(() => (created.saved_id = 's3'), 10)
+  setTimeout(() => (order.push('saved'), (created.saved_id = 's3')), 10)
   check('delegate: the saved todo is delegated under its saved id, the created text the capture', [await done, docs.at(-1).cmd, created.text], [null, { task: 's3', id: docs.at(-1).cmd.id, kind: 'delegate', epoch: 0, at: docs.at(-1).cmd.at, body: '#todo fix the cache' }, '#todo [delegated] fix the cache\n#_agent/vault\n'])
+  check("delegate: the command's intent is captured before the save's wait, and the presentation write goes through it", order, ['captured', 'saved', 'written'])
+  delete context.window._carry_input
   check('delegate: a save that does not come is reported, the command not returned', [await _delegate_created(make('i4', null, '#todo never', null), 20), alerts.at(-1), docs.length], [null, 'cannot delegate i4: not saved after 0.02s; delegate it once it is', 4])
   const gone = make('i5', null, '#todo gone', null)
   const reported = alerts.length
@@ -1839,7 +1892,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
 // THE DONE BIN (the owner, 2026-11-17: "done" never deletes, it always converts the todo to
 // #done, named or not, small or large). The drop's REAL handler runs here (the list's Sortable
 // onEnd inside __render): the widget is rendered over a stub DOM (elements that keep their
-// children, attributes and class) and a stub Sortable that keeps each list's options, so the
+// children, attributes, class and style) and a stub Sortable that keeps each list's options, so the
 // rows are the render's own and a drop is Sortable's end event as the handler reads it (the row
 // moved into the bin, `to` the bin, `oldIndex` the row's place in the list; the app's tasks lane
 // drops a row on the real bin). Tags are read by the app's REAL replacer and, for what the app
@@ -1856,6 +1909,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     children = []
     attributes = {}
     className = ''
+    style = {} // a row that ends in its todo tag (a prefix snippet) is styled right to left
     parentElement = null
     classList = { contains: name => this.className.split(' ').includes(name) }
     get firstChild() {
@@ -1949,6 +2003,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       Sortable: { dragged: null, create: (elem, options) => ({ options, save() {}, sort() {}, destroy() {} }) },
       MindBox: { get: () => '', create: text => calls.push(['log', text]), set: (...args) => calls.push(['set', ...args]), select_in_target: text => calls.push(['mark', text]), edit_target: text => calls.push(['edit', text]) },
       alert: message => calls.push(['alert', message]), confirm: message => calls.push(['asked', message]), _modal: message => calls.push(['asked', message]),
+      navigator: { userAgent: '' }, // read for a row styled right to left
     }
     vm.createContext(ctx)
     vm.runInContext(picked + pick(['__render'])[0], ctx)
@@ -2020,6 +2075,65 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['edit', '#todo fix the cache']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
   check('click: on an app without the select the box is set as before', world({ app: false }).click('short'), [['set', 'id:short', { scroll: true, select: '#todo fix the cache' }]])
   check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
+  // A ROW'S TOOLTIP (the owner, 2026-11-19: "the tooltip ... in the todoer widget somehow shows
+  // 3-4 blank lines after the first line (ending in a tag) and then `...`"): the snippet in its
+  // lines, each by the row's own rule of what is visible (_visible), read here as the `title`
+  // that the render sets on the row of `short` once it holds a text. (1) a line that the rule
+  // leaves empty goes; (2) blank lines go at the two ends; (3) the ellipsis stands only where
+  // the truncation left out something visible. Until then the tooltip was the snippet's visible
+  // text as it stood: the line breaks around its hidden parts, and the truncation's mark
+  // whatever had been left out. The texts are written as an item's view holds them: a region
+  // is its marker's line (21 characters; this table's stand-in view writes 3)
+  {
+    const tips = world()
+    const row = (text, state) => {
+      Object.assign(tips.item('short'), { text, _global_store: state ? { _agent: { state } } : {} })
+      tips.render()
+      return tips.rows().find(r => r.getAttribute('data-id') == 'short')
+    }
+    const title = (...args) => row(...args).title
+    const shown = (...args) => row(...args).children[0].innerHTML.replace(/<\/?mark>/g, '') // the row's own text
+    const region = n => `⟦vault_result_v1:0:${n}⟧`
+    const LOG = '```_log\nINFO: 14:13 handed back: done\n```'
+    // THE OWNER'S CASE: a todo the bridge made from a chat, once worked on, as the bridge's own
+    // writers shape it: the task's line (148 characters) ending in the chat's tag, the agent's
+    // region, the request's region, a blank line, the log, the route tag. The truncation at 200
+    // characters falls in the route tag and leaves out a line break alone. The same parts in
+    // another order (the blank line and the route tag right under the line) read the same
+    const LINE = `#todo [done] ${'word '.repeat(23)}end #chat/vault/15/0`
+    const BRIDGED = `${LINE}\n${region(0)}\n${region(1)}\n\n${LOG}\n#_agent/vault\n`
+    check('tooltip: a todo as the bridge shapes it shows its line alone, with no mark, in either order of its hidden parts; the row\'s own text keeps the truncation\'s mark, as before', [title(BRIDGED), shown(BRIDGED), title(`${LINE}\n\n#_agent/vault\n${region(0)}\n${region(1)}\n${LOG}\n`)], [LINE, `${LINE} …`, LINE])
+    // (1) and (2): a line that held only hidden parts goes, here a region between two lines of
+    // the owner's and the route tag, while a hidden tag beside their words goes alone; the
+    // blank lines they wrote stay inside the text and go at its two ends, as whole lines: a
+    // first line keeps its indentation and a last one its spaces
+    check('tooltip: the owner\'s own blank lines stay inside the text and go at its ends; a line of hidden parts alone goes; a line\'s indentation stays', [title(`#todo plan the trip\n\n\n- flights #_booked\n${region(0)}\n- hotel\n\n#_agent/vault\n`), title('\n  plan #todo'), title('#todo wait  \n\n')], ['#todo plan the trip\n\n\n- flights \n- hotel', '  plan #todo', '#todo wait  '])
+    check('tooltip: a region between two lines of the owner\'s takes nothing of theirs with it: their own brackets, on separate lines, stay', title(`#todo compare ⟦\n${region(0)}\nimportant result⟧`), '#todo compare ⟦\nimportant result⟧')
+    // (3) the mark, behind a first line of exactly 200 characters (a suffix snippet) and before
+    // a last line of 202 (a prefix snippet): none where the truncation left out hidden parts
+    // alone (the route tag, a region, a hidden tag), one where it left out a word
+    const FULL = `#todo ${'x'.repeat(194)}`
+    const BEFORE = `${'word '.repeat(38)}fix it #todo`
+    check('tooltip: a truncation that left out only hidden parts gives no mark, and one that left out a visible word gives it, behind a suffix snippet and before a prefix one', [title(`${FULL}\n#_agent/vault`), title(`${FULL}\n${region(0)}`), title(`${FULL}\nand more`), title(`#_dep\n${BEFORE}`), title(`first\n${BEFORE}`)], [FULL, FULL, `${FULL} …`, BEFORE, `… ${BEFORE}`])
+    // the tooltip and the row agree on what is hidden: the rule is the row's own, which asks no
+    // more of a hidden tag than a line's start or whitespace before it. One inside a code span
+    // is left out of both, as it was
+    const SPAN = '#todo document `use #_dep here`'
+    check('tooltip: a hidden tag is left out wherever the row leaves it out, inside a code span too', [title(SPAN), shown(SPAN)], ['#todo document `use  here`', '#todo document `use here`'])
+    // the tooltip's own first lines are as they were: a child's parent (the parent's snippet on
+    // one line as it stands, its token and hidden tag included), a snoozed todo's time
+    const CHILD = `#todo [proposal] the child\n${region(0)}\n#_agent/vault\n`
+    const BOUND = { held: 'owner', reason: 'proposal', parent: 'task' }
+    const PARENT = '#todo [done] ship it ⟦0⟧ #_agent/vault'
+    const sleeping = world({ snooze: { snoozed: 1_800_000_000_000 } })
+    const TIME = new Date(1_800_000_000_000).toLocaleString()
+    check('tooltip: a child\'s row names its parent first and a snoozed todo\'s row its time, as before', [title(CHILD, BOUND), sleeping.rows()[0].title], [`child of ${PARENT}\n#todo [proposal] the child`, `${TIME}\n#todo fix the cache`])
+    // THE DONE BIN'S LOG LINE is the row's one-line text under the tooltip's first lines, as it
+    // was while the tooltip was that text: it keeps the truncation's mark, and the spaces that
+    // the line breaks were
+    const logged = (...args) => (row(...args), tips.drop('short').calls.pop())
+    check('tooltip: the done bin logs what it logged: the bridge\'s todo with the truncation\'s mark, a child under its parent, a snoozed todo under its time', [logged(BRIDGED), logged(CHILD, BOUND), sleeping.drop('short').calls.pop()], [['log', `/log done ${LINE} …`], ['log', `/log done child of ${PARENT} #todo [proposal] the child `], ['log', `/log done ${`${TIME}\n#todo fix the cache`.replace(/\s+/g, ' ')}`]])
+  }
   // A MARKER ALREADY ON THE PAGE PICKS UP A LATER LISTING (review 0 of the bridge's row for an agent's
   // own worktree, 2026-11-18): the bridge publishes a todo's text and projection first and its listing
   // after, and a marker is linked only for a listed worktree. The store listener (the production call

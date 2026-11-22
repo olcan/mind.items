@@ -245,7 +245,8 @@ function __render(widget, widget_item) {
     if (item._global_store._todoer?.unsnoozed) have_unsnoozed = true
 
     // read text and determine todo tag positions
-    let text = _extract_todo_snippet(item)
+    const cut = {} // what the snippet's truncation left out, read by the tooltip (_row_title)
+    let text = _extract_todo_snippet(item, cut)
     if (!text) continue // no #todo tag found (should have logged error)
     // a project's bound child (its projection carries `parent`): the row is marked ↳ and its
     // tooltip names the parent (vault project design 2.7); presentation only
@@ -276,9 +277,15 @@ function __render(widget, widget_item) {
       ) // try every 250ms until saved
     }
 
-    // the row (and its tooltip) shows the snippet's visible text (_visible)
-    container.title = (parent ? `child of ${parent}\n` : '') + _visible(text) // original whitespace for title
+    // the row shows the snippet's visible text (_visible) on one line, its tooltip the same in
+    // its lines (_row_title), under the tooltip's own first lines: a snoozed todo's time, a
+    // child's parent. the done bin logs the row's text under those lines, as it always has
+    const first_lines =
+      (snoozed ? new Date(item._global_store._todoer.snoozed).toLocaleString() + '\n' : '') +
+      (parent ? `child of ${parent}\n` : '')
+    container.title = first_lines + _row_title(text, cut)
     const shown = _visible(text).replace(/\s+/g, ' ')
+    container._log_text = (first_lines + shown).replace(/\s+/g, ' ')
     // a projection change this tab has not notified yet (the hook notifies first; a render
     // catches a delivery the hook did not see, see _notify_change)
     _notify_change(item, { state, list: task_list, parent })
@@ -313,11 +320,6 @@ function __render(widget, widget_item) {
       div.innerHTML = '&lrm;' + html
     }
 
-    if (snoozed)
-      container.title =
-        new Date(item._global_store._todoer.snoozed).toLocaleString() +
-        '\n' +
-        container.title
     if (delegated) {
       const updated = state?.updated
       const age = document.createElement('mark')
@@ -566,7 +568,7 @@ function __render(widget, widget_item) {
         // item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
         // // log if logger exists
         // if (_exists('#logger'))
-        //   MindBox.create('/log cancelled ' + e.item.title.replace(/\s+/g, ' '))
+        //   MindBox.create('/log cancelled ' + e.item._log_text)
       } else if (e.to == done_bin) {
         // a todo dropped on the done bin is NEVER deleted (the owner, 2026-11-17): its todo
         // tag becomes #done whatever its length and whether the item is named, and the item
@@ -666,7 +668,7 @@ function __render(widget, widget_item) {
         done_bin.firstChild.remove()
         // log if logger exists
         if (_exists('#logger'))
-          MindBox.create('/log done ' + e.item.title.replace(/\s+/g, ' '))
+          MindBox.create('/log done ' + e.item._log_text)
       } else if (e.to == snooze_bin) {
         snooze_bin.firstChild.remove()
         item.global_store._todoer ??= {}
@@ -1156,8 +1158,9 @@ function _todo_line(snippet) {
   return line.replace(/^[\s…]+|[\s…]+$/g, '')
 }
 
-// extract todo snippet from item
-function _extract_todo_snippet(item) {
+// extract todo snippet from item; `cut`, when given, receives the text that a truncation
+// left out (`tail` behind a suffix snippet, `head` before a prefix one), for the row's tooltip
+function _extract_todo_snippet(item, cut = {}) {
   // read text and determine todo tag positions (the mode is decided on the text as read, as
   // the marker writer decides it; the bridge's _log block is dropped from the chosen slice)
   let text = item.read()
@@ -1190,7 +1193,10 @@ function _extract_todo_snippet(item) {
       // truncate on first whitespace in tail (index > 200)
       // note we only truncate on whitespace to avoid breaking tags or urls
       const cutoff = text.substr(200).search(/\s/)
-      if (cutoff >= 0) text = text.substr(0, 200 + cutoff) + ' …'
+      if (cutoff >= 0) {
+        cut.tail = text.substr(200 + cutoff)
+        text = text.substr(0, 200 + cutoff) + ' …'
+      }
     }
   } else {
     // use prefix (without the log), truncate (and align) on left
@@ -1199,7 +1205,10 @@ function _extract_todo_snippet(item) {
       // truncate on _last_ whitespace in head (index < end - 200)
       // note we only truncate on whitespace to avoid breaking tags or urls
       const cutoff = text.substr(0, text.length - 200).search(/\s[^\s]*$/)
-      if (cutoff >= 0) text = '… ' + text.substr(cutoff + 1)
+      if (cutoff >= 0) {
+        cut.head = text.substr(0, cutoff + 1)
+        text = '… ' + text.substr(cutoff + 1)
+      }
     }
   }
 
@@ -1445,6 +1454,20 @@ function _row_label(item, shown) {
   return label
 }
 
+// a row's tooltip: the snippet in its lines, each by the row's own rule of what is visible
+// (_visible). A line that the rule leaves empty goes (it held only hidden parts), blank lines
+// go at the two ends, and the ellipsis stands only where the truncation left out something
+// visible (`head`, `tail`: what it left out, see _extract_todo_snippet)
+function _row_title(snippet, { head = '', tail = '' }) {
+  // a text's lines by that rule: those that show something, and those that were blank already
+  const lines = text => text.split('\n').flatMap(line => (_visible(line).trim() || !line.trim() ? [_visible(line)] : []))
+  const shows = text => lines(text).some(line => line.trim())
+  const kept = lines(snippet.slice(head ? 2 : 0, tail ? -2 : undefined)) // without the truncation's own marks
+  while (kept.length && !kept[0].trim()) kept.shift()
+  while (kept.length && !kept[kept.length - 1].trim()) kept.pop()
+  return (shows(head) ? '… ' : '') + kept.join('\n') + (shows(tail) ? ' …' : '')
+}
+
 // the parent project's snippet for a child's tooltip (the item resolved silently), or its id
 function _parent_of(id) {
   const parent = _item(id, { silent: true })
@@ -1491,12 +1514,29 @@ function _stats_suffix(stats) {
   return parts.length ? ' · ' + parts.join(' · ') : ''
 }
 
-// the age mark's tooltip: the absolute time of the last state change, and the first delegation
+// the age mark's tooltip: the absolute time of the last state change, the first delegation,
+// the next wake (when armed), and who worked on the todo (design 9.6: stats.agents)
 function _age_title(updated, stats, wake = undefined) {
   const lines = [updated ? new Date(updated).toLocaleString() : 'not acknowledged yet']
   if (stats && typeof stats == 'object' && typeof stats.since == 'number' && stats.since > 0)
     lines.push('delegated ' + new Date(stats.since).toLocaleString())
   if (typeof wake == 'number' && wake > 0) lines.push('next wake ' + new Date(wake).toLocaleString())
+  if (stats && typeof stats == 'object' && Array.isArray(stats.agents)) {
+    for (const entry of stats.agents) {
+      if (!Array.isArray(entry) || entry.length != 3) continue
+      const [raw_name, raw_model, count] = entry
+      if (typeof raw_name != 'string' || typeof raw_model != 'string') continue
+      if (!Number.isInteger(count) || count <= 0) continue
+      const name = raw_name.replace(/\s+/g, ' ').trim()
+      const model = raw_model.replace(/\s+/g, ' ').trim()
+      if (!name && !model) {
+        lines.push('and ' + count + (count == 1 ? ' other' : ' others'))
+        continue
+      }
+      const label = name && model ? name + ' · ' + model : name || model
+      lines.push(count > 1 ? label + ' ×' + count : label)
+    }
+  }
   return lines.join('\n')
 }
 
@@ -1654,10 +1694,20 @@ function _task_target(item, kind) {
   return item
 }
 
+// the presentation write of a delegation, bound to the gesture that asks for it. It is the gesture's (a drop
+// into the agent bin, a command): its intent is captured when this is called, at the gesture and BEFORE any
+// wait (the created todo's save, the command's enqueue), and the write made through it afterwards is the
+// user's (the app's window._carry_input: a write that re-orders the list is a history step only as the user's
+// own; captured after a wait it came from no input). An app without the carry writes as before
+function _carried_write() {
+  const write = (item, text) => item.write(text, '')
+  return typeof window._carry_input == 'function' ? window._carry_input(write) : write
+}
+
 // delegate a todo (design 2.3): the body is captured BEFORE the presentation edits (the route
 // tag and the [delegated] marker) so the instruction is exactly what the owner wrote; a refused
 // enqueue (the size gate) reports and changes nothing; a pending take-back refuses the gesture
-async function _delegate(item) {
+async function _delegate(item, write = _carried_write()) {
   item = _task_target(item, 'delegate')
   if (!item) return false
   const state = _task_state(item)
@@ -1686,7 +1736,7 @@ async function _delegate(item) {
   // grammar view of the CURRENT raw text (an edit made during the await is kept; the inert
   // regions survive the rewrite); a refused write is repaired by the bridge at the next state change
   const text = grammar.edit(item.text, view => _delegated_view(view))
-  if (item.write(text, '') !== true) console.warn(`delegate: presentation write refused for ${item.name}`)
+  if (write(item, text) !== true) console.warn(`delegate: presentation write refused for ${item.name}`)
   // a delegated item cannot be snoozed: delegating a snoozed one clears its snooze (design 2.3)
   if (item._global_store._todoer?.snoozed) item.global_store._todoer.snoozed = 0
   return true
@@ -1749,10 +1799,11 @@ function _delegate_text(text, tagged = false) {
 // reported (the gesture reports its own refusals) and the todo stays on the main list
 async function _delegate_created(item, wait = SAVE_WAIT_MS) {
   if (!item) return null // not created (reported by the app)
+  const write = _carried_write() // the command's intent, before the wait for the save
   const saved = await _wait_for_save(item, wait)
   if (!_exists(item.id)) return null // deleted meanwhile
   if (!saved) alert(`cannot delegate ${item.name}: not saved after ${wait / 1000}s; delegate it once it is`)
-  else await _delegate(item)
+  else await _delegate(item, write)
   return null
 }
 
