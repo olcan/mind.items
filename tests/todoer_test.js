@@ -236,6 +236,50 @@ check('age title: since', _age_title(now, { since: now - 60_000 }).split('\n').l
 check('age title: no stats', _age_title(now, undefined).includes('\n'), false)
 check('age title: unacknowledged', _age_title(undefined, undefined), 'not acknowledged yet')
 check('age title: next wake', _age_title(now, undefined, now + 3_600_000).split('\n')[1].startsWith('next wake '), true)
+// stats.agents in the tooltip (design 9.6): one line per entry in order, after the existing lines
+const base_title = _age_title(now, { since: now - 60_000 }, now + 3_600_000)
+check(
+  'age title: agents with name, model, counts, partial entries, and overflow',
+  _age_title(
+    now,
+    {
+      since: now - 60_000,
+      agents: [
+        ['worker', 'claude-fable-5-2', 2],
+        ['neon4_agent', 'gemini-4-neon-xhigh', 1],
+        ['worker_opus', '', 1],
+        ['solo', '', 3],
+        ['', 'gpt-6-astra', 1],
+        ['', 'gemini-4-carbon-high', 2],
+        ['', '', 3],
+      ],
+    },
+    now + 3_600_000
+  ),
+  base_title +
+    '\nworker · claude-fable-5-2 ×2' +
+    '\nneon4_agent · gemini-4-neon-xhigh' +
+    '\nworker_opus' +
+    '\nsolo ×3' +
+    '\ngpt-6-astra' +
+    '\ngemini-4-carbon-high ×2' +
+    '\nand 3 others'
+)
+check('age title: empty agents matches absent', _age_title(now, { since: now - 60_000, agents: [] }, now + 3_600_000), base_title)
+for (const bad of [
+  null,
+  'worker',
+  42,
+  { worker: 1 },
+  [null, 'worker', ['a'], ['a', 'b', 1, 2], [1, 'm', 1], ['a', null, 1], ['a', 'm', 0], ['a', 'm', -2], ['a', 'm', 1.5], ['a', 'm', '2'], ['a', 'm', true]],
+]) {
+  check('age title: malformed agents ignored', _age_title(now, { since: now - 60_000, agents: bad }, now + 3_600_000), base_title)
+}
+check(
+  'stats: agents leaves the row suffix unchanged',
+  _stats_suffix({ workers: 2, cost: 14.5, agents: [['worker', 'claude-fable-5-2', 2]] }),
+  ' · 2w · $14.50'
+)
 // the wake suffix (the vault's project design 2.10): a project's next wake in the browser's local
 // time, so a project between turns is told apart from one mid-turn; the rows pin the zone (`now` is
 // 2023-11-14 22:13 UTC, 14:13 in Los Angeles): the day boundary is the LOCAL one

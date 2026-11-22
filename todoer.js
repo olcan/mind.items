@@ -1514,12 +1514,29 @@ function _stats_suffix(stats) {
   return parts.length ? ' · ' + parts.join(' · ') : ''
 }
 
-// the age mark's tooltip: the absolute time of the last state change, and the first delegation
+// the age mark's tooltip: the absolute time of the last state change, the first delegation,
+// the next wake (when armed), and who worked on the todo (design 9.6: stats.agents)
 function _age_title(updated, stats, wake = undefined) {
   const lines = [updated ? new Date(updated).toLocaleString() : 'not acknowledged yet']
   if (stats && typeof stats == 'object' && typeof stats.since == 'number' && stats.since > 0)
     lines.push('delegated ' + new Date(stats.since).toLocaleString())
   if (typeof wake == 'number' && wake > 0) lines.push('next wake ' + new Date(wake).toLocaleString())
+  if (stats && typeof stats == 'object' && Array.isArray(stats.agents)) {
+    for (const entry of stats.agents) {
+      if (!Array.isArray(entry) || entry.length != 3) continue
+      const [raw_name, raw_model, count] = entry
+      if (typeof raw_name != 'string' || typeof raw_model != 'string') continue
+      if (!Number.isInteger(count) || count <= 0) continue
+      const name = raw_name.replace(/\s+/g, ' ').trim()
+      const model = raw_model.replace(/\s+/g, ' ').trim()
+      if (!name && !model) {
+        lines.push('and ' + count + (count == 1 ? ' other' : ' others'))
+        continue
+      }
+      const label = name && model ? name + ' · ' + model : name || model
+      lines.push(count > 1 ? label + ' ×' + count : label)
+    }
+  }
   return lines.join('\n')
 }
 
