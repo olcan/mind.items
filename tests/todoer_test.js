@@ -71,6 +71,7 @@ const picked =
     '_task_state',
     '_task_list',
     '_age',
+    '_cost_text',
     '_stats_suffix',
     '_age_title',
     '_wake_suffix',
@@ -163,7 +164,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -232,6 +233,16 @@ check('stats: a share under a cent is none', _stats_suffix({ cost: 14.5, sub: 0.
 check('stats: a remainder under a cent is all', _stats_suffix({ cost: 14.5, sub: 14.496 }), ' · $14.50 (sub)')
 check('stats: only unknown carries no qualifier', _stats_suffix({ cost: 0, unknown: 1, sub: 0 }), ' · $?')
 check('stats: an older projection without the share', _stats_suffix({ workers: 1, cost: 2 }), ' · 1w · $2.00')
+// the shared cost helper used by both _stats_suffix and _age_title
+check('cost text: zero', _cost_text(0, 0, 0), '')
+check('cost text: half-up cents', _cost_text(1.115, 0, 0), '$1.12')
+check('cost text: all sub', _cost_text(3.2, 3.2, 0), '$3.20 (sub)')
+check('cost text: partial sub', _cost_text(3.5, 2.0, 0), '$3.50 (sub $2.00)')
+check('cost text: known plus unknown', _cost_text(2.0, 0, 1), '$2.00+?')
+check('cost text: known plus unknown partial sub', _cost_text(14.5, 12.5, 1), '$14.50+? (sub $12.50)')
+check('cost text: only unknown', _cost_text(0, 0, 2), '$?')
+check('cost text: sub under a cent is none', _cost_text(14.5, 0.004, 0), '$14.50')
+check('cost text: remainder under a cent is all', _cost_text(14.5, 14.496, 0), '$14.50 (sub)')
 check('age title: since', _age_title(now, { since: now - 60_000 }).split('\n').length, 2)
 check('age title: no stats', _age_title(now, undefined).includes('\n'), false)
 check('age title: unacknowledged', _age_title(undefined, undefined), 'not acknowledged yet')
@@ -265,19 +276,76 @@ check(
     '\ngemini-4-carbon-high ×2' +
     '\nand 3 others'
 )
+check(
+  'age title: agents with cost figures (paid, sub, partial sub, unknown, zero, overflow)',
+  _age_title(
+    now,
+    {
+      since: now - 60_000,
+      agents: [
+        ['neon4_agent', 'gemini-4-neon-xhigh', 1, 3.2, 3.2, 0],
+        ['worker', 'claude-fable-5-2', 2, 1.4, 1.4, 0],
+        ['worker_opus', 'claude-opus-5-5', 2, 3.5, 2.0, 0],
+        ['mix', 'm1', 2, 2.0, 0, 1],
+        ['unk', '', 1, 0, 0, 1],
+        ['zero', 'm0', 1, 0, 0, 0],
+        ['running', 'm2', 1],
+        ['', '', 3, 4.1, 0, 0],
+      ],
+    },
+    now + 3_600_000
+  ),
+  base_title +
+    '\nneon4_agent · gemini-4-neon-xhigh · $3.20 (sub)' +
+    '\nworker · claude-fable-5-2 ×2 · $1.40 (sub)' +
+    '\nworker_opus · claude-opus-5-5 ×2 · $3.50 (sub $2.00)' +
+    '\nmix · m1 ×2 · $2.00+?' +
+    '\nunk · $?' +
+    '\nzero · m0' +
+    '\nrunning · m2' +
+    '\nand 3 others · $4.10'
+)
+check(
+  'age title: overflow row with all-zero figures omits cost',
+  _age_title(now, { since: now - 60_000, agents: [['', '', 2, 0, 0, 0]] }, now + 3_600_000),
+  base_title + '\nand 2 others'
+)
 check('age title: empty agents matches absent', _age_title(now, { since: now - 60_000, agents: [] }, now + 3_600_000), base_title)
 for (const bad of [
   null,
   'worker',
   42,
   { worker: 1 },
-  [null, 'worker', ['a'], ['a', 'b', 1, 2], [1, 'm', 1], ['a', null, 1], ['a', 'm', 0], ['a', 'm', -2], ['a', 'm', 1.5], ['a', 'm', '2'], ['a', 'm', true]],
+  [
+    null,
+    'worker',
+    ['a'],
+    ['a', 'b', 1, 2],
+    ['a', 'b', 1, 2, 0],
+    ['a', 'b', 1, 2, 0, 0, 0],
+    [1, 'm', 1],
+    ['a', null, 1],
+    ['a', 'm', 0],
+    ['a', 'm', -2],
+    ['a', 'm', 1.5],
+    ['a', 'm', '2'],
+    ['a', 'm', true],
+    ['a', 'm', 1, -0.1, 0, 0],
+    ['a', 'm', 1, 1, -0.1, 0],
+    ['a', 'm', 1, 1, 0, -1],
+    ['a', 'm', 1, NaN, 0, 0],
+    ['a', 'm', 1, Infinity, 0, 0],
+    ['a', 'm', 1, 1, -Infinity, 0],
+    ['a', 'm', 1, '1', 0, 0],
+    ['a', 'm', 1, null, 0, 0],
+    ['a', 'm', 1, true, 0, 0],
+  ],
 ]) {
   check('age title: malformed agents ignored', _age_title(now, { since: now - 60_000, agents: bad }, now + 3_600_000), base_title)
 }
 check(
   'stats: agents leaves the row suffix unchanged',
-  _stats_suffix({ workers: 2, cost: 14.5, agents: [['worker', 'claude-fable-5-2', 2]] }),
+  _stats_suffix({ workers: 2, cost: 14.5, agents: [['worker', 'claude-fable-5-2', 2, 14.5, 0, 0]] }),
   ' · 2w · $14.50'
 )
 // the wake suffix (the vault's project design 2.10): a project's next wake in the browser's local
