@@ -155,17 +155,27 @@ const reload_shown = (wide, up, shown_row, switches) => v1('key_buttons_reload_s
 check('reload: it shows on every device, a desktop too; not while a keyboard is on the screen; not where the main row, while it shows, comes within a gap of it (a window under 350 px); and never with its part off',
   [reload_shown(1280, false, null), reload_shown(390, false, 'main'), reload_shown(390, true, 'keyboard'), reload_shown(390, true, null), reload_shown(350, false, 'main'), reload_shown(349, false, 'main'), reload_shown(320, false, 'main'), reload_shown(320, false, null), reload_shown(390, false, 'main', { reload_button: false })],
   [true, true, false, false, true, false, false, true, false])
-check('nav look: lit arrows use the search-match green (#9f9); on desktop, vertical arrows stack above the reload button and horizontal arrows sit to its right, in its circle and icon size, under the sparkle\'s menu layer',
+check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.dim; desktop groups sit around reload; frosted-glass backdrop splits into left and sparkle-gated right pieces with three 12 px rounded corners on wide desktop, and merges to a strip on narrow desktop and mobile',
   [look.valid,
+    look.dim,
+    look.backdrop,
     sheet.includes('.key-buttons > button.valid { color: #9f9 }'),
+    sheet.includes(`.key-buttons > button.dim > svg { opacity: ${look.dim} }`),
     sheet.includes(`.key-buttons-nav { position: fixed; left: ${right + width + look.gap}px; bottom: ${bottom}px; z-index: ${look.layer};`),
     sheet.includes(`.key-buttons-nav.vertical { left: ${right}px; bottom: ${bottom + height + look.gap}px; flex-direction: column }`),
-    sheet.includes(`.key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${width}px; height: ${height}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${sparkle[6]}; box-shadow: ${sparkle[7]}; color: #9f9;`),
+    sheet.includes(`.key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${width}px; height: ${height}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${sparkle[6]}; box-shadow: ${sparkle[7]}; color: #fff;`),
+    sheet.includes('.key-buttons-nav > button.valid { color: #9f9 }'),
+    sheet.includes(`.key-buttons-nav > button.dim > svg { opacity: ${look.dim} }`),
     sheet.includes(`.key-buttons-nav > button > svg { display: block; width: ${drawing[1]}px; height: ${drawing[2]}px;`),
-    sheet.includes('.key-buttons-nav[hidden] { display: none }'),
-    sheet.includes('.key-buttons-nav > button[hidden] { display: none }'),
-    look.layer < Number(layer[1])],
-  ['#9f9', true, true, true, true, true, true, true, true])
+    sheet.includes(`.key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }`),
+    sheet.includes(`.key-buttons-bg::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }`),
+    sheet.includes(`.key-buttons-bg.desktop::after { height: ${height + 2 * bottom}px }`),
+    sheet.includes(`.key-buttons-bg.desktop.split::after { right: auto; width: ${2 * right + 3 * width + 2 * look.gap}px; border-top-right-radius: ${width / 2}px }`),
+    sheet.includes(`.key-buttons-bg.desktop::before { content: ''; position: absolute; left: 0; bottom: ${height + 2 * bottom}px; width: ${width + 2 * right}px; height: ${2 * height + 2 * look.gap}px; border-top-right-radius: ${width / 2}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }`),
+    sheet.includes(`.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${width + 2 * right}px; height: ${height + 2 * bottom}px; border-top-left-radius: ${width / 2}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }`),
+    sheet.includes('body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }'),
+    look.layer - 1 < look.layer && look.layer < Number(layer[1])],
+  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '8px', merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
 
 // ---- the keyboard's row: its place from a visual viewport -------------------------------------
 const place = view => v1('key_buttons_place(__args, 3, KEY_BUTTONS_LOOK)', view)
@@ -335,26 +345,12 @@ check('nav: visible descendant tags (down and sibling), missing intermediate lev
     { left: false, up: true, down: true, right: false },
     { left: false, up: true, down: false, right: false },
     { left: true, up: true, down: false, right: true }])
-const desktop_nav = (coarse, up, state) => v1('key_buttons_desktop_nav(__args.win, __args.keyboard, __args.nav)', { win: fingers(coarse), keyboard: { up }, nav: state })
-check('desktop nav: on a keyboard device with no soft keyboard up, vertical holds up then down and horizontal holds left then right (only those that move); both empty when nothing moves, on a touch device, or while a soft keyboard is up',
-  [desktop_nav(false, false, { left: false, up: true, down: true, right: false }),
-    desktop_nav(false, false, { left: false, up: false, down: true, right: false }),
-    desktop_nav(false, false, { left: false, up: true, down: false, right: false }),
-    desktop_nav(false, false, { left: true, up: true, down: false, right: true }),
-    desktop_nav(false, false, { left: true, up: false, down: false, right: true }),
-    desktop_nav(false, false, { left: true, up: true, down: true, right: true }),
-    desktop_nav(false, false, no_nav),
-    desktop_nav(true, false, { left: true, up: true, down: true, right: true }),
-    desktop_nav(false, true, { left: true, up: true, down: true, right: true })],
-  [{ vertical: ['up', 'down'], horizontal: [] },
-    { vertical: ['down'], horizontal: [] },
-    { vertical: ['up'], horizontal: [] },
-    { vertical: ['up'], horizontal: ['left', 'right'] },
-    { vertical: [], horizontal: ['left', 'right'] },
-    { vertical: ['up', 'down'], horizontal: ['left', 'right'] },
-    { vertical: [], horizontal: [] },
-    { vertical: [], horizontal: [] },
-    { vertical: [], horizontal: [] }])
+const desktop_shown = (coarse, up) => v1('key_buttons_desktop_shown(__args.win, __args.keyboard)', { win: fingers(coarse), keyboard: { up } })
+const bg_shown = (coarse, up, shown_row, wide = 1280) => v1('key_buttons_backdrop(__args.win, __args.keyboard, __args.shown, KEY_BUTTONS_LOOK)', { win: { ...fingers(coarse), innerWidth: wide }, keyboard: { up }, shown: shown_row })
+check('desktop nav & backdrop: desktop splits backdrop at >= 480 px and merges into a strip below 480 px (all four arrows always shown); phone shows mobile strip only with the main row (not while keyboard is up)',
+  [[desktop_shown(false, false), desktop_shown(false, true), desktop_shown(true, false), desktop_shown(true, true)],
+    [bg_shown(true, false, 'main', 390), bg_shown(true, false, 'main', 1280), bg_shown(true, true, 'keyboard', 390), bg_shown(true, true, null, 390), bg_shown(false, false, null, 1280), bg_shown(false, false, null, 480), bg_shown(false, false, null, 479), bg_shown(false, false, null, 390), bg_shown(false, true, null, 1280)]],
+  [[true, false, false, false], ['mobile', 'mobile', null, null, 'desktop-split', 'desktop-split', 'desktop-strip', 'desktop-strip', null]])
 
 // ---- measurement over 1,600 items (16 roots x 100 items, and one 1,600-item tree) --------------
 {
@@ -396,10 +392,10 @@ check('desktop nav: on a keyboard device with no soft keyboard up, vertical hold
 
 // ---- the controller ----------------------------------------------------------------------------
 v1('_on_welcome()')
-const [bar, keys, nav_v, nav_h] = [parts('bar')[0], parts('keyboard')[0], parts('nav-vertical')[0], parts('nav-horizontal')[0]]
-check('controller: the page\'s welcome draws one style, the two rows, the reload button and the two desktop nav groups under the body, each put there hidden, the rows and desktop nav left hidden on a desktop with empty box, and one task',
-  [log, parts('style').length, bar.parent === page.body, keys.parent === page.body, nav_v.parent === page.body, nav_h.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), nav_v.children.map(b => b.dataset.key), nav_h.children.map(b => b.dataset.key), nav_v.className, nav_h.className, bar.hidden, keys.hidden, nav_v.hidden, nav_h.hidden, tasks.key_buttons.delay, tasks.key_buttons.repeat],
-  [['+style', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-vertical hidden', '+nav-horizontal hidden', 'task key_buttons'], 1, true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), ['up', 'down'], ['left', 'right'], 'key-buttons-nav vertical', 'key-buttons-nav', true, true, true, true, 15000, 15000])
+const [bg, bar, keys, nav_v, nav_h] = [parts('backdrop')[0], parts('bar')[0], parts('keyboard')[0], parts('nav-vertical')[0], parts('nav-horizontal')[0]]
+check('controller: the page\'s welcome draws one style, the backdrop (with its right piece child), the two rows, the reload button and the two desktop nav groups under the body, each put there hidden; on a narrow (390 px) desktop with empty box all four desktop arrows and the merged desktop strip show (arrows dimmed)',
+  [log, parts('style').length, bg.parent === page.body, bg.children.map(c => c.className), bar.parent === page.body, keys.parent === page.body, nav_v.parent === page.body, nav_h.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), nav_v.children.map(b => b.dataset.key), nav_h.children.map(b => b.dataset.key), nav_v.className, nav_h.className, bg.className, bg.attrs['aria-hidden'], bg.hidden, bar.hidden, keys.hidden, nav_v.hidden, nav_h.hidden, [...nav_v.children, ...nav_h.children].map(b => b.className), tasks.key_buttons.delay, tasks.key_buttons.repeat],
+  [['+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-vertical hidden', '+nav-horizontal hidden', 'task key_buttons'], 1, true, ['key-buttons-bg-right'], true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), ['up', 'down'], ['left', 'right'], 'key-buttons-nav vertical', 'key-buttons-nav', 'key-buttons-bg desktop', 'true', false, true, true, false, false, ['dim', 'dim', 'dim', 'dim'], 15000, 15000])
 const again = parts('reload')[0]
 check('reload: drawn under the body with the rows and shown on a desktop; named for a screen reader, its icon a line drawing, and within the Tab order as the sparkle is',
   [parts('reload').length, again.parent === page.body, again.hidden, again.className, again.title, again.attrs['aria-label'], again.innerHTML, 'tabIndex' in again],
@@ -556,8 +552,8 @@ const v2 = evaluation(2)
 v2('_on_item_change("keys-id")')
 const [bar2, keys2] = [parts('bar')[0], parts('keyboard')[0]]
 check('controller: an update of the item replaces the rows: the earlier ones go before the new ones are drawn, shown at once, and the earlier task is cancelled',
-  [log, parts('bar').length, parts('keyboard').length, parts('nav-vertical').length, parts('nav-horizontal').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
-  [['-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style', '+style', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-vertical hidden', '+nav-horizontal hidden', 'task key_buttons'], 1, 1, 1, 1, true, false, 1, 1, true])
+  [log, parts('bar').length, parts('keyboard').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('backdrop').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
+  [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style', '+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-vertical hidden', '+nav-horizontal hidden', 'task key_buttons'], 1, 1, 1, 1, 1, true, false, 1, 1, true])
 bar.hidden = false // as if it were still shown: only its disposal keeps a replaced row quiet
 button('down').fire('click')
 again.hidden = false
@@ -580,58 +576,82 @@ log.length = 0
 const copy = evaluation(2, 'copy-id', {})
 copy('_on_welcome()')
 check('controller: an item that only carries the code draws nothing and leaves the page\'s rows alone', [log, parts('bar')[0] === bar2], [[], true])
-// live nav highlights on mobile and desktop groups, click dispatch, item-change burst coalescing, and _labels fast path
+// live valid (green) and dim states on mobile and desktop, wide split vs narrow merged backdrop,
+// dim-arrow clicks still sending keys, item-change burst coalescing, and _labels fast path
 {
+  const bg_now = parts('backdrop')[0]
   const bar_now = parts('bar')[0]
   const nav_v_now = parts('nav-vertical')[0]
   const nav_h_now = parts('nav-horizontal')[0]
-  const lit_mobile = () => bar_now.children.filter(b => b.className == 'valid').map(b => b.dataset.key)
-  const visible_in = group => (group.hidden ? [] : group.children.filter(b => !b.hidden).map(b => b.dataset.key))
-  const shown_desktop = () => ({ vertical: visible_in(nav_v_now), horizontal: visible_in(nav_h_now) })
+  const states_mobile = () => bar_now.children.slice(3).map(b => [b.dataset.key, b.className])
+  const states_desktop = () => ({
+    shown: [!nav_v_now.hidden, !nav_h_now.hidden],
+    vertical: nav_v_now.children.map(b => [b.dataset.key, b.hidden, b.className]),
+    horizontal: nav_h_now.children.map(b => [b.dataset.key, b.hidden, b.className]),
+  })
   open.items = map_tree.map(it => ({ ...it }))
   pointer.matches = false
+  win.innerWidth = 1024
   pointer.fire('change')
   v2('_on_search("#map/a ")')
-  const desk_all = shown_desktop()
-  // clicking a desktop arrow in either group sends its key to document.body even while MindBox has focus
+  const desk_all = [states_desktop(), bg_now.hidden, bg_now.className]
+  // resizing below 480 px merges the split desktop backdrop into the full-width strip, and back
+  win.innerWidth = 479
+  viewport.fire('resize')
+  const desk_narrow = bg_now.className
+  win.innerWidth = 480
+  viewport.fire('resize')
+  const desk_wide = bg_now.className
+  // clicking a desktop arrow sends its key to document.body even while MindBox has focus — including a dim arrow
+  v2('_on_search("#map")') // only down is valid (green); up, left, right are dim
+  const desk_down = states_desktop()
   page.body.got.length = box.got.length = 0
   focus(box)
-  const nav_down = nav_v_now.children.find(b => b.dataset.key == 'down')
-  const nav_right = nav_h_now.children.find(b => b.dataset.key == 'right')
-  const down_click = nav_down.fire('click')
+  const nav_up = nav_v_now.children.find(b => b.dataset.key == 'up') // dim!
+  const nav_right = nav_h_now.children.find(b => b.dataset.key == 'right') // dim!
+  const up_click = nav_up.fire('click')
   const right_click = nav_right.fire('click')
-  const sent_desktop = [got(page.body), box.got.length, down_click.prevented, down_click.stopped, right_click.prevented, right_click.stopped]
+  const sent_dim = [got(page.body), box.got.length, up_click.prevented, up_click.stopped, right_click.prevented, right_click.stopped]
   blur()
-  v2('_on_search("#map")')
-  const desk_down = shown_desktop()
-  v2('_on_search("#map/a/0")')
-  const desk_up = shown_desktop()
-  v2('_on_search("#map/b")')
-  const desk_up_horiz = shown_desktop()
-  // mobile shows main row with green class ONLY on valid arrows, hides both desktop groups
+  v2('_on_search("#map/a/0")') // only up valid
+  const desk_up = states_desktop()
+  v2('_on_search("#map/b")') // left, up, right valid; down dim
+  const desk_up_horiz = states_desktop()
+  // mobile: main row keeps full-width strip (even at wide width), marks valid green and invalid dim,
+  // never changes non-arrows; on-screen keyboard hides backdrop along with the main row
   pointer.matches = true
   pointer.fire('change')
-  const mob_state = [lit_mobile(), nav_v_now.hidden, nav_h_now.hidden]
+  const mob_b = [states_mobile(), bar_now.children.slice(0, 3).map(b => b.className ?? ''), nav_v_now.hidden, nav_h_now.hidden, bg_now.hidden, bg_now.className]
+  page.body.got.length = 0
+  bar_now.children.find(b => b.dataset.key == 'down').fire('click')
+  const mob_dim_sent = got(page.body)
+  focus(editor)
+  viewport.height = 464
+  viewport.fire('resize')
+  const mob_kbd_bg = [bar_now.hidden, bg_now.hidden]
+  viewport.height = 800
+  viewport.fire('resize')
+  blur()
+  const mob_back_bg = [bar_now.hidden, bg_now.hidden, bg_now.className]
   v2('_on_search("#map/a")')
-  const mob_all = [lit_mobile(), bar_now.children.slice(0, 3).map(b => b.className ?? '')]
-  // item changes coalesce into one 150 ms task and live-update arrows (deleting #map/b removes left/right)
+  const mob_all = states_mobile()
+  // item changes coalesce into one 150 ms task and live-update states (deleting #map/b dims left/right)
   log.length = 0
   open.items = open.items.filter(it => it.label != '#map/b')
   v2('_on_item_change("x1", "#map/b", "#map/b", true, false, false)')
   v2('_on_item_change("x2", "#map/c", "#map/c", false, false, false)')
   v2('_on_item_change("x3", "#map/d", "#map/d", false, false, true)') // dependency-only: ignored
-  const burst = [log.filter(e => e == 'task key_buttons_nav').length, tasks.key_buttons_nav.delay, lit_mobile()]
+  const burst = [log.filter(e => e == 'task key_buttons_nav').length, tasks.key_buttons_nav.delay, states_mobile()]
   tasks.key_buttons_nav.fn()
-  const after_burst = lit_mobile()
-  // on desktop after removing #map/b, #map/a has both vertical arrows and no horizontal group
+  const after_burst = states_mobile()
+  // empty box dims all four arrows while desktop keeps all four shown and keeps split desktop backdrop;
+  // item change while empty schedules no task
   pointer.matches = false
   pointer.fire('change')
-  const desk_vert_only = shown_desktop()
-  // empty box clears all highlights and hides both desktop groups; item change while empty schedules no task
   v2('_on_search("")')
   log.length = 0
   v2('_on_item_change("x4", "#map/z", "", false, false, false)')
-  const empty_state = [shown_desktop(), lit_mobile(), log.length]
+  const empty_state = [states_desktop(), states_mobile(), bg_now.hidden, bg_now.className, log.length]
   // _labels fast path: narrows to root tree without wrapping unrelated roots
   const by_id = { m0: { id: 'm0', label: '#map', ancestors: [] }, m1: { id: 'm1', label: '#map/a', ancestors: ['#map'] }, o0: { id: 'o0', label: '#other', ancestors: [] } }
   const orig_items = { ...items }
@@ -646,50 +666,55 @@ check('controller: an item that only carries the code draws nothing and leaves t
   const orig_item_ref = items.o0
   Object.defineProperty(items, 'o0', { get() { wrapped.push('o0'); return orig_item_ref }, configurable: true })
   v2('_on_search("#map")')
-  const via_labels = [shown_desktop(), wrapped.length]
+  const via_labels = [states_mobile(), wrapped.length]
   delete win._labels
   for (const k of Object.keys(items)) if (!(k in orig_items)) delete items[k]
   // initial welcome/reconcile before any _on_search reads textarea-mindbox (stripping ZWSPs);
-  // with reload_button off, both groups stay at their CSS positions (no inline offset overrides)
+  // with reload_button off, both groups and the split desktop backdrop keep their shape
   open.items = map_tree.map(it => ({ ...it }))
   open.fields['textarea-mindbox'] = { value: '#map\u200B/a ' }
   const v3 = evaluation(3, 'keys-id', tasks, turned('reload_button', false))
   v3('_on_item_change("keys-id")')
-  const [v3_v, v3_h] = [parts('nav-vertical')[0], parts('nav-horizontal')[0]]
-  const from_box = [{ vertical: visible_in(v3_v), horizontal: visible_in(v3_h) }, v3_v.style, v3_h.style]
+  const [v3_bg, v3_v, v3_h] = [parts('backdrop')[0], parts('nav-vertical')[0], parts('nav-horizontal')[0]]
+  const from_box = [v3_bg.hidden, v3_bg.className, [...v3_v.children, ...v3_h.children].map(b => b.className), v3_v.style, v3_h.style]
   delete open.fields['textarea-mindbox']
   open.items = []
+  win.innerWidth = 390
   v2('_on_item_change("keys-id")')
   pointer.matches = true
   pointer.fire('change')
   page.body.got.length = 0
-  check('nav live: desktop splits vertical above reload and horizontal beside it, dispatches on body even with MindBox focused, keeps positions when reload is hidden; mobile lights valid arrows only; item-change bursts coalesce; empty box schedules none; _labels skips other roots; reconcile reads textarea-mindbox (ZWSP stripped)',
-    [desk_all, sent_desktop, desk_down, desk_up, desk_up_horiz, desk_vert_only, mob_state, mob_all, burst, after_burst, empty_state, via_labels, from_box],
-    [{ vertical: ['up', 'down'], horizontal: ['left', 'right'] },
-      [['keydown ArrowDown', 'keyup ArrowDown', 'keydown ArrowRight', 'keyup ArrowRight'], 0, 1, 1, 1, 1],
-      { vertical: ['down'], horizontal: [] },
-      { vertical: ['up'], horizontal: [] },
-      { vertical: ['up'], horizontal: ['left', 'right'] },
-      { vertical: ['up', 'down'], horizontal: [] },
-      [['left', 'up', 'right'], true, true],
-      [['left', 'up', 'down', 'right'], ['', '', '']],
-      [2, 150, ['left', 'up', 'down', 'right']],
-      ['up', 'down'],
-      [{ vertical: [], horizontal: [] }, [], 0],
-      [{ vertical: ['down'], horizontal: [] }, 0],
-      [{ vertical: ['up', 'down'], horizontal: ['left', 'right'] }, {}, {}]])
+  check('nav live: valid arrows green and invalid dim on mobile and desktop; desktop splits backdrop at >= 480 px and merges below 480 px; dim arrows still dispatch on body even with MindBox focused; phone keeps full-width strip and hides it under keyboard; bursts coalesce; empty schedules none; _labels skips other roots; reconcile reads textarea-mindbox (ZWSP stripped) and keeps shape without reload',
+    [desk_all, desk_narrow, desk_wide, desk_down, sent_dim, desk_up, desk_up_horiz, mob_b, mob_dim_sent, mob_kbd_bg, mob_back_bg, mob_all, burst, after_burst, empty_state, via_labels, from_box],
+    [[{ shown: [true, true], vertical: [['up', false, 'valid'], ['down', false, 'valid']], horizontal: [['left', false, 'valid'], ['right', false, 'valid']] }, false, 'key-buttons-bg desktop split'],
+      'key-buttons-bg desktop',
+      'key-buttons-bg desktop split',
+      { shown: [true, true], vertical: [['up', false, 'dim'], ['down', false, 'valid']], horizontal: [['left', false, 'dim'], ['right', false, 'dim']] },
+      [['keydown ArrowUp', 'keyup ArrowUp', 'keydown ArrowRight', 'keyup ArrowRight'], 0, 1, 1, 1, 1],
+      { shown: [true, true], vertical: [['up', false, 'valid'], ['down', false, 'dim']], horizontal: [['left', false, 'dim'], ['right', false, 'dim']] },
+      { shown: [true, true], vertical: [['up', false, 'valid'], ['down', false, 'dim']], horizontal: [['left', false, 'valid'], ['right', false, 'valid']] },
+      [[['left', 'valid'], ['up', 'valid'], ['down', 'dim'], ['right', 'valid']], ['', '', ''], true, true, false, 'key-buttons-bg'],
+      ['keydown ArrowDown', 'keyup ArrowDown'],
+      [true, true],
+      [false, false, 'key-buttons-bg'],
+      [['left', 'valid'], ['up', 'valid'], ['down', 'valid'], ['right', 'valid']],
+      [2, 150, [['left', 'valid'], ['up', 'valid'], ['down', 'valid'], ['right', 'valid']]],
+      [['left', 'dim'], ['up', 'valid'], ['down', 'valid'], ['right', 'dim']],
+      [{ shown: [true, true], vertical: [['up', false, 'dim'], ['down', false, 'dim']], horizontal: [['left', false, 'dim'], ['right', false, 'dim']] }, [['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim']], false, 'key-buttons-bg desktop split', 0],
+      [[['left', 'dim'], ['up', 'dim'], ['down', 'valid'], ['right', 'dim']], 0],
+      [false, 'key-buttons-bg desktop split', ['valid', 'valid', 'valid', 'valid'], {}, {}]])
 }
 log.length = 0
 items['#key_buttons'] = { id: 'other-id' }
 v2('_on_item_change("keys-id")')
-check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
+check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
 items['#key_buttons'] = { id: 'keys-id' }
 v2('_on_item_change("keys-id")')
-check('controller: named #key_buttons again it draws again', [parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length], [1, 1, 1, 1, 1])
+check('controller: named #key_buttons again it draws again', [parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length], [1, 1, 1, 1, 1, 1])
 log.length = 0
 tasks.key_buttons._on_cancel() // the app, at the task's next run after the item's deletion
 check('controller: the item\'s deletion removes the rows, their style and the listeners at the task\'s cancel, and its task then ends',
-  [log, parts('bar').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length, listening(), tasks.key_buttons.fn()], [['-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
+  [log, parts('backdrop').length, parts('bar').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length, listening(), tasks.key_buttons.fn()], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
 
 // ---- the caret's scroll, switched on in the table: once for each opening of the keyboard ---------
 {
@@ -799,17 +824,17 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
   const kept = [own.key_buttons.fn(), parts('bar').length, listening()] // a tick with the item as it was
   run.item.deephash = 6 // the item's text saved without this code: no hook of it runs, and its hash is another
   log.length = 0
-  const retired = [own.key_buttons.fn(), [...log], ['bar', 'keyboard', 'reload', 'nav-vertical', 'nav-horizontal', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
+  const retired = [own.key_buttons.fn(), [...log], ['backdrop', 'bar', 'keyboard', 'reload', 'nav-vertical', 'nav-horizontal', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
   log.length = 0
   check('stale: the task keeps a controller whose code is still the item\'s; once the item\'s hash is another (its code removed, or the app\'s #_debug tag put on it: no hook says so) the next run retires it: the rows, the button, the style and every listener go, the task ends, and a later run does nothing',
-    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
+    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
   const theirs = {}
   const gone = evaluation(7, 'keys-id', theirs)
   gone('_on_welcome()')
   Object.defineProperty(gone.item, 'deephash', { get() { throw new Error('item keys-id is deleted') } })
   log.length = 0
   check('stale: a controller whose item can no longer be read (deleted, should the app not have cancelled its task) is retired the same way',
-    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
+    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
   log.length = 0
 }
 

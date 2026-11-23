@@ -66,9 +66,9 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
   { name: 'done', key: 'Enter', shift: true, title: 'Done: save the item, or create from the box (Shift+Enter)', icon: 'M3 8.5l3.5 3.5L13 4.5' },
 ]
 
-// the four navigation arrows of the main row, lit green when they would move in the named item's
-// tree, and split into two desktop groups around the reload button: vertical (up on top, down
-// under it) stacked above it, horizontal (left first, right second) in a row to its right
+// the four navigation arrows of the main row: lit green when they would move in the named item's
+// tree and dimmed when not, and always shown in two desktop groups around the reload button:
+// vertical (up on top, down under it) stacked above it, horizontal (left first) in a row to its right
 const KEY_BUTTONS_ARROWS = KEY_BUTTONS.filter(b => !b.ctrl && !b.alt && !b.shift && b.key.startsWith('Arrow'))
 const KEY_BUTTONS_ARROW_NAMES = new Set(KEY_BUTTONS_ARROWS.map(b => b.name))
 const KEY_BUTTONS_NAV_VERTICAL = KEY_BUTTONS_ARROWS.filter(b => b.name == 'up' || b.name == 'down')
@@ -94,7 +94,8 @@ const KEY_BUTTONS_LOOK = {
   icon: 16, // an icon's width and height
   line: 1.6, // an icon's line width, in the icon's own 16 units
   color: '#fff', // the icons (the sparkle's are #f5e389)
-  valid: '#9f9', // a lit navigation arrow (the app's search-match green: .index.matching, mark.selected)
+  valid: '#9f9', // a navigation arrow that would move (the app's search-match green: .index.matching, mark.selected)
+  dim: 0.25, // icon opacity for a navigation arrow that would not move (below reload's 0.45 idle)
   background: '#222', // the sparkle's
   pressed: '#555', // a button's background while a finger is on it
   layer: 88, // under the sparkle's menu and that menu's layer (90 and 89), over the app's own layers (10 at most)
@@ -104,6 +105,10 @@ const KEY_BUTTONS_LOOK = {
   // bottom 10, its drawing 16 px, dim at 0.45 while idle and 0.9 under a mouse): the same at the left,
   // in the icons' white, and at this item's layer (under the sparkle's menu layer, as the rows are)
   reload: { size: 24, left: 14, bottom: 10, icon: 16, idle: 'rgba(255, 255, 255, 0.45)', hover: 'rgba(255, 255, 255, 0.9)' },
+  // dark frosted-glass background behind the buttons: full-width bottom strip on a phone; on a
+  // keyboard device, split into a left piece (reload + arrows) and a right piece (sparkle, when
+  // shown), merging into the full-width strip below `merge` px
+  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '8px', merge: 480 },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
 // and how long the view has to stay as it is before the one look (the keyboard has taken its room)
@@ -273,10 +278,11 @@ const key_buttons_css = look => `
 .key-buttons.keyboard { right: auto; bottom: auto }
 .key-buttons[hidden] { display: none }
 .key-buttons > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.size}px; height: ${look.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
-.key-buttons > button.valid { color: ${look.valid} }
 .key-buttons > button:focus { outline: none }
 .key-buttons > button:active { background: ${look.pressed} }
+.key-buttons > button.valid { color: ${look.valid} }
 .key-buttons > button > svg { display: block; width: ${look.icon}px; height: ${look.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
+.key-buttons > button.dim > svg { opacity: ${look.dim} }
 .key-buttons-reload { position: fixed; left: ${look.reload.left}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.reload.idle}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .key-buttons-reload[hidden] { display: none }
 .key-buttons-reload:focus { outline: none }
@@ -287,13 +293,22 @@ const key_buttons_css = look => `
 .key-buttons-nav { position: fixed; left: ${look.reload.left + look.reload.size + look.gap}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
 .key-buttons-nav.vertical { left: ${look.reload.left}px; bottom: ${look.reload.bottom + look.reload.size + look.gap}px; flex-direction: column }
 .key-buttons-nav[hidden] { display: none }
-.key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.valid}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
-.key-buttons-nav > button[hidden] { display: none }
+.key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.key-buttons-nav > button.valid { color: ${look.valid} }
 .key-buttons-nav > button:focus { outline: none }
-.key-buttons-nav > button:focus-visible { outline: 1px solid ${look.valid} }
+.key-buttons-nav > button:focus-visible { outline: 1px solid currentColor }
 @media (hover: hover) { .key-buttons-nav > button:hover { background: #333 } }
 .key-buttons-nav > button:active { background: ${look.pressed} }
 .key-buttons-nav > button > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
+.key-buttons-nav > button.dim > svg { opacity: ${look.dim} }
+.key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }
+.key-buttons-bg[hidden] { display: none }
+.key-buttons-bg::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }
+.key-buttons-bg.desktop::after { height: ${look.reload.size + 2 * look.reload.bottom}px }
+.key-buttons-bg.desktop.split::after { right: auto; width: ${2 * look.reload.left + 3 * look.reload.size + 2 * look.gap}px; border-top-right-radius: ${look.reload.size / 2}px }
+.key-buttons-bg.desktop::before { content: ''; position: absolute; left: 0; bottom: ${look.reload.size + 2 * look.reload.bottom}px; width: ${look.reload.size + 2 * look.reload.left}px; height: ${2 * look.reload.size + 2 * look.gap}px; border-top-right-radius: ${look.reload.size / 2}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }
+.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${look.reload.size + 2 * look.reload.left}px; height: ${look.reload.size + 2 * look.reload.bottom}px; border-top-left-radius: ${look.reload.size / 2}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }
+body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }
 `
 
 // the single #label the box names (trimmed, lowercased), else null: empty, multi-term search,
@@ -434,15 +449,25 @@ function key_buttons_read_nav(box) {
   return key_buttons_nav(box, window._items?.() ?? [])
 }
 
-// which navigation arrows show on a device with a keyboard (where the main row is hidden):
-// vertical (`up`, `down`, top to bottom) stacked above the reload button, and horizontal (`left`,
-// `right`, left first) in a row to its right; neither on a touch device or while an on-screen
-// keyboard is up
-const key_buttons_desktop_nav = (win, keyboard, nav) => {
-  if (key_buttons_device(win) || keyboard.up) return { vertical: [], horizontal: [] }
-  const pick = specs => specs.map(b => b.name).filter(name => !!nav?.[name])
-  return { vertical: pick(KEY_BUTTONS_NAV_VERTICAL), horizontal: pick(KEY_BUTTONS_NAV_HORIZONTAL) }
-}
+// whether the desktop navigation arrow groups show: always on a device with a keyboard while no
+// soft keyboard is up (all four arrows stay in place and dim when they would not move); never on
+// a touch device (the main row holds them there)
+const key_buttons_desktop_shown = (win, keyboard) => !key_buttons_device(win) && !keyboard.up
+
+// which frosted-glass background shows behind the buttons: the full-width bottom strip while the
+// phone's main row shows ('mobile'); on a keyboard device with no soft keyboard up, split left
+// and right pieces ('desktop-split') or one merged bottom strip plus left column below `merge` px
+// ('desktop-strip'); or none while a keyboard is on screen
+const key_buttons_backdrop = (win, keyboard, shown, look = KEY_BUTTONS_LOOK) =>
+  keyboard.up
+    ? null
+    : shown == 'main'
+      ? 'mobile'
+      : !key_buttons_device(win)
+        ? (win.innerWidth ?? Infinity) < look.backdrop.merge
+          ? 'desktop-strip'
+          : 'desktop-split'
+        : null
 // whether the reload button shows: on every device, as the sparkle does; not while a keyboard
 // is on the screen (the rows' own reading), and not where the main row, while it shows, would
 // reach it (a window so narrow that the row's left end comes within a gap of the button)
@@ -524,6 +549,19 @@ function key_buttons_create() {
   style.dataset.keyButtons = 'style'
   style.textContent = key_buttons_css(KEY_BUTTONS_LOOK)
   document.head.appendChild(style)
+  // dark frosted-glass background behind the buttons: one non-backdrop-root container whose three
+  // siblings (::after bottom strip or left row, ::before desktop vertical column, and child
+  // .key-buttons-bg-right behind the #vault sparkle in wide desktop split) each blur the page
+  // directly without overlapping, taking no pointer events
+  const backdrop = (self.backdrop = document.createElement('div'))
+  backdrop.className = 'key-buttons-bg'
+  backdrop.dataset.keyButtons = 'backdrop'
+  backdrop.setAttribute('aria-hidden', 'true')
+  backdrop.hidden = true
+  const backdrop_right = document.createElement('div')
+  backdrop_right.className = 'key-buttons-bg-right'
+  backdrop.appendChild(backdrop_right)
+  document.body.appendChild(backdrop)
   // a row of buttons, hidden until the first look: `kind` names it in the page (`bar`, the
   // main row; `keyboard`, the row above the keyboard)
   const row = (kind, specs, label) => {
@@ -630,10 +668,10 @@ function key_buttons_create() {
   reloader.addEventListener('contextmenu', taken)
   if (KEY_BUTTONS_PARTS.reload_button) document.body.appendChild(reloader)
   // the desktop navigation arrows around the reload button: vertical (up on top, down under it)
-  // stacked above it, horizontal (left first) in a row to its right. Only the arrows that would
-  // move show, lit green in the reload button's look. A click dispatches on document.body so it
-  // always reaches the window's navigation handler even while the MindBox holds focus
-  // (Editor.svelte stops propagation on arrows inside a focused textarea)
+  // stacked above it, horizontal (left first) in a row to its right. All four stay in place in
+  // the reload button's circle look, dimmed when they would not move and still clickable. A click
+  // dispatches on document.body so it always reaches the window's navigation handler even while
+  // the MindBox holds focus (Editor.svelte stops propagation on arrows inside a focused textarea)
   const nav_group = (kind, className, specs, label) => {
     const group = document.createElement('div')
     group.className = className
@@ -649,10 +687,9 @@ function key_buttons_create() {
       button.title = spec.title
       button.setAttribute('aria-label', spec.title)
       button.innerHTML = key_buttons_svg(spec.icon)
-      button.hidden = true
       button.addEventListener('click', e => {
         taken(e)
-        if (!self.disposed && !group.hidden && !button.hidden) key_buttons_press(spec, document, undefined, document.body)
+        if (!self.disposed && !group.hidden) key_buttons_press(spec, document, undefined, document.body)
       })
       button.addEventListener('mousedown', taken)
       button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
@@ -686,6 +723,9 @@ function key_buttons_create() {
     bar.hidden = shown != 'main'
     keys.hidden = shown != 'keyboard'
     reloader.hidden = !key_buttons_reload_shown(window, keyboard, shown, KEY_BUTTONS_LOOK)
+    const bg_mode = key_buttons_backdrop(window, keyboard, shown, KEY_BUTTONS_LOOK)
+    backdrop.hidden = !bg_mode
+    backdrop.className = bg_mode == 'desktop-split' ? 'key-buttons-bg desktop split' : bg_mode == 'desktop-strip' ? 'key-buttons-bg desktop' : 'key-buttons-bg'
     self.keyboard_up = keyboard.up
     self.apply_nav()
     if (!keys.hidden) {
@@ -703,19 +743,19 @@ function key_buttons_create() {
     self.cleared = true
     self.clear()
   }
-  // apply the last computed arrow state to the mobile row's highlights and the two desktop groups
+  // apply the last computed arrow state to the mobile row's arrows and the two desktop groups:
+  // arrows that would move are green (`valid`), arrows that would not are dimmed (`dim`);
+  // non-arrows never change; desktop always shows all four
   self.apply_nav = () => {
     const nav = self.nav
     for (const button of bar.children) {
-      if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : ''
+      if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
     }
-    const { vertical, horizontal } = key_buttons_desktop_nav(window, { up: self.keyboard_up }, nav)
-    const set_group = (group, names) => {
-      group.hidden = names.length == 0
-      for (const button of group.children) button.hidden = !names.includes(button.dataset.key)
+    const desktop = key_buttons_desktop_shown(window, { up: self.keyboard_up })
+    for (const group of [nav_vertical, nav_horizontal]) {
+      group.hidden = !desktop
+      for (const button of group.children) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
     }
-    set_group(nav_vertical, vertical)
-    set_group(nav_horizontal, horizontal)
   }
   self.box = () =>
     self.query !== undefined
@@ -804,6 +844,7 @@ function key_buttons_create() {
     document.removeEventListener('focusin', look, true)
     document.removeEventListener('focusout', left, true)
     window.removeEventListener('keydown', typed, true)
+    backdrop.remove()
     bar.remove()
     keys.remove()
     reloader.remove()
