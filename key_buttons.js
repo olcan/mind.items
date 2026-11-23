@@ -108,7 +108,7 @@ const KEY_BUTTONS_LOOK = {
   // dark frosted-glass background behind the buttons: full-width bottom strip on a phone; on a
   // keyboard device, split into a left piece (reload + arrows) and a right piece (sparkle, when
   // shown), merging into the full-width strip below `merge` px
-  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '8px', merge: 480 },
+  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '5px', merge: 480 },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
 // and how long the view has to stay as it is before the one look (the keyboard has taken its room)

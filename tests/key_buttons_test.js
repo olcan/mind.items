@@ -175,7 +175,7 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     sheet.includes(`.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${width + 2 * right}px; height: ${height + 2 * bottom}px; border-top-left-radius: ${width / 2}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }`),
     sheet.includes('body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }'),
     look.layer - 1 < look.layer && look.layer < Number(layer[1])],
-  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '8px', merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
+  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '5px', merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
 
 // ---- the keyboard's row: its place from a visual viewport -------------------------------------
 const place = view => v1('key_buttons_place(__args, 3, KEY_BUTTONS_LOOK)', view)
