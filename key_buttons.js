@@ -66,6 +66,12 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
   { name: 'done', key: 'Enter', shift: true, title: 'Done: save the item, or create from the box (Shift+Enter)', icon: 'M3 8.5l3.5 3.5L13 4.5' },
 ]
 
+// the four navigation arrows of the main row, in the same order: lit green when they would move
+// in the named item's tree, and shown alone beside the reload button on a device with a keyboard
+const KEY_BUTTONS_ARROWS = KEY_BUTTONS.filter(b => !b.ctrl && !b.alt && !b.shift && b.key.startsWith('Arrow'))
+const KEY_BUTTONS_ARROW_NAMES = new Set(KEY_BUTTONS_ARROWS.map(b => b.name))
+const KEY_BUTTONS_NONE = { left: false, up: false, down: false, right: false }
+
 // the reload button: one press reloads the page, after a question wherever something could be
 // lost: the app's own (window._reload), or on an app without one this item's, before every
 // reload (see self.reload). An arrow that goes round, drawn as the other icons are
@@ -85,6 +91,7 @@ const KEY_BUTTONS_LOOK = {
   icon: 16, // an icon's width and height
   line: 1.6, // an icon's line width, in the icon's own 16 units
   color: '#fff', // the icons (the sparkle's are #f5e389)
+  valid: '#9f9', // a lit navigation arrow (the app's search-match green: .index.matching, mark.selected)
   background: '#222', // the sparkle's
   pressed: '#555', // a button's background while a finger is on it
   layer: 88, // under the sparkle's menu and that menu's layer (90 and 89), over the app's own layers (10 at most)
@@ -111,6 +118,7 @@ const KEY_BUTTONS_DEVICE = '(pointer: coarse)'
 const KEY_BUTTONS_KEYBOARD_PX = 150
 const KEY_BUTTONS_TICK_MS = 15000 // the task's look: the item's deletion is noticed at its next run
 const KEY_BUTTONS_FOCUS_MS = 150 // a focus that left is looked at this much later: a focus that moves from one editor to another flips no row
+const KEY_BUTTONS_NAV_MS = 150 // item changes within this long are coalesced into one look at the tree
 const KEY_BUTTONS_CHANGES = 5 // how many of the row's last changes are kept, for the lines that say what the signals read
 
 // ---- the code -----------------------------------------------------------------------------
@@ -262,6 +270,7 @@ const key_buttons_css = look => `
 .key-buttons.keyboard { right: auto; bottom: auto }
 .key-buttons[hidden] { display: none }
 .key-buttons > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.size}px; height: ${look.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.key-buttons > button.valid { color: ${look.valid} }
 .key-buttons > button:focus { outline: none }
 .key-buttons > button:active { background: ${look.pressed} }
 .key-buttons > button > svg { display: block; width: ${look.icon}px; height: ${look.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
@@ -272,7 +281,160 @@ const key_buttons_css = look => `
 @media (hover: hover) { .key-buttons-reload:hover { color: ${look.reload.hover} } }
 .key-buttons-reload:active { color: ${look.color} }
 .key-buttons-reload > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
+.key-buttons-nav { position: fixed; left: ${look.reload.left + look.reload.size + look.gap}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
+.key-buttons-nav[hidden] { display: none }
+.key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.valid}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.key-buttons-nav > button[hidden] { display: none }
+.key-buttons-nav > button:focus { outline: none }
+.key-buttons-nav > button:focus-visible { outline: 1px solid ${look.valid} }
+@media (hover: hover) { .key-buttons-nav > button:hover { background: #333 } }
+.key-buttons-nav > button:active { background: ${look.pressed} }
+.key-buttons-nav > button > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 `
+
+// the single #label the box names (trimmed, lowercased), else null: empty, multi-term search,
+// command, plain text, id: query and #log (never a unique target in the app) name none
+const key_buttons_box_label = box => {
+  const text = typeof box == 'string' ? box.trim().toLowerCase() : ''
+  return text && text != '#log' && /^#[^#\s]+$/.test(text) ? text : null
+}
+
+// textual ancestor labels above a label, nearest first (#map/a/0 -> ['#map/a', '#map']):
+// fallback when an item has no `ancestors`, and for a visible tag that names no unique item
+const key_buttons_prefixes = label => {
+  const levels = []
+  for (let at = label.lastIndexOf('/'); at >= 0; at = label.lastIndexOf('/', at - 1)) levels.push(label.slice(0, at))
+  return levels
+}
+
+// which of the four arrows would move from the item the box names, from arguments alone:
+// `box` is the MindBox text and `items` is an iterable of items ({ label, ancestors?, tags_visible? }).
+// - no single unique item named by the box: none
+// - up: any ancestor of the named item in the tree is a unique item (immediate parent, or higher
+//   ancestor via the app's contextLabel fallback when intermediate levels have no item)
+// - down: any unique item descends from the named item in the tree (covers integer-named children,
+//   nested descendants and tag children in one check), or the item visibly tags a descendant
+// - left and right: the named item's immediate tree parent is a unique item, and that parent has
+//   at least one other child in the app's enumeration (another direct tree child label, unique or
+//   duplicated, or another descendant visibly tagged by the parent)
+function key_buttons_nav(box, items) {
+  const target_label = key_buttons_box_label(box)
+  if (!target_label || !items) return { ...KEY_BUTTONS_NONE }
+  const counts = new Map()
+  const entries = []
+  for (const it of items) {
+    const label = typeof it?.label == 'string' ? it.label.toLowerCase() : ''
+    if (!label) continue
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+    entries.push({ label, item: it })
+  }
+  if (counts.get(target_label) !== 1) return { ...KEY_BUTTONS_NONE }
+  const unique = new Map()
+  for (const entry of entries) if (counts.get(entry.label) === 1 && entry.label != '#log') unique.set(entry.label, entry)
+  const ancestors_of = entry => {
+    if (entry.levels) return entry.levels
+    const raw = entry.item.ancestors
+    if (!Array.isArray(raw)) return (entry.levels = key_buttons_prefixes(entry.label))
+    let clean = true
+    for (let i = 0; i < raw.length; i++) {
+      if (typeof raw[i] != 'string' || raw[i] !== raw[i].toLowerCase()) {
+        clean = false
+        break
+      }
+    }
+    return (entry.levels = clean ? raw : raw.map(a => String(a).toLowerCase()))
+  }
+  const descends = (label, ancestor) => {
+    const seen = new Set()
+    let cur = label
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      const found = unique.get(cur)
+      if (found) return ancestors_of(found).includes(ancestor)
+      const slash = cur.lastIndexOf('/')
+      if (slash < 0) return false
+      cur = cur.slice(0, slash)
+      if (cur == ancestor) return true
+    }
+    return false
+  }
+
+  const target = unique.get(target_label)
+  const target_levels = ancestors_of(target)
+  const up = target_levels.some(level => level != target_label && unique.has(level))
+
+  let down = false
+  for (const entry of unique.values()) {
+    if (entry !== target && ancestors_of(entry).includes(target_label)) {
+      down = true
+      break
+    }
+  }
+  if (!down) {
+    for (const raw of target.item.tags_visible ?? []) {
+      const tag = typeof raw == 'string' ? raw.toLowerCase() : ''
+      if (tag && tag != target_label && descends(tag, target_label)) {
+        down = true
+        break
+      }
+    }
+  }
+
+  const parent_label = target_levels[0]
+  const parent = parent_label && parent_label != target_label ? unique.get(parent_label) : null
+  let sibling = false
+  if (parent) {
+    for (const entry of entries) {
+      if (entry.label != target_label && ancestors_of(entry)[0] == parent_label) {
+        sibling = true
+        break
+      }
+    }
+    if (!sibling) {
+      for (const raw of parent.item.tags_visible ?? []) {
+        const tag = typeof raw == 'string' ? raw.toLowerCase() : ''
+        if (tag && tag != parent_label && tag != target_label && descends(tag, parent_label)) {
+          sibling = true
+          break
+        }
+      }
+    }
+  }
+
+  return { left: sibling, up, down, right: sibling }
+}
+
+// items in the named label's root tree (#map and #map/...): in the app, lineage overrides never
+// cross roots (lineage.ts), so no item under another root can be an ancestor, child or sibling.
+// Walking `_labels` avoids wrapping and sorting every item in the account; where `_labels` is
+// absent (tests), falls back to `_items()`
+function key_buttons_read_nav(box) {
+  const target_label = key_buttons_box_label(box)
+  if (!target_label) return { ...KEY_BUTTONS_NONE }
+  if (typeof window._labels == 'function' && typeof _item == 'function') {
+    if (!_item(target_label, { silent: true })) return { ...KEY_BUTTONS_NONE }
+    const slash = target_label.indexOf('/')
+    const root = slash < 0 ? target_label : target_label.slice(0, slash)
+    const prefix = root + '/'
+    const found = []
+    window._labels((label, ids) => {
+      if (label != root && !label.startsWith(prefix)) return false
+      for (const id of ids) {
+        const it = _item(id, { silent: true })
+        if (it) found.push(it)
+      }
+      return false
+    })
+    return key_buttons_nav(box, found)
+  }
+  return key_buttons_nav(box, window._items?.() ?? [])
+}
+
+// which navigation arrows show beside the reload button on a device with a keyboard (where the
+// main row is hidden): only the arrows that would move, in row order; none on a touch device or
+// while an on-screen keyboard is up
+const key_buttons_desktop_nav = (win, keyboard, nav) =>
+  key_buttons_device(win) || keyboard.up ? [] : KEY_BUTTONS_ARROWS.map(b => b.name).filter(name => !!nav?.[name])
 // whether the reload button shows: on every device, as the sparkle does; not while a keyboard
 // is on the screen (the rows' own reading), and not where the main row, while it shows, would
 // reach it (a window so narrow that the row's left end comes within a gap of the button)
@@ -318,10 +480,9 @@ const key_buttons_target = doc => {
 // handler of the app may move the focus, and a real key's release would follow it there; the
 // app's editors act on the keydown and on the modifiers' release alone, so this press stays
 // where it began). Returns the events sent, for the tests
-function key_buttons_press(spec, doc, make = (type, init) => new KeyboardEvent(type, init)) {
-  const target = key_buttons_target(doc)
+function key_buttons_press(spec, doc, make = (type, init) => new KeyboardEvent(type, init), to = key_buttons_target(doc)) {
   const sent = key_buttons_events(spec)
-  for (const { type, init } of sent) target.dispatchEvent(make(type, init))
+  for (const { type, init } of sent) to.dispatchEvent(make(type, init))
   return sent
 }
 
@@ -344,7 +505,9 @@ function key_buttons_reconcile() {
     held.dispose()
     held = null
   }
-  ;(held ?? key_buttons_create()).show()
+  const controller = held ?? key_buttons_create()
+  controller.show()
+  controller.refresh()
 }
 
 function key_buttons_create() {
@@ -458,8 +621,37 @@ function key_buttons_create() {
   reloader.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
   reloader.addEventListener('contextmenu', taken)
   if (KEY_BUTTONS_PARTS.reload_button) document.body.appendChild(reloader)
+  // the desktop navigation arrows beside the reload button: only the arrows that would move show,
+  // lit green in the reload button's look. A click dispatches on document.body so it always
+  // reaches the window's navigation handler even while the MindBox holds focus (Editor.svelte
+  // stops propagation on arrows inside a focused textarea)
+  const nav_bar = (self.nav_bar = document.createElement('div'))
+  nav_bar.className = 'key-buttons-nav'
+  nav_bar.dataset.keyButtons = 'nav'
+  nav_bar.setAttribute('role', 'toolbar')
+  nav_bar.setAttribute('aria-label', 'Navigation keys')
+  nav_bar.hidden = true
+  for (const spec of KEY_BUTTONS_ARROWS) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.tabIndex = -1
+    button.dataset.key = spec.name
+    button.title = spec.title
+    button.setAttribute('aria-label', spec.title)
+    button.innerHTML = key_buttons_svg(spec.icon)
+    button.hidden = true
+    button.addEventListener('click', e => {
+      taken(e)
+      if (!self.disposed && !nav_bar.hidden && !button.hidden) key_buttons_press(spec, document, undefined, document.body)
+    })
+    button.addEventListener('mousedown', taken)
+    button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+    button.addEventListener('contextmenu', taken)
+    nav_bar.appendChild(button)
+  }
+  document.body.appendChild(nav_bar)
   const viewport = window.visualViewport
-  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false })
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
   // once the item is gone (its own task's cancel disposes this controller)
   const later = (name, run, ms) => {
@@ -481,6 +673,8 @@ function key_buttons_create() {
     bar.hidden = shown != 'main'
     keys.hidden = shown != 'keyboard'
     reloader.hidden = !key_buttons_reload_shown(window, keyboard, shown, KEY_BUTTONS_LOOK)
+    self.keyboard_up = keyboard.up
+    self.apply_nav()
     if (!keys.hidden) {
       const { left, top } = key_buttons_place(viewport, keys.children.length, KEY_BUTTONS_LOOK)
       Object.assign(keys.style, { left: left + 'px', top: top + 'px' })
@@ -495,6 +689,48 @@ function key_buttons_create() {
     if (self.cleared || !key_buttons_keyboard(window, document, self.tallest).up) return
     self.cleared = true
     self.clear()
+  }
+  // apply the last computed arrow state to the mobile row's highlights and the desktop toolbar
+  self.apply_nav = () => {
+    const nav = self.nav
+    for (const button of bar.children) {
+      if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : ''
+    }
+    const desktop = key_buttons_desktop_nav(window, { up: self.keyboard_up }, nav)
+    nav_bar.hidden = desktop.length == 0
+    for (const button of nav_bar.children) button.hidden = !desktop.includes(button.dataset.key)
+    nav_bar.style.left = reloader.hidden ? KEY_BUTTONS_LOOK.reload.left + 'px' : ''
+  }
+  self.box = () =>
+    self.query !== undefined
+      ? self.query
+      : (document.getElementById?.('textarea-mindbox')?.value ?? '').replace(/\u200B/g, '')
+  self.refresh = () => {
+    if (self.disposed) return self.nav
+    self.nav = key_buttons_read_nav(self.box())
+    self.apply_nav()
+    return self.nav
+  }
+  self.box_changed = text => {
+    if (self.disposed) return
+    self.query = text
+    self.nav_pending = false
+    self.refresh()
+  }
+  // item changes (create, edit, delete, rename) coalesce into one look; skipped while the box
+  // names no label (nothing can light up)
+  self.items_changed = () => {
+    if (self.disposed || !key_buttons_box_label(self.box())) return
+    self.nav_pending = true
+    later(
+      'key_buttons_nav',
+      () => {
+        if (!self.nav_pending) return
+        self.nav_pending = false
+        self.refresh()
+      },
+      KEY_BUTTONS_NAV_MS
+    )
   }
   // what the signals read now, and the row's last changes, as lines of text
   self.says = (now = Date.now()) => key_buttons_says(key_buttons_keyboard(window, document, self.tallest), self.shown, self.changes, now)
@@ -555,6 +791,7 @@ function key_buttons_create() {
     bar.remove()
     keys.remove()
     reloader.remove()
+    nav_bar.remove()
     style.remove()
     if (window._key_buttons === self) delete window._key_buttons
   }
@@ -583,13 +820,24 @@ function key_buttons_create() {
 }
 
 // the rows are drawn from the item's hooks, never from the item's render, so they show with the item
-// off screen: at the page's welcome, and when this item itself is installed, updated or
-// edited, in this tab or another (the app calls _on_item_change on the changed item itself,
-// so the item is no listener to other items' changes: it carries no #_listen)
+// off screen: at the page's welcome, when this item itself changes, when the box's search changes
+// (_on_search), and when any item changes (_on_item_change, coalesced through a task; carries
+// #_listen so the app delivers both hooks)
 function _on_welcome() {
   key_buttons_reconcile()
 }
 
-function _on_item_change(id) {
-  if (id == _this.id) key_buttons_reconcile()
+function _on_search(text) {
+  const held = window._key_buttons
+  if (held?.item === _this.id) held.box_changed?.(text)
+}
+
+function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
+  if (id == _this.id) {
+    key_buttons_reconcile()
+    return
+  }
+  if (dependency) return
+  const held = window._key_buttons
+  if (held?.item === _this.id) held.items_changed?.()
 }

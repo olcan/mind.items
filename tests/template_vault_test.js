@@ -46,6 +46,9 @@ check('source has no raw control characters', /[\u0000-\u0008\u000b-\u001f\u007f
 check('source never reads the saving accessor', /\bglobal_store\b(?!`)/.test(src.replace(/_global_store/g, '')), false)
 
 // the stub template environment: what the app and #template provide to item javascript
+// (a name of #template that is added here must have been released with #template BEFORE the
+// push that first uses it: the app updates the items of a push one after the other, and a
+// vault item can render in between)
 const calls = { template: [], toggle: [] }
 // the app's exposed Marked is the real dependency (mind.page's), so the inert renderer is
 // exercised over real tokenization; the highlighter is a stub that returns known markup
@@ -59,6 +62,11 @@ const hljsStub = {
     language: opts.language,
   }),
 }
+// #template's own toggle() and selection test, the REAL ones (template.js is evaluated as it is:
+// its top level only declares), under stubs of the names they read at a call. the lazy toggle
+// takes the selection test, the one thing of #template in its press and click, and toggle()'s
+// html is what the lazy toggle's copy of that text is compared with below
+const real = vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'template.js'), 'utf8') + ';({ toggle, _if_no_selection, has: { template: typeof template, placeholder: typeof placeholder } })', { window: { _item_eval_context: [], _item_eval_js: [] }, last: a => a[a.length - 1], hash: () => 'h', _that: { id: 'id_t' } })
 const ctx = {
   TextDecoder, String, Set, RegExp, JSON, Object, Array, Math, Error, Number, parseInt,
   window: { _template_dict: [], _item_eval_context: [], Marked, hljs: hljsStub },
@@ -78,7 +86,7 @@ const ctx = {
   // installs one), the lazy toggle hashes ids and guards clicks through the template helpers
   _item: () => undefined,
   hash: s => 'h' + String(s).length + '_' + String(s).replace(/[^a-z0-9]/gi, '').slice(0, 24),
-  _if_no_selection: code => code,
+  _if_no_selection: real._if_no_selection,
 }
 const _VAULT_WINDOW_UNITS = 4096
 const h = vm.runInNewContext(
@@ -101,7 +109,7 @@ const lazy = () => {
   ctx.window._vault_lazy = {}
   return renders.map(r => r()).join('\n')
 }
-const LAZY_TOGGLE = /^<span class="template_toggle (id_\S+)" title="⋮ projection \(the stored sync snapshot\)" onclick="[^"]*">⋮ projection \(the stored sync snapshot\)<\/span>\n<div class="template_toggle \1 hidden" title="⋮ projection \(the stored sync snapshot\)" onclick="[^"]*"><\/div>$/
+const LAZY_TOGGLE = /^<span class="template_toggle (id_\S+)" title="⋮ projection \(the stored sync snapshot\)" onmousedown="[^"]*" onclick="[^"]*">⋮ projection \(the stored sync snapshot\)<\/span>\n<div class="template_toggle \1 hidden" title="⋮ projection \(the stored sync snapshot\)" onmousedown="[^"]*" onclick="[^"]*"><\/div>$/
 
 // the source codec: the design section 5 vectors, the SAME literals as the Python table
 const vectors = [
@@ -515,7 +523,7 @@ ctx._this = full
 ctx._that = full
 const fullRender = h.vault_render()
 check('lazy projection: the render carries the toggle with an EMPTY hidden div and no projection content', [calls.toggle.length, calls.template.length, LAZY_TOGGLE.test(fullRender.split('<div class="vault">')[1].replace(/<\/div>$/, '')), fullRender.includes('instructions (bridge profile)')], [0, 0, true, false])
-check('lazy projection: the toggle click fills through the item and toggles both elements', /onclick="event.stopPropagation\(\);event.preventDefault\(\);window._vault_lazy_fill\('id_f','id_\S+'\);_item\('id_f'\)/.test(fullRender), true)
+check('lazy projection: the toggle click fills through the item and toggles both elements, unless a selection is in its target or stood in the element at the press', /onmousedown="this\._selected = [^"]*" onclick="event.stopPropagation\(\);event.preventDefault\(\);const note = window\._toggle_focus; window\._toggle_focus = null; if \(this\._selected\) this\._selected = false; else if \([^"{]*\)\{ window\._vault_lazy_fill\('id_f','id_\S+'\);_item\('id_f'\)[^"]*\.classList\.toggle\('hidden'\);window\._item_hooks\?\.\['id_f'\]\?\.resize\('toggle'\);if \(note/.test(fullRender), true)
 const fullProjection = lazy()
 check('config control order (on the first open)', calls.toggle.map(c => c.label), [
   '⋮ instructions (bridge profile)',
@@ -654,6 +662,152 @@ check('lazy toggle: the expanded context gets the content at once, no registrati
 reset()
 ctx._this = A
 ctx._that = A
+// what template/vault.js takes from #template is still there: between the two updates of a push
+// the RELEASED template/vault.js runs over the new template.js (toggle() and the selection test
+// are called here, the other two are stubs of this table)
+check('#template still defines what template/vault.js takes from it', [typeof real.toggle, typeof real._if_no_selection, real.has], ['function', 'function', { template: 'function', placeholder: 'function' }])
+// TWO COPIES of the press and the click, toggle()'s in template.js and the lazy toggle's in
+// template/vault.js: neither item may need the other's new version (the app updates the items
+// of a push one after the other, and a vault item can render in between), so the text is
+// repeated, and compared here on both elements with the click's own code left out: its
+// statements, up to the last semicolon (what follows them, the focus given back, is compared)
+const frames = html => [...html.matchAll(/ (onmousedown="[^"]*" onclick="[^"{]*\{ )[^"]*;([^";]* \}")/g)].map(m => m[1] + m[2])
+check("toggle(): a primary press on its innermost toggle element notes what has the keyboard focus, in one note on the window; the click takes the note, and the toggling click reports its item's height as a toggle's and gives the focus back without a scroll", frames(real.toggle('X', 'L')).map(frame => [/^onmousedown="this\._selected = [^";]*; if \(!event\.button && event\.target\.closest\('\.template_toggle'\) == this\) \{ window\._toggle_focus\?\.\[2\]\?\.abort\(\); const note = \(window\._toggle_focus = \[this, document\.activeElement, new AbortController\(\)\]\)/.test(frame), frame.includes('event.preventDefault();const note = window._toggle_focus; window._toggle_focus = null; if (this._selected)'), frame.endsWith("{ if (note?.[0] == this && note[1]?.isConnected) note[1].focus({ preventScroll: true }) }\"")]).concat([(real.toggle('X', 'L').match(/\.classList\.toggle\('hidden'\);window\._item_hooks\?\.\['id_t'\]\?\.resize\('toggle'\);if \(note/g) || []).length]), [[true, true, true], [true, true, true], 2])
+check("lazy toggle: its press and click are toggle()'s text around the click's own code, on both elements", [2, frames(h._vault_lazy_toggle(() => 'X', 'L'))], [frames(real.toggle('X', 'L')).length, frames(real.toggle('X', 'L'))])
+// THE TWO HANDLERS THEMSELVES, run as a browser runs an attribute's text (a function of `event`, the element its
+// `this`) over stand-ins of the page: the window's note and its listeners, the timers, the element that has the
+// focus, the item's elements and its resize hook. THE NOTE LIVES FOR ONE GESTURE (the code review of 2026-11-20):
+// empty after a completed tap, after a click an inner toggle stopped, after a release with no click and after a
+// drag; and a later activation without a press of its own leaves the focus alone
+const handlers = html => [...html.matchAll(/ onmousedown="([^"]*)" onclick="([^"]*)"/g)].map(m => ({ press: m[1], click: m[2] }))
+const stage = () => {
+  const [listeners, timers, flipped, resized, filled] = [[], [], [], [], []]
+  const box = { isConnected: true, focused: [], focus: options => box.focused.push(options) }
+  // AN ATTRIBUTE'S TEXT RUNS WITH ITS ELEMENT AND THE DOCUMENT IN SCOPE, before the window, so an unqualified
+  // `addEventListener` there is the ELEMENT's, which hears a release only over itself (the code review's second
+  // reading, 2026-11-20: this stand-in gave the page a global one, and the table was green over listeners that the
+  // browser put on the label). So the text runs inside `with (document) { with (this) { … } }`, every stand-in
+  // element has a listener list of its own, the window's is `window.addEventListener`, and no bare one exists
+  const live = { most: 0 } // the most window listeners that were live at any one time
+  const hear = heard => (type, listener, options) => {
+    const entry = [type, listener]
+    heard.push(entry)
+    if (heard === listeners) live.most = Math.max(live.most, heard.length)
+    options.signal.addEventListener('abort', () => heard.splice(heard.indexOf(entry), 1))
+  }
+  const page = vm.createContext({
+    window: { addEventListener: hear(listeners), _item_hooks: { id_t: { resize: reason => resized.push(reason) } }, _vault_lazy_fill: (...args) => filled.push(args) },
+    document: { activeElement: box },
+    getSelection: () => ({ type: 'None' }),
+    AbortController,
+    setTimeout: callback => timers.push(callback),
+    _item: () => ({ elem: { querySelector: selector => ({ classList: { toggle: () => flipped.push(selector) } }) } }),
+  })
+  const run = (text, element, event) => {
+    element.addEventListener ??= hear((element.heard = []))
+    return vm.runInContext('(function (event) { with (document) { with (this) { ' + text + '\n} } })', page).call(element, event)
+  }
+  return {
+    box, listeners, flipped, resized, filled, page, live,
+    note: () => page.window._toggle_focus ?? null,
+    // an event at `target` (the innermost toggle element under the pointer), handled by each of `elements` in turn
+    press: (text, target, elements = [target], button = 0) => elements.forEach(element => run(text, element, { button, target: { closest: () => target } })),
+    click: (text, element) => run(text, element, { target: { contains: () => false }, stopPropagation() {}, preventDefault() {} }),
+    // a release (or a drag's end, a cancelled pointer, a blur), over `over` or over nothing of the toggle's: what
+    // the window hears, and that element alone. `of` is the event's target: the window itself unless given
+    release: (type = 'mouseup', over = null, of = page.window) => [...(over?.heard ?? []), ...listeners].filter(entry => entry[0] == type).forEach(entry => entry[1]({ type, target: of })),
+    tick: () => timers.splice(0).forEach(callback => callback()),
+  }
+}
+const [onLabel, onPart] = handlers(real.toggle('X', 'L'))
+{
+  const s = stage()
+  const [label, part] = [{}, {}]
+  s.press(onLabel.press, label)
+  const noted = [s.note()?.[0] === label, s.note()?.[1] === s.box, s.listeners.map(entry => entry[0]), label.heard.length]
+  s.release('mouseup', label)
+  s.click(onLabel.click, label)
+  const taken = [s.note(), s.listeners.length]
+  s.tick()
+  check('toggle handlers, a completed tap: the press notes the toggle and what has the focus and waits for the release at the WINDOW (nothing on the label); the click toggles both elements, reports the height as a toggle\'s and gives the focus back without a scroll; the note is empty at once, and no listener is left', [noted, s.flipped.length, s.resized, s.box.focused, taken, s.note()], [[true, true, ['mouseup', 'dragend', 'pointercancel', 'blur'], 0], 2, ['toggle'], [{ preventScroll: true }], [null, 0], null])
+  s.click(onLabel.click, label)
+  s.click(onPart.click, part)
+  check('toggle handlers, a later activation without a press of its own (a scripted click, on either element): it toggles, and leaves the focus alone', [s.flipped.length, s.box.focused.length, s.note()], [6, 1, null])
+}
+{
+  const s = stage()
+  const [inner, outer] = [{}, {}]
+  s.press(onLabel.press, inner, [inner, outer]) // (the press passes the outer part too: only the innermost element notes it)
+  const noted = [s.note()?.[0] === inner, s.listeners.length]
+  s.release()
+  s.click(onLabel.click, inner) // (the inner toggle's click stops there: the outer part's handler never runs)
+  const stopped = s.note()
+  s.tick()
+  s.click(onPart.click, outer)
+  check("toggle handlers, an inner toggle's stopped click: one note, the inner element's; empty after its click, so that the outer part's next activation gives nothing back", [noted, stopped, s.box.focused.length, s.note()], [[true, 4], null, 1, null])
+}
+{
+  const s = stage()
+  const [label, part] = [{}, {}]
+  s.press(onLabel.press, label)
+  s.release()
+  s.tick()
+  const outside = [s.note(), s.listeners.length]
+  s.press(onLabel.press, label)
+  s.release('dragend')
+  s.tick()
+  const dragged = [s.note(), s.listeners.length]
+  s.press(onLabel.press, label, [label], 2)
+  const secondary = [s.note(), s.listeners.length]
+  s.click(onLabel.click, label)
+  check('toggle handlers, a gesture that ends with no click (a release outside, a click stopped elsewhere), a drag, and a press that is not the primary one: no note is left, no listener, and a click after them gives nothing back', [outside, dragged, secondary, s.box.focused.length], [[null, 0], [null, 0], [null, 0], 0])
+  s.press(onLabel.press, label)
+  s.release()
+  s.press(onLabel.press, part) // (a second press before the first one's timer: its note is not the timer's to drop)
+  s.tick()
+  const kept = s.note()?.[0] === part
+  s.click(onPart.click, label) // (a click on another toggle element than the press's: the note is taken, nothing given back)
+  s.press(onPart.press, part)
+  s.box.isConnected = false
+  s.click(onPart.click, part)
+  check("toggle handlers: an older gesture's end leaves a newer note; only the toggle of the press gives the focus back, and only to an element still in the document", [kept, s.box.focused.length, s.note()], [true, 0, null])
+}
+{
+  // ONE OUTSTANDING NOTE AT MOST, WHATEVER INTERRUPTS A PRESS (the code review's third reading, 2026-11-20): the
+  // note keeps its listeners' controller, and a new press aborts its predecessor's
+  const s = stage()
+  const label = {}
+  s.press(onLabel.press, label)
+  s.release('blur', null, s.box) // (the press's own default blurs the editor: heard at the window too, and no end)
+  s.tick()
+  const blurred = [s.note()?.[1] === s.box, s.listeners.length]
+  s.release('pointercancel') // (the first interrupted press: a cancelled pointer)
+  s.tick()
+  const cancelled = [s.note(), s.listeners.length]
+  s.box.isConnected = false // (the editor is closed between the two)
+  s.press(onLabel.press, label)
+  s.release('blur') // (the second: the window itself loses the focus)
+  s.tick()
+  const left = [s.note(), s.listeners.length]
+  s.press(onLabel.press, label) // (a press with no end of any kind, then another: its listeners are taken off)
+  s.press(onLabel.press, label)
+  const replaced = [s.listeners.length, s.live.most]
+  s.release('pointercancel')
+  s.tick()
+  s.click(onLabel.click, label)
+  check("toggle handlers, interrupted presses: an element's blur is no end; a cancelled pointer and the window's own blur are, with no note and no listener left; a new press takes the listeners of one that never ended (one set at any time); and a click with no press of its own then focuses nothing", [blurred, cancelled, left, replaced, s.box.focused.length, s.note()], [[true, 4], [null, 0], [null, 0], [4, 4], 0, null])
+}
+{
+  const s = stage()
+  const [lazyLabel] = handlers(h._vault_lazy_toggle(() => 'X', 'L'))
+  const label = {}
+  s.page.window._item_hooks = { [A.id]: { resize: reason => s.resized.push(reason) } }
+  s.press(lazyLabel.press, label)
+  s.release()
+  s.click(lazyLabel.click, label)
+  s.tick()
+  check('lazy toggle handlers, a completed tap: the fill, both elements toggled, the height reported, the focus given back, the note empty', [s.filled.length, s.flipped.length, s.resized, s.box.focused, s.note(), s.listeners.length], [1, 2, ['toggle'], [{ preventScroll: true }], null, 0])
+}
 // the lazy fill (window._vault_lazy_fill, installed by the first lazy toggle): runs the registered
 // render through the item's eval, keeps the registration, and attaches the app's link
 // handling to the inserted anchors (the enclosing toggle would otherwise swallow their clicks)

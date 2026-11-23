@@ -155,6 +155,15 @@ const reload_shown = (wide, up, shown_row, switches) => v1('key_buttons_reload_s
 check('reload: it shows on every device, a desktop too; not while a keyboard is on the screen; not where the main row, while it shows, comes within a gap of it (a window under 350 px); and never with its part off',
   [reload_shown(1280, false, null), reload_shown(390, false, 'main'), reload_shown(390, true, 'keyboard'), reload_shown(390, true, null), reload_shown(350, false, 'main'), reload_shown(349, false, 'main'), reload_shown(320, false, 'main'), reload_shown(320, false, null), reload_shown(390, false, 'main', { reload_button: false })],
   [true, true, false, false, true, false, false, true, false])
+check('nav look: lit arrows use the search-match green (#9f9), and the desktop toolbar sits beside the reload button in its circle size and icon size',
+  [look.valid,
+    sheet.includes('.key-buttons > button.valid { color: #9f9 }'),
+    sheet.includes(`.key-buttons-nav { position: fixed; left: ${right + width + look.gap}px; bottom: ${bottom}px; z-index: ${look.layer};`),
+    sheet.includes(`.key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${width}px; height: ${height}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${sparkle[6]}; box-shadow: ${sparkle[7]}; color: #9f9;`),
+    sheet.includes(`.key-buttons-nav > button > svg { display: block; width: ${drawing[1]}px; height: ${drawing[2]}px;`),
+    sheet.includes('.key-buttons-nav[hidden] { display: none }'),
+    sheet.includes('.key-buttons-nav > button[hidden] { display: none }')],
+  ['#9f9', true, true, true, true, true, true])
 
 // ---- the keyboard's row: its place from a visual viewport -------------------------------------
 const place = view => v1('key_buttons_place(__args, 3, KEY_BUTTONS_LOOK)', view)
@@ -266,12 +275,118 @@ check('clear: the view counts where it is in the window (a view panned down the 
   [clear(low, { offsetTop: 336, height: 508 }), clear({ top: 300, bottom: 320 }, { offsetTop: 336, height: 508 }), clear(low, kept, 0), clear(low, { height: 508 }, 0, 0)],
   [0, -44, 220, 212])
 
+// ---- valid navigation arrows & desktop subset --------------------------------------------------
+const nav = (text, list) => v1('key_buttons_nav(__args.box, __args.items)', { box: text, items: list })
+const no_nav = { left: false, up: false, down: false, right: false }
+const map_tree = [
+  { label: '#map', ancestors: [] },
+  { label: '#Map/A', ancestors: ['#map'] },
+  { label: '#map/a/0', ancestors: ['#map/a', '#map'] },
+  { label: '#map/b', ancestors: ['#map'] },
+]
+check('nav: tree (#map, #map/a, #map/a/0, #map/b): root goes down only; #map/a goes all four ways (case-insensitive, trailing space); #map/a/0 is a lone child (up only); #map/b has sibling and parent but no child',
+  [nav('#map', map_tree), nav(' #map/a ', map_tree), nav('#map/a/0', map_tree), nav('#map/b', map_tree)],
+  [{ left: false, up: false, down: true, right: false },
+    { left: true, up: true, down: true, right: true },
+    { left: false, up: true, down: false, right: false },
+    { left: true, up: true, down: false, right: true }])
+const int_tree = [{ label: '#chat' }, { label: '#chat/0' }, { label: '#chat/1' }, { label: '#solo' }, { label: '#solo/0' }]
+check('nav: integer children (and fallback prefixes when ancestors omitted): parent goes down, pair of integer children has siblings, single child has none',
+  [nav('#chat', int_tree), nav('#chat/0', int_tree), nav('#solo/0', int_tree)],
+  [{ left: false, up: false, down: true, right: false },
+    { left: true, up: true, down: false, right: true },
+    { left: false, up: true, down: false, right: false }])
+const dup_tree = [
+  { label: '#map', ancestors: [] },
+  { label: '#map/a', ancestors: ['#map'] },
+  { label: '#map/dup', ancestors: ['#map'] },
+  { label: '#map/dup', ancestors: ['#map'] },
+  { label: '#solo_dup', ancestors: [] },
+  { label: '#solo_dup/x', ancestors: ['#solo_dup'] },
+  { label: '#solo_dup/x', ancestors: ['#solo_dup'] },
+  { label: '#dup_parent', ancestors: [] },
+  { label: '#dup_parent', ancestors: [] },
+  { label: '#dup_parent/a', ancestors: ['#dup_parent'] },
+  { label: '#log', ancestors: [] },
+]
+check('nav: no single unique item named (empty, whitespace, plain search, multi-term, command, id:, #log, missing, duplicate label): nothing lit',
+  ['', '   ', 'notes', '#map notes', '/_help', 'id:item-1', '#log', '#missing', '#map/dup'].map(q => nav(q, dup_tree)),
+  Array(9).fill(no_nav))
+check('nav: duplicate child counts as sibling for Left/Right on #map/a, but untagged duplicate child alone does not light Down; duplicate parent does not light Up or Left/Right',
+  [nav('#map/a', dup_tree), nav('#solo_dup', dup_tree), nav('#dup_parent/a', dup_tree)],
+  [{ left: true, up: true, down: false, right: true }, no_nav, no_nav])
+const tag_and_rename = [
+  { label: '#root', ancestors: [], tags_visible: ['#root', '#root/draft'] },
+  { label: '#root/a', ancestors: ['#root'] },
+  { label: '#sparse', ancestors: [] },
+  { label: '#sparse/mid/0', ancestors: ['#sparse/mid', '#sparse'] },
+  { label: '#chat', ancestors: [] },
+  { label: '#chat/a', ancestors: ['#chat'] },
+  { label: '#chat/note', ancestors: ['#chat/a', '#chat'] },
+]
+check('nav: visible descendant tags (down and sibling), missing intermediate level (down from ancestor, up via ancestor, no sibling), and renamed tag child via ancestors',
+  [nav('#root', tag_and_rename.slice(0, 1)), nav('#root/a', tag_and_rename), nav('#sparse', tag_and_rename), nav('#sparse/mid/0', tag_and_rename), nav('#chat/a', tag_and_rename), nav('#chat/note', tag_and_rename), nav('#chat/note', tag_and_rename.concat({ label: '#chat/a/0', ancestors: ['#chat/a', '#chat'] }))],
+  [{ left: false, up: false, down: true, right: false },
+    { left: true, up: true, down: false, right: true },
+    { left: false, up: false, down: true, right: false },
+    { left: false, up: true, down: false, right: false },
+    { left: false, up: true, down: true, right: false },
+    { left: false, up: true, down: false, right: false },
+    { left: true, up: true, down: false, right: true }])
+const desktop_nav = (coarse, up, state) => v1('key_buttons_desktop_nav(__args.win, __args.keyboard, __args.nav)', { win: fingers(coarse), keyboard: { up }, nav: state })
+check('desktop nav: on a keyboard device with no soft keyboard up, only the valid arrows in row order; none when nothing moves, on a touch device, or while a soft keyboard is up',
+  [desktop_nav(false, false, { left: false, up: false, down: true, right: false }),
+    desktop_nav(false, false, { left: true, up: true, down: false, right: true }),
+    desktop_nav(false, false, { left: true, up: true, down: true, right: true }),
+    desktop_nav(false, false, no_nav),
+    desktop_nav(true, false, { left: true, up: true, down: true, right: true }),
+    desktop_nav(false, true, { left: true, up: true, down: true, right: true })],
+  [['down'], ['left', 'up', 'right'], ['left', 'up', 'down', 'right'], [], [], []])
+
+// ---- measurement over 1,600 items (16 roots x 100 items, and one 1,600-item tree) --------------
+{
+  const corpus = []
+  for (let r = 0; r < 16; r++) {
+    const root = `#tree${r}`
+    corpus.push({ label: root, ancestors: [] })
+    for (let i = 0; i < 99; i++) {
+      const mid = `${root}/g${Math.floor(i / 10)}`
+      if (i % 10 === 0) corpus.push({ label: mid, ancestors: [root] })
+      else corpus.push({ label: `${mid}/${i % 10}`, ancestors: [mid, root] })
+    }
+  }
+  const single_root = [{ label: '#big', ancestors: [] }]
+  for (let i = 0; i < 1599; i++) {
+    const mid = `#big/g${Math.floor(i / 10)}`
+    if (i % 10 === 0) single_root.push({ label: mid, ancestors: ['#big'] })
+    else single_root.push({ label: `${mid}/${i % 10}`, ancestors: [mid, '#big'] })
+  }
+  // warm up JIT then time 50 looks each
+  for (let i = 0; i < 10; i++) { nav('#tree0/g0', corpus); nav('#big/g0', single_root) }
+  const t0 = performance.now()
+  let res_multi
+  for (let i = 0; i < 50; i++) res_multi = nav('#tree0/g0', corpus)
+  const multi_ms = (performance.now() - t0) / 50
+  const t1 = performance.now()
+  let res_single
+  for (let i = 0; i < 50; i++) res_single = nav('#big/g0', single_root)
+  const single_ms = (performance.now() - t1) / 50
+  const t2 = performance.now()
+  let res_leaf
+  for (let i = 0; i < 50; i++) res_leaf = nav('#big/g99/8', single_root) // worst-case leaf: scans all 1,600 to confirm down=false
+  const leaf_ms = (performance.now() - t2) / 50
+  console.log(`perf: 1,600 items — multi-root ${multi_ms.toFixed(3)} ms, single-root branch ${single_ms.toFixed(3)} ms, single-root leaf (full scan) ${leaf_ms.toFixed(3)} ms`)
+  check('perf: 1,600-item looks return the exact arrows (branch: all four; leaf with siblings: left/up/right)',
+    [corpus.length, single_root.length, res_multi, res_single, res_leaf],
+    [1600, 1600, { left: true, up: true, down: true, right: true }, { left: true, up: true, down: true, right: true }, { left: true, up: true, down: false, right: true }])
+}
+
 // ---- the controller ----------------------------------------------------------------------------
 v1('_on_welcome()')
-const [bar, keys] = [parts('bar')[0], parts('keyboard')[0]]
-check('controller: the page\'s welcome draws one style, the two rows and the reload button under the body, each put there hidden, the rows left hidden on a desktop, and one task',
-  [log, parts('style').length, bar.parent === page.body, keys.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), bar.hidden, keys.hidden, tasks.key_buttons.delay, tasks.key_buttons.repeat],
-  [['+style', '+bar hidden', '+keyboard hidden', '+reload hidden', 'task key_buttons'], 1, true, true, buttons.map(b => b.name), above.map(b => b.name), true, true, 15000, 15000])
+const [bar, keys, nav_bar] = [parts('bar')[0], parts('keyboard')[0], parts('nav')[0]]
+check('controller: the page\'s welcome draws one style, the two rows, the reload button and the desktop nav toolbar under the body, each put there hidden, the rows and desktop nav left hidden on a desktop with empty box, and one task',
+  [log, parts('style').length, bar.parent === page.body, keys.parent === page.body, nav_bar.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), nav_bar.children.map(b => b.dataset.key), bar.hidden, keys.hidden, nav_bar.hidden, tasks.key_buttons.delay, tasks.key_buttons.repeat],
+  [['+style', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav hidden', 'task key_buttons'], 1, true, true, true, buttons.map(b => b.name), above.map(b => b.name), ['left', 'up', 'down', 'right'], true, true, true, 15000, 15000])
 const again = parts('reload')[0]
 check('reload: drawn under the body with the rows and shown on a desktop; named for a screen reader, its icon a line drawing, and within the Tab order as the sparkle is',
   [parts('reload').length, again.parent === page.body, again.hidden, again.className, again.title, again.attrs['aria-label'], again.innerHTML, 'tabIndex' in again],
@@ -428,8 +543,8 @@ const v2 = evaluation(2)
 v2('_on_item_change("keys-id")')
 const [bar2, keys2] = [parts('bar')[0], parts('keyboard')[0]]
 check('controller: an update of the item replaces the rows: the earlier ones go before the new ones are drawn, shown at once, and the earlier task is cancelled',
-  [log, parts('bar').length, parts('keyboard').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
-  [['-bar', '-keyboard', '-reload', '-style', '+style', '+bar hidden', '+keyboard hidden', '+reload hidden', 'task key_buttons'], 1, 1, true, false, 1, 1, true])
+  [log, parts('bar').length, parts('keyboard').length, parts('nav').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
+  [['-bar', '-keyboard', '-reload', '-nav', '-style', '+style', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav hidden', 'task key_buttons'], 1, 1, 1, true, false, 1, 1, true])
 bar.hidden = false // as if it were still shown: only its disposal keeps a replaced row quiet
 button('down').fire('click')
 again.hidden = false
@@ -452,16 +567,92 @@ log.length = 0
 const copy = evaluation(2, 'copy-id', {})
 copy('_on_welcome()')
 check('controller: an item that only carries the code draws nothing and leaves the page\'s rows alone', [log, parts('bar')[0] === bar2], [[], true])
+// live nav highlights on mobile and desktop toolbar, click dispatch, item-change burst coalescing, and _labels fast path
+{
+  const bar_now = parts('bar')[0]
+  const nav_now = parts('nav')[0]
+  const lit_mobile = () => bar_now.children.filter(b => b.className == 'valid').map(b => b.dataset.key)
+  const shown_desktop = () => (nav_now.hidden ? [] : nav_now.children.filter(b => !b.hidden).map(b => b.dataset.key))
+  open.items = map_tree.map(it => ({ ...it }))
+  pointer.matches = false
+  pointer.fire('change')
+  v2('_on_search("#map/a ")')
+  const desk_all = shown_desktop()
+  // clicking a desktop arrow sends its key to document.body even while MindBox has focus
+  page.body.got.length = box.got.length = 0
+  focus(box)
+  const nav_right = nav_now.children.find(b => b.dataset.key == 'right')
+  const nav_click = nav_right.fire('click')
+  const sent_desktop = [got(page.body), box.got.length, nav_click.prevented, nav_click.stopped]
+  blur()
+  v2('_on_search("#map/a/0")')
+  const desk_lone = shown_desktop()
+  // mobile shows main row with green class ONLY on valid arrows, hides desktop toolbar
+  pointer.matches = true
+  pointer.fire('change')
+  const mob_lone = [lit_mobile(), nav_now.hidden]
+  v2('_on_search("#map/a")')
+  const mob_all = [lit_mobile(), bar_now.children.slice(0, 3).map(b => b.className ?? '')]
+  // item changes coalesce into one 150 ms task and live-update arrows (deleting #map/b removes left/right)
+  log.length = 0
+  open.items = open.items.filter(it => it.label != '#map/b')
+  v2('_on_item_change("x1", "#map/b", "#map/b", true, false, false)')
+  v2('_on_item_change("x2", "#map/c", "#map/c", false, false, false)')
+  v2('_on_item_change("x3", "#map/d", "#map/d", false, false, true)') // dependency-only: ignored
+  const burst = [log.filter(e => e == 'task key_buttons_nav').length, tasks.key_buttons_nav.delay, lit_mobile()]
+  tasks.key_buttons_nav.fn()
+  const after_burst = lit_mobile()
+  // empty box clears all highlights and hides desktop toolbar; item change while empty schedules no task
+  pointer.matches = false
+  pointer.fire('change')
+  v2('_on_search("")')
+  log.length = 0
+  v2('_on_item_change("x4", "#map/z", "", false, false, false)')
+  const empty_state = [shown_desktop(), lit_mobile(), log.length]
+  // _labels fast path: narrows to root tree without wrapping unrelated roots
+  const by_id = { m0: { id: 'm0', label: '#map', ancestors: [] }, m1: { id: 'm1', label: '#map/a', ancestors: ['#map'] }, o0: { id: 'o0', label: '#other', ancestors: [] } }
+  const orig_items = { ...items }
+  Object.assign(items, { '#map': by_id.m0, '#map/a': by_id.m1, m0: by_id.m0, m1: by_id.m1, o0: by_id.o0 })
+  const wrapped = []
+  win._labels = fn => {
+    for (const [lbl, ids] of [['#map', ['m0']], ['#map/a', ['m1']], ['#other', ['o0']]]) {
+      fn(lbl, ids)
+    }
+    return []
+  }
+  const orig_item_ref = items.o0
+  Object.defineProperty(items, 'o0', { get() { wrapped.push('o0'); return orig_item_ref }, configurable: true })
+  v2('_on_search("#map")')
+  const via_labels = [shown_desktop(), wrapped.length]
+  delete win._labels
+  for (const k of Object.keys(items)) if (!(k in orig_items)) delete items[k]
+  // initial welcome/reconcile before any _on_search reads textarea-mindbox (stripping ZWSPs)
+  open.items = map_tree.map(it => ({ ...it }))
+  open.fields['textarea-mindbox'] = { value: '#map\u200B/a ' }
+  const v3 = evaluation(3)
+  v3('_on_item_change("keys-id")')
+  const from_box = parts('nav')[0].children.filter(b => !b.hidden).map(b => b.dataset.key)
+  delete open.fields['textarea-mindbox']
+  open.items = []
+  v2('_on_item_change("keys-id")')
+  pointer.matches = true
+  pointer.fire('change')
+  page.body.got.length = 0
+  check('nav live: desktop shows only valid arrows beside reload and dispatches on body even with MindBox focused; mobile lights valid arrows only; item-change bursts coalesce to one look; empty box schedules none; _labels skips other roots; reconcile reads textarea-mindbox (ZWSP stripped)',
+    [desk_all, sent_desktop, desk_lone, mob_lone, mob_all, burst, after_burst, empty_state, via_labels, from_box],
+    [['left', 'up', 'down', 'right'], [['keydown ArrowRight', 'keyup ArrowRight'], 0, 1, 1], ['up'], [['up'], true], [['left', 'up', 'down', 'right'], ['', '', '']], [2, 150, ['left', 'up', 'down', 'right']], ['up', 'down'], [[], [], 0], [['down'], 0], ['left', 'up', 'down', 'right']])
+}
+log.length = 0
 items['#key_buttons'] = { id: 'other-id' }
 v2('_on_item_change("keys-id")')
-check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-bar', '-keyboard', '-reload', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
+check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-bar', '-keyboard', '-reload', '-nav', '-style'], 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
 items['#key_buttons'] = { id: 'keys-id' }
 v2('_on_item_change("keys-id")')
-check('controller: named #key_buttons again it draws again', [parts('bar').length, parts('keyboard').length, parts('reload').length], [1, 1, 1])
+check('controller: named #key_buttons again it draws again', [parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav').length], [1, 1, 1, 1])
 log.length = 0
 tasks.key_buttons._on_cancel() // the app, at the task's next run after the item's deletion
 check('controller: the item\'s deletion removes the rows, their style and the listeners at the task\'s cancel, and its task then ends',
-  [log, parts('bar').length, parts('reload').length, listening(), tasks.key_buttons.fn()], [['-bar', '-keyboard', '-reload', '-style'], 0, 0, [0, 0, 0, 0, 0, 0], null])
+  [log, parts('bar').length, parts('reload').length, parts('nav').length, listening(), tasks.key_buttons.fn()], [['-bar', '-keyboard', '-reload', '-nav', '-style'], 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
 
 // ---- the caret's scroll, switched on in the table: once for each opening of the keyboard ---------
 {
@@ -558,9 +749,9 @@ calm()
 
 // ---- the item ----------------------------------------------------------------------------------
 const prose = item.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
-check('item: its label, its code as an embed of key_buttons.js, and the welcome\'s tag; no other tag, so an install pulls in no other item, and no listener\'s tag: the app hands an item its own changes, and this one asks for no other item\'s',
-  [prose.match(/(?:^|\s)#[\w/]+/g).map(tag => tag.trim()), /\n```js_removed:key_buttons\.js\n\/\/ key_buttons\.js\n```\n/.test(item), /<</.test(item), /\n#_welcome\n$/.test(item)],
-  [['#key_buttons', '#_welcome'], true, false, true])
+check('item: its label, its code as an embed of key_buttons.js, and the welcome and listener tags (app special tags only, so an install pulls in no other item)',
+  [prose.match(/(?:^|\s)#[\w/]+/g).map(tag => tag.trim()), /\n```js_removed:key_buttons\.js\n\/\/ key_buttons\.js\n```\n/.test(item), /<</.test(item), /\n#_welcome #_listen\n$/.test(item)],
+  [['#key_buttons', '#_welcome', '#_listen'], true, false, true])
 
 // ---- a controller whose code is no longer the item's: the task retires it --------------------------
 {
@@ -571,17 +762,17 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome\
   const kept = [own.key_buttons.fn(), parts('bar').length, listening()] // a tick with the item as it was
   run.item.deephash = 6 // the item's text saved without this code: no hook of it runs, and its hash is another
   log.length = 0
-  const retired = [own.key_buttons.fn(), [...log], ['bar', 'keyboard', 'reload', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
+  const retired = [own.key_buttons.fn(), [...log], ['bar', 'keyboard', 'reload', 'nav', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
   log.length = 0
   check('stale: the task keeps a controller whose code is still the item\'s; once the item\'s hash is another (its code removed, or the app\'s #_debug tag put on it: no hook says so) the next run retires it: the rows, the button, the style and every listener go, the task ends, and a later run does nothing',
-    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-bar', '-keyboard', '-reload', '-style'], [0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
+    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-bar', '-keyboard', '-reload', '-nav', '-style'], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
   const theirs = {}
   const gone = evaluation(7, 'keys-id', theirs)
   gone('_on_welcome()')
   Object.defineProperty(gone.item, 'deephash', { get() { throw new Error('item keys-id is deleted') } })
   log.length = 0
   check('stale: a controller whose item can no longer be read (deleted, should the app not have cancelled its task) is retired the same way',
-    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-bar', '-keyboard', '-reload', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
+    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-bar', '-keyboard', '-reload', '-nav', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
   log.length = 0
 }
 

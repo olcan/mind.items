@@ -747,8 +747,16 @@ const _vault_lazy_toggle = (render, label, tooltip = label) => {
       if (!a.onclick && !a.getAttribute('onclick')) a.onclick = e => window._handleLinkClick(item_id, a.getAttribute('href'), e)
   }
   const toggle_tag = tag => "_item('" + _that.id + "').elem?.querySelector('" + tag + '.template_toggle.' + id + "').classList.toggle('hidden');"
-  const click = _if_no_selection("window._vault_lazy_fill('" + _that.id + "','" + id + "');" + toggle_tag('div') + toggle_tag('span'))
-  const onclick = 'onclick="event.stopPropagation();event.preventDefault();' + click + '"'
+  // the press and the click as toggle() writes them (template.js), with the one note of what
+  // had the focus, the height reported as a toggle's and the focus given back: the text is
+  // REPEATED here, not shared, so that this item needs nothing of a newer #template than the
+  // released one (the app updates the items of a push one after the other);
+  // tests/template_vault_test.js compares them, and runs the two handlers
+  const press = "if (!event.button && event.target.closest('.template_toggle') == this) { window._toggle_focus?.[2]?.abort(); const note = (window._toggle_focus = [this, document.activeElement, new AbortController()]); for (const type of ['mouseup', 'dragend', 'pointercancel', 'blur']) window.addEventListener(type, function (e) { if (e.type == 'blur' && e.target != window) return; note[2].abort(); setTimeout(function () { if (window._toggle_focus == note) window._toggle_focus = null }) }, { capture: true, signal: note[2].signal }) }"
+  const focus = "window._item_hooks?.['" + _that.id + "']?.resize('toggle');if (note?.[0] == this && note[1]?.isConnected) note[1].focus({ preventScroll: true })"
+  const click = _if_no_selection("window._vault_lazy_fill('" + _that.id + "','" + id + "');" + toggle_tag('div') + toggle_tag('span') + focus)
+  const selected = "getSelection().type == 'Range' && (this.contains(getSelection().anchorNode) || this.contains(getSelection().focusNode))"
+  const onclick = 'onmousedown="this._selected = ' + selected + '; ' + press + '" onclick="event.stopPropagation();event.preventDefault();const note = window._toggle_focus; window._toggle_focus = null; if (this._selected) this._selected = false; else ' + click + '"'
   return [
     '<span class="template_toggle ' + id + '" title="' + tooltip + '" ' + onclick + '>' + label + '</span>',
     '<div class="template_toggle ' + id + ' hidden" title="' + label + '" ' + onclick + '></div>',
