@@ -7,7 +7,7 @@
 - while the keyboard is up, a short row just above it: the **arrows to a bar** are Shift+Tab and Tab, the editor's outdent and indent of the caret's line, and the **tick** is Shift+Enter: an item's editor saves, the box creates. The row is for the app's editors (an item's, and the box): the keyboard of any other field gets none.
 - on such a device, **Shift+Space** in an editor is a Tab.
 - on every device, a round **reload** button at the page's lower left, across from the `#vault` item's sparkle: one press reloads the page, and asks first when an edit is not saved or a save is not finished (on an app that cannot say, it asks every time).
-- on a device with a keyboard (where the main row is hidden), the lit arrows — and only those — show at the page's lower left beside the reload button; when none would move, the reload button shows alone.
+- on a device with a keyboard (where the main row is hidden), the lit arrows — and only those — show at the page's lower left around the reload button: **↑** and **↓** stacked above it (up on top), **←** and **→** in a row to its right (left first); when none would move, the reload button shows alone.
 
 ```js_removed:key_buttons.js
 // key_buttons.js

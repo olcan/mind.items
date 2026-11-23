@@ -66,10 +66,13 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
   { name: 'done', key: 'Enter', shift: true, title: 'Done: save the item, or create from the box (Shift+Enter)', icon: 'M3 8.5l3.5 3.5L13 4.5' },
 ]
 
-// the four navigation arrows of the main row, in the same order: lit green when they would move
-// in the named item's tree, and shown alone beside the reload button on a device with a keyboard
+// the four navigation arrows of the main row, lit green when they would move in the named item's
+// tree, and split into two desktop groups around the reload button: vertical (up on top, down
+// under it) stacked above it, horizontal (left first, right second) in a row to its right
 const KEY_BUTTONS_ARROWS = KEY_BUTTONS.filter(b => !b.ctrl && !b.alt && !b.shift && b.key.startsWith('Arrow'))
 const KEY_BUTTONS_ARROW_NAMES = new Set(KEY_BUTTONS_ARROWS.map(b => b.name))
+const KEY_BUTTONS_NAV_VERTICAL = KEY_BUTTONS_ARROWS.filter(b => b.name == 'up' || b.name == 'down')
+const KEY_BUTTONS_NAV_HORIZONTAL = KEY_BUTTONS_ARROWS.filter(b => b.name == 'left' || b.name == 'right')
 const KEY_BUTTONS_NONE = { left: false, up: false, down: false, right: false }
 
 // the reload button: one press reloads the page, after a question wherever something could be
@@ -282,6 +285,7 @@ const key_buttons_css = look => `
 .key-buttons-reload:active { color: ${look.color} }
 .key-buttons-reload > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons-nav { position: fixed; left: ${look.reload.left + look.reload.size + look.gap}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
+.key-buttons-nav.vertical { left: ${look.reload.left}px; bottom: ${look.reload.bottom + look.reload.size + look.gap}px; flex-direction: column }
 .key-buttons-nav[hidden] { display: none }
 .key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.valid}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .key-buttons-nav > button[hidden] { display: none }
@@ -430,11 +434,15 @@ function key_buttons_read_nav(box) {
   return key_buttons_nav(box, window._items?.() ?? [])
 }
 
-// which navigation arrows show beside the reload button on a device with a keyboard (where the
-// main row is hidden): only the arrows that would move, in row order; none on a touch device or
-// while an on-screen keyboard is up
-const key_buttons_desktop_nav = (win, keyboard, nav) =>
-  key_buttons_device(win) || keyboard.up ? [] : KEY_BUTTONS_ARROWS.map(b => b.name).filter(name => !!nav?.[name])
+// which navigation arrows show on a device with a keyboard (where the main row is hidden):
+// vertical (`up`, `down`, top to bottom) stacked above the reload button, and horizontal (`left`,
+// `right`, left first) in a row to its right; neither on a touch device or while an on-screen
+// keyboard is up
+const key_buttons_desktop_nav = (win, keyboard, nav) => {
+  if (key_buttons_device(win) || keyboard.up) return { vertical: [], horizontal: [] }
+  const pick = specs => specs.map(b => b.name).filter(name => !!nav?.[name])
+  return { vertical: pick(KEY_BUTTONS_NAV_VERTICAL), horizontal: pick(KEY_BUTTONS_NAV_HORIZONTAL) }
+}
 // whether the reload button shows: on every device, as the sparkle does; not while a keyboard
 // is on the screen (the rows' own reading), and not where the main row, while it shows, would
 // reach it (a window so narrow that the row's left end comes within a gap of the button)
@@ -621,35 +629,40 @@ function key_buttons_create() {
   reloader.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
   reloader.addEventListener('contextmenu', taken)
   if (KEY_BUTTONS_PARTS.reload_button) document.body.appendChild(reloader)
-  // the desktop navigation arrows beside the reload button: only the arrows that would move show,
-  // lit green in the reload button's look. A click dispatches on document.body so it always
-  // reaches the window's navigation handler even while the MindBox holds focus (Editor.svelte
-  // stops propagation on arrows inside a focused textarea)
-  const nav_bar = (self.nav_bar = document.createElement('div'))
-  nav_bar.className = 'key-buttons-nav'
-  nav_bar.dataset.keyButtons = 'nav'
-  nav_bar.setAttribute('role', 'toolbar')
-  nav_bar.setAttribute('aria-label', 'Navigation keys')
-  nav_bar.hidden = true
-  for (const spec of KEY_BUTTONS_ARROWS) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.tabIndex = -1
-    button.dataset.key = spec.name
-    button.title = spec.title
-    button.setAttribute('aria-label', spec.title)
-    button.innerHTML = key_buttons_svg(spec.icon)
-    button.hidden = true
-    button.addEventListener('click', e => {
-      taken(e)
-      if (!self.disposed && !nav_bar.hidden && !button.hidden) key_buttons_press(spec, document, undefined, document.body)
-    })
-    button.addEventListener('mousedown', taken)
-    button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
-    button.addEventListener('contextmenu', taken)
-    nav_bar.appendChild(button)
+  // the desktop navigation arrows around the reload button: vertical (up on top, down under it)
+  // stacked above it, horizontal (left first) in a row to its right. Only the arrows that would
+  // move show, lit green in the reload button's look. A click dispatches on document.body so it
+  // always reaches the window's navigation handler even while the MindBox holds focus
+  // (Editor.svelte stops propagation on arrows inside a focused textarea)
+  const nav_group = (kind, className, specs, label) => {
+    const group = document.createElement('div')
+    group.className = className
+    group.dataset.keyButtons = kind
+    group.setAttribute('role', 'toolbar')
+    group.setAttribute('aria-label', label)
+    group.hidden = true
+    for (const spec of specs) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.tabIndex = -1
+      button.dataset.key = spec.name
+      button.title = spec.title
+      button.setAttribute('aria-label', spec.title)
+      button.innerHTML = key_buttons_svg(spec.icon)
+      button.hidden = true
+      button.addEventListener('click', e => {
+        taken(e)
+        if (!self.disposed && !group.hidden && !button.hidden) key_buttons_press(spec, document, undefined, document.body)
+      })
+      button.addEventListener('mousedown', taken)
+      button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+      button.addEventListener('contextmenu', taken)
+      group.appendChild(button)
+    }
+    return document.body.appendChild(group)
   }
-  document.body.appendChild(nav_bar)
+  const nav_vertical = (self.nav_vertical = nav_group('nav-vertical', 'key-buttons-nav vertical', KEY_BUTTONS_NAV_VERTICAL, 'Vertical navigation keys'))
+  const nav_horizontal = (self.nav_horizontal = nav_group('nav-horizontal', 'key-buttons-nav', KEY_BUTTONS_NAV_HORIZONTAL, 'Horizontal navigation keys'))
   const viewport = window.visualViewport
   Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
@@ -690,16 +703,19 @@ function key_buttons_create() {
     self.cleared = true
     self.clear()
   }
-  // apply the last computed arrow state to the mobile row's highlights and the desktop toolbar
+  // apply the last computed arrow state to the mobile row's highlights and the two desktop groups
   self.apply_nav = () => {
     const nav = self.nav
     for (const button of bar.children) {
       if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : ''
     }
-    const desktop = key_buttons_desktop_nav(window, { up: self.keyboard_up }, nav)
-    nav_bar.hidden = desktop.length == 0
-    for (const button of nav_bar.children) button.hidden = !desktop.includes(button.dataset.key)
-    nav_bar.style.left = reloader.hidden ? KEY_BUTTONS_LOOK.reload.left + 'px' : ''
+    const { vertical, horizontal } = key_buttons_desktop_nav(window, { up: self.keyboard_up }, nav)
+    const set_group = (group, names) => {
+      group.hidden = names.length == 0
+      for (const button of group.children) button.hidden = !names.includes(button.dataset.key)
+    }
+    set_group(nav_vertical, vertical)
+    set_group(nav_horizontal, horizontal)
   }
   self.box = () =>
     self.query !== undefined
@@ -791,7 +807,8 @@ function key_buttons_create() {
     bar.remove()
     keys.remove()
     reloader.remove()
-    nav_bar.remove()
+    nav_vertical.remove()
+    nav_horizontal.remove()
     style.remove()
     if (window._key_buttons === self) delete window._key_buttons
   }
