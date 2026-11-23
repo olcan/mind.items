@@ -107,8 +107,9 @@ const KEY_BUTTONS_LOOK = {
   reload: { size: 24, left: 14, bottom: 10, icon: 16, idle: 'rgba(255, 255, 255, 0.45)', hover: 'rgba(255, 255, 255, 0.9)' },
   // dark frosted-glass background behind the buttons: full-width bottom strip on a phone; on a
   // keyboard device, split into a left piece (reload + arrows) and a right piece (sparkle, when
-  // shown), merging into the full-width strip below `merge` px
-  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '3px', merge: 480 },
+  // shown), merging into the full-width strip below `merge` px; raised with a 1 px light border
+  // along free edges only and a soft outer shadow outside the glass only
+  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.14)', shadow: 'rgba(0, 0, 0, 0.35)', shadow_blur: 10, merge: 480 },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
 // and how long the view has to stay as it is before the one look (the keyboard has taken its room)
@@ -273,7 +274,58 @@ function key_buttons_caret_line(textarea, doc) {
   return { top: rect.top, bottom: rect.bottom }
 }
 
-const key_buttons_css = look => `
+// geometry of the L-shaped desktop frosted-glass backdrop (column over reload + left row, or full
+// merged strip below look.backdrop.merge px), in CSS pixels: glass clip paths (origin at pane
+// top-left), shadow-caster / outside-mask paths (origin pad px above the column top, extended past
+// viewport edges so the outer shadow stays uniform to the screen edge), and 1 px free-edge border
+// paths (inset 0.5 px so the stroke sits inside the glass edge and never draws on page edges or
+// across the inside seam where column meets row)
+function key_buttons_backdrop_geom(look) {
+  const w_col = look.reload.size + 2 * look.reload.left
+  const h_col = 2 * look.reload.size + 2 * look.gap
+  const h_row = look.reload.size + 2 * look.reload.bottom
+  const h_tot = h_col + h_row
+  const w_left = 2 * look.reload.left + 3 * look.reload.size + 2 * look.gap
+  const r = look.reload.size / 2
+  const pad = Math.max(24, look.backdrop.shadow_blur * 3)
+  const narrow = look.backdrop.merge
+  const clip_split = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${h_col + r} V ${h_tot} H 0 Z`
+  const clip_strip = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${narrow} V ${h_tot} H 0 Z`
+  const [y0, y1, y2] = [pad, pad + h_col, pad + h_tot]
+  const shape_split = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${y1 + r} V ${y2 + pad} H ${-pad} Z`
+  const shape_strip = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
+  const [o, ri] = [0.5, r - 0.5]
+  const border_split = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${w_left - r} A ${ri} ${ri} 0 0 1 ${w_left - o} ${y1 + r} V ${y2}`
+  const border_strip = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${narrow}`
+  return { w_col, h_col, h_row, h_tot, w_left, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
+}
+
+// outer shadow (Gaussian blur of the single L-shape, masked strictly outside the glass) and 1 px
+// free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
+// filter or mask ever sits on an ancestor of the backdrop-filter pane
+function key_buttons_backdrop_frame(look) {
+  const g = key_buttons_backdrop_geom(look)
+  const sigma = look.backdrop.shadow_blur / 2
+  const svg = (cls, w, shape, border) =>
+    `<svg class="key-buttons-bg-svg ${cls}" aria-hidden="true">` +
+    `<defs>` +
+    `<filter id="key-buttons-bg-shadow-${cls}" filterUnits="userSpaceOnUse" x="${-g.pad * 2}" y="0" width="${w + g.pad * 4}" height="${g.h_tot + g.pad * 2}" color-interpolation-filters="sRGB">` +
+    `<feGaussianBlur stdDeviation="${sigma}"/>` +
+    `</filter>` +
+    `<mask id="key-buttons-bg-out-${cls}" maskUnits="userSpaceOnUse" x="0" y="0" width="${w}" height="${g.h_tot + g.pad}">` +
+    `<rect x="0" y="0" width="${w}" height="${g.h_tot + g.pad}" fill="#fff"/>` +
+    `<path d="${shape}" fill="#000"/>` +
+    `</mask>` +
+    `</defs>` +
+    `<path d="${shape}" fill="${look.backdrop.shadow}" filter="url(#key-buttons-bg-shadow-${cls})" mask="url(#key-buttons-bg-out-${cls})"/>` +
+    `<path d="${border}" fill="none" stroke="${look.backdrop.border}" stroke-width="1" stroke-linejoin="miter"/>` +
+    `</svg>`
+  return svg('split', g.w_left + g.pad, g.shape_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.border_strip)
+}
+
+function key_buttons_css(look) {
+  const g = key_buttons_backdrop_geom(look)
+  return `
 .key-buttons { position: fixed; right: ${look.right}px; bottom: ${look.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
 .key-buttons.keyboard { right: auto; bottom: auto }
 .key-buttons[hidden] { display: none }
@@ -303,13 +355,18 @@ const key_buttons_css = look => `
 .key-buttons-nav > button.dim > svg { opacity: ${look.dim} }
 .key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }
 .key-buttons-bg[hidden] { display: none }
-.key-buttons-bg::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }
-.key-buttons-bg.desktop::after { height: ${look.reload.size + 2 * look.reload.bottom}px }
-.key-buttons-bg.desktop.split::after { right: auto; width: ${2 * look.reload.left + 3 * look.reload.size + 2 * look.gap}px; border-top-right-radius: ${look.reload.size / 2}px }
-.key-buttons-bg.desktop::before { content: ''; position: absolute; left: 0; bottom: ${look.reload.size + 2 * look.reload.bottom}px; width: ${look.reload.size + 2 * look.reload.left}px; height: ${2 * look.reload.size + 2 * look.gap}px; border-top-right-radius: ${look.reload.size / 2}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }
-.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${look.reload.size + 2 * look.reload.left}px; height: ${look.reload.size + 2 * look.reload.bottom}px; border-top-left-radius: ${look.reload.size / 2}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); pointer-events: none }
+.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
+.key-buttons-bg.desktop > .key-buttons-bg-pane { height: ${g.h_tot}px; border-top: 0; box-shadow: none; -webkit-clip-path: path('${g.clip_strip}'); clip-path: path('${g.clip_strip}') }
+.key-buttons-bg.desktop.split > .key-buttons-bg-pane { right: auto; width: ${g.w_left}px; -webkit-clip-path: path('${g.clip_split}'); clip-path: path('${g.clip_split}') }
+.key-buttons-bg > .key-buttons-bg-frame { display: none; pointer-events: none }
+.key-buttons-bg.desktop > .key-buttons-bg-frame { display: block }
+.key-buttons-bg-svg { display: none; position: absolute; left: 0; bottom: 0; height: ${g.h_tot + g.pad}px; pointer-events: none }
+.key-buttons-bg.desktop:not(.split) .key-buttons-bg-svg.strip { display: block; right: 0; width: 100% }
+.key-buttons-bg.desktop.split .key-buttons-bg-svg.split { display: block; width: ${g.w_left + g.pad}px }
+.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${g.w_col}px; height: ${g.h_row}px; box-sizing: border-box; border-top-left-radius: ${g.r}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
 body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }
 `
+}
 
 // the single #label the box names (trimmed, lowercased), else null: empty, multi-term search,
 // command, plain text, id: query and #log (never a unique target in the app) name none
@@ -549,17 +606,25 @@ function key_buttons_create() {
   style.dataset.keyButtons = 'style'
   style.textContent = key_buttons_css(KEY_BUTTONS_LOOK)
   document.head.appendChild(style)
-  // dark frosted-glass background behind the buttons: one non-backdrop-root container whose three
-  // siblings (::after bottom strip or left row, ::before desktop vertical column, and child
-  // .key-buttons-bg-right behind the #vault sparkle in wide desktop split) each blur the page
-  // directly without overlapping, taking no pointer events
+  // dark frosted-glass background behind the buttons: one non-backdrop-root container whose
+  // siblings (.key-buttons-bg-pane for the single frosted L-shape or phone strip,
+  // .key-buttons-bg-frame for the desktop L-shape's outer shadow + free-edge border SVGs, and
+  // .key-buttons-bg-right behind the #vault sparkle in wide desktop split) blur the page directly
+  // with no filter or mask on any ancestor, taking no pointer events
   const backdrop = (self.backdrop = document.createElement('div'))
   backdrop.className = 'key-buttons-bg'
   backdrop.dataset.keyButtons = 'backdrop'
   backdrop.setAttribute('aria-hidden', 'true')
   backdrop.hidden = true
+  const backdrop_pane = document.createElement('div')
+  backdrop_pane.className = 'key-buttons-bg-pane'
+  const backdrop_frame = document.createElement('div')
+  backdrop_frame.className = 'key-buttons-bg-frame'
+  backdrop_frame.innerHTML = key_buttons_backdrop_frame(KEY_BUTTONS_LOOK)
   const backdrop_right = document.createElement('div')
   backdrop_right.className = 'key-buttons-bg-right'
+  backdrop.appendChild(backdrop_pane)
+  backdrop.appendChild(backdrop_frame)
   backdrop.appendChild(backdrop_right)
   document.body.appendChild(backdrop)
   // a row of buttons, hidden until the first look: `kind` names it in the page (`bar`, the
