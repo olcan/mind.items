@@ -1430,12 +1430,11 @@ function _listing_changed(item) {
 // reference, `id:<todo_item_id>`), as the rows' clicks set it
 function _on_search(text) {
   const target_item = _item(text.trim(), { silent: true }) // null if text does not match item
-  const is_todo_item = target_item?.tags.includes('#todo')
-  if (
-    !is_todo_item &&
-    !document.querySelector('.todoer-widget .list-item-container.selected')
-  )
-    return
+  // a named item renders the widgets that list it, so its row is marked: a todo's row, and the
+  // row of an item that waits on the owner without being a todo (a reply's). Until 2026-11-24
+  // only a todo's name went on from here, and a reply's row stayed unmarked until something
+  // else rendered the list. A text that names no item only has a marked row to unmark
+  if (!target_item && !document.querySelector('.todoer-widget .list-item-container.selected')) return
   each(_this.dependents, dep => {
     const item = _item(dep)
     if (_listed(item, target_item?.id) || item.elem?.querySelector('.list-item-container.selected')) {
