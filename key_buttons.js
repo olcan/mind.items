@@ -109,7 +109,7 @@ const KEY_BUTTONS_LOOK = {
   // keyboard device, split into a left piece (reload + arrows) and a right piece (sparkle, when
   // shown), merging into the full-width strip below `merge` px; raised with a 1 px light border
   // along free edges only and a soft outer shadow outside the glass only
-  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 0.8)', shadow_blur: 18, merge: 480 },
+  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 8, shadow_spread: 2, merge: 480 },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
 // and how long the view has to stay as it is before the one look (the keyboard has taken its room)
@@ -287,26 +287,32 @@ function key_buttons_backdrop_geom(look) {
   const h_tot = h_col + h_row
   const w_left = 2 * look.reload.left + 3 * look.reload.size + 2 * look.gap
   const r = look.reload.size / 2
-  const pad = Math.max(24, look.backdrop.shadow_blur * 3)
+  const s = look.backdrop.shadow_spread ?? 0
+  const pad = Math.max(24, look.backdrop.shadow_blur * 3) + s
   const narrow = look.backdrop.merge
   const clip_split = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${h_col + r} V ${h_tot} H 0 Z`
   const clip_strip = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${narrow} V ${h_tot} H 0 Z`
   const [y0, y1, y2] = [pad, pad + h_col, pad + h_tot]
   const shape_split = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${y1 + r} V ${y2 + pad} H ${-pad} Z`
   const shape_strip = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
+  // widened shadow-caster paths (expanded outward by shadow_spread, outer corner radius r + s) so
+  // the blurred L-shape matches CSS `box-shadow: 0 0 <blur> <spread> <color>` on plain boxes
+  const rs = r + s
+  const caster_split = `M ${-pad} ${y0 - s} H ${w_col - r} A ${rs} ${rs} 0 0 1 ${w_col + s} ${y0 + r} V ${y1 - s} H ${w_left - r} A ${rs} ${rs} 0 0 1 ${w_left + s} ${y1 + r} V ${y2 + pad} H ${-pad} Z`
+  const caster_strip = `M ${-pad} ${y0 - s} H ${w_col - r} A ${rs} ${rs} 0 0 1 ${w_col + s} ${y0 + r} V ${y1 - s} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
   const [o, ri] = [0.5, r - 0.5]
   const border_split = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${w_left - r} A ${ri} ${ri} 0 0 1 ${w_left - o} ${y1 + r} V ${y2}`
   const border_strip = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${narrow}`
-  return { w_col, h_col, h_row, h_tot, w_left, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
+  return { w_col, h_col, h_row, h_tot, w_left, r, s, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, caster_split, caster_strip, border_split, border_strip }
 }
 
-// outer shadow (Gaussian blur of the single L-shape, masked strictly outside the glass) and 1 px
-// free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
-// filter or mask ever sits on an ancestor of the backdrop-filter pane
+// outer shadow (Gaussian blur of the spread-widened single L-shape, masked strictly outside the
+// glass) and 1 px free-edge border for the desktop split and narrow merged shapes, drawn in sibling
+// SVGs so no filter or mask ever sits on an ancestor of the backdrop-filter pane
 function key_buttons_backdrop_frame(look) {
   const g = key_buttons_backdrop_geom(look)
   const sigma = look.backdrop.shadow_blur / 2
-  const svg = (cls, w, shape, border) =>
+  const svg = (cls, w, shape, caster, border) =>
     `<svg class="key-buttons-bg-svg ${cls}" aria-hidden="true">` +
     `<defs>` +
     `<filter id="key-buttons-bg-shadow-${cls}" filterUnits="userSpaceOnUse" x="${-g.pad * 2}" y="0" width="${w + g.pad * 4}" height="${g.h_tot + g.pad * 2}" color-interpolation-filters="sRGB">` +
@@ -317,10 +323,10 @@ function key_buttons_backdrop_frame(look) {
     `<path d="${shape}" fill="#000"/>` +
     `</mask>` +
     `</defs>` +
-    `<path d="${shape}" fill="${look.backdrop.shadow}" filter="url(#key-buttons-bg-shadow-${cls})" mask="url(#key-buttons-bg-out-${cls})"/>` +
+    `<path d="${caster}" fill="${look.backdrop.shadow}" filter="url(#key-buttons-bg-shadow-${cls})" mask="url(#key-buttons-bg-out-${cls})"/>` +
     `<path d="${border}" fill="none" stroke="${look.backdrop.border}" stroke-width="1" stroke-linejoin="miter"/>` +
     `</svg>`
-  return svg('split', g.w_left + g.pad, g.shape_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.border_strip)
+  return svg('split', g.w_left + g.pad, g.shape_split, g.caster_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.caster_strip, g.border_strip)
 }
 
 function key_buttons_css(look) {
@@ -355,7 +361,7 @@ function key_buttons_css(look) {
 .key-buttons-nav > button.dim > svg { opacity: ${look.dim} }
 .key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }
 .key-buttons-bg[hidden] { display: none }
-.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
+.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${g.s}px ${look.backdrop.shadow}; pointer-events: none }
 .key-buttons-bg.desktop > .key-buttons-bg-pane { height: ${g.h_tot}px; border-top: 0; box-shadow: none; -webkit-clip-path: path('${g.clip_strip}'); clip-path: path('${g.clip_strip}') }
 .key-buttons-bg.desktop.split > .key-buttons-bg-pane { right: auto; width: ${g.w_left}px; -webkit-clip-path: path('${g.clip_split}'); clip-path: path('${g.clip_split}') }
 .key-buttons-bg > .key-buttons-bg-frame { display: none; pointer-events: none }
@@ -363,7 +369,7 @@ function key_buttons_css(look) {
 .key-buttons-bg-svg { display: none; position: absolute; left: 0; bottom: 0; height: ${g.h_tot + g.pad}px; pointer-events: none }
 .key-buttons-bg.desktop:not(.split) .key-buttons-bg-svg.strip { display: block; right: 0; width: 100% }
 .key-buttons-bg.desktop.split .key-buttons-bg-svg.split { display: block; width: ${g.w_left + g.pad}px }
-.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${g.w_col}px; height: ${g.h_row}px; box-sizing: border-box; border-top-left-radius: ${g.r}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
+.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${g.w_col}px; height: ${g.h_row}px; box-sizing: border-box; border-top-left-radius: ${g.r}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${g.s}px ${look.backdrop.shadow}; pointer-events: none }
 body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }
 `
 }
