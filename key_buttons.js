@@ -46,7 +46,7 @@ const KEY_BUTTONS = [
   // a bar and an arrow up to it: the page scrolls to its top (Back returns to the position)
   { name: 'top', key: 'ArrowUp', ctrl: true, alt: true, title: 'Scroll to the top (Ctrl+Alt+Up)', icon: 'M3 2.5h10M8 14V6.5M4.5 10L8 6.5l3.5 3.5' },
   // an arrow down to a ring, the item: the undo of the scroll to the top, else the named item
-  { name: 'back', key: 'ArrowDown', ctrl: true, alt: true, title: 'Back down: to where the page was before the jump to the top, else to the named item (Ctrl+Alt+Down)', icon: 'M8 1.5V8M4.5 4.5L8 8l3.5-3.5M8 11.2a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3' },
+  { name: 'back', key: 'ArrowDown', ctrl: true, alt: true, title: 'Scroll back down (Ctrl+Alt+Down)', icon: 'M8 1.5V8M4.5 4.5L8 8l3.5-3.5M8 11.2a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3' },
   // a plus: a new item, the named item's child when the box names one (a chat's reply)
   { name: 'create', key: 'Enter', shift: true, title: 'New item, under the named item: a reply (Shift+Enter)', icon: 'M8 3v10M3 8h10' },
   { name: 'left', key: 'ArrowLeft', title: 'Previous sibling (Left)', icon: 'M13 8H3.5M7.5 4l-4 4 4 4' },
