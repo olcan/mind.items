@@ -579,11 +579,19 @@ function __render(widget, widget_item) {
       const id = e.item.getAttribute('data-id')
       const item = _item(id)
       if (e.item.getAttribute('data-waits')) {
-        // a row that is not a todo: the done bin clears it, with nothing written into the item;
-        // the other bins do nothing for it yet and the row goes back where it was
+        // a row that is not a todo. The done bin clears it, with nothing written into the item.
+        // The cancel bin deletes the item, always after the app's question. The snooze and the
+        // agent bin first make the item a todo (_as_todo: the tag written after its name) and
+        // then do with it what they do with a todo. A refusal puts the row back where it was
         if (e.to == list) return
         e.to.firstChild.remove()
-        if (e.to != done_bin || !_clear_waiting(item)) list.insertBefore(e.item, list.children[e.oldIndex])
+        const back = () => void list.insertBefore(e.item, list.children[e.oldIndex])
+        if (e.to == done_bin) _clear_waiting(item) || back()
+        else if (e.to == cancel_bin) item.delete(true) === true || back()
+        else if (e.to == agent_bin) _as_todo(item) ? void _delegate(item) : back()
+        else if (e.to == snooze_bin)
+          _snooze_dialog().then(answer => (is_number(answer?.time) && _as_todo(item) ? _snooze(item, answer) : back()))
+        else back()
         return
       }
       if (e.to == agent_bin) {
@@ -712,52 +720,10 @@ function __render(widget, widget_item) {
         if (snoozed) {
           _unsnooze(item, true) // the owner's own drag out of the snoozed list
         } else {
-          // item.global_store._todoer.snoozed = Date.now() + 5 * 1000
-          _todoer.store._snooze_modal = _modal(
-            _todoer
-              .read('html_snooze_modal')
-              .replaceAll(
-                '__onclick__',
-                `_item('#todoer').eval('_on_snooze(event)')`
-              )
-              .replaceAll(
-                '__onchange__',
-                `_item('#todoer').eval('_on_snooze_input_change(event)')`
-              )
-              .replaceAll(
-                '__onnotify__',
-                `_item('#todoer').eval('_on_snooze_notify(event)')`
-              ),
-            {
-              canConfirm: () => false, // toggled in _on_snooze_input_change
-              onConfirm: () => _snooze_close(_snooze_input()),
-            }
-          )
           // the answer is the time and the dialog's box ({time, notify}, see _snooze_close)
-          _todoer.store._snooze_modal.then(answer => {
-            if (
-              !is_number(answer?.time)
-              // || !confirm(`Snooze to ${new Date(answer.time)}?`)
-            )
-              list.insertBefore(e.item, list.children[e.oldIndex])
+          _snooze_dialog().then(answer => {
+            if (!is_number(answer?.time)) list.insertBefore(e.item, list.children[e.oldIndex])
             else _snooze(item, answer)
-          })
-          _update_dom().then(() => {
-            document.querySelector('.snooze-modal .custom input').value =
-              new Date().toInputValue()
-            const notify_box = document.querySelector('.snooze-modal .notify input')
-            if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
-            _snooze_hint() // this device's permission beside the box (the box starts unchecked, reset above)
-            // force trigger input change call now & every second (for Date.now)
-            _todoer.dispatch_task(
-              'snooze-modal-update',
-              () => {
-                if (!_modal_visible(_todoer.store._snooze_modal)) return null
-                _on_snooze_input_change()
-              },
-              0,
-              1000
-            )
           })
         }
       }
@@ -788,6 +754,39 @@ Date.prototype.toInputValue = function () {
   let local = new Date(this)
   local.setMinutes(this.getMinutes() - this.getTimezoneOffset())
   return local.toJSON().slice(0, 16)
+}
+
+// the snooze dialog, opened for a row dropped on the snooze bin: resolves to the answer, the time
+// and the dialog's box ({time, notify}, see _snooze_close), or to nothing when it is dismissed
+function _snooze_dialog() {
+  _todoer.store._snooze_modal = _modal(
+    _todoer
+      .read('html_snooze_modal')
+      .replaceAll('__onclick__', `_item('#todoer').eval('_on_snooze(event)')`)
+      .replaceAll('__onchange__', `_item('#todoer').eval('_on_snooze_input_change(event)')`)
+      .replaceAll('__onnotify__', `_item('#todoer').eval('_on_snooze_notify(event)')`),
+    {
+      canConfirm: () => false, // toggled in _on_snooze_input_change
+      onConfirm: () => _snooze_close(_snooze_input()),
+    }
+  )
+  _update_dom().then(() => {
+    document.querySelector('.snooze-modal .custom input').value = new Date().toInputValue()
+    const notify_box = document.querySelector('.snooze-modal .notify input')
+    if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
+    _snooze_hint() // this device's permission beside the box (the box starts unchecked, reset above)
+    // force trigger input change call now & every second (for Date.now)
+    _todoer.dispatch_task(
+      'snooze-modal-update',
+      () => {
+        if (!_modal_visible(_todoer.store._snooze_modal)) return null
+        _on_snooze_input_change()
+      },
+      0,
+      1000
+    )
+  })
+  return _todoer.store._snooze_modal
 }
 
 function _snooze_time(label) {
@@ -2112,6 +2111,25 @@ function _clear_waiting(item) {
   if (!seen) return false
   const store = (item.global_store._todoer ??= {}) // reading global_store saves the store
   store.cleared = _wait_key(seen)
+  return true
+}
+
+// makes an item that waits on the owner a todo, for the snooze and the agent bin: the todo tag is
+// written after the item's name (its label, where its text starts with it; else at the text's
+// start), through the grammar view so that inert regions keep their bytes, and the reply it showed
+// is recorded as cleared, so that the row does not come back once the todo is done. False, with a
+// word why, when nothing was written (an app without the grammar, an open editor, a refused write)
+function _as_todo(item) {
+  const grammar = window._grammar
+  if (!(grammar?.version >= 2)) return alert('please reload to make this a todo (app update required)'), false
+  if (item.editing) return alert(`can not make a todo of ${item.name} while editing it: finish editing first`), false
+  const label = item.label ?? ''
+  const text = grammar.edit(item.text, view => {
+    const named = label && view.slice(0, label.length).toLowerCase() == label.toLowerCase() && /^(?:$|\s)/.test(view.slice(label.length))
+    return named ? `${view.slice(0, label.length)} #todo${view.slice(label.length)}` : `#todo ${view}`
+  })
+  if (item.write(text, '') !== true) return alert(`could not make a todo of ${item.name} (write refused)`), false
+  _clear_waiting(item)
   return true
 }
 

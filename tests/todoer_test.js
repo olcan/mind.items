@@ -137,7 +137,9 @@ const picked =
     '_waits',
     '_waiting_text',
     '_clear_waiting',
+    '_as_todo',
     '_rows_start',
+    '_snooze_dialog',
     '_on_item_change',
     '_state_key',
     '_notify_step',
@@ -1118,8 +1120,8 @@ delete context.__todos.p
   check('confirm: an unchecked box writes the time alone, removing an earlier flag', snoozable.global_store, { _todoer: { snoozed: 9000 } })
   // the drop's handler and the dialog's markup (the render, which the table cannot run): pinned by the sources
   const modal_html = fs.readFileSync(path.join(__dirname, '..', 'todoer-snooze-modal.html'), 'utf8')
-  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {12}else _snooze\(item, answer\)\n/.test(src), /\n {14}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
-  check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\n\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
+  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {12}else _snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
+  check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
   check('drag: the snoozed list\'s bin unsnoozes as the owner\'s own act', /\n {10}_unsnooze\(item, true\) \/\//.test(src), true)
   const swept = { global_store: { _todoer: { snoozed: 100, notify: true } } }
   const dragged = { global_store: { _todoer: { snoozed: 100, notify: true } } }
@@ -2251,17 +2253,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   {
     const KEY = "1|'vault/default · run ab12cd34 · 1s'"
     const SEEN = { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true }
-    const chatting = ({ since = 1000, time = 2000, seen = SEEN, store = {}, snooze = null } = {}) => {
+    const chatting = ({ since = 1000, time = 2000, seen = SEEN, store = {}, snooze = null, deletes = true, writes = true, editing = false, label = '#e2e_chatty/0', text = REPLY } = {}) => {
       const w = world({ snooze })
       const called = []
-      const chat = { id: 'chat', saved_id: 's-chat', label: '#e2e_chatty/0', name: '#e2e_chatty/0', text: REPLY, time, _global_store: store }
-      Object.assign(chat, { tags: ['#e2e_chatty/0', '#chat/vault', '#autodep'], tags_visible: ['#e2e_chatty/0'] })
+      const chat = { id: 'chat', saved_id: 's-chat', label, name: label || 'id:chat', text, time, editing, _global_store: store }
+      Object.defineProperty(chat, 'tags', { get: () => parsed(chat.text).all })
+      Object.defineProperty(chat, 'tags_visible', { get: () => parsed(chat.text).visible })
       Object.defineProperty(chat, 'global_store', { get: () => chat._global_store })
       chat.read = () => view(chat.text)
-      chat.write = () => called.push('write')
-      chat.delete = () => called.push('delete')
+      chat.write = text => (called.push('write'), writes ? ((chat.text = text), true) : false)
+      chat.delete = confirm => (called.push(['delete', confirm]), deletes)
       chat.select = () => (called.push('select'), true)
       w.ctx._items().push(chat)
+      w.ctx.is_number = x => typeof x == 'number' // the app's helper, read by the snooze branches
       w.ctx._todoer._global_store = since == null ? {} : { rows_since: since }
       w.ctx._todoer.store.reply_seen = seen ? { chat: seen } : {}
       w.render()
@@ -2282,11 +2286,45 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     check('waits: a drop on the done bin clears the row in the chat\'s own store and writes nothing into the chat', [done.text == REPLY, done.rows, done.left, done.store, done.calls, cleared.called], [true, ALL, 0, { cleared: KEY }, [], []])
     cleared.render()
     check('waits: the next render keeps it cleared', cleared.ids(), ALL)
-    for (const bin of ['snooze', 'cancel', 'agent']) {
-      const kept = chatting()
-      const back = kept.drop('chat', bin)
-      check(`waits: a drop on the ${bin} bin does nothing yet: the row is back where it was`, [back.rows, back.left, back.store, back.calls, kept.called], [[...ALL, 'chat'], 0, undefined, [], []])
-    }
+    // the other bins: cancel deletes the item, always after the app's question (the confirm it
+    // passes); snooze and agent first make the item a todo, the tag after its name, record the
+    // reply as cleared, and then do what they do with a todo; a refusal puts the row back
+    const TODO_LINE = '#e2e_chatty/0 #todo #_chat/vault #_autodep'
+    const gone = chatting()
+    const cancelled = gone.drop('chat', 'cancel')
+    check('waits: a drop on the cancel bin deletes the item, asking first', [cancelled.rows, cancelled.left, gone.called], [ALL, 0, [['delete', true]]])
+    const declined = chatting({ deletes: false })
+    check('waits: a deletion that is declined puts the row back', [declined.drop('chat', 'cancel').rows, declined.called], [[...ALL, 'chat'], [['delete', true]]])
+    const sent = chatting()
+    sent.ctx._delegate = item => (sent.called.push(['delegate', item.id, item.tags.includes('#todo')]), { then: () => {} })
+    const delegated = sent.drop('chat', 'agent')
+    check('waits: a drop on the agent bin writes the todo tag after the name, clears the reply, and delegates the item as the todo it now is', [delegated.text.split('\n')[0], delegated.text.split('\n').slice(1).join('\n') == REPLY.split('\n').slice(1).join('\n'), delegated.store, sent.called, delegated.left, delegated.calls], [TODO_LINE, true, { cleared: KEY }, ['write', ['delegate', 'chat', true]], 0, []])
+    const T = 1_900_000_000_000
+    const slept = chatting()
+    slept.ctx._snooze_dialog = () => ({ then: f => f({ time: T, notify: false }) })
+    const snoozed = slept.drop('chat', 'snooze')
+    check('waits: a drop on the snooze bin, once a time is picked, writes the todo tag, clears the reply and snoozes', [snoozed.text.split('\n')[0], snoozed.store, slept.called, snoozed.left], [TODO_LINE, { cleared: KEY, snoozed: T }, ['write'], 0])
+    const awake = chatting()
+    awake.ctx._snooze_dialog = () => ({ then: f => f(undefined) })
+    const dismissed = awake.drop('chat', 'snooze')
+    check('waits: a dismissed snooze dialog writes nothing and puts the row back', [dismissed.text == REPLY, dismissed.rows, dismissed.store, awake.called], [true, [...ALL, 'chat'], undefined, []])
+    const open = chatting({ editing: true })
+    open.ctx._delegate = () => open.called.push('delegate')
+    const refused = open.drop('chat', 'agent')
+    check('waits: an item open in its editor is not made a todo: a word says why and the row is back', [refused.text == REPLY, refused.rows, refused.store, open.called, refused.calls.map(([kind]) => kind)], [true, [...ALL, 'chat'], undefined, [], ['alert']])
+    const readonly = chatting({ writes: false })
+    readonly.ctx._delegate = () => readonly.called.push('delegate')
+    const unwritten = readonly.drop('chat', 'agent')
+    check('waits: a refused write makes no todo: nothing is cleared, nothing delegated, the row is back', [unwritten.rows, unwritten.store, readonly.called, unwritten.calls.map(([kind]) => kind)], [[...ALL, 'chat'], undefined, ['write'], ['alert']])
+    const bare = chatting({ label: '', text: REPLY.replace('#e2e_chatty/0 ', '') })
+    check('as todo: an item without a name gets the tag at its start', [bare.ctx._as_todo(bare.chat), bare.chat.text.split('\n')[0]], [true, '#todo #_chat/vault #_autodep'])
+    const alone = chatting({ text: '#e2e_chatty/0\n' + REPLY.split('\n').slice(1).join('\n') })
+    check('as todo: a name alone on its line keeps the line', [alone.ctx._as_todo(alone.chat), alone.chat.text.split('\n')[0]], [true, '#e2e_chatty/0 #todo'])
+    // the snooze dialog moved into a function of its own: a todo's drop on the snooze bin is as before
+    const napping = world()
+    napping.ctx.is_number = x => typeof x == 'number'
+    napping.ctx._snooze_dialog = () => ({ then: f => f({ time: T, notify: true }) })
+    check('snooze: a todo dropped on the snooze bin is snoozed at the picked time with its reminder, as before', kinds(napping.drop('short', 'snooze')), { text: '#todo fix the cache', rows: ['task', 'long', 'named'], left: 0, store: { snoozed: T, notify: true }, draft: undefined, calls: ['store', 'store'] })
     const clicked = chatting()
     clicked.click('chat')
     check('waits: a click on the row selects the chat', clicked.called, ['select'])
