@@ -800,6 +800,9 @@ function __render(widget, widget_item) {
   // leaves them
   if (widget._orderAfterDrag && !snoozed) list.sortable.sort(widget._orderAfterDrag)
 
+  // the bin buttons follow the list as drawn: a row that came or went while the box names its item
+  if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+
   // NOTE: this is no longer needed w/ 'dragging' class moved to onStart instead of onChoose, preventing the list item div from being shrunk under the cursor prematurely, sending clicks to the widget instead
   // widget.onclick = e => {
   //   // ignore clicks on background (widget) too close to an item being let go
@@ -1430,6 +1433,7 @@ function _listing_changed(item) {
 // reference, `id:<todo_item_id>`), as the rows' clicks set it
 function _on_search(text) {
   const target_item = _item(text.trim(), { silent: true }) // null if text does not match item
+  if (typeof _bin_buttons == 'function') _bin_buttons(target_item) // (a table loads this function alone)
   // a named item renders the widgets that list it, so its row is marked: a todo's row, and the
   // row of an item that waits on the owner without being a todo (a reply's). Until 2026-11-24
   // only a todo's name went on from here, and a reply's row stayed unmarked until something
@@ -1445,6 +1449,112 @@ function _on_search(text) {
   })
 }
 
+// PREVIEW OF THE LOOK (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): one button
+// per bin of the list that holds the row of the item the box names, in the bins' order and
+// colours, on a glass piece at the page's lower left, the mirror of the key buttons' piece at
+// the lower right (key_buttons.js: round 24 px buttons on the sparkle's dark grey, 16 px icons
+// drawn with a 1.6 line, a 44 px high piece of frosted glass with a 12 px corner). Shown where
+// the window has room for it beside that piece; the narrow case, a second row, is not built
+// yet. A PRESS DOES NOTHING YET: the bins' work is wired once the look is settled.
+// The names start with an underscore, and no comment here holds a hash word: the item's page
+// draws its table of definitions from this file's comments (js_table), where a colour written
+// with its hash sign is read as a tag that no item carries (seen on a test page, 2026-11-24)
+const _BIN_BUTTONS = [
+  { name: 'agent', title: 'Delegate to the agent', icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
+  { name: 'done', title: 'Done', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
+  { name: 'snooze', title: 'Snooze', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
+  { name: 'cancel', title: 'Delete', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
+  { name: 'owner', title: 'Take back from the agent', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
+]
+const _BIN_BUTTONS_CSS = `
+.todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
+.todoer-bin-buttons[hidden] { display: none }
+.todoer-bin-buttons > button { flex: none; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); cursor: pointer; -webkit-tap-highlight-color: transparent }
+.todoer-bin-buttons > button:focus { outline: none }
+.todoer-bin-buttons > button:focus-visible { outline: 1px solid currentColor }
+.todoer-bin-buttons > button:active { background: #555 }
+.todoer-bin-buttons > button > svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
+.todoer-bin-buttons > button.agent > svg { fill: currentColor; stroke: none }
+.todoer-bin-buttons > button.agent { color: #6af }
+.todoer-bin-buttons > button.done { color: #6f6 }
+.todoer-bin-buttons > button.snooze { color: #ff6 }
+.todoer-bin-buttons > button.cancel { color: #f66 }
+.todoer-bin-buttons > button.owner { color: #ccc }
+`
+
+// draws the buttons for the item the box names (null: none), from the first mounted list that
+// holds its row: that list's bins, in their order. A row that is not a todo's (a reply's) has
+// the done and the delete bin, and the other two only where the list can make a todo of it
+function _bin_buttons(target) {
+  try {
+    __bin_buttons(target)
+  } catch (e) {
+    console.error(`bin buttons: ${e}`) // a fault of these buttons must never stop a list's render
+  }
+}
+
+function __bin_buttons(target) {
+  let found = null
+  if (target)
+    each(_todoer.dependents ?? [], dep => {
+      const pinned = _item(dep)
+      pinned?.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
+        const row = found ? null : [...widget.querySelectorAll('.list-item-container')].find(e => e.getAttribute('data-id') == target.id)
+        if (row) found = { widget, row, options: pinned.store[widget.id]?.options ?? {} }
+      })
+    })
+  let piece = document.querySelector('.todoer-bin-buttons')
+  if (!found && !piece) return
+  let style = document.getElementById('todoer-bin-buttons-style')
+  if (!style) {
+    style = document.createElement('style')
+    style.id = 'todoer-bin-buttons-style'
+    document.head.appendChild(style)
+  }
+  if (style.textContent != _BIN_BUTTONS_CSS) style.textContent = _BIN_BUTTONS_CSS // an update of this item brings its look
+  if (!piece) {
+    piece = document.createElement('div')
+    piece.className = 'todoer-bin-buttons'
+    piece.hidden = true
+    document.body.appendChild(piece)
+  }
+  const todo_only = found?.row.getAttribute('data-waits') && typeof _promote != 'function'
+  const shown = !found ? [] : _BIN_BUTTONS.filter(b => found.widget.querySelector('.bin.' + b.name) && !(todo_only && (b.name == 'agent' || b.name == 'snooze')))
+  piece.replaceChildren(
+    ...shown.map(b => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = b.name
+      button.title = b.name == 'snooze' && found.options.snoozed ? 'Unsnooze' : b.title
+      button.setAttribute('aria-label', button.title)
+      button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="' + b.icon + '"/></svg>'
+      return button
+    })
+  )
+  // the key buttons' glass takes its new shape after a resize on its own schedule (seen on a test
+  // page: a window made wide again was measured while the glass still spanned it): measure again
+  // whenever that glass changes
+  const glass = document.querySelector('.key-buttons-bg')
+  if (glass && !glass._todoer_bin_buttons) {
+    glass._todoer_bin_buttons = new MutationObserver(() => void _bin_buttons_room())
+    glass._todoer_bin_buttons.observe(glass, { attributes: true, attributeFilter: ['class', 'hidden'] })
+  }
+  _bin_buttons_room()
+}
+
+// shows the piece where it has buttons and room at the lower left: all of the edge without the
+// key buttons, what their piece leaves on a device with a keyboard, and none where their glass
+// spans the window (a phone, a narrow window)
+function _bin_buttons_room() {
+  const piece = document.querySelector('.todoer-bin-buttons')
+  if (!piece) return
+  piece.hidden = !piece.childElementCount
+  if (piece.hidden) return
+  const glass = document.querySelector('.key-buttons-bg:not([hidden])')
+  const taken = !glass ? 0 : glass.classList.contains('split') ? (glass.querySelector('.key-buttons-bg-pane')?.getBoundingClientRect().width ?? 0) : Infinity
+  piece.hidden = piece.getBoundingClientRect().width > window.innerWidth - taken
+}
+
 // start the unsnooze sweep on welcome, and run it again at once when the page shows or hides,
 // gains focus or goes online: a return finds a todo whose time passed meanwhile back without
 // waiting for the tick (a held sweep stays held: _held observes the gap first), and a hide
@@ -1456,6 +1566,10 @@ function _on_search(text) {
 // script; the first evaluation's keep working), as _start_notifier's
 function _on_welcome() {
   _start_sweep()
+  if (!window._todoer_bin_buttons) {
+    window._todoer_bin_buttons = true
+    window.addEventListener('resize', () => void _bin_buttons_room())
+  }
   if (!window._todoer_sweeper) {
     window._todoer_sweeper = true
     document.addEventListener('visibilitychange', () => void _start_sweep())
