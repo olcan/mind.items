@@ -1139,6 +1139,7 @@ const VAULT_SPARKLE_CSS = `
 .vault-sparkle-menu > div[data-vault-tip="sparkle"] { color: #bbb }
 .vault-sparkle-menu > div[data-vault-tip="line"] { max-width: min(330px, calc(100vw - 64px)); padding: 0 12px 3px 22px }
 @media (hover: none) { .vault-sparkle-menu, .vault-sparkle-menu > button, .vault-sparkle-backdrop { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none } }
+@media (pointer: coarse) { .vault-sparkle { right: 10px; bottom: 6px; width: 32px; height: 32px } .vault-sparkle-menu { bottom: 46px } }
 `
 const VAULT_SPARKLE_SVG =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>'

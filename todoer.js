@@ -1584,16 +1584,19 @@ function _bin_row(item) {
 function _bin_press(name, id) {
   const item = _item(id, { silent: true })
   const found = item && _bin_row(item)
-  if (window._todoer_bin_busy || !found) return
+  // a press that is not taken says so in the console: nothing else would tell its owner
+  if (window._todoer_bin_busy) return void console.warn(`todoer: the press on "${name}" was not taken: an earlier press is still being carried out`)
+  if (!found) return void console.warn(`todoer: the press on "${name}" was not taken: its item is in no list`)
   window._todoer_bin_busy = true
   let acted
   try {
     acted = _bin_act(name, item, found.row, !!found.widget._snoozed) // within the press: a delegation reads the gesture
   } finally {
-    Promise.resolve(acted)
+    acted = Promise.resolve(acted)
       .catch(() => {})
       .then(() => void (window._todoer_bin_busy = false))
   }
+  return acted // settles when the press's work is done: the button that took it stays lit until then
 }
 
 // what a drop of the item's row on the named bin does (the list's onEnd in __render), without a

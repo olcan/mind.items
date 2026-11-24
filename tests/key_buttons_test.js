@@ -162,8 +162,8 @@ check('reload: its circle and shadow, its dim idle look, its brighter look under
     '.key-buttons-reload[hidden] { display: none }'].map(rule => sheet.includes(rule)).concat(look.layer < Number(layer[1])),
   [true, true, true, true, true, true, true])
 const reload_shown = (wide, up, shown_row, switches) => v1('key_buttons_reload_shown(__args.win, __args.keyboard, __args.row, KEY_BUTTONS_LOOK, __args.parts ?? KEY_BUTTONS_PARTS)', { win: { innerWidth: wide }, keyboard: { up }, row: shown_row, parts: switches })
-check('reload: it shows on every device, a desktop too; not while a keyboard is on the screen; not where the main row, while it shows, comes within a gap of it (a window under 350 px); and never with its part off',
-  [reload_shown(1280, false, null), reload_shown(390, false, 'main'), reload_shown(390, true, 'keyboard'), reload_shown(390, true, null), reload_shown(350, false, 'main'), reload_shown(349, false, 'main'), reload_shown(320, false, 'main'), reload_shown(320, false, null), reload_shown(390, false, 'main', { reload_button: false })],
+check('reload: it shows on every device, a desktop too; not while a keyboard is on the screen; not where the main row, while it shows, comes within a gap of it (a window under 354 px, the button being as large as a button of the row on a phone); and never with its part off',
+  [reload_shown(1280, false, null), reload_shown(390, false, 'main'), reload_shown(390, true, 'keyboard'), reload_shown(390, true, null), reload_shown(354, false, 'main'), reload_shown(353, false, 'main'), reload_shown(320, false, 'main'), reload_shown(320, false, null), reload_shown(390, false, 'main', { reload_button: false })],
   [true, true, false, false, true, false, false, true, false])
 const geom = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK)')
 const frame = v1('key_buttons_backdrop_frame(KEY_BUTTONS_LOOK)')
@@ -181,6 +181,8 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     sheet.includes('.key-buttons > button.valid { color: #9f9 }'),
     sheet.includes(`.key-buttons > button.dim > svg { opacity: ${look.dim} }`),
     sheet.includes(`.key-buttons-reload.desktop { left: auto; right: ${right + width + look.group}px }`),
+    sheet.includes(`.key-buttons-reload:not(.desktop) { left: ${right - (look.size - width) / 2}px; bottom: ${look.reload.bottom - (look.size - width) / 2}px; width: ${look.size}px; height: ${look.size}px }`),
+    sheet.includes(`.key-buttons-guests > button:active, .key-buttons-guests > button.busy { background: ${look.pressed} }`),
     sheet.includes(`.key-buttons-nav { position: fixed; right: ${right + 2 * width + 2 * look.group}px; bottom: ${bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px;`),
     sheet.includes(`.key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: ${look.group - look.gap}px }`),
     !sheet.includes('.key-buttons-nav.vertical'),
@@ -200,7 +202,7 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     frame.includes(`stroke="${look.backdrop.border}" stroke-width="1"`),
     frame.includes('class="key-buttons-bg-svg split"') && frame.includes('class="key-buttons-bg-svg strip"'),
     look.layer - 1 < look.layer && look.layer < Number(layer[1])],
-  [18, '#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
+  [18, '#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
 check('backdrop geom & frame: one right piece (w_piece 340, h_col 0, h_tot 44, top-left radius 12) and its split and strip clip, shadow-caster and border SVG paths',
   [geom.w_col, geom.h_col, geom.h_row, geom.h_tot, geom.w_piece, geom.r, geom.pad, geom.narrow,
     geom.clip_split, geom.clip_strip, geom.shape_split, geom.border_split, geom.shape_strip, geom.border_strip,

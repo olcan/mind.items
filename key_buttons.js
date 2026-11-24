@@ -110,6 +110,9 @@ const KEY_BUTTONS_LOOK = {
   // the reload button, the sparkle's mirror (.vault-sparkle in vault.md: 24 px round at right 14 and
   // bottom 10, its drawing 16 px, dim at 0.45 while idle and 0.9 under a mouse): the same at the left,
   // in the icons' white, and at this item's layer (under the sparkle's menu layer, as the rows are)
+  // On a touch device (a phone) both corner buttons have the row's size, a thumb's, centred on the same
+  // points (the owner, 2026-11-24: "in mobile the corner buttons are smaller for no apparent reason"): the
+  // sparkle by its own stylesheet's rule for a coarse pointer, the reload button by key_buttons_reload_touch
   reload: { size: 24, left: 14, bottom: 10, icon: 16, idle: 'rgba(255, 255, 255, 0.45)', hover: 'rgba(255, 255, 255, 0.9)' },
   // dark frosted-glass background behind the buttons: full-width bottom strip on a phone; on a
   // keyboard device, one rounded piece at the lower right (strip + reload + sparkle), becoming
@@ -385,6 +388,7 @@ function key_buttons_backdrop_frame(look, guests = 0) {
 function key_buttons_css(look, guests = 0) {
   const g = key_buttons_backdrop_geom(look, guests)
   const own = key_buttons_backdrop_geom(look).w_piece // the piece without a guest group: the strip's own room
+  const touch = key_buttons_reload_touch(look)
   return `
 .key-buttons { position: fixed; right: ${look.right}px; bottom: ${look.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
 .key-buttons.keyboard { right: auto; bottom: auto }
@@ -396,6 +400,7 @@ function key_buttons_css(look, guests = 0) {
 .key-buttons > button > svg { display: block; width: ${look.icon}px; height: ${look.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons > button.dim > svg { opacity: ${look.dim} }
 .key-buttons-reload { position: fixed; left: ${look.reload.left}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.reload.idle}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.key-buttons-reload:not(.desktop) { left: ${touch.left}px; bottom: ${touch.bottom}px; width: ${touch.size}px; height: ${touch.size}px }
 .key-buttons-reload.desktop { left: auto; right: ${look.reload.left + look.reload.size + look.group}px }
 .key-buttons-reload[hidden] { display: none }
 .key-buttons-reload:focus { outline: none }
@@ -421,11 +426,11 @@ function key_buttons_css(look, guests = 0) {
 .key-buttons-guests > button:focus { outline: none }
 .key-buttons-guests > button:focus-visible { outline: 1px solid currentColor }
 @media (hover: hover) { .key-buttons-guests > button:hover { background: #333 } }
-.key-buttons-guests > button:active { background: ${look.pressed} }
+.key-buttons-guests > button:active, .key-buttons-guests > button.busy { background: ${look.pressed} }
 .key-buttons-guests > button > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons-guests > button.fill > svg { fill: currentColor; stroke: none }
 .key-buttons-guests.floor { right: auto; left: ${look.reload.left}px; bottom: ${g.h_row + look.reload.bottom}px }
-.key-buttons-guests.floor.touch { bottom: ${look.size + 3 * look.bottom}px }
+.key-buttons-guests.floor.touch { left: ${touch.left}px; bottom: ${look.size + 3 * look.bottom}px }
 .key-buttons-guests.floor.touch > button { width: ${look.size}px; height: ${look.size}px }
 .key-buttons-guests.floor.touch > button > svg { width: ${look.icon}px; height: ${look.icon}px }
 .key-buttons-bg > .key-buttons-bg-floor { display: none; position: absolute; left: 0; box-sizing: border-box; border-top: 1px solid ${look.backdrop.border}; border-right: 1px solid ${look.backdrop.border}; border-top-right-radius: ${g.r}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; -webkit-clip-path: inset(-${g.pad}px -${g.pad}px 0 0); clip-path: inset(-${g.pad}px -${g.pad}px 0 0); pointer-events: none }
@@ -641,7 +646,18 @@ const key_buttons_backdrop = (win, keyboard, shown, look = KEY_BUTTONS_LOOK) =>
 const key_buttons_reload_shown = (win, keyboard, shown, look, parts = KEY_BUTTONS_PARTS) =>
   !!parts.reload_button &&
   !keyboard.up &&
-  !(shown == 'main' && win.innerWidth - look.right - (KEY_BUTTONS.length * look.size + (KEY_BUTTONS.length - 1) * look.gap) < look.reload.left + look.reload.size + look.gap)
+  !(
+    shown == 'main' &&
+    win.innerWidth - look.right - (KEY_BUTTONS.length * look.size + (KEY_BUTTONS.length - 1) * look.gap) <
+      key_buttons_reload_touch(look).left + key_buttons_reload_touch(look).size + look.gap
+  )
+
+// the reload button on a touch device (the phone's lower left): the row's size, centred on the point
+// that the sparkle-sized one of a keyboard device is centred on
+const key_buttons_reload_touch = look => {
+  const grown = (look.size - look.reload.size) / 2
+  return { size: look.size, left: look.reload.left - grown, bottom: look.reload.bottom - grown }
+}
 
 const key_buttons_svg = icon => `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${icon}"/></svg>`
 
@@ -675,6 +691,55 @@ const key_buttons_target = doc => {
   const active = doc.activeElement
   return active && active !== doc.documentElement && !active.closest?.('[data-key-buttons]') ? active : doc.body
 }
+
+// DIAGNOSTICS (2026-11-24, for taps that came late or did nothing on an iPhone): lines in the console,
+// written only when something was slow or was not taken. The browser stamps an event with the moment of
+// the input itself (event.timeStamp), also when the page gets to it later: `key_buttons_waited` is how
+// long an event has waited by now, in ms, or null where the stamp cannot be read against this page's clock
+const KEY_BUTTONS_SLOW = { waited: 300, work: 1000, stuck: 1000, tick: 200 }
+const key_buttons_now = () => (typeof performance != 'undefined' ? performance.now() : Date.now())
+const key_buttons_waited = (e, now = key_buttons_now()) => {
+  const stamp = e?.timeStamp
+  if (typeof stamp != 'number' || !(stamp > 0)) return null
+  const waited = stamp > 1e12 ? Date.now() - stamp : now - stamp // an older browser stamps with the date
+  return waited >= 0 ? Math.round(waited) : null
+}
+// the line for a press that waited, or whose work took long; null where neither did. `down` is the wait
+// since the finger came down (where a touch was seen), `waited` since the tap's click, `work` the time
+// the press's own work took
+const key_buttons_slow_line = (name, { down = null, waited = null, work = null }, slow = KEY_BUTTONS_SLOW) =>
+  Math.max(down ?? 0, waited ?? 0) < slow.waited && (work ?? 0) < slow.work
+    ? null
+    : `key buttons: the tap on "${name}" reached the page ${waited ?? '?'} ms after the finger left` +
+      (down == null ? '' : ` (${down} ms after it came down)`) +
+      (work == null ? '' : `; its work took ${Math.round(work)} ms`)
+// a press's work timed and its line written where it was slow; `done` may be a promise for the work's end
+const key_buttons_timed = (name, e, down_at, work) => {
+  const began = key_buttons_now()
+  const marks = { waited: key_buttons_waited(e, began), down: down_at == null ? null : Math.round(began - down_at) }
+  const report = () => {
+    const line = key_buttons_slow_line(name, { ...marks, work: key_buttons_now() - began })
+    if (line) console.warn(line)
+  }
+  let done
+  try {
+    done = work()
+  } finally {
+    if (typeof done?.then == 'function') done.then(report, report)
+    else report()
+  }
+  return done
+}
+// the moment a finger came down on a button, on this page's clock, kept on the button for its click
+const key_buttons_down = (button, e) => void (button._down_at = key_buttons_now() - (key_buttons_waited(e) ?? 0))
+// that moment, taken once (a later click without a touch has none)
+const key_buttons_down_taken = button => {
+  const at = button._down_at ?? null
+  button._down_at = null
+  return at
+}
+// why a tap was not taken, for the console
+const key_buttons_dropped = (name, why) => console.warn(`key buttons: a tap on "${name}" was not taken: ${why}`)
 
 // one press: the key's events, on the element that has the focus when the press begins (a
 // handler of the app may move the focus, and a real key's release would follow it there; the
@@ -775,8 +840,9 @@ function key_buttons_create() {
       button.addEventListener('click', e => {
         e.preventDefault()
         e.stopPropagation()
-        if (!self.disposed && !bar.hidden && own_click_ok(button, e) && (kind == 'bar' || key_buttons_editor(document.activeElement)))
-          key_buttons_press(spec, document)
+        if (self.disposed || bar.hidden) return
+        if (!own_click_ok(button, e)) return key_buttons_dropped(spec.name, 'it did not start on this button')
+        if (kind == 'bar' || key_buttons_editor(document.activeElement)) key_buttons_timed(spec.name, e, key_buttons_down_taken(button), () => void key_buttons_press(spec, document))
       })
       // a press on a button is not the app's and takes no focus (the sparkle's rule, and the
       // way the app's own create button keeps the box's focus on a phone): the key goes to
@@ -787,7 +853,7 @@ function key_buttons_create() {
         e.preventDefault()
         e.stopPropagation()
       })
-      button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+      button.addEventListener('touchstart', e => (e.stopPropagation(), key_buttons_down(button, e)), { passive: true })
       button.addEventListener('contextmenu', e => {
         e.preventDefault()
         e.stopPropagation()
@@ -936,7 +1002,8 @@ function key_buttons_create() {
     guests.className = !floor ? 'key-buttons-guests' : bg_mode == 'mobile' ? 'key-buttons-guests floor touch' : 'key-buttons-guests floor'
     const floor_size = bg_mode == 'mobile' ? KEY_BUTTONS_LOOK.size : KEY_BUTTONS_LOOK.reload.size
     const floor_row = bg_mode == 'mobile' ? KEY_BUTTONS_LOOK.size + 2 * KEY_BUTTONS_LOOK.bottom : KEY_BUTTONS_LOOK.reload.size + 2 * KEY_BUTTONS_LOOK.reload.bottom
-    self.guest_floor = floor ? 2 * KEY_BUTTONS_LOOK.reload.left + handed * floor_size + (handed - 1) * KEY_BUTTONS_LOOK.gap : 0
+    const floor_left = bg_mode == 'mobile' ? key_buttons_reload_touch(KEY_BUTTONS_LOOK).left : KEY_BUTTONS_LOOK.reload.left
+    self.guest_floor = floor ? 2 * floor_left + handed * floor_size + (handed - 1) * KEY_BUTTONS_LOOK.gap : 0
     Object.assign(backdrop_floor.style, floor ? { width: self.guest_floor + 'px', bottom: floor_row + 'px', height: floor_row + 'px' } : { width: '', bottom: '', height: '' })
     const guest_count = room ? handed : 0
     if (guest_count !== self.guest_count) {
@@ -1007,16 +1074,22 @@ function key_buttons_create() {
         button.appendChild(svg)
         button.addEventListener('click', e => {
           taken(e)
-          if (self.disposed || guests.hidden || !own_click_ok(button, e)) return
+          if (self.disposed || guests.hidden) return
+          // a tap that is not taken says so in the console: nothing else would tell its owner
+          if (!own_click_ok(button, e)) return key_buttons_dropped(spec.name, 'it did not start on this button')
           const failed = error => console.error(`key buttons: a guest button's press failed: ${error}`)
+          // lit from the tap until the press's work is done (a press may return a promise for it)
+          const done = () => button.classList.remove('busy')
+          button.classList.add('busy')
           try {
-            Promise.resolve(spec.press?.()).catch(failed)
+            Promise.resolve(key_buttons_timed(spec.name, e, key_buttons_down_taken(button), () => spec.press?.())).catch(failed).then(done)
           } catch (error) {
             failed(error)
+            done()
           }
         })
         button.addEventListener('mousedown', taken)
-        button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+        button.addEventListener('touchstart', e => (e.stopPropagation(), key_buttons_down(button, e)), { passive: true })
         button.addEventListener('contextmenu', taken)
         return button
       })
@@ -1194,9 +1267,29 @@ function key_buttons_create() {
   }
   if (KEY_BUTTONS_PARTS.shift_space_tab) window.addEventListener('keydown', typed, true)
 
+  // DIAGNOSTICS: the page's own clock. A tick that comes a second or more late, the page in front before
+  // and after it, is a page that did not respond for that long (a tap made meanwhile waits as long)
+  const in_front = () => document.visibilityState == 'visible'
+  let tick_at = key_buttons_now()
+  let tick_front = in_front()
+  const tick_reset = () => void ((tick_at = key_buttons_now()), (tick_front = false)) // the page hidden or shown: no measure across it
+  document.addEventListener?.('visibilitychange', tick_reset)
+  window.addEventListener?.('pageshow', tick_reset)
+  const ticker = typeof setInterval != 'function' ? null : setInterval(() => {
+    const now = key_buttons_now()
+    const late = now - tick_at - KEY_BUTTONS_SLOW.tick
+    if (tick_front && in_front() && late >= KEY_BUTTONS_SLOW.stuck) console.warn(`key buttons: the page did not respond for ${Math.round(late)} ms, until ${new Date().toLocaleTimeString()}`)
+    tick_at = now
+    tick_front = in_front()
+  }, KEY_BUTTONS_SLOW.tick)
+  ticker?.unref?.() // (a test's process must not wait for it)
+
   self.dispose = () => {
     if (self.disposed) return
     self.disposed = true
+    if (ticker != null) clearInterval(ticker)
+    document.removeEventListener?.('visibilitychange', tick_reset)
+    window.removeEventListener?.('pageshow', tick_reset)
     viewport?.removeEventListener('resize', look)
     viewport?.removeEventListener('scroll', look)
     device?.removeEventListener?.('change', look)
