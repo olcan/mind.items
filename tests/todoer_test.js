@@ -182,6 +182,7 @@ const picked =
     '_listing_changed',
     '_listed',
     '_render_todoer_widget',
+    '_on_search',
   ]).join('\n') +
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
@@ -2217,7 +2218,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     className = ''
     style = {} // a row that ends in its todo tag (a prefix snippet) is styled right to left
     parentElement = null
-    classList = { contains: name => this.className.split(' ').includes(name) }
+    classList = {
+      contains: name => this.className.split(' ').includes(name),
+      add: name => void (this.classList.contains(name) || (this.className = (this.className + ' ' + name).trim())),
+    }
     get firstChild() {
       return this.children[0] ?? null
     }
@@ -2736,6 +2740,26 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     live.ctx._on_item_change('chat', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
     live.chat._global_store._todoer = { cleared: KEY }
     check('waits: a clear made on another device takes the row away at the store\'s delivery', [live.ids().includes('chat'), live.ctx._on_global_store_change('chat', true), live.ids()], [true, undefined, ALL])
+    // THE BOX NAMES AN ITEM (the search hook): the widgets that list it are rendered again, so that
+    // its row is marked, a reply's row as a todo's (the owner's report of 2026-11-24: a reply's row
+    // stayed unmarked until something else rendered the list, since only a todo's name went past
+    // the hook's first test unless a row was marked already). The page's box, its marked rows and
+    // the items' names are modelled here; the row of an item is marked by the render itself
+    const named = chatting()
+    const marked = () => named.rows().filter(row => row.classList.contains('selected')).map(row => row.getAttribute('data-id'))
+    let box = ''
+    let renders = 0
+    named.ctx.MindBox.get = () => box
+    named.ctx._item = ref => (ref == 'pinned' ? named.pinned : named.ctx._items().find(item => item.id == ref || item.name == ref) ?? null)
+    named.ctx._this = { dependents: ['pinned'] }
+    named.ctx.window.Sortable = named.ctx.Sortable
+    named.ctx.document.querySelector = selector => (selector == '.todoer-widget .list-item-container.selected' && marked().length ? {} : null)
+    named.pinned.elem = { querySelectorAll: selector => (selector == '.todoer-widget' ? (renders++, [named.widget]) : []), querySelector: selector => (selector == '.list-item-container.selected' && marked().length ? {} : null) }
+    const name_it = text => (named.ctx._on_search((box = text)), [marked(), renders])
+    check('search: a chat whose reply waits is named, no row marked before: the list is rendered again and its row is marked', name_it('#e2e_chatty/0'), [['chat'], 1])
+    check('search: a todo named next takes the mark', name_it('id:short'), [['short'], 2])
+    check('search: a text that names no item takes the mark away, and with no row marked renders nothing more', [name_it('fix'), name_it('fix the')], [[[], 3], [[], 3]])
+    check('search: an item that no widget lists renders nothing', name_it('pinned'), [[], 3])
     // the list's start: one stamp, written only from a confirmed corpus that is not held
     const starting = chatting({ base: null })
     const todoer = starting.ctx._todoer
