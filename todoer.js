@@ -1259,11 +1259,20 @@ function _on_command_todo(text) {
 
 // detect any changes to todo items & re-render widgets as needed; a text change of any item is
 // compared for a bridge reply first (a vault or task chat's new agent turn, _notify_reply: a
-// remote one may notify, a local one moves the baseline)
+// remote one may notify, a local one moves the baseline) and for an unseen item write stamp in
+// `#todoer`'s own store (when the item arrived or updated after its stamp)
 function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (dependency) return // ignore dependency changes
   const item = _item(id, { silent: true }) // can be null if item deleted
-  if (item) _notify_reply(item, remote)
+  if (item) {
+    _notify_reply(item, remote)
+    if (!deleted) {
+      const key = item.saved_id ?? item.id
+      const wrote = _item_writes()
+      const entry = wrote && Object.prototype.hasOwnProperty.call(wrote, key) ? wrote[key] : null
+      if (entry && _todoer.store.item_seen?.[key] !== entry.at) _notify_item(key, item)
+    }
+  }
   // item must exist and be tagged with #todo (to be added or updated)
   // OR it must listed in a widget on a dependent (to be removed)
   const is_todo_item = item?.tags.includes('#todo')
@@ -1282,12 +1291,14 @@ function _listed(pinned, id) {
   return Object.values(pinned.store._todoer?.items ?? {}).some(set => set.has(id))
 }
 
-// detect any changes to global stores on todo items: the desktop notification of a projection
-// change first (independent of any widget on the page; a project's bound children follow its
-// projection, so they are compared too), then the widgets' re-render. The #vault item's store
-// is the one other store the rows read (the bridge's listing, for a marker's review link): a
-// change of what they read of it renders every mounted widget again
+// detect any changes to global stores: `#todoer`'s own store carries agent item write stamps
+// (`_agent.wrote`), checked before everything else; on todo items, the desktop notification of
+// a projection change first (independent of any widget on the page; a project's bound children
+// follow its projection, so they are compared too), then the widgets' re-render. The #vault
+// item's store is the one other store the rows read (the bridge's listing, for a marker's
+// review link): a change of what they read of it renders every mounted widget again
 function _on_global_store_change(id, remote) {
+  if (id != null && id == _todoer.id) _notify_items()
   const item = _item(id, { silent: true }) // can be null if item deleted
   if (_listing_changed(item)) return _rerender_todoer_widgets()
   if (!item?.tags.includes('#todo')) return
@@ -1854,18 +1865,21 @@ function _visible(text) {
 }
 
 // the reasons that wait on the owner (the default set; their notification stays on screen until
-// clicked): the hand-back reasons, `done` included since the todo then waits to be closed, and
-// `reply`, a bridge reply on a vault or task chat (the owner's ask of 2026-10-04); then the other
-// reasons an owner may add (their notification shows for the shell's default; `all` names every one)
-const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply']
+// clicked): the hand-back reasons, `done` included since the todo then waits to be closed,
+// `reply`, a bridge reply on a vault or task chat (the owner's ask of 2026-10-04), and `item`, an
+// item an agent created or edited with the item tool (the owner's ask of 2026-11-23); then the
+// other reasons an owner may add (their notification shows for the shell's default; `all` names
+// every one)
+const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item']
 const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'interrupted', 'taken']
 const NOTIFIER_KEY = 'mindpage_todoer_notifier' // localStorage: the device's elected window
 const NOTIFIER_STALE_MS = 5 * 60 * 1000 // an election not refreshed for this long is vacant
 const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its gesture stamps' spacing
 const UNSNOOZE_SKEW_MS = 60 * 1000 // a snooze that ended this close before its time ended by it (the devices' clocks differ)
+const ITEM_STAMP_MAX_AGE_MS = 10 * 60 * 1000 // an agent write stamp further than this from this device's clock (either direction) never notifies
 
 // => /notify [on [reason...]|off [reason...]|test]
-// desktop notifications for tasks that come back to the main list and for the agent's replies on vault and task chats: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
+// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
@@ -2043,6 +2057,101 @@ function _notify_reply(item, remote = true) {
   return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
 }
 
+// the map of item write stamps in `#todoer`'s own store (`_agent.wrote`), or null
+function _item_writes() {
+  const wrote = _todoer._global_store?._agent?.wrote
+  return wrote && typeof wrote == 'object' && !Array.isArray(wrote) ? wrote : null
+}
+
+// what a reader sees of an item: the app's reading without hidden and removed sections, without
+// HTML comments, and without hidden tags or inert-region tokens
+function _item_visible(item) {
+  const raw =
+    typeof item.read == 'function'
+      ? item.read('', { remove_hidden: true, remove_removed: true })
+      : String(item.text ?? '')
+  return _visible(String(raw ?? '').replace(/<!--[\s\S]*?-->/g, ''))
+}
+
+// title text (`shown`, passed to _notification_of) and body preview for an `[item]` alert:
+// a unique label other than the bare `#todo` tag is the title and the first visible line after
+// it is the body; otherwise the first visible line (without `#todo` and a state marker) is the
+// title and the next visible line is the body, shortened to 120 chars like _reply_line
+function _item_preview(item) {
+  const visible = _item_visible(item)
+  const clip = s => (s.length > 120 ? s.slice(0, 119).trimEnd() + '…' : s)
+  const norm = s => s.replace(/\s+/g, ' ').trim()
+  const unique = typeof item.name == 'string' && item.name.startsWith('#') && item.name.toLowerCase() != '#todo'
+  if (unique) {
+    const idx = visible.toLowerCase().indexOf(item.name.toLowerCase())
+    const rest = idx >= 0 ? visible.slice(idx + item.name.length) : visible
+    const line = rest.split('\n').find(l => l.trim()) ?? ''
+    return { shown: item.name, body: clip(norm(line)) }
+  }
+  const lines = visible.split('\n').map(norm).filter(l => l)
+  const strip = l => l.replace(/(^|\s)#todo(?=\s|$)/gi, '$1').replace(/(^|\s)\[[a-z]+\](?=\s|$)/, '$1').replace(/\s+/g, ' ').trim()
+  const first = lines.findIndex(l => strip(l))
+  const shown = first >= 0 ? lines[first].replace(/(^|\s)#todo(?=\s|$)/gi, '$1') : ''
+  const body = first >= 0 ? clip(lines[first + 1] ?? '') : ''
+  return { shown, body }
+}
+
+// one decision for an entry in `_todoer._global_store._agent.wrote` against what this tab has:
+// 'no stamp' (missing/malformed), 'seen' (this tab already decided this id and at), 'stale'
+// (at more than ten minutes from this device's clock in either direction), 'pending' (item not
+// in the page yet, or its hash differs from the entry's — nothing recorded so a later trigger
+// decides again), else the setting/permission gate ('notify' or its skip reason)
+function _item_notify_step({ at, hash, prev, item_hash, now, setting, permission }) {
+  if (typeof at != 'number' || !Number.isFinite(at) || typeof hash != 'string' || !hash) return 'no stamp'
+  if (prev === at) return 'seen'
+  if (Math.abs(now - at) > ITEM_STAMP_MAX_AGE_MS) return 'stale'
+  if (typeof item_hash != 'string' || item_hash !== hash) return 'pending'
+  return _notify_gate({ setting, reason: 'item', permission })
+}
+
+// one entry in `_todoer._global_store._agent.wrote` compared with what this tab saw and holds:
+// 'pending' records nothing so a later item arrival, store delivery or minute scan decides again;
+// every other decision records `at` as seen by this tab; 'notify' pops an alert from the device's
+// elected window under `item`; returns the step
+function _notify_item(id, item = null) {
+  const seen = _todoer.store.item_seen
+  if (!seen) return 'baseline'
+  const wrote = _item_writes()
+  const entry = wrote && Object.prototype.hasOwnProperty.call(wrote, id) ? wrote[id] : null
+  const at = entry && typeof entry == 'object' && !Array.isArray(entry) ? entry.at : null
+  const hash = entry && typeof entry == 'object' && !Array.isArray(entry) ? entry.hash : null
+  item ??= id && !String(id).startsWith('#') ? _item(id, { silent: true }) : null
+  const step = _item_notify_step({
+    at,
+    hash,
+    prev: seen[id],
+    item_hash: item?.hash ?? null,
+    now: Date.now(),
+    setting: _todoer._global_store?.notify,
+    permission: _notify_permission(),
+  })
+  if (step == 'no stamp' || step == 'seen' || step == 'pending') return step
+  seen[id] = at
+  if (step != 'notify') return step
+  if (!_notifier_elected()) return 'another window'
+  const { shown, body } = _item_preview(item)
+  const facts = { reason: 'item', shown, label: null, parent: null, id: item.saved_id ?? item.id, body }
+  return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+}
+
+// every entry in `_todoer._global_store._agent.wrote` decided (the todoer's store hook and the
+// notifier's minute scan); returns the count of alerts shown
+function _notify_items() {
+  if (!_todoer.store.item_seen) return 0
+  const wrote = _item_writes()
+  if (!wrote) return 0
+  let notified = 0
+  for (const id of Object.keys(wrote)) {
+    if (_notify_item(id) == 'notify') notified++
+  }
+  return notified
+}
+
 // the list a todo belongs to (_task_list over its projection, this tab's pending command and its
 // parent's projection)
 function _list_of(item, state) {
@@ -2151,6 +2260,7 @@ function _scan_notify() {
     _notify_change(item)
     compared++
   })
+  _notify_items()
   return compared
 }
 
@@ -2313,6 +2423,14 @@ function _start_notifier() {
   const seen = (_todoer.store.notify_seen = {})
   const snoozes = (_todoer.store.snooze_seen = {})
   const replies = (_todoer.store.reply_seen = {})
+  const item_seen = (_todoer.store.item_seen = {})
+  const wrote = _item_writes()
+  if (wrote) {
+    for (const [id, entry] of Object.entries(wrote)) {
+      if (entry && typeof entry == 'object' && !Array.isArray(entry) && typeof entry.at == 'number' && Number.isFinite(entry.at))
+        item_seen[id] = entry.at
+    }
+  }
   each(_items(), item => {
     const { replies: count, footer } = _vault_replies(item.read())
     if (count) replies[item.id] = { replies: count, footer }
