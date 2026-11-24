@@ -122,3 +122,107 @@
   margin-right: -19px;
   visibility: hidden;
 }
+
+/* Hide the first user delimiter row only when chat.js marked it (name tag first, nothing
+   but whitespace before the first `<<user...>>` delimiter line), plus any blank-line spacer
+   paragraphs emitted between the name tag and that row. */
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message),
+.dep_chat
+  > .content
+  > p:not(:first-child):has(
+    ~ div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  ) {
+  display: none;
+}
+
+/* Float the name-tag paragraph even when `.headerMinimal` is absent (e.g. a label with
+   uppercase letters), collapse any trailing blank-line `<br>` inside it, and contain the
+   float at the end of `.content`. */
+.dep_chat
+  > .content:has(
+    > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  )
+  > p:first-child {
+  float: left;
+  margin-right: 10px;
+}
+.dep_chat
+  > .content:has(
+    > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  )
+  > p:first-child
+  > br {
+  display: none;
+}
+.dep_chat
+  > .content:has(
+    > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  )
+  > p:first-child:has(> br) {
+  margin-right: calc(10px - 0.28em);
+}
+.dep_chat
+  > .content:has(
+    > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  )::after {
+  content: '';
+  display: block;
+  clear: left;
+}
+
+/* When the first user delimiter is hidden:
+   - a following paragraph flows beside the floated name tag and wraps under it;
+   - non-paragraph blocks (lists, code blocks, quotes, headings, tables, rules) clear below
+     the name tag so bullets, borders, and blocks never overlap it;
+   - a directly following role row (empty user row before `<<agent>>`) gets the same
+     minimal-header divider layout as when that role row is first. */
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  + * {
+  clear: both;
+}
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  + :is(p, div.message) {
+  clear: none;
+}
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  + *
+  ~ div.message {
+  clear: left;
+}
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  + div.message {
+  padding-top: 2px;
+  padding-bottom: 0;
+}
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  + div.message
+  + * {
+  clear: both;
+}
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  + div.message
+  hr.left {
+  margin-left: 0;
+}
+.dep_chat
+  > .content
+  > div.message.user.hideFirstUserRow:not(div.message ~ div.message)
+  + div.message
+  hr.right {
+  margin-right: -19px;
+  visibility: hidden;
+}

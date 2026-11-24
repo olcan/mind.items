@@ -297,16 +297,49 @@ async function _delete_agent_messages_below(e) {
   for (const d of order) d.delete(false /*confirm: the dialog above was the confirmation*/)
 }
 
+function hide_first_user_row(text, name) {
+  const raw = String(text ?? '')
+  const item = String(name ?? '')
+  if (!raw || !item) return false
+
+  const tag = item.startsWith('#') ? item : '#' + item
+  if (raw.slice(0, tag.length).toLowerCase() !== tag.toLowerCase()) return false
+
+  // refuse `#name...` where `#name` is a prefix of some other tag token
+  const after = raw[tag.length]
+  if (after != null && !/\s/.test(after)) return false
+
+  // the first `<<user...>>` delimiter line after the name tag (must start a line;
+  // 0-3 leading spaces so Marked parses its `_html` block rather than an indented block)
+  const rest = raw.slice(tag.length)
+  const match = rest.match(/\n {0,3}<< *user(?: *\([^\n]*\))? *>>/)
+  if (!match) return false
+
+  // hide ONLY when nothing but whitespace stands between the name tag and that delimiter
+  return /^\s*$/.test(rest.slice(0, match.index))
+}
+
 // generic delimiter macro reused by role-specific macros defined below
 const _delimiter = (role, name = role, ...args) => {
   if (name && !is_string(name))
     throw new Error(`invalid non-string name argument '${name}'`)
   if (args.length > 0) throw new Error(`invalid extra arguments '${args}'`)
+
+  // read raw `_this.text` (not the grammar view `read()`) and `_this.label` (not `_name`,
+  // which becomes `id:...` on duplicate labels); when only whitespace precedes the first
+  // `<<user>>`, no earlier macro can run, so it is always `macro_0`
+  const first_macro = typeof __trigger !== 'string' || __trigger === 'macro_0'
+  const raw = typeof _this !== 'undefined' && typeof _this?.text === 'string' ? _this.text : ''
+  const label = typeof _this !== 'undefined' && typeof _this?.label === 'string' ? _this.label : ''
+  const hide_first = role === 'user' && first_macro && hide_first_user_row(raw, label)
+  const state = hide_first ? 'hideFirstUserRow' : ''
+
   return html(
     _item('$id')
       .read('html') // see html block below
       .replace(/%role/g, role)
       .replace(/%name/g, name)
+      .replace(/ ?%state/g, state ? ' ' + state : '')
   )
 }
 

@@ -505,16 +505,16 @@ const is_infra_error = e =>
   [401, 403, 429].includes(e.status) ||
   /failed to fetch|load failed|networkerror/i.test(e?.message ?? '')
 
-// return auth token for updating item from github source
+// return auth token for updating items from github
 // returns null if no token is available
-async function github_token(item) {
-  // try in this order:
-  // item.attr.token (preferred since token may be specialized to item)
+async function github_token() {
+  // never read, store, or prompt for a token on the isolated shared-page origin
+  if (typeof window != 'undefined' && window._shared_origin) return null
+  // try in this order (tokens are never stored in or read from item.attr):
   // local storage (mindpage_github_token, also used by /_update)
   // #updater (_this) global store
   // #pusher global store
-  let token = item.attr.token
-  if (!token) token = localStorage.getItem('mindpage_github_token')
+  let token = localStorage.getItem('mindpage_github_token')
   if (!token) token = _this.global_store.token
   if (!token) token = _item('#pusher', { silent: true })?.global_store.token
   // if still missing, prompt user for token and store in local storage
@@ -1048,7 +1048,7 @@ async function update_item(item, updates) {
       }
     }
 
-    // NOTE: attr.sha/token are assigned AFTER the pushable-overwrite confirm below
+    // NOTE: attr.sha is assigned AFTER the pushable-overwrite confirm below
     // (2026-08-30): assigning here mutated the live attr before a possible Cancel, and any
     // later attr save (e.g. the pusher marking the item pushable) then persisted the NEW sha
     // with the OLD text -- a stuck item the updater considers current and the pusher considers
@@ -1148,9 +1148,7 @@ async function update_item(item, updates) {
     // the post-write check_updates); mutated only after the last cancel surface above
     // NOTE: attr is generally considered read-only and permanent; this is a rare exception and it works because it does not affect rendering/ranking so it does not require special handling during firestore sync
     const prev_sha = attr.sha
-    const prev_token = attr.token
     attr.sha = sha // new commit sha
-    attr.token = token // token for future updates
     attr.embeds = next_embeds
 
     // write new text to item (also triggers save of modified attributes)
@@ -1173,7 +1171,6 @@ async function update_item(item, updates) {
     } finally {
       if (!write_committed) {
         attr.sha = prev_sha
-        attr.token = prev_token
         attr.embeds = prev_embeds
       }
     }
