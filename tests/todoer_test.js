@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', '_snooze_record'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', '_snooze_record', '_wait_key'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -134,6 +134,10 @@ const picked =
     '_vault_replies',
     '_reply_line',
     '_notify_reply',
+    '_waits',
+    '_waiting_text',
+    '_clear_waiting',
+    '_rows_start',
     '_on_item_change',
     '_state_key',
     '_notify_step',
@@ -159,6 +163,7 @@ const picked =
     '_scan_notify',
     '_on_global_store_change',
     '_listing_changed',
+    '_listed',
     '_render_todoer_widget',
   ]).join('\n') +
   consts +
@@ -935,7 +940,7 @@ context._todoer.store.reply_seen = undefined
 check('reply: before the welcome, the baseline is pending', _notify_reply(chat_item('k', REPLY)), 'baseline')
 context.__items = [chat_item('k', REPLY), todo('a', null)]
 _start_notifier()
-check('welcome: the baseline records the chats\' reply counts and attributions', context._todoer.store.reply_seen, { k: { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" } })
+check('welcome: the baseline records the chats\' reply counts and attributions', context._todoer.store.reply_seen, { k: { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true } })
 check('reply: the baseline\'s reply notifies nothing', _notify_reply(chat_item('k', REPLY)), 'unchanged')
 const replied = REPLY + `\n<<user>> go on\n${FOOTER2}\n${inert('The second answer.')}`
 check('reply: one more reply notifies with the label, the first line and the chat\'s tag', [_notify_reply(chat_item('k', replied)), notified[notified.length - 1].title, notified[notified.length - 1].options.body, notified[notified.length - 1].options.tag, notified[notified.length - 1].options.requireInteraction], ['notify', '[reply] #e2e_chatty/0', 'The second answer.', 'todoer:sk', true])
@@ -949,7 +954,7 @@ check('reply: a replacement under the same count with another run id notifies', 
 check('reply: a chat with the app\'s empty label is titled by its first line', (_notify_reply(chat_item('m', `the first line\n<<user>> hi\n${FOOTER}\n${inert('reply')}`, '')), notified[notified.length - 1].title), '[reply] the first line')
 // the caller reads the grammar view (review 6): a response quoting a vault opener inside its body
 // is one stored reply and one notification with the real first line
-check('reply: the quoted opener inside a body is no reply at the caller either', [_notify_reply(chat_item('o', QUOTING_AGENT)), context._todoer.store.reply_seen.o, notified[notified.length - 1].options.body], ['notify', { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" }, 'Like this line:'])
+check('reply: the quoted opener inside a body is no reply at the caller either', [_notify_reply(chat_item('o', QUOTING_AGENT)), context._todoer.store.reply_seen.o, notified[notified.length - 1].options.body], ['notify', { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true }, 'Like this line:'])
 context._todoer._global_store = { notify: { reasons: ['question'] } }
 check('reply: not enabled', _notify_reply(chat_item('n', REPLY)), 'reason reply')
 context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] } }
@@ -962,7 +967,7 @@ context.__todos.q = chat_item('q', REPLY)
 context._todoer.store.reply_seen.q = { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" } // the baseline saw the reply
 context.__todos.q = chat_item('q', '#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> what now?') // truncated locally
 _on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, false, false)
-check('hook: a local truncation moves the baseline and shows nothing', [notified.length - notified_before_hook, context._todoer.store.reply_seen.q], [0, { replies: 0, footer: '' }])
+check('hook: a local truncation moves the baseline and shows nothing', [notified.length - notified_before_hook, context._todoer.store.reply_seen.q], [0, { replies: 0, footer: '', last: false }])
 context.__todos.q = chat_item('q', `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> what now?\n${RERUN}\n${inert('The rerun answer.')}`)
 _on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
 check('hook: the rerun\'s replacement reply notifies once', [notified.length - notified_before_hook, notified[notified.length - 1].options.body], [1, 'The rerun answer.'])
@@ -2238,4 +2243,87 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     mounted.pinned.tags = []
     check('delivery: another item\'s store renders nothing, as before', [ctx._on_global_store_change('pinned', true), renders], [undefined, 4])
   }
+  // ROWS THAT ARE NOT TODOS (the owner's list of what waits on them, 2026-11-23): a chat whose LAST
+  // turn is a bridge reply that the owner has not cleared has a row in the main list: a bell mark
+  // that says `reply`, the chat's name, the reply's first line. A drop on the done bin clears it in
+  // the chat's own store and writes nothing into the chat; the other bins put the row back (not
+  // built yet); nothing from before the list's start shows
+  {
+    const KEY = "1|'vault/default · run ab12cd34 · 1s'"
+    const SEEN = { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true }
+    const chatting = ({ since = 1000, time = 2000, seen = SEEN, store = {}, snooze = null } = {}) => {
+      const w = world({ snooze })
+      const called = []
+      const chat = { id: 'chat', saved_id: 's-chat', label: '#e2e_chatty/0', name: '#e2e_chatty/0', text: REPLY, time, _global_store: store }
+      Object.assign(chat, { tags: ['#e2e_chatty/0', '#chat/vault', '#autodep'], tags_visible: ['#e2e_chatty/0'] })
+      Object.defineProperty(chat, 'global_store', { get: () => chat._global_store })
+      chat.read = () => view(chat.text)
+      chat.write = () => called.push('write')
+      chat.delete = () => called.push('delete')
+      chat.select = () => (called.push('select'), true)
+      w.ctx._items().push(chat)
+      w.ctx._todoer._global_store = since == null ? {} : { rows_since: since }
+      w.ctx._todoer.store.reply_seen = seen ? { chat: seen } : {}
+      w.render()
+      return Object.assign(w, { chat, called })
+    }
+    const shown = chatting()
+    const row = shown.rows()[4]
+    check('waits: a chat whose reply is its last turn has a row after the todos: the bell with its kind, the name, the reply\'s first line', [shown.ids(), row.getAttribute('data-waits'), row.children[0].innerHTML, row.title], [[...ALL, 'chat'], 'reply', '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> Two parts: alpha and beta.', 'reply: waits on you; drop it on done to clear it\n#e2e_chatty/0 Two parts: alpha and beta.'])
+    check('waits: before the list\'s start nothing shows', chatting({ since: null }).ids(), ALL)
+    check('waits: a chat last touched before the start has no row', chatting({ time: 999 }).ids(), ALL)
+    check('waits: the owner\'s answer ends it (the reply is no longer the last turn)', chatting({ seen: { ...SEEN, last: false } }).ids(), ALL)
+    check('waits: a chat this tab holds no reply of has no row', chatting({ seen: null }).ids(), ALL)
+    check('waits: a cleared reply has no row', chatting({ store: { _todoer: { cleared: KEY } } }).ids(), ALL)
+    check('waits: one more reply after a clear shows the row again', chatting({ store: { _todoer: { cleared: KEY } }, seen: { ...SEEN, replies: 2 } }).ids(), [...ALL, 'chat'])
+    check('waits: the snoozed list has no such row', chatting({ snooze: { snoozed: 1_800_000_000_000 } }).ids(), ALL)
+    const cleared = chatting()
+    const done = cleared.drop('chat')
+    check('waits: a drop on the done bin clears the row in the chat\'s own store and writes nothing into the chat', [done.text == REPLY, done.rows, done.left, done.store, done.calls, cleared.called], [true, ALL, 0, { cleared: KEY }, [], []])
+    cleared.render()
+    check('waits: the next render keeps it cleared', cleared.ids(), ALL)
+    for (const bin of ['snooze', 'cancel', 'agent']) {
+      const kept = chatting()
+      const back = kept.drop('chat', bin)
+      check(`waits: a drop on the ${bin} bin does nothing yet: the row is back where it was`, [back.rows, back.left, back.store, back.calls, kept.called], [[...ALL, 'chat'], 0, undefined, [], []])
+    }
+    const clicked = chatting()
+    clicked.click('chat')
+    check('waits: a click on the row selects the chat', clicked.called, ['select'])
+    check('waits: a todo\'s drop on done is the todo\'s as before, beside such a row', kinds(chatting().drop('short')), { text: '#done fix the cache', rows: ['task', 'long', 'named', 'chat'], left: 0, store: undefined, draft: undefined, calls: ['write', 'log'] })
+    // the hooks (the production call sites) over a mounted widget: a reply that arrives shows the
+    // row, the owner's answer takes it away, and a clear made on another device (the chat's store)
+    // takes it away too
+    const live = chatting({ seen: { ...SEEN, last: false } })
+    live.ctx._item = ref => (ref == 'pinned' ? live.pinned : live.ctx._items().find(item => item.id == ref) ?? null)
+    live.ctx._this = { dependents: ['pinned'] }
+    live.ctx._todoer.dependents = ['pinned']
+    live.ctx.window.Sortable = live.ctx.Sortable
+    live.pinned.elem = { querySelectorAll: selector => (selector == '.todoer-widget' ? [live.widget] : []) }
+    live.pinned.tags = []
+    live.ctx._on_item_change('chat', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
+    check('waits: a reply that arrives renders the row', live.ids(), [...ALL, 'chat'])
+    live.chat.text = REPLY + '\n<<user>> thanks'
+    live.ctx._on_item_change('chat', '#e2e_chatty/0', '#e2e_chatty/0', false, false, false)
+    check('waits: the owner\'s answer takes the row away', live.ids(), ALL)
+    live.chat.text = REPLY
+    live.ctx._on_item_change('chat', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
+    live.chat._global_store._todoer = { cleared: KEY }
+    check('waits: a clear made on another device takes the row away at the store\'s delivery', [live.ids().includes('chat'), live.ctx._on_global_store_change('chat', true), live.ids()], [true, undefined, ALL])
+    // the list's start: one stamp, written only from a confirmed corpus that is not held
+    const starting = chatting({ since: null })
+    const todoer = starting.ctx._todoer
+    Object.defineProperty(todoer, 'global_store', { get: () => todoer._global_store })
+    starting.ctx.Date = ClockDate
+    context.__now = 5000
+    check('start: an unconfirmed corpus writes no stamp', [starting.ctx._rows_start(), todoer._global_store.rows_since], [false, undefined])
+    starting.ctx.window._server_confirmed = true
+    check('start: a confirmed corpus stamps the start once', [starting.ctx._rows_start(), todoer._global_store.rows_since, (context.__now = 9000, starting.ctx._rows_start()), todoer._global_store.rows_since], [true, 5000, true, 5000])
+    context.__now = null
+  }
+  // the item's files are embedded in the #todoer item's own text, where the app expands every
+  // macro opener that no backslash escapes, also in code and comments (a preview of another item
+  // broke its page that way, 2026-11-23): none may stand unescaped in the script or the widget's file
+  for (const file of ['todoer.js', 'todoer-widget.html'])
+    check(`embedded: ${file} holds no unescaped macro opener`, (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(?<!\\)<</g) ?? []).length, 0)
 }

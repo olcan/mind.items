@@ -212,7 +212,36 @@ function __render(widget, widget_item) {
     // render, its snippet taken from a lower-case #todo that the completion rightly left, a
     // selector in a stylesheet written in capitals). the widget's other tags are matched
     // over all of the item's tags, hidden ones included, as before
-    if (!item.tags_visible.includes('#todo')) continue
+    if (!item.tags_visible.includes('#todo')) {
+      // an item that waits on the owner without being a todo (_waits) has a row of its own in the
+      // main list of a widget with no tags of its own: a bell mark that names what it waits for,
+      // the item's name, the reply's first line. A drop on the done bin clears it (onEnd); the
+      // item's text is never written for it. Its place in the list is saved as a todo's is
+      const waits = !snoozed && !delegated && tags.length == 1 ? _waits(item) : null
+      if (!waits) continue
+      members.add(item.id)
+      const container = document.createElement('div')
+      container.className = 'list-item-container'
+      container.setAttribute('data-id', item.id) // used for saving below
+      container.setAttribute('data-waits', waits)
+      if (item.id == selected) container.classList.add('selected')
+      const div = document.createElement('div')
+      div.className = 'list-item'
+      const shown = _waiting_text(item)
+      container.title = `${waits}: waits on you; drop it on done to clear it\n${shown}`
+      div.innerHTML = `<mark class="waits">${waits}</mark> ` + _row_html(shown)
+      _wire_row_links(div)
+      div.onclick = e => {
+        e.stopPropagation() // do not propagate click to item
+        e.preventDefault()
+        // ignore clicks too close to an item being let go (as a todo's row does)
+        if (Date.now() - last_unchoose_time < 250 && Date.now() - last_choose_time > 500) return
+        _select_item(item, null)
+      }
+      container.appendChild(div)
+      list.appendChild(container)
+      continue
+    }
     if (
       !tags.every(tag => {
         if (tag[0] == '#') return item.tags.includes(tag)
@@ -549,6 +578,14 @@ function __render(widget, widget_item) {
       // widget.classList.remove('dragging')
       const id = e.item.getAttribute('data-id')
       const item = _item(id)
+      if (e.item.getAttribute('data-waits')) {
+        // a row that is not a todo: the done bin clears it, with nothing written into the item;
+        // the other bins do nothing for it yet and the row goes back where it was
+        if (e.to == list) return
+        e.to.firstChild.remove()
+        if (e.to != done_bin || !_clear_waiting(item)) list.insertBefore(e.item, list.children[e.oldIndex])
+        return
+      }
       if (e.to == agent_bin) {
         // a delegation (or a re-delegation from the delegated list): the command document is
         // the acceptance; the row moves through the overlay once it is enqueued
@@ -1267,9 +1304,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // item must exist and be tagged with #todo (to be added or updated)
   // OR it must listed in a widget on a dependent (to be removed)
   const is_todo_item = item?.tags.includes('#todo')
+  const waits = !!item && !is_todo_item && !!_waits(item) // a row that is not a todo (to be added)
   each(_this.dependents, dep => {
     const item = _item(dep)
-    if (is_todo_item || _listed(item, id)) {
+    if (is_todo_item || waits || _listed(item, id)) {
       item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
         _render_todoer_widget(widget, item)
       })
@@ -1290,7 +1328,11 @@ function _listed(pinned, id) {
 function _on_global_store_change(id, remote) {
   const item = _item(id, { silent: true }) // can be null if item deleted
   if (_listing_changed(item)) return _rerender_todoer_widgets()
-  if (!item?.tags.includes('#todo')) return
+  if (!item?.tags.includes('#todo')) {
+    // a row that is not a todo follows its item's store: a clear made here or on another device
+    if (item && (_waits(item) || (_todoer.dependents ?? []).some(dep => _listed(_item(dep), id)))) _rerender_todoer_widgets()
+    return
+  }
   _notify_change(item)
   _notify_children(item)
   _on_item_change(id)
@@ -2030,7 +2072,7 @@ function _notify_reply(item, remote = true) {
   if (!seen) return 'baseline'
   const { replies, last, footer } = _vault_replies(item.read())
   const prev = seen[item.id] ?? { replies: 0, footer: '' }
-  seen[item.id] = { replies, footer }
+  seen[item.id] = { replies, footer, last }
   if (!remote) return 'local'
   if (replies < prev.replies || replies == 0) return 'unchanged'
   if (replies == prev.replies && footer == prev.footer) return 'unchanged'
@@ -2041,6 +2083,47 @@ function _notify_reply(item, remote = true) {
   const shown = item.label || _visible(String(item.text ?? '').split('\n')[0] ?? '')
   const facts = { reason: 'reply', shown, label: null, parent: null, id: item.saved_id ?? item.id, body: _reply_line(item.text) }
   return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+}
+
+// what an item that is not a todo waits on the owner for, or null. `reply`: a chat whose LAST turn
+// is a bridge reply (this tab's record of it, _notify_reply) that the owner has not cleared. The
+// cleared reply is kept in the item's own synced store, as its snooze is, so a row cleared on one
+// device goes on the others. The owner's own answer in the chat ends it (the reply is no longer
+// the last turn), and a later reply shows the row again. Nothing from before the list's start
+// (_rows_start) ever shows
+const _wait_key = seen => `${seen.replies}|${seen.footer}`
+function _waits(item) {
+  const seen = item ? _todoer.store.reply_seen?.[item.id] : null
+  if (!seen?.replies || !seen.last) return null
+  if (!(item.time > _todoer._global_store.rows_since)) return null
+  return item._global_store?._todoer?.cleared == _wait_key(seen) ? null : 'reply'
+}
+
+// the text of such an item's row: its name when it has one, then the reply's first line
+function _waiting_text(item) {
+  const line = _reply_line(item.text)
+  return item.label ? `${item.label} ${line}`.trim() : line || _visible(String(item.text ?? '').split('\n')[0] ?? '')
+}
+
+// clears such an item's row (its drop on the done bin): the reply it shows is recorded as cleared
+// in the item's own store; false when this tab holds no reply of it to clear
+function _clear_waiting(item) {
+  const seen = item ? _todoer.store.reply_seen?.[item.id] : null
+  if (!seen) return false
+  const store = (item.global_store._todoer ??= {}) // reading global_store saves the store
+  store.cleared = _wait_key(seen)
+  return true
+}
+
+// the list's start: rows for replies show for what arrives after it, so that a first install
+// lists nothing of the past. One stamp in the #todoer item's own store, written once per account
+// and only from a server-confirmed, currently served corpus past a resume hold (the order save's
+// rule, _order_save_step: a store is written whole from this tab's copy); whether it stands
+function _rows_start() {
+  if (_todoer._global_store.rows_since) return true
+  if (!_corpus_current(window) || _held()) return false
+  _todoer.global_store.rows_since = Date.now()
+  return true
 }
 
 // the list a todo belongs to (_task_list over its projection, this tab's pending command and its
@@ -2314,8 +2397,8 @@ function _start_notifier() {
   const snoozes = (_todoer.store.snooze_seen = {})
   const replies = (_todoer.store.reply_seen = {})
   each(_items(), item => {
-    const { replies: count, footer } = _vault_replies(item.read())
-    if (count) replies[item.id] = { replies: count, footer }
+    const { replies: count, last, footer } = _vault_replies(item.read())
+    if (count) replies[item.id] = { replies: count, footer, last }
     if (!item.tags.includes('#todo')) return
     const state = _task_state(item)
     seen[item.id] = _seen_record(state, _list_of(item, state))
@@ -2329,11 +2412,14 @@ function _start_notifier() {
     window.addEventListener('pagehide', () => void _release_notifier())
     if (document.hasFocus()) _claim_notifier()
   }
+  // the rows for replies (_waits) read this tab's records, which exist only now
+  if (_rows_start() && Object.keys(replies).some(id => _waits(_item(id, { silent: true })))) _rerender_todoer_widgets()
   _todoer.dispatch_task(
     'notifier',
     () => {
       _claim_notifier(true)
       _scan_notify()
+      if (!_todoer._global_store.rows_since) _rows_start()
     },
     NOTIFIER_REFRESH_MS,
     NOTIFIER_REFRESH_MS
