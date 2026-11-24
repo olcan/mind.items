@@ -183,6 +183,24 @@
     background: #1a1a1a;
     font-size: 90%;
   }
+  /* the bell of a row that is not a todo: an item that waits on the owner, named by what it waits
+     for (todoer.js, _waits) */
+  #widget .list-item mark.waits {
+    color: #cb8;
+    background: #1a1a1a;
+    font-size: 90%;
+  }
+  #widget .list-item mark.waits::before {
+    content: '';
+    display: inline-block;
+    width: 0.95em;
+    height: 0.95em;
+    margin-right: 4px;
+    vertical-align: -0.12em;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
   /* the overlay of a command the bridge has not acknowledged: on the row's .list-item, never on the
      row's own box, which reaches under an item's number where its .list-item gives way (an opacity
      makes a stacking context of the whole box, above the number's button, and its invisible part

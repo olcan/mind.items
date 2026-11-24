@@ -212,7 +212,50 @@ function __render(widget, widget_item) {
     // render, its snippet taken from a lower-case #todo that the completion rightly left, a
     // selector in a stylesheet written in capitals). the widget's other tags are matched
     // over all of the item's tags, hidden ones included, as before
-    if (!item.tags_visible.includes('#todo')) continue
+    if (!item.tags_visible.includes('#todo')) {
+      // an item that waits on the owner without being a todo (_waits) has a row of its own in the
+      // main list of a widget with no tags of its own: a bell mark that names what it waits for,
+      // the item's name, the reply's first line. A drop on the done bin clears it (onEnd); the
+      // item's text is never written for it. Its place in the list is saved as a todo's is
+      const waits = !snoozed && !delegated && tags.length == 1 ? _waits(item) : null
+      if (!waits) continue
+      members.add(item.id)
+      const container = document.createElement('div')
+      container.className = 'list-item-container'
+      container.setAttribute('data-id', item.id) // used for saving below
+      container.setAttribute('data-waits', waits)
+      if (item.id == selected) container.classList.add('selected')
+      const div = document.createElement('div')
+      div.className = 'list-item'
+      const [name, line] = _waiting_parts(item)
+      // the reply this row shows, kept on the row: a clear made from it (the bell, a bin) is of
+      // THIS reply, also when a newer one has arrived while the row was held or dragged
+      const key = _wait_key(_todoer.store.reply_seen[item.id])
+      container.setAttribute('data-wait-key', key)
+      container.title = `${waits}: waits on you; click the bell or drop it on done to clear it\n${[name, line].join(' ').trim()}`
+      // the name as a tag, then the reply's line as TEXT: the chat shows a reply's body inert, so
+      // nothing in it becomes a link here either (a click on it selects the chat, as elsewhere)
+      div.innerHTML = `<mark class="waits">${waits}</mark> ` + (name ? _mark_tags(_.escape(name)) + ' ' : '')
+      div.append(line)
+      // the bell's own click clears the row (as its drop on the done bin does), not the row's
+      const bell = div.querySelector?.('mark.waits')
+      if (bell)
+        bell.onclick = e => {
+          e.stopPropagation()
+          e.preventDefault()
+          if (_clear_waiting(item, key)) _rerender_todoer_widgets()
+        }
+      div.onclick = e => {
+        e.stopPropagation() // do not propagate click to item
+        e.preventDefault()
+        // ignore clicks too close to an item being let go (as a todo's row does)
+        if (Date.now() - last_unchoose_time < 250 && Date.now() - last_choose_time > 500) return
+        _select_item(item, null)
+      }
+      container.appendChild(div)
+      list.appendChild(container)
+      continue
+    }
     if (
       !tags.every(tag => {
         if (tag[0] == '#') return item.tags.includes(tag)
@@ -248,6 +291,9 @@ function __render(widget, widget_item) {
     const cut = {} // what the snippet's truncation left out, read by the tooltip (_row_title)
     let text = _extract_todo_snippet(item, cut)
     if (!text) continue // no #todo tag found (should have logged error)
+    // a chat that became a todo: its row would show its name alone, so the start of its first
+    // user turn follows the name (see _row_question)
+    const question = _row_question(item, text)
     // a project's bound child (its projection carries `parent`): the row is marked ↳ and its
     // tooltip names the parent (vault project design 2.7); presentation only
     const parent = state?.parent ? _parent_of(state.parent) : null
@@ -283,8 +329,9 @@ function __render(widget, widget_item) {
     const first_lines =
       (snoozed ? new Date(item._global_store._todoer.snoozed).toLocaleString() + '\n' : '') +
       (parent ? `child of ${parent}\n` : '')
-    container.title = first_lines + _row_title(text, cut)
-    const shown = _visible(text).replace(/\s+/g, ' ')
+    const asked = question ? _visible(question.raw) + (question.more ? ' …' : '') : ''
+    container.title = first_lines + _row_title(text, cut) + (asked ? '\n' + asked : '')
+    const shown = (_visible(text) + (asked ? ' ' + asked : '')).replace(/\s+/g, ' ')
     container._log_text = (first_lines + shown).replace(/\s+/g, ' ')
     // a projection change this tab has not notified yet (the hook notifies first; a render
     // catches a delivery the hook did not see, see _notify_change)
@@ -299,8 +346,9 @@ function __render(widget, widget_item) {
     html = _decorate_row(html, text, state, review_anchor, parent, _row_label(item, shown))
 
     // determine suffix vs prefix snippet based on #todo suffix match
-    if (!text.match(/(?:^|\s|\()#todo$/)) {
-      if (!text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
+    // (a row that ends in its question reads from the left, as a suffix snippet does)
+    if (question || !text.match(/(?:^|\s|\()#todo$/)) {
+      if (!question && !text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
       div.innerHTML = html
     } else {
       // use direction=rtl to truncate (and add ellipsis) on the left
@@ -320,6 +368,23 @@ function __render(widget, widget_item) {
       div.innerHTML = '&lrm;' + html
     }
 
+    // the bell of a todo that came up since the owner last cleared it (_bell): its kind, and a
+    // click of its own that clears it (the row stays)
+    const rings = _bell(item, state, delegated ? 'delegated' : 'main')
+    if (rings) {
+      const bell = document.createElement('mark')
+      bell.className = 'waits'
+      bell.innerText = rings
+      bell.title = `${rings}: came up for you; click the bell to clear it`
+      const came_up = state.surfaced // the count this bell shows: its click clears that one
+      bell.onclick = e => {
+        e.stopPropagation()
+        e.preventDefault()
+        if (_clear_bell(item, came_up)) _rerender_todoer_widgets()
+      }
+      div.prepend(bell, ' ')
+    }
+
     if (delegated) {
       const updated = state?.updated
       const age = document.createElement('mark')
@@ -333,7 +398,7 @@ function __render(widget, widget_item) {
 
     // handle clicks and modify styling for non-todo tags (the age mark is not a tag; a named
     // item's label mark is one, and its click targets the label as the row's own click does)
-    div.querySelectorAll('mark:not(.age)').forEach(elem => {
+    div.querySelectorAll('mark:not(.age):not(.waits)').forEach(elem => {
       let tag = elem.innerText.replace(/#_/, '#')
       if (item.label) tag = _resolve_tag(item.label, tag) ?? tag
       elem.title = tag
@@ -370,14 +435,18 @@ function __render(widget, widget_item) {
       // snippet is a display slice, up to 200 characters across lines with the bridge's _log
       // block dropped, which a task's tree and log make non-contiguous in the item's text (the
       // app then logged "could not find text" on a [done] task's row and selected nothing)
-      const selection = _todo_line(text)
+      // (a chat that became a todo: the stretch of its question that the row shows)
+      // by its PLACE in the item's text: the words of a question can stand in the item's name
+      // too, and a selection by text takes the first occurrence. Where the place is not found,
+      // nothing is selected (the item is still selected, or opened, by the same checked path)
+      const selection = question ? _question_range(item, question.raw) : _todo_line(text)
       // the item is targeted by its NAME (the app's: the unique label when it has one, else the
       // id reference): under its label the app lists the item's children below it and its
       // keyboard navigation and child creation work, which an id reference never gives.
       // the target's row EDITS it where it is (_edit_item); any other row SELECTS its item
       // (_select_item)
-      if (edit) _edit_item(item, selection)
-      else _select_item(item, selection)
+      if (edit) _edit_item(item, selection, !!question)
+      else _select_item(item, selection, !!question)
     }
   }
 
@@ -549,6 +618,24 @@ function __render(widget, widget_item) {
       // widget.classList.remove('dragging')
       const id = e.item.getAttribute('data-id')
       const item = _item(id)
+      if (e.item.getAttribute('data-waits')) {
+        // a row that is not a todo. The done bin clears it, with nothing written into the item.
+        // The cancel bin deletes the item, always after the app's question. The snooze and the
+        // agent bin are a todo's: the row goes back where it was, with the word a todo's bins
+        // have for an item that is none (_task_target). A refusal puts the row back too
+        if (e.to == list) return
+        e.to.firstChild.remove()
+        if (!item) return // gone while its row was held: the list is drawn again without it
+        const back = () => void list.insertBefore(e.item, list.children[e.oldIndex])
+        const key = e.item.getAttribute('data-wait-key') // the reply the row showed
+        if (e.to == done_bin) _clear_waiting(item, key) || back()
+        else if (e.to == cancel_bin) item.delete(true) === true || back()
+        else {
+          if (e.to == agent_bin || e.to == snooze_bin) _task_target(item, e.to == agent_bin ? 'delegate' : 'snooze')
+          back()
+        }
+        return
+      }
       if (e.to == agent_bin) {
         // a delegation (or a re-delegation from the delegated list): the command document is
         // the acceptance; the row moves through the overlay once it is enqueued
@@ -675,52 +762,10 @@ function __render(widget, widget_item) {
         if (snoozed) {
           _unsnooze(item, true) // the owner's own drag out of the snoozed list
         } else {
-          // item.global_store._todoer.snoozed = Date.now() + 5 * 1000
-          _todoer.store._snooze_modal = _modal(
-            _todoer
-              .read('html_snooze_modal')
-              .replaceAll(
-                '__onclick__',
-                `_item('#todoer').eval('_on_snooze(event)')`
-              )
-              .replaceAll(
-                '__onchange__',
-                `_item('#todoer').eval('_on_snooze_input_change(event)')`
-              )
-              .replaceAll(
-                '__onnotify__',
-                `_item('#todoer').eval('_on_snooze_notify(event)')`
-              ),
-            {
-              canConfirm: () => false, // toggled in _on_snooze_input_change
-              onConfirm: () => _snooze_close(_snooze_input()),
-            }
-          )
           // the answer is the time and the dialog's box ({time, notify}, see _snooze_close)
-          _todoer.store._snooze_modal.then(answer => {
-            if (
-              !is_number(answer?.time)
-              // || !confirm(`Snooze to ${new Date(answer.time)}?`)
-            )
-              list.insertBefore(e.item, list.children[e.oldIndex])
+          _snooze_dialog().then(answer => {
+            if (!is_number(answer?.time)) list.insertBefore(e.item, list.children[e.oldIndex])
             else _snooze(item, answer)
-          })
-          _update_dom().then(() => {
-            document.querySelector('.snooze-modal .custom input').value =
-              new Date().toInputValue()
-            const notify_box = document.querySelector('.snooze-modal .notify input')
-            if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
-            _snooze_hint() // this device's permission beside the box (the box starts unchecked, reset above)
-            // force trigger input change call now & every second (for Date.now)
-            _todoer.dispatch_task(
-              'snooze-modal-update',
-              () => {
-                if (!_modal_visible(_todoer.store._snooze_modal)) return null
-                _on_snooze_input_change()
-              },
-              0,
-              1000
-            )
           })
         }
       }
@@ -751,6 +796,39 @@ Date.prototype.toInputValue = function () {
   let local = new Date(this)
   local.setMinutes(this.getMinutes() - this.getTimezoneOffset())
   return local.toJSON().slice(0, 16)
+}
+
+// the snooze dialog, opened for a row dropped on the snooze bin: resolves to the answer, the time
+// and the dialog's box ({time, notify}, see _snooze_close), or to nothing when it is dismissed
+function _snooze_dialog() {
+  _todoer.store._snooze_modal = _modal(
+    _todoer
+      .read('html_snooze_modal')
+      .replaceAll('__onclick__', `_item('#todoer').eval('_on_snooze(event)')`)
+      .replaceAll('__onchange__', `_item('#todoer').eval('_on_snooze_input_change(event)')`)
+      .replaceAll('__onnotify__', `_item('#todoer').eval('_on_snooze_notify(event)')`),
+    {
+      canConfirm: () => false, // toggled in _on_snooze_input_change
+      onConfirm: () => _snooze_close(_snooze_input()),
+    }
+  )
+  _update_dom().then(() => {
+    document.querySelector('.snooze-modal .custom input').value = new Date().toInputValue()
+    const notify_box = document.querySelector('.snooze-modal .notify input')
+    if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
+    _snooze_hint() // this device's permission beside the box (the box starts unchecked, reset above)
+    // force trigger input change call now & every second (for Date.now)
+    _todoer.dispatch_task(
+      'snooze-modal-update',
+      () => {
+        if (!_modal_visible(_todoer.store._snooze_modal)) return null
+        _on_snooze_input_change()
+      },
+      0,
+      1000
+    )
+  })
+  return _todoer.store._snooze_modal
 }
 
 function _snooze_time(label) {
@@ -1276,9 +1354,10 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // item must exist and be tagged with #todo (to be added or updated)
   // OR it must listed in a widget on a dependent (to be removed)
   const is_todo_item = item?.tags.includes('#todo')
+  const waits = !!item && !is_todo_item && !!_waits(item) // a row that is not a todo (to be added)
   each(_this.dependents, dep => {
     const item = _item(dep)
-    if (is_todo_item || _listed(item, id)) {
+    if (is_todo_item || waits || _listed(item, id)) {
       item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
         _render_todoer_widget(widget, item)
       })
@@ -1301,7 +1380,11 @@ function _on_global_store_change(id, remote) {
   if (id != null && id == _todoer.id) _notify_items()
   const item = _item(id, { silent: true }) // can be null if item deleted
   if (_listing_changed(item)) return _rerender_todoer_widgets()
-  if (!item?.tags.includes('#todo')) return
+  if (!item?.tags.includes('#todo')) {
+    // a row that is not a todo follows its item's store: a clear made here or on another device
+    if (item && (_waits(item) || (_todoer.dependents ?? []).some(dep => _listed(_item(dep), id)))) _rerender_todoer_widgets()
+    return
+  }
   _notify_change(item)
   _notify_children(item)
   _on_item_change(id)
@@ -1739,6 +1822,7 @@ async function _delegate(item, write = _carried_write()) {
   item = _task_target(item, 'delegate')
   if (!item) return false
   const state = _task_state(item)
+  const came_up = state?.surfaced // what the owner has seen of it at this gesture (its bell is cleared below); nothing where the bridge held none
   const pending = _pending_commands()[item.id]
   if (pending?.kind == 'takeback' && !state?.acked?.[pending.id]) {
     alert(`take-back of ${item.name} pending; delegate again after it is acknowledged`)
@@ -1760,6 +1844,9 @@ async function _delegate(item, write = _carried_write()) {
     body: item.text,
   }
   if (!(await _enqueue_command(item, command))) return false
+  // the owner has acted on what came up, whatever its bell showed: a take-back raises the count
+  // without a bell (their own act), and the delegation that follows must not ring as a check-in
+  _clear_bell(item, came_up)
   // the presentation: the marker at every delegation and the route tag once, planned over the
   // grammar view of the CURRENT raw text (an edit made during the await is kept; the inert
   // regions survive the rewrite); a refused write is repaired by the bridge at the next state change
@@ -1871,7 +1958,7 @@ function _visible(text) {
 // other reasons an owner may add (their notification shows for the shell's default; `all` names
 // every one)
 const NOTIFY_ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item']
-const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'interrupted', 'taken']
+const NOTIFY_REASONS = [...NOTIFY_ATTENTION, 'interrupted', 'taken', 'checkin']
 const NOTIFIER_KEY = 'mindpage_todoer_notifier' // localStorage: the device's elected window
 const NOTIFIER_STALE_MS = 5 * 60 * 1000 // an election not refreshed for this long is vacant
 const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its gesture stamps' spacing
@@ -1960,11 +2047,24 @@ function _state_key(state) {
 // one decision for a todo whose projection this tab compares (the setting's reasons, the seen
 // record against the current one, the row's list, the reason, this device's permission):
 // 'notify', or the cause of the skip
-function _notify_step({ setting, prev, key, list, reason, permission }) {
+function _notify_step({ setting, prev, key, list, reason, permission, checkin = false }) {
   if (!setting?.reasons?.length) return 'off'
   if (prev === key) return 'unchanged'
+  if (checkin) return _notify_gate({ setting, reason: 'checkin', permission })
   if (list != 'main') return 'not in the main list'
   return _notify_gate({ setting, reason, permission })
+}
+
+// whether a todo's change from the record this tab held of it (_seen_record) is a check-in: it is
+// the agent's, in the delegated list, and its count of times it came up (`surfaced`) went up. The
+// agent goes on working, so nothing waits on the owner: the reason `checkin` is one an owner adds
+// (`/notify on checkin`), never part of the default set. A todo this tab had no record of, or
+// held no projection of (its first one then says how often it came up BEFORE), is none
+function _checked_in(prev, state, list) {
+  if (state?.held != 'agent' || list != 'delegated' || typeof prev != 'string') return false
+  const held = prev.split('|')[0] // the state this tab held of it; empty when it held no projection
+  if (!held) return false // a first projection (a tab started from its cache) tells nothing new
+  return state.surfaced > Number(held.split(':')[3] || 0)
 }
 
 // the checks every notification shares: the setting on and naming the reason, this device's
@@ -2044,7 +2144,7 @@ function _notify_reply(item, remote = true) {
   if (!seen) return 'baseline'
   const { replies, last, footer } = _vault_replies(item.read())
   const prev = seen[item.id] ?? { replies: 0, footer: '' }
-  seen[item.id] = { replies, footer }
+  seen[item.id] = { replies, footer, last }
   if (!remote) return 'local'
   if (replies < prev.replies || replies == 0) return 'unchanged'
   if (replies == prev.replies && footer == prev.footer) return 'unchanged'
@@ -2055,6 +2155,205 @@ function _notify_reply(item, remote = true) {
   const shown = item.label || _visible(String(item.text ?? '').split('\n')[0] ?? '')
   const facts = { reason: 'reply', shown, label: null, parent: null, id: item.saved_id ?? item.id, body: _reply_line(item.text) }
   return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+}
+
+// the question of a chat that became a todo. Where a todo's row would show nothing but the item's
+// name and the tag (a prefix snippet that is the label, a state marker and the tag: the tag was
+// written after the name, and the chat's turns follow on their own lines), the row adds the start
+// of the item's first user turn: `raw` is that stretch as the item's text holds it (the row's
+// second click selects it: the app finds a selection in the text), capped as a snippet is (200
+// characters, cut at the next whitespace), and `more` says the turn goes on past it. The turns
+// are read from the GRAMMAR VIEW (a delimiter quoted inside a reply is no turn), up to the next
+// turn or the first inert region. null for a row that shows more than a name, an unnamed item, an
+// item without a user turn or with an empty one
+function _row_question(item, snippet) {
+  const label = String(item.label ?? '').toLowerCase()
+  const bare = _visible(snippet).replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!label || !bare.startsWith(label + ' ')) return null
+  if (!/^(?:\[[a-z]+\] )?#todo$/.test(bare.slice(label.length + 1))) return null
+  const view = String(item.read() ?? '')
+  let start = -1
+  let end = view.length
+  for (const m of view.matchAll(CHAT_DELIMITER)) {
+    if (start >= 0) {
+      end = m.index
+      break
+    }
+    if (m[1].toLowerCase() == 'user') start = m.index + m[0].length
+  }
+  if (start < 0) return null
+  let raw = view.slice(start, end)
+  const token = raw.indexOf('⟦')
+  if (token >= 0) raw = raw.slice(0, token)
+  raw = raw.trim()
+  if (!raw) return null
+  const cutoff = raw.length > 200 ? raw.substr(200).search(/\s/) : -1
+  return cutoff < 0 ? { raw, more: false } : { raw: raw.substr(0, 200 + cutoff), more: true }
+}
+
+// where a chat-todo's question (`raw`, of _row_question) stands in the item's RAW text, as
+// [start, end], or null. The first user turn is found in the grammar view, and its place is
+// carried into the raw text by the grammar's own edit: a mark written into the view comes out
+// where it belongs, past every inert region before it (a chat the bridge created opens with
+// one). The stretch found there must be the question itself, else there is no place
+function _question_range(item, raw) {
+  const MARK = '@@todoer question@@'
+  const text = String(item.text ?? '')
+  if (text.includes(MARK)) return null
+  let marked
+  try {
+    marked = window._grammar?.edit?.(text, view => {
+      const turn = [...view.matchAll(CHAT_DELIMITER)].find(m => m[1].toLowerCase() == 'user')
+      if (!turn) return view
+      const start = view.length - view.slice(turn.index + turn[0].length).trimStart().length
+      return view.slice(0, start) + MARK + view.slice(start)
+    })
+  } catch (e) {
+    return null // the grammar refused the mark
+  }
+  const at = typeof marked == 'string' ? marked.indexOf(MARK) : -1
+  return at >= 0 && text.slice(at, at + raw.length) == raw ? [at, at + raw.length] : null
+}
+
+const _wait_key = seen => `${seen.replies}|${seen.footer}`
+// a short mark of a reply's key (32-bit FNV-1a, hex), for the baseline of replies (rows_base)
+function _key_mark(key) {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < key.length; i++) hash = Math.imul(hash ^ key.charCodeAt(i), 0x01000193)
+  return (hash >>> 0).toString(16)
+}
+// what an item that is not a todo waits on the owner for, or null. `reply`: a chat whose LAST turn
+// is a bridge reply (this tab's record of it, _notify_reply) that the owner has not cleared
+// (_cleared: kept in the item's own synced store, as its snooze is, so a row cleared on one
+// device goes on the others). The owner's own answer in the chat ends it (the reply is no longer
+// the last turn), and a later reply shows the row again. A reply that was its chat's last turn
+// when the list began (_rows_start) does not show
+function _waits(item) {
+  const seen = item ? _todoer.store.reply_seen?.[item.id] : null
+  if (!seen?.replies || !seen.last) return null
+  const base = _todoer._global_store.rows_base
+  if (!base) return null // the list has not begun in the account
+  const key = _wait_key(seen)
+  if (base[item.saved_id ?? item.id] == _key_mark(key)) return null // it stood when the list began
+  return _cleared(item).includes(key) ? null : 'reply'
+}
+
+// the replies of an item that the owner has cleared, as their keys (_wait_key), from the item's
+// own store: the four most recently ADDED distinct keys that this tab has seen there
+// (_clear_waiting adds one; a fifth puts the oldest out, a repeated clear does not move its
+// key). With one key that each clear replaced, a row drawn from an older text put its own key
+// over the clear of a newer reply that had come from another device before that reply's text
+// (the app can hold a text back while a save of its own is pending), and the newer reply came
+// up again. A store is written whole, so a clear this tab has not seen can still be lost to its
+// write. A store of the list's first versions holds one key, as a string
+function _cleared(item) {
+  const kept = item?._global_store?._todoer?.cleared
+  return Array.isArray(kept) ? kept : kept ? [kept] : []
+}
+
+// the two parts of such an item's row: its name when it has one, and the reply's first line (for
+// an item without a name and without such a line, its own first line)
+function _waiting_parts(item) {
+  const line = _reply_line(item.text)
+  return item.label ? [item.label, line] : ['', line || _visible(String(item.text ?? '').split('\n')[0] ?? '')]
+}
+
+// clears such an item's row (the bell's click, a drop on the done bin): the reply the row SHOWED
+// (`key`) joins the item's cleared replies (_cleared: the last four added are kept). A newer
+// reply that arrived while the row was held or dragged has another key and goes on waiting.
+// False when there is nothing to clear
+function _clear_waiting(item, key) {
+  if (!item || !key) return false
+  const kept = _cleared(item)
+  // (reading global_store saves the store: only where there is a key to add)
+  if (!kept.includes(key)) (item.global_store._todoer ??= {}).cleared = [...kept, key].slice(-4)
+  return true
+}
+
+// the list's start in the account: the baselines that keep the past out of it, in the #todoer
+// item's own store. `rows_base` holds, for every chat whose last turn was a bridge reply then, a
+// mark of that reply's key: a reply waits by its OWN key, so an old chat that is selected or
+// edited later (the app moves an item's time then) stays out, and a new reply on it comes in.
+// What it covers is a reply that was its chat's LAST turn then: an old reply under a later turn
+// of the owner's has no mark, and shows if that turn is taken out again. A mark is 32 bits: a
+// replacement reply whose key has the same mark as the one before it on the same chat would
+// stay out (about one chance in four billion per replacement, if the marks spread evenly).
+// `bells_base` holds every todo's count of the times it had come up (_bells_now). Written in one
+// save, by a tab that has neither yet, only from a server-confirmed, currently served corpus past
+// a resume hold (the order save's rule, _order_save_step: a store is written whole from this
+// tab's copy); two tabs that start together can both write, each from its own view. An account
+// that ran the list's first versions has `rows_since` (a time) and no `rows_base`: what waited
+// under their rule (a chat changed after that time, its reply not cleared) goes on waiting, the
+// rest becomes the baseline. Whether the baselines stand
+function _rows_start() {
+  const kept = _todoer._global_store
+  if (kept.rows_base && kept.bells_base) return true
+  if (!_corpus_current(window) || _held()) return false
+  const store = _todoer.global_store // one save for all of it
+  const since = store.rows_since
+  store.rows_base ??= _rows_now((item, key) => since > 0 && item.time > since && !_cleared(item).includes(key))
+  store.rows_since ??= Date.now()
+  store.bells_base ??= _bells_now()
+  return true
+}
+
+// the mark of every chat's unanswered bridge reply as this tab holds it (its records exist from
+// the notifier's welcome on), by saved id, less those that `waiting` says go on waiting
+function _rows_now(waiting) {
+  const base = {}
+  each(_items(), item => {
+    const seen = _todoer.store.reply_seen?.[item.id]
+    if (!seen?.replies || !seen.last) return
+    const key = _wait_key(seen)
+    if (!waiting(item, key)) base[item.saved_id ?? item.id] = _key_mark(key)
+  })
+  return base
+}
+
+// every todo's count of the times it came up for the owner, as the bridge publishes it
+// (`surfaced` in the projection), by saved id: the baseline of the todos' bells (_bell)
+function _bells_now() {
+  const base = {}
+  each(_items(), item => {
+    const count = item.tags.includes('#todo') ? _task_state(item)?.surfaced : 0
+    if (count > 0) base[item.saved_id ?? item.id] = count
+  })
+  return base
+}
+
+// a todo's bell. The bridge counts every time a todo comes up for the owner (`surfaced`: a
+// hand-back, a check-in), and the owner's clear is the count it stood at, kept in the todo's own
+// store (`_todoer.bell`), so it holds on every device. The bell shows while the count is past the
+// clear and past the baseline taken when the bells began in the account (`bells_base` in the
+// #todoer item's store: nothing of the past rings). It does not follow the todo's marker: a
+// check-in's marker goes back to working at the agent's next turn, the bell stays until its
+// click, or until the owner delegates the todo again (_delegate clears it). Its kind is the
+// reason of a todo that waits in the main list (an owner-held one; a project that asks, is
+// blocked or out of budget), else `checkin`: the one way an agent-held todo comes up. A todo the
+// owner took back is their own act: no bell; null for none
+function _bell(item, state = _task_state(item), list = _list_of(item, state)) {
+  const count = state?.surfaced
+  const base = _todoer._global_store?.bells_base
+  if (!(count > 0) || !base) return null
+  const seen = Math.max(item._global_store?._todoer?.bell ?? 0, base[item.saved_id ?? item.id] ?? 0)
+  if (!(count > seen)) return null
+  // an agent's todo: a project that waits in the main list rings by its reason, any other came
+  // up by a check-in. The owner's: its reason where it waits in the main list; in the delegated
+  // list (a bound child's proposal under its project's standing /land) it is its project's to
+  // handle, and a todo the owner took back is their own act: no bell
+  if (state.held == 'agent') return list == 'main' && state.project && ['question', 'blocked', 'budget'].includes(state.reason) ? state.reason : 'checkin'
+  return list != 'main' || !state.reason || state.reason == 'taken' ? null : state.reason
+}
+
+// clears a todo's bell (its click, a new delegation): the count the owner SAW (`count`: the one
+// the bell showed, or the one that stood at the delegation's gesture; always given) is recorded
+// in the todo's own store, so a time it came up meanwhile still rings; a later clear this tab
+// holds is left standing. False where there was no count to see
+function _clear_bell(item, count) {
+  if (!(count > 0)) return false
+  const store = (item.global_store._todoer ??= {}) // reading global_store saves the store
+  if (!(store.bell >= count)) store.bell = count
+  return true
 }
 
 // the map of item write stamps in `#todoer`'s own store (`_agent.wrote`), or null
@@ -2180,9 +2479,10 @@ function _notify_change(item, { state = _task_state(item), list = null, parent =
   const key = _seen_record(state, list)
   const prev = seen[item.id]
   seen[item.id] = key
-  const step = _notify_step({ setting: _todoer._global_store.notify, prev, key, list, reason: state?.reason, permission: _notify_permission() })
+  const checkin = _checked_in(prev, state, list)
+  const step = _notify_step({ setting: _todoer._global_store.notify, prev, key, list, reason: state?.reason, permission: _notify_permission(), checkin })
   if (step != 'notify') return step
-  return _notify_todo(item, state.reason, { state, parent })
+  return _notify_todo(item, checkin ? 'checkin' : state.reason, { state, parent })
 }
 
 // a todo's notification under `reason` from the device's elected window: the row's text, the
@@ -2301,10 +2601,52 @@ function _notify_show(facts, onclick) {
 // refused select (a shared page, an item gone meanwhile) leaves the page's target as it was, and
 // the mark would go to that one. On an app without the method the box is set as before (a typed
 // query's entry, which the next row's click replaced)
-function _select_item(item, selection) {
-  if (typeof item.select != 'function')
-    return MindBox.set(item.name, selection ? { scroll: true, select: selection } : { scroll: true })
-  if (item.select() && selection) MindBox.select_in_target(selection)
+// `checked` (a chat-todo's question: a stretch by its offsets, or none where its place was not
+// found) marks it by _select_range, on this item alone, which also takes back a mark that an
+// earlier click left there
+function _select_item(item, selection, checked = false) {
+  const ranged = Array.isArray(selection) // a stretch by its offsets in the item's text
+  if (typeof item.select != 'function') {
+    const select = ranged ? item.text.slice(...selection) : selection
+    return MindBox.set(item.name, select ? { scroll: true, select } : { scroll: true })
+  }
+  if (!item.select()) return
+  if (checked) _select_range(item, ranged ? selection : null)
+  else if (selection) MindBox.select_in_target(selection)
+}
+
+// selects a stretch of `item` by its offsets in the item's raw text (`range`: [start, end], or
+// null for none), as the core's select_in_target does for a text it has found: in the open
+// editor, else as the selection the editor takes when it opens (the container's data-selection,
+// which the editor consumes on its mount); `edit` then opens the editor as the core's
+// edit_target does (the box's focus within the gesture on a touch device, then the target's own
+// click). All of it only once the page's update has been applied AND its target is this item.
+// The stretch must still stand there (in an open editor: in what the editor holds, which can be
+// a draft typed since). Without a stretch that stands, a selection that an earlier click left
+// on the closed item is taken back, so that the editor does not open on old offsets; the editor
+// is then opened only where no stretch was asked for
+function _select_range(item, range, edit = false) {
+  const stretch = range ? item.text.slice(...range) : null
+  if (edit && navigator.maxTouchPoints) MindBox.elem.focus()
+  _update_dom().then(() => {
+    const target = document.querySelector('.container.target')
+    if (!target || target.getAttribute('data-item-id') != item.id) return
+    const stands = !!range && item.text.slice(...range) == stretch
+    const textarea = target.querySelector('textarea') // already editing?
+    if (textarea) {
+      if (!stands) return
+      const [from, to] = range.map(offset => _zwsp_offset(textarea.value, offset))
+      if (textarea.value.slice(from, to).split(String.fromCharCode(0x200b)).join('') != stretch) return
+      textarea.focus()
+      textarea.setSelectionRange(from, to)
+      return
+    }
+    if (stands) target.setAttribute('data-selection', range.join(','))
+    else target.removeAttribute('data-selection')
+    if (!edit || (range && !stands)) return
+    target.dispatchEvent(new Event('mousedown'))
+    target.dispatchEvent(new Event('click'))
+  })
 }
 
 // edits the item of a row clicked while the page shows that item as its target, `selection` (the
@@ -2324,9 +2666,12 @@ function _select_item(item, selection) {
 //   meanwhile, and the editor opened was that other item's, or the box went over to it afterwards.
 // No edit after a refused select (the item is gone). On an app without the select the box is set
 // to the item's name and its target edited, as before
-function _edit_item(item, selection) {
-  if (typeof item.select != 'function') return MindBox.set(item.name, { edit: selection })
-  if (item.select()) MindBox.edit_target(selection)
+// `checked` (a chat-todo's question: a stretch by its offsets, or none where its place was not
+// found) opens the editor by _select_range, on this item alone
+function _edit_item(item, selection, checked = false) {
+  const ranged = Array.isArray(selection)
+  if (typeof item.select != 'function') return MindBox.set(item.name, { edit: ranged ? item.text.slice(...selection) : selection })
+  if (item.select()) checked ? _select_range(item, ranged ? selection : null, true) : MindBox.edit_target(selection)
 }
 
 // a notification's click: this window forward (the browser grants the click's activation to the
@@ -2432,8 +2777,8 @@ function _start_notifier() {
     }
   }
   each(_items(), item => {
-    const { replies: count, footer } = _vault_replies(item.read())
-    if (count) replies[item.id] = { replies: count, footer }
+    const { replies: count, last, footer } = _vault_replies(item.read())
+    if (count) replies[item.id] = { replies: count, footer, last }
     if (!item.tags.includes('#todo')) return
     const state = _task_state(item)
     seen[item.id] = _seen_record(state, _list_of(item, state))
@@ -2447,11 +2792,14 @@ function _start_notifier() {
     window.addEventListener('pagehide', () => void _release_notifier())
     if (document.hasFocus()) _claim_notifier()
   }
+  // the rows for replies (_waits) read this tab's records, which exist only now
+  if (_rows_start() && Object.keys(replies).some(id => _waits(_item(id, { silent: true })))) _rerender_todoer_widgets()
   _todoer.dispatch_task(
     'notifier',
     () => {
       _claim_notifier(true)
       _scan_notify()
+      _rows_start()
     },
     NOTIFIER_REFRESH_MS,
     NOTIFIER_REFRESH_MS

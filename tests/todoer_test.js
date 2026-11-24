@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -134,6 +134,20 @@ const picked =
     '_vault_replies',
     '_reply_line',
     '_notify_reply',
+    '_waits',
+    '_key_mark',
+    '_rows_now',
+    '_waiting_parts',
+    '_cleared',
+    '_select_range',
+    '_row_question',
+    '_question_range',
+    '_clear_waiting',
+    '_rows_start',
+    '_bells_now',
+    '_bell',
+    '_clear_bell',
+    '_snooze_dialog',
     '_item_writes',
     '_item_visible',
     '_item_preview',
@@ -143,6 +157,7 @@ const picked =
     '_on_item_change',
     '_state_key',
     '_notify_step',
+    '_checked_in',
     '_notify_change',
     '_notify_todo',
     '_unsnooze_step',
@@ -165,6 +180,7 @@ const picked =
     '_scan_notify',
     '_on_global_store_change',
     '_listing_changed',
+    '_listed',
     '_render_todoer_widget',
   ]).join('\n') +
   consts +
@@ -178,6 +194,7 @@ const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
 const _pending_commands = vm.runInContext('_pending_commands', context)
 
 let failures = 0
+const async_rows = []
 const check = (name, actual, expected) => {
   const ok = JSON.stringify(actual) === JSON.stringify(expected)
   if (!ok) failures++
@@ -941,7 +958,7 @@ context._todoer.store.reply_seen = undefined
 check('reply: before the welcome, the baseline is pending', _notify_reply(chat_item('k', REPLY)), 'baseline')
 context.__items = [chat_item('k', REPLY), todo('a', null)]
 _start_notifier()
-check('welcome: the baseline records the chats\' reply counts and attributions', context._todoer.store.reply_seen, { k: { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" } })
+check('welcome: the baseline records the chats\' reply counts and attributions', context._todoer.store.reply_seen, { k: { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true } })
 check('reply: the baseline\'s reply notifies nothing', _notify_reply(chat_item('k', REPLY)), 'unchanged')
 const replied = REPLY + `\n<<user>> go on\n${FOOTER2}\n${inert('The second answer.')}`
 check('reply: one more reply notifies with the label, the first line and the chat\'s tag', [_notify_reply(chat_item('k', replied)), notified[notified.length - 1].title, notified[notified.length - 1].options.body, notified[notified.length - 1].options.tag, notified[notified.length - 1].options.requireInteraction], ['notify', '[reply] #e2e_chatty/0', 'The second answer.', 'todoer:sk', true])
@@ -955,7 +972,7 @@ check('reply: a replacement under the same count with another run id notifies', 
 check('reply: a chat with the app\'s empty label is titled by its first line', (_notify_reply(chat_item('m', `the first line\n<<user>> hi\n${FOOTER}\n${inert('reply')}`, '')), notified[notified.length - 1].title), '[reply] the first line')
 // the caller reads the grammar view (review 6): a response quoting a vault opener inside its body
 // is one stored reply and one notification with the real first line
-check('reply: the quoted opener inside a body is no reply at the caller either', [_notify_reply(chat_item('o', QUOTING_AGENT)), context._todoer.store.reply_seen.o, notified[notified.length - 1].options.body], ['notify', { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" }, 'Like this line:'])
+check('reply: the quoted opener inside a body is no reply at the caller either', [_notify_reply(chat_item('o', QUOTING_AGENT)), context._todoer.store.reply_seen.o, notified[notified.length - 1].options.body], ['notify', { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true }, 'Like this line:'])
 context._todoer._global_store = { notify: { reasons: ['question'] } }
 check('reply: not enabled', _notify_reply(chat_item('n', REPLY)), 'reason reply')
 context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] } }
@@ -968,7 +985,7 @@ context.__todos.q = chat_item('q', REPLY)
 context._todoer.store.reply_seen.q = { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'" } // the baseline saw the reply
 context.__todos.q = chat_item('q', '#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> what now?') // truncated locally
 _on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, false, false)
-check('hook: a local truncation moves the baseline and shows nothing', [notified.length - notified_before_hook, context._todoer.store.reply_seen.q], [0, { replies: 0, footer: '' }])
+check('hook: a local truncation moves the baseline and shows nothing', [notified.length - notified_before_hook, context._todoer.store.reply_seen.q], [0, { replies: 0, footer: '', last: false }])
 context.__todos.q = chat_item('q', `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> what now?\n${RERUN}\n${inert('The rerun answer.')}`)
 _on_item_change('q', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
 check('hook: the rerun\'s replacement reply notifies once', [notified.length - notified_before_hook, notified[notified.length - 1].options.body], [1, 'The rerun answer.'])
@@ -1333,8 +1350,8 @@ delete context.__todos.p
   check('confirm: an unchecked box writes the time alone, removing an earlier flag', snoozable.global_store, { _todoer: { snoozed: 9000 } })
   // the drop's handler and the dialog's markup (the render, which the table cannot run): pinned by the sources
   const modal_html = fs.readFileSync(path.join(__dirname, '..', 'todoer-snooze-modal.html'), 'utf8')
-  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {12}else _snooze\(item, answer\)\n/.test(src), /\n {14}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
-  check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\n\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
+  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {12}else _snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
+  check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
   check('drag: the snoozed list\'s bin unsnoozes as the owner\'s own act', /\n {10}_unsnooze\(item, true\) \/\//.test(src), true)
   const swept = { global_store: { _todoer: { snoozed: 100, notify: true } } }
   const dragged = { global_store: { _todoer: { snoozed: 100, notify: true } } }
@@ -1780,6 +1797,7 @@ const { replaceTags, parseTags } = (() => {
     handlers.pointerup({})
     Sortable.dragged = null
   }
+  await Promise.all(async_rows)
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()
@@ -2219,6 +2237,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       child.parentElement = this
       return child
     }
+    // a text node appended to a row: its text as the browser would serialize it
+    append(...nodes) {
+      for (const node of nodes) this.innerHTML = (this.innerHTML ?? '') + String(node).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+    // element nodes only: a text node between them is the row's own business
+    prepend(...nodes) {
+      nodes.reverse().forEach(node => typeof node == 'string' || this.insertBefore(node, this.children[0]))
+    }
     remove() {
       const siblings = this.parentElement?.children
       if (siblings) siblings.splice(siblings.indexOf(this), 1)
@@ -2231,6 +2257,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     }
     addEventListener() {}
   }
+  // the core's own mapping of a raw offset into an editor's text, which holds zero-width spaces (util/core.js)
+  const core = fs.readFileSync(path.join(__dirname, '..', 'util', 'core.js'), 'utf8')
+  const _zwsp_offset = new Function(core.slice(core.indexOf('function _zwsp_offset('), core.indexOf('\n}\n', core.indexOf('function _zwsp_offset(')) + 3) + 'return _zwsp_offset')()
   const view = (text, held = []) => text.replace(/<!--inert-->\n[\s\S]*?\n<!--\/inert-->/g, region => `⟦${held.push(region) - 1}⟧`)
   const edit = (text, transform, held = []) => transform(view(text, held)).replace(/⟦(\d+)⟧/g, (token, i) => held[i])
   // the tags the app indexes of a text: parsed from its lowercased grammar view (index.svelte)
@@ -2255,12 +2284,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // `snooze` is every todo's own store (the widget is then the snoozed list while a snooze time
   // stands), `editing` the id of the todo open in its editor, with a draft typed since
   // `target` is the id of the item the page targets, `app` whether the items carry the app's select
-  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, target = null, app = true } = {}) => {
+  // `extra` adds items of its own to the four ({ id: { text, label } }, each named by its label)
+  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, target = null, app = true, extra = null } = {}) => {
     const calls = []
-    const items = Object.entries(TEXTS).map(([id, text]) => {
+    let selected = null // the item the app's select made the page's target
+    const texts = { ...TEXTS, ...Object.fromEntries(Object.entries(extra ?? {}).map(([id, item]) => [id, item.text])) }
+    const items = Object.entries(texts).map(([id, text]) => {
       // the app's label is the text's first tag and its name the label when no other item has it, else the id reference
-      const label = id == 'named' ? '#todo-list' : '#todo'
-      const item = { id, saved_id: 's-' + id, text, label, name: id == 'named' ? label : 'id:' + id, _global_store: snooze ? { _todoer: { ...snooze } } : {} }
+      const label = extra?.[id]?.label ?? (id == 'named' ? '#todo-list' : '#todo')
+      const item = { id, saved_id: 's-' + id, text, label, name: id == 'named' || extra?.[id] ? label : 'id:' + id, _global_store: snooze ? { _todoer: { ...snooze } } : {} }
       Object.defineProperty(item, 'tags', { get: () => parsed(item.text).all }) // hidden ones included, their underscore dropped
       Object.defineProperty(item, 'tags_visible', { get: () => parsed(item.text).visible })
       if (id == editing) Object.assign(item, { editing: true, draft: text + '\na line typed since' })
@@ -2274,8 +2306,28 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         return true
       }
       item.delete = () => (calls.push(['delete', id]), true)
-      if (app) item.select = () => (calls.push(['select', id]), true)
+      if (app) item.select = () => ((selected = id), calls.push(['select', id]), true)
       return item
+    })
+    const textarea = id => {
+      const item = items.find(item => item.id == id)
+      return item?.editing ? { value: item.draft ?? item.text, focus: () => calls.push(['focus']), setSelectionRange: (...range) => calls.push(['selection', ...range]) } : null
+    }
+    // an item's container, as a row's click asks the document for the page's target: a selection
+    // by offsets is set on it as the attribute its editor reads, and takes away, when it opens
+    // (`marks` by item id; `opened` is what each editor that a click opened took of it); an item
+    // open in its editor has a textarea there, which holds its draft
+    const marks = {}
+    const opened = []
+    const container = id => ({
+      getAttribute: name => (name == 'data-item-id' ? id : name == 'data-selection' ? marks[id] ?? null : null),
+      querySelector: () => textarea(id),
+      setAttribute: (name, value) => (calls.push(['range', value]), void (marks[id] = String(value))),
+      removeAttribute: () => void delete marks[id],
+      dispatchEvent: event => {
+        calls.push(['event', event.type])
+        if (event.type == 'click') opened.push(marks[id] ?? null), delete marks[id]
+      },
     })
     const ctx = {
       console, debug: () => {}, warn: () => {}, error: () => {}, fatal: msg => { throw new Error(msg) },
@@ -2285,9 +2337,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       merge: Object.assign, each: (xs, f) => xs.forEach(f), values: Object.values,
       _todoer: { store: { on_unsnooze: { probe: item => calls.push(['listener', item.id]) } } },
       _items: () => items, _item: ref => items.find(item => item.id == ref) ?? null, _exists: ref => logger && ref == '#logger',
-      window: { _grammar: { version, edit } },
-      // the page's target, as a row's click asks for it
-      document: { createElement: () => new Elem(), querySelector: selector => (selector == '.container.target' && target ? { getAttribute: () => target } : null) },
+      window: { _grammar: { version, edit } }, Event: class { constructor(type) { this.type = type } },
+      document: { createElement: () => new Elem(), querySelector: selector => (selector == '.container.target' && (target || selected) ? container(target ?? selected) : null) },
+      _update_dom: () => ({ then: f => void f() }), _zwsp_offset, clearTimeout: () => {},
       Sortable: { dragged: null, create: (elem, options) => ({ options, save() {}, sort() {}, destroy() {} }) },
       MindBox: { get: () => '', create: text => calls.push(['log', text]), set: (...args) => calls.push(['set', ...args]), select_in_target: text => calls.push(['mark', text]), edit_target: text => calls.push(['edit', text]) },
       alert: message => calls.push(['alert', message]), confirm: message => calls.push(['asked', message]), _modal: message => calls.push(['asked', message]),
@@ -2307,6 +2359,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     const drop = (id, bin = 'done') => {
       const list = part('list')
       const row = list.children.find(row => row.getAttribute('data-id') == id)
+      // (a row that the list lacks fails the check that drops it, not the table)
+      if (!row) return calls.push(['no row', id]), { calls, rows: ids(), left: null }
       const oldIndex = list.children.indexOf(row)
       const to = part(bin + ' bin')
       to.appendChild(row)
@@ -2323,7 +2377,89 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       rows().find(row => row.getAttribute('data-id') == id).children[0].onclick({ stopPropagation() {}, preventDefault() {} })
       return calls
     }
-    return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned }
+    return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned, calls, marks, opened }
+  }
+  // ---- a chat that became a todo: its row shows the question after its name ------------------
+  {
+    const REPLY = "<<agent('vault/x · 1m')>>\n<!--inert-->\nan answer that quotes\n<<user>> not a turn\n<!--/inert-->\n"
+    const CHAT = `#chat/vault/33 #todo #_agent/vault\n<<user>> testing the new bell\nand a second line\n${REPLY}<<user>> a later turn\n`
+    const ask = world().ctx._row_question
+    const of = (text, label = '#chat/vault/33') => ({ label, read: () => view(text) })
+    const first = { raw: 'testing the new bell\nand a second line', more: false }
+    check('question: a row that is its name and the tag gets the start of the first user turn, as the text holds it', ask(of(CHAT), '#chat/vault/33 #todo'), first)
+    check('question: the same behind a state marker, and whatever the case of the name or the delimiter', [ask(of(CHAT), '#chat/vault/33 [delegated] #todo'), ask(of(CHAT.replace('<<user>>', '<< USER >>'), '#Chat/Vault/33'), '#Chat/Vault/33 #todo')], [first, first])
+    check('question: none for a row that shows more than its name, an unnamed item, an item with no user turn or an empty one',
+      [ask(of(CHAT), '#chat/vault/33 a title #todo'), ask(of(CHAT, ''), '#chat/vault/33 #todo'), ask(of('#chat/vault/33 #todo\n' + REPLY), '#chat/vault/33 #todo'), ask(of('#chat/vault/33 #todo\n<<user>>\n' + REPLY), '#chat/vault/33 #todo')],
+      [null, null, null, null])
+    check('question: it ends at the first inert region, and a turn quoted inside a reply is none', ask(of('#chat/vault/33 #todo\n<<user>> see\n<!--inert-->\nx\n<!--/inert-->\nafter\n'), '#chat/vault/33 #todo'), { raw: 'see', more: false })
+    const long = 'word '.repeat(45) + 'end'
+    check('question: capped as a snippet is, at the first whitespace past 200 characters', ask(of(`#chat/vault/33 #todo\n<<user>> ${long}\n`), '#chat/vault/33 #todo'), { raw: 'word '.repeat(41).trim(), more: true })
+    const chat = options => world({ extra: { chat: { text: CHAT, label: '#chat/vault/33' } }, ...options })
+    const row = chat().rows().find(row => row.getAttribute('data-id') == 'chat')
+    check('question: the row reads from the left: the name, the tag, then the question on one line; the tooltip has it in its lines',
+      [row.children[0].innerHTML, row.children[0].style.direction ?? null, row.title],
+      ['<mark>#chat/vault/33</mark> <mark>#todo</mark> testing the new bell and a second line', null, '#chat/vault/33 #todo\ntesting the new bell\nand a second line'])
+    check('question: a click selects the item and marks the question BY ITS PLACE in the text; on the item already selected it opens the editor on it',
+      [chat().click('chat'), chat({ target: 'chat' }).click('chat')],
+      [[['select', 'chat'], ['range', '44,82']], [['select', 'chat'], ['range', '44,82'], ['event', 'mousedown'], ['event', 'click']]])
+    // (a text that holds the mark the place is found by has no place)
+    const unfound = options => world({ extra: { chat: { text: CHAT + '@@todoer question@@\n', label: '#chat/vault/33' } }, ...options })
+    check('question: where its place is not found, a click selects the item alone, and on the item already selected opens its editor with nothing selected',
+      [unfound().click('chat'), unfound({ target: 'chat' }).click('chat')],
+      [[['select', 'chat']], [['select', 'chat'], ['event', 'mousedown'], ['event', 'click']]])
+    // a first click leaves the question's offsets on the closed item; the text then changes so that the place is not found
+    const lapsed = chat()
+    lapsed.click('chat')
+    const left = { ...lapsed.marks }
+    lapsed.item('chat').text += '@@todoer question@@\n'
+    lapsed.render()
+    lapsed.click('chat')
+    check('question: a selection that a first click left on the closed item is taken back by a click that finds no place: the editor opens with none', [left, lapsed.marks, lapsed.opened], [{ chat: '44,82' }, {}, [null]])
+    const kept = chat()
+    kept.click('chat')
+    kept.click('chat')
+    check('question: the selection of a first click is the one the editor opens with at the second', kept.opened, ['44,82'])
+    // the question's PLACE in the item's raw text, found at the click: the words of a question can
+    // stand in the item's name too, and a chat the bridge created opens with an inert region
+    const place = (text, raw, label = '#chat/vault/33', grammar = null) => {
+      const w = world({ extra: { chat: { text, label } } })
+      if (grammar) w.ctx.window._grammar = grammar
+      const range = w.ctx._question_range(w.item('chat'), raw)
+      return range && [range, text.slice(...range), text.slice(0, range[0]).split('\n').at(-1)]
+    }
+    const NAMED_LIKE = "#chat/vault/33 #todo\n<<user>> vault\n" + REPLY
+    check('place: where the turn holds the question, also when the name holds the same words first', [place(CHAT, first.raw), place(NAMED_LIKE, 'vault'), NAMED_LIKE.indexOf('vault')], [[[44, 82], first.raw, '<<user>> '], [[30, 35], 'vault', '<<user>> '], 6])
+    const CHILD = "#chat/vault/33/research #todo\n<<agent('vault/default · created in run ab12cd34')>>\n<!--inert-->\nWhat the vault holds so far.\n<!--/inert-->\n<<user>> vault\n" + REPLY
+    const child = place(CHILD, 'vault', '#chat/vault/33/research')
+    check('place: past the inert region a chat created by the bridge opens with', [child?.slice(1), child?.[0][0] > CHILD.indexOf('<!--/inert-->')], [['vault', '<<user>> '], true])
+    const refusing = { version: 2, edit: () => { throw new Error('inert edit moved a region out of a claimable position') } }
+    check('place: none where it cannot be established (no user turn; a text that holds the mark; a stretch that is not there; a grammar that refuses the mark)', [place('#chat/vault/33 #todo\n' + REPLY.split('\n').slice(2).join('\n'), 'x'), place(CHAT + '@@todoer question@@', first.raw), place(CHAT, 'another text'), place(CHAT, first.raw, '#chat/vault/33', refusing)], [null, null, null, null])
+    // the selection is applied only to the item it was meant for, and only while the stretch stands
+    const moved = world({ extra: { chat: { text: CHAT, label: '#chat/vault/33' } }, target: 'short' })
+    moved.ctx._select_range(moved.item('chat'), [44, 82])
+    const edited = world({ extra: { chat: { text: CHAT, label: '#chat/vault/33' } }, target: 'chat' })
+    edited.ctx._update_dom = () => ({ then: f => ((edited.item('chat').text = 'x' + CHAT), void f()) })
+    edited.ctx._select_range(edited.item('chat'), [44, 82], true)
+    const settled = world({ extra: { chat: { text: CHAT, label: '#chat/vault/33' } }, target: 'chat' })
+    settled.ctx._select_range(settled.item('chat'), [44, 82], true)
+    check('place: the stretch is set on its own item and its editor opened by the item\'s own click; nothing is set or opened on another item that became the target meanwhile, or once the text has changed under the stretch', [settled.calls, moved.calls, edited.calls], [[['range', '44,82'], ['event', 'mousedown'], ['event', 'click']], [], []])
+    // a question whose place is not found: the row's second click still opens ITS item, with nothing selected, and no other
+    const unplaced = target => {
+      const w = world({ extra: { chat: { text: CHAT, label: '#chat/vault/33' } }, target })
+      w.ctx._edit_item(w.item('chat'), null, true)
+      return w.calls
+    }
+    check('place: without a place the editor is opened on the item itself, nothing selected; on another target nothing is opened', [unplaced('chat'), unplaced('short')], [[['select', 'chat'], ['event', 'mousedown'], ['event', 'click']], [['select', 'chat']]])
+    // an item already open in its editor: the stretch is selected in what the editor holds
+    const open_editor = draft => {
+      const w = world({ extra: { chat: { text: CHAT, label: '#chat/vault/33' } }, target: 'chat' })
+      Object.assign(w.item('chat'), { editing: true, draft })
+      w.ctx._select_range(w.item('chat'), [44, 82], true)
+      return w.calls
+    }
+    // (the editor's text holds zero-width spaces in long runs: the core's mapping moves both ends past the one before the stretch)
+    const ZWSP = String.fromCharCode(0x200b)
+    check('place: in an open editor the stretch is selected where the editor holds it (past a zero-width space of its own), and not at all in a draft that holds other text there', [open_editor(CHAT + '\na line typed since'), open_editor(CHAT.slice(0, 10) + ZWSP + CHAT.slice(10)), open_editor('a line typed since\n' + CHAT)], [[['focus'], ['selection', 44, 82]], [['focus'], ['selection', 45, 83]], []])
   }
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
@@ -2458,4 +2594,267 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     mounted.pinned.tags = []
     check('delivery: another item\'s store renders nothing, as before', [ctx._on_global_store_change('pinned', true), renders], [undefined, 4])
   }
+  // ROWS THAT ARE NOT TODOS (the owner's list of what waits on them, 2026-11-23): a chat whose LAST
+  // turn is a bridge reply that the owner has not cleared has a row in the main list: a bell mark
+  // that says `reply`, the chat's name, the reply's first line. A drop on the done bin clears it in
+  // the chat's own store and writes nothing into the chat; the cancel bin deletes the chat after
+  // the app's question; the snooze and the agent bin are a todo's and put the row back; a reply
+  // that stood when the list began does not show
+  {
+    const KEY = "1|'vault/default · run ab12cd34 · 1s'"
+    const SEEN = { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true }
+    // `base` is the baseline of replies in the #todoer item's store (null: the list has not begun)
+    const chatting = ({ base = {}, time = 2000, seen = SEEN, store = {}, snooze = null, deletes = true, label = '#e2e_chatty/0', text = REPLY } = {}) => {
+      const w = world({ snooze })
+      const called = []
+      const chat = { id: 'chat', saved_id: 's-chat', name: label || 'id:chat', text, label, time, _global_store: store }
+      Object.defineProperty(chat, 'tags', { get: () => parsed(chat.text).all })
+      Object.defineProperty(chat, 'tags_visible', { get: () => parsed(chat.text).visible })
+      Object.defineProperty(chat, 'global_store', { get: () => chat._global_store })
+      chat.read = () => view(chat.text)
+      chat.write = text => (called.push('write'), (chat.text = text), true)
+      chat.delete = confirm => (called.push(['delete', confirm]), deletes)
+      chat.select = () => (called.push('select'), true)
+      w.ctx._items().push(chat)
+      w.ctx.is_number = x => typeof x == 'number' // the app's helper, read by the snooze branches
+      w.ctx._todoer._global_store = base == null ? {} : { rows_since: 1000, rows_base: base }
+      w.ctx._exists = ref => ref == 'chat' || ref == '#logger'
+      w.ctx._todoer.store.reply_seen = seen ? { chat: seen } : {}
+      w.render()
+      return Object.assign(w, { chat, called })
+    }
+    const shown = chatting()
+    const row = shown.rows()[4]
+    check('waits: a chat whose reply is its last turn has a row after the todos: the bell with its kind, the name, the reply\'s first line', [shown.ids(), row.getAttribute('data-waits'), row.children[0].innerHTML, row.title], [[...ALL, 'chat'], 'reply', '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> Two parts: alpha and beta.', 'reply: waits on you; click the bell or drop it on done to clear it\n#e2e_chatty/0 Two parts: alpha and beta.'])
+    check('waits: before the list\'s start nothing shows', chatting({ base: null }).ids(), ALL)
+    const MARK = world().ctx._key_mark(KEY)
+    check('waits: a reply that stood when the list began has no row, whatever the chat\'s time since (a selection or an edit moves it)', [chatting({ base: { 's-chat': MARK }, time: 999 }).ids(), chatting({ base: { 's-chat': MARK }, time: 9_999_999 }).ids()], [ALL, ALL])
+    check('waits: a new reply on such a chat has a row, and so has a replacement under the same count', [chatting({ base: { 's-chat': MARK }, seen: { ...SEEN, replies: 2 } }).ids(), chatting({ base: { 's-chat': MARK }, seen: { ...SEEN, footer: "'vault/default · run ef56ab78 · 2s'" } }).ids()], [[...ALL, 'chat'], [...ALL, 'chat']])
+    check('waits: an old chat\'s time does not matter once the list has begun', chatting({ time: 1 }).ids(), [...ALL, 'chat'])
+    const linked = chatting({ text: REPLY.replace('Two parts: alpha and beta.', 'See [the plan](javascript:alert(1)) and https://example.com/x for it.') })
+    check('waits: a reply\'s line is drawn as text: no link is made of it', linked.rows()[4].children[0].innerHTML, '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> See [the plan](javascript:alert(1)) and https://example.com/x for it.')
+    check('waits: the owner\'s answer ends it (the reply is no longer the last turn)', chatting({ seen: { ...SEEN, last: false } }).ids(), ALL)
+    check('waits: a chat this tab holds no reply of has no row', chatting({ seen: null }).ids(), ALL)
+    check('waits: a cleared reply has no row (also in a store of the first versions: one key, a string)', [chatting({ store: { _todoer: { cleared: ["0|'older'", KEY] } } }).ids(), chatting({ store: { _todoer: { cleared: KEY } } }).ids()], [ALL, ALL])
+    check('waits: one more reply after a clear shows the row again', chatting({ store: { _todoer: { cleared: [KEY] } }, seen: { ...SEEN, replies: 2 } }).ids(), [...ALL, 'chat'])
+    check('waits: the snoozed list has no such row', chatting({ snooze: { snoozed: 1_800_000_000_000 } }).ids(), ALL)
+    const cleared = chatting()
+    const done = cleared.drop('chat')
+    check('waits: a drop on the done bin clears the row in the chat\'s own store and writes nothing into the chat', [done.text == REPLY, done.rows, done.left, done.store, done.calls, cleared.called], [true, ALL, 0, { cleared: [KEY] }, [], []])
+    cleared.render()
+    check('waits: the next render keeps it cleared', cleared.ids(), ALL)
+    // a newer reply arrives while the row of the earlier one is held: the clear is of the one shown
+    const KEY2 = "2|'vault/default · run ab12cd34 · 1s'"
+    const raced = chatting()
+    raced.ctx._todoer.store.reply_seen.chat = { ...SEEN, replies: 2 }
+    const late_drop = raced.drop('chat')
+    raced.render()
+    check('waits: a clear from a row is of the reply it showed: a newer reply that arrived meanwhile still waits', [late_drop.store, raced.ids()], [{ cleared: [KEY] }, [...ALL, 'chat']])
+    // a clear ADDS its key: whatever clear is there already stands
+    const ahead = chatting()
+    ahead.ctx._todoer.store.reply_seen.chat = { ...SEEN, replies: 2 }
+    ahead.chat._global_store._todoer = { cleared: [KEY2] }
+    const ahead_drop = ahead.drop('chat')
+    ahead.render()
+    check('waits: a clear of the newer reply made meanwhile is left standing, and that reply has no row', [ahead_drop.store, ahead.ids()], [{ cleared: [KEY2, KEY] }, ALL])
+    // the store's delivery can come BEFORE the text's: another device cleared the replacement
+    // (B, under the same count), whose text is not here yet. The row of the earlier reply is
+    // still held, or drawn again from the old text (a store's delivery renders the list)
+    const KEY_B = "1|'vault/default · run ef56ab78 · 2s'"
+    const SEEN_B = { ...SEEN, footer: "'vault/default · run ef56ab78 · 2s'" }
+    const early = (redraw, clear) => {
+      const w = chatting()
+      w.chat._global_store._todoer = { cleared: [KEY_B] }
+      if (redraw) w.render()
+      const store = clear(w)
+      w.ctx._todoer.store.reply_seen.chat = SEEN_B
+      w.render()
+      return [store, w.ids()]
+    }
+    const by_drop = w => w.drop('chat').store
+    // (the bell's click clears the key its row keeps; the fake row has no bell element to click)
+    const by_bell = w => (w.ctx._clear_waiting(w.chat, w.rows()[4].getAttribute('data-wait-key')), w.chat._global_store._todoer)
+    check('waits: a clear that arrived before its reply\'s text stands, whether the earlier row is dropped as it was held or clicked after being drawn again, and the replacement has no row when its text comes', [early(false, by_drop), early(true, by_drop), early(true, by_bell)], Array(3).fill([{ cleared: [KEY_B, KEY] }, ALL]))
+    check('waits: a store of the first versions is read as its one key, and the last four keys are kept', [chatting({ store: { _todoer: { cleared: "0|'older'" } } }).drop('chat').store, chatting({ store: { _todoer: { cleared: ['a', 'b', 'c', 'd'] } } }).drop('chat').store], [{ cleared: ["0|'older'", KEY] }, { cleared: ['b', 'c', 'd', KEY] }])
+    const again = chatting({ store: { _todoer: { cleared: [KEY, 'x'] } }, seen: { ...SEEN, replies: 2 } })
+    again.ctx._clear_waiting(again.chat, KEY)
+    check('waits: a key that is there already is not written again', again.chat._global_store._todoer, { cleared: [KEY, 'x'] })
+    // the other bins: cancel deletes the item, always after the app's question (the confirm it
+    // passes); the snooze and the agent bin are a todo's: the row goes back where it was, with the
+    // word those bins have for an item that is none
+    const tick = async (turns = 4) => {
+      for (let i = 0; i < turns; i++) await new Promise(resolve => setImmediate(resolve))
+    }
+    const gone = chatting()
+    const cancelled = gone.drop('chat', 'cancel')
+    check('waits: a drop on the cancel bin deletes the item, asking first', [cancelled.rows, cancelled.left, gone.called], [ALL, 0, [['delete', true]]])
+    const declined = chatting({ deletes: false })
+    check('waits: a deletion that is declined puts the row back', [declined.drop('chat', 'cancel').rows, declined.called], [[...ALL, 'chat'], [['delete', true]]])
+    const absent = chatting()
+    const absent_find = absent.ctx._item
+    let absent_asked = 0 // the drop's own lookup finds none; this row's reading afterwards does
+    absent.ctx._item = ref => (absent_asked++ ? absent_find(ref) : null)
+    const absent_drop = absent.drop('chat', 'cancel')
+    check('waits: an item that is gone when its row is dropped is left alone: nothing asked, written or put back', [absent.called, absent_drop.calls, absent_drop.left], [[], [], 0])
+    const T = 1_900_000_000_000
+    // (a delegation or a snooze picker that such a drop reached would show among what was called)
+    const bounced = bin => {
+      const w = chatting()
+      w.ctx._delegate = async () => void w.called.push('delegate')
+      w.ctx._snooze_dialog = () => (w.called.push('picker'), { then: f => f({ time: T, notify: false }) })
+      const dropped = w.drop('chat', bin)
+      return [dropped.text == REPLY, dropped.rows, dropped.left, dropped.store, w.called, dropped.calls]
+    }
+    check('waits: a drop on the agent or the snooze bin puts the row back: nothing is written, stored or sent, no picker opens, and a word says the item is no todo',
+      [bounced('agent'), bounced('snooze')],
+      [[true, [...ALL, 'chat'], 0, undefined, [], [['alert', 'cannot delegate #e2e_chatty/0: not a #todo item']]], [true, [...ALL, 'chat'], 0, undefined, [], [['alert', 'cannot snooze #e2e_chatty/0: not a #todo item']]]])
+    // the snooze dialog moved into a function of its own: a todo's drop on the snooze bin is as before
+    const napping = world()
+    napping.ctx.is_number = x => typeof x == 'number'
+    napping.ctx._snooze_dialog = () => ({ then: f => f({ time: T, notify: true }) })
+    check('snooze: a todo dropped on the snooze bin is snoozed at the picked time with its reminder, as before', kinds(napping.drop('short', 'snooze')), { text: '#todo fix the cache', rows: ['task', 'long', 'named'], left: 0, store: { snoozed: T, notify: true }, draft: undefined, calls: ['store', 'store'] })
+    const clicked = chatting()
+    clicked.click('chat')
+    check('waits: a click on the row selects the chat', clicked.called, ['select'])
+    check('waits: a todo\'s drop on done is the todo\'s as before, beside such a row', kinds(chatting().drop('short')), { text: '#done fix the cache', rows: ['task', 'long', 'named', 'chat'], left: 0, store: undefined, draft: undefined, calls: ['write', 'log'] })
+    // the hooks (the production call sites) over a mounted widget: a reply that arrives shows the
+    // row, the owner's answer takes it away, and a clear made on another device (the chat's store)
+    // takes it away too
+    const live = chatting({ seen: { ...SEEN, last: false } })
+    live.ctx._item = ref => (ref == 'pinned' ? live.pinned : live.ctx._items().find(item => item.id == ref) ?? null)
+    live.ctx._this = { dependents: ['pinned'] }
+    live.ctx._todoer.dependents = ['pinned']
+    live.ctx.window.Sortable = live.ctx.Sortable
+    live.pinned.elem = { querySelectorAll: selector => (selector == '.todoer-widget' ? [live.widget] : []) }
+    live.pinned.tags = []
+    live.ctx._on_item_change('chat', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
+    check('waits: a reply that arrives renders the row', live.ids(), [...ALL, 'chat'])
+    live.chat.text = REPLY + '\n<<user>> thanks'
+    live.ctx._on_item_change('chat', '#e2e_chatty/0', '#e2e_chatty/0', false, false, false)
+    check('waits: the owner\'s answer takes the row away', live.ids(), ALL)
+    live.chat.text = REPLY
+    live.ctx._on_item_change('chat', '#e2e_chatty/0', '#e2e_chatty/0', false, true, false)
+    live.chat._global_store._todoer = { cleared: KEY }
+    check('waits: a clear made on another device takes the row away at the store\'s delivery', [live.ids().includes('chat'), live.ctx._on_global_store_change('chat', true), live.ids()], [true, undefined, ALL])
+    // the list's start: one stamp, written only from a confirmed corpus that is not held
+    const starting = chatting({ base: null })
+    const todoer = starting.ctx._todoer
+    Object.defineProperty(todoer, 'global_store', { get: () => todoer._global_store })
+    starting.ctx.Date = ClockDate
+    context.__now = 5000
+    check('start: an unconfirmed corpus writes nothing', [starting.ctx._rows_start(), todoer._global_store], [false, {}])
+    starting.ctx.window._server_confirmed = true
+    check('start: a confirmed corpus writes the baselines once: the time, a mark of every unanswered reply, every todo\'s count', [starting.ctx._rows_start(), todoer._global_store, (context.__now = 9000, starting.ctx._rows_start()), todoer._global_store.rows_since], [true, { rows_base: { 's-chat': MARK }, rows_since: 5000, bells_base: {} }, true, 5000])
+    starting.render()
+    check('start: what stood at the start has no row', starting.ids(), ALL)
+    // an account that ran the list's first versions: a time and no baseline of replies
+    const preview = ({ time, store = {} }) => {
+      const w = chatting({ base: null, time, store })
+      const kept = w.ctx._todoer
+      kept._global_store = { rows_since: 1000, bells_base: { 's-short': 4 } }
+      Object.defineProperty(kept, 'global_store', { get: () => kept._global_store })
+      w.ctx.window._server_confirmed = true
+      return [w.ctx._rows_start(), kept._global_store, (w.render(), w.ids().includes('chat'))]
+    }
+    check('start: an account of the first versions keeps what waited (a chat changed after its time, not cleared) and takes the rest for the baseline', [preview({ time: 2000 }), preview({ time: 999 }), preview({ time: 2000, store: { _todoer: { cleared: KEY } } })],
+      [[true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: {} }, true], [true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: { 's-chat': MARK } }, false], [true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: { 's-chat': MARK } }, false]])
+    // ---- the bell on a todo's own row: it stays until its click, whatever the marker shows ------
+    {
+      const ringing = ({ base = {}, state = null, store = {}, started = true } = {}) => {
+        const w = world()
+        w.ctx._todoer._global_store = started ? { rows_since: 1000, rows_base: {}, bells_base: base } : { rows_since: 1000, rows_base: {} }
+        const todo = w.item('short')
+        todo._global_store = { ...store, ...(state ? { _agent: { state } } : {}) }
+        return Object.assign(w, { todo, bell: () => w.ctx._bell(todo) })
+      }
+      const agent = surfaced => ({ held: 'agent', reason: 'delegated', epoch: 1, surfaced })
+      const owner = (reason, surfaced) => ({ held: 'owner', reason, epoch: 1, surfaced })
+      check('bell: a todo that came up rings by its kind: a check-in for the agent\'s, its reason for the owner\'s, a project that asks by its reason',
+        [ringing({ state: agent(1) }).bell(), ringing({ state: owner('question', 2) }).bell(), ringing({ state: owner('done', 1) }).bell(), ringing({ state: { ...agent(1), reason: 'question', project: true } }).bell()],
+        ['checkin', 'question', 'done', 'question'])
+      check('bell: none for a todo the bridge never held, one that never came up, or one the owner took back',
+        [ringing().bell(), ringing({ state: agent(0) }).bell(), ringing({ state: { held: 'agent' } }).bell(), ringing({ state: owner('taken', 3) }).bell()], [null, null, null, null])
+      check('bell: nothing of the past rings: the count that stood when the bells began is the baseline, and before they began nothing rings',
+        [ringing({ state: agent(2), base: { 's-short': 2 } }).bell(), ringing({ state: agent(3), base: { 's-short': 2 } }).bell(), ringing({ state: agent(3), started: false }).bell()], [null, 'checkin', null])
+      check('bell: a cleared count is silent, also when the marker has gone back to working; one more time rings again',
+        [ringing({ state: agent(2), store: { _todoer: { bell: 2 } } }).bell(), ringing({ state: agent(3), store: { _todoer: { bell: 2 } } }).bell()], [null, 'checkin'])
+      const tapped = ringing({ state: agent(3), store: { _todoer: { snoozed: 0 } } })
+      check('bell: its clear records the count in the todo\'s own store, beside what the store holds', [tapped.ctx._clear_bell(tapped.todo, 3), tapped.todo._global_store._todoer, tapped.bell()], [true, { snoozed: 0, bell: 3 }, null])
+      check('bell: nothing to clear without a count that was seen', [ringing().ctx._clear_bell(ringing().todo, undefined), ringing({ state: agent(2) }).ctx._clear_bell(ringing().todo, 0)], [false, false])
+      const stale = ringing({ state: agent(4), store: { _todoer: { bell: 1 } } })
+      check('bell: a clear from a row is of the count it showed: one more time that came meanwhile still rings, and a later clear is left standing', [stale.ctx._clear_bell(stale.todo, 3), stale.todo._global_store._todoer.bell, stale.bell(), stale.ctx._clear_bell(stale.todo, 2), stale.todo._global_store._todoer.bell], [true, 3, 'checkin', true, 3])
+      const bound = { held: 'owner', reason: 'proposal', epoch: 1, surfaced: 2 }
+      check('bell: by the row\'s own list: the owner\'s todo rings in the main list alone (a bound child\'s proposal in the delegated list is its project\'s), an agent\'s is a check-in in either', [ringing({ state: bound }).ctx._bell(ringing({ state: bound }).todo, bound, 'delegated'), ringing({ state: bound }).ctx._bell(ringing({ state: bound }).todo, bound, 'main'), ringing({ state: agent(1) }).ctx._bell(ringing({ state: agent(1) }).todo, agent(1), 'main')], [null, 'proposal', 'checkin'])
+      // a new delegation clears a ringing bell (the owner has acted on what came up)
+      const redelegated = ringing({ state: owner('question', 2) })
+      redelegated.ctx._command_id = () => 'c1'
+      redelegated.ctx._todoer.dependents = []
+      redelegated.ctx.window._enqueue_hidden_document = async (name, cmd) => ({ id: 'doc-' + cmd.id, written: Promise.resolve() })
+      async_rows.push(
+        redelegated.ctx._delegate(redelegated.todo).then(ok =>
+          check('bell: a new delegation clears the bell', [ok, redelegated.todo._global_store._todoer?.bell, redelegated.bell()], [true, 2, null])
+        )
+      )
+      // a todo the bridge held nothing of: a count that arrives while the command is being enqueued is not the owner's to have seen
+      const blank = ringing()
+      blank.ctx._command_id = () => 'c3'
+      blank.ctx._todoer.dependents = []
+      let enqueue_now = null
+      blank.ctx.window._enqueue_hidden_document = (name, cmd) => new Promise(resolve => (enqueue_now = () => resolve({ id: 'doc-' + cmd.id, written: Promise.resolve() })))
+      const blank_sent = blank.ctx._delegate(blank.todo)
+      async_rows.push((async () => {
+        await tick()
+        blank.todo._global_store._agent = { state: agent(1) }
+        enqueue_now()
+        const ok = await blank_sent
+        check('bell: a delegation of a todo with no count clears nothing: one that arrives during the enqueue still rings', [ok, blank.todo._global_store._todoer?.bell, blank.bell()], [true, undefined, 'checkin'])
+      })())
+      // a take-back raises the count without a bell; the delegation after it must not ring as a check-in
+      const retaken = ringing({ state: owner('taken', 2), store: { _todoer: { bell: 1 } } })
+      retaken.ctx._command_id = () => 'c2'
+      retaken.ctx._todoer.dependents = []
+      retaken.ctx.window._enqueue_hidden_document = async (name, cmd) => ({ id: 'doc-' + cmd.id, written: Promise.resolve() })
+      async_rows.push(
+        retaken.ctx._delegate(retaken.todo).then(ok => {
+          retaken.todo._global_store._agent.state = agent(2) // the bridge's answer: the agent's again, the same count
+          const quiet = retaken.bell()
+          retaken.todo._global_store._agent.state = agent(3) // and then a real check-in
+          check('bell: a todo taken back and delegated again does not ring; its next check-in does', [ok, retaken.todo._global_store._todoer.bell, quiet, retaken.bell()], [true, 2, null, 'checkin'])
+        })
+      )
+      // the row: the bell is the row's first mark, and its own click clears it and renders again
+      const shown = ringing({ state: owner('question', 1) }) // in the main list, which this widget is
+      shown.ctx._rerender_todoer_widgets = () => shown.render()
+      shown.render()
+      const mark = () => shown.rows().find(row => row.getAttribute('data-id') == 'short').children[0].children[0]
+      const before = [mark()?.className, mark()?.innerText, mark()?.title]
+      mark().onclick({ stopPropagation() {}, preventDefault() {} })
+      check('bell: the row shows it first, with its kind; its click clears it and the row stays without it',
+        [before, shown.todo._global_store._todoer.bell, mark() ?? null, shown.ids().includes('short')],
+        [['waits', 'question', 'question: came up for you; click the bell to clear it'], 1, null, true])
+      // the baseline: every todo's count, by saved id, in the same save as the list's start
+      const base = ringing({ state: agent(4) })
+      check('bell: the baseline is every todo\'s count by its saved id', base.ctx._bells_now(), { 's-short': 4 })
+      const late = ringing({ state: agent(4), started: false })
+      const store = late.ctx._todoer
+      Object.defineProperty(store, 'global_store', { get: () => store._global_store })
+      late.ctx.window._server_confirmed = true
+      late.ctx._todoer._global_store = { rows_since: 1000 }
+      check('bell: an account whose list had started gets the baselines at the next start, its first stamp kept', [late.ctx._rows_start(), store._global_store], [true, { rows_since: 1000, rows_base: {}, bells_base: { 's-short': 4 } }])
+      // the reason `checkin`: an agent's todo, in the delegated list, whose count went up
+      const went = (prev, state, list = 'delegated') => base.ctx._checked_in(prev, state, list)
+      check('checkin: the count going up on an agent\'s todo in the delegated list is one; the same count, the owner\'s todo, the main list or no record is none',
+        [went('agent:delegated:1:2|delegated', agent(3)), went('agent:delegated:1:|delegated', agent(1)), went('agent:delegated:1:3|delegated', agent(3)), went('agent:delegated:1:2|delegated', owner('question', 3)), went('agent:question:1:2|main', agent(3), 'main'), went(undefined, agent(3))],
+        [true, true, false, false, false, false])
+      check('checkin: a todo this tab held no projection of (a tab started from its cache): its first one, with a count from before, is none', [went('|main', agent(3)), went('|delegated', agent(3))], [false, false])
+      const step = (reasons, checkin) => base.ctx._notify_step({ setting: { reasons }, prev: 'a', key: 'b', list: 'delegated', reason: 'delegated', permission: 'granted', checkin })
+      check('checkin: it notifies only where the setting names it, and a delegated todo\'s other changes stay silent', [step(['done', 'checkin'], true), step(['done'], true), step(['done', 'checkin'], false)], ['notify', 'reason checkin', 'not in the main list'])
+    }
+    context.__now = null
+  }
+  // the item's files are embedded in the #todoer item's own text, where the app expands every
+  // macro opener that no backslash escapes, also in code and comments (a preview of another item
+  // broke its page that way, 2026-11-23): none may stand unescaped in the script or the widget's file
+  for (const file of ['todoer.js', 'todoer-widget.html'])
+    check(`embedded: ${file} holds no unescaped macro opener`, (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(?<!\\)<</g) ?? []).length, 0)
 }
