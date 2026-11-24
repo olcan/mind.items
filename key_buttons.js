@@ -46,7 +46,7 @@ const KEY_BUTTONS = [
   // a bar and an arrow up to it: the page scrolls to its top (Back returns to the position)
   { name: 'top', key: 'ArrowUp', ctrl: true, alt: true, title: 'Scroll to the top (Ctrl+Alt+Up)', icon: 'M3 2.5h10M8 14V6.5M4.5 10L8 6.5l3.5 3.5' },
   // an arrow down to a ring, the item: the undo of the scroll to the top, else the named item
-  { name: 'back', key: 'ArrowDown', ctrl: true, alt: true, title: 'Back down: to the position left, else to the named item (Ctrl+Alt+Down)', icon: 'M8 1.5V8M4.5 4.5L8 8l3.5-3.5M8 11.2a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3' },
+  { name: 'back', key: 'ArrowDown', ctrl: true, alt: true, title: 'Back down: to where the page was before the jump to the top, else to the named item (Ctrl+Alt+Down)', icon: 'M8 1.5V8M4.5 4.5L8 8l3.5-3.5M8 11.2a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3' },
   // a plus: a new item, the named item's child when the box names one (a chat's reply)
   { name: 'create', key: 'Enter', shift: true, title: 'New item, under the named item: a reply (Shift+Enter)', icon: 'M8 3v10M3 8h10' },
   { name: 'left', key: 'ArrowLeft', title: 'Previous sibling (Left)', icon: 'M13 8H3.5M7.5 4l-4 4 4 4' },
@@ -70,10 +70,12 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
 // tree and dimmed when not
 const KEY_BUTTONS_ARROWS = KEY_BUTTONS.filter(b => !b.ctrl && !b.alt && !b.shift && b.key.startsWith('Arrow'))
 const KEY_BUTTONS_ARROW_NAMES = new Set(KEY_BUTTONS_ARROWS.map(b => b.name))
-// the strip of a device with a keyboard: the main row's buttons in the row's own order, in one
-// row to the right of the reload button, in groups with a wider gap before each (the owner,
-// 2026-11-23: one strip, the other buttons too, with some spacing). `lead` marks a group's first
-const KEY_BUTTONS_STRIP = [['top', 'back'], ['create'], ['left', 'up', 'down', 'right']]
+// the strip of a device with a keyboard: the main row's buttons in one row at the page's lower
+// right, in groups with a wider gap between them, left to right: the two jumps, the four arrows,
+// the new item; then the reload button, then the #vault item's sparkle (the owner, 2026-11-23:
+// "reload is next to sparkle, plus is next to reload, then the arrow keys, then the jump-up/down
+// buttons"). `lead` marks a group's first
+const KEY_BUTTONS_STRIP = [['top', 'back'], ['left', 'up', 'down', 'right'], ['create']]
 const KEY_BUTTONS_STRIP_SPECS = KEY_BUTTONS_STRIP.flatMap(names => names.map((name, i) => ({ ...KEY_BUTTONS.find(b => b.name == name), lead: i == 0 })))
 const KEY_BUTTONS_NONE = { left: false, up: false, down: false, right: false }
 
@@ -91,7 +93,7 @@ const KEY_BUTTONS_RELOAD_QUESTION = 'Reload and discard any unsaved changes?'
 const KEY_BUTTONS_LOOK = {
   size: 32, // a button's width and height (the sparkle's is 24)
   gap: 6, // between two buttons: seven buttons take 7 * 32 + 6 * 6 = 260
-  group: 14, // before each group of the strip on a device with a keyboard (the reload button's own margin)
+  group: 18, // between the groups of the strip on a device with a keyboard, and beside its reload button
   right: 46, // the row's right edge from the window's: past the sparkle (14 + 24) and a gap of 8
   bottom: 6, // the row's bottom edge from the window's: 10 + (24 - 32) / 2, the sparkle's centre line
   icon: 16, // an icon's width and height
@@ -277,34 +279,35 @@ function key_buttons_caret_line(textarea, doc) {
   return { top: rect.top, bottom: rect.bottom }
 }
 
-// geometry of the desktop frosted-glass backdrop, in CSS pixels: one piece behind the reload
-// button and the strip (its top-right corner rounded), or the full merged strip below
-// look.backdrop.merge px: glass clip paths (origin at the pane's top-left), shadow-caster /
-// outside-mask paths (origin pad px above the glass, extended past the viewport's edges so the
-// outer shadow stays uniform to the screen edge), and 1 px free-edge border paths (inset 0.5 px so
-// the stroke sits inside the glass edge and never draws on page edges). `w_col` is the width of
-// the piece behind the #vault sparkle at the right; `h_col` stays for the readers of the earlier
-// shape, which had a column above the row
+// geometry of the desktop frosted-glass backdrop, in CSS pixels: one piece at the page's lower
+// right, behind the #vault sparkle, the reload button and the strip (its top-left corner rounded),
+// or the full merged strip below look.backdrop.merge px: glass clip paths (origin at the pane's
+// top-left), shadow-caster / outside-mask paths (origin pad px above and pad px left of the
+// glass, extended past the viewport's edges so the outer shadow stays uniform to the screen
+// edge), and 1 px free-edge border paths (inset 0.5 px so the stroke sits inside the glass edge
+// and never draws on page edges). `w_col` is the sparkle's slot (its circle in its margins);
+// `h_col` stays for the readers of the earlier shape, which had a column above the row
 function key_buttons_backdrop_geom(look) {
   const w_col = look.reload.size + 2 * look.reload.left
   const h_col = 0
   const h_row = look.reload.size + 2 * look.reload.bottom
   const h_tot = h_row
   const [count, groups] = [KEY_BUTTONS_STRIP.flat().length, KEY_BUTTONS_STRIP.length]
-  // the reload button, then each group after its wider gap, the buttons of a group a gap apart
-  const w_left = 2 * look.reload.left + (1 + count) * look.reload.size + (count - groups) * look.gap + groups * look.group
+  // from the right: the sparkle, the reload button and each group, a group's gap between them
+  // and a button's gap inside a group, in the sparkle's margin at both ends
+  const w_piece = 2 * look.reload.left + (2 + count) * look.reload.size + (count - groups) * look.gap + (groups + 1) * look.group
   const r = look.reload.size / 2
   const pad = Math.max(24, look.backdrop.shadow_blur * 3)
   const narrow = look.backdrop.merge
-  const clip_split = `M 0 0 H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${r} V ${h_tot} H 0 Z`
+  const clip_split = `M ${r} 0 H ${w_piece} V ${h_tot} H 0 V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`
   const clip_strip = `M 0 0 H ${narrow} V ${h_tot} H 0 Z`
   const [y0, y2] = [pad, pad + h_tot]
-  const shape_split = `M ${-pad} ${y0} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${y0 + r} V ${y2 + pad} H ${-pad} Z`
+  const shape_split = `M ${pad + r} ${y0} H ${w_piece + 2 * pad} V ${y2 + pad} H ${pad} V ${y0 + r} A ${r} ${r} 0 0 1 ${pad + r} ${y0} Z`
   const shape_strip = `M ${-pad} ${y0} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
   const [o, ri] = [0.5, r - 0.5]
-  const border_split = `M 0 ${y0 + o} H ${w_left - r} A ${ri} ${ri} 0 0 1 ${w_left - o} ${y0 + r} V ${y2}`
+  const border_split = `M ${pad + o} ${y2} V ${y0 + r} A ${ri} ${ri} 0 0 1 ${pad + r} ${y0 + o} H ${w_piece + pad}`
   const border_strip = `M 0 ${y0 + o} H ${narrow}`
-  return { w_col, h_col, h_row, h_tot, w_left, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
+  return { w_col, h_col, h_row, h_tot, w_piece, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
 }
 
 // whether a viewport point (x, y) lies on visible frosted glass, from the same geometry as the
@@ -317,17 +320,14 @@ function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KE
   if (mode == 'mobile') return dy <= look.size + 2 * look.bottom
   const g = key_buttons_backdrop_geom(look)
   const in_arc = (px, py, cx, cy) => (px - cx) ** 2 + (py - cy) ** 2 <= g.r ** 2
-  // desktop row (full width in desktop-strip; 0..w_left with top-right radius r in split)
+  // desktop row (full width in desktop-strip; in split the one piece at the right, 0..w_piece in
+  // from the viewport's right edge, its top-left corner rounded by r). `right_shown` is no longer
+  // read: the sparkle stands on that piece whether it shows or not
   if (dy <= g.h_row) {
     if (mode == 'desktop-strip') return true
-    if (x <= g.w_left) {
-      if (x > g.w_left - g.r && dy > g.h_row - g.r) return in_arc(x, dy, g.w_left - g.r, g.h_row - g.r)
-      return true
-    }
-    // right piece behind the #vault sparkle (right: 0..w_col, bottom: 0..h_row, top-left radius r)
-    if (right_shown && x >= vw - g.w_col) {
-      const rx = vw - x // distance in from the viewport's right edge
-      if (rx > g.w_col - g.r && dy > g.h_row - g.r) return in_arc(rx, dy, g.w_col - g.r, g.h_row - g.r)
+    const rx = vw - x // distance in from the viewport's right edge
+    if (rx <= g.w_piece) {
+      if (rx > g.w_piece - g.r && dy > g.h_row - g.r) return in_arc(rx, dy, g.w_piece - g.r, g.h_row - g.r)
       return true
     }
   }
@@ -367,7 +367,7 @@ function key_buttons_backdrop_frame(look) {
     `<path d="${shape}" fill="${look.backdrop.shadow}" filter="url(#key-buttons-bg-shadow-${cls})" mask="url(#key-buttons-bg-out-${cls})"/>` +
     `<path d="${border}" fill="none" stroke="${look.backdrop.border}" stroke-width="1" stroke-linejoin="miter"/>` +
     `</svg>`
-  return svg('split', g.w_left + g.pad, g.shape_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.border_strip)
+  return svg('split', g.w_piece + g.pad, g.shape_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.border_strip)
 }
 
 function key_buttons_css(look) {
@@ -383,13 +383,14 @@ function key_buttons_css(look) {
 .key-buttons > button > svg { display: block; width: ${look.icon}px; height: ${look.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons > button.dim > svg { opacity: ${look.dim} }
 .key-buttons-reload { position: fixed; left: ${look.reload.left}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.reload.idle}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.key-buttons-reload.desktop { left: auto; right: ${look.reload.left + look.reload.size + look.group}px }
 .key-buttons-reload[hidden] { display: none }
 .key-buttons-reload:focus { outline: none }
 .key-buttons-reload:focus-visible { outline: 1px solid ${look.color} }
 @media (hover: hover) { .key-buttons-reload:hover { color: ${look.reload.hover} } }
 .key-buttons-reload:active { color: ${look.color} }
 .key-buttons-reload > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
-.key-buttons-nav { position: fixed; left: ${look.reload.left + look.reload.size + look.group}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
+.key-buttons-nav { position: fixed; right: ${look.reload.left + 2 * look.reload.size + 2 * look.group}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
 .key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: ${look.group - look.gap}px }
 .key-buttons-nav[hidden] { display: none }
 .key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
@@ -404,14 +405,13 @@ function key_buttons_css(look) {
 .key-buttons-bg[hidden] { display: none }
 .key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
 .key-buttons-bg.desktop > .key-buttons-bg-pane { height: ${g.h_tot}px; border-top: 0; box-shadow: none; -webkit-clip-path: path('${g.clip_strip}'); clip-path: path('${g.clip_strip}') }
-.key-buttons-bg.desktop.split > .key-buttons-bg-pane { right: auto; width: ${g.w_left}px; -webkit-clip-path: path('${g.clip_split}'); clip-path: path('${g.clip_split}') }
+.key-buttons-bg.desktop.split > .key-buttons-bg-pane { left: auto; right: 0; width: ${g.w_piece}px; -webkit-clip-path: path('${g.clip_split}'); clip-path: path('${g.clip_split}') }
 .key-buttons-bg > .key-buttons-bg-frame { display: none; pointer-events: none }
 .key-buttons-bg.desktop > .key-buttons-bg-frame { display: block }
 .key-buttons-bg-svg { display: none; position: absolute; left: 0; bottom: 0; height: ${g.h_tot + g.pad}px; pointer-events: none }
 .key-buttons-bg.desktop:not(.split) .key-buttons-bg-svg.strip { display: block; right: 0; width: 100% }
-.key-buttons-bg.desktop.split .key-buttons-bg-svg.split { display: block; width: ${g.w_left + g.pad}px }
+.key-buttons-bg.desktop.split .key-buttons-bg-svg.split { display: block; left: auto; right: 0; width: ${g.w_piece + g.pad}px }
 .key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${g.w_col}px; height: ${g.h_row}px; box-sizing: border-box; border-top-left-radius: ${g.r}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
-body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }
 `
 }
 
@@ -824,8 +824,8 @@ function key_buttons_create() {
   reloader.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
   reloader.addEventListener('contextmenu', taken)
   if (KEY_BUTTONS_PARTS.reload_button) document.body.appendChild(reloader)
-  // the strip of a device with a keyboard, in a row to the right of the reload button: the main
-  // row's buttons in the reload button's circle look, the arrows dimmed when they would not move
+  // the strip of a device with a keyboard, in a row at the lower right that ends beside the reload
+  // button: the main row's buttons in the reload button's circle look, the arrows dimmed when they would not move
   // and still clickable. A click dispatches on document.body so it always reaches the window's
   // handler even while the MindBox holds focus (Editor.svelte stops propagation on arrows inside
   // a focused textarea), and sends nothing while any item is open for editing
@@ -911,6 +911,8 @@ function key_buttons_create() {
     }
     const desktop = key_buttons_desktop_shown(window, { up: self.keyboard_up })
     nav_strip.hidden = !desktop
+    // the reload button stands beside the sparkle there, and at the lower left on a phone
+    reloader.className = desktop ? 'key-buttons-reload desktop' : 'key-buttons-reload'
     for (const button of nav_strip.children) {
       if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
     }
