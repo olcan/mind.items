@@ -120,6 +120,14 @@ check('buttons: each sends its key: the arrows bare, Shift+Enter, Ctrl+Alt+Up an
 check('buttons: the row above the keyboard is three: the outdent, the indent and the done, as Shift+Tab, Tab and Shift+Enter',
   [above.map(b => b.name), keys_of(above)], [['outdent', 'indent', 'done'], ['Shift+Tab', 'Tab', 'Shift+Enter']])
 check('buttons: each of both rows has an icon and says what its key does, naming the key', [...buttons, ...above].every(b => /^M[\d\s.,MmLlHhVvAa-]+$/.test(b.icon) && /^\S.* \((Ctrl\+Alt\+)?(Shift\+)?\w+\)$/.test(b.title)), true)
+const strip = v1('KEY_BUTTONS_STRIP')
+const strip_specs = v1('KEY_BUTTONS_STRIP_SPECS')
+check('buttons: desktop strip has seven buttons in three groups (top and back, the four arrows, create), group leads on each group\'s first, and back tooltip Scroll back down (Ctrl+Alt+Down)',
+  [strip, strip_specs.map(b => [b.name, b.lead]), keys_of(strip_specs), buttons.find(b => b.name == 'back').title],
+  [[['top', 'back'], ['left', 'up', 'down', 'right'], ['create']],
+    [['top', true], ['back', false], ['left', true], ['up', false], ['down', false], ['right', false], ['create', true]],
+    ['Ctrl+Alt+ArrowUp', 'Ctrl+Alt+ArrowDown', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowRight', 'Shift+Enter'],
+    'Scroll back down (Ctrl+Alt+Down)'])
 check('parts: the four later parts each have a switch of their own: the row above the keyboard, Shift+Space and the reload button on, the caret\'s scroll off',
   [v1('KEY_BUTTONS_PARTS'), v1('KEY_BUTTONS_CARET')], [{ keyboard_row: true, shift_space_tab: true, caret_clear: false, reload_button: true }, { margin: 8, settle: 150 }])
 // the sparkle's place and look, read from vault.md: the row is laid out against them
@@ -157,14 +165,23 @@ check('reload: it shows on every device, a desktop too; not while a keyboard is 
   [true, true, false, false, true, false, false, true, false])
 const geom = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK)')
 const frame = v1('key_buttons_backdrop_frame(KEY_BUTTONS_LOOK)')
-check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.dim; desktop groups sit around reload; raised frosted-glass backdrop (4 px blur, 1 px free-edge border, soft outer shadow) splits into one L-shaped left pane and a sparkle-gated right piece on wide desktop, and merges to a strip on narrow desktop and mobile',
-  [look.valid,
+check("nav look: in a window narrower than the piece the group gaps shrink to the button gap, so the strip's first button stays inside at 320 and 300 px (it began left of the window with the wide gaps)",
+  [sheet.includes(`@media (max-width: ${geom.w_piece - 1}px) { .key-buttons-reload.desktop { right: ${right + width + look.gap}px } .key-buttons-nav { right: ${right + 2 * width + 2 * look.gap}px } .key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: 0 } }`),
+    geom.w_piece,
+    [320, 300].map(vw => vw - (right + 2 * width + 2 * look.group) - (7 * width + 4 * look.gap + 2 * look.group)),
+    [320, 300].map(vw => vw - (right + 2 * width + 2 * look.gap) - (7 * width + 6 * look.gap))],
+  [true, 340, [-6, -26], [42, 22]])
+check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.dim; desktop strip and reload sit at the lower right with group gaps; raised frosted-glass backdrop (4 px blur, 1 px free-edge border, soft outer shadow) draws one right piece on wide desktop (bg-right never shown) and merges to a strip on narrow desktop and mobile',
+  [look.group,
+    look.valid,
     look.dim,
     look.backdrop,
     sheet.includes('.key-buttons > button.valid { color: #9f9 }'),
     sheet.includes(`.key-buttons > button.dim > svg { opacity: ${look.dim} }`),
-    sheet.includes(`.key-buttons-nav { position: fixed; left: ${right + width + look.gap}px; bottom: ${bottom}px; z-index: ${look.layer};`),
-    sheet.includes(`.key-buttons-nav.vertical { left: ${right}px; bottom: ${bottom + height + look.gap}px; flex-direction: column }`),
+    sheet.includes(`.key-buttons-reload.desktop { left: auto; right: ${right + width + look.group}px }`),
+    sheet.includes(`.key-buttons-nav { position: fixed; right: ${right + 2 * width + 2 * look.group}px; bottom: ${bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px;`),
+    sheet.includes(`.key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: ${look.group - look.gap}px }`),
+    !sheet.includes('.key-buttons-nav.vertical'),
     sheet.includes(`.key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${width}px; height: ${height}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${sparkle[6]}; box-shadow: ${sparkle[7]}; color: #fff;`),
     sheet.includes('.key-buttons-nav > button.valid { color: #9f9 }'),
     sheet.includes(`.key-buttons-nav > button.dim > svg { opacity: ${look.dim} }`),
@@ -172,15 +189,32 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     sheet.includes(`.key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }`),
     sheet.includes(`.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }`),
     sheet.includes(`.key-buttons-bg.desktop > .key-buttons-bg-pane { height: ${geom.h_tot}px; border-top: 0; box-shadow: none; -webkit-clip-path: path('${geom.clip_strip}'); clip-path: path('${geom.clip_strip}') }`),
-    sheet.includes(`.key-buttons-bg.desktop.split > .key-buttons-bg-pane { right: auto; width: ${geom.w_left}px; -webkit-clip-path: path('${geom.clip_split}'); clip-path: path('${geom.clip_split}') }`),
+    sheet.includes(`.key-buttons-bg.desktop.split > .key-buttons-bg-pane { left: auto; right: 0; width: ${geom.w_piece}px; -webkit-clip-path: path('${geom.clip_split}'); clip-path: path('${geom.clip_split}') }`),
     sheet.includes(`.key-buttons-bg-svg { display: none; position: absolute; left: 0; bottom: 0; height: ${geom.h_tot + geom.pad}px; pointer-events: none }`),
-    sheet.includes(`.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${width + 2 * right}px; height: ${height + 2 * bottom}px; box-sizing: border-box; border-top-left-radius: ${width / 2}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }`),
-    sheet.includes('body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }'),
+    sheet.includes(`.key-buttons-bg.desktop.split .key-buttons-bg-svg.split { display: block; left: auto; right: 0; width: ${geom.w_piece + geom.pad}px }`),
+    sheet.includes(`.key-buttons-bg > .key-buttons-bg-right { display: none;`),
+    !sheet.includes('body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right'),
     frame.includes(`<feGaussianBlur stdDeviation="${look.backdrop.shadow_blur / 2}"/>`),
     frame.includes(`stroke="${look.backdrop.border}" stroke-width="1"`),
     frame.includes('class="key-buttons-bg-svg split"') && frame.includes('class="key-buttons-bg-svg strip"'),
     look.layer - 1 < look.layer && look.layer < Number(layer[1])],
-  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
+  [18, '#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
+check('backdrop geom & frame: one right piece (w_piece 340, h_col 0, h_tot 44, top-left radius 12) and its split and strip clip, shadow-caster and border SVG paths',
+  [geom.w_col, geom.h_col, geom.h_row, geom.h_tot, geom.w_piece, geom.r, geom.pad, geom.narrow,
+    geom.clip_split, geom.clip_strip, geom.shape_split, geom.border_split, geom.shape_strip, geom.border_strip,
+    frame.includes(`<path d="${geom.shape_split}" fill="#000"/>`),
+    frame.includes(`<path d="${geom.shape_split}" fill="${look.backdrop.shadow}"`),
+    frame.includes(`<path d="${geom.border_split}" fill="none" stroke="${look.backdrop.border}" stroke-width="1"`),
+    frame.includes(`<path d="${geom.shape_strip}" fill="${look.backdrop.shadow}"`),
+    frame.includes(`<path d="${geom.border_strip}" fill="none" stroke="${look.backdrop.border}" stroke-width="1"`)],
+  [52, 0, 44, 44, 340, 12, 36, 480,
+    'M 12 0 H 340 V 44 H 0 V 12 A 12 12 0 0 1 12 0 Z',
+    'M 0 0 H 480 V 44 H 0 Z',
+    'M 48 36 H 412 V 116 H 36 V 48 A 12 12 0 0 1 48 36 Z',
+    'M 36.5 80 V 48 A 11.5 11.5 0 0 1 48 36.5 H 376',
+    'M -36 36 H 516 V 116 H -36 Z',
+    'M 0 36.5 H 480',
+    true, true, true, true, true])
 
 // ---- the keyboard's row: its place from a visual viewport -------------------------------------
 const place = view => v1('key_buttons_place(__args, 3, KEY_BUTTONS_LOOK)', view)
@@ -376,39 +410,47 @@ check('nav: dangling relative reference dims Down (and parent sibling Left/Right
     { left: true, up: true, down: false, right: true }])
 const desktop_shown = (coarse, up) => v1('key_buttons_desktop_shown(__args.win, __args.keyboard)', { win: fingers(coarse), keyboard: { up } })
 const bg_shown = (coarse, up, shown_row, wide = 1280) => v1('key_buttons_backdrop(__args.win, __args.keyboard, __args.shown, KEY_BUTTONS_LOOK)', { win: { ...fingers(coarse), innerWidth: wide }, keyboard: { up }, shown: shown_row })
-check('desktop nav & backdrop: desktop splits backdrop at >= 480 px and merges into a strip below 480 px (all four arrows always shown); phone shows mobile strip only with the main row (not while keyboard is up)',
+check('desktop nav & backdrop: desktop shows right piece at >= 480 px and merges into a full strip below 480 px (strip always shown); phone shows mobile strip only with the main row (not while keyboard is up)',
   [[desktop_shown(false, false), desktop_shown(false, true), desktop_shown(true, false), desktop_shown(true, true)],
     [bg_shown(true, false, 'main', 390), bg_shown(true, false, 'main', 1280), bg_shown(true, true, 'keyboard', 390), bg_shown(true, true, null, 390), bg_shown(false, false, null, 1280), bg_shown(false, false, null, 480), bg_shown(false, false, null, 479), bg_shown(false, false, null, 390), bg_shown(false, true, null, 1280)]],
   [[true, false, false, false], ['mobile', 'mobile', null, null, 'desktop-split', 'desktop-split', 'desktop-strip', 'desktop-strip', null]])
 const in_glass = (x, dy, mode, right_shown = false, vw = 1000, vh = 600) =>
   v1('key_buttons_in_glass(__args.x, __args.y, __args.vw, __args.vh, __args.mode, __args.right, KEY_BUTTONS_LOOK)', { x, y: vh - dy, vw, vh, mode, right: right_shown })
-check('glass hit test: inside column and row (excluding clipped 12 px outer corner triangles, concave cutout and shadow); strip below 480 px covers full bottom; right piece only when shown; phone strip covers bottom 44 px; nothing when keyboard up',
+// on vw=1000, vh=600 the split piece sits at the lower right: x 660..1000 (w_piece=340), dy 0..44 (h_row=44),
+// top-left corner rounded by r=12 (arc centre at x=672, dy=32)
+check('glass hit test: piece at the right (inside, under the sparkle regardless of right_shown, gaps between groups, left of it, lower left has no glass, above the row); merged strip below 480 px; phone strip; none when keyboard up',
   [
-    in_glass(20, 80, 'desktop-split'), // inside column
-    in_glass(71, 22, 'desktop-split'), // inside row between Left and Right
-    in_glass(48, 98, 'desktop-split'), // column top-right corner inside 12 px arc
-    in_glass(51, 103, 'desktop-split'), // column top-right corner outside 12 px arc
-    in_glass(108, 38, 'desktop-split'), // row top-right corner inside 12 px arc
-    in_glass(111, 43, 'desktop-split'), // row top-right corner outside 12 px arc
-    in_glass(75, 65, 'desktop-split'), // above row, right of column (concave cutout)
-    in_glass(80, 48, 'desktop-split'), // on shadow just above row
-    in_glass(116, 22, 'desktop-split'), // on shadow just right of row
-    in_glass(25, 108, 'desktop-split'), // on shadow just above column
-    in_glass(970, 22, 'desktop-split', false), // right piece hidden
-    in_glass(970, 22, 'desktop-split', true), // right piece shown
-    in_glass(952, 38, 'desktop-split', true), // right top-left corner inside 12 px arc
-    in_glass(949, 43, 'desktop-split', true), // right top-left corner outside 12 px arc
-    in_glass(944, 22, 'desktop-split', true), // on shadow left of right piece
-    in_glass(20, 80, 'desktop-strip', false, 420), // narrow column
+    in_glass(800, 22, 'desktop-split'), // inside right piece, under the arrows
+    in_glass(974, 22, 'desktop-split', false), // under the sparkle's place (right_shown false: ignored)
+    in_glass(974, 22, 'desktop-split', true), // under the sparkle's place (right_shown true)
+    in_glass(737, 22, 'desktop-split'), // 18 px gap between back and left (groups 1 and 2)
+    in_glass(869, 22, 'desktop-split'), // 18 px gap between right and create (groups 2 and 3)
+    in_glass(911, 22, 'desktop-split'), // 18 px gap between create and reload
+    in_glass(655, 22, 'desktop-split'), // left of the right piece (on its outer shadow)
+    in_glass(20, 22, 'desktop-split'), // old lower-left reload place: no glass there now
+    in_glass(71, 22, 'desktop-split'), // old lower-left arrow gap: no glass there now
+    in_glass(800, 48, 'desktop-split'), // above the row (on its outer shadow)
+    in_glass(20, 22, 'desktop-strip', false, 420), // left end of merged strip below 480 px
     in_glass(220, 22, 'desktop-strip', false, 420), // middle of merged strip
-    in_glass(415, 43, 'desktop-strip', false, 420), // right end of merged strip (unrounded)
+    in_glass(5, 43, 'desktop-strip', false, 420), // top-left corner of merged strip (unrounded)
+    in_glass(415, 43, 'desktop-strip', false, 420), // top-right corner of merged strip (unrounded)
+    in_glass(20, 80, 'desktop-strip', false, 420), // above merged strip (no column now)
     in_glass(220, 48, 'desktop-strip', false, 420), // shadow above merged strip
     in_glass(200, 22, 'mobile', false, 390), // inside phone strip
     in_glass(200, 44, 'mobile', false, 390), // top edge of phone strip
     in_glass(200, 48, 'mobile', false, 390), // shadow above phone strip
-    in_glass(20, 22, null), // keyboard up
+    in_glass(800, 22, null), // no glass (keyboard up)
   ],
-  [true, true, true, false, true, false, false, false, false, false, false, true, true, false, false, true, true, true, false, true, true, false, false])
+  [true, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, true, true, false, false])
+check('glass hit test: top-left rounded corner of the right piece excludes its cut-away tip outside the 12 px arc',
+  [
+    in_glass(664, 38, 'desktop-split'), // inside 12 px top-left arc: (336-328)^2 + (38-32)^2 = 100 <= 144
+    in_glass(661, 43, 'desktop-split'), // cut-away tip outside 12 px arc: (339-328)^2 + (43-32)^2 = 242 > 144
+    in_glass(660, 44, 'desktop-split'), // outer square corner: outside arc
+    in_glass(672, 44, 'desktop-split'), // top tangent of arc: inside
+    in_glass(660, 32, 'desktop-split'), // left tangent of arc: inside
+  ],
+  [true, false, false, true, true])
 
 // ---- measurement over 1,600 items (16 roots x 100 items, and one 1,600-item tree) --------------
 {
@@ -450,14 +492,14 @@ check('glass hit test: inside column and row (excluding clipped 12 px outer corn
 
 // ---- the controller ----------------------------------------------------------------------------
 v1('_on_welcome()')
-const [bg, bar, keys, nav_v, nav_h] = [parts('backdrop')[0], parts('bar')[0], parts('keyboard')[0], parts('nav-vertical')[0], parts('nav-horizontal')[0]]
-check('controller: the page\'s welcome draws one style, the backdrop (with its pane, SVG frame and right piece children), the two rows, the reload button and the two desktop nav groups under the body, each put there hidden; on a narrow (390 px) desktop with empty box all four desktop arrows and the merged desktop strip show (arrows dimmed)',
-  [log, parts('style').length, bg.parent === page.body, bg.children.map(c => c.className), bg.children[1].innerHTML === frame, bar.parent === page.body, keys.parent === page.body, nav_v.parent === page.body, nav_h.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), nav_v.children.map(b => b.dataset.key), nav_h.children.map(b => b.dataset.key), nav_v.className, nav_h.className, bg.className, bg.attrs['aria-hidden'], bg.hidden, bar.hidden, keys.hidden, nav_v.hidden, nav_h.hidden, [...nav_v.children, ...nav_h.children].map(b => b.className), tasks.key_buttons.delay, tasks.key_buttons.repeat],
-  [['+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-vertical hidden', '+nav-horizontal hidden', 'task key_buttons'], 1, true, ['key-buttons-bg-pane', 'key-buttons-bg-frame', 'key-buttons-bg-right'], true, true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), ['up', 'down'], ['left', 'right'], 'key-buttons-nav vertical', 'key-buttons-nav', 'key-buttons-bg desktop', 'true', false, true, true, false, false, ['dim', 'dim', 'dim', 'dim'], 15000, 15000])
+const [bg, bar, keys, nav_strip] = [parts('backdrop')[0], parts('bar')[0], parts('keyboard')[0], parts('nav-strip')[0]]
+check('controller: the page\'s welcome draws one style, the backdrop (with its pane, SVG frame and unused right piece children), the two rows, the reload button and the one desktop nav strip under the body, each put there hidden; on a narrow (390 px) desktop with empty box the strip and merged desktop backdrop show (arrows dimmed, non-arrows untouched)',
+  [log, parts('style').length, parts('nav-vertical').length, parts('nav-horizontal').length, bg.parent === page.body, bg.children.map(c => c.className), bg.children[1].innerHTML === frame, bar.parent === page.body, keys.parent === page.body, nav_strip.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), nav_strip.children.map(b => [b.dataset.key, b.dataset.lead ?? null]), nav_strip.className, bg.className, bg.attrs['aria-hidden'], bg.hidden, bar.hidden, keys.hidden, nav_strip.hidden, nav_strip.children.map(b => [b.dataset.key, b.className ?? '']), tasks.key_buttons.delay, tasks.key_buttons.repeat],
+  [['+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', 'task key_buttons'], 1, 0, 0, true, ['key-buttons-bg-pane', 'key-buttons-bg-frame', 'key-buttons-bg-right'], true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), [['top', '1'], ['back', null], ['left', '1'], ['up', null], ['down', null], ['right', null], ['create', '1']], 'key-buttons-nav', 'key-buttons-bg desktop', 'true', false, true, true, false, [['top', ''], ['back', ''], ['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim'], ['create', '']], 15000, 15000])
 const again = parts('reload')[0]
-check('reload: drawn under the body with the rows and shown on a desktop; named for a screen reader, its icon a line drawing, and within the Tab order as the sparkle is',
+check('reload: drawn under the body with the rows and shown on a desktop with class desktop; named for a screen reader, its icon a line drawing, and within the Tab order as the sparkle is',
   [parts('reload').length, again.parent === page.body, again.hidden, again.className, again.title, again.attrs['aria-label'], again.innerHTML, 'tabIndex' in again],
-  [1, true, false, 'key-buttons-reload', 'Reload the page', 'Reload the page', `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${reload.icon}"/></svg>`, false])
+  [1, true, false, 'key-buttons-reload desktop', 'Reload the page', 'Reload the page', `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${reload.icon}"/></svg>`, false])
 const reloaded = again.fire('click')
 check('reload: a press reloads the page, once, and is nothing else to the page', [reloads, reloaded.prevented, reloaded.stopped], [['page'], 1, 1])
 reloads.length = 0
@@ -481,10 +523,12 @@ reloads.length = 0
 check('controller: a button is a finger\'s: named for a screen reader by what its key does, outside the Tab order, its icon a line drawing',
   [bar.children[2].attrs['aria-label'], bar.children[2].title, bar.children[2].tabIndex, bar.children[2].innerHTML, keys.children[1].title, keys.className],
   [spec('create').title, spec('create').title, -1, `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${spec('create').icon}"/></svg>`, spec('indent').title, 'key-buttons keyboard'])
+const reload_on_desktop = again.className
 pointer.matches = true
 clock.now += 2000
 pointer.fire('change')
 check('controller: a finger as the primary pointer shows the main row, at the change itself, the reload button beside it', [bar.hidden, keys.hidden, again.hidden], [false, true, false])
+check('reload: desktop class is set on a keyboard device and cleared on a phone', [reload_on_desktop, again.className], ['key-buttons-reload desktop', 'key-buttons-reload'])
 win.innerWidth = 320
 pointer.fire('change')
 const narrow = [bar.hidden, again.hidden, again.fire('click').prevented, [...reloads]]
@@ -610,8 +654,8 @@ const v2 = evaluation(2)
 v2('_on_item_change("keys-id")')
 const [bar2, keys2] = [parts('bar')[0], parts('keyboard')[0]]
 check('controller: an update of the item replaces the rows: the earlier ones go before the new ones are drawn, shown at once, and the earlier task is cancelled',
-  [log, parts('bar').length, parts('keyboard').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('backdrop').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
-  [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style', '+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-vertical hidden', '+nav-horizontal hidden', 'task key_buttons'], 1, 1, 1, 1, 1, true, false, 1, 1, true])
+  [log, parts('bar').length, parts('keyboard').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('backdrop').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
+  [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style', '+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', 'task key_buttons'], 1, 1, 1, 0, 0, 1, true, false, 1, 1, true])
 bar.hidden = false // as if it were still shown: only its disposal keeps a replaced row quiet
 button('down').fire('click')
 again.hidden = false
@@ -635,24 +679,29 @@ const copy = evaluation(2, 'copy-id', {})
 copy('_on_welcome()')
 check('controller: an item that only carries the code draws nothing and leaves the page\'s rows alone', [log, parts('bar')[0] === bar2], [[], true])
 // live valid (green) and dim states on mobile and desktop, wide split vs narrow merged backdrop,
-// dim-arrow clicks still sending keys, item-change burst coalescing, and _labels fast path
+// desktop strip order/leads/clicks/editing guard, item-change burst coalescing, and _labels fast path
 {
   const bg_now = parts('backdrop')[0]
   const bar_now = parts('bar')[0]
-  const nav_v_now = parts('nav-vertical')[0]
-  const nav_h_now = parts('nav-horizontal')[0]
+  const reload_now = parts('reload')[0]
+  const nav_strip_now = parts('nav-strip')[0]
+  const strip_btn = name => nav_strip_now.children.find(b => b.dataset.key == name)
   const states_mobile = () => bar_now.children.slice(3).map(b => [b.dataset.key, b.className])
   const states_desktop = () => ({
-    shown: [!nav_v_now.hidden, !nav_h_now.hidden],
-    vertical: nav_v_now.children.map(b => [b.dataset.key, b.hidden, b.className]),
-    horizontal: nav_h_now.children.map(b => [b.dataset.key, b.hidden, b.className]),
+    shown: !nav_strip_now.hidden,
+    reload: reload_now.className,
+    strip: nav_strip_now.children.map(b => [b.dataset.key, b.dataset.lead ?? null, b.hidden, b.className ?? '']),
   })
+  const non_arrows_desktop = () => ['top', 'back', 'create'].map(k => [k, strip_btn(k).className ?? ''])
   open.items = map_tree.map(it => ({ ...it }))
   pointer.matches = false
   win.innerWidth = 1024
   pointer.fire('change')
   v2('_on_search("#map/a ")')
   const desk_all = [states_desktop(), bg_now.hidden, bg_now.className]
+  const strip_order_leads = nav_strip_now.children.map(b => [b.dataset.key, b.dataset.lead ?? null])
+  const non_arrows_all = non_arrows_desktop()
+  const reload_desktop_cls = reload_now.className
   // resizing below 480 px merges the split desktop backdrop into the full-width strip, and back
   win.innerWidth = 479
   viewport.fire('resize')
@@ -660,26 +709,32 @@ check('controller: an item that only carries the code draws nothing and leaves t
   win.innerWidth = 480
   viewport.fire('resize')
   const desk_wide = bg_now.className
-  // clicking a desktop arrow sends its key to document.body even while MindBox has focus — including a dim arrow
-  v2('_on_search("#map")') // only down is valid (green); up, left, right are dim
+  // clicking any button of the desktop strip (arrows, even dimmed, and top/back/create) sends its
+  // key to document.body even while MindBox has focus
+  v2('_on_search("#map")') // only down is valid (green); up, left, right are dim; top/back/create untouched
   const desk_down = states_desktop()
+  const non_arrows_down = non_arrows_desktop()
   page.body.got.length = box.got.length = 0
   focus(box)
-  const nav_up = nav_v_now.children.find(b => b.dataset.key == 'up') // dim!
-  const nav_right = nav_h_now.children.find(b => b.dataset.key == 'right') // dim!
-  const up_click = nav_up.fire('click')
-  const right_click = nav_right.fire('click')
+  const up_click = strip_btn('up').fire('click') // dim!
+  const right_click = strip_btn('right').fire('click') // dim!
   const sent_dim = [got(page.body), box.got.length, up_click.prevented, up_click.stopped, right_click.prevented, right_click.stopped]
+  const strip_action_clicks = ['top', 'back', 'create'].map(name => {
+    page.body.got.length = box.got.length = 0
+    const ev = strip_btn(name).fire('click')
+    return [name, got(page.body), box.got.length, ev.prevented, ev.stopped]
+  })
   blur()
   v2('_on_search("#map/a/0")') // only up valid
   const desk_up = states_desktop()
   v2('_on_search("#map/b")') // left, up, right valid; down dim
   const desk_up_horiz = states_desktop()
   // mobile: main row keeps full-width strip (even at wide width), marks valid green and invalid dim,
-  // never changes non-arrows; on-screen keyboard hides backdrop along with the main row
+  // never changes non-arrows; reload loses desktop class; on-screen keyboard hides backdrop with main row
   pointer.matches = true
   pointer.fire('change')
-  const mob_b = [states_mobile(), bar_now.children.slice(0, 3).map(b => b.className ?? ''), nav_v_now.hidden, nav_h_now.hidden, bg_now.hidden, bg_now.className]
+  const reload_phone_cls = reload_now.className
+  const mob_b = [states_mobile(), bar_now.children.slice(0, 3).map(b => b.className ?? ''), nav_strip_now.hidden, reload_now.className, bg_now.hidden, bg_now.className]
   page.body.got.length = 0
   bar_now.children.find(b => b.dataset.key == 'down').fire('click')
   const mob_dim_sent = got(page.body)
@@ -702,13 +757,14 @@ check('controller: an item that only carries the code draws nothing and leaves t
   const burst = [log.filter(e => e == 'task key_buttons_nav').length, tasks.key_buttons_nav.delay, states_mobile()]
   tasks.key_buttons_nav.fn()
   const after_burst = states_mobile()
-  // empty box dims all four arrows while desktop keeps all four shown and keeps split desktop backdrop;
-  // item change while empty schedules no task
+  // empty box dims all four arrows while desktop keeps the strip shown (non-arrows untouched) and keeps
+  // the split desktop backdrop; item change while empty schedules no task
   pointer.matches = false
   pointer.fire('change')
   v2('_on_search("")')
   log.length = 0
   v2('_on_item_change("x4", "#map/z", "", false, false, false)')
+  const non_arrows_empty = non_arrows_desktop()
   const empty_state = [states_desktop(), states_mobile(), bg_now.hidden, bg_now.className, log.length]
   // _labels fast path: narrows to root tree without wrapping unrelated roots
   const by_id = { m0: { id: 'm0', label: '#map', ancestors: [] }, m1: { id: 'm1', label: '#map/a', ancestors: ['#map'] }, o0: { id: 'o0', label: '#other', ancestors: [] } }
@@ -728,13 +784,13 @@ check('controller: an item that only carries the code draws nothing and leaves t
   delete win._labels
   for (const k of Object.keys(items)) if (!(k in orig_items)) delete items[k]
   // initial welcome/reconcile before any _on_search reads textarea-mindbox (stripping ZWSPs);
-  // with reload_button off, both groups and the split desktop backdrop keep their shape
+  // with reload_button off, the desktop strip and split desktop backdrop keep their shape
   open.items = map_tree.map(it => ({ ...it }))
   open.fields['textarea-mindbox'] = { value: '#map\u200B/a ' }
   const v3 = evaluation(3, 'keys-id', tasks, turned('reload_button', false))
   v3('_on_item_change("keys-id")')
-  const [v3_bg, v3_v, v3_h] = [parts('backdrop')[0], parts('nav-vertical')[0], parts('nav-horizontal')[0]]
-  const from_box = [v3_bg.hidden, v3_bg.className, [...v3_v.children, ...v3_h.children].map(b => b.className), v3_v.style, v3_h.style]
+  const [v3_bg, v3_strip] = [parts('backdrop')[0], parts('nav-strip')[0]]
+  const from_box = [v3_bg.hidden, v3_bg.className, v3_strip.children.map(b => b.className ?? ''), v3_strip.style]
   delete open.fields['textarea-mindbox']
   open.items = []
   win.innerWidth = 390
@@ -742,17 +798,26 @@ check('controller: an item that only carries the code draws nothing and leaves t
   pointer.matches = true
   pointer.fire('change')
   page.body.got.length = 0
-  // editing guard on desktop arrows: window.__items (and _items fallback) blocks desktop arrow dispatch while any
-  // item is open for editing (even while saving), taking the click without sending; once closed, dispatch resumes
+  // editing guard on all seven desktop strip buttons: window.__items (and _items fallback) blocks
+  // dispatch while any item is open for editing (even while saving), taking each click without
+  // sending; once closed, dispatch resumes for arrows and non-arrows alike
   pointer.matches = false
   pointer.fire('change')
-  const live_up = parts('nav-vertical')[0].children.find(b => b.dataset.key == 'up')
+  const live_strip = parts('nav-strip')[0]
+  const live_btn = name => live_strip.children.find(b => b.dataset.key == name)
   win.__items = [{ id: 'e1', editing: true, saving: true }]
   page.body.got.length = 0
-  const edit_up = live_up.fire('click')
-  const edit_blocked = [got(page.body), edit_up.prevented, edit_up.stopped, v2('key_buttons_any_editing(window)')]
+  const edit_clicks = ['top', 'back', 'left', 'up', 'down', 'right', 'create'].map(name => {
+    const ev = live_btn(name).fire('click')
+    return [name, ev.prevented, ev.stopped]
+  })
+  const edit_blocked = [got(page.body), edit_clicks, v2('key_buttons_any_editing(window)')]
   win.__items = [{ id: 'e1', editing: false, saving: false }]
-  const after_edit = [v2('key_buttons_any_editing(window)'), live_up.fire('click').stopped, got(page.body)]
+  const after_edit = [v2('key_buttons_any_editing(window)'), ['top', 'back', 'create', 'up'].map(name => {
+    page.body.got.length = 0
+    const ev = live_btn(name).fire('click')
+    return [name, ev.stopped, got(page.body)]
+  })]
   delete win.__items
   open.items = [{ id: 'e2', editing: true }]
   const fallback_editing = v2('key_buttons_any_editing(window)')
@@ -771,30 +836,46 @@ check('controller: an item that only carries the code draws nothing and leaves t
   pointer.matches = true
   pointer.fire('change')
   page.body.got.length = 0
-  check('desktop editing guard & read_nav dangling: desktop arrows send nothing while any item is editing (including saving), resume once closed, fall back to _items when __items absent, and read_nav honors __item(id).danglingTags',
-    [edit_blocked, after_edit, fallback_editing, fallback_clean, read_dangling, read_live],
-    [[[], 1, 1, true], [false, 1, ['keydown ArrowUp', 'keyup ArrowUp']], true, false,
+  check('desktop strip: seven buttons in order with group leads, arrows alone lit or dimmed (top, back and create never carry valid or dim), reload carries desktop class on a keyboard device and none on a phone',
+    [strip_order_leads, non_arrows_all, non_arrows_down, non_arrows_empty, reload_desktop_cls, reload_phone_cls],
+    [[['top', '1'], ['back', null], ['left', '1'], ['up', null], ['down', null], ['right', null], ['create', '1']],
+      [['top', ''], ['back', ''], ['create', '']],
+      [['top', ''], ['back', ''], ['create', '']],
+      [['top', ''], ['back', ''], ['create', '']],
+      'key-buttons-reload desktop',
+      'key-buttons-reload'])
+  check('desktop strip clicks & editing guard: top, back and create send their keys from body even with MindBox focused; none of the seven sends anything while any item is editing (including saving), resumes once closed, falls back to _items when __items absent, and read_nav honors __item(id).danglingTags',
+    [strip_action_clicks, edit_blocked, after_edit, fallback_editing, fallback_clean, read_dangling, read_live],
+    [[['top', told(events('top')), 0, 1, 1], ['back', told(events('back')), 0, 1, 1], ['create', told(events('create')), 0, 1, 1]],
+      [[], [['top', 1, 1], ['back', 1, 1], ['left', 1, 1], ['up', 1, 1], ['down', 1, 1], ['right', 1, 1], ['create', 1, 1]], true],
+      [false, [['top', 1, told(events('top'))], ['back', 1, told(events('back'))], ['create', 1, told(events('create'))], ['up', 1, told(events('up'))]]],
+      true, false,
       { left: false, up: false, down: false, right: false },
       { left: false, up: false, down: true, right: false }])
-  check('nav live: valid arrows green and invalid dim on mobile and desktop; desktop splits backdrop at >= 480 px and merges below 480 px; dim arrows still dispatch on body even with MindBox focused; phone keeps full-width strip and hides it under keyboard; item changes restart 150 ms wait; empty schedules none; _labels skips other roots; reconcile reads textarea-mindbox (ZWSP stripped) and keeps shape without reload',
+  const strip_expect = (l, u, d, r) => ({
+    shown: true,
+    reload: 'key-buttons-reload desktop',
+    strip: [['top', '1', false, ''], ['back', null, false, ''], ['left', '1', false, l], ['up', null, false, u], ['down', null, false, d], ['right', null, false, r], ['create', '1', false, '']],
+  })
+  check('nav live: valid arrows green and invalid dim on mobile and desktop strip; desktop shows right piece at >= 480 px and merges below 480 px; dim arrows still dispatch on body even with MindBox focused; phone keeps full-width strip and hides it under keyboard; item changes restart 150 ms wait; empty schedules none; _labels skips other roots; reconcile reads textarea-mindbox (ZWSP stripped) and keeps shape without reload',
     [desk_all, desk_narrow, desk_wide, desk_down, sent_dim, desk_up, desk_up_horiz, mob_b, mob_dim_sent, mob_kbd_bg, mob_back_bg, mob_all, burst, after_burst, empty_state, via_labels, from_box],
-    [[{ shown: [true, true], vertical: [['up', false, 'valid'], ['down', false, 'valid']], horizontal: [['left', false, 'valid'], ['right', false, 'valid']] }, false, 'key-buttons-bg desktop split'],
+    [[strip_expect('valid', 'valid', 'valid', 'valid'), false, 'key-buttons-bg desktop split'],
       'key-buttons-bg desktop',
       'key-buttons-bg desktop split',
-      { shown: [true, true], vertical: [['up', false, 'dim'], ['down', false, 'valid']], horizontal: [['left', false, 'dim'], ['right', false, 'dim']] },
+      strip_expect('dim', 'dim', 'valid', 'dim'),
       [['keydown ArrowUp', 'keyup ArrowUp', 'keydown ArrowRight', 'keyup ArrowRight'], 0, 1, 1, 1, 1],
-      { shown: [true, true], vertical: [['up', false, 'valid'], ['down', false, 'dim']], horizontal: [['left', false, 'dim'], ['right', false, 'dim']] },
-      { shown: [true, true], vertical: [['up', false, 'valid'], ['down', false, 'dim']], horizontal: [['left', false, 'valid'], ['right', false, 'valid']] },
-      [[['left', 'valid'], ['up', 'valid'], ['down', 'dim'], ['right', 'valid']], ['', '', ''], true, true, false, 'key-buttons-bg'],
+      strip_expect('dim', 'valid', 'dim', 'dim'),
+      strip_expect('valid', 'valid', 'dim', 'valid'),
+      [[['left', 'valid'], ['up', 'valid'], ['down', 'dim'], ['right', 'valid']], ['', '', ''], true, 'key-buttons-reload', false, 'key-buttons-bg'],
       ['keydown ArrowDown', 'keyup ArrowDown'],
       [true, true],
       [false, false, 'key-buttons-bg'],
       [['left', 'valid'], ['up', 'valid'], ['down', 'valid'], ['right', 'valid']],
       [2, 150, [['left', 'valid'], ['up', 'valid'], ['down', 'valid'], ['right', 'valid']]],
       [['left', 'dim'], ['up', 'valid'], ['down', 'valid'], ['right', 'dim']],
-      [{ shown: [true, true], vertical: [['up', false, 'dim'], ['down', false, 'dim']], horizontal: [['left', false, 'dim'], ['right', false, 'dim']] }, [['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim']], false, 'key-buttons-bg desktop split', 0],
+      [strip_expect('dim', 'dim', 'dim', 'dim'), [['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim']], false, 'key-buttons-bg desktop split', 0],
       [[['left', 'dim'], ['up', 'dim'], ['down', 'valid'], ['right', 'dim']], 0],
-      [false, 'key-buttons-bg desktop split', ['valid', 'valid', 'valid', 'valid'], {}, {}]])
+      [false, 'key-buttons-bg desktop split', ['', '', 'valid', 'valid', 'valid', 'valid', ''], {}]])
 }
 // ---- glass click rejection over the fake page: press-start gesture state, button rects, cancel, dispose ----
 {
@@ -807,16 +888,20 @@ check('controller: an item that only carries the code draws nothing and leaves t
   pointer.matches = false
   viewport.fire('resize')
   const under = new FakeNode('div')
-  const nav_h = parts('nav-horizontal')[0]
-  const left_btn = nav_h.children.find(b => b.dataset.key == 'left')
-  const right_btn = nav_h.children.find(b => b.dataset.key == 'right')
-  // real bounding rects matching desktop row: left 44..68, gap 68..74, right 74..98 (bottom 10..34 => y 566..590)
-  left_btn.getBoundingClientRect = () => ({ left: 44, right: 68, top: 566, bottom: 590, width: 24, height: 24 })
-  right_btn.getBoundingClientRect = () => ({ left: 74, right: 98, top: 566, bottom: 590, width: 24, height: 24 })
+  const nav_strip_el = parts('nav-strip')[0]
+  const left_btn = nav_strip_el.children.find(b => b.dataset.key == 'left')
+  const up_btn = nav_strip_el.children.find(b => b.dataset.key == 'up')
+  // real bounding rects on vw=1000, vh=600 (right glass piece x 660..1000, dy 0..44 => y 556..600;
+  // buttons bottom 10..34 => y 566..590, centre dy=22):
+  // back 704..728, 18 px group gap 728..746 (midpoint x=737), left 746..770 (centre x=758),
+  // 6 px button gap 770..776 (midpoint x=773), up 776..800 (centre x=788), ..., sparkle 962..986 (centre x=974)
+  left_btn.getBoundingClientRect = () => ({ left: 746, right: 770, top: 566, bottom: 590, width: 24, height: 24 })
+  up_btn.getBoundingClientRect = () => ({ left: 776, right: 800, top: 566, bottom: 590, width: 24, height: 24 })
   const sparkle_el = Object.assign(new FakeNode('button'), { className: 'vault-sparkle' })
   // the sparkle's own box on this page (24 px, right 14, bottom 10): x 962..986, y 566..590
   sparkle_el.getBoundingClientRect = () => ({ left: 962, right: 986, top: 566, bottom: 590, width: 24, height: 24 })
   const menu_el = Object.assign(new FakeNode('div'), { className: 'vault-sparkle-menu' })
+  const menu_item = menu_el.appendChild(new FakeNode('button')) // a press on it is the menu's, by its ancestor
   const fire_doc = (type, target, x, dy, more = {}) => {
     const touch = type == 'touchstart' || type == 'touchend' || type == 'touchcancel'
     const coords = touch
@@ -825,86 +910,94 @@ check('controller: an item that only carries the code draws nothing and leaves t
     const ev = page.fire(type, { target, ...coords, ...more })
     return [ev.prevented, ev.stopped]
   }
-  // 1. Mouse press starting on glass (gap at x=71, dy=22) blocks the entire gesture (mousedown..contextmenu)
+  // 1. Mouse press starting on bare glass in the 18 px group gap between back and left (x=737, dy=22)
+  //    blocks the entire gesture (mousedown..contextmenu)
   const on_glass = [
-    fire_doc('pointerdown', under, 71, 22, { pointerType: 'mouse', isPrimary: true }),
-    fire_doc('mousedown', under, 71, 22),
-    fire_doc('pointerup', under, 71, 22, { pointerType: 'mouse', isPrimary: true }),
-    fire_doc('click', under, 71, 22, { detail: 1, pointerType: 'mouse' }),
-    fire_doc('dblclick', under, 71, 22, { detail: 2 }),
-    fire_doc('auxclick', under, 71, 22, { detail: 1 }),
-    fire_doc('contextmenu', under, 71, 22),
+    fire_doc('pointerdown', under, 737, 22, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('mousedown', under, 737, 22),
+    fire_doc('pointerup', under, 737, 22, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('click', under, 737, 22, { detail: 1, pointerType: 'mouse' }),
+    fire_doc('dblclick', under, 737, 22, { detail: 2 }),
+    fire_doc('auxclick', under, 737, 22, { detail: 1 }),
+    fire_doc('contextmenu', under, 737, 22),
   ]
-  // 2. Desktop edge crossing: press on glass at dy=43, release off glass at dy=45 still blocks click;
+  // 2. Desktop edge crossing across the 44 px top edge of the right piece (at x=737, back..left gap):
+  //    press on glass at dy=43, release off glass at dy=45 still blocks click;
   //    reverse (press off glass at dy=45, release on glass at dy=43) delivers both mousedown and click
   const edge_in_to_out = [
-    fire_doc('pointerdown', under, 70, 43, { pointerType: 'mouse', isPrimary: true }),
-    fire_doc('mousedown', under, 70, 43),
-    fire_doc('pointerup', under, 70, 45, { pointerType: 'mouse', isPrimary: true }),
-    fire_doc('click', under, 70, 45, { detail: 1, pointerType: 'mouse' }),
+    fire_doc('pointerdown', under, 737, 43, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('mousedown', under, 737, 43),
+    fire_doc('pointerup', under, 737, 45, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('click', under, 737, 45, { detail: 1, pointerType: 'mouse' }),
   ]
   const edge_out_to_in = [
-    fire_doc('pointerdown', under, 70, 45, { pointerType: 'mouse', isPrimary: true }),
-    fire_doc('mousedown', under, 70, 45),
-    fire_doc('pointerup', under, 70, 43, { pointerType: 'mouse', isPrimary: true }),
-    fire_doc('click', under, 70, 43, { detail: 1, pointerType: 'mouse' }),
+    fire_doc('pointerdown', under, 737, 45, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('mousedown', under, 737, 45),
+    fire_doc('pointerup', under, 737, 43, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('click', under, 737, 43, { detail: 1, pointerType: 'mouse' }),
   ]
-  // 3. Touch gap retargeting: tap in 6 px gap (x=71, dy=22) with target snapped to right_btn, and
-  //    compatibility mousedown/click snapped to right_btn's centre (x=86, dy=22): all blocked and button does not fire
+  // 3. Touch gap retargeting: tap in the 6 px gap between left and up (x=773, dy=22) with target snapped
+  //    to up_btn, and compatibility mousedown/click snapped to up_btn's centre (x=788, dy=22): all blocked
+  //    and button does not fire
   page.body.got.length = 0
   const touch_gap = [
-    fire_doc('pointerdown', right_btn, 71, 22, { pointerType: 'touch', isPrimary: true }),
-    fire_doc('touchstart', right_btn, 71, 22),
-    fire_doc('pointerup', right_btn, 71, 22, { pointerType: 'touch', isPrimary: true }),
-    fire_doc('touchend', right_btn, 71, 22),
-    fire_doc('mousedown', right_btn, 86, 22),
-    fire_doc('click', right_btn, 86, 22, { detail: 1, pointerType: 'touch' }),
+    fire_doc('pointerdown', up_btn, 773, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchstart', up_btn, 773, 22),
+    fire_doc('pointerup', up_btn, 773, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchend', up_btn, 773, 22),
+    fire_doc('mousedown', up_btn, 788, 22),
+    fire_doc('click', up_btn, 788, 22, { detail: 1, pointerType: 'touch' }),
   ]
-  right_btn.fire('click', { detail: 1, pointerType: 'touch' }) // even if reached directly, own_click_ok rejects it
+  up_btn.fire('click', { detail: 1, pointerType: 'touch' }) // even if reached directly, own_click_ok rejects it
   const touch_gap_keys = got(page.body)
-  // 4. Touch inside button rect (left_btn at x=56, dy=22): not rejected, and left_btn fires (while right_btn would not)
+  // 4. Touch inside left_btn rect (centre x=758, dy=22): not rejected, and left_btn fires (while up_btn does not)
   const touch_btn = [
-    fire_doc('pointerdown', left_btn, 56, 22, { pointerType: 'touch', isPrimary: true }),
-    fire_doc('touchstart', left_btn, 56, 22),
-    fire_doc('pointerup', left_btn, 56, 22, { pointerType: 'touch', isPrimary: true }),
-    fire_doc('touchend', left_btn, 56, 22),
-    fire_doc('mousedown', left_btn, 56, 22),
-    fire_doc('click', left_btn, 56, 22, { detail: 1, pointerType: 'touch' }),
+    fire_doc('pointerdown', left_btn, 758, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchstart', left_btn, 758, 22),
+    fire_doc('pointerup', left_btn, 758, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchend', left_btn, 758, 22),
+    fire_doc('mousedown', left_btn, 758, 22),
+    fire_doc('click', left_btn, 758, 22, { detail: 1, pointerType: 'touch' }),
   ]
-  right_btn.fire('click', { detail: 1, pointerType: 'touch' }) // wrong button: must not fire
+  up_btn.fire('click', { detail: 1, pointerType: 'touch' }) // wrong button: must not fire
   left_btn.fire('click', { detail: 1, pointerType: 'touch' }) // started inside left_btn: fires!
   const touch_btn_keys = got(page.body)
   page.body.got.length = 0
-  // 5. Cancelled gesture (scroll begins on glass -> pointercancel) resets state so next independent click passes
-  fire_doc('pointerdown', under, 71, 22, { pointerType: 'touch', isPrimary: true })
-  const cancel_touchstart = fire_doc('touchstart', under, 71, 22)
+  // 5. Cancelled gesture (scroll begins on bare glass in back..left gap x=737, dy=22 -> pointercancel)
+  //    resets state so next independent click off glass (x=737, dy=45) passes
+  fire_doc('pointerdown', under, 737, 22, { pointerType: 'touch', isPrimary: true })
+  const cancel_touchstart = fire_doc('touchstart', under, 737, 22)
   fire_doc('pointercancel', under, 0, 600, { pointerType: 'touch', isPrimary: true })
-  const after_cancel_click = fire_doc('click', under, 70, 45, { detail: 1 })
-  // 6. Right glass piece around visible sparkle, plus bypasses (outside L, shadow, own button rect, sparkle, menu, modal)
-  const prev_qs = page.querySelector
-  page.querySelector = sel => sel == 'body > .vault-sparkle:not([hidden])' ? sparkle_el : prev_qs?.call(page, sel) ?? null
+  const after_cancel_click = fire_doc('click', under, 737, 45, { detail: 1 })
+  // 6. Bare glass under the sparkle's place (x=974, dy=22) is rejected whether a sparkle shows or not;
+  //    bare page target inside left_btn's square box (x=758, dy=22, outside the circle) is rejected;
+  //    bypasses: old lower-left place (x=20, dy=22), left of the piece on its shadow (x=655, dy=22),
+  //    above the row on its shadow (x=737, dy=48), own button rect (left_btn at x=758, dy=22),
+  //    #vault sparkle (x=974, dy=22), and #vault menu over the right glass piece (x=737, dy=22),
+  //    the menu itself and a button inside it
   fire_doc('pointerdown', under, 974, 22, { pointerType: 'mouse', isPrimary: true })
-  const on_right_glass = fire_doc('click', under, 974, 22, { detail: 1, pointerType: 'mouse' })
-  // bare page target inside a round button's square bounding box (outside the circle) is still rejected
-  fire_doc('pointerdown', under, 56, 22, { pointerType: 'mouse', isPrimary: true })
-  const corner_glass = fire_doc('click', under, 56, 22, { detail: 1, pointerType: 'mouse' })
+  const on_sparkle_glass = fire_doc('click', under, 974, 22, { detail: 1, pointerType: 'mouse' })
+  fire_doc('pointerdown', under, 758, 22, { pointerType: 'mouse', isPrimary: true })
+  const corner_glass = fire_doc('click', under, 758, 22, { detail: 1, pointerType: 'mouse' })
   const click_gesture = (target, x, dy) => {
     fire_doc('pointerdown', target, x, dy, { pointerType: 'mouse', isPrimary: true })
     fire_doc('pointerup', target, x, dy, { pointerType: 'mouse', isPrimary: true })
     return fire_doc('click', target, x, dy, { detail: 1, pointerType: 'mouse' })
   }
   const bypasses = [
-    click_gesture(under, 75, 65), // outside L (above row, right of column)
-    click_gesture(under, 80, 48), // on shadow above row
-    click_gesture(left_btn, 56, 22), // inside own button rect
-    click_gesture(sparkle_el, 974, 22), // #vault sparkle over visible right glass
-    click_gesture(menu_el, 71, 22), // #vault menu over left glass
+    click_gesture(under, 20, 22), // old lower-left place: no glass there now
+    click_gesture(under, 655, 22), // left of the right piece (on outer shadow)
+    click_gesture(under, 737, 48), // above the row (on outer shadow)
+    click_gesture(left_btn, 758, 22), // inside own button rect (left_btn centre)
+    click_gesture(sparkle_el, 974, 22), // #vault sparkle over the right glass piece
+    click_gesture(menu_el, 737, 22), // #vault menu over the right glass piece
+    click_gesture(menu_item, 737, 22), // a button inside that menu
   ]
   // 7. A touch in the gap beside the sparkle that the browser adjusts onto it (x=961, one pixel
-  //    left of its box, over the right glass piece) is a press on the glass, as a tap between two
-  //    arrows is: its events are stopped, and the compatibility mousedown and click prevented too;
-  //    only its pointerup passes (the release is recorded, nothing more). A tap inside the
-  //    sparkle's box is the sparkle's
+  //    left of its box 962..986, over the right glass piece, dy=22) is a press on the glass, as a
+  //    tap between two buttons is: its events are stopped, and the compatibility mousedown and
+  //    click prevented too; only its pointerup passes (the release is recorded, nothing more).
+  //    A tap at the sparkle's centre (x=974, dy=22) is the sparkle's
   const touch_tap = (target, x, mx) => [
     fire_doc('pointerdown', target, x, 22, { pointerType: 'touch', isPrimary: true }),
     fire_doc('touchstart', target, x, 22),
@@ -917,40 +1010,39 @@ check('controller: an item that only carries the code draws nothing and leaves t
   const sparkle_centre = touch_tap(sparkle_el, 974, 974)
   // 8. Events made by code (`isTrusted` false, no `detail`: the app's keyboard shortcuts toggle and
   //    navigate through clicks and mousedowns they dispatch) pass after a rejected physical press
-  //    and leave its record alone: that press's own late click is still stopped, and the next
-  //    real press is judged afresh. After a rejected touch that brings no mouse events of its own,
-  //    a mousedown made by code is not taken for that touch's. An own button's click made by code
-  //    fires whatever the last press was
-  click_gesture(under, 71, 22)
+  //    in the back..left gap (x=737, dy=22) and leave its record alone: that press's own late click
+  //    is still stopped, and the next real press above the glass (x=737, dy=65) is judged afresh.
+  //    After a rejected touch that brings no mouse events of its own, a mousedown made by code is
+  //    not taken for that touch's. An own button's click made by code fires whatever the last press was
+  click_gesture(under, 737, 22)
   const by_code = [
     fire_doc('click', under, 0, 600, { isTrusted: false }),
     fire_doc('click', under, 0, 600, { isTrusted: false }),
     fire_doc('mousedown', under, 0, 600, { isTrusted: false }),
   ]
-  const late_click = fire_doc('click', under, 71, 22, { detail: 1, pointerType: 'mouse' })
-  const next_press = click_gesture(under, 75, 65)
-  fire_doc('pointerdown', under, 71, 22, { pointerType: 'touch', isPrimary: true })
-  fire_doc('touchstart', under, 71, 22)
-  fire_doc('pointerup', under, 71, 22, { pointerType: 'touch', isPrimary: true })
-  fire_doc('touchend', under, 71, 22)
+  const late_click = fire_doc('click', under, 737, 22, { detail: 1, pointerType: 'mouse' })
+  const next_press = click_gesture(under, 737, 65) // above the row, off glass
+  fire_doc('pointerdown', under, 737, 22, { pointerType: 'touch', isPrimary: true })
+  fire_doc('touchstart', under, 737, 22)
+  fire_doc('pointerup', under, 737, 22, { pointerType: 'touch', isPrimary: true })
+  fire_doc('touchend', under, 737, 22)
   const code_mousedown_after_touch = fire_doc('mousedown', under, 0, 600, { isTrusted: false })
   page.body.got.length = 0
   left_btn.fire('click', { isTrusted: false })
   const code_click_keys = got(page.body)
   page.body.got.length = 0
-  page.querySelector = prev_qs
   win._modal_visible = () => true
-  const under_modal = click_gesture(under, 71, 22)
+  const under_modal = click_gesture(under, 737, 22)
   delete win._modal_visible
   delete left_btn.getBoundingClientRect
-  delete right_btn.getBoundingClientRect
+  delete up_btn.getBoundingClientRect
   const before_dispose = counts()
   log.length = 0
   items['#key_buttons'] = { id: 'other-id' }
   v2('_on_item_change("keys-id")')
   const after_dispose = counts()
-  check('glass rejection: press-start decision blocks rejected gestures across mouse/touch/retargeted gap/edge crossing, admits button rects/sparkle/menu/modal/off-glass starts, resets on cancel, keeps wheel/touchmove unattached, and cleans up on dispose',
-    [before_dispose, no_scroll_listeners, on_glass, edge_in_to_out, edge_out_to_in, touch_gap, touch_gap_keys, touch_btn, touch_btn_keys, cancel_touchstart, after_cancel_click, on_right_glass, corner_glass, bypasses, under_modal, after_dispose],
+  check('glass rejection: press-start decision blocks rejected gestures across mouse/touch/retargeted gap/edge crossing on the right piece, admits button rects/sparkle/menu/modal/lower-left/off-glass starts, resets on cancel, keeps wheel/touchmove unattached, and cleans up on dispose',
+    [before_dispose, no_scroll_listeners, on_glass, edge_in_to_out, edge_out_to_in, touch_gap, touch_gap_keys, touch_btn, touch_btn_keys, cancel_touchstart, after_cancel_click, on_sparkle_glass, corner_glass, bypasses, under_modal, after_dispose],
     [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0],
       [[0, 1], [1, 1], [0, 0], [1, 1], [1, 1], [1, 1], [1, 1]],
       [[0, 1], [1, 1], [0, 0], [1, 1]],
@@ -961,7 +1053,7 @@ check('controller: an item that only carries the code draws nothing and leaves t
       ['keydown ArrowLeft', 'keyup ArrowLeft'],
       [0, 1], [0, 0],
       [1, 1], [1, 1],
-      [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+      [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
       [0, 0],
       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
   check('glass rejection: a touch the browser adjusts onto the sparkle from the gap beside it is a press on the glass; a tap inside its box is the sparkle\'s',
@@ -974,14 +1066,14 @@ check('controller: an item that only carries the code draws nothing and leaves t
   win.innerHeight = 800
   pointer.matches = prev_pointer
 }
-check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
+check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], 0, 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
 items['#key_buttons'] = { id: 'keys-id' }
 v2('_on_item_change("keys-id")')
-check('controller: named #key_buttons again it draws again', [parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length], [1, 1, 1, 1, 1, 1])
+check('controller: named #key_buttons again it draws again', [parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length], [1, 1, 1, 1, 1, 0, 0])
 log.length = 0
 tasks.key_buttons._on_cancel() // the app, at the task's next run after the item's deletion
 check('controller: the item\'s deletion removes the rows, their style and the listeners at the task\'s cancel, and its task then ends',
-  [log, parts('backdrop').length, parts('bar').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length, listening(), tasks.key_buttons.fn()], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
+  [log, parts('backdrop').length, parts('bar').length, parts('reload').length, parts('nav-strip').length, listening(), tasks.key_buttons.fn()], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
 
 // ---- the caret's scroll, switched on in the table: once for each opening of the keyboard ---------
 {
@@ -1091,17 +1183,17 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
   const kept = [own.key_buttons.fn(), parts('bar').length, listening()] // a tick with the item as it was
   run.item.deephash = 6 // the item's text saved without this code: no hook of it runs, and its hash is another
   log.length = 0
-  const retired = [own.key_buttons.fn(), [...log], ['backdrop', 'bar', 'keyboard', 'reload', 'nav-vertical', 'nav-horizontal', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
+  const retired = [own.key_buttons.fn(), [...log], ['backdrop', 'bar', 'keyboard', 'reload', 'nav-strip', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
   log.length = 0
   check('stale: the task keeps a controller whose code is still the item\'s; once the item\'s hash is another (its code removed, or the app\'s #_debug tag put on it: no hook says so) the next run retires it: the rows, the button, the style and every listener go, the task ends, and a later run does nothing',
-    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
+    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
   const theirs = {}
   const gone = evaluation(7, 'keys-id', theirs)
   gone('_on_welcome()')
   Object.defineProperty(gone.item, 'deephash', { get() { throw new Error('item keys-id is deleted') } })
   log.length = 0
   check('stale: a controller whose item can no longer be read (deleted, should the app not have cancelled its task) is retired the same way',
-    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
+    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
   log.length = 0
 }
 
