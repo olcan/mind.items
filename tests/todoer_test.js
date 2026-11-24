@@ -2775,6 +2775,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     async_rows.push(tick().then(() =>
       check('waits: an item that is gone when its row is dropped is left alone: nothing written, said or put back', [absent.called, absent_drop.calls, absent_drop.left], [[], [], 0])
     ))
+    // (the app takes zero-width spaces out of a text it is given: what was written is the text the app holds)
+    const ZW = String.fromCharCode(0x200b)
+    const spaced = sending({ text: REPLY.replace('what now?', `what${ZW} now?`) })
+    spaced.chat.write = text => (spaced.called.push('write'), (spaced.chat.text = text.split(ZW).join('')), true)
+    spaced.drop('chat', 'agent')
+    async_rows.push(tick().then(() =>
+      check('waits: a text the app changes as it takes it (a zero-width space taken out) is delegated as the app holds it', [spaced.chat.text.includes(ZW), spaced.called], [false, ['write', 'save', ['delegate', 'chat', TODO_LINE, 'carried']]])
+    ))
     const edited_save = held_save()
     const edited_chat = sending({ saves: () => edited_save.promise })
     const edited_drop = edited_chat.drop('chat', 'agent')

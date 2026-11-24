@@ -2323,6 +2323,7 @@ async function _promote(id, key) {
   }
   if (text == before) return refuse('the tag could not be placed after its name')
   if (item.write(text, '', { skip_save: true }) !== true) return refuse('the write was refused')
+  text = item.text // as the app holds it (it takes zero-width spaces out of a text it is given)
   const saved = await _saved(item)
   item = _item(id, { silent: true })
   if (!item) return null
@@ -2743,7 +2744,7 @@ function _select_range(item, range, edit = false) {
 // to the item's name and its target edited, as before
 // `checked` (a chat-todo's question: a stretch by its offsets, or none where its place was not
 // found) opens the editor by _select_range, on this item alone
-function _edit_item(item, selection, checked = Array.isArray(selection)) {
+function _edit_item(item, selection, checked = false) {
   const ranged = Array.isArray(selection)
   if (typeof item.select != 'function') return MindBox.set(item.name, { edit: ranged ? item.text.slice(...selection) : selection })
   if (item.select()) checked ? _select_range(item, ranged ? selection : null, true) : MindBox.edit_target(selection)
