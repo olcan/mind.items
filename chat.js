@@ -315,8 +315,11 @@ function hide_first_user_row(text, name) {
   const match = rest.match(/\n {0,3}<< *user(?: *\([^\n]*\))? *>>/)
   if (!match) return false
 
-  // hide ONLY when nothing but whitespace stands between the name tag and that delimiter
-  return /^\s*$/.test(rest.slice(0, match.index))
+  // hide ONLY when nothing that shows stands between the name tag and that delimiter: whitespace,
+  // and hidden tags (`#_...`, never drawn), which a chat the app starts carries on its name's
+  // line (`#chat/vault/1 #_agent/vault`, `#todo/0 #_chat #_autodep`)
+  const between = rest.slice(0, match.index).replace(/(^|\s)#_[^\s<>&?!,.;:"'`(){}\[\]]+/g, '$1')
+  return /^\s*$/.test(between)
 }
 
 // generic delimiter macro reused by role-specific macros defined below
