@@ -170,18 +170,17 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     sheet.includes(`.key-buttons-nav > button.dim > svg { opacity: ${look.dim} }`),
     sheet.includes(`.key-buttons-nav > button > svg { display: block; width: ${drawing[1]}px; height: ${drawing[2]}px;`),
     sheet.includes(`.key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }`),
-    sheet.includes(`.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow_spread}px ${look.backdrop.shadow}; pointer-events: none }`),
+    sheet.includes(`.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }`),
     sheet.includes(`.key-buttons-bg.desktop > .key-buttons-bg-pane { height: ${geom.h_tot}px; border-top: 0; box-shadow: none; -webkit-clip-path: path('${geom.clip_strip}'); clip-path: path('${geom.clip_strip}') }`),
     sheet.includes(`.key-buttons-bg.desktop.split > .key-buttons-bg-pane { right: auto; width: ${geom.w_left}px; -webkit-clip-path: path('${geom.clip_split}'); clip-path: path('${geom.clip_split}') }`),
     sheet.includes(`.key-buttons-bg-svg { display: none; position: absolute; left: 0; bottom: 0; height: ${geom.h_tot + geom.pad}px; pointer-events: none }`),
-    sheet.includes(`.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${width + 2 * right}px; height: ${height + 2 * bottom}px; box-sizing: border-box; border-top-left-radius: ${width / 2}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow_spread}px ${look.backdrop.shadow}; pointer-events: none }`),
+    sheet.includes(`.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${width + 2 * right}px; height: ${height + 2 * bottom}px; box-sizing: border-box; border-top-left-radius: ${width / 2}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }`),
     sheet.includes('body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }'),
     frame.includes(`<feGaussianBlur stdDeviation="${look.backdrop.shadow_blur / 2}"/>`),
-    frame.includes(`<path d="${geom.caster_split}" fill="${look.backdrop.shadow}"`) && frame.includes(`<path d="${geom.shape_split}" fill="#000"/>`),
     frame.includes(`stroke="${look.backdrop.border}" stroke-width="1"`),
     frame.includes('class="key-buttons-bg-svg split"') && frame.includes('class="key-buttons-bg-svg strip"'),
     look.layer - 1 < look.layer && look.layer < Number(layer[1])],
-  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, shadow_spread: 0, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
+  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
 
 // ---- the keyboard's row: its place from a visual viewport -------------------------------------
 const place = view => v1('key_buttons_place(__args, 3, KEY_BUTTONS_LOOK)', view)
@@ -357,6 +356,35 @@ check('desktop nav & backdrop: desktop splits backdrop at >= 480 px and merges i
   [[desktop_shown(false, false), desktop_shown(false, true), desktop_shown(true, false), desktop_shown(true, true)],
     [bg_shown(true, false, 'main', 390), bg_shown(true, false, 'main', 1280), bg_shown(true, true, 'keyboard', 390), bg_shown(true, true, null, 390), bg_shown(false, false, null, 1280), bg_shown(false, false, null, 480), bg_shown(false, false, null, 479), bg_shown(false, false, null, 390), bg_shown(false, true, null, 1280)]],
   [[true, false, false, false], ['mobile', 'mobile', null, null, 'desktop-split', 'desktop-split', 'desktop-strip', 'desktop-strip', null]])
+const in_glass = (x, dy, mode, right_shown = false, vw = 1000, vh = 600) =>
+  v1('key_buttons_in_glass(__args.x, __args.y, __args.vw, __args.vh, __args.mode, __args.right, KEY_BUTTONS_LOOK)', { x, y: vh - dy, vw, vh, mode, right: right_shown })
+check('glass hit test: inside column and row (excluding clipped 12 px outer corner triangles, concave cutout and shadow); strip below 480 px covers full bottom; right piece only when shown; phone strip covers bottom 44 px; nothing when keyboard up',
+  [
+    in_glass(20, 80, 'desktop-split'), // inside column
+    in_glass(71, 22, 'desktop-split'), // inside row between Left and Right
+    in_glass(48, 98, 'desktop-split'), // column top-right corner inside 12 px arc
+    in_glass(51, 103, 'desktop-split'), // column top-right corner outside 12 px arc
+    in_glass(108, 38, 'desktop-split'), // row top-right corner inside 12 px arc
+    in_glass(111, 43, 'desktop-split'), // row top-right corner outside 12 px arc
+    in_glass(75, 65, 'desktop-split'), // above row, right of column (concave cutout)
+    in_glass(80, 48, 'desktop-split'), // on shadow just above row
+    in_glass(116, 22, 'desktop-split'), // on shadow just right of row
+    in_glass(25, 108, 'desktop-split'), // on shadow just above column
+    in_glass(970, 22, 'desktop-split', false), // right piece hidden
+    in_glass(970, 22, 'desktop-split', true), // right piece shown
+    in_glass(952, 38, 'desktop-split', true), // right top-left corner inside 12 px arc
+    in_glass(949, 43, 'desktop-split', true), // right top-left corner outside 12 px arc
+    in_glass(944, 22, 'desktop-split', true), // on shadow left of right piece
+    in_glass(20, 80, 'desktop-strip', false, 420), // narrow column
+    in_glass(220, 22, 'desktop-strip', false, 420), // middle of merged strip
+    in_glass(415, 43, 'desktop-strip', false, 420), // right end of merged strip (unrounded)
+    in_glass(220, 48, 'desktop-strip', false, 420), // shadow above merged strip
+    in_glass(200, 22, 'mobile', false, 390), // inside phone strip
+    in_glass(200, 44, 'mobile', false, 390), // top edge of phone strip
+    in_glass(200, 48, 'mobile', false, 390), // shadow above phone strip
+    in_glass(20, 22, null), // keyboard up
+  ],
+  [true, true, true, false, true, false, false, false, false, false, false, true, true, false, false, true, true, true, false, true, true, false, false])
 
 // ---- measurement over 1,600 items (16 roots x 100 items, and one 1,600-item tree) --------------
 {
@@ -710,9 +738,66 @@ check('controller: an item that only carries the code draws nothing and leaves t
       [[['left', 'dim'], ['up', 'dim'], ['down', 'valid'], ['right', 'dim']], 0],
       [false, 'key-buttons-bg desktop split', ['valid', 'valid', 'valid', 'valid'], {}, {}]])
 }
-log.length = 0
-items['#key_buttons'] = { id: 'other-id' }
-v2('_on_item_change("keys-id")')
+// ---- glass click rejection over the fake page: listeners added, filtered, passive, disposed ----
+{
+  const glass_events = ['mousedown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'pointerdown', 'touchstart', 'touchend']
+  const counts = () => glass_events.map(t => (page.listeners[t] ?? []).length)
+  const no_scroll_listeners = [(page.listeners.wheel ?? []).length, (page.listeners.touchmove ?? []).length]
+  const prev_pointer = pointer.matches
+  win.innerWidth = 1000
+  win.innerHeight = 600
+  pointer.matches = false
+  viewport.fire('resize')
+  const under = new FakeNode('div')
+  const own_btn = Object.assign(new FakeNode('button'), { parent: parts('nav-horizontal')[0] })
+  const sparkle_el = Object.assign(new FakeNode('button'), { className: 'vault-sparkle' })
+  const menu_el = Object.assign(new FakeNode('div'), { className: 'vault-sparkle-menu' })
+  const fire_doc = (type, target, x, dy, touch = false) => {
+    const coords = touch ? { touches: [{ clientX: x, clientY: 600 - dy }], changedTouches: [{ clientX: x, clientY: 600 - dy }] } : { clientX: x, clientY: 600 - dy }
+    const ev = page.fire(type, { target, ...coords })
+    return [ev.prevented, ev.stopped]
+  }
+  const on_glass = [
+    fire_doc('mousedown', under, 71, 22),
+    fire_doc('click', under, 71, 22),
+    fire_doc('dblclick', under, 71, 22),
+    fire_doc('auxclick', under, 71, 22),
+    fire_doc('contextmenu', under, 71, 22),
+    fire_doc('pointerdown', under, 71, 22),
+    fire_doc('touchstart', under, 71, 22, true),
+    fire_doc('touchend', under, 71, 22, true),
+  ]
+  const prev_qs = page.querySelector
+  page.querySelector = sel => sel == 'body > .vault-sparkle:not([hidden])' ? sparkle_el : prev_qs?.call(page, sel) ?? null
+  const on_right_glass = fire_doc('click', under, 974, 22) // right glass around visible sparkle is blocked
+  const bypasses = [
+    fire_doc('click', under, 75, 65), // outside L (above row, right of column)
+    fire_doc('click', under, 80, 48), // on shadow above row
+    fire_doc('click', own_btn, 71, 22), // item's own button
+    fire_doc('click', sparkle_el, 974, 22), // #vault sparkle over visible right glass
+    fire_doc('click', menu_el, 71, 22), // #vault menu over left glass
+  ]
+  page.querySelector = prev_qs
+  win._modal_visible = () => true
+  const under_modal = fire_doc('click', under, 71, 22)
+  delete win._modal_visible
+  const before_dispose = counts()
+  log.length = 0
+  items['#key_buttons'] = { id: 'other-id' }
+  v2('_on_item_change("keys-id")')
+  const after_dispose = counts()
+  check('glass rejection: document capture listeners block mouse/click/menu presses on glass, stop pointerdown/touch without preventing default, never listen on wheel or touchmove, skip own buttons/sparkle/menu/modal/outside, and clean up on dispose',
+    [before_dispose, no_scroll_listeners, on_glass, on_right_glass, bypasses, under_modal, after_dispose],
+    [[1, 1, 1, 1, 1, 1, 1, 1], [0, 0],
+      [[1, 1], [1, 1], [1, 1], [1, 1], [1, 1], [0, 1], [0, 1], [0, 1]],
+      [1, 1],
+      [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+      [0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0]])
+  win.innerWidth = 390
+  win.innerHeight = 800
+  pointer.matches = prev_pointer
+}
 check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-vertical', '-nav-horizontal', '-style'], 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
 items['#key_buttons'] = { id: 'keys-id' }
 v2('_on_item_change("keys-id")')

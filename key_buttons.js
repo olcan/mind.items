@@ -109,7 +109,7 @@ const KEY_BUTTONS_LOOK = {
   // keyboard device, split into a left piece (reload + arrows) and a right piece (sparkle, when
   // shown), merging into the full-width strip below `merge` px; raised with a 1 px light border
   // along free edges only and a soft outer shadow outside the glass only
-  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, shadow_spread: 0, merge: 480 },
+  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
 // and how long the view has to stay as it is before the one look (the keyboard has taken its room)
@@ -287,32 +287,71 @@ function key_buttons_backdrop_geom(look) {
   const h_tot = h_col + h_row
   const w_left = 2 * look.reload.left + 3 * look.reload.size + 2 * look.gap
   const r = look.reload.size / 2
-  const s = look.backdrop.shadow_spread ?? 0
-  const pad = Math.max(24, look.backdrop.shadow_blur * 3) + s
+  const pad = Math.max(24, look.backdrop.shadow_blur * 3)
   const narrow = look.backdrop.merge
   const clip_split = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${h_col + r} V ${h_tot} H 0 Z`
   const clip_strip = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${narrow} V ${h_tot} H 0 Z`
   const [y0, y1, y2] = [pad, pad + h_col, pad + h_tot]
   const shape_split = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${y1 + r} V ${y2 + pad} H ${-pad} Z`
   const shape_strip = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
-  // widened shadow-caster paths (expanded outward by shadow_spread, outer corner radius r + s) so
-  // the blurred L-shape matches CSS `box-shadow: 0 0 <blur> <spread> <color>` on plain boxes
-  const rs = r + s
-  const caster_split = `M ${-pad} ${y0 - s} H ${w_col - r} A ${rs} ${rs} 0 0 1 ${w_col + s} ${y0 + r} V ${y1 - s} H ${w_left - r} A ${rs} ${rs} 0 0 1 ${w_left + s} ${y1 + r} V ${y2 + pad} H ${-pad} Z`
-  const caster_strip = `M ${-pad} ${y0 - s} H ${w_col - r} A ${rs} ${rs} 0 0 1 ${w_col + s} ${y0 + r} V ${y1 - s} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
   const [o, ri] = [0.5, r - 0.5]
   const border_split = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${w_left - r} A ${ri} ${ri} 0 0 1 ${w_left - o} ${y1 + r} V ${y2}`
   const border_strip = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${narrow}`
-  return { w_col, h_col, h_row, h_tot, w_left, r, s, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, caster_split, caster_strip, border_split, border_strip }
+  return { w_col, h_col, h_row, h_tot, w_left, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
 }
 
-// outer shadow (Gaussian blur of the spread-widened single L-shape, masked strictly outside the
-// glass) and 1 px free-edge border for the desktop split and narrow merged shapes, drawn in sibling
-// SVGs so no filter or mask ever sits on an ancestor of the backdrop-filter pane
+// whether a viewport point (x, y) lies on visible frosted glass, from the same geometry as the
+// stylesheet (key_buttons_backdrop_geom and key_buttons_backdrop). Excludes the outer shadow and
+// the clipped-away 12 px outer corner triangles so hits match the painted glass shape exactly;
+// returns false whenever no glass shows (mode == null)
+function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KEY_BUTTONS_LOOK) {
+  if (!mode || x < 0 || y < 0 || x > vw || y > vh) return false
+  const dy = vh - y // distance up from the viewport's bottom edge
+  if (mode == 'mobile') return dy <= look.size + 2 * look.bottom
+  const g = key_buttons_backdrop_geom(look)
+  const in_arc = (px, py, cx, cy) => (px - cx) ** 2 + (py - cy) ** 2 <= g.r ** 2
+  // desktop column (left: 0..w_col, bottom: h_row..h_tot, top-right corner rounded by r)
+  if (x <= g.w_col && dy <= g.h_tot) {
+    if (dy <= g.h_row) return true
+    if (x > g.w_col - g.r && dy > g.h_tot - g.r) return in_arc(x, dy, g.w_col - g.r, g.h_tot - g.r)
+    return true
+  }
+  // desktop horizontal row (full width in desktop-strip; 0..w_left with top-right radius r in split)
+  if (dy <= g.h_row) {
+    if (mode == 'desktop-strip') return true
+    if (x <= g.w_left) {
+      if (x > g.w_left - g.r && dy > g.h_row - g.r) return in_arc(x, dy, g.w_left - g.r, g.h_row - g.r)
+      return true
+    }
+    // right piece behind the #vault sparkle (right: 0..w_col, bottom: 0..h_row, top-left radius r)
+    if (right_shown && x >= vw - g.w_col) {
+      const rx = vw - x // distance in from the viewport's right edge
+      if (rx > g.w_col - g.r && dy > g.h_row - g.r) return in_arc(rx, dy, g.w_col - g.r, g.h_row - g.r)
+      return true
+    }
+  }
+  return false
+}
+
+// events caught in document capture over visible frosted glass (choice 2: the glass stays fixed
+// with pointer-events: none so native wheel, trackpad and finger-drag scrolling of document.body
+// stays untouched, while accidental presses/clicks between buttons never reach the page):
+// - BLOCK: preventDefault + stopPropagation (focus changes, selections, links, menus, app clicks)
+// - STOP: stopPropagation only (no preventDefault, so touch gestures stay native)
+// - PASSIVE: capture + passive, stopPropagation only (never preventDefault touchstart/touchend)
+// Never listen on wheel or touchmove
+const KEY_BUTTONS_GLASS_BLOCK = ['mousedown', 'click', 'dblclick', 'auxclick', 'contextmenu']
+const KEY_BUTTONS_GLASS_STOP = ['pointerdown']
+const KEY_BUTTONS_GLASS_PASSIVE = ['touchstart', 'touchend']
+const KEY_BUTTONS_OWN_OVERLAY = ['[data-key-buttons]', '.vault-sparkle', '.vault-sparkle-backdrop', '.vault-sparkle-menu']
+
+// outer shadow (Gaussian blur of the single L-shape, masked strictly outside the glass) and 1 px
+// free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
+// filter or mask ever sits on an ancestor of the backdrop-filter pane
 function key_buttons_backdrop_frame(look) {
   const g = key_buttons_backdrop_geom(look)
   const sigma = look.backdrop.shadow_blur / 2
-  const svg = (cls, w, shape, caster, border) =>
+  const svg = (cls, w, shape, border) =>
     `<svg class="key-buttons-bg-svg ${cls}" aria-hidden="true">` +
     `<defs>` +
     `<filter id="key-buttons-bg-shadow-${cls}" filterUnits="userSpaceOnUse" x="${-g.pad * 2}" y="0" width="${w + g.pad * 4}" height="${g.h_tot + g.pad * 2}" color-interpolation-filters="sRGB">` +
@@ -323,10 +362,10 @@ function key_buttons_backdrop_frame(look) {
     `<path d="${shape}" fill="#000"/>` +
     `</mask>` +
     `</defs>` +
-    `<path d="${caster}" fill="${look.backdrop.shadow}" filter="url(#key-buttons-bg-shadow-${cls})" mask="url(#key-buttons-bg-out-${cls})"/>` +
+    `<path d="${shape}" fill="${look.backdrop.shadow}" filter="url(#key-buttons-bg-shadow-${cls})" mask="url(#key-buttons-bg-out-${cls})"/>` +
     `<path d="${border}" fill="none" stroke="${look.backdrop.border}" stroke-width="1" stroke-linejoin="miter"/>` +
     `</svg>`
-  return svg('split', g.w_left + g.pad, g.shape_split, g.caster_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.caster_strip, g.border_strip)
+  return svg('split', g.w_left + g.pad, g.shape_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.border_strip)
 }
 
 function key_buttons_css(look) {
@@ -361,7 +400,7 @@ function key_buttons_css(look) {
 .key-buttons-nav > button.dim > svg { opacity: ${look.dim} }
 .key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }
 .key-buttons-bg[hidden] { display: none }
-.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${g.s}px ${look.backdrop.shadow}; pointer-events: none }
+.key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
 .key-buttons-bg.desktop > .key-buttons-bg-pane { height: ${g.h_tot}px; border-top: 0; box-shadow: none; -webkit-clip-path: path('${g.clip_strip}'); clip-path: path('${g.clip_strip}') }
 .key-buttons-bg.desktop.split > .key-buttons-bg-pane { right: auto; width: ${g.w_left}px; -webkit-clip-path: path('${g.clip_split}'); clip-path: path('${g.clip_split}') }
 .key-buttons-bg > .key-buttons-bg-frame { display: none; pointer-events: none }
@@ -369,7 +408,7 @@ function key_buttons_css(look) {
 .key-buttons-bg-svg { display: none; position: absolute; left: 0; bottom: 0; height: ${g.h_tot + g.pad}px; pointer-events: none }
 .key-buttons-bg.desktop:not(.split) .key-buttons-bg-svg.strip { display: block; right: 0; width: 100% }
 .key-buttons-bg.desktop.split .key-buttons-bg-svg.split { display: block; width: ${g.w_left + g.pad}px }
-.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${g.w_col}px; height: ${g.h_row}px; box-sizing: border-box; border-top-left-radius: ${g.r}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${g.s}px ${look.backdrop.shadow}; pointer-events: none }
+.key-buttons-bg > .key-buttons-bg-right { display: none; position: absolute; right: 0; bottom: 0; width: ${g.w_col}px; height: ${g.h_row}px; box-sizing: border-box; border-top-left-radius: ${g.r}px; border-top: 1px solid ${look.backdrop.border}; border-left: 1px solid ${look.backdrop.border}; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
 body:has(> .vault-sparkle:not([hidden])) .key-buttons-bg.desktop.split > .key-buttons-bg-right { display: block }
 `
 }
@@ -772,7 +811,7 @@ function key_buttons_create() {
   const nav_vertical = (self.nav_vertical = nav_group('nav-vertical', 'key-buttons-nav vertical', KEY_BUTTONS_NAV_VERTICAL, 'Vertical navigation keys'))
   const nav_horizontal = (self.nav_horizontal = nav_group('nav-horizontal', 'key-buttons-nav', KEY_BUTTONS_NAV_HORIZONTAL, 'Horizontal navigation keys'))
   const viewport = window.visualViewport
-  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false })
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
   // once the item is gone (its own task's cancel disposes this controller)
   const later = (name, run, ms) => {
@@ -794,7 +833,7 @@ function key_buttons_create() {
     bar.hidden = shown != 'main'
     keys.hidden = shown != 'keyboard'
     reloader.hidden = !key_buttons_reload_shown(window, keyboard, shown, KEY_BUTTONS_LOOK)
-    const bg_mode = key_buttons_backdrop(window, keyboard, shown, KEY_BUTTONS_LOOK)
+    const bg_mode = (self.bg_mode = key_buttons_backdrop(window, keyboard, shown, KEY_BUTTONS_LOOK))
     backdrop.hidden = !bg_mode
     backdrop.className = bg_mode == 'desktop-split' ? 'key-buttons-bg desktop split' : bg_mode == 'desktop-strip' ? 'key-buttons-bg desktop' : 'key-buttons-bg'
     self.keyboard_up = keyboard.up
@@ -894,6 +933,33 @@ function key_buttons_create() {
   document.addEventListener('focusin', look, true)
   document.addEventListener('focusout', left, true)
 
+  // reject presses/clicks on visible frosted glass before they reach the page under it, while
+  // letting buttons, the #vault sparkle/menu, modals and all native scrolling work as before
+  const glass_point = e => {
+    const t = e.touches?.[0] ?? e.changedTouches?.[0] ?? e
+    return typeof t?.clientX == 'number' && typeof t?.clientY == 'number' ? [t.clientX, t.clientY] : null
+  }
+  const glass_hit = e => {
+    if (self.disposed || backdrop.hidden || !self.bg_mode || window._modal_visible?.()) return false
+    const el = e.target?.closest ? e.target : e.target?.parentElement
+    if (KEY_BUTTONS_OWN_OVERLAY.some(sel => el?.closest?.(sel))) return false
+    const pt = glass_point(e)
+    if (!pt) return false
+    const right_shown = self.bg_mode == 'desktop-split' && !!document.querySelector?.('body > .vault-sparkle:not([hidden])')
+    return key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK)
+  }
+  const glass_block = e => {
+    if (!glass_hit(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  const glass_stop = e => {
+    if (glass_hit(e)) e.stopPropagation()
+  }
+  for (const type of KEY_BUTTONS_GLASS_BLOCK) document.addEventListener(type, glass_block, true)
+  for (const type of KEY_BUTTONS_GLASS_STOP) document.addEventListener(type, glass_stop, true)
+  for (const type of KEY_BUTTONS_GLASS_PASSIVE) document.addEventListener(type, glass_stop, { capture: true, passive: true })
+
   // Shift+Space as a Tab: the key is caught at the window before the editor sees it (a
   // capturing listener; the editor's is on its textarea), no space is typed, and the editor
   // gets the Tab it understands. Other listeners at the window still see the key.
@@ -914,6 +980,9 @@ function key_buttons_create() {
     device?.removeEventListener?.('change', look)
     document.removeEventListener('focusin', look, true)
     document.removeEventListener('focusout', left, true)
+    for (const type of KEY_BUTTONS_GLASS_BLOCK) document.removeEventListener(type, glass_block, true)
+    for (const type of KEY_BUTTONS_GLASS_STOP) document.removeEventListener(type, glass_stop, true)
+    for (const type of KEY_BUTTONS_GLASS_PASSIVE) document.removeEventListener(type, glass_stop, { capture: true, passive: true })
     window.removeEventListener('keydown', typed, true)
     backdrop.remove()
     bar.remove()

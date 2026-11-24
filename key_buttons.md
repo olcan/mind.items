@@ -8,7 +8,7 @@
 - on such a device, **Shift+Space** in an editor is a Tab.
 - on every device, a round **reload** button at the page's lower left, across from the `#vault` item's sparkle: one press reloads the page, and asks first when an edit is not saved or a save is not finished (on an app that cannot say, it asks every time).
 - on a device with a keyboard (where the main row is hidden), all four arrows stay in place around the reload button — **↑** and **↓** stacked above it (up on top), **←** and **→** in a row to its right (left first) — green when they would move and dimmed when not.
-- a dark frosted-glass background sits behind the buttons, passing clicks through to the page: a full-width bottom strip while the main row shows on a phone; on a device with a keyboard, a rounded piece behind the lower-left controls and a matching piece behind the `#vault` sparkle when shown, merging into a full-width strip in a narrow window.
+- a dark frosted-glass background sits behind the buttons, rejecting clicks to avoid accidental clicks between buttons while letting scrolling over it work as before: a full-width bottom strip while the main row shows on a phone; on a device with a keyboard, a rounded piece behind the lower-left controls and a matching piece behind the `#vault` sparkle when shown, merging into a full-width strip in a narrow window.
 
 ```js_removed:key_buttons.js
 // key_buttons.js
