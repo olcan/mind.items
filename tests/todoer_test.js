@@ -2364,6 +2364,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     const drop = (id, bin = 'done') => {
       const list = part('list')
       const row = list.children.find(row => row.getAttribute('data-id') == id)
+      // (a row that the list lacks fails the check that drops it, not the table)
+      if (!row) return calls.push(['no row', id]), { calls, rows: ids(), left: null }
       const oldIndex = list.children.indexOf(row)
       const to = part(bin + ' bin')
       to.appendChild(row)
