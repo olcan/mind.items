@@ -67,12 +67,14 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
 ]
 
 // the four navigation arrows of the main row: lit green when they would move in the named item's
-// tree and dimmed when not, and always shown in two desktop groups around the reload button:
-// vertical (up on top, down under it) stacked above it, horizontal (left first) in a row to its right
+// tree and dimmed when not
 const KEY_BUTTONS_ARROWS = KEY_BUTTONS.filter(b => !b.ctrl && !b.alt && !b.shift && b.key.startsWith('Arrow'))
 const KEY_BUTTONS_ARROW_NAMES = new Set(KEY_BUTTONS_ARROWS.map(b => b.name))
-const KEY_BUTTONS_NAV_VERTICAL = KEY_BUTTONS_ARROWS.filter(b => b.name == 'up' || b.name == 'down')
-const KEY_BUTTONS_NAV_HORIZONTAL = KEY_BUTTONS_ARROWS.filter(b => b.name == 'left' || b.name == 'right')
+// the strip of a device with a keyboard: the main row's buttons in the row's own order, in one
+// row to the right of the reload button, in groups with a wider gap before each (the owner,
+// 2026-11-23: one strip, the other buttons too, with some spacing). `lead` marks a group's first
+const KEY_BUTTONS_STRIP = [['top', 'back'], ['create'], ['left', 'up', 'down', 'right']]
+const KEY_BUTTONS_STRIP_SPECS = KEY_BUTTONS_STRIP.flatMap(names => names.map((name, i) => ({ ...KEY_BUTTONS.find(b => b.name == name), lead: i == 0 })))
 const KEY_BUTTONS_NONE = { left: false, up: false, down: false, right: false }
 
 // the reload button: one press reloads the page, after a question wherever something could be
@@ -89,6 +91,7 @@ const KEY_BUTTONS_RELOAD_QUESTION = 'Reload and discard any unsaved changes?'
 const KEY_BUTTONS_LOOK = {
   size: 32, // a button's width and height (the sparkle's is 24)
   gap: 6, // between two buttons: seven buttons take 7 * 32 + 6 * 6 = 260
+  group: 14, // before each group of the strip on a device with a keyboard (the reload button's own margin)
   right: 46, // the row's right edge from the window's: past the sparkle (14 + 24) and a gap of 8
   bottom: 6, // the row's bottom edge from the window's: 10 + (24 - 32) / 2, the sparkle's centre line
   icon: 16, // an icon's width and height
@@ -274,29 +277,33 @@ function key_buttons_caret_line(textarea, doc) {
   return { top: rect.top, bottom: rect.bottom }
 }
 
-// geometry of the L-shaped desktop frosted-glass backdrop (column over reload + left row, or full
-// merged strip below look.backdrop.merge px), in CSS pixels: glass clip paths (origin at pane
-// top-left), shadow-caster / outside-mask paths (origin pad px above the column top, extended past
-// viewport edges so the outer shadow stays uniform to the screen edge), and 1 px free-edge border
-// paths (inset 0.5 px so the stroke sits inside the glass edge and never draws on page edges or
-// across the inside seam where column meets row)
+// geometry of the desktop frosted-glass backdrop, in CSS pixels: one piece behind the reload
+// button and the strip (its top-right corner rounded), or the full merged strip below
+// look.backdrop.merge px: glass clip paths (origin at the pane's top-left), shadow-caster /
+// outside-mask paths (origin pad px above the glass, extended past the viewport's edges so the
+// outer shadow stays uniform to the screen edge), and 1 px free-edge border paths (inset 0.5 px so
+// the stroke sits inside the glass edge and never draws on page edges). `w_col` is the width of
+// the piece behind the #vault sparkle at the right; `h_col` stays for the readers of the earlier
+// shape, which had a column above the row
 function key_buttons_backdrop_geom(look) {
   const w_col = look.reload.size + 2 * look.reload.left
-  const h_col = 2 * look.reload.size + 2 * look.gap
+  const h_col = 0
   const h_row = look.reload.size + 2 * look.reload.bottom
-  const h_tot = h_col + h_row
-  const w_left = 2 * look.reload.left + 3 * look.reload.size + 2 * look.gap
+  const h_tot = h_row
+  const [count, groups] = [KEY_BUTTONS_STRIP.flat().length, KEY_BUTTONS_STRIP.length]
+  // the reload button, then each group after its wider gap, the buttons of a group a gap apart
+  const w_left = 2 * look.reload.left + (1 + count) * look.reload.size + (count - groups) * look.gap + groups * look.group
   const r = look.reload.size / 2
   const pad = Math.max(24, look.backdrop.shadow_blur * 3)
   const narrow = look.backdrop.merge
-  const clip_split = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${h_col + r} V ${h_tot} H 0 Z`
-  const clip_strip = `M 0 0 H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${r} V ${h_col} H ${narrow} V ${h_tot} H 0 Z`
-  const [y0, y1, y2] = [pad, pad + h_col, pad + h_tot]
-  const shape_split = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${y1 + r} V ${y2 + pad} H ${-pad} Z`
-  const shape_strip = `M ${-pad} ${y0} H ${w_col - r} A ${r} ${r} 0 0 1 ${w_col} ${y0 + r} V ${y1} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
+  const clip_split = `M 0 0 H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${r} V ${h_tot} H 0 Z`
+  const clip_strip = `M 0 0 H ${narrow} V ${h_tot} H 0 Z`
+  const [y0, y2] = [pad, pad + h_tot]
+  const shape_split = `M ${-pad} ${y0} H ${w_left - r} A ${r} ${r} 0 0 1 ${w_left} ${y0 + r} V ${y2 + pad} H ${-pad} Z`
+  const shape_strip = `M ${-pad} ${y0} H ${narrow + pad} V ${y2 + pad} H ${-pad} Z`
   const [o, ri] = [0.5, r - 0.5]
-  const border_split = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${w_left - r} A ${ri} ${ri} 0 0 1 ${w_left - o} ${y1 + r} V ${y2}`
-  const border_strip = `M 0 ${y0 + o} H ${w_col - r} A ${ri} ${ri} 0 0 1 ${w_col - o} ${y0 + r} V ${y1 + o} H ${narrow}`
+  const border_split = `M 0 ${y0 + o} H ${w_left - r} A ${ri} ${ri} 0 0 1 ${w_left - o} ${y0 + r} V ${y2}`
+  const border_strip = `M 0 ${y0 + o} H ${narrow}`
   return { w_col, h_col, h_row, h_tot, w_left, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
 }
 
@@ -310,13 +317,7 @@ function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KE
   if (mode == 'mobile') return dy <= look.size + 2 * look.bottom
   const g = key_buttons_backdrop_geom(look)
   const in_arc = (px, py, cx, cy) => (px - cx) ** 2 + (py - cy) ** 2 <= g.r ** 2
-  // desktop column (left: 0..w_col, bottom: h_row..h_tot, top-right corner rounded by r)
-  if (x <= g.w_col && dy <= g.h_tot) {
-    if (dy <= g.h_row) return true
-    if (x > g.w_col - g.r && dy > g.h_tot - g.r) return in_arc(x, dy, g.w_col - g.r, g.h_tot - g.r)
-    return true
-  }
-  // desktop horizontal row (full width in desktop-strip; 0..w_left with top-right radius r in split)
+  // desktop row (full width in desktop-strip; 0..w_left with top-right radius r in split)
   if (dy <= g.h_row) {
     if (mode == 'desktop-strip') return true
     if (x <= g.w_left) {
@@ -346,7 +347,7 @@ const KEY_BUTTONS_GLASS_PASSIVE = ['touchstart', 'touchend']
 const KEY_BUTTONS_GLASS_RESET = ['pointerup', 'pointercancel', 'touchcancel']
 const KEY_BUTTONS_OWN_OVERLAY = ['.vault-sparkle-backdrop', '.vault-sparkle-menu']
 
-// outer shadow (Gaussian blur of the single L-shape, masked strictly outside the glass) and 1 px
+// outer shadow (Gaussian blur of the glass's own shape, masked strictly outside the glass) and 1 px
 // free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
 // filter or mask ever sits on an ancestor of the backdrop-filter pane
 function key_buttons_backdrop_frame(look) {
@@ -388,8 +389,8 @@ function key_buttons_css(look) {
 @media (hover: hover) { .key-buttons-reload:hover { color: ${look.reload.hover} } }
 .key-buttons-reload:active { color: ${look.color} }
 .key-buttons-reload > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
-.key-buttons-nav { position: fixed; left: ${look.reload.left + look.reload.size + look.gap}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
-.key-buttons-nav.vertical { left: ${look.reload.left}px; bottom: ${look.reload.bottom + look.reload.size + look.gap}px; flex-direction: column }
+.key-buttons-nav { position: fixed; left: ${look.reload.left + look.reload.size + look.group}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
+.key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: ${look.group - look.gap}px }
 .key-buttons-nav[hidden] { display: none }
 .key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .key-buttons-nav > button.valid { color: ${look.valid} }
@@ -593,7 +594,7 @@ const key_buttons_desktop_shown = (win, keyboard) => !key_buttons_device(win) &&
 
 // which frosted-glass background shows behind the buttons: the full-width bottom strip while the
 // phone's main row shows ('mobile'); on a keyboard device with no soft keyboard up, split left
-// and right pieces ('desktop-split') or one merged bottom strip plus left column below `merge` px
+// and right pieces ('desktop-split') or one merged bottom strip below `merge` px
 // ('desktop-strip'); or none while a keyboard is on screen
 const key_buttons_backdrop = (win, keyboard, shown, look = KEY_BUTTONS_LOOK) =>
   keyboard.up
@@ -687,8 +688,8 @@ function key_buttons_create() {
   style.textContent = key_buttons_css(KEY_BUTTONS_LOOK)
   document.head.appendChild(style)
   // dark frosted-glass background behind the buttons: one non-backdrop-root container whose
-  // siblings (.key-buttons-bg-pane for the single frosted L-shape or phone strip,
-  // .key-buttons-bg-frame for the desktop L-shape's outer shadow + free-edge border SVGs, and
+  // siblings (.key-buttons-bg-pane for the desktop's frosted piece or the phone's strip,
+  // .key-buttons-bg-frame for the desktop piece's outer shadow + free-edge border SVGs, and
   // .key-buttons-bg-right behind the #vault sparkle in wide desktop split) blur the page directly
   // with no filter or mask on any ancestor, taking no pointer events
   const backdrop = (self.backdrop = document.createElement('div'))
@@ -709,7 +710,7 @@ function key_buttons_create() {
   document.body.appendChild(backdrop)
   // active press state for frosted-glass rejection (decided once where each press starts; declared
   // here so the button click handlers below can check that a click belongs to a press started in
-  // that button's rectangle)
+  // that button's rectangle and targeted at it)
   let glass_press = null
   // an event made by code (`isTrusted` false) is never the user's press: the app's own keyboard
   // shortcuts toggle and navigate through clicks and mousedowns that it dispatches, so such an
@@ -823,11 +824,11 @@ function key_buttons_create() {
   reloader.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
   reloader.addEventListener('contextmenu', taken)
   if (KEY_BUTTONS_PARTS.reload_button) document.body.appendChild(reloader)
-  // the desktop navigation arrows around the reload button: vertical (up on top, down under it)
-  // stacked above it, horizontal (left first) in a row to its right. All four stay in place in
-  // the reload button's circle look, dimmed when they would not move and still clickable. A click
-  // dispatches on document.body so it always reaches the window's navigation handler even while
-  // the MindBox holds focus (Editor.svelte stops propagation on arrows inside a focused textarea)
+  // the strip of a device with a keyboard, in a row to the right of the reload button: the main
+  // row's buttons in the reload button's circle look, the arrows dimmed when they would not move
+  // and still clickable. A click dispatches on document.body so it always reaches the window's
+  // handler even while the MindBox holds focus (Editor.svelte stops propagation on arrows inside
+  // a focused textarea), and sends nothing while any item is open for editing
   const nav_group = (kind, className, specs, label) => {
     const group = document.createElement('div')
     group.className = className
@@ -840,6 +841,7 @@ function key_buttons_create() {
       button.type = 'button'
       button.tabIndex = -1
       button.dataset.key = spec.name
+      if (spec.lead) button.dataset.lead = '1'
       button.title = spec.title
       button.setAttribute('aria-label', spec.title)
       button.innerHTML = key_buttons_svg(spec.icon)
@@ -855,8 +857,7 @@ function key_buttons_create() {
     }
     return document.body.appendChild(group)
   }
-  const nav_vertical = (self.nav_vertical = nav_group('nav-vertical', 'key-buttons-nav vertical', KEY_BUTTONS_NAV_VERTICAL, 'Vertical navigation keys'))
-  const nav_horizontal = (self.nav_horizontal = nav_group('nav-horizontal', 'key-buttons-nav', KEY_BUTTONS_NAV_HORIZONTAL, 'Horizontal navigation keys'))
+  const nav_strip = (self.nav_strip = nav_group('nav-strip', 'key-buttons-nav', KEY_BUTTONS_STRIP_SPECS, 'Navigation keys'))
   const viewport = window.visualViewport
   Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
@@ -909,9 +910,9 @@ function key_buttons_create() {
       if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
     }
     const desktop = key_buttons_desktop_shown(window, { up: self.keyboard_up })
-    for (const group of [nav_vertical, nav_horizontal]) {
-      group.hidden = !desktop
-      for (const button of group.children) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
+    nav_strip.hidden = !desktop
+    for (const button of nav_strip.children) {
+      if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
     }
   }
   self.box = () =>
@@ -997,7 +998,7 @@ function key_buttons_create() {
   const own_button_at = (x, y) => {
     const buttons = []
     if (!reloader.hidden) buttons.push(reloader)
-    for (const g of [bar, keys, nav_vertical, nav_horizontal]) if (!g.hidden) buttons.push(...g.children)
+    for (const g of [bar, keys, nav_strip]) if (!g.hidden) buttons.push(...g.children)
     for (const b of buttons) if (inside(b, x, y)) return b
     return null
   }
@@ -1097,8 +1098,7 @@ function key_buttons_create() {
     bar.remove()
     keys.remove()
     reloader.remove()
-    nav_vertical.remove()
-    nav_horizontal.remove()
+    nav_strip.remove()
     style.remove()
     if (window._key_buttons === self) delete window._key_buttons
   }
