@@ -350,6 +350,30 @@ check('nav: visible descendant tags (down and sibling), missing intermediate lev
     { left: false, up: true, down: true, right: false },
     { left: false, up: true, down: false, right: false },
     { left: true, up: true, down: false, right: true }])
+// dangling relative references vs existing child vs absolute tags written in full
+const dangling_only = [{ label: '#p', ancestors: [], tags_visible: ['#p', '#p/later'], dangling_tags: ['#p/later'] }]
+const dangling_live_child = [
+  { label: '#p', ancestors: [], tags_visible: ['#p', '#p/later'], dangling_tags: [] },
+  { label: '#p/later', ancestors: ['#p'] },
+]
+const dangling_live_other = [{ label: '#p', ancestors: [], tags_visible: ['#p', '#p/later'], dangling_tags: [] }] // absolute tag written in full, or carried by another item
+const dangling_mixed = [{ label: '#p', ancestors: [], tags_visible: ['#p', '#p/later', '#p/full'], dangling_tags: ['#p/later'] }]
+const dangling_parent_sib = [
+  { label: '#p', ancestors: [], tags_visible: ['#p', '#p/later'], dangling_tags: ['#p/later'] },
+  { label: '#p/a', ancestors: ['#p'] },
+]
+const abs_parent_sib = [
+  { label: '#p', ancestors: [], tags_visible: ['#p', '#p/later'], dangling_tags: [] },
+  { label: '#p/a', ancestors: ['#p'] },
+]
+check('nav: dangling relative reference dims Down (and parent sibling Left/Right); once child exists or for a tag written in full, Down (and sibling Left/Right) lights green',
+  [nav('#p', dangling_only), nav('#p', dangling_live_child), nav('#p', dangling_live_other), nav('#p', dangling_mixed), nav('#p/a', dangling_parent_sib), nav('#p/a', abs_parent_sib)],
+  [{ left: false, up: false, down: false, right: false },
+    { left: false, up: false, down: true, right: false },
+    { left: false, up: false, down: true, right: false },
+    { left: false, up: false, down: true, right: false },
+    { left: false, up: true, down: false, right: false },
+    { left: true, up: true, down: false, right: true }])
 const desktop_shown = (coarse, up) => v1('key_buttons_desktop_shown(__args.win, __args.keyboard)', { win: fingers(coarse), keyboard: { up } })
 const bg_shown = (coarse, up, shown_row, wide = 1280) => v1('key_buttons_backdrop(__args.win, __args.keyboard, __args.shown, KEY_BUTTONS_LOOK)', { win: { ...fingers(coarse), innerWidth: wide }, keyboard: { up }, shown: shown_row })
 check('desktop nav & backdrop: desktop splits backdrop at >= 480 px and merges into a strip below 480 px (all four arrows always shown); phone shows mobile strip only with the main row (not while keyboard is up)',
@@ -669,7 +693,7 @@ check('controller: an item that only carries the code draws nothing and leaves t
   const mob_back_bg = [bar_now.hidden, bg_now.hidden, bg_now.className]
   v2('_on_search("#map/a")')
   const mob_all = states_mobile()
-  // item changes coalesce into one 150 ms task and live-update states (deleting #map/b dims left/right)
+  // each item change restarts the 150 ms task wait so a burst is looked at once quiet (deleting #map/b dims left/right)
   log.length = 0
   open.items = open.items.filter(it => it.label != '#map/b')
   v2('_on_item_change("x1", "#map/b", "#map/b", true, false, false)')
@@ -718,7 +742,41 @@ check('controller: an item that only carries the code draws nothing and leaves t
   pointer.matches = true
   pointer.fire('change')
   page.body.got.length = 0
-  check('nav live: valid arrows green and invalid dim on mobile and desktop; desktop splits backdrop at >= 480 px and merges below 480 px; dim arrows still dispatch on body even with MindBox focused; phone keeps full-width strip and hides it under keyboard; bursts coalesce; empty schedules none; _labels skips other roots; reconcile reads textarea-mindbox (ZWSP stripped) and keeps shape without reload',
+  // editing guard on desktop arrows: window.__items (and _items fallback) blocks desktop arrow dispatch while any
+  // item is open for editing (even while saving), taking the click without sending; once closed, dispatch resumes
+  pointer.matches = false
+  pointer.fire('change')
+  const live_up = parts('nav-vertical')[0].children.find(b => b.dataset.key == 'up')
+  win.__items = [{ id: 'e1', editing: true, saving: true }]
+  page.body.got.length = 0
+  const edit_up = live_up.fire('click')
+  const edit_blocked = [got(page.body), edit_up.prevented, edit_up.stopped, v2('key_buttons_any_editing(window)')]
+  win.__items = [{ id: 'e1', editing: false, saving: false }]
+  const after_edit = [v2('key_buttons_any_editing(window)'), live_up.fire('click').stopped, got(page.body)]
+  delete win.__items
+  open.items = [{ id: 'e2', editing: true }]
+  const fallback_editing = v2('key_buttons_any_editing(window)')
+  open.items = []
+  const fallback_clean = v2('key_buttons_any_editing(window)')
+  // key_buttons_read_nav reads danglingTags from window.__item(id)
+  const raw_d = { p0: { id: 'p0', danglingTags: ['#d/later'] } }
+  const d_wrap = { id: 'p0', label: '#d', ancestors: [], tags_visible: ['#d', '#d/later'] }
+  win.__item = id => raw_d[id] ?? null
+  open.items = [d_wrap]
+  const read_dangling = v2('key_buttons_read_nav("#d")')
+  raw_d.p0.danglingTags = []
+  const read_live = v2('key_buttons_read_nav("#d")')
+  delete win.__item
+  open.items = []
+  pointer.matches = true
+  pointer.fire('change')
+  page.body.got.length = 0
+  check('desktop editing guard & read_nav dangling: desktop arrows send nothing while any item is editing (including saving), resume once closed, fall back to _items when __items absent, and read_nav honors __item(id).danglingTags',
+    [edit_blocked, after_edit, fallback_editing, fallback_clean, read_dangling, read_live],
+    [[[], 1, 1, true], [false, 1, ['keydown ArrowUp', 'keyup ArrowUp']], true, false,
+      { left: false, up: false, down: false, right: false },
+      { left: false, up: false, down: true, right: false }])
+  check('nav live: valid arrows green and invalid dim on mobile and desktop; desktop splits backdrop at >= 480 px and merges below 480 px; dim arrows still dispatch on body even with MindBox focused; phone keeps full-width strip and hides it under keyboard; item changes restart 150 ms wait; empty schedules none; _labels skips other roots; reconcile reads textarea-mindbox (ZWSP stripped) and keeps shape without reload',
     [desk_all, desk_narrow, desk_wide, desk_down, sent_dim, desk_up, desk_up_horiz, mob_b, mob_dim_sent, mob_kbd_bg, mob_back_bg, mob_all, burst, after_burst, empty_state, via_labels, from_box],
     [[{ shown: [true, true], vertical: [['up', false, 'valid'], ['down', false, 'valid']], horizontal: [['left', false, 'valid'], ['right', false, 'valid']] }, false, 'key-buttons-bg desktop split'],
       'key-buttons-bg desktop',
@@ -738,9 +796,9 @@ check('controller: an item that only carries the code draws nothing and leaves t
       [[['left', 'dim'], ['up', 'dim'], ['down', 'valid'], ['right', 'dim']], 0],
       [false, 'key-buttons-bg desktop split', ['valid', 'valid', 'valid', 'valid'], {}, {}]])
 }
-// ---- glass click rejection over the fake page: listeners added, filtered, passive, disposed ----
+// ---- glass click rejection over the fake page: press-start gesture state, button rects, cancel, dispose ----
 {
-  const glass_events = ['mousedown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'pointerdown', 'touchstart', 'touchend']
+  const glass_events = ['mousedown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'pointerdown', 'touchstart', 'touchend', 'pointerup', 'pointercancel', 'touchcancel']
   const counts = () => glass_events.map(t => (page.listeners[t] ?? []).length)
   const no_scroll_listeners = [(page.listeners.wheel ?? []).length, (page.listeners.touchmove ?? []).length]
   const prev_pointer = pointer.matches
@@ -749,51 +807,123 @@ check('controller: an item that only carries the code draws nothing and leaves t
   pointer.matches = false
   viewport.fire('resize')
   const under = new FakeNode('div')
-  const own_btn = Object.assign(new FakeNode('button'), { parent: parts('nav-horizontal')[0] })
+  const nav_h = parts('nav-horizontal')[0]
+  const left_btn = nav_h.children.find(b => b.dataset.key == 'left')
+  const right_btn = nav_h.children.find(b => b.dataset.key == 'right')
+  // real bounding rects matching desktop row: left 44..68, gap 68..74, right 74..98 (bottom 10..34 => y 566..590)
+  left_btn.getBoundingClientRect = () => ({ left: 44, right: 68, top: 566, bottom: 590, width: 24, height: 24 })
+  right_btn.getBoundingClientRect = () => ({ left: 74, right: 98, top: 566, bottom: 590, width: 24, height: 24 })
   const sparkle_el = Object.assign(new FakeNode('button'), { className: 'vault-sparkle' })
   const menu_el = Object.assign(new FakeNode('div'), { className: 'vault-sparkle-menu' })
-  const fire_doc = (type, target, x, dy, touch = false) => {
-    const coords = touch ? { touches: [{ clientX: x, clientY: 600 - dy }], changedTouches: [{ clientX: x, clientY: 600 - dy }] } : { clientX: x, clientY: 600 - dy }
-    const ev = page.fire(type, { target, ...coords })
+  const fire_doc = (type, target, x, dy, more = {}) => {
+    const touch = type == 'touchstart' || type == 'touchend' || type == 'touchcancel'
+    const coords = touch
+      ? { touches: type == 'touchend' ? [] : [{ clientX: x, clientY: 600 - dy }], changedTouches: [{ clientX: x, clientY: 600 - dy }] }
+      : { clientX: x, clientY: 600 - dy }
+    const ev = page.fire(type, { target, ...coords, ...more })
     return [ev.prevented, ev.stopped]
   }
+  // 1. Mouse press starting on glass (gap at x=71, dy=22) blocks the entire gesture (mousedown..contextmenu)
   const on_glass = [
+    fire_doc('pointerdown', under, 71, 22, { pointerType: 'mouse', isPrimary: true }),
     fire_doc('mousedown', under, 71, 22),
-    fire_doc('click', under, 71, 22),
-    fire_doc('dblclick', under, 71, 22),
-    fire_doc('auxclick', under, 71, 22),
+    fire_doc('pointerup', under, 71, 22, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('click', under, 71, 22, { detail: 1, pointerType: 'mouse' }),
+    fire_doc('dblclick', under, 71, 22, { detail: 2 }),
+    fire_doc('auxclick', under, 71, 22, { detail: 1 }),
     fire_doc('contextmenu', under, 71, 22),
-    fire_doc('pointerdown', under, 71, 22),
-    fire_doc('touchstart', under, 71, 22, true),
-    fire_doc('touchend', under, 71, 22, true),
   ]
+  // 2. Desktop edge crossing: press on glass at dy=43, release off glass at dy=45 still blocks click;
+  //    reverse (press off glass at dy=45, release on glass at dy=43) delivers both mousedown and click
+  const edge_in_to_out = [
+    fire_doc('pointerdown', under, 70, 43, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('mousedown', under, 70, 43),
+    fire_doc('pointerup', under, 70, 45, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('click', under, 70, 45, { detail: 1, pointerType: 'mouse' }),
+  ]
+  const edge_out_to_in = [
+    fire_doc('pointerdown', under, 70, 45, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('mousedown', under, 70, 45),
+    fire_doc('pointerup', under, 70, 43, { pointerType: 'mouse', isPrimary: true }),
+    fire_doc('click', under, 70, 43, { detail: 1, pointerType: 'mouse' }),
+  ]
+  // 3. Touch gap retargeting: tap in 6 px gap (x=71, dy=22) with target snapped to right_btn, and
+  //    compatibility mousedown/click snapped to right_btn's centre (x=86, dy=22): all blocked and button does not fire
+  page.body.got.length = 0
+  const touch_gap = [
+    fire_doc('pointerdown', right_btn, 71, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchstart', right_btn, 71, 22),
+    fire_doc('pointerup', right_btn, 71, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchend', right_btn, 71, 22),
+    fire_doc('mousedown', right_btn, 86, 22),
+    fire_doc('click', right_btn, 86, 22, { detail: 1, pointerType: 'touch' }),
+  ]
+  right_btn.fire('click', { detail: 1, pointerType: 'touch' }) // even if reached directly, own_click_ok rejects it
+  const touch_gap_keys = got(page.body)
+  // 4. Touch inside button rect (left_btn at x=56, dy=22): not rejected, and left_btn fires (while right_btn would not)
+  const touch_btn = [
+    fire_doc('pointerdown', left_btn, 56, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchstart', left_btn, 56, 22),
+    fire_doc('pointerup', left_btn, 56, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchend', left_btn, 56, 22),
+    fire_doc('mousedown', left_btn, 56, 22),
+    fire_doc('click', left_btn, 56, 22, { detail: 1, pointerType: 'touch' }),
+  ]
+  right_btn.fire('click', { detail: 1, pointerType: 'touch' }) // wrong button: must not fire
+  left_btn.fire('click', { detail: 1, pointerType: 'touch' }) // started inside left_btn: fires!
+  const touch_btn_keys = got(page.body)
+  page.body.got.length = 0
+  // 5. Cancelled gesture (scroll begins on glass -> pointercancel) resets state so next independent click passes
+  fire_doc('pointerdown', under, 71, 22, { pointerType: 'touch', isPrimary: true })
+  const cancel_touchstart = fire_doc('touchstart', under, 71, 22)
+  fire_doc('pointercancel', under, 0, 600, { pointerType: 'touch', isPrimary: true })
+  const after_cancel_click = fire_doc('click', under, 70, 45, { detail: 1 })
+  // 6. Right glass piece around visible sparkle, plus bypasses (outside L, shadow, own button rect, sparkle, menu, modal)
   const prev_qs = page.querySelector
   page.querySelector = sel => sel == 'body > .vault-sparkle:not([hidden])' ? sparkle_el : prev_qs?.call(page, sel) ?? null
-  const on_right_glass = fire_doc('click', under, 974, 22) // right glass around visible sparkle is blocked
+  fire_doc('pointerdown', under, 974, 22, { pointerType: 'mouse', isPrimary: true })
+  const on_right_glass = fire_doc('click', under, 974, 22, { detail: 1, pointerType: 'mouse' })
+  // bare page target inside a round button's square bounding box (outside the circle) is still rejected
+  fire_doc('pointerdown', under, 56, 22, { pointerType: 'mouse', isPrimary: true })
+  const corner_glass = fire_doc('click', under, 56, 22, { detail: 1, pointerType: 'mouse' })
+  const click_gesture = (target, x, dy) => {
+    fire_doc('pointerdown', target, x, dy, { pointerType: 'mouse', isPrimary: true })
+    fire_doc('pointerup', target, x, dy, { pointerType: 'mouse', isPrimary: true })
+    return fire_doc('click', target, x, dy, { detail: 1, pointerType: 'mouse' })
+  }
   const bypasses = [
-    fire_doc('click', under, 75, 65), // outside L (above row, right of column)
-    fire_doc('click', under, 80, 48), // on shadow above row
-    fire_doc('click', own_btn, 71, 22), // item's own button
-    fire_doc('click', sparkle_el, 974, 22), // #vault sparkle over visible right glass
-    fire_doc('click', menu_el, 71, 22), // #vault menu over left glass
+    click_gesture(under, 75, 65), // outside L (above row, right of column)
+    click_gesture(under, 80, 48), // on shadow above row
+    click_gesture(left_btn, 56, 22), // inside own button rect
+    click_gesture(sparkle_el, 974, 22), // #vault sparkle over visible right glass
+    click_gesture(menu_el, 71, 22), // #vault menu over left glass
   ]
   page.querySelector = prev_qs
   win._modal_visible = () => true
-  const under_modal = fire_doc('click', under, 71, 22)
+  const under_modal = click_gesture(under, 71, 22)
   delete win._modal_visible
+  delete left_btn.getBoundingClientRect
+  delete right_btn.getBoundingClientRect
   const before_dispose = counts()
   log.length = 0
   items['#key_buttons'] = { id: 'other-id' }
   v2('_on_item_change("keys-id")')
   const after_dispose = counts()
-  check('glass rejection: document capture listeners block mouse/click/menu presses on glass, stop pointerdown/touch without preventing default, never listen on wheel or touchmove, skip own buttons/sparkle/menu/modal/outside, and clean up on dispose',
-    [before_dispose, no_scroll_listeners, on_glass, on_right_glass, bypasses, under_modal, after_dispose],
-    [[1, 1, 1, 1, 1, 1, 1, 1], [0, 0],
-      [[1, 1], [1, 1], [1, 1], [1, 1], [1, 1], [0, 1], [0, 1], [0, 1]],
-      [1, 1],
+  check('glass rejection: press-start decision blocks rejected gestures across mouse/touch/retargeted gap/edge crossing, admits button rects/sparkle/menu/modal/off-glass starts, resets on cancel, keeps wheel/touchmove unattached, and cleans up on dispose',
+    [before_dispose, no_scroll_listeners, on_glass, edge_in_to_out, edge_out_to_in, touch_gap, touch_gap_keys, touch_btn, touch_btn_keys, cancel_touchstart, after_cancel_click, on_right_glass, corner_glass, bypasses, under_modal, after_dispose],
+    [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0],
+      [[0, 1], [1, 1], [0, 0], [1, 1], [1, 1], [1, 1], [1, 1]],
+      [[0, 1], [1, 1], [0, 0], [1, 1]],
+      [[0, 0], [0, 0], [0, 0], [0, 0]],
+      [[0, 1], [0, 1], [0, 0], [0, 1], [1, 1], [1, 1]],
+      [],
+      [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+      ['keydown ArrowLeft', 'keyup ArrowLeft'],
+      [0, 1], [0, 0],
+      [1, 1], [1, 1],
       [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
       [0, 0],
-      [0, 0, 0, 0, 0, 0, 0, 0]])
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
   win.innerWidth = 390
   win.innerHeight = 800
   pointer.matches = prev_pointer

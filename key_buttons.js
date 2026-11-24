@@ -127,7 +127,7 @@ const KEY_BUTTONS_DEVICE = '(pointer: coarse)'
 const KEY_BUTTONS_KEYBOARD_PX = 150
 const KEY_BUTTONS_TICK_MS = 15000 // the task's look: the item's deletion is noticed at its next run
 const KEY_BUTTONS_FOCUS_MS = 150 // a focus that left is looked at this much later: a focus that moves from one editor to another flips no row
-const KEY_BUTTONS_NAV_MS = 150 // item changes within this long are coalesced into one look at the tree
+const KEY_BUTTONS_NAV_MS = 150 // each item change restarts this wait, so a burst is looked at once it goes quiet
 const KEY_BUTTONS_CHANGES = 5 // how many of the row's last changes are kept, for the lines that say what the signals read
 
 // ---- the code -----------------------------------------------------------------------------
@@ -343,7 +343,8 @@ function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KE
 const KEY_BUTTONS_GLASS_BLOCK = ['mousedown', 'click', 'dblclick', 'auxclick', 'contextmenu']
 const KEY_BUTTONS_GLASS_STOP = ['pointerdown']
 const KEY_BUTTONS_GLASS_PASSIVE = ['touchstart', 'touchend']
-const KEY_BUTTONS_OWN_OVERLAY = ['[data-key-buttons]', '.vault-sparkle', '.vault-sparkle-backdrop', '.vault-sparkle-menu']
+const KEY_BUTTONS_GLASS_RESET = ['pointerup', 'pointercancel', 'touchcancel']
+const KEY_BUTTONS_OWN_OVERLAY = ['.vault-sparkle', '.vault-sparkle-backdrop', '.vault-sparkle-menu']
 
 // outer shadow (Gaussian blur of the single L-shape, masked strictly outside the glass) and 1 px
 // free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
@@ -480,6 +481,14 @@ function key_buttons_nav(box, items) {
     return false
   }
 
+  const dangling_of = entry => {
+    const raw = entry.item.dangling_tags ?? entry.item.danglingTags
+    if (!Array.isArray(raw) || !raw.length) return null
+    const set = new Set()
+    for (const t of raw) if (typeof t == 'string' && t) set.add(t.toLowerCase())
+    return set.size ? set : null
+  }
+
   const target = unique.get(target_label)
   const target_levels = ancestors_of(target)
   const up = target_levels.some(level => level != target_label && unique.has(level))
@@ -492,9 +501,10 @@ function key_buttons_nav(box, items) {
     }
   }
   if (!down) {
+    const dangling = dangling_of(target)
     for (const raw of target.item.tags_visible ?? []) {
       const tag = typeof raw == 'string' ? raw.toLowerCase() : ''
-      if (tag && tag != target_label && descends(tag, target_label)) {
+      if (tag && tag != target_label && !dangling?.has(tag) && descends(tag, target_label)) {
         down = true
         break
       }
@@ -512,9 +522,10 @@ function key_buttons_nav(box, items) {
       }
     }
     if (!sibling) {
+      const dangling = dangling_of(parent)
       for (const raw of parent.item.tags_visible ?? []) {
         const tag = typeof raw == 'string' ? raw.toLowerCase() : ''
-        if (tag && tag != parent_label && tag != target_label && descends(tag, parent_label)) {
+        if (tag && tag != parent_label && tag != target_label && !dangling?.has(tag) && descends(tag, parent_label)) {
           sibling = true
           break
         }
@@ -525,13 +536,37 @@ function key_buttons_nav(box, items) {
   return { left: sibling, up, down, right: sibling }
 }
 
+// whether any item is open for editing: reads the app's own live item array (`window.__items`, the
+// exact source of `editingItems` in index.svelte), falling back to `_items()` when absent. Exact
+// from the moment an editor opens (before the DOM flushes and even while hidden behind a toggle)
+// through any in-flight save until the editor closes
+const key_buttons_any_editing = (win = window) =>
+  Array.isArray(win?.__items)
+    ? win.__items.some(it => it?.editing === true)
+    : typeof win?._items == 'function'
+      ? win._items().some(it => it?.editing === true)
+      : false
+
 // items in the named label's root tree (#map and #map/...): in the app, lineage overrides never
 // cross roots (lineage.ts), so no item under another root can be an ancestor, child or sibling.
 // Walking `_labels` avoids wrapping and sorting every item in the account; where `_labels` is
-// absent (tests), falls back to `_items()`
+// absent (tests), falls back to `_items()`. Carries the app's `danglingTags` from `window.__item`
+// so solely-relative references to absent targets do not light arrows
 function key_buttons_read_nav(box) {
   const target_label = key_buttons_box_label(box)
   if (!target_label) return { ...KEY_BUTTONS_NONE }
+  const with_dangling = it => {
+    if (!it) return null
+    let dangling = null
+    if (typeof window.__item == 'function' && it.id != null) {
+      try {
+        dangling = window.__item(it.id)?.danglingTags
+      } catch (e) {}
+    }
+    return Array.isArray(dangling) && dangling.length
+      ? { label: it.label, ancestors: it.ancestors, tags_visible: it.tags_visible, dangling_tags: dangling }
+      : it
+  }
   if (typeof window._labels == 'function' && typeof _item == 'function') {
     if (!_item(target_label, { silent: true })) return { ...KEY_BUTTONS_NONE }
     const slash = target_label.indexOf('/')
@@ -541,14 +576,14 @@ function key_buttons_read_nav(box) {
     window._labels((label, ids) => {
       if (label != root && !label.startsWith(prefix)) return false
       for (const id of ids) {
-        const it = _item(id, { silent: true })
+        const it = with_dangling(_item(id, { silent: true }))
         if (it) found.push(it)
       }
       return false
     })
     return key_buttons_nav(box, found)
   }
-  return key_buttons_nav(box, window._items?.() ?? [])
+  return key_buttons_nav(box, (window._items?.() ?? []).map(with_dangling).filter(Boolean))
 }
 
 // whether the desktop navigation arrow groups show: always on a device with a keyboard while no
@@ -672,6 +707,11 @@ function key_buttons_create() {
   backdrop.appendChild(backdrop_frame)
   backdrop.appendChild(backdrop_right)
   document.body.appendChild(backdrop)
+  // active press state for frosted-glass rejection (decided once where each press starts; declared
+  // here so the button click handlers below can check that a click belongs to a press started in
+  // that button's rectangle)
+  let glass_press = null
+  const own_click_ok = (button, e) => !glass_press || (e.detail === 0 && !e.pointerType) || (!glass_press.rejected && glass_press.button === button)
   // a row of buttons, hidden until the first look: `kind` names it in the page (`bar`, the
   // main row; `keyboard`, the row above the keyboard)
   const row = (kind, specs, label) => {
@@ -696,7 +736,8 @@ function key_buttons_create() {
       button.addEventListener('click', e => {
         e.preventDefault()
         e.stopPropagation()
-        if (!self.disposed && !bar.hidden && (kind == 'bar' || key_buttons_editor(document.activeElement))) key_buttons_press(spec, document)
+        if (!self.disposed && !bar.hidden && own_click_ok(button, e) && (kind == 'bar' || key_buttons_editor(document.activeElement)))
+          key_buttons_press(spec, document)
       })
       // a press on a button is not the app's and takes no focus (the sparkle's rule, and the
       // way the app's own create button keeps the box's focus on a phone): the key goes to
@@ -763,7 +804,7 @@ function key_buttons_create() {
   const own_key = e => (e.key == 'Enter' || e.key == ' ') && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !window._modal_visible?.()
   reloader.addEventListener('click', e => {
     taken(e)
-    if (!self.disposed && !reloader.hidden) self.reload()
+    if (!self.disposed && !reloader.hidden && own_click_ok(reloader, e)) self.reload()
   })
   reloader.addEventListener('keydown', e => {
     if (!own_key(e)) return
@@ -799,7 +840,8 @@ function key_buttons_create() {
       button.innerHTML = key_buttons_svg(spec.icon)
       button.addEventListener('click', e => {
         taken(e)
-        if (!self.disposed && !group.hidden) key_buttons_press(spec, document, undefined, document.body)
+        if (!self.disposed && !group.hidden && own_click_ok(button, e) && !key_buttons_any_editing(window))
+          key_buttons_press(spec, document, undefined, document.body)
       })
       button.addEventListener('mousedown', taken)
       button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
@@ -883,8 +925,8 @@ function key_buttons_create() {
     self.nav_pending = false
     self.refresh()
   }
-  // item changes (create, edit, delete, rename) coalesce into one look; skipped while the box
-  // names no label (nothing can light up)
+  // each item change (create, edit, delete, rename) restarts the 150 ms wait so a burst is
+  // looked at once it goes quiet; skipped while the box names no label (nothing can light up)
   self.items_changed = () => {
     if (self.disposed || !key_buttons_box_label(self.box())) return
     self.nav_pending = true
@@ -933,32 +975,88 @@ function key_buttons_create() {
   document.addEventListener('focusin', look, true)
   document.addEventListener('focusout', left, true)
 
-  // reject presses/clicks on visible frosted glass before they reach the page under it, while
-  // letting buttons, the #vault sparkle/menu, modals and all native scrolling work as before
+  // reject presses/clicks on visible frosted glass by where each press STARTS (the first of
+  // pointerdown, touchstart or mousedown of a gesture), while letting the item's own buttons (by
+  // bounding rectangle, not target — so mobile touch adjustment in a gap cannot fire a neighbour),
+  // the #vault sparkle/backdrop/menu (by target), modals and all native scrolling work as before
   const glass_point = e => {
     const t = e.touches?.[0] ?? e.changedTouches?.[0] ?? e
     return typeof t?.clientX == 'number' && typeof t?.clientY == 'number' ? [t.clientX, t.clientY] : null
   }
-  const glass_hit = e => {
-    if (self.disposed || backdrop.hidden || !self.bg_mode || window._modal_visible?.()) return false
-    const el = e.target?.closest ? e.target : e.target?.parentElement
-    if (KEY_BUTTONS_OWN_OVERLAY.some(sel => el?.closest?.(sel))) return false
+  const own_button_at = (x, y) => {
+    const buttons = []
+    if (!reloader.hidden) buttons.push(reloader)
+    for (const g of [bar, keys, nav_vertical, nav_horizontal]) if (!g.hidden) buttons.push(...g.children)
+    for (const b of buttons) {
+      const r = b.getBoundingClientRect?.()
+      if (r && r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return b
+    }
+    return null
+  }
+  const glass_start = (e, source, touch) => {
+    if (self.disposed || window._modal_visible?.()) return { source, touch, rejected: false, button: null, mouse_seen: source == 'mouse', up: false }
     const pt = glass_point(e)
-    if (!pt) return false
-    const right_shown = self.bg_mode == 'desktop-split' && !!document.querySelector?.('body > .vault-sparkle:not([hidden])')
-    return key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK)
+    const hit = pt ? own_button_at(pt[0], pt[1]) : null
+    const button = hit && (e.target === hit || hit.contains?.(e.target)) ? hit : null
+    let rejected = false
+    if (pt && !button && !backdrop.hidden && self.bg_mode) {
+      const el = e.target?.closest ? e.target : e.target?.parentElement
+      if (!KEY_BUTTONS_OWN_OVERLAY.some(sel => el?.closest?.(sel))) {
+        const right_shown = self.bg_mode == 'desktop-split' && !!document.querySelector?.('body > .vault-sparkle:not([hidden])')
+        rejected = key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK)
+      }
+    }
+    return { source, touch, rejected, button, mouse_seen: source == 'mouse', up: false }
+  }
+  const glass_pointerdown = e => {
+    if (self.disposed) return
+    if (e.isPrimary === false) {
+      if (glass_press?.rejected) e.stopPropagation()
+      return
+    }
+    glass_press = glass_start(e, 'pointer', e.pointerType == 'touch')
+    if (glass_press.rejected) e.stopPropagation()
+  }
+  const glass_touch = e => {
+    if (self.disposed) return
+    if (e.type == 'touchstart') {
+      const same_pointer = glass_press && glass_press.source == 'pointer' && glass_press.touch && !glass_press.up
+      const extra_finger = e.touches && e.touches.length > 1 && glass_press && !glass_press.up
+      if (!same_pointer && !extra_finger) glass_press = glass_start(e, 'touch', true)
+      if (glass_press?.rejected) e.stopPropagation()
+    } else {
+      if (glass_press?.rejected) e.stopPropagation()
+      if (glass_press && (!e.touches || e.touches.length == 0)) glass_press.up = true
+    }
   }
   const glass_block = e => {
-    if (!glass_hit(e)) return
+    if (self.disposed) return
+    if (e.type == 'mousedown') {
+      const same_gesture =
+        glass_press &&
+        !glass_press.mouse_seen &&
+        (glass_press.touch || (glass_press.source == 'pointer' && !glass_press.up))
+      if (same_gesture) glass_press.mouse_seen = true
+      else glass_press = glass_start(e, 'mouse', false)
+    } else if (e.type == 'click' && e.detail === 0 && !e.pointerType) {
+      return
+    }
+    if (!glass_press?.rejected) return
     e.preventDefault()
     e.stopPropagation()
   }
-  const glass_stop = e => {
-    if (glass_hit(e)) e.stopPropagation()
+  const glass_reset = e => {
+    if (self.disposed) return
+    if (e.type == 'pointerup') {
+      if (e.isPrimary !== false && glass_press?.source == 'pointer') glass_press.up = true
+    } else if (e.type == 'touchcancel' || e.isPrimary !== false) {
+      glass_press = null
+    }
   }
   for (const type of KEY_BUTTONS_GLASS_BLOCK) document.addEventListener(type, glass_block, true)
-  for (const type of KEY_BUTTONS_GLASS_STOP) document.addEventListener(type, glass_stop, true)
-  for (const type of KEY_BUTTONS_GLASS_PASSIVE) document.addEventListener(type, glass_stop, { capture: true, passive: true })
+  for (const type of KEY_BUTTONS_GLASS_STOP) document.addEventListener(type, glass_pointerdown, true)
+  for (const type of KEY_BUTTONS_GLASS_PASSIVE) document.addEventListener(type, glass_touch, { capture: true, passive: true })
+  for (const type of KEY_BUTTONS_GLASS_RESET) document.addEventListener(type, glass_reset, { capture: true, passive: true })
 
   // Shift+Space as a Tab: the key is caught at the window before the editor sees it (a
   // capturing listener; the editor's is on its textarea), no space is typed, and the editor
@@ -980,9 +1078,11 @@ function key_buttons_create() {
     device?.removeEventListener?.('change', look)
     document.removeEventListener('focusin', look, true)
     document.removeEventListener('focusout', left, true)
+    glass_press = null
     for (const type of KEY_BUTTONS_GLASS_BLOCK) document.removeEventListener(type, glass_block, true)
-    for (const type of KEY_BUTTONS_GLASS_STOP) document.removeEventListener(type, glass_stop, true)
-    for (const type of KEY_BUTTONS_GLASS_PASSIVE) document.removeEventListener(type, glass_stop, { capture: true, passive: true })
+    for (const type of KEY_BUTTONS_GLASS_STOP) document.removeEventListener(type, glass_pointerdown, true)
+    for (const type of KEY_BUTTONS_GLASS_PASSIVE) document.removeEventListener(type, glass_touch, { capture: true, passive: true })
+    for (const type of KEY_BUTTONS_GLASS_RESET) document.removeEventListener(type, glass_reset, { capture: true, passive: true })
     window.removeEventListener('keydown', typed, true)
     backdrop.remove()
     bar.remove()
@@ -1019,7 +1119,8 @@ function key_buttons_create() {
 
 // the rows are drawn from the item's hooks, never from the item's render, so they show with the item
 // off screen: at the page's welcome, when this item itself changes, when the box's search changes
-// (_on_search), and when any item changes (_on_item_change, coalesced through a task; carries
+// (_on_search), and when any item changes (_on_item_change, restarting a 150 ms wait so a burst
+// is looked at once it goes quiet; carries
 // #_listen so the app delivers both hooks)
 function _on_welcome() {
   key_buttons_reconcile()
