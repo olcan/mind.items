@@ -305,19 +305,21 @@ function hide_first_user_row(text, name) {
   const tag = item.startsWith('#') ? item : '#' + item
   if (raw.slice(0, tag.length).toLowerCase() !== tag.toLowerCase()) return false
 
-  // refuse `#name...` where `#name` is a prefix of some other tag token
+  // refuse a longer tag that merely begins with the name
   const after = raw[tag.length]
   if (after != null && !/\s/.test(after)) return false
 
-  // the first `<<user...>>` delimiter line after the name tag (must start a line;
+  // the first user delimiter line after the name tag (must start a line;
   // 0-3 leading spaces so Marked parses its `_html` block rather than an indented block)
   const rest = raw.slice(tag.length)
-  const match = rest.match(/\n {0,3}<< *user(?: *\([^\n]*\))? *>>/)
+  const match = rest.match(/\n {0,3}\<< *user(?: *\([^\n]*\))? *>>/)
   if (!match) return false
 
   // hide ONLY when nothing that shows stands between the name tag and that delimiter: whitespace,
-  // and hidden tags (`#_...`, never drawn), which a chat the app starts carries on its name's
-  // line (`#chat/vault/1 #_agent/vault`, `#todo/0 #_chat #_autodep`)
+  // and hidden tags (a hash and an underscore, never drawn), which a chat the app starts
+  // carries on its name's line. NOTE: this file is embedded in the chat item's own text, where
+  // the app expands every unescaped macro opener, also in code: keep them escaped, and write no
+  // tag in a comment
   const between = rest.slice(0, match.index).replace(/(^|\s)#_[^\s<>&?!,.;:"'`(){}\[\]]+/g, '$1')
   return /^\s*$/.test(between)
 }
@@ -330,7 +332,7 @@ const _delimiter = (role, name = role, ...args) => {
 
   // read raw `_this.text` (not the grammar view `read()`) and `_this.label` (not `_name`,
   // which becomes `id:...` on duplicate labels); when only whitespace precedes the first
-  // `<<user>>`, no earlier macro can run, so it is always `macro_0`
+  // user delimiter, no earlier macro can run, so it is always `macro_0`
   const first_macro = typeof __trigger !== 'string' || __trigger === 'macro_0'
   const raw = typeof _this !== 'undefined' && typeof _this?.text === 'string' ? _this.text : ''
   const label = typeof _this !== 'undefined' && typeof _this?.label === 'string' ? _this.label : ''

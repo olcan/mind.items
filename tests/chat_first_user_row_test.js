@@ -32,6 +32,10 @@ vm.runInContext(hide_src, ctx)
 
 const hide = (text, name) => vm.runInContext('hide_first_user_row', ctx)(text, name)
 
+// chat.js is embedded in the #chat item's own text, where the app expands every macro opener
+// that no backslash escapes, also inside the code block (2026-11-23: an unescaped one in a
+// comment broke the item's page on the owner's account): the whole file must hold none
+check('chat.js holds no unescaped macro opener', (src.match(/(?<!\\)<</g) ?? []).length, 0)
 check('name alone on line one, user delimiter on line two: hidden', hide('#chat/vault/1\n<<user>> hi\n', '#chat/vault/1'), true)
 check('blank lines between name and delimiter: hidden', hide('#chat/vault/1\n\n  \n\t\n<<user>> hi\n', '#chat/vault/1'), true)
 check('trailing spaces and CRLF before user delimiter: hidden', hide('#chat/vault/1   \r\n  << user >> hi\n', '#chat/vault/1'), true)
