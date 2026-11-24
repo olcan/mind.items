@@ -235,3 +235,10 @@
 .dep_chat .message:last-of-type.agent:not(.stale, .edited) .label {
   color: #444;
 }
+/* the trial's second step: a user row's name stands at the left */
+.dep_chat .message.user hr.left {
+  display: none;
+}
+.dep_chat .message.user .label {
+  margin-left: 0;
+}
