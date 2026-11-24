@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', '_promotions', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -139,8 +139,10 @@ const picked =
     '_rows_now',
     '_waiting_parts',
     '_promote',
-    '_saved',
+    '_tag_saved',
+    '_still_owners',
     '_delegate_promoted',
+    '_snooze_promoted',
     '_cleared',
     '_select_range',
     '_row_question',
@@ -2260,6 +2262,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     }
     addEventListener() {}
   }
+  // the core's own mapping of a raw offset into an editor's text, which holds zero-width spaces (util/core.js)
+  const core = fs.readFileSync(path.join(__dirname, '..', 'util', 'core.js'), 'utf8')
+  const _zwsp_offset = new Function(core.slice(core.indexOf('function _zwsp_offset('), core.indexOf('\n}\n', core.indexOf('function _zwsp_offset(')) + 3) + 'return _zwsp_offset')()
   const view = (text, held = []) => text.replace(/<!--inert-->\n[\s\S]*?\n<!--\/inert-->/g, region => `⟦${held.push(region) - 1}⟧`)
   const edit = (text, transform, held = []) => transform(view(text, held)).replace(/⟦(\d+)⟧/g, (token, i) => held[i])
   // the tags the app indexes of a text: parsed from its lowercased grammar view (index.svelte)
@@ -2313,6 +2318,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const item = items.find(item => item.id == id)
       return item?.editing ? { value: item.draft ?? item.text, focus: () => calls.push(['focus']), setSelectionRange: (...range) => calls.push(['selection', ...range]) } : null
     }
+    // an item's container, as a row's click asks the document for the page's target: a selection
+    // by offsets is set on it as the attribute its editor reads, and takes away, when it opens
+    // (`marks` by item id; `opened` is what each editor that a click opened took of it); an item
+    // open in its editor has a textarea there, which holds its draft
+    const marks = {}
+    const opened = []
+    const container = id => ({
+      getAttribute: name => (name == 'data-item-id' ? id : name == 'data-selection' ? marks[id] ?? null : null),
+      querySelector: () => textarea(id),
+      setAttribute: (name, value) => (calls.push(['range', value]), void (marks[id] = String(value))),
+      removeAttribute: () => void delete marks[id],
+      dispatchEvent: event => {
+        calls.push(['event', event.type])
+        if (event.type == 'click') opened.push(marks[id] ?? null), delete marks[id]
+      },
+    })
     const ctx = {
       console, debug: () => {}, warn: () => {}, error: () => {}, fatal: msg => { throw new Error(msg) },
       _replace_tags: replaceTags, _: context._, is_string: x => typeof x == 'string', uniq: xs => [...new Set(xs)], setTimeout: () => 0,
@@ -2322,11 +2343,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       _todoer: { store: { on_unsnooze: { probe: item => calls.push(['listener', item.id]) } } },
       _items: () => items, _item: ref => items.find(item => item.id == ref) ?? null, _exists: ref => logger && ref == '#logger',
       window: { _grammar: { version, edit }, _parse_tags: parseTags }, Event: class { constructor(type) { this.type = type } },
-      // the page's target, as a row's click asks for it
-      // (a selection by offsets is set on it as the attribute the editor reads when it opens; an
-      // item open in its editor has a textarea there, which holds its draft; a click opens the editor)
-      document: { createElement: () => new Elem(), querySelector: selector => (selector == '.container.target' && (target || selected) ? { getAttribute: () => target ?? selected, querySelector: () => textarea(target ?? selected), setAttribute: (name, value) => calls.push(['range', value]), dispatchEvent: event => calls.push(['event', event.type]) } : null) },
-      _update_dom: () => ({ then: f => void f() }), _zwsp_offset: (value, raw) => raw, clearTimeout: () => {},
+      document: { createElement: () => new Elem(), querySelector: selector => (selector == '.container.target' && (target || selected) ? container(target ?? selected) : null) },
+      _update_dom: () => ({ then: f => void f() }), _zwsp_offset, clearTimeout: () => {},
       Sortable: { dragged: null, create: (elem, options) => ({ options, save() {}, sort() {}, destroy() {} }) },
       MindBox: { get: () => '', create: text => calls.push(['log', text]), set: (...args) => calls.push(['set', ...args]), select_in_target: text => calls.push(['mark', text]), edit_target: text => calls.push(['edit', text]) },
       alert: message => calls.push(['alert', message]), confirm: message => calls.push(['asked', message]), _modal: message => calls.push(['asked', message]),
@@ -2362,7 +2380,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       rows().find(row => row.getAttribute('data-id') == id).children[0].onclick({ stopPropagation() {}, preventDefault() {} })
       return calls
     }
-    return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned, calls }
+    return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned, calls, marks, opened }
   }
   // ---- a chat that became a todo: its row shows the question after its name ------------------
   {
@@ -2392,6 +2410,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     check('question: where its place is not found, a click selects the item alone, and on the item already selected opens its editor with nothing selected',
       [unfound().click('chat'), unfound({ target: 'chat' }).click('chat')],
       [[['select', 'chat']], [['select', 'chat'], ['event', 'mousedown'], ['event', 'click']]])
+    // a first click leaves the question's offsets on the closed item; the text then changes so that the place is not found
+    const lapsed = chat()
+    lapsed.click('chat')
+    const left = { ...lapsed.marks }
+    lapsed.item('chat').text += '@@todoer question@@\n'
+    lapsed.render()
+    lapsed.click('chat')
+    check('question: a selection that a first click left on the closed item is taken back by a click that finds no place: the editor opens with none', [left, lapsed.marks, lapsed.opened], [{ chat: '44,82' }, {}, [null]])
+    const kept = chat()
+    kept.click('chat')
+    kept.click('chat')
+    check('question: the selection of a first click is the one the editor opens with at the second', kept.opened, ['44,82'])
     // the question's PLACE in the item's raw text, found at the click: the words of a question can
     // stand in the item's name too, and a chat the bridge created opens with an inert region
     const place = (text, raw, label = '#chat/vault/33', grammar = null) => {
@@ -2430,7 +2460,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       w.ctx._select_range(w.item('chat'), [44, 82], true)
       return w.calls
     }
-    check('place: in an open editor the stretch is selected where the editor holds it, and not at all in a draft that holds other text there', [open_editor(CHAT + '\na line typed since'), open_editor('a line typed since\n' + CHAT)], [[['focus'], ['selection', 44, 82]], []])
+    // (the editor's text holds zero-width spaces in long runs: the core's mapping moves both ends past the one before the stretch)
+    const ZWSP = String.fromCharCode(0x200b)
+    check('place: in an open editor the stretch is selected where the editor holds it (past a zero-width space of its own), and not at all in a draft that holds other text there', [open_editor(CHAT + '\na line typed since'), open_editor(CHAT.slice(0, 10) + ZWSP + CHAT.slice(10)), open_editor('a line typed since\n' + CHAT)], [[['focus'], ['selection', 44, 82]], [['focus'], ['selection', 45, 83]], []])
   }
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
@@ -2574,8 +2606,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     const KEY = "1|'vault/default · run ab12cd34 · 1s'"
     const SEEN = { replies: 1, footer: "'vault/default · run ab12cd34 · 1s'", last: true }
     // `base` is the baseline of replies in the #todoer item's store (null: the list has not begun);
-    // `saves` is the app's save of the chat's text (its promise: the text is SAVED once it
-    // resolves, and `saved()` is the text as last saved); `live` reads the chat's name from
+    // `saves` is the app's save of the chat's text (its promise: the text it held when the save
+    // began is SAVED once it resolves, and `saved()` is the text as last saved); `live` reads the chat's name from
     // its text by the app's own rule (the header of src/routes/index.svelte: the text past leading
     // runs of space and styling, trimmed, when it starts with the first visible tag)
     const app_label = text => {
@@ -2596,8 +2628,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       let saved = text
       chat.save = () => {
         called.push('save')
+        const outgoing = chat.text // the app takes the text when the queued write starts
         const task = saves()
-        return typeof task?.then == 'function' ? task.then(() => void (saved = chat.text)) : task
+        return typeof task?.then == 'function' ? task.then(() => void (saved = outgoing)) : task
       }
       chat.delete = confirm => (called.push(['delete', confirm]), deletes)
       chat.select = () => (called.push('select'), true)
@@ -2717,7 +2750,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     const failing = sending({ saves: () => Promise.reject(new Error('offline')) })
     const failed_drop = failing.drop('chat', 'agent')
     async_rows.push(tick().then(() =>
-      check('waits: a save that fails leaves the reply waiting: nothing is cleared, nothing sent, a word says so, and a reload finds the reply\'s row again (the saved text has no tag, the store no clear)', [failing.called, failing.chat._global_store._todoer, failed_drop.calls.map(([kind]) => kind), failing.saved() == REPLY, reloaded(failing)], [['write', 'save'], undefined, ['alert'], true, 'reply'])
+      check('waits: a save that fails leaves the reply waiting: nothing is cleared, nothing sent, a word says so, the tag is taken out again here, and a reload finds the reply\'s row (the saved text has no tag, the store no clear)', [failing.called, failing.chat._global_store._todoer, failed_drop.calls.map(([kind]) => kind), failing.chat.text == REPLY, failing.ctx._todoer.store.promoting, failing.saved() == REPLY, reloaded(failing)], [['write', 'save', 'write'], undefined, ['alert'], true, {}, true, 'reply'])
     ))
     const never = sending({ saves: () => new Promise(() => {}) })
     const never_timers = []
@@ -2727,18 +2760,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await tick()
       never_timers.splice(0).forEach(f => f())
       await tick()
-      check('waits: a save that does not finish in time is the same: the reply stays waiting, nothing is sent, a reload finds its row', [never.called, never.chat._global_store._todoer, never_drop.calls.map(([kind]) => kind), reloaded(never)], [['write', 'save'], undefined, ['alert'], 'reply'])
+      check('waits: a save that does not finish in time: the reply stays waiting, nothing is sent, a reload finds its row; the item stays marked as being saved until its save settles', [never.called, never.chat._global_store._todoer, never_drop.calls.map(([kind]) => kind), reloaded(never), never.ctx._todoer.store.promoting], [['write', 'save'], undefined, ['alert'], 'reply', { chat: true }])
     })())
-    const taken = sending({ store: { _agent: { state: { epoch: 1, held: 'agent', reason: 'delegated', surfaced: 0 } } } })
-    taken.chat.text = taken.chat.text.replace('#e2e_chatty/0', '#e2e_chatty/0 #todo') // made a todo AND delegated elsewhere while the row was held
-    const taken_drop = taken.drop('chat', 'agent')
-    async_rows.push(tick().then(() =>
-      check('waits: a row held while the chat became a todo that an agent holds does nothing: a word says so', [taken.called, taken.chat._global_store._todoer, taken_drop.calls.map(([kind]) => kind)], [[], undefined, ['alert']])
-    ))
     const mute = sending({ saves: () => undefined })
     const mute_drop = mute.drop('chat', 'agent')
     async_rows.push(tick().then(() =>
-      check('waits: a save that gives no promise is no evidence: the reply stays waiting, nothing is sent', [mute.called, mute.chat._global_store._todoer, mute_drop.calls.map(([kind]) => kind)], [['write', 'save'], undefined, ['alert']])
+      check('waits: a save that gives no promise is no evidence: the reply stays waiting, nothing is sent, the tag is taken out again', [mute.called, mute.chat._global_store._todoer, mute_drop.calls.map(([kind]) => kind), mute.chat.text == REPLY], [['write', 'save', 'write'], undefined, ['alert'], true])
     ))
     const unsaved_tag = held_save()
     const reverted = sending({ saves: () => unsaved_tag.promise })
@@ -2751,7 +2778,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('waits: an item that is no todo once its save has ended (its text replaced meanwhile) keeps its reply waiting, and nothing is sent', [reverted.called, reverted.chat._global_store._todoer, reverted_drop.calls.map(([kind]) => kind)], [['write', 'save'], undefined, ['alert']])
     })())
     // the task authority the gesture was made under: an earlier task of the chat's is no hindrance, one that moved on during the save is
-    const tasked = epoch => ({ _agent: { state: { epoch, held: 'user', reason: 'done', surfaced: 1 } } })
+    const tasked = (epoch, surfaced = 1) => ({ _agent: { state: { epoch, held: 'owner', reason: 'done', surfaced } } })
     const older = sending({ store: tasked(3) })
     older.drop('chat', 'agent')
     async_rows.push(tick().then(() =>
@@ -2795,9 +2822,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     })())
     const twin = sending()
     twin.chat.text = twin.chat.text.replace('#e2e_chatty/0', '#e2e_chatty/0 #todo') // after the render: the row still shows the waiting chat
-    twin.drop('chat', 'agent')
+    const twin_drop = twin.drop('chat', 'agent')
     async_rows.push(tick().then(() =>
-      check('waits: a row held while another device made the chat a todo writes nothing (no second tag, no store): the todo is delegated as it is', [twin.chat.text.split('\n')[0], twin.called, twin.chat._global_store._todoer], [TODO_LINE, [['delegate', 'chat', TODO_LINE, 'carried']], undefined])
+      check('waits: a row held while another device made the chat a todo does nothing (no second tag, no store, no command): a word points to the row it has now', [twin.chat.text.split('\n')[0], twin.called, twin.chat._global_store._todoer, twin_drop.calls.map(([kind]) => kind)], [TODO_LINE, [], undefined, ['alert']])
     ))
     const lost_save = held_save()
     const lost = sending({ saves: () => lost_save.promise })
@@ -2823,6 +2850,122 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('waits: a refused write makes no todo: nothing is cleared, nothing delegated, the row is back', [readonly.ids(), readonly.chat._global_store._todoer, readonly.called, unwritten.calls.map(([kind]) => kind)], [[...ALL, 'chat'], undefined, ['write'], ['alert']])
     ))
     // the snooze bin: the same promotion, after the picker
+    // a row that shows reply A, held while its replacement B (the same count) arrives: the bins that would make the chat a todo leave it to the row it has now
+    const SEEN_NEXT = { ...SEEN, footer: "'vault/default · run ef56ab78 · 2s'" }
+    const outdated = sending()
+    outdated.ctx._todoer.store.reply_seen.chat = SEEN_NEXT
+    const outdated_drop = outdated.drop('chat', 'agent')
+    async_rows.push(tick().then(() =>
+      check('waits: a row whose reply has been replaced meanwhile is not made a todo from: nothing is written or sent, a word points to the row it has now', [outdated.chat.text == REPLY, outdated.called, outdated.chat._global_store._todoer, outdated_drop.calls.map(([kind]) => kind)], [true, [], undefined, ['alert']])
+    ))
+    // THE REAL DELEGATION (its command captured; a todo's row dropped on the agent bin runs it too)
+    const commanding = options => {
+      const w = chatting(options)
+      w.commands = []
+      w.ctx._carried_write = () => (item, text) => item.write(text, '')
+      w.ctx._command_id = () => 'c' + (w.commands.length + 1)
+      w.ctx._todoer.dependents = []
+      w.ctx.window._enqueue_hidden_document = async (name, cmd) => (w.commands.push(cmd), { id: 'doc-' + cmd.id, written: Promise.resolve() })
+      return w
+    }
+    const kinds_of = result => result.calls.map(([kind]) => kind)
+    // while the tag's save is under way the chat already shows as a todo here: its own row's agent and snooze bins wait for that save
+    const queued_save = held_save()
+    const queued = commanding({ saves: () => queued_save.promise })
+    queued.drop('chat', 'agent')
+    async_rows.push((async () => {
+      await tick()
+      queued.render() // the list is drawn again: the chat has a todo's row now
+      const row = queued.rows().find(row => row.getAttribute('data-id') == 'chat')
+      const said = () => queued.calls.filter(([kind]) => kind == 'alert').length // (a world's calls run on across its drops)
+      queued.drop('chat', 'agent')
+      await tick()
+      const second = [row.getAttribute('data-waits'), queued.commands.length, said(), queued.saved() == REPLY]
+      queued.ctx._snooze_dialog = () => ({ then: f => f({ time: 1_900_000_000_000, notify: false }) })
+      queued.drop('chat', 'snooze')
+      const third = [queued.chat._global_store._todoer, said(), queued.saved() == REPLY]
+      queued_save.resolve()
+      await tick()
+      check('waits: while the tag is being saved, the chat\'s new todo row is not delegated or snoozed (the saved text has no tag yet): a word each; once the save has resolved the first drop\'s delegation goes, once, with the tagged text',
+        [second, third, queued.commands.map(cmd => [cmd.kind, cmd.body.split('\n')[0]]), queued.saved().split('\n')[0], queued.chat._global_store._todoer?.cleared, queued.ctx._todoer.store.promoting],
+        [[null, 0, 1, true], [undefined, 2, true], [['delegate', TODO_LINE]], TODO_LINE, [KEY], {}])
+    })())
+    // a save that failed took the tag out again: the chat has its reply's row, and the same drop is its retry, confirmed like the first
+    let retry_fails = true
+    const retried = commanding({ saves: () => (retry_fails ? Promise.reject(new Error('offline')) : Promise.resolve()) })
+    retried.drop('chat', 'agent')
+    async_rows.push((async () => {
+      await tick()
+      retried.render()
+      const back = [retried.rows().find(row => row.getAttribute('data-id') == 'chat')?.getAttribute('data-waits'), retried.commands.length, retried.chat.text == REPLY]
+      retry_fails = false
+      retried.drop('chat', 'agent')
+      await tick()
+      check('waits: after a failed save the reply\'s row is there again and the same drop is the retry: the tag is saved first, then the reply cleared and the delegation sent',
+        [back, retried.commands.map(cmd => [cmd.kind, cmd.body.split('\n')[0]]), retried.saved().split('\n')[0], retried.chat._global_store._todoer?.cleared],
+        [['reply', 0, true], [['delegate', TODO_LINE]], TODO_LINE, [KEY]])
+    })())
+    // a save that settles after its wait ran out: resolved, the todo's own row acts as any todo's; rejected, the tag is taken out again
+    const late = outcome => {
+      const save = held_save()
+      const w = commanding({ saves: () => save.promise })
+      const timers = []
+      w.ctx.setTimeout = f => (timers.push(f), 0)
+      w.drop('chat', 'agent')
+      return tick().then(async () => {
+        timers.splice(0).forEach(f => f()) // the wait runs out
+        await tick()
+        const held = { ...w.ctx._todoer.store.promoting }
+        outcome == 'saved' ? save.resolve() : save.reject(new Error('offline'))
+        await tick()
+        w.render()
+        const row = w.rows().find(row => row.getAttribute('data-id') == 'chat')?.getAttribute('data-waits') ?? 'todo'
+        if (outcome == 'saved') w.drop('chat', 'agent'), await tick()
+        return [held, w.ctx._todoer.store.promoting, row, w.chat.text.split('\n')[0] == TODO_LINE, w.commands.length, w.chat._global_store._todoer?.cleared]
+      })
+    }
+    async_rows.push(Promise.all([late('saved'), late('failed')]).then(([saved_late, failed_late]) =>
+      check('waits: a save that settles after its wait ran out: resolved, the chat is a saved todo whose own row is delegated as any todo\'s (its reply never marked as seen); rejected, the tag is taken out again and the reply\'s row is back',
+        [saved_late, failed_late], [[{ chat: true }, {}, 'todo', false, 1, undefined], [{ chat: true }, {}, 'reply', false, 0, undefined]])
+    ))
+    // another device delegates the saved todo while this tab still waits for its own save: the bridge keeps the epoch and the task is the agent's
+    const handed = bin => {
+      const save = held_save()
+      const w = commanding({ store: tasked(3), saves: () => save.promise })
+      w.ctx._snooze_dialog = () => ({ then: f => f({ time: 1_900_000_000_000, notify: false }) })
+      const dropped = w.drop('chat', bin)
+      return tick().then(async () => {
+        Object.assign(w.chat._global_store._agent.state, { held: 'agent', reason: 'delegated' })
+        save.resolve()
+        await tick()
+        return [w.commands.length, w.chat._global_store._todoer?.snoozed, kinds_of(dropped).filter(kind => kind == 'alert'), w.chat._global_store._todoer?.cleared]
+      })
+    }
+    async_rows.push(Promise.all([handed('agent'), handed('snooze')]).then(got =>
+      check('waits: a todo that another device delegated during the save (the same epoch, the agent\'s now) is not delegated again and not snoozed: a word each; its reply stays cleared', got, [[0, undefined, ['alert'], [KEY]], [0, undefined, ['alert'], [KEY]]])
+    ))
+    const pending_save = held_save()
+    const overlaid = commanding({ saves: () => pending_save.promise })
+    const overlaid_drop = overlaid.drop('chat', 'agent')
+    async_rows.push((async () => {
+      await tick()
+      overlaid.ctx._todoer.store.pending = { chat: { id: 'c9', kind: 'delegate' } } // a command of this tab's for it, not acknowledged yet
+      pending_save.resolve()
+      await tick()
+      check('waits: a command of this tab\'s that is pending for the item when its save resolves holds the delegation back', [overlaid.commands.length, kinds_of(overlaid_drop)], [0, ['alert']])
+    })())
+    // the count of times the todo had come up is the one at the drop: one that arrives during the save still rings
+    const rung_save = held_save()
+    const rung = commanding({ store: tasked(3, 2), saves: () => rung_save.promise })
+    rung.ctx._todoer._global_store.bells_base = {}
+    rung.drop('chat', 'agent')
+    async_rows.push((async () => {
+      await tick()
+      rung.chat._global_store._agent.state.surfaced = 3
+      rung_save.resolve()
+      await tick()
+      check('waits: the delegation acknowledges the count that stood at the drop: one that came up during the save still rings', [rung.commands.length, rung.chat._global_store._todoer.bell], [1, 2])
+    })())
     const T = 1_900_000_000_000
     const slept = chatting()
     slept.ctx._snooze_dialog = () => ({ then: f => f({ time: T, notify: false }) })
@@ -2834,7 +2977,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     restless.ctx._snooze_dialog = () => ({ then: f => f({ time: T, notify: false }) })
     const unslept = restless.drop('chat', 'snooze')
     async_rows.push(tick().then(() =>
-      check('waits: on the snooze bin too a save that fails writes no snooze and leaves the reply waiting: a reload finds its row', [restless.chat._global_store._todoer, unslept.calls.map(([kind]) => kind), reloaded(restless)], [undefined, ['alert'], 'reply'])
+      check('waits: on the snooze bin too a save that fails writes no snooze and leaves the reply waiting: a reload finds its row', [restless.chat._global_store._todoer, unslept.calls.map(([kind]) => kind), restless.chat.text == REPLY, reloaded(restless)], [undefined, ['alert'], true, 'reply'])
     ))
     // (the promotion asks for the item silently; once `deleted_meanwhile`, it finds none)
     const vanished = chatting()
@@ -2848,9 +2991,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     ))
     const promoted = chatting()
     promoted.ctx._snooze_dialog = () => ({ then: f => ((promoted.chat.text = promoted.chat.text.replace('#e2e_chatty/0', '#e2e_chatty/0 #todo')), f({ time: T, notify: false })) })
-    promoted.drop('chat', 'snooze')
+    const promoted_drop = promoted.drop('chat', 'snooze')
     async_rows.push(tick().then(() =>
-      check('waits: an item made a todo elsewhere while the picker stood open is snoozed as the todo it is, with no second tag', [promoted.chat.text.split('\n')[0], promoted.chat._global_store._todoer, promoted.called], [TODO_LINE, { snoozed: T }, []])
+      check('waits: an item made a todo elsewhere while the picker stood open is left to the row it has now: no second tag, no snooze, a word', [promoted.chat.text.split('\n')[0], promoted.chat._global_store._todoer, promoted.called, promoted_drop.calls.map(([kind]) => kind)], [TODO_LINE, undefined, [], ['alert']])
     ))
     const awake = chatting()
     awake.ctx._snooze_dialog = () => ({ then: f => f(undefined) })
