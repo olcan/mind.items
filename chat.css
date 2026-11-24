@@ -124,7 +124,7 @@
 }
 
 /* Hide the first user delimiter row only when chat.js marked it (name tag first, nothing
-   but whitespace before the first `<<user...>>` delimiter line), plus any blank-line spacer
+   but whitespace before the first user delimiter line), plus any blank-line spacer
    paragraphs emitted between the name tag and that row. */
 .dep_chat
   > .content
@@ -176,7 +176,7 @@
    - a following paragraph flows beside the floated name tag and wraps under it;
    - non-paragraph blocks (lists, code blocks, quotes, headings, tables, rules) clear below
      the name tag so bullets, borders, and blocks never overlap it;
-   - a directly following role row (empty user row before `<<agent>>`) gets the same
+   - a directly following role row (an empty user row before an agent row) gets the same
      minimal-header divider layout as when that role row is first. */
 .dep_chat
   > .content
