@@ -814,6 +814,8 @@ check('controller: an item that only carries the code draws nothing and leaves t
   left_btn.getBoundingClientRect = () => ({ left: 44, right: 68, top: 566, bottom: 590, width: 24, height: 24 })
   right_btn.getBoundingClientRect = () => ({ left: 74, right: 98, top: 566, bottom: 590, width: 24, height: 24 })
   const sparkle_el = Object.assign(new FakeNode('button'), { className: 'vault-sparkle' })
+  // the sparkle's own box on this page (24 px, right 14, bottom 10): x 962..986, y 566..590
+  sparkle_el.getBoundingClientRect = () => ({ left: 962, right: 986, top: 566, bottom: 590, width: 24, height: 24 })
   const menu_el = Object.assign(new FakeNode('div'), { className: 'vault-sparkle-menu' })
   const fire_doc = (type, target, x, dy, more = {}) => {
     const touch = type == 'touchstart' || type == 'touchend' || type == 'touchcancel'
@@ -898,6 +900,42 @@ check('controller: an item that only carries the code draws nothing and leaves t
     click_gesture(sparkle_el, 974, 22), // #vault sparkle over visible right glass
     click_gesture(menu_el, 71, 22), // #vault menu over left glass
   ]
+  // 7. A touch in the gap beside the sparkle that the browser adjusts onto it (x=961, one pixel
+  //    left of its box, over the right glass piece) is a press on the glass: every event of it
+  //    is stopped, as for a tap between two arrows; a tap inside its box is the sparkle's
+  const touch_tap = (target, x, mx) => [
+    fire_doc('pointerdown', target, x, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchstart', target, x, 22),
+    fire_doc('pointerup', target, x, 22, { pointerType: 'touch', isPrimary: true }),
+    fire_doc('touchend', target, x, 22),
+    fire_doc('mousedown', target, mx, 22),
+    fire_doc('click', target, mx, 22, { detail: 1, pointerType: 'touch' }),
+  ]
+  const sparkle_gap = touch_tap(sparkle_el, 961, 974)
+  const sparkle_centre = touch_tap(sparkle_el, 974, 974)
+  // 8. Events made by code (`isTrusted` false, no `detail`: the app's keyboard shortcuts toggle and
+  //    navigate through clicks and mousedowns they dispatch) pass after a rejected physical press
+  //    and leave its record alone: that press's own late click is still stopped, and the next
+  //    real press is judged afresh. After a rejected touch that brings no mouse events of its own,
+  //    a mousedown made by code is not taken for that touch's. An own button's click made by code
+  //    fires whatever the last press was
+  click_gesture(under, 71, 22)
+  const by_code = [
+    fire_doc('click', under, 0, 600, { isTrusted: false }),
+    fire_doc('click', under, 0, 600, { isTrusted: false }),
+    fire_doc('mousedown', under, 0, 600, { isTrusted: false }),
+  ]
+  const late_click = fire_doc('click', under, 71, 22, { detail: 1, pointerType: 'mouse' })
+  const next_press = click_gesture(under, 75, 65)
+  fire_doc('pointerdown', under, 71, 22, { pointerType: 'touch', isPrimary: true })
+  fire_doc('touchstart', under, 71, 22)
+  fire_doc('pointerup', under, 71, 22, { pointerType: 'touch', isPrimary: true })
+  fire_doc('touchend', under, 71, 22)
+  const code_mousedown_after_touch = fire_doc('mousedown', under, 0, 600, { isTrusted: false })
+  page.body.got.length = 0
+  left_btn.fire('click', { isTrusted: false })
+  const code_click_keys = got(page.body)
+  page.body.got.length = 0
   page.querySelector = prev_qs
   win._modal_visible = () => true
   const under_modal = click_gesture(under, 71, 22)
@@ -924,6 +962,12 @@ check('controller: an item that only carries the code draws nothing and leaves t
       [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
       [0, 0],
       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
+  check('glass rejection: a touch the browser adjusts onto the sparkle from the gap beside it is a press on the glass; a tap inside its box is the sparkle\'s',
+    [sparkle_gap, sparkle_centre],
+    [[[0, 1], [0, 1], [0, 0], [0, 1], [1, 1], [1, 1]], [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]])
+  check('glass rejection: events made by code pass after a rejected press and leave its record alone; an own button\'s click made by code fires',
+    [by_code, late_click, next_press, code_mousedown_after_touch, code_click_keys],
+    [[[0, 0], [0, 0], [0, 0]], [1, 1], [0, 0], [0, 0], ['keydown ArrowLeft', 'keyup ArrowLeft']])
   win.innerWidth = 390
   win.innerHeight = 800
   pointer.matches = prev_pointer

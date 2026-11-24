@@ -344,7 +344,7 @@ const KEY_BUTTONS_GLASS_BLOCK = ['mousedown', 'click', 'dblclick', 'auxclick', '
 const KEY_BUTTONS_GLASS_STOP = ['pointerdown']
 const KEY_BUTTONS_GLASS_PASSIVE = ['touchstart', 'touchend']
 const KEY_BUTTONS_GLASS_RESET = ['pointerup', 'pointercancel', 'touchcancel']
-const KEY_BUTTONS_OWN_OVERLAY = ['.vault-sparkle', '.vault-sparkle-backdrop', '.vault-sparkle-menu']
+const KEY_BUTTONS_OWN_OVERLAY = ['.vault-sparkle-backdrop', '.vault-sparkle-menu']
 
 // outer shadow (Gaussian blur of the single L-shape, masked strictly outside the glass) and 1 px
 // free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
@@ -711,7 +711,12 @@ function key_buttons_create() {
   // here so the button click handlers below can check that a click belongs to a press started in
   // that button's rectangle)
   let glass_press = null
-  const own_click_ok = (button, e) => !glass_press || (e.detail === 0 && !e.pointerType) || (!glass_press.rejected && glass_press.button === button)
+  // an event made by code (`isTrusted` false) is never the user's press: the app's own keyboard
+  // shortcuts toggle and navigate through clicks and mousedowns that it dispatches, so such an
+  // event passes and neither reads nor changes the record of the physical press
+  const made_by_code = e => e.isTrusted === false
+  const own_click_ok = (button, e) =>
+    !glass_press || made_by_code(e) || (e.detail === 0 && !e.pointerType) || (!glass_press.rejected && glass_press.button === button)
   // a row of buttons, hidden until the first look: `kind` names it in the page (`bar`, the
   // main row; `keyboard`, the row above the keyboard)
   const row = (kind, specs, label) => {
@@ -976,21 +981,24 @@ function key_buttons_create() {
   document.addEventListener('focusout', left, true)
 
   // reject presses/clicks on visible frosted glass by where each press STARTS (the first of
-  // pointerdown, touchstart or mousedown of a gesture), while letting the item's own buttons (by
-  // bounding rectangle, not target — so mobile touch adjustment in a gap cannot fire a neighbour),
-  // the #vault sparkle/backdrop/menu (by target), modals and all native scrolling work as before
+  // pointerdown, touchstart or mousedown of a gesture), while letting the item's own buttons and
+  // the #vault sparkle (each by its bounding rectangle AND as the event's target: a touch that the
+  // browser adjusts onto one from the gap beside it is a press on the glass, and a button behind
+  // an open menu does not claim the menu's press), the sparkle's backdrop and menu (by target),
+  // modals and all native scrolling work as before
   const glass_point = e => {
     const t = e.touches?.[0] ?? e.changedTouches?.[0] ?? e
     return typeof t?.clientX == 'number' && typeof t?.clientY == 'number' ? [t.clientX, t.clientY] : null
+  }
+  const inside = (b, x, y) => {
+    const r = b.getBoundingClientRect?.()
+    return !!r && r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
   }
   const own_button_at = (x, y) => {
     const buttons = []
     if (!reloader.hidden) buttons.push(reloader)
     for (const g of [bar, keys, nav_vertical, nav_horizontal]) if (!g.hidden) buttons.push(...g.children)
-    for (const b of buttons) {
-      const r = b.getBoundingClientRect?.()
-      if (r && r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return b
-    }
+    for (const b of buttons) if (inside(b, x, y)) return b
     return null
   }
   const glass_start = (e, source, touch) => {
@@ -1001,7 +1009,8 @@ function key_buttons_create() {
     let rejected = false
     if (pt && !button && !backdrop.hidden && self.bg_mode) {
       const el = e.target?.closest ? e.target : e.target?.parentElement
-      if (!KEY_BUTTONS_OWN_OVERLAY.some(sel => el?.closest?.(sel))) {
+      const sparkle = el?.closest?.('.vault-sparkle')
+      if (!KEY_BUTTONS_OWN_OVERLAY.some(sel => el?.closest?.(sel)) && !(sparkle && inside(sparkle, pt[0], pt[1]))) {
         const right_shown = self.bg_mode == 'desktop-split' && !!document.querySelector?.('body > .vault-sparkle:not([hidden])')
         rejected = key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK)
       }
@@ -1009,7 +1018,7 @@ function key_buttons_create() {
     return { source, touch, rejected, button, mouse_seen: source == 'mouse', up: false }
   }
   const glass_pointerdown = e => {
-    if (self.disposed) return
+    if (self.disposed || made_by_code(e)) return
     if (e.isPrimary === false) {
       if (glass_press?.rejected) e.stopPropagation()
       return
@@ -1018,7 +1027,7 @@ function key_buttons_create() {
     if (glass_press.rejected) e.stopPropagation()
   }
   const glass_touch = e => {
-    if (self.disposed) return
+    if (self.disposed || made_by_code(e)) return
     if (e.type == 'touchstart') {
       const same_pointer = glass_press && glass_press.source == 'pointer' && glass_press.touch && !glass_press.up
       const extra_finger = e.touches && e.touches.length > 1 && glass_press && !glass_press.up
@@ -1030,7 +1039,7 @@ function key_buttons_create() {
     }
   }
   const glass_block = e => {
-    if (self.disposed) return
+    if (self.disposed || made_by_code(e)) return
     if (e.type == 'mousedown') {
       const same_gesture =
         glass_press &&
@@ -1046,7 +1055,7 @@ function key_buttons_create() {
     e.stopPropagation()
   }
   const glass_reset = e => {
-    if (self.disposed) return
+    if (self.disposed || made_by_code(e)) return
     if (e.type == 'pointerup') {
       if (e.isPrimary !== false && glass_press?.source == 'pointer') glass_press.up = true
     } else if (e.type == 'touchcancel' || e.isPrimary !== false) {
