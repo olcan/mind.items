@@ -187,6 +187,12 @@ const picked =
     '_listing_changed',
     '_listed',
     '_render_todoer_widget',
+    '_on_search',
+    '_complete_todo',
+    '_bin_act',
+    '_draft',
+    '_draft_word',
+    '_delete_listed',
   ]).join('\n') +
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
@@ -1594,6 +1600,25 @@ const { replaceTags, parseTags } = (() => {
   const taken = await _on_command_takeback('#other', '#other')
   check('takeback: handled, it returns nothing and the command is enqueued', [taken === undefined, docs.at(-1).cmd.kind, docs.at(-1).cmd.task, docs.length], [true, 'takeback', 's2', 7])
   check('takeback: a missing item is refused, the command kept', [await _on_command_takeback('id:nope', 'id:nope'), alerts.at(-1), docs.length], ['/takeback id:nope', '/takeback: id:nope missing or ambiguous', 7])
+  // an item open in its editor (the owner, 2026-11-24): a draft typed there (the editor's text is
+  // not the item's) refuses the delegation and the take-back with a word, the command kept and
+  // nothing enqueued; the editor's own zero-width spaces are no draft, and with nothing typed both
+  // go through, the delegation's marker written with its save asked for. An editor that cannot be
+  // read counts as holding a draft
+  const edited = (id, typed, readable = true) => {
+    const item = make(id, null, '#todo edit me\n', 's-' + id)
+    const saves = []
+    Object.assign(item, { editing: true, elem: { querySelector: () => (readable ? { value: typed(item.text) } : null) }, write: (t, type, options) => (saves.push(options), (item.text = t), true) })
+    return [item, saves]
+  }
+  const [drafted] = edited('e1', text => text + 'typed since')
+  check('delegate: a draft in the item\'s open editor refuses it with a word, nothing enqueued, the command kept', [await _on_command_delegate('e1', 'e1'), alerts.at(-1), docs.length, drafted.text], ['/delegate e1', 'can not delegate e1 with unsaved changes: save or cancel your edit first', 7, '#todo edit me\n'])
+  check('takeback: the same draft refuses it', [await _on_command_takeback('e1', 'e1'), alerts.at(-1), docs.length], ['/takeback e1', 'can not take back e1 with unsaved changes: save or cancel your edit first', 7])
+  edited('e2', text => text, false)
+  check('delegate: an editor that cannot be read counts as a draft', [await _on_command_delegate('e2', 'e2'), alerts.at(-1), docs.length], ['/delegate e2', 'can not delegate e2 with unsaved changes: save or cancel your edit first', 7])
+  const [open, saves] = edited('e3', text => text.split('').join(String.fromCharCode(0x200b)))
+  check('delegate: an open editor with nothing typed (its zero-width spaces are no draft) delegates, and the marker\'s write asks for its save', [await _on_command_delegate('e3', 'e3'), docs.at(-1).cmd.task, docs.length, open.text, saves], [null, 's-e3', 8, '#todo [delegated] edit me\n#_agent/vault\n', [{ skip_save: false }]])
+  check('takeback: the same open editor takes it back', [(await _on_command_takeback('e3', 'e3')) === undefined, docs.at(-1).cmd.kind, docs.length], [true, 'takeback', 9])
   // wiki links in a row (the vault's design notes/design/wiki_links.md 2.3): the app's REAL grammar
   // and builder (src/wiki_links.ts, loaded by node's type stripping) through window, and the app's
   // REAL tag-exclusion replacer for the url pass (replaceTags and its exclusions, evaluated from
@@ -2287,10 +2312,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   const NAMED_DONE = ['#todo-list #done ship it to İzmir, see `#todo` and https://example.com/list#todo', 'then (#done) again, #done#x too, under #_todo', 'and #done#@{ "see #todo" }@ with a macro', ...LITERALS].join('\n')
   const TEXTS = { short: '#todo fix the cache', task: TASK, long: LONG, named: NAMED }
   // `snooze` is every todo's own store (the widget is then the snoozed list while a snooze time
-  // stands), `editing` the id of the todo open in its editor, with a draft typed since
+  // stands), `editing` the id of the todo open in its editor, with a draft typed since unless
+  // `typed` is false (the editor then holds the item's own text)
   // `target` is the id of the item the page targets, `app` whether the items carry the app's select
   // `extra` adds items of its own to the four ({ id: { text, label } }, each named by its label)
-  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, target = null, app = true, extra = null } = {}) => {
+  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, typed = true, target = null, app = true, extra = null } = {}) => {
     const calls = []
     let selected = null // the item the app's select made the page's target
     const texts = { ...TEXTS, ...Object.fromEntries(Object.entries(extra ?? {}).map(([id, item]) => [id, item.text])) }
@@ -2300,11 +2326,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const item = { id, saved_id: 's-' + id, text, label, name: id == 'named' || extra?.[id] ? label : 'id:' + id, _global_store: snooze ? { _todoer: { ...snooze } } : {} }
       Object.defineProperty(item, 'tags', { get: () => parsed(item.text).all }) // hidden ones included, their underscore dropped
       Object.defineProperty(item, 'tags_visible', { get: () => parsed(item.text).visible })
-      if (id == editing) Object.assign(item, { editing: true, draft: text + '\na line typed since' })
+      if (id == editing) Object.assign(item, { editing: true, ...(typed ? { draft: text + '\na line typed since' } : {}) })
+      // the item's own element, where its open editor's textarea is found
+      Object.defineProperty(item, 'elem', { get: () => ({ querySelector: selector => (selector == 'textarea' ? textarea(id) : null) }) })
       Object.defineProperty(item, 'global_store', { get: () => (calls.push(['store', id]), item._global_store) })
       item.read = () => view(item.text)
-      item.write = (text, type) => {
-        calls.push(['write', id, type])
+      // (a write that does not ask for its save is recorded as such: in an open editor the app would leave it unsaved)
+      item.write = (text, type, options) => {
+        calls.push(['write', id, type, ...(options?.skip_save === false ? [] : ['save not asked for'])])
         if (!accepted) return false
         item.text = text
         if (item.editing) item.draft = text
@@ -2382,7 +2411,20 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       rows().find(row => row.getAttribute('data-id') == id).children[0].onclick({ stopPropagation() {}, preventDefault() {} })
       return calls
     }
-    return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned, calls, marks, opened }
+    // a bin button's press for an item, by the row the render drew for it: what stands afterwards,
+    // as a drop's record without the row's moves ({ text, calls, store, draft })
+    const press = (id, bin = 'done') => {
+      const row = rows().find(row => row.getAttribute('data-id') == id)
+      if (!row) return calls.push(['no row', id]), { calls }
+      try {
+        ctx._bin_act(bin, ctx._item(id), row, !!snooze?.snoozed)
+      } catch (e) {
+        calls.push(['threw', e.message]) // an action that throws fails its row, not the table
+      }
+      const { text, draft, _global_store } = ctx._item(id)
+      return { text, calls, store: _global_store._todoer, draft }
+    }
+    return { rows, ids, drop, press, render, click, item: ctx._item, ctx, widget, pinned, calls, marks, opened }
   }
   // ---- a chat that became a todo: its row shows the question after its name ------------------
   {
@@ -2483,8 +2525,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   check('done: a refused write leaves the todo, puts the row back in its place and says so; no log line', world({ accepted: false }).drop('task'), { text: TASK, calls: [['write', 'task', ''], ['alert', 'could not complete todo (mutation refused) for id:task']], rows: ALL, left: 0 })
   const reload = { calls: [['alert', 'please reload to complete todos (app update required)']], rows: ALL, left: 0 }
   check('done: an app grammar too old to rewrite safely fails closed for every todo, short or long: nothing written or deleted, the row back', [world({ version: 1 }).drop('short'), world({ version: 1 }).drop('long')], [{ text: '#todo fix the cache', ...reload }, { text: LONG, ...reload }])
-  // a todo open in its editor holds a draft the app's whole-text write would replace, unsaved
-  check('done: a todo open in its editor keeps its draft and its row: nothing written, no log line, the owner told to finish editing', world({ editing: 'task' }).drop('task'), { text: TASK, calls: [['alert', 'can not complete a todo while editing it: finish editing id:task first']], rows: ALL, left: 0, draft: TASK + '\na line typed since' })
+  // a todo open in its editor with a draft typed: the app's whole-text write would replace the
+  // draft. With nothing typed there (the owner, 2026-11-24) it is completed as any other, and the
+  // write asks for its save (every row's write does: the world records one that does not)
+  const UNSAVED = what => `can not ${what} with unsaved changes: save or cancel your edit first`
+  check('done: a todo open in its editor with a draft keeps its draft and its row: nothing written, no log line, the owner told to save or cancel', world({ editing: 'task' }).drop('task'), { text: TASK, calls: [['alert', UNSAVED('complete id:task')]], rows: ALL, left: 0, draft: TASK + '\na line typed since' })
+  const plain_done = world().drop('task')
+  check('done: a todo open in its editor with nothing typed is completed as one that is closed, and the editor holds the new text', world({ editing: 'task', typed: false }).drop('task'), { ...plain_done, draft: plain_done.text })
   // a completed todo's snooze and reminder: cleared in one store save after the accepted write,
   // never through _unsnooze (no `unsnoozed` mark, no listener called); the flag also when the
   // snooze ended already (the sweep keeps it for the other devices' notifiers); both kept by a refusal
@@ -2504,6 +2551,55 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['edit', '#todo fix the cache']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
   check('click: on an app without the select the box is set as before', world({ app: false }).click('short'), [['set', 'id:short', { scroll: true, select: '#todo fix the cache' }]])
   check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
+  // A BIN BUTTON'S PRESS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): what a drop
+  // of the item's row on that bin does, by the same code (_bin_act; the done bin's work in
+  // _complete_todo, which the drop calls too), with no row to move. Every case of the done bin
+  // above, pressed and dropped in a world of its own: the same text, calls, store and draft
+  const moved = ({ text, calls, store, draft }) => ({ text, calls, store, draft })
+  const both = (make, id, bin = 'done') => [moved(make().press(id, bin)), moved(make().drop(id, bin))]
+  const elsewhere_too = () => {
+    const w = world({ snooze: snoozed })
+    w.item('short').text = '#done fix the cache'
+    return w
+  }
+  const PRESSED = [
+    ['a short todo', () => world(), 'short'],
+    ['a task', () => world(), 'task'],
+    ['a long todo', () => world(), 'long'],
+    ['a named todo', () => world(), 'named'],
+    ['without a logger', () => world({ logger: false }), 'short'],
+    ['a refused write', () => world({ accepted: false }), 'task'],
+    ['an app grammar too old', () => world({ version: 1 }), 'long'],
+    ['a todo open in its editor', () => world({ editing: 'task' }), 'task'],
+    ['a todo open in its editor, nothing typed', () => world({ editing: 'task', typed: false }), 'task'],
+    ['a snoozed todo', () => world({ snooze: snoozed }), 'short'],
+    ['a todo whose snooze ended', () => world({ snooze: ended }), 'short'],
+    ['a snoozed todo, the write refused', () => world({ snooze: snoozed, accepted: false }), 'short'],
+    ['a todo completed elsewhere', elsewhere_too, 'short'],
+  ]
+  for (const [what, make, id] of PRESSED) {
+    const [pressed, dropped] = both(make, id)
+    check(`press: done on ${what} is its drop on the done bin`, pressed, dropped)
+  }
+  check('press: done completes the todo (the first case in full: one whole-text write, then the log line)', moved(world().press('short')), { text: '#done fix the cache', calls: [['write', 'short', ''], ['log', '/log done #todo fix the cache']], store: undefined, draft: undefined })
+  check('press: a refusal says its word and writes nothing more (the editor\'s case in full)', moved(world({ editing: 'task' }).press('task')), { text: TASK, calls: [['alert', UNSAVED('complete id:task')]], store: undefined, draft: TASK + '\na line typed since' })
+  const deleted = both(() => world(), 'short', 'cancel')
+  check('press: delete deletes the item, as the cancel bin\'s drop, and writes nothing', deleted, [{ text: '#todo fix the cache', calls: [['delete', 'short']], store: undefined, draft: undefined }, deleted[1]])
+  // a draft in the item's open editor would go with the item: refused with the same word, by the
+  // button and by the drop (the row back in its place); with nothing typed it is deleted
+  const kept = both(() => world({ editing: 'short' }), 'short', 'cancel')
+  check('press: delete on a todo open in its editor with a draft deletes nothing and says so, as the cancel bin\'s drop', kept, [{ text: '#todo fix the cache', calls: [['alert', UNSAVED('delete id:short')]], store: undefined, draft: '#todo fix the cache\na line typed since' }, kept[1]])
+  check('cancel: such a drop puts the row back in its place', (({ rows, left }) => [rows, left])(world({ editing: 'short' }).drop('short', 'cancel')), [ALL, 0])
+  check('press: delete on a todo open in its editor with nothing typed deletes it', world({ editing: 'short', typed: false }).press('short', 'cancel').calls, [['delete', 'short']])
+  check('press: a row that is gone is left alone', world().press('nope'), { calls: [['no row', 'nope']] })
+  // the agent's and the owner's buttons call what their bins call, within the press
+  const handed = name => {
+    const w = world()
+    w.ctx._delegate = item => (w.calls.push(['delegate', item.id]), Promise.resolve(true))
+    w.ctx._takeback = item => (w.calls.push(['takeback', item.id]), Promise.resolve(true))
+    return [w.press('task', name).calls, w.ctx._bin_act('nope', w.item('task'), w.rows()[1], false)]
+  }
+  check('press: delegate and take back call the bins\' own functions with the item; a name that is no bin does nothing', [handed('agent'), handed('owner')], [[[['delegate', 'task']], false], [[['takeback', 'task']], false]])
   // A ROW'S TOOLTIP (the owner, 2026-11-19: "the tooltip ... in the todoer widget somehow shows
   // 3-4 blank lines after the first line (ending in a tag) and then `...`"): the snippet in its
   // lines, each by the row's own rule of what is visible (_visible), read here as the `title`
@@ -3032,6 +3128,41 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     napping.ctx.is_number = x => typeof x == 'number'
     napping.ctx._snooze_dialog = () => ({ then: f => f({ time: T, notify: true }) })
     check('snooze: a todo dropped on the snooze bin is snoozed at the picked time with its reminder, as before', kinds(napping.drop('short', 'snooze')), { text: '#todo fix the cache', rows: ['task', 'long', 'named'], left: 0, store: { snoozed: T, notify: true }, draft: undefined, calls: ['store', 'store'] })
+    // the snooze button: the picker and the snooze as the bin's drop, a declined picker likewise,
+    // and in the snoozed list the todo brought back now
+    const picking = answer => () => {
+      const w = world()
+      w.ctx.is_number = x => typeof x == 'number'
+      w.ctx._snooze_dialog = () => ({ then: f => f(answer) })
+      return w
+    }
+    const moved_of = ({ text, calls, store, draft }) => ({ text, calls, store, draft })
+    const pressed_snooze = make => [moved_of(make().press('short', 'snooze')), moved_of(make().drop('short', 'snooze'))]
+    const picked_time = pressed_snooze(picking({ time: T, notify: true }))
+    check('press: snooze opens the picker and snoozes at the picked time with its reminder, as the bin\'s drop', [picked_time[0], picked_time[0].store], [picked_time[1], { snoozed: T, notify: true }])
+    const declined_time = pressed_snooze(picking(null))
+    check('press: a picker that is closed without a time snoozes nothing, as the bin\'s drop', [declined_time[0], declined_time[0].store], [declined_time[1], {}])
+    // (the time of the return is the clock's: compared as a mark that is there)
+    const woken = pressed_snooze(() => world({ snooze: { snoozed: T } })).map(w => ({ ...w, store: { ...w.store, unsnoozed: !!w.store.unsnoozed } }))
+    check('press: in the snoozed list the snooze button brings the todo back now, as a drop on that list\'s snooze bin', [woken[0], woken[0].store], [woken[1], { snoozed: 0, unsnoozed: true }])
+    // a row that is not a todo's: done clears it and delete deletes its item after the app's
+    // question, as their drops; the agent's and the snooze button are not drawn for it, and their
+    // action does nothing
+    // (a press moves no row: the lists are drawn again, as after the bell's own click)
+    const pressed_chat = (bin, options) => {
+      const [a, b] = [chatting(options), chatting(options)]
+      a.ctx._rerender_todoer_widgets = () => void a.called.push('drawn again')
+      const [pressed, dropped] = [a.press('chat', bin), b.drop('chat', bin)]
+      return [[pressed.store, pressed.calls, a.called], [dropped.store, dropped.calls, b.called]]
+    }
+    const chat_done = pressed_chat('done')
+    check('press: done on a reply\'s row clears it in the chat\'s own store, writes nothing and draws the lists again; its drop clears the same', chat_done, [[{ cleared: [KEY] }, [], ['drawn again']], [{ cleared: [KEY] }, [], []]])
+    const chat_deleted = pressed_chat('cancel')
+    check('press: delete on a reply\'s row deletes the chat, asking first, as its drop', chat_deleted, [[undefined, [], [['delete', true]]], chat_deleted[1]])
+    const idle = chatting()
+    idle.ctx._delegate = async () => void idle.called.push('delegate')
+    idle.ctx._snooze_dialog = () => (idle.called.push('picker'), { then: f => f({ time: T, notify: false }) })
+    check('press: the agent\'s and the snooze action do nothing for a reply\'s row', [idle.press('chat', 'agent').store, idle.press('chat', 'snooze').store, idle.called, idle.calls], [undefined, undefined, [], []])
     const clicked = chatting()
     clicked.click('chat')
     check('waits: a click on the row selects the chat', clicked.called, ['select'])

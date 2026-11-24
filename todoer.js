@@ -159,6 +159,7 @@ function __render(widget, widget_item) {
   // parse widget options for required tags & storage key
   const options = widget_item.store[widget.id]?.options ?? {}
   let { tags = [], snoozed, delegated, storage_key } = options
+  widget._snoozed = !!snoozed // read by a bin button's press (its snooze button brings a snoozed todo back)
 
   // the bins: the AGENT bin (a delegation) comes FIRST on every widget, followed by
   // done/snooze/cancel on the main and snoozed lists; the delegated list (design 2.2) has the
@@ -640,7 +641,7 @@ function __render(widget, widget_item) {
             .then(done => (done ? then(done, drop) : undone()))
         }
         if (e.to == done_bin) _clear_waiting(item, key) || back()
-        else if (e.to == cancel_bin) item.delete(true) === true || back()
+        else if (e.to == cancel_bin) _delete_listed(item, true) || back()
         else if (e.to == agent_bin) {
           const write = _carried_write() // the gesture's intent, before any wait
           promoted((done, drop) => _delegate_promoted(done, write, drop))
@@ -664,112 +665,18 @@ function __render(widget, widget_item) {
         })
       } else if (e.to == cancel_bin) {
         cancel_bin.firstChild.remove()
-        item.delete()
+        // (a deletion refused or declined leaves the item: its row goes back, as a reply's row does)
+        if (!_delete_listed(item)) list.insertBefore(e.item, list.children[e.oldIndex])
         // alternative (not enabled): delete only a todo whose snippet is whole, else keep it:
         // item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
         // // log if logger exists
         // if (_exists('#logger'))
         //   MindBox.create('/log cancelled ' + e.item._log_text)
       } else if (e.to == done_bin) {
-        // a todo dropped on the done bin is NEVER deleted (the owner, 2026-11-17): its todo
-        // tag becomes #done whatever its length and whether the item is named, and the item
-        // stays with all it holds. until then only a row whose snippet had been cut was
-        // rewritten and every other one was deleted: a task with its agent's tree and log
-        // (the snippet reads the tree as a token and drops the log), a saved item with a
-        // unique label after the app's "Delete ...?". no deletion, so that question is gone;
-        // the app's own question before a whole-item write of 262,144 UTF-16 units or more
-        // is still asked (write() below).
-        // gate ALL side effects (DOM removal, /log) on an ACCEPTED mutation (review 151
-        // §2.4): the fail-closed branch must not report completion, and item.write's
-        // boolean result is the acceptance signal (a refused write must not log as done)
-        const grammar = window._grammar
-        if (!(grammar?.version >= 2)) {
-          // FAIL CLOSED, never raw (review 150 §2.4), for every todo now: a raw rewrite
-          // could alter #todo bytes inside a vault_result candidate. restore the dragged
-          // row (the snooze branch's cancellation idiom) so the widget matches the
-          // unchanged item.
-          list.insertBefore(e.item, list.children[e.oldIndex])
-          alert('please reload to complete todos (app update required)')
-          return
-        }
-        if (item.editing) {
-          // an open editor holds the owner's draft (item.text is assigned when editing ends),
-          // and a whole-item write replaces the editor's text and stays unsaved: nothing is
-          // written, as the app refuses to name an item being edited
-          list.insertBefore(e.item, list.children[e.oldIndex])
-          alert(`can not complete a todo while editing it: finish editing ${item.name} first`)
-          return
-        }
-        // over the GRAMMAR VIEW (review 149 §2): a #todo inside a vault_result candidate
-        // must not be rewritten, and the raw envelope must survive. the todo TAG and nothing
-        // else (reviews 0 to 2 of 2026-11-17): the VISIBLE tags the app indexes as #todo
-        // become #done, through the app's tag grammar (_replace_tags), so a longer tag
-        // (#todo-list, which can be the item's own label), a code span or block (the
-        // bridge's _log) and a url's fragment are left as written. the app parses tags from
-        // the LOWERCASED view, so the tags are matched over a copy of the view with its ASCII
-        // capitals folded (the same length, so an offset in it is the view's; toLowerCase()
-        // would not do: it makes two characters of an İ) and edited in the view itself: the
-        // tag in any case (#ToDo), and a stylesheet or script written in capitals (<STYLE>)
-        // skipped as the parser skips it (the replacer's exclusions name those elements in
-        // lower case). the parser also ends a tag at a `#` (#todo#x is the tag #todo), which
-        // the replacer's delimiter does not list: in the copy that `#` reads as a `.`, a
-        // delimiter of the same width, so the tag is matched and the text after it is read as
-        // the parser reads it (#done#x; an eval macro that starts right after that `#` is
-        // skipped: a pattern that took the `#` suffix took the macro's first character with
-        // it, and the macro's own text was edited). the HIDDEN form #_todo is kept on
-        // purpose: the parser records it as a hidden dependency on #todo, which #_done would
-        // retarget (the render takes an item for a todo by its visible tags).
-        // two cases wait for the app's parser and its replacer to agree: a stylesheet whose
-        // element has attributes (<style media="print"> #todo {} </style>) is still changed,
-        // since the app itself indexes that selector as the tag; and a tag glued to an eval
-        // macro whose text holds a #todo keeps a visible #todo in the index, the macro being
-        // preserved
-        let tags = 0
-        const text = grammar.edit(item.text, view => {
-          const spans = [] // where each todo tag starts in the view
-          _replace_tags(
-            view.replace(/[A-Z]/g, c => c.toLowerCase()).replace(/#todo#/g, '#todo.'),
-            '(^|\\s|\\()#todo',
-            (m, pfx, offset) => void spans.push(offset + pfx.length)
-          )
-          tags = spans.length
-          const kept = [] // the view's text around the tags, joined by the new tag once
-          let end = 0
-          for (const at of spans) {
-            kept.push(view.slice(end, at))
-            end = at + 5
-          }
-          return [...kept, view.slice(end)].join('#done')
+        _complete_todo(item, e.item._log_text, {
+          back: () => void list.insertBefore(e.item, list.children[e.oldIndex]),
+          gone: () => void done_bin.firstChild.remove(),
         })
-        if (!tags) {
-          // no todo tag left: completed elsewhere while this row was dragged (another tab,
-          // the bridge; the widgets' renders wait for the drag's end). nothing to write, and
-          // no second completion to log: the row just goes
-          done_bin.firstChild.remove()
-          return
-        }
-        // write() returns false in read-only mode, or when the app's question before a
-        // large write (above) is declined
-        const completed = item.write(text, '') === true
-        if (!completed) {
-          list.insertBefore(e.item, list.children[e.oldIndex])
-          alert(`could not complete todo (mutation refused) for ${item.name}`)
-          return
-        }
-        // a completed todo's snooze and its reminder (the snooze dialog's box) are cleared:
-        // the sweep walks every item, and at the snooze time it would unsnooze the kept item
-        // and could show its reminder for work already done. not through _unsnooze, which
-        // marks the item unsnoozed and calls the unsnooze listeners
-        const snooze = item._global_store._todoer
-        if (snooze?.snoozed || snooze?.notify) {
-          const store = item.global_store._todoer // reading global_store saves the store
-          store.snoozed = 0
-          delete store.notify
-        }
-        done_bin.firstChild.remove()
-        // log if logger exists
-        if (_exists('#logger'))
-          MindBox.create('/log done ' + e.item._log_text)
       } else if (e.to == snooze_bin) {
         snooze_bin.firstChild.remove()
         if (_promotions()[item.id]) {
@@ -811,6 +718,117 @@ function __render(widget, widget_item) {
   //     e.preventDefault()
   //   }
   // }
+}
+
+// completes a todo: what a drop of its row on the done bin does, and a press on the done button.
+// `log_text` is what the row logs; `back` puts a dragged row back where it was (before any word
+// to the owner) and `gone` takes it out of the bin, each called where the drop's own code did it;
+// a press has no row to move. True where the todo is completed, or was completed already
+function _complete_todo(item, log_text, { back = () => {}, gone = () => {} } = {}) {
+  // a todo dropped on the done bin is NEVER deleted (the owner, 2026-11-17): its todo
+  // tag becomes #done whatever its length and whether the item is named, and the item
+  // stays with all it holds. until then only a row whose snippet had been cut was
+  // rewritten and every other one was deleted: a task with its agent's tree and log
+  // (the snippet reads the tree as a token and drops the log), a saved item with a
+  // unique label after the app's "Delete ...?". no deletion, so that question is gone;
+  // the app's own question before a whole-item write of 262,144 UTF-16 units or more
+  // is still asked (write() below).
+  // gate ALL side effects (DOM removal, /log) on an ACCEPTED mutation (review 151
+  // §2.4): the fail-closed branch must not report completion, and item.write's
+  // boolean result is the acceptance signal (a refused write must not log as done)
+  const grammar = window._grammar
+  if (!(grammar?.version >= 2)) {
+    // FAIL CLOSED, never raw (review 150 §2.4), for every todo now: a raw rewrite
+    // could alter #todo bytes inside a vault_result candidate. restore the dragged
+    // row (the snooze branch's cancellation idiom) so the widget matches the
+    // unchanged item.
+    back()
+    alert('please reload to complete todos (app update required)')
+    return false
+  }
+  const draft = _draft_word(item, 'complete')
+  if (draft) {
+    // an open editor that holds the owner's draft (item.text is assigned when editing ends): a
+    // whole-item write would replace the editor's text, so nothing is written. With nothing
+    // typed there is no draft to lose, and the write below is saved at once (the owner,
+    // 2026-11-24: refused only when what is typed differs from what is saved)
+    back()
+    alert(draft)
+    return false
+  }
+  // over the GRAMMAR VIEW (review 149 §2): a #todo inside a vault_result candidate
+  // must not be rewritten, and the raw envelope must survive. the todo TAG and nothing
+  // else (reviews 0 to 2 of 2026-11-17): the VISIBLE tags the app indexes as #todo
+  // become #done, through the app's tag grammar (_replace_tags), so a longer tag
+  // (#todo-list, which can be the item's own label), a code span or block (the
+  // bridge's _log) and a url's fragment are left as written. the app parses tags from
+  // the LOWERCASED view, so the tags are matched over a copy of the view with its ASCII
+  // capitals folded (the same length, so an offset in it is the view's; toLowerCase()
+  // would not do: it makes two characters of an İ) and edited in the view itself: the
+  // tag in any case (#ToDo), and a stylesheet or script written in capitals (<STYLE>)
+  // skipped as the parser skips it (the replacer's exclusions name those elements in
+  // lower case). the parser also ends a tag at a `#` (#todo#x is the tag #todo), which
+  // the replacer's delimiter does not list: in the copy that `#` reads as a `.`, a
+  // delimiter of the same width, so the tag is matched and the text after it is read as
+  // the parser reads it (#done#x; an eval macro that starts right after that `#` is
+  // skipped: a pattern that took the `#` suffix took the macro's first character with
+  // it, and the macro's own text was edited). the HIDDEN form #_todo is kept on
+  // purpose: the parser records it as a hidden dependency on #todo, which #_done would
+  // retarget (the render takes an item for a todo by its visible tags).
+  // two cases wait for the app's parser and its replacer to agree: a stylesheet whose
+  // element has attributes (<style media="print"> #todo {} </style>) is still changed,
+  // since the app itself indexes that selector as the tag; and a tag glued to an eval
+  // macro whose text holds a #todo keeps a visible #todo in the index, the macro being
+  // preserved
+  let tags = 0
+  const text = grammar.edit(item.text, view => {
+    const spans = [] // where each todo tag starts in the view
+    _replace_tags(
+      view.replace(/[A-Z]/g, c => c.toLowerCase()).replace(/#todo#/g, '#todo.'),
+      '(^|\\s|\\()#todo',
+      (m, pfx, offset) => void spans.push(offset + pfx.length)
+    )
+    tags = spans.length
+    const kept = [] // the view's text around the tags, joined by the new tag once
+    let end = 0
+    for (const at of spans) {
+      kept.push(view.slice(end, at))
+      end = at + 5
+    }
+    return [...kept, view.slice(end)].join('#done')
+  })
+  if (!tags) {
+    // no todo tag left: completed elsewhere while this row was dragged (another tab,
+    // the bridge; the widgets' renders wait for the drag's end). nothing to write, and
+    // no second completion to log: the row just goes
+    gone()
+    return true
+  }
+  // write() returns false in read-only mode, or when the app's question before a
+  // large write (above) is declined. The save is asked for: the app leaves a write into an
+  // item whose editor is open unsaved by default (the owner decides when an edited item is
+  // saved), and here that editor holds no draft
+  const completed = item.write(text, '', { skip_save: false }) === true
+  if (!completed) {
+    back()
+    alert(`could not complete todo (mutation refused) for ${item.name}`)
+    return false
+  }
+  // a completed todo's snooze and its reminder (the snooze dialog's box) are cleared:
+  // the sweep walks every item, and at the snooze time it would unsnooze the kept item
+  // and could show its reminder for work already done. not through _unsnooze, which
+  // marks the item unsnoozed and calls the unsnooze listeners
+  const snooze = item._global_store._todoer
+  if (snooze?.snoozed || snooze?.notify) {
+    const store = item.global_store._todoer // reading global_store saves the store
+    store.snoozed = 0
+    delete store.notify
+  }
+  gone()
+  // log if logger exists
+  if (_exists('#logger'))
+    MindBox.create('/log done ' + log_text)
+  return true
 }
 
 Date.prototype.toInputValue = function () {
@@ -1449,22 +1467,26 @@ function _on_search(text) {
   })
 }
 
-// PREVIEW OF THE LOOK (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): one button
-// per bin of the list that holds the row of the item the box names, in the bins' order and
-// colours, on a glass piece at the page's lower left, the mirror of the key buttons' piece at
-// the lower right (key_buttons.js: round 24 px buttons on the sparkle's dark grey, 16 px icons
-// drawn with a 1.6 line, a 44 px high piece of frosted glass with a 12 px corner). Shown where
-// the window has room for it beside that piece; the narrow case, a second row, is not built
-// yet. A PRESS DOES NOTHING YET: the bins' work is wired once the look is settled.
+// THE BIN BUTTONS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): one button per
+// bin of the list that holds the row of the item the box names, in the bins' order and colours,
+// and before them a bell where that row carries one. A press does what a drop of the row on
+// that bin does (_bin_act); the bell's, what a click on the row's own bell does. They are handed
+// to the key buttons' strip as a group at its left end (key_buttons.js, self.guest; the owner:
+// "in the same bar on the left, spaced out from existing button groups as we already do between
+// groups"). Without that item, or with one that takes no guests yet, they stand on a glass piece
+// of their own at the page's lower left, in the strip's look (round 24 px buttons on the
+// sparkle's dark grey, 16 px icons, a 44 px high piece of frosted glass with a 12 px corner).
 // The names start with an underscore, and no comment here holds a hash word: the item's page
 // draws its table of definitions from this file's comments (js_table), where a colour written
 // with its hash sign is read as a tag that no item carries (seen on a test page, 2026-11-24)
 const _BIN_BUTTONS = [
-  { name: 'agent', title: 'Delegate to the agent', icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
-  { name: 'done', title: 'Done', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
-  { name: 'snooze', title: 'Snooze', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
-  { name: 'cancel', title: 'Delete', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
-  { name: 'owner', title: 'Take back from the agent', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
+  // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
+  { name: 'bell', title: 'Clear the notification', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
+  { name: 'agent', title: 'Delegate to the agent', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
+  { name: 'done', title: 'Done', color: '#6f6', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
+  { name: 'snooze', title: 'Snooze', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
+  { name: 'cancel', title: 'Delete', color: '#f66', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
+  { name: 'owner', title: 'Take back from the agent', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
 ]
 const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
@@ -1474,17 +1496,12 @@ const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons > button:focus-visible { outline: 1px solid currentColor }
 .todoer-bin-buttons > button:active { background: #555 }
 .todoer-bin-buttons > button > svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
-.todoer-bin-buttons > button.agent > svg { fill: currentColor; stroke: none }
-.todoer-bin-buttons > button.agent { color: #6af }
-.todoer-bin-buttons > button.done { color: #6f6 }
-.todoer-bin-buttons > button.snooze { color: #ff6 }
-.todoer-bin-buttons > button.cancel { color: #f66 }
-.todoer-bin-buttons > button.owner { color: #ccc }
+.todoer-bin-buttons > button.fill > svg { fill: currentColor; stroke: none }
 `
 
 // draws the buttons for the item the box names (null: none), from the first mounted list that
-// holds its row: that list's bins, in their order. A row that is not a todo's (a reply's) has
-// the done and the delete bin, and the other two only where the list can make a todo of it
+// holds its row (_bin_row): its bell, then that list's bins, in their order. A row that is not a
+// todo's (a reply's) has the done and the delete button alone, as _bin_act has no more for it
 function _bin_buttons(target) {
   try {
     __bin_buttons(target)
@@ -1494,17 +1511,30 @@ function _bin_buttons(target) {
 }
 
 function __bin_buttons(target) {
-  let found = null
-  if (target)
-    each(_todoer.dependents ?? [], dep => {
-      const pinned = _item(dep)
-      pinned?.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
-        const row = found ? null : [...widget.querySelectorAll('.list-item-container')].find(e => e.getAttribute('data-id') == target.id)
-        if (row) found = { widget, row, options: pinned.store[widget.id]?.options ?? {} }
-      })
-    })
+  const found = target ? _bin_row(target) : null
+  const todo_only = !!found?.row.getAttribute('data-waits')
+  const shown = !found
+    ? []
+    : _BIN_BUTTONS.filter(b =>
+        b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !!found.widget.querySelector('.bin.' + b.name) && !(todo_only && (b.name == 'agent' || b.name == 'snooze'))
+      )
+  const specs = shown.map(b => ({ ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze' : b.title, press: () => _bin_press(b.name, target.id) }))
+  // what is drawn, as one text: every render of a list comes through here, and buttons that
+  // are the same are left standing (a button replaced between a press's two halves would lose
+  // its click). This item's own code is part of it: an update draws them anew, with its presses
+  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, specs.map(spec => [spec.name, spec.title])])
   let piece = document.querySelector('.todoer-bin-buttons')
-  if (!found && !piece) return
+  // handed over on the window in every case: a strip that is drawn later (its item installed or
+  // updated after this) takes them from there and says so (`taken`: the piece of their own goes)
+  const changed = window._key_buttons_guests?.drawn !== drawn
+  if (changed) window._key_buttons_guests = { drawn, buttons: specs, taken: () => void document.querySelector('.todoer-bin-buttons')?.remove() }
+  const strip = window._key_buttons
+  if (typeof strip?.guest == 'function') {
+    piece?.remove() // a piece of their own, drawn before the strip could take them
+    if (changed) strip.guest()
+    return
+  }
+  if (!specs.length && !piece) return
   let style = document.getElementById('todoer-bin-buttons-style')
   if (!style) {
     style = document.createElement('style')
@@ -1518,33 +1548,114 @@ function __bin_buttons(target) {
     piece.hidden = true
     document.body.appendChild(piece)
   }
-  const todo_only = found?.row.getAttribute('data-waits') && typeof _promote != 'function'
-  const shown = !found ? [] : _BIN_BUTTONS.filter(b => found.widget.querySelector('.bin.' + b.name) && !(todo_only && (b.name == 'agent' || b.name == 'snooze')))
-  piece.replaceChildren(
-    ...shown.map(b => {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.className = b.name
-      button.title = b.name == 'snooze' && found.options.snoozed ? 'Unsnooze' : b.title
-      button.setAttribute('aria-label', button.title)
-      button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="' + b.icon + '"/></svg>'
-      return button
-    })
-  )
-  // the key buttons' glass takes its new shape after a resize on its own schedule (seen on a test
-  // page: a window made wide again was measured while the glass still spanned it): measure again
-  // whenever that glass changes
-  const glass = document.querySelector('.key-buttons-bg')
-  if (glass && !glass._todoer_bin_buttons) {
-    glass._todoer_bin_buttons = new MutationObserver(() => void _bin_buttons_room())
-    glass._todoer_bin_buttons.observe(glass, { attributes: true, attributeFilter: ['class', 'hidden'] })
+  if (piece._drawn !== drawn) {
+    piece._drawn = drawn
+    piece.replaceChildren(
+      ...specs.map(spec => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = spec.fill ? spec.name + ' fill' : spec.name
+        button.style.color = spec.color
+        button.title = spec.title
+        button.setAttribute('aria-label', spec.title)
+        button.innerHTML = `<svg viewBox="0 0 ${spec.box ?? 16} ${spec.box ?? 16}" aria-hidden="true"><path d="${spec.icon}"/></svg>`
+        button.onmousedown = e => e.preventDefault() // the focus stays where it is (an open editor keeps its caret)
+        button.onclick = spec.press
+        return button
+      })
+    )
   }
   _bin_buttons_room()
 }
 
-// shows the piece where it has buttons and room at the lower left: all of the edge without the
-// key buttons, what their piece leaves on a device with a keyboard, and none where their glass
-// spans the window (a phone, a narrow window)
+// the first mounted list that holds the item's row, with that row: { widget, row }, or null
+function _bin_row(item) {
+  let found = null
+  document.querySelectorAll('.todoer-widget').forEach(widget => {
+    const row = found ? null : [...widget.querySelectorAll('.list-item-container')].find(e => e.getAttribute('data-id') == item.id)
+    if (row) found = { widget, row }
+  })
+  return found
+}
+
+// a button's press: the action for the item as its row stands now (the row may have gone, or
+// moved to another list, since the buttons were drawn), one at a time: a second press while the
+// first's dialog or save is open does nothing
+function _bin_press(name, id) {
+  const item = _item(id, { silent: true })
+  const found = item && _bin_row(item)
+  if (window._todoer_bin_busy || !found) return
+  window._todoer_bin_busy = true
+  let acted
+  try {
+    acted = _bin_act(name, item, found.row, !!found.widget._snoozed) // within the press: a delegation reads the gesture
+  } finally {
+    Promise.resolve(acted)
+      .catch(() => {})
+      .then(() => void (window._todoer_bin_busy = false))
+  }
+}
+
+// what a drop of the item's row on the named bin does (the list's onEnd in __render), without a
+// row to move: nothing is put back after a refusal, and the list is drawn again by the item's
+// own change. `row` is the row the list shows for the item (what it logs, whether it is a row
+// that waits without being a todo's, the reply it showed, its bell) and `snoozed` whether its
+// list is the snoozed one. A row that is not a todo's has the done and the delete bin alone, as
+// its drop. The bell's press is a click on the row's own bell: what that click clears
+function _bin_act(name, item, row, snoozed) {
+  if (name == 'bell') {
+    const bell = row.querySelector('mark.waits')
+    bell?.click()
+    return !!bell
+  }
+  if (row.getAttribute('data-waits')) {
+    if (name == 'cancel') return _delete_listed(item, true)
+    if (name != 'done' || !_clear_waiting(item, row.getAttribute('data-wait-key'))) return false
+    _rerender_todoer_widgets() // the row goes, as after its bell's click (a drop takes the row out itself)
+    return true
+  }
+  if (name == 'agent') return _delegate(item)
+  if (name == 'owner') return _takeback(item)
+  if (name == 'cancel') return _delete_listed(item)
+  if (name == 'done') return _complete_todo(item, row._log_text)
+  if (name != 'snooze') return false
+  item.global_store._todoer ??= {}
+  if (snoozed) return _unsnooze(item, true) // out of the snoozed list, as the owner's own drag
+  return _snooze_dialog().then(answer => (is_number(answer?.time) ? _snooze(item, answer) : false))
+}
+
+// whether the item's open editor holds text that is not saved: what a write into the item, or
+// its deletion, would lose. The app's own test for unsaved changes compares the same two texts,
+// each without the zero-width spaces its editor adds (index.svelte, unsaved). An editor that
+// cannot be read counts as holding a draft
+function _draft(item) {
+  if (!item.editing) return false
+  const textarea = item.elem?.querySelector('textarea')
+  const bare = text => String(text ?? '').split(String.fromCharCode(0x200b)).join('')
+  return !textarea || bare(textarea.value) != bare(item.text)
+}
+
+// the word for an action refused because of such a draft, or null where there is none (the
+// owner, 2026-11-24: refused only when what is typed differs from what is saved)
+function _draft_word(item, what) {
+  return _draft(item) ? `can not ${what} ${item.name} with unsaved changes: save or cancel your edit first` : null
+}
+
+// deletes the item of a row (a drop on the delete bin, a press on the delete button), unless its
+// open editor holds a draft; `sure` asks the app's question whatever the item (a row that is not
+// a todo's). True where it was deleted
+function _delete_listed(item, sure = false) {
+  const word = _draft_word(item, 'delete')
+  if (word) {
+    alert(word)
+    return false
+  }
+  return (sure ? item.delete(true) : item.delete()) === true
+}
+
+// shows the piece of their own where it has buttons and room at the lower left: all of the edge
+// without the key buttons, and none where their glass spans the window (a phone, a narrow
+// window) or stands in the way
 function _bin_buttons_room() {
   const piece = document.querySelector('.todoer-bin-buttons')
   if (!piece) return
@@ -1943,7 +2054,7 @@ function _task_target(item, kind) {
 // user's (the app's window._carry_input: a write that re-orders the list is a history step only as the user's
 // own; captured after a wait it came from no input). An app without the carry writes as before
 function _carried_write() {
-  const write = (item, text) => item.write(text, '')
+  const write = (item, text) => item.write(text, '', { skip_save: false }) // saved in an open editor too (it holds no draft: _delegate)
   return typeof window._carry_input == 'function' ? window._carry_input(write) : write
 }
 
@@ -1957,6 +2068,11 @@ async function _delegate(item, write = _carried_write(), seen = null) {
   // a chat whose todo tag this tab is still saving (a waiting row's promotion, _promote) is no
   // todo for the bridge yet: it reads the tag in the text the server has
   if (_promotions()[item.id]) return alert(`cannot delegate ${item.name} yet: it is still being saved as a todo`), false
+  const draft = _draft_word(item, 'delegate') // the marker's write would replace what the editor holds
+  if (draft) {
+    alert(draft)
+    return false
+  }
   const state = _task_state(item)
   // what the owner has seen of it at this gesture (its bell is cleared below): the count now, or
   // the one that stood where the gesture began (`seen`: a waiting row's drop, made before the
@@ -2008,6 +2124,11 @@ function _delegated_view(view) {
 async function _takeback(item) {
   item = _task_target(item, 'take back')
   if (!item) return false
+  const draft = _draft_word(item, 'take back') // the bridge's write of its marker follows
+  if (draft) {
+    alert(draft)
+    return false
+  }
   const state = _task_state(item)
   const command = { task: item.saved_id, id: _command_id(), kind: 'takeback', epoch: state?.epoch ?? 0, at: Date.now() }
   return _enqueue_command(item, command)

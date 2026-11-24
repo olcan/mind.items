@@ -288,7 +288,7 @@ function key_buttons_caret_line(textarea, doc) {
 // edge), and 1 px free-edge border paths (inset 0.5 px so the stroke sits inside the glass edge
 // and never draws on page edges). `w_col` is the sparkle's slot (its circle in its margins);
 // `h_col` stays for the readers of the earlier shape, which had a column above the row
-function key_buttons_backdrop_geom(look) {
+function key_buttons_backdrop_geom(look, guests = 0) {
   const w_col = look.reload.size + 2 * look.reload.left
   const h_col = 0
   const h_row = look.reload.size + 2 * look.reload.bottom
@@ -296,7 +296,10 @@ function key_buttons_backdrop_geom(look) {
   const [count, groups] = [KEY_BUTTONS_STRIP.flat().length, KEY_BUTTONS_STRIP.length]
   // from the right: the sparkle, the reload button and each group, a group's gap between them
   // and a button's gap inside a group, in the sparkle's margin at both ends
-  const w_piece = 2 * look.reload.left + (2 + count) * look.reload.size + (count - groups) * look.gap + (groups + 1) * look.group
+  // a guest group of `guests` buttons (self.guest in key_buttons_create) is one more group at the
+  // piece's left end: its buttons, a button's gap between them, and a group's gap to the strip
+  const w_guests = guests ? guests * look.reload.size + (guests - 1) * look.gap + look.group : 0
+  const w_piece = 2 * look.reload.left + (2 + count) * look.reload.size + (count - groups) * look.gap + (groups + 1) * look.group + w_guests
   const r = look.reload.size / 2
   const pad = Math.max(24, look.backdrop.shadow_blur * 3)
   const narrow = look.backdrop.merge
@@ -308,18 +311,18 @@ function key_buttons_backdrop_geom(look) {
   const [o, ri] = [0.5, r - 0.5]
   const border_split = `M ${pad + o} ${y2} V ${y0 + r} A ${ri} ${ri} 0 0 1 ${pad + r} ${y0 + o} H ${w_piece + pad}`
   const border_strip = `M 0 ${y0 + o} H ${narrow}`
-  return { w_col, h_col, h_row, h_tot, w_piece, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
+  return { w_col, h_col, h_row, h_tot, w_piece, w_guests, r, pad, narrow, clip_split, clip_strip, shape_split, shape_strip, border_split, border_strip }
 }
 
 // whether a viewport point (x, y) lies on visible frosted glass, from the same geometry as the
 // stylesheet (key_buttons_backdrop_geom and key_buttons_backdrop). Excludes the outer shadow and
 // the clipped-away 12 px outer corner triangles so hits match the painted glass shape exactly;
 // returns false whenever no glass shows (mode == null)
-function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KEY_BUTTONS_LOOK) {
+function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KEY_BUTTONS_LOOK, guests = 0) {
   if (!mode || x < 0 || y < 0 || x > vw || y > vh) return false
   const dy = vh - y // distance up from the viewport's bottom edge
   if (mode == 'mobile') return dy <= look.size + 2 * look.bottom
-  const g = key_buttons_backdrop_geom(look)
+  const g = key_buttons_backdrop_geom(look, guests)
   const in_arc = (px, py, cx, cy) => (px - cx) ** 2 + (py - cy) ** 2 <= g.r ** 2
   // desktop row (full width in desktop-strip; in split the one piece at the right, 0..w_piece in
   // from the viewport's right edge, its top-left corner rounded by r). `right_shown` is no longer
@@ -351,8 +354,8 @@ const KEY_BUTTONS_OWN_OVERLAY = ['.vault-sparkle-backdrop', '.vault-sparkle-menu
 // outer shadow (Gaussian blur of the glass's own shape, masked strictly outside the glass) and 1 px
 // free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
 // filter or mask ever sits on an ancestor of the backdrop-filter pane
-function key_buttons_backdrop_frame(look) {
-  const g = key_buttons_backdrop_geom(look)
+function key_buttons_backdrop_frame(look, guests = 0) {
+  const g = key_buttons_backdrop_geom(look, guests)
   const sigma = look.backdrop.shadow_blur / 2
   const svg = (cls, w, shape, border) =>
     `<svg class="key-buttons-bg-svg ${cls}" aria-hidden="true">` +
@@ -375,8 +378,9 @@ function key_buttons_backdrop_frame(look) {
 // the window has room for the whole piece; in a narrower window they shrink to a button's gap, so
 // that the strip's first button is not cut off at the window's left edge (with today's sizes the
 // seven buttons, the reload button and the sparkle then fit down to 292 px)
-function key_buttons_css(look) {
-  const g = key_buttons_backdrop_geom(look)
+function key_buttons_css(look, guests = 0) {
+  const g = key_buttons_backdrop_geom(look, guests)
+  const own = key_buttons_backdrop_geom(look).w_piece // the piece without a guest group: the strip's own room
   return `
 .key-buttons { position: fixed; right: ${look.right}px; bottom: ${look.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
 .key-buttons.keyboard { right: auto; bottom: auto }
@@ -397,7 +401,7 @@ function key_buttons_css(look) {
 .key-buttons-reload > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons-nav { position: fixed; right: ${look.reload.left + 2 * look.reload.size + 2 * look.group}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
 .key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: ${look.group - look.gap}px }
-@media (max-width: ${g.w_piece - 1}px) { .key-buttons-reload.desktop { right: ${look.reload.left + look.reload.size + look.gap}px } .key-buttons-nav { right: ${look.reload.left + 2 * look.reload.size + 2 * look.gap}px } .key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: 0 } }
+@media (max-width: ${own - 1}px) { .key-buttons-reload.desktop { right: ${look.reload.left + look.reload.size + look.gap}px } .key-buttons-nav { right: ${look.reload.left + 2 * look.reload.size + 2 * look.gap}px } .key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: 0 } }
 .key-buttons-nav[hidden] { display: none }
 .key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .key-buttons-nav > button.valid { color: ${look.valid} }
@@ -407,6 +411,15 @@ function key_buttons_css(look) {
 .key-buttons-nav > button:active { background: ${look.pressed} }
 .key-buttons-nav > button > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons-nav > button.dim > svg { opacity: ${look.dim} }
+.key-buttons-guests { position: fixed; right: ${own - look.reload.left + look.group}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
+.key-buttons-guests[hidden] { display: none }
+.key-buttons-guests > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
+.key-buttons-guests > button:focus { outline: none }
+.key-buttons-guests > button:focus-visible { outline: 1px solid currentColor }
+@media (hover: hover) { .key-buttons-guests > button:hover { background: #333 } }
+.key-buttons-guests > button:active { background: ${look.pressed} }
+.key-buttons-guests > button > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
+.key-buttons-guests > button.fill > svg { fill: currentColor; stroke: none }
 .key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }
 .key-buttons-bg[hidden] { display: none }
 .key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
@@ -864,8 +877,11 @@ function key_buttons_create() {
     return document.body.appendChild(group)
   }
   const nav_strip = (self.nav_strip = nav_group('nav-strip', 'key-buttons-nav', KEY_BUTTONS_STRIP_SPECS, 'Navigation keys'))
+  // a guest group: buttons that another item hands to the strip, one more group at its left end
+  // (self.guest fills it, self.show decides whether the window has room for the wider piece)
+  const guests = (self.guests = nav_group('guests', 'key-buttons-guests', [], 'Actions for the named item'))
   const viewport = window.visualViewport
-  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null })
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null, guest_count: 0 })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
   // once the item is gone (its own task's cancel disposes this controller)
   const later = (name, run, ms) => {
@@ -890,6 +906,16 @@ function key_buttons_create() {
     const bg_mode = (self.bg_mode = key_buttons_backdrop(window, keyboard, shown, KEY_BUTTONS_LOOK))
     backdrop.hidden = !bg_mode
     backdrop.className = bg_mode == 'desktop-split' ? 'key-buttons-bg desktop split' : bg_mode == 'desktop-strip' ? 'key-buttons-bg desktop' : 'key-buttons-bg'
+    // the guest group stands in the strip's own piece, where the window has room for the wider
+    // piece; the piece, its frame and what counts as glass are drawn for the buttons that show
+    const handed = guests.childElementCount
+    const guest_count = handed && bg_mode == 'desktop-split' && (window.innerWidth ?? Infinity) >= key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, handed).w_piece ? handed : 0
+    guests.hidden = !guest_count
+    if (guest_count !== self.guest_count) {
+      self.guest_count = guest_count
+      style.textContent = key_buttons_css(KEY_BUTTONS_LOOK, guest_count)
+      backdrop_frame.innerHTML = key_buttons_backdrop_frame(KEY_BUTTONS_LOOK, guest_count)
+    }
     self.keyboard_up = keyboard.up
     self.apply_nav()
     if (!keys.hidden) {
@@ -922,6 +948,58 @@ function key_buttons_create() {
     for (const button of nav_strip.children) {
       if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
     }
+  }
+  // the guest group, from what another item has put on the window (window._key_buttons_guests:
+  // { buttons, taken }, each button { name, title, icon, box, fill, color, press }: `icon` one path in a
+  // box of `box` units, 16 where it is left out, drawn as a line or, with `fill`, filled, in
+  // `color`; `press` is that item's own function; `taken`, if given, is called once they are
+  // drawn here). The item sets it and calls this; it stays on
+  // the window, so a controller drawn anew (an update of this item) shows the group again. A
+  // press takes no focus and reaches nothing under the button, as the strip's own
+  self.guest = () => {
+    if (self.disposed) return
+    const specs = window._key_buttons_guests?.buttons
+    guests.replaceChildren(
+      ...(Array.isArray(specs) ? specs : []).map(spec => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.tabIndex = -1
+        button.dataset.guest = spec.name
+        if (spec.fill) button.className = 'fill'
+        if (spec.color) button.style.color = spec.color
+        button.title = spec.title
+        button.setAttribute('aria-label', spec.title)
+        // built as elements, not parsed as markup: the path is another item's text
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+        svg.setAttribute('viewBox', `0 0 ${Number(spec.box) || 16} ${Number(spec.box) || 16}`)
+        svg.setAttribute('aria-hidden', 'true')
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+        path.setAttribute('d', String(spec.icon ?? ''))
+        svg.appendChild(path)
+        button.appendChild(svg)
+        button.addEventListener('click', e => {
+          taken(e)
+          if (self.disposed || guests.hidden || !own_click_ok(button, e)) return
+          const failed = error => console.error(`key buttons: a guest button's press failed: ${error}`)
+          try {
+            Promise.resolve(spec.press?.()).catch(failed)
+          } catch (error) {
+            failed(error)
+          }
+        })
+        button.addEventListener('mousedown', taken)
+        button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
+        button.addEventListener('contextmenu', taken)
+        return button
+      })
+    )
+    // the item that handed them over stops drawing them itself
+    try {
+      window._key_buttons_guests?.taken?.()
+    } catch (error) {
+      console.error(`key buttons: a guest's taken() failed: ${error}`)
+    }
+    self.show()
   }
   self.box = () =>
     self.query !== undefined
@@ -1006,7 +1084,7 @@ function key_buttons_create() {
   const own_button_at = (x, y) => {
     const buttons = []
     if (!reloader.hidden) buttons.push(reloader)
-    for (const g of [bar, keys, nav_strip]) if (!g.hidden) buttons.push(...g.children)
+    for (const g of [bar, keys, nav_strip, guests]) if (!g.hidden) buttons.push(...g.children)
     for (const b of buttons) if (inside(b, x, y)) return b
     return null
   }
@@ -1021,7 +1099,7 @@ function key_buttons_create() {
       const sparkle = el?.closest?.('.vault-sparkle')
       if (!KEY_BUTTONS_OWN_OVERLAY.some(sel => el?.closest?.(sel)) && !(sparkle && inside(sparkle, pt[0], pt[1]))) {
         const right_shown = self.bg_mode == 'desktop-split' && !!document.querySelector?.('body > .vault-sparkle:not([hidden])')
-        rejected = key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK)
+        rejected = key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK, self.guest_count)
       }
     }
     return { source, touch, rejected, button, mouse_seen: source == 'mouse', up: false }
@@ -1107,10 +1185,12 @@ function key_buttons_create() {
     keys.remove()
     reloader.remove()
     nav_strip.remove()
+    guests.remove()
     style.remove()
     if (window._key_buttons === self) delete window._key_buttons
   }
   window._key_buttons = self
+  self.guest() // a group handed over before this controller was drawn
   // this item's deletion: the app cancels the task of a deleted item at its next run (and of
   // a replaced controller when the next one dispatches)
   // The task also retires a controller whose code is no longer the item's: a text saved without

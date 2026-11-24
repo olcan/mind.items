@@ -30,6 +30,8 @@ class FakeNode {
   get tagName() { return this.tag.toUpperCase() }
   appendChild(child) { child.parent = this; this.children.push(child); if (child.dataset.keyButtons) log.push('+' + child.dataset.keyButtons + (child.hidden ? ' hidden' : '')); return child }
   remove() { if (!this.parent) return; this.parent.children = this.parent.children.filter(c => c !== this); this.parent = null; log.push('-' + this.dataset.keyButtons) }
+  get childElementCount() { return this.children.length }
+  replaceChildren(...nodes) { for (const child of this.children) child.parent = null; this.children = []; for (const node of nodes) this.appendChild(node) }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
   removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] ?? []).filter(f => f !== fn) }
   setAttribute(name, value) { this.attrs[name] = value }
@@ -42,7 +44,7 @@ class FakeNode {
   }
 }
 const scrolled = []
-const page = Object.assign(new FakeNode('document'), { head: new FakeNode('head'), body: new FakeNode('body'), activeElement: null, createElement: tag => new FakeNode(tag) })
+const page = Object.assign(new FakeNode('document'), { head: new FakeNode('head'), body: new FakeNode('body'), activeElement: null, createElement: tag => new FakeNode(tag), createElementNS: (space, tag) => new FakeNode(tag) })
 page.documentElement = new FakeNode('html')
 page.body.scrollBy = (x, y) => scrolled.push([x, y])
 const all = () => { const out = []; const walk = n => { out.push(n); n.children.forEach(walk) }; walk(page.head); walk(page.body); return out }
@@ -495,7 +497,7 @@ v1('_on_welcome()')
 const [bg, bar, keys, nav_strip] = [parts('backdrop')[0], parts('bar')[0], parts('keyboard')[0], parts('nav-strip')[0]]
 check('controller: the page\'s welcome draws one style, the backdrop (with its pane, SVG frame and unused right piece children), the two rows, the reload button and the one desktop nav strip under the body, each put there hidden; on a narrow (390 px) desktop with empty box the strip and merged desktop backdrop show (arrows dimmed, non-arrows untouched)',
   [log, parts('style').length, parts('nav-vertical').length, parts('nav-horizontal').length, bg.parent === page.body, bg.children.map(c => c.className), bg.children[1].innerHTML === frame, bar.parent === page.body, keys.parent === page.body, nav_strip.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), nav_strip.children.map(b => [b.dataset.key, b.dataset.lead ?? null]), nav_strip.className, bg.className, bg.attrs['aria-hidden'], bg.hidden, bar.hidden, keys.hidden, nav_strip.hidden, nav_strip.children.map(b => [b.dataset.key, b.className ?? '']), tasks.key_buttons.delay, tasks.key_buttons.repeat],
-  [['+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', 'task key_buttons'], 1, 0, 0, true, ['key-buttons-bg-pane', 'key-buttons-bg-frame', 'key-buttons-bg-right'], true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), [['top', '1'], ['back', null], ['left', '1'], ['up', null], ['down', null], ['right', null], ['create', '1']], 'key-buttons-nav', 'key-buttons-bg desktop', 'true', false, true, true, false, [['top', ''], ['back', ''], ['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim'], ['create', '']], 15000, 15000])
+  [['+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', '+guests hidden', 'task key_buttons'], 1, 0, 0, true, ['key-buttons-bg-pane', 'key-buttons-bg-frame', 'key-buttons-bg-right'], true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), [['top', '1'], ['back', null], ['left', '1'], ['up', null], ['down', null], ['right', null], ['create', '1']], 'key-buttons-nav', 'key-buttons-bg desktop', 'true', false, true, true, false, [['top', ''], ['back', ''], ['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim'], ['create', '']], 15000, 15000])
 const again = parts('reload')[0]
 check('reload: drawn under the body with the rows and shown on a desktop with class desktop; named for a screen reader, its icon a line drawing, and within the Tab order as the sparkle is',
   [parts('reload').length, again.parent === page.body, again.hidden, again.className, again.title, again.attrs['aria-label'], again.innerHTML, 'tabIndex' in again],
@@ -655,7 +657,7 @@ v2('_on_item_change("keys-id")')
 const [bar2, keys2] = [parts('bar')[0], parts('keyboard')[0]]
 check('controller: an update of the item replaces the rows: the earlier ones go before the new ones are drawn, shown at once, and the earlier task is cancelled',
   [log, parts('bar').length, parts('keyboard').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('backdrop').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
-  [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style', '+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', 'task key_buttons'], 1, 1, 1, 0, 0, 1, true, false, 1, 1, true])
+  [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style', '+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', '+guests hidden', 'task key_buttons'], 1, 1, 1, 0, 0, 1, true, false, 1, 1, true])
 bar.hidden = false // as if it were still shown: only its disposal keeps a replaced row quiet
 button('down').fire('click')
 again.hidden = false
@@ -1066,14 +1068,14 @@ check('controller: an item that only carries the code draws nothing and leaves t
   win.innerHeight = 800
   pointer.matches = prev_pointer
 }
-check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], 0, 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
+check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], 0, 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
 items['#key_buttons'] = { id: 'keys-id' }
 v2('_on_item_change("keys-id")')
 check('controller: named #key_buttons again it draws again', [parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length], [1, 1, 1, 1, 1, 0, 0])
 log.length = 0
 tasks.key_buttons._on_cancel() // the app, at the task's next run after the item's deletion
 check('controller: the item\'s deletion removes the rows, their style and the listeners at the task\'s cancel, and its task then ends',
-  [log, parts('backdrop').length, parts('bar').length, parts('reload').length, parts('nav-strip').length, listening(), tasks.key_buttons.fn()], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
+  [log, parts('backdrop').length, parts('bar').length, parts('reload').length, parts('nav-strip').length, listening(), tasks.key_buttons.fn()], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
 
 // ---- the caret's scroll, switched on in the table: once for each opening of the keyboard ---------
 {
@@ -1186,14 +1188,14 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
   const retired = [own.key_buttons.fn(), [...log], ['backdrop', 'bar', 'keyboard', 'reload', 'nav-strip', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
   log.length = 0
   check('stale: the task keeps a controller whose code is still the item\'s; once the item\'s hash is another (its code removed, or the app\'s #_debug tag put on it: no hook says so) the next run retires it: the rows, the button, the style and every listener go, the task ends, and a later run does nothing',
-    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
+    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
   const theirs = {}
   const gone = evaluation(7, 'keys-id', theirs)
   gone('_on_welcome()')
   Object.defineProperty(gone.item, 'deephash', { get() { throw new Error('item keys-id is deleted') } })
   log.length = 0
   check('stale: a controller whose item can no longer be read (deleted, should the app not have cancelled its task) is retired the same way',
-    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
+    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
   log.length = 0
 }
 
