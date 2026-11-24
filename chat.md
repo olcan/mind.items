@@ -1,4 +1,5 @@
 #chat defines utilities for _chat items_ that represent chat histories using _delimiter macros_. See #/gpt #/gemini #/claude #/together #/groq #/ollama #/openrouter #/tiny #/next #/dsv4 for agent-specific chat items, and #/vault for the vault agent bridge.  
+The first user message starts beside the name tag when the name line contains only the item name and optional hidden tags, and the user delimiter starts the next nonblank line.
 
 <<js_table()>>
 

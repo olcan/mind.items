@@ -297,15 +297,73 @@ async function _delete_agent_messages_below(e) {
   for (const d of order) d.delete(false /*confirm: the dialog above was the confirmation*/)
 }
 
+// hide_first_user_row(text, name)
+// whether a chat item's first user row is hidden, so that its message starts beside the item's
+// name tag: `text` begins with the tag `name`, the rest of the name's line holds hidden tags at
+// most, and only blank lines stand between that line and the first user delimiter
+function hide_first_user_row(text, name) {
+  const raw = String(text ?? '')
+  const item = String(name ?? '')
+  if (!raw || !item) return false
+
+  const tag = item.startsWith('#') ? item : '#' + item
+  if (raw.slice(0, tag.length).toLowerCase() !== tag.toLowerCase()) return false
+
+  // refuse a longer tag that merely begins with the name
+  const after = raw[tag.length]
+  if (after != null && !/\s/.test(after)) return false
+
+  // the name's line: after the name only hidden tags, written as whole words (a hash and an
+  // underscore; a second hash glued to one, or a box-drawing bar inside one, makes the app draw
+  // text there). The app writes a chat's hidden tags on this line. Whatever the app makes of
+  // them, they stand in the name's own paragraph, which is never hidden
+  const hidden_tag = /^#_[^#\s<>&?!,.;:"'`(){}\[\]\u2502]+$/
+  const name_end = raw.indexOf('\n', tag.length)
+  if (name_end < 0) return false // no later line, so no delimiter
+  if (!raw.slice(tag.length, name_end).split(/\s+/).filter(word => word).every(word => hidden_tag.test(word))) return false
+
+  // the lines after it, up to the first line that is the bare user delimiter (0-3 leading
+  // spaces, so that Marked parses its html block and not an indented one; a delimiter with an
+  // argument draws no user row): every one of them blank. The stylesheet hides the paragraphs
+  // between the name's paragraph and a hidden row, so only blank lines may make them: a tag on
+  // a line of its own can be drawn as text (after a line of four spaces the app reads it as
+  // code), and would vanish with the row (reviews 0 and 1 of the thread first_user_row). Walked
+  // by offsets, so that the decision reads the lines before the delimiter and not the whole
+  // chat. NOTE: this file is embedded in the chat item's own text, where the app expands an
+  // unescaped macro opener that has its closer on the same line, also in code and comments:
+  // this item's three embedded files keep every opener escaped, and no comment writes a tag
+  for (let start = name_end + 1; start <= raw.length; ) {
+    let end = raw.indexOf('\n', start)
+    if (end < 0) end = raw.length
+    const line = raw.slice(start, end)
+    if (/^ {0,3}\<< *user *>>/.test(line)) return true
+    if (line.trim()) return false
+    start = end + 1
+  }
+  return false // no user delimiter
+}
+
 // generic delimiter macro reused by role-specific macros defined below
 const _delimiter = (role, name = role, ...args) => {
   if (name && !is_string(name))
     throw new Error(`invalid non-string name argument '${name}'`)
   if (args.length > 0) throw new Error(`invalid extra arguments '${args}'`)
+
+  // the item's first macro alone can be its first user row: the renderer and the cached read
+  // both name it `macro_0` (an evaluation without a trigger draws no row of the item). For it,
+  // read raw `_this.text` (not the grammar view `read()`) and `_this.label` (not `_name`, which
+  // becomes `id:...` on duplicate labels)
+  const first_macro = role === 'user' && typeof __trigger === 'string' && __trigger === 'macro_0'
+  const raw = first_macro && typeof _this !== 'undefined' && typeof _this?.text === 'string' ? _this.text : ''
+  const label = first_macro && typeof _this !== 'undefined' && typeof _this?.label === 'string' ? _this.label : ''
+  const hide_first = first_macro && hide_first_user_row(raw, label)
+  const state = hide_first ? 'hideFirstUserRow' : ''
+
   return html(
     _item('$id')
       .read('html') // see html block below
       .replace(/%role/g, role)
+      .replace(/ ?%state/g, state ? ' ' + state : '') // before the name, which may hold that word
       .replace(/%name/g, name)
   )
 }
