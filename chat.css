@@ -227,18 +227,19 @@
   visibility: hidden;
 }
 
-/* trial for the owner (2026-11-23): no lines before or after a role's name, and the last
-   agent row looks like every other agent row (its stale and edited looks are kept) */
-.dep_chat .message hr {
+/* trial for the owner (2026-11-23), only in a chat item that holds an agent's inert section (a
+   chat the bridge answers; other chats keep the released look): no lines before or after a
+   role's name, the last agent row like every other agent row (its stale and edited looks are
+   kept), and a user row's name at the left */
+.dep_chat > .content:has(.vault-result) .message hr {
   visibility: hidden;
 }
-.dep_chat .message:last-of-type.agent:not(.stale, .edited) .label {
+.dep_chat > .content:has(.vault-result) .message:last-of-type.agent:not(.stale, .edited) .label {
   color: #444;
 }
-/* the trial's second step: a user row's name stands at the left */
-.dep_chat .message.user hr.left {
+.dep_chat > .content:has(.vault-result) .message.user hr.left {
   display: none;
 }
-.dep_chat .message.user .label {
+.dep_chat > .content:has(.vault-result) .message.user .label {
   margin-left: 0;
 }
