@@ -318,9 +318,13 @@ function key_buttons_backdrop_geom(look, guests = 0) {
 // stylesheet (key_buttons_backdrop_geom and key_buttons_backdrop). Excludes the outer shadow and
 // the clipped-away 12 px outer corner triangles so hits match the painted glass shape exactly;
 // returns false whenever no glass shows (mode == null)
-function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KEY_BUTTONS_LOOK, guests = 0) {
+function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KEY_BUTTONS_LOOK, guests = 0, floor = 0) {
   if (!mode || x < 0 || y < 0 || x > vw || y > vh) return false
   const dy = vh - y // distance up from the viewport's bottom edge
+  // the guests' second floor (`floor`: its width, 0 without one): a piece as high as the row,
+  // right above it at the window's left edge
+  const row = mode == 'mobile' ? look.size + 2 * look.bottom : look.reload.size + 2 * look.reload.bottom
+  if (floor && x <= floor && dy > row && dy <= 2 * row) return true
   if (mode == 'mobile') return dy <= look.size + 2 * look.bottom
   const g = key_buttons_backdrop_geom(look, guests)
   const in_arc = (px, py, cx, cy) => (px - cx) ** 2 + (py - cy) ** 2 <= g.r ** 2
@@ -420,6 +424,12 @@ function key_buttons_css(look, guests = 0) {
 .key-buttons-guests > button:active { background: ${look.pressed} }
 .key-buttons-guests > button > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons-guests > button.fill > svg { fill: currentColor; stroke: none }
+.key-buttons-guests.floor { right: auto; left: ${look.reload.left}px; bottom: ${g.h_row + look.reload.bottom}px }
+.key-buttons-guests.floor.touch { bottom: ${look.size + 3 * look.bottom}px }
+.key-buttons-guests.floor.touch > button { width: ${look.size}px; height: ${look.size}px }
+.key-buttons-guests.floor.touch > button > svg { width: ${look.icon}px; height: ${look.icon}px }
+.key-buttons-bg > .key-buttons-bg-floor { display: none; position: absolute; left: 0; box-sizing: border-box; border-top: 1px solid ${look.backdrop.border}; border-right: 1px solid ${look.backdrop.border}; border-top-right-radius: ${g.r}px; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; -webkit-clip-path: inset(-${g.pad}px -${g.pad}px 0 0); clip-path: inset(-${g.pad}px -${g.pad}px 0 0); pointer-events: none }
+.key-buttons-bg.floor > .key-buttons-bg-floor { display: block }
 .key-buttons-bg { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: ${look.layer - 1}; pointer-events: none }
 .key-buttons-bg[hidden] { display: none }
 .key-buttons-bg > .key-buttons-bg-pane { position: absolute; left: 0; right: 0; bottom: 0; height: ${look.size + 2 * look.bottom}px; box-sizing: border-box; background: ${look.backdrop.fill}; -webkit-backdrop-filter: blur(${look.backdrop.blur}); backdrop-filter: blur(${look.backdrop.blur}); border-top: 1px solid ${look.backdrop.border}; box-shadow: 0 0 ${look.backdrop.shadow_blur}px ${look.backdrop.shadow}; pointer-events: none }
@@ -723,9 +733,13 @@ function key_buttons_create() {
   backdrop_frame.innerHTML = key_buttons_backdrop_frame(KEY_BUTTONS_LOOK)
   const backdrop_right = document.createElement('div')
   backdrop_right.className = 'key-buttons-bg-right'
+  // the glass under a guest group that stands on a second floor (self.show sizes and shows it)
+  const backdrop_floor = document.createElement('div')
+  backdrop_floor.className = 'key-buttons-bg-floor'
   backdrop.appendChild(backdrop_pane)
   backdrop.appendChild(backdrop_frame)
   backdrop.appendChild(backdrop_right)
+  backdrop.appendChild(backdrop_floor)
   document.body.appendChild(backdrop)
   // active press state for frosted-glass rejection (decided once where each press starts; declared
   // here so the button click handlers below can check that a click belongs to a press started in
@@ -878,10 +892,11 @@ function key_buttons_create() {
   }
   const nav_strip = (self.nav_strip = nav_group('nav-strip', 'key-buttons-nav', KEY_BUTTONS_STRIP_SPECS, 'Navigation keys'))
   // a guest group: buttons that another item hands to the strip, one more group at its left end
-  // (self.guest fills it, self.show decides whether the window has room for the wider piece)
+  // (self.guest fills it, self.show decides whether the window has room for the wider piece, or
+  // the group stands on a second floor)
   const guests = (self.guests = nav_group('guests', 'key-buttons-guests', [], 'Actions for the named item'))
   const viewport = window.visualViewport
-  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null, guest_count: 0 })
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null, guest_count: 0, guest_floor: 0 })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
   // once the item is gone (its own task's cancel disposes this controller)
   const later = (name, run, ms) => {
@@ -903,14 +918,27 @@ function key_buttons_create() {
     bar.hidden = shown != 'main'
     keys.hidden = shown != 'keyboard'
     reloader.hidden = !key_buttons_reload_shown(window, keyboard, shown, KEY_BUTTONS_LOOK)
-    const bg_mode = (self.bg_mode = key_buttons_backdrop(window, keyboard, shown, KEY_BUTTONS_LOOK))
-    backdrop.hidden = !bg_mode
-    backdrop.className = bg_mode == 'desktop-split' ? 'key-buttons-bg desktop split' : bg_mode == 'desktop-strip' ? 'key-buttons-bg desktop' : 'key-buttons-bg'
-    // the guest group stands in the strip's own piece, where the window has room for the wider
-    // piece; the piece, its frame and what counts as glass are drawn for the buttons that show
+    // the guest group stands in the strip's own piece where the window has room for the wider
+    // piece. Where it has not (a narrower window, a phone's row), the group stands on a second
+    // floor: a piece of its own right above the row, at the window's left edge (the owner,
+    // 2026-11-24: "if not enough room then they go on a second floor left-aligned"), over a
+    // strip that spans the window. The piece, its frame and what counts as glass are drawn for
+    // the buttons that show; none show while a keyboard is on the screen
+    let bg_mode = key_buttons_backdrop(window, keyboard, shown, KEY_BUTTONS_LOOK)
     const handed = guests.childElementCount
-    const guest_count = handed && bg_mode == 'desktop-split' && (window.innerWidth ?? Infinity) >= key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, handed).w_piece ? handed : 0
-    guests.hidden = !guest_count
+    const room = !!handed && bg_mode == 'desktop-split' && (window.innerWidth ?? Infinity) >= key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, handed).w_piece
+    if (handed && bg_mode == 'desktop-split' && !room) bg_mode = 'desktop-strip'
+    self.bg_mode = bg_mode
+    const floor = !!handed && !room && !!bg_mode
+    backdrop.hidden = !bg_mode
+    backdrop.className = (bg_mode == 'desktop-split' ? 'key-buttons-bg desktop split' : bg_mode == 'desktop-strip' ? 'key-buttons-bg desktop' : 'key-buttons-bg') + (floor ? ' floor' : '')
+    guests.hidden = !(room || floor)
+    guests.className = !floor ? 'key-buttons-guests' : bg_mode == 'mobile' ? 'key-buttons-guests floor touch' : 'key-buttons-guests floor'
+    const floor_size = bg_mode == 'mobile' ? KEY_BUTTONS_LOOK.size : KEY_BUTTONS_LOOK.reload.size
+    const floor_row = bg_mode == 'mobile' ? KEY_BUTTONS_LOOK.size + 2 * KEY_BUTTONS_LOOK.bottom : KEY_BUTTONS_LOOK.reload.size + 2 * KEY_BUTTONS_LOOK.reload.bottom
+    self.guest_floor = floor ? 2 * KEY_BUTTONS_LOOK.reload.left + handed * floor_size + (handed - 1) * KEY_BUTTONS_LOOK.gap : 0
+    Object.assign(backdrop_floor.style, floor ? { width: self.guest_floor + 'px', bottom: floor_row + 'px', height: floor_row + 'px' } : { width: '', bottom: '', height: '' })
+    const guest_count = room ? handed : 0
     if (guest_count !== self.guest_count) {
       self.guest_count = guest_count
       style.textContent = key_buttons_css(KEY_BUTTONS_LOOK, guest_count)
@@ -1099,7 +1127,7 @@ function key_buttons_create() {
       const sparkle = el?.closest?.('.vault-sparkle')
       if (!KEY_BUTTONS_OWN_OVERLAY.some(sel => el?.closest?.(sel)) && !(sparkle && inside(sparkle, pt[0], pt[1]))) {
         const right_shown = self.bg_mode == 'desktop-split' && !!document.querySelector?.('body > .vault-sparkle:not([hidden])')
-        rejected = key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK, self.guest_count)
+        rejected = key_buttons_in_glass(pt[0], pt[1], window.innerWidth, window.innerHeight, self.bg_mode, right_shown, KEY_BUTTONS_LOOK, self.guest_count, self.guest_floor)
       }
     }
     return { source, touch, rejected, button, mouse_seen: source == 'mouse', up: false }
