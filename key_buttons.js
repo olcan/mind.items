@@ -109,7 +109,7 @@ const KEY_BUTTONS_LOOK = {
   // keyboard device, split into a left piece (reload + arrows) and a right piece (sparkle, when
   // shown), merging into the full-width strip below `merge` px; raised with a 1 px light border
   // along free edges only and a soft outer shadow outside the glass only
-  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 8, shadow_spread: 2, merge: 480 },
+  backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 8, shadow_spread: 0, merge: 480 },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
 // and how long the view has to stay as it is before the one look (the keyboard has taken its room)

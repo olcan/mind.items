@@ -181,7 +181,7 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     frame.includes(`stroke="${look.backdrop.border}" stroke-width="1"`),
     frame.includes('class="key-buttons-bg-svg split"') && frame.includes('class="key-buttons-bg-svg strip"'),
     look.layer - 1 < look.layer && look.layer < Number(layer[1])],
-  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 8, shadow_spread: 2, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
+  ['#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 8, shadow_spread: 0, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
 
 // ---- the keyboard's row: its place from a visual viewport -------------------------------------
 const place = view => v1('key_buttons_place(__args, 3, KEY_BUTTONS_LOOK)', view)
