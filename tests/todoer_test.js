@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', '_snooze_record', '_wait_key'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -42,7 +42,7 @@ const context = {
   warn: () => {},
   debug: () => {},
   fatal: msg => { throw new Error(msg) },
-  _todoer: { store: {} },
+  _todoer: { id: 'todoer', store: {} },
   // the sweep callback's world (the callback tests below): a fake clock, the stubs it reads
   _this: { dispatch_task: (name, fn) => (context.__captured[name] = fn) },
   __captured: {},
@@ -136,13 +136,24 @@ const picked =
     '_notify_reply',
     '_waits',
     '_waiting_text',
+    '_row_question',
     '_clear_waiting',
     '_as_todo',
     '_rows_start',
+    '_bells_now',
+    '_bell',
+    '_clear_bell',
     '_snooze_dialog',
+    '_item_writes',
+    '_item_visible',
+    '_item_preview',
+    '_item_notify_step',
+    '_notify_item',
+    '_notify_items',
     '_on_item_change',
     '_state_key',
     '_notify_step',
+    '_checked_in',
     '_notify_change',
     '_notify_todo',
     '_unsnooze_step',
@@ -171,7 +182,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _item_writes, _item_visible, _item_preview, _item_notify_step, _notify_item, _notify_items, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -179,6 +190,7 @@ const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
 const _pending_commands = vm.runInContext('_pending_commands', context)
 
 let failures = 0
+const async_rows = []
 const check = (name, actual, expected) => {
   const ok = JSON.stringify(actual) === JSON.stringify(expected)
   if (!ok) failures++
@@ -735,14 +747,14 @@ check('notify words: off and test', [_parse_notify('off'), _parse_notify(' test 
 check('notify words: test takes no words', _parse_notify('test now').error, 'test takes no words')
 check('notify words: an unknown word', _parse_notify('maybe').error.startsWith('unknown word maybe ('), true)
 // the setting after a word (additive: the owner's ask of 2026-10-03)
-const ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply']
-check('setting: on from off is the default set, done included', _notify_setting(undefined, _parse_notify('on')), { reasons: ATTENTION })
+const ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item']
+check('setting: on from off is the default set, done and item included', _notify_setting(undefined, _parse_notify('on')), { reasons: ATTENTION })
 check('setting: on alone restores the default set over a custom one (an opt-in dropped, the defaults back)', _notify_setting({ reasons: ['question', 'taken'] }, _parse_notify('on')), { reasons: ATTENTION })
 check('setting: on <reason> adds to the current set', _notify_setting({ reasons: ['question', 'done'] }, _parse_notify('on taken')), { reasons: ['question', 'done', 'taken'] })
 check('setting: on <reason> from off adds to the default set', _notify_setting(null, _parse_notify('on taken')), { reasons: [...ATTENTION, 'taken'] })
 check('setting: on all', _notify_setting({ reasons: ['question'] }, _parse_notify('on all')), { reasons: NOTIFY_REASONS })
 check('setting: a reason already there is kept once, in the canonical order', _notify_setting({ reasons: ['done', 'question'] }, _parse_notify('on question blocked')), { reasons: ['question', 'blocked', 'done'] })
-check('setting: off <reason> removes it', _notify_setting({ reasons: ATTENTION }, _parse_notify('off done proposal')), { reasons: ['question', 'blocked', 'budget', 'reply'] })
+check('setting: off <reason> removes it', _notify_setting({ reasons: ATTENTION }, _parse_notify('off done proposal')), { reasons: ['question', 'blocked', 'budget', 'reply', 'item'] })
 check('setting: off <reason> leaving none is off', _notify_setting({ reasons: ['done'] }, _parse_notify('off done')), null)
 check('setting: off <reason> while off stays off', _notify_setting(undefined, _parse_notify('off done')), null)
 check('setting: off alone is off', _notify_setting({ reasons: ATTENTION }, _parse_notify('off')), null)
@@ -1021,6 +1033,220 @@ context.__items = [context.__todos.q, context.__todos.r]
 check('hook: the child under a standing /land is recorded as delegated', _notify_change(context.__todos.r), 'not in the main list')
 context.__todos.q._global_store._agent.state = { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: false }
 check('hook: the project\'s store change notifies its child entering the main list', [_on_global_store_change('q', true), notified.length - notified_before, notified[notified.length - 1].options.body, rerenders], [undefined, 4, 'child of #todo another project', ['g', 'q']])
+// ITEM WRITE STAMPS (2026-11-23, _item_notify_step, _item_preview, _notify_item, _notify_items):
+// bin/mind_item.py --author writes `_agent.wrote[id] = {by, at, hash}` into `#todoer`'s own store
+const ITEM_STAMP_MAX_AGE_MS = vm.runInContext('ITEM_STAMP_MAX_AGE_MS', context)
+const ITEM_NOW = 2_000_000_000
+const item_step = over =>
+  _item_notify_step({
+    at: ITEM_NOW - 1000,
+    hash: '0123456789abcdef',
+    prev: undefined,
+    item_hash: '0123456789abcdef',
+    now: ITEM_NOW,
+    setting: { reasons: ['item'] },
+    permission: 'granted',
+    ...over,
+  })
+check('item step: recent unseen entry matching item hash notifies', item_step({}), 'notify')
+check('item step: exact ten-minute past and future boundaries still notify', [item_step({ at: ITEM_NOW - ITEM_STAMP_MAX_AGE_MS }), item_step({ at: ITEM_NOW + ITEM_STAMP_MAX_AGE_MS })], ['notify', 'notify'])
+check('item step: missing or malformed at/hash is no stamp', [item_step({ at: null }), item_step({ at: undefined }), item_step({ at: NaN }), item_step({ at: Infinity }), item_step({ at: '1000' }), item_step({ hash: null }), item_step({ hash: '' }), item_step({ hash: 42 })], ['no stamp', 'no stamp', 'no stamp', 'no stamp', 'no stamp', 'no stamp', 'no stamp', 'no stamp'])
+check('item step: same id and at already decided is seen', item_step({ prev: ITEM_NOW - 1000 }), 'seen')
+check('item step: past or future beyond ten minutes is stale', [item_step({ at: ITEM_NOW - ITEM_STAMP_MAX_AGE_MS - 1 }), item_step({ at: ITEM_NOW + ITEM_STAMP_MAX_AGE_MS + 1 })], ['stale', 'stale'])
+check('item step: item missing or hash mismatch is pending', [item_step({ item_hash: null }), item_step({ item_hash: undefined }), item_step({ item_hash: 'fedcba9876543210' })], ['pending', 'pending', 'pending'])
+check('item step: reason not in setting', [item_step({ setting: { reasons: ['reply'] } }), item_step({ setting: null })], ['reason item', 'off'])
+check('item step: no permission on this device', [item_step({ permission: 'default' }), item_step({ permission: 'denied' })], ['permission default', 'permission denied'])
+// visible preview (_item_preview + _notification_of): mirrors the app's `read('', {remove_hidden, remove_removed})`
+const app_read = text => (type = '', options = {}) => {
+  let out = String(text ?? '')
+  if (options?.remove_hidden && !type) {
+    out = out.replace(/(?:^|\n) *```\S*_hidden *\n(?: *|[\s\S]*?\n *)```/g, '')
+    out = out.replace(/<!--\s*hidden\s*-->[\s\S]*?<!--\s*\/hidden\s*-->\s*?(\n|$)/g, '')
+  }
+  if (options?.remove_removed && !type) {
+    out = out.replace(/(?:^|\n) *```\S*_removed *\n(?: *|[\s\S]*?\n *)```/g, '')
+    out = out.replace(/<!--\s*removed\s*-->[\s\S]*?<!--\s*\/removed\s*-->\s*?(\n|$)/g, '')
+  }
+  return out
+}
+const preview_of = ({ name, label = '', text }) => {
+  const { shown, body } = _item_preview({ name, label, text, read: app_read(text) })
+  const note = _notification_of({ reason: 'item', shown, label: null, parent: null, id: 'x', body })
+  return [note.title, note.options.body]
+}
+check('item preview: unique label on own line', preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n\nFirst body line\nSecond' }), ['[item] #note/a', 'First body line'])
+check('item preview: unique label inline with text', preview_of({ name: '#note/a', label: '#note/a', text: '#note/a inline summary\nSecond' }), ['[item] #note/a', 'inline summary'])
+check('item preview: hidden tag stripped', preview_of({ name: '#note/a', label: '#note/a', text: '#note/a #_hidden\nVisible line' }), ['[item] #note/a', 'Visible line'])
+check('item preview: HTML comment after label is in neither title nor body', [
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n<!-- internal comment -->\nVisible line' }),
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a <!-- inline comment -->\nVisible line' }),
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n<!--\nmultiline\ncomment\n-->\nVisible line' }),
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n<!-- only comment -->' }),
+], [['[item] #note/a', 'Visible line'], ['[item] #note/a', 'Visible line'], ['[item] #note/a', 'Visible line'], ['[item] #note/a', '']])
+check('item preview: hidden and removed sections stripped through item.read options', [
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n<!--hidden-->\nSecret\n<!--/hidden-->\nVisible line' }),
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n<!--removed-->\nDropped\n<!--/removed-->\nVisible line' }),
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n```js_hidden\nsecret()\n```\nVisible line' }),
+  preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n```js_removed\ndropped()\n```\nVisible line' }),
+], [['[item] #note/a', 'Visible line'], ['[item] #note/a', 'Visible line'], ['[item] #note/a', 'Visible line'], ['[item] #note/a', 'Visible line']])
+// review 0 finding 3: `#todo stamped todo` carries label `#todo` in the app (both duplicate and sole `#todo`)
+check('item preview: leading #todo with app label #todo uses first line without #todo and second line as body', [
+  preview_of({ name: 'id:ni5', label: '#todo', text: '#todo stamped todo\nSecond line' }),
+  preview_of({ name: '#todo', label: '#todo', text: '#todo stamped todo\nSecond line' }),
+  preview_of({ name: 'id:ni5', label: '#todo', text: '#todo [proposal] stamped todo\nSecond line' }),
+  preview_of({ name: 'id:ni5', label: '#todo', text: '#todo [proposal] [x] keep mine\nSecond line' }),
+  preview_of({ name: 'id:ni5', label: '#todo', text: '#todo\nTask on second line\nThird line' }),
+], [['[item] stamped todo', 'Second line'], ['[item] stamped todo', 'Second line'], ['[item] stamped todo', 'Second line'], ['[item] [x] keep mine', 'Second line'], ['[item] Task on second line', 'Third line']])
+check('item preview: duplicate non-todo label and unlabeled items use first visible line', [
+  preview_of({ name: 'id:d1', label: '#dup', text: '#dup first line\nSecond line' }),
+  preview_of({ name: 'id:u1', label: '', text: 'Title line\nSecond line' }),
+  preview_of({ name: 'id:u2', label: '', text: 'Only line' }),
+  preview_of({ name: 'id:u3', label: '', text: '<!-- leading comment -->\nFirst visible\nSecond visible' }),
+], [['[item] #dup first line', 'Second line'], ['[item] Title line', 'Second line'], ['[item] Only line', ''], ['[item] First visible', 'Second visible']])
+check('item preview: body shortened to 120 chars like _reply_line', preview_of({ name: '#note/a', label: '#note/a', text: '#note/a\n' + 'z'.repeat(200) }), ['[item] #note/a', 'z'.repeat(119) + '…'])
+// three triggers, baseline, both arrival orders (creation + edit whose first visible line changes)
+const saved_now = context.__now
+const saved_notify_setting = context._todoer._global_store
+const saved_item_seen = context._todoer.store.item_seen
+const saved_item_lookup = context._item
+const saved_seen_tables = [context._todoer.store.notify_seen, context._todoer.store.snooze_seen, context._todoer.store.reply_seen]
+const saved_items_for_welcome = context.__items
+context.__now = ITEM_NOW
+const make_item = (id, text, hash, { saved_id = id, label = '', name = null, tags = ['#note'] } = {}) => ({
+  id,
+  saved_id,
+  name: name ?? (label || 'id:' + id),
+  label,
+  tags,
+  text,
+  hash,
+  read: app_read(text),
+  _global_store: {},
+})
+// lookup by local id or saved_id, mirroring index.svelte's tempIdFromSavedId
+context._item = ref => context.__todos[ref] ?? Object.values(context.__todos).find(it => it.saved_id == ref) ?? null
+const item_notified_before = notified.length
+const rerenders_before = rerenders.length
+// 1. baseline at _start_notifier: entries present at page open never notify afterwards
+context._todoer._global_store = {
+  notify: { reasons: ATTENTION },
+  _agent: {
+    wrote: {
+      pre1: { by: 'claude', at: ITEM_NOW - 5000, hash: 'h_pre1' },
+      bad: { by: 'claude' },
+    },
+  },
+}
+context.__todos.pre1 = make_item('pre1', '#pre\nAlready there', 'h_pre1', { label: '#pre' })
+context._todoer.store.item_seen = undefined
+check('item baseline: before welcome nothing notifies', _notify_item('pre1'), 'baseline')
+context.__items = [context.__todos.pre1]
+_start_notifier()
+check('item baseline: _start_notifier records present entries and skips malformed ones', context._todoer.store.item_seen, { pre1: ITEM_NOW - 5000 })
+_on_global_store_change('todoer', true)
+_on_item_change('pre1', '#pre', '#pre', false, true, false)
+_scan_notify()
+check('item baseline: pre-existing entries announce nothing across all three triggers', notified.length - item_notified_before, 0)
+// 2. creation — order A: item arrives FIRST, then #todoer store arrives
+context.__todos.c1 = make_item('c1', '#created_a\n<!-- hidden note -->\nCreated first order.', 'h_c1', { label: '#created_a' })
+_on_item_change('c1', '#created_a', '', false, true, false)
+check('item order (create, item first): item arrival before stamp notifies nothing', notified.length - item_notified_before, 0)
+context._todoer._global_store._agent.wrote.c1 = { by: 'claude', at: ITEM_NOW - 4000, hash: 'h_c1' }
+_on_global_store_change('other', true)
+check('item hook: unrelated store change does not inspect #todoer stamps', notified.length - item_notified_before, 0)
+_on_global_store_change('todoer', true)
+check('item order (create, item first): #todoer store arrival notifies once with title, body, tag and requireInteraction', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.body, notified[notified.length - 1].options.tag, notified[notified.length - 1].options.requireInteraction, rerenders.length - rerenders_before], [1, '[item] #created_a', 'Created first order.', 'todoer:c1', true, 0])
+notified[notified.length - 1].onclick()
+check('item hook: click targets the created item', context.__mindbox, ['#created_a', { scroll: true }])
+_on_global_store_change('todoer', true)
+_scan_notify()
+check('item order (create, item first): repeat store delivery and minute scan add nothing', notified.length - item_notified_before, 1)
+// 3. creation — order B: #todoer store arrives FIRST, then item arrives
+context._todoer._global_store._agent.wrote.c2 = { by: 'claude', at: ITEM_NOW - 3500, hash: 'h_c2' }
+_on_global_store_change('todoer', true)
+check('item order (create, store first): store before item is pending and records nothing', [notified.length - item_notified_before, context._todoer.store.item_seen.c2], [1, undefined])
+context.__todos.c2 = make_item('c2', '#created_b\nArrived second.', 'h_c2', { label: '#created_b' })
+_on_item_change('c2', '#created_b', '', false, true, false)
+check('item order (create, store first): subsequent item arrival notifies once with created text', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.body, notified[notified.length - 1].options.tag], [2, '[item] #created_b', 'Arrived second.', 'todoer:c2'])
+_on_global_store_change('todoer', true)
+_scan_notify()
+check('item order (create, store first): subsequent store hook and minute scan add nothing', notified.length - item_notified_before, 2)
+// 4. edit whose first visible line changes — order A: edited item FIRST, then #todoer store
+context.__todos.e1 = make_item('e1', 'Old title A\nOld body A', 'h_e1_old')
+context.__todos.e1 = make_item('e1', 'New title A\nNew body A', 'h_e1_new')
+_on_item_change('e1', '', '', false, true, false)
+check('item order (edit, item first): edited item before stamp notifies nothing', notified.length - item_notified_before, 2)
+context._todoer._global_store._agent.wrote.e1 = { by: 'claude', at: ITEM_NOW - 3000, hash: 'h_e1_new' }
+_on_global_store_change('todoer', true)
+check('item order (edit, item first): #todoer store notifies once with NEW first visible line', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.body], [3, '[item] New title A', 'New body A'])
+// 5. edit whose first visible line changes — order B: #todoer store FIRST (while old text still in page), then edited item
+context.__todos.e2 = make_item('e2', 'Old title B\nOld body B', 'h_e2_old')
+context._todoer._global_store._agent.wrote.e2 = { by: 'claude', at: ITEM_NOW - 2500, hash: 'h_e2_new' }
+_on_global_store_change('todoer', true)
+check('item order (edit, store first): hash mismatch against old text stays pending without alerting old line', [notified.length - item_notified_before, context._todoer.store.item_seen.e2], [3, undefined])
+context.__todos.e2 = make_item('e2', 'New title B\nNew body B', 'h_e2_new')
+_on_item_change('e2', '', '', false, true, false)
+check('item order (edit, store first): edited item arrival notifies once with NEW first visible line', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.body], [4, '[item] New title B', 'New body B'])
+_on_global_store_change('todoer', true)
+check('item order (edit, store first): repeat store delivery adds nothing', notified.length - item_notified_before, 4)
+// 6. locally created item (temp id !== saved_id): item hook resolves by saved_id
+context.__todos.tmp9 = make_item('tmp9', '#local_note\nEdited remotely.', 'h_s9', { saved_id: 'saved9', label: '#local_note' })
+context._todoer._global_store._agent.wrote.saved9 = { by: 'claude', at: ITEM_NOW - 2200, hash: 'h_s9' }
+_on_item_change('tmp9', '#local_note', '#local_note', false, true, false)
+check('item hook: temp-id item matches stamp keyed by saved_id', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.tag], [5, '[item] #local_note', 'todoer:saved9'])
+// 7. minute task trigger: owed-save overlay bypassed store hook, minute scan catches unseen entry
+context.__todos.m1 = make_item('m1', '#owed_save\nCaught by minute scan.', 'h_m1', { label: '#owed_save' })
+context._todoer._global_store._agent.wrote.m1 = { by: 'claude', at: ITEM_NOW - 2000, hash: 'h_m1' }
+_scan_notify()
+check('item scan: minute task notifies entry overlaid while tab owed a save', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.body], [6, '[item] #owed_save', 'Caught by minute scan.'])
+_scan_notify()
+check('item scan: second minute tick notifies nothing more', notified.length - item_notified_before, 6)
+// 8. newer stamp on same item notifies again; deleted item never notifies
+context.__todos.m1 = make_item('m1', '#owed_save\nSecond agent edit.', 'h_m1_v2', { label: '#owed_save' })
+context._todoer._global_store._agent.wrote.m1 = { by: 'claude', at: ITEM_NOW - 1000, hash: 'h_m1_v2' }
+_on_global_store_change('todoer', true)
+check('item hook: newer stamp (new at + hash) notifies again', [notified.length - item_notified_before, notified[notified.length - 1].options.body], [7, 'Second agent edit.'])
+context.__todos.del1 = make_item('del1', '', 'cbf29ce484222325')
+context._todoer._global_store._agent.wrote.del1 = { by: 'claude', at: ITEM_NOW - 900, hash: 'cbf29ce484222325' }
+_on_item_change('del1', '', '', true, true, false)
+delete context.__todos.del1 // the app splices the deleted item right after _on_item_change
+check('item hook: deleted item does not notify', notified.length - item_notified_before, 7)
+// 9. stale (past AND future) stays silent and is recorded as seen
+context.__todos.s_old = make_item('s_old', '#old\nBody', 'h_old', { label: '#old' })
+context.__todos.s_fut = make_item('s_fut', '#fut\nBody', 'h_fut', { label: '#fut' })
+context._todoer._global_store._agent.wrote.s_old = { by: 'claude', at: ITEM_NOW - ITEM_STAMP_MAX_AGE_MS - 1, hash: 'h_old' }
+context._todoer._global_store._agent.wrote.s_fut = { by: 'claude', at: ITEM_NOW + ITEM_STAMP_MAX_AGE_MS + 1, hash: 'h_fut' }
+check('item notify: past and future stale stamps return stale and record seen', [_notify_item('s_old'), _notify_item('s_fut'), context._todoer.store.item_seen.s_fut, notified.length - item_notified_before], ['stale', 'stale', ITEM_NOW + ITEM_STAMP_MAX_AGE_MS + 1, 7])
+context.__now = ITEM_NOW + ITEM_STAMP_MAX_AGE_MS // clock catches up: already decided as stale
+check('item notify: future stale stamp stays silent after clock catches up', [_notify_item('s_fut'), notified.length - item_notified_before], ['seen', 7])
+context.__now = ITEM_NOW
+// 10. another elected window skips pop-up and records seen; /notify off skips and stays skipped on /notify on
+const saved_election = storage.get(NOTIFIER_KEY)
+storage.set(NOTIFIER_KEY, JSON.stringify({ id: 'tab-other', time: ITEM_NOW }))
+context.__todos.o1 = make_item('o1', '#other_win\nBody', 'h_o1', { label: '#other_win' })
+context._todoer._global_store._agent.wrote.o1 = { by: 'claude', at: ITEM_NOW - 100, hash: 'h_o1' }
+check('item notify: another elected window skips pop-up and records seen', [_notify_item('o1'), context._todoer.store.item_seen.o1, notified.length - item_notified_before], ['another window', ITEM_NOW - 100, 7])
+storage.set(NOTIFIER_KEY, saved_election)
+check('item notify: gaining election later does not replay already-decided entry', [_notify_item('o1'), notified.length - item_notified_before], ['seen', 7])
+context._todoer._global_store.notify = null
+context.__todos.off1 = make_item('off1', '#while_off\nBody', 'h_off1', { label: '#while_off' })
+context._todoer._global_store._agent.wrote.off1 = { by: 'claude', at: ITEM_NOW - 50, hash: 'h_off1' }
+check('item notify: off setting skips and records seen', [_notify_item('off1'), notified.length - item_notified_before], ['off', 7])
+context._todoer._global_store.notify = { reasons: ATTENTION }
+check('item notify: turning /notify on later does not replay skipped entry', [_notify_item('off1'), notified.length - item_notified_before], ['seen', 7])
+// 11. stamped #todo item with real app label `#todo` notifies `[item] stamped todo` with body `Second line`
+context.__todos.ni5 = make_item('ni5', '#todo stamped todo\nSecond line', 'h_ni5', { label: '#todo', name: 'id:ni5', tags: ['#todo'] })
+context._todoer._global_store._agent.wrote.ni5 = { by: 'claude', at: ITEM_NOW - 10, hash: 'h_ni5' }
+_on_global_store_change('todoer', true)
+check('item hook: stamped #todo with app label #todo notifies [item] stamped todo and second line', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.body], [8, '[item] stamped todo', 'Second line'])
+for (const k of ['pre1', 'c1', 'c2', 'e1', 'e2', 'tmp9', 'm1', 'del1', 's_old', 's_fut', 'o1', 'off1', 'ni5']) delete context.__todos[k]
+;[context._todoer.store.notify_seen, context._todoer.store.snooze_seen, context._todoer.store.reply_seen] = saved_seen_tables
+context.__items = saved_items_for_welcome
+context._item = saved_item_lookup
+context.__now = saved_now
+context._todoer._global_store = saved_notify_setting
+context._todoer.store.item_seen = saved_item_seen
+notified.length = item_notified_before
 // THE SCAN (review 0, B1): a delivery the app announced to no hook (this tab owed a save for that
 // store) is noticed by the minute task, which also keeps the election; nothing seen changes twice
 context.__todos.g._global_store._agent.state = { held: 'owner', reason: 'question', epoch: 2 }
@@ -1047,7 +1273,7 @@ const window_of = (tab, items) => {
     console, debug: () => {}, warn: () => {}, error: () => {}, fatal: msg => { throw new Error(msg) },
     _replace_tags: context._replace_tags, each: (xs, f) => xs.forEach(f), values: o => Object.values(o ?? {}), merge: (a, b) => Object.assign(a, b),
     Date: ClockDate, localStorage: context.localStorage, _command_id: () => tab,
-    _todoer: { store: {}, _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }, dispatch_task: (name, fn) => (listeners[name] = fn) },
+    _todoer: { id: 'todoer', store: {}, _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }, dispatch_task: (name, fn) => (listeners[name] = fn) },
     _items: () => items, _item: ref => items.find(i => i.id == ref) ?? null,
     Notification: class { static permission = 'granted'; constructor(title, options) { shown.push({ title, tag: options.tag }) } },
     MindBox: { set: () => {} },
@@ -1439,15 +1665,15 @@ const { replaceTags, parseTags } = (() => {
     const status = await _on_command_notify('')
     check('/notify: the status, the box cleared', [status === undefined, said.pop()], [true, 'notifications: off; this device: default'])
     check('/notify test: no permission yet', [await _on_command_notify('test'), said.pop()], [null, "notifications: this device's permission is default (/notify on asks for it)"])
-    check('/notify on: asks this device, saves the default set', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget, done, reply; this device: granted'])
-    check('/notify on taken: adds to the set, granted already, no second ask', [await _on_command_notify('on taken'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply, taken; this device: granted'])
-    check('/notify off done taken: removes them', [await _on_command_notify('off done taken'), context._todoer._global_store.notify, said.pop()], [null, { reasons: ['question', 'blocked', 'proposal', 'budget', 'reply'] }, 'notifications: on for question, blocked, proposal, budget, reply'])
+    check('/notify on: asks this device, saves the default set', [await _on_command_notify('on'), asked, context._todoer._global_store.notify, saves, said.pop()], [null, 1, { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item'] }, [{ invalidate_elem_cache: false }], 'notifications: on for question, blocked, proposal, budget, done, reply, item; this device: granted'])
+    check('/notify on taken: adds to the set, granted already, no second ask', [await _on_command_notify('on taken'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply, item, taken; this device: granted'])
+    check('/notify off done taken: removes them', [await _on_command_notify('off done taken'), context._todoer._global_store.notify, said.pop()], [null, { reasons: ['question', 'blocked', 'proposal', 'budget', 'reply', 'item'] }, 'notifications: on for question, blocked, proposal, budget, reply, item'])
     check('/notify test: shows one', [await _on_command_notify('test'), said.pop()], [null, 'shown: [question] a test of the desktop notifications'])
     check('/notify on soon: refused, the command kept', [await _on_command_notify('on soon'), said.pop().startsWith('/notify: unknown reason soon')], ['/notify on soon', true])
     const off = await _on_command_notify('off')
     check('/notify off: clears the setting, the box cleared', [off === undefined, context._todoer._global_store.notify, saves.length, said.pop()], [true, undefined, 4, 'notifications: off'])
     context.Notification.permission = 'denied'
-    check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
+    check('/notify on under a denied permission: saved, the way out named', [await _on_command_notify('on'), asked, said.pop()], [null, 1, 'notifications: on for question, blocked, proposal, budget, done, reply, item; this device: denied (allow notifications for this site in the browser, then /notify on again)'])
     check('/notify: nothing else was said', said, [])
   }
 
@@ -1567,6 +1793,7 @@ const { replaceTags, parseTags } = (() => {
     handlers.pointerup({})
     Sortable.dragged = null
   }
+  await Promise.all(async_rows)
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()
@@ -2006,6 +2233,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       child.parentElement = this
       return child
     }
+    // element nodes only: a text node between them is the row's own business
+    prepend(...nodes) {
+      nodes.reverse().forEach(node => typeof node == 'string' || this.insertBefore(node, this.children[0]))
+    }
     remove() {
       const siblings = this.parentElement?.children
       if (siblings) siblings.splice(siblings.indexOf(this), 1)
@@ -2042,12 +2273,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // `snooze` is every todo's own store (the widget is then the snoozed list while a snooze time
   // stands), `editing` the id of the todo open in its editor, with a draft typed since
   // `target` is the id of the item the page targets, `app` whether the items carry the app's select
-  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, target = null, app = true } = {}) => {
+  // `extra` adds items of its own to the four ({ id: { text, label } }, each named by its label)
+  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, target = null, app = true, extra = null } = {}) => {
     const calls = []
-    const items = Object.entries(TEXTS).map(([id, text]) => {
+    const texts = { ...TEXTS, ...Object.fromEntries(Object.entries(extra ?? {}).map(([id, item]) => [id, item.text])) }
+    const items = Object.entries(texts).map(([id, text]) => {
       // the app's label is the text's first tag and its name the label when no other item has it, else the id reference
-      const label = id == 'named' ? '#todo-list' : '#todo'
-      const item = { id, saved_id: 's-' + id, text, label, name: id == 'named' ? label : 'id:' + id, _global_store: snooze ? { _todoer: { ...snooze } } : {} }
+      const label = extra?.[id]?.label ?? (id == 'named' ? '#todo-list' : '#todo')
+      const item = { id, saved_id: 's-' + id, text, label, name: id == 'named' || extra?.[id] ? label : 'id:' + id, _global_store: snooze ? { _todoer: { ...snooze } } : {} }
       Object.defineProperty(item, 'tags', { get: () => parsed(item.text).all }) // hidden ones included, their underscore dropped
       Object.defineProperty(item, 'tags_visible', { get: () => parsed(item.text).visible })
       if (id == editing) Object.assign(item, { editing: true, draft: text + '\na line typed since' })
@@ -2111,6 +2344,30 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       return calls
     }
     return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned }
+  }
+  // ---- a chat that became a todo: its row shows the question after its name ------------------
+  {
+    const REPLY = "<<agent('vault/x · 1m')>>\n<!--inert-->\nan answer that quotes\n<<user>> not a turn\n<!--/inert-->\n"
+    const CHAT = `#chat/vault/33 #todo #_agent/vault\n<<user>> testing the new bell\nand a second line\n${REPLY}<<user>> a later turn\n`
+    const ask = world().ctx._row_question
+    const of = (text, label = '#chat/vault/33') => ({ label, read: () => view(text) })
+    const first = { raw: 'testing the new bell\nand a second line', more: false }
+    check('question: a row that is its name and the tag gets the start of the first user turn, as the text holds it', ask(of(CHAT), '#chat/vault/33 #todo'), first)
+    check('question: the same behind a state marker, and whatever the case of the name or the delimiter', [ask(of(CHAT), '#chat/vault/33 [delegated] #todo'), ask(of(CHAT.replace('<<user>>', '<< USER >>'), '#Chat/Vault/33'), '#Chat/Vault/33 #todo')], [first, first])
+    check('question: none for a row that shows more than its name, an unnamed item, an item with no user turn or an empty one',
+      [ask(of(CHAT), '#chat/vault/33 a title #todo'), ask(of(CHAT, ''), '#chat/vault/33 #todo'), ask(of('#chat/vault/33 #todo\n' + REPLY), '#chat/vault/33 #todo'), ask(of('#chat/vault/33 #todo\n<<user>>\n' + REPLY), '#chat/vault/33 #todo')],
+      [null, null, null, null])
+    check('question: it ends at the first inert region, and a turn quoted inside a reply is none', ask(of('#chat/vault/33 #todo\n<<user>> see\n<!--inert-->\nx\n<!--/inert-->\nafter\n'), '#chat/vault/33 #todo'), { raw: 'see', more: false })
+    const long = 'word '.repeat(45) + 'end'
+    check('question: capped as a snippet is, at the first whitespace past 200 characters', ask(of(`#chat/vault/33 #todo\n<<user>> ${long}\n`), '#chat/vault/33 #todo'), { raw: 'word '.repeat(41).trim(), more: true })
+    const chat = options => world({ extra: { chat: { text: CHAT, label: '#chat/vault/33' } }, ...options })
+    const row = chat().rows().find(row => row.getAttribute('data-id') == 'chat')
+    check('question: the row reads from the left: the name, the tag, then the question on one line; the tooltip has it in its lines',
+      [row.children[0].innerHTML, row.children[0].style.direction ?? null, row.title],
+      ['<mark>#chat/vault/33</mark> <mark>#todo</mark> testing the new bell and a second line', null, '#chat/vault/33 #todo\ntesting the new bell\nand a second line'])
+    check('question: a click selects the item and marks the question; on the item already selected it opens the editor on it',
+      [chat().click('chat'), chat({ target: 'chat' }).click('chat')],
+      [[['select', 'chat'], ['mark', first.raw]], [['select', 'chat'], ['edit', first.raw]]])
   }
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
@@ -2273,7 +2530,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     }
     const shown = chatting()
     const row = shown.rows()[4]
-    check('waits: a chat whose reply is its last turn has a row after the todos: the bell with its kind, the name, the reply\'s first line', [shown.ids(), row.getAttribute('data-waits'), row.children[0].innerHTML, row.title], [[...ALL, 'chat'], 'reply', '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> Two parts: alpha and beta.', 'reply: waits on you; drop it on done to clear it\n#e2e_chatty/0 Two parts: alpha and beta.'])
+    check('waits: a chat whose reply is its last turn has a row after the todos: the bell with its kind, the name, the reply\'s first line', [shown.ids(), row.getAttribute('data-waits'), row.children[0].innerHTML, row.title], [[...ALL, 'chat'], 'reply', '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> Two parts: alpha and beta.', 'reply: waits on you; click the bell or drop it on done to clear it\n#e2e_chatty/0 Two parts: alpha and beta.'])
     check('waits: before the list\'s start nothing shows', chatting({ since: null }).ids(), ALL)
     check('waits: a chat last touched before the start has no row', chatting({ time: 999 }).ids(), ALL)
     check('waits: the owner\'s answer ends it (the reply is no longer the last turn)', chatting({ seen: { ...SEEN, last: false } }).ids(), ALL)
@@ -2357,6 +2614,65 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     check('start: an unconfirmed corpus writes no stamp', [starting.ctx._rows_start(), todoer._global_store.rows_since], [false, undefined])
     starting.ctx.window._server_confirmed = true
     check('start: a confirmed corpus stamps the start once', [starting.ctx._rows_start(), todoer._global_store.rows_since, (context.__now = 9000, starting.ctx._rows_start()), todoer._global_store.rows_since], [true, 5000, true, 5000])
+    // ---- the bell on a todo's own row: it stays until its click, whatever the marker shows ------
+    {
+      const ringing = ({ base = {}, state = null, store = {}, started = true } = {}) => {
+        const w = world()
+        w.ctx._todoer._global_store = started ? { rows_since: 1000, bells_base: base } : { rows_since: 1000 }
+        const todo = w.item('short')
+        todo._global_store = { ...store, ...(state ? { _agent: { state } } : {}) }
+        return Object.assign(w, { todo, bell: () => w.ctx._bell(todo) })
+      }
+      const agent = surfaced => ({ held: 'agent', reason: 'delegated', epoch: 1, surfaced })
+      const owner = (reason, surfaced) => ({ held: 'owner', reason, epoch: 1, surfaced })
+      check('bell: a todo that came up rings by its kind: a check-in for the agent\'s, its reason for the owner\'s, a project that asks by its reason',
+        [ringing({ state: agent(1) }).bell(), ringing({ state: owner('question', 2) }).bell(), ringing({ state: owner('done', 1) }).bell(), ringing({ state: { ...agent(1), reason: 'question', project: true } }).bell()],
+        ['checkin', 'question', 'done', 'question'])
+      check('bell: none for a todo the bridge never held, one that never came up, or one the owner took back',
+        [ringing().bell(), ringing({ state: agent(0) }).bell(), ringing({ state: { held: 'agent' } }).bell(), ringing({ state: owner('taken', 3) }).bell()], [null, null, null, null])
+      check('bell: nothing of the past rings: the count that stood when the bells began is the baseline, and before they began nothing rings',
+        [ringing({ state: agent(2), base: { 's-short': 2 } }).bell(), ringing({ state: agent(3), base: { 's-short': 2 } }).bell(), ringing({ state: agent(3), started: false }).bell()], [null, 'checkin', null])
+      check('bell: a cleared count is silent, also when the marker has gone back to working; one more time rings again',
+        [ringing({ state: agent(2), store: { _todoer: { bell: 2 } } }).bell(), ringing({ state: agent(3), store: { _todoer: { bell: 2 } } }).bell()], [null, 'checkin'])
+      const tapped = ringing({ state: agent(3), store: { _todoer: { snoozed: 0 } } })
+      check('bell: its clear records the count in the todo\'s own store, beside what the store holds', [tapped.ctx._clear_bell(tapped.todo), tapped.todo._global_store._todoer, tapped.bell()], [true, { snoozed: 0, bell: 3 }, null])
+      check('bell: nothing to clear on a todo without a count', ringing().ctx._clear_bell(ringing().todo), false)
+      // a new delegation clears a ringing bell (the owner has acted on what came up)
+      const redelegated = ringing({ state: owner('question', 2) })
+      redelegated.ctx._command_id = () => 'c1'
+      redelegated.ctx._todoer.dependents = []
+      redelegated.ctx.window._enqueue_hidden_document = async (name, cmd) => ({ id: 'doc-' + cmd.id, written: Promise.resolve() })
+      async_rows.push(
+        redelegated.ctx._delegate(redelegated.todo).then(ok =>
+          check('bell: a new delegation clears the bell', [ok, redelegated.todo._global_store._todoer?.bell, redelegated.bell()], [true, 2, null])
+        )
+      )
+      // the row: the bell is the row's first mark, and its own click clears it and renders again
+      const shown = ringing({ state: owner('question', 1) }) // in the main list, which this widget is
+      shown.ctx._rerender_todoer_widgets = () => shown.render()
+      shown.render()
+      const mark = () => shown.rows().find(row => row.getAttribute('data-id') == 'short').children[0].children[0]
+      const before = [mark()?.className, mark()?.innerText, mark()?.title]
+      mark().onclick({ stopPropagation() {}, preventDefault() {} })
+      check('bell: the row shows it first, with its kind; its click clears it and the row stays without it',
+        [before, shown.todo._global_store._todoer.bell, mark() ?? null, shown.ids().includes('short')],
+        [['waits', 'question', 'question: came up for you; click the bell to clear it'], 1, null, true])
+      // the baseline: every todo's count, by saved id, in the same save as the list's start
+      const base = ringing({ state: agent(4) })
+      check('bell: the baseline is every todo\'s count by its saved id', base.ctx._bells_now(), { 's-short': 4 })
+      const late = ringing({ state: agent(4), started: false })
+      const store = late.ctx._todoer
+      Object.defineProperty(store, 'global_store', { get: () => store._global_store })
+      late.ctx.window._server_confirmed = true
+      check('bell: an account whose list had started gets the baseline at the next start, its first stamp kept', [late.ctx._rows_start(), store._global_store], [true, { rows_since: 1000, bells_base: { 's-short': 4 } }])
+      // the reason `checkin`: an agent's todo, in the delegated list, whose count went up
+      const went = (prev, state, list = 'delegated') => base.ctx._checked_in(prev, state, list)
+      check('checkin: the count going up on an agent\'s todo in the delegated list is one; the same count, the owner\'s todo, the main list or no record is none',
+        [went('agent:delegated:1:2|delegated', agent(3)), went('agent:delegated:1:|delegated', agent(1)), went('agent:delegated:1:3|delegated', agent(3)), went('agent:delegated:1:2|delegated', owner('question', 3)), went('agent:question:1:2|main', agent(3), 'main'), went(undefined, agent(3))],
+        [true, true, false, false, false, false])
+      const step = (reasons, checkin) => base.ctx._notify_step({ setting: { reasons }, prev: 'a', key: 'b', list: 'delegated', reason: 'delegated', permission: 'granted', checkin })
+      check('checkin: it notifies only where the setting names it, and a delegated todo\'s other changes stay silent', [step(['done', 'checkin'], true), step(['done'], true), step(['done', 'checkin'], false)], ['notify', 'reason checkin', 'not in the main list'])
+    }
     context.__now = null
   }
   // the item's files are embedded in the #todoer item's own text, where the app expands every
