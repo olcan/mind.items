@@ -226,3 +226,12 @@
   margin-right: -19px;
   visibility: hidden;
 }
+
+/* trial for the owner (2026-11-23): no lines before or after a role's name, and the last
+   agent row looks like every other agent row (its stale and edited looks are kept) */
+.dep_chat .message hr {
+  visibility: hidden;
+}
+.dep_chat .message:last-of-type.agent:not(.stale, .edited) .label {
+  color: #444;
+}
