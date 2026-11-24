@@ -300,7 +300,8 @@ const wiring = ({ real_check = false, real_update = false } = {}) => {
     },
   }
   vm.createContext(context)
-  if (real_check) vm.runInContext(pick(['check_updates']).join('\n') + '\nasync function pace_github_call() {}', context) // the declaration replaces the stub
+  if (real_check || real_update) vm.runInContext('async function pace_github_call() {}', context)
+  if (real_check) vm.runInContext(pick(['check_updates']).join('\n'), context) // the declaration replaces the stub
   if (real_update) vm.runInContext(pick(['update_item']).join('\n'), context)
   vm.runInContext(pick(['init_updater', '_retry_on_connectivity', '_on_global_store_change', 'completion_marker', 'update_completed']).join('\n') + consts + arrows + "\nconst installed_named_items = () => _labels((_, ids) => ids.length == 1).map(label => _item(label)).filter(item => item.attr?.source)\n", context)
   page.init = () => vm.runInContext('init_updater()', context)
@@ -1210,9 +1211,137 @@ const wiring_rows = async () => {
 
 }
 
+const token_rows = async () => {
+  // github_token: returns null immediately on the isolated shared origin without touching storage,
+  // stores, or modals; elsewhere never reads item.attr.token and falls back in order: browser
+  // localStorage -> #updater global_store -> #pusher global_store -> modal prompt
+  const make_token_ctx = ({
+    shared_origin = false,
+    stored = null,
+    updater_token = undefined,
+    pusher_token = undefined,
+    prompt_result = null,
+  } = {}) => {
+    const ls = new Map(stored != null ? [['mindpage_github_token', stored]] : [])
+    const modals = []
+    const touches = { ls_get: 0, ls_set: 0, updater_get: 0, updater_set: 0, item_call: 0 }
+    let updater_tok = updater_token
+    const updater_store = {}
+    Object.defineProperty(updater_store, 'token', {
+      enumerable: true,
+      get: () => (touches.updater_get++, updater_tok),
+      set: v => {
+        touches.updater_set++
+        updater_tok = v
+      },
+    })
+    const ctx = {
+      window: shared_origin === undefined ? {} : { _shared_origin: shared_origin },
+      localStorage: {
+        getItem: k => (touches.ls_get++, ls.get(k) ?? null),
+        setItem: (k, v) => (touches.ls_set++, ls.set(k, v)),
+      },
+      _this: { name: '#updater', global_store: updater_store },
+      _item: name => {
+        touches.item_call++
+        return name == '#pusher' && pusher_token !== undefined ? { global_store: { token: pusher_token } } : null
+      },
+      _modal: async opts => (modals.push(opts), prompt_result),
+    }
+    vm.createContext(ctx)
+    vm.runInContext(pick(['github_token']).join('\n'), ctx)
+    return { ctx, ls, modals, touches }
+  }
+  {
+    const { ctx, modals, touches } = make_token_ctx({
+      shared_origin: true,
+      stored: 'browser-tok',
+      updater_token: 'updater-store-tok',
+      pusher_token: 'pusher-store-tok',
+      prompt_result: 'prompted-tok',
+    })
+    const got = await ctx.github_token({ attr: { token: 'item-tok' } })
+    check(
+      'github_token: returns null on isolated shared origin with no storage, store, or modal access',
+      [got, touches.ls_get, touches.ls_set, touches.updater_get, touches.updater_set, touches.item_call, modals.length],
+      [null, 0, 0, 0, 0, 0, 0]
+    )
+  }
+  {
+    const { ctx, modals } = make_token_ctx({ stored: 'browser-tok' })
+    const got = await ctx.github_token({ attr: { token: 'item-tok' } })
+    check('github_token: reads browser localStorage and ignores item.attr.token', [got, ctx._this.global_store.token, modals.length], ['browser-tok', 'browser-tok', 0])
+  }
+  {
+    const { ctx, modals } = make_token_ctx({ updater_token: 'updater-store-tok' })
+    const got = await ctx.github_token({ attr: { token: 'item-tok' } })
+    check('github_token: falls back to #updater global_store (not item.attr.token)', [got, modals.length], ['updater-store-tok', 0])
+  }
+  {
+    const { ctx, modals } = make_token_ctx({ pusher_token: 'pusher-store-tok' })
+    const got = await ctx.github_token({ attr: { token: 'item-tok' } })
+    check('github_token: falls back to #pusher global_store (not item.attr.token)', [got, ctx._this.global_store.token, modals.length], ['pusher-store-tok', 'pusher-store-tok', 0])
+  }
+  {
+    const { ctx, ls, modals } = make_token_ctx({ prompt_result: 'prompted-tok' })
+    const got = await ctx.github_token({ attr: { token: 'item-tok' } })
+    check('github_token: prompts when browser and stores are empty (never reads item.attr.token)', [got, ls.get('mindpage_github_token'), ctx._this.global_store.token, modals.length], ['prompted-tok', 'prompted-tok', 'prompted-tok', 1])
+  }
+  {
+    // update_item: a content update writes no token into item.attr (neither during item.write nor
+    // afterward, nor on a refused write rollback) and authenticates with the browser's token
+    const page = wiring({ real_update: true })
+    const ls = new Map([['mindpage_github_token', 'browser-tok']])
+    page.context.localStorage = { getItem: k => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) }
+    vm.runInContext(pick(['github_token']).join('\n'), page.context)
+    const tokens_seen = []
+    page.context.github_client = tok => (tokens_seen.push(tok), page.github)
+    page.context.window._grammar = { version: 2, containsOpaqueMarker: () => false, edit: (t, fn) => fn(t) }
+    page.context.decodeBase64 = b64 => Buffer.from(b64, 'base64').toString('utf8')
+    page.context._parse_label = t => t.match(/^#\S+/)?.[0] ?? ''
+    page.context._parse_tags = () => ({ all: [] })
+    page.context._resolve_tags = (_, tags) => tags
+    page.context._special_tag = () => false
+    page.context._exists = () => true
+    page.context._autodep_parent = async () => null
+    page.context.uniq = xs => [...new Set(xs)]
+    page.github = {
+      repos: {
+        getContent: async () => ({ data: { content: Buffer.from('#a updated body').toString('base64') } }),
+      },
+    }
+    const it = page.item('#a', 'i1')
+    it.attr.sha = 'sha1'
+    it.text = '#a old body'
+    it.write_accepts = true
+    it.read = () => it.text
+    const attrs_at_write = []
+    it.write = text => {
+      attrs_at_write.push({ ...it.attr })
+      it.text = text
+      return true
+    }
+    const ok = await page.context.update_item(it, { 'a.md': 'sha2' })
+    check(
+      'update_item: authenticates from browser store and writes no token into item.attr',
+      [ok, tokens_seen, it.attr.sha, 'token' in it.attr, attrs_at_write.map(a => 'token' in a), it.text],
+      [true, ['browser-tok'], 'sha2', false, [false], '#a updated body']
+    )
+    // refused write: rolls back sha and still leaves no token property on item.attr
+    it.write = () => false
+    const refused = await page.context.update_item(it, { 'a.md': 'sha3' })
+    check(
+      'update_item: refused write rolls back sha and introduces no token key',
+      [refused, it.attr.sha, 'token' in it.attr],
+      [false, 'sha2', false]
+    )
+  }
+}
+
 const main = async () => {
   await retry_rows()
   await wiring_rows()
+  await token_rows()
   if (failures) {
     console.log(`${failures} failed`)
     process.exit(1)
