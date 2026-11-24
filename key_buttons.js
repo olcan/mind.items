@@ -34,8 +34,9 @@ const KEY_BUTTONS_PARTS = {
   // each opening of the keyboard. OFF since the owner's second try: what it was built for could
   // not be reproduced on the phone, and a repeated scroll was seen once
   caret_clear: false,
-  // a round button at the page's lower left that reloads the page: the mirror of the #vault
-  // item's sparkle at the lower right, and like it on every device (KEY_BUTTONS_RELOAD)
+  // a round button that reloads the page: at the page's lower left on a phone (the mirror of the
+  // #vault item's sparkle at the lower right), beside the sparkle on a device with a keyboard, and
+  // like it on every device (KEY_BUTTONS_RELOAD)
   reload_button: true,
 }
 
@@ -111,9 +112,9 @@ const KEY_BUTTONS_LOOK = {
   // in the icons' white, and at this item's layer (under the sparkle's menu layer, as the rows are)
   reload: { size: 24, left: 14, bottom: 10, icon: 16, idle: 'rgba(255, 255, 255, 0.45)', hover: 'rgba(255, 255, 255, 0.9)' },
   // dark frosted-glass background behind the buttons: full-width bottom strip on a phone; on a
-  // keyboard device, split into a left piece (reload + arrows) and a right piece (sparkle, when
-  // shown), merging into the full-width strip below `merge` px; raised with a 1 px light border
-  // along free edges only and a soft outer shadow outside the glass only
+  // keyboard device, one rounded piece at the lower right (strip + reload + sparkle), becoming
+  // the full-width strip below `merge` px; raised with a 1 px light border along free edges only
+  // and a soft outer shadow outside the glass only
   backdrop: { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 },
 }
 // the caret's line and a keyboard that comes up: the space kept free above and below the line,
@@ -370,6 +371,10 @@ function key_buttons_backdrop_frame(look) {
   return svg('split', g.w_piece + g.pad, g.shape_split, g.border_split) + svg('strip', g.narrow, g.shape_strip, g.border_strip)
 }
 
+// the stylesheet. On a device with a keyboard the strip keeps its wider gaps between groups where
+// the window has room for the whole piece; in a narrower window they shrink to a button's gap, so
+// that the strip's first button is not cut off at the window's left edge (with today's sizes the
+// seven buttons, the reload button and the sparkle then fit down to 292 px)
 function key_buttons_css(look) {
   const g = key_buttons_backdrop_geom(look)
   return `
@@ -392,6 +397,7 @@ function key_buttons_css(look) {
 .key-buttons-reload > svg { display: block; width: ${look.reload.icon}px; height: ${look.reload.icon}px; fill: none; stroke: currentColor; stroke-width: ${look.line}; stroke-linecap: round; stroke-linejoin: round; pointer-events: none }
 .key-buttons-nav { position: fixed; right: ${look.reload.left + 2 * look.reload.size + 2 * look.group}px; bottom: ${look.reload.bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px; margin: 0; padding: 0; pointer-events: none }
 .key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: ${look.group - look.gap}px }
+@media (max-width: ${g.w_piece - 1}px) { .key-buttons-reload.desktop { right: ${look.reload.left + look.reload.size + look.gap}px } .key-buttons-nav { right: ${look.reload.left + 2 * look.reload.size + 2 * look.gap}px } .key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: 0 } }
 .key-buttons-nav[hidden] { display: none }
 .key-buttons-nav > button { pointer-events: auto; flex: none; display: flex; align-items: center; justify-content: center; width: ${look.reload.size}px; height: ${look.reload.size}px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: ${look.background}; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); color: ${look.color}; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent }
 .key-buttons-nav > button.valid { color: ${look.valid} }
@@ -587,14 +593,14 @@ function key_buttons_read_nav(box) {
   return key_buttons_nav(box, (window._items?.() ?? []).map(with_dangling).filter(Boolean))
 }
 
-// whether the desktop navigation arrow groups show: always on a device with a keyboard while no
-// soft keyboard is up (all four arrows stay in place and dim when they would not move); never on
-// a touch device (the main row holds them there)
+// whether the desktop strip shows: always on a device with a keyboard while no soft keyboard is
+// up (the seven buttons stay in place, the four arrows dimming when they would not move); never
+// on a touch device (the main row holds them there)
 const key_buttons_desktop_shown = (win, keyboard) => !key_buttons_device(win) && !keyboard.up
 
 // which frosted-glass background shows behind the buttons: the full-width bottom strip while the
-// phone's main row shows ('mobile'); on a keyboard device with no soft keyboard up, split left
-// and right pieces ('desktop-split') or one merged bottom strip below `merge` px
+// phone's main row shows ('mobile'); on a keyboard device with no soft keyboard up, one rounded
+// piece at the lower right ('desktop-split') or one merged bottom strip below `merge` px
 // ('desktop-strip'); or none while a keyboard is on screen
 const key_buttons_backdrop = (win, keyboard, shown, look = KEY_BUTTONS_LOOK) =>
   keyboard.up
@@ -690,8 +696,8 @@ function key_buttons_create() {
   // dark frosted-glass background behind the buttons: one non-backdrop-root container whose
   // siblings (.key-buttons-bg-pane for the desktop's frosted piece or the phone's strip,
   // .key-buttons-bg-frame for the desktop piece's outer shadow + free-edge border SVGs, and
-  // .key-buttons-bg-right behind the #vault sparkle in wide desktop split) blur the page directly
-  // with no filter or mask on any ancestor, taking no pointer events
+  // .key-buttons-bg-right, unused and always hidden) blur the page directly with no filter or
+  // mask on any ancestor, taking no pointer events
   const backdrop = (self.backdrop = document.createElement('div'))
   backdrop.className = 'key-buttons-bg'
   backdrop.dataset.keyButtons = 'backdrop'
@@ -901,9 +907,9 @@ function key_buttons_create() {
     self.cleared = true
     self.clear()
   }
-  // apply the last computed arrow state to the mobile row's arrows and the two desktop groups:
+  // apply the last computed arrow state to the mobile row's arrows and the desktop strip:
   // arrows that would move are green (`valid`), arrows that would not are dimmed (`dim`);
-  // non-arrows never change; desktop always shows all four
+  // non-arrows never change; desktop always shows the strip and puts the reload button beside the sparkle
   self.apply_nav = () => {
     const nav = self.nav
     for (const button of bar.children) {
