@@ -248,14 +248,16 @@
     background: #171717;
     border: 1px solid #666;
   }
-  /* the selected item's row is INVERTED, in the row's own rounded box: black on a light pastel green,
-     in a heavier weight, its tags, links and marks dark on a translucent black (the owner,
-     2026-11-24, after a border and after a band across the item's width: "the per-item
-     rounded-corner highlight ... increase text weight, and (if possible) maintain the style when the
-     item is grabbed"). These rules stand AFTER the grabbed row's above, with the same weight, so a
-     grabbed selected row keeps the look, inside that rule's border */
+  /* the selected item's row is INVERTED, in the row's own rounded box: black on the green the app
+     gives a highlighted tag (#9f9, Item.svelte's mark.selected), in a heavier weight, its tags, links
+     and marks dark on a translucent black (the owner, 2026-11-24, after a border and after a band
+     across the item's width: "the per-item rounded-corner highlight ... increase text weight, and
+     (if possible) maintain the style when the item is grabbed", then "the background color used in
+     highlighted tags"). These rules stand AFTER the grabbed row's above, with the same weight, so a
+     grabbed selected row keeps the look, inside that rule's border; not on a bin (the rules at the
+     end) */
   #widget .list > .list-item-container.selected > .list-item {
-    background: #aadcaa;
+    background: #9f9;
     color: #000;
     font-weight: 600;
   }
@@ -313,6 +315,22 @@
   }
   #widget:has(.bin:not(:empty)) .list > .list-item-container.sortable-drag :is(a, mark) {
     color: inherit;
+  }
+  /* a SELECTED row dragged into a bin is as any other row there (the owner: "the drag style should
+     not extend to when on the bins, which give the full line a consistent style"): the grabbed
+     row's dark box and the base weights and backgrounds again, the bin's colour by the rules above */
+  #widget:has(.bin:not(:empty)) .list > .list-item-container.selected.sortable-drag > .list-item {
+    background: #171717;
+    color: inherit;
+    font-weight: inherit;
+  }
+  #widget:has(.bin:not(:empty)) .list > .list-item-container.selected.sortable-drag > .list-item :is(a, mark) {
+    color: inherit;
+    background: rgba(255, 255, 255, 0.07);
+    font-weight: 300;
+  }
+  #widget:has(.bin:not(:empty)) .list > .list-item-container.selected.sortable-drag > .list-item :is(mark.age, mark.waits) {
+    background: rgba(255, 255, 255, 0.04);
   }
   /* __styles__ */
 </style>
