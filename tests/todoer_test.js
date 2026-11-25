@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -162,6 +162,7 @@ const picked =
     '_notify_todo',
     '_unsnooze_step',
     '_notify_unsnooze',
+    '_notify_test',
     '_notify_result',
     '_notify_registration',
     '_ensure_notify_listener',
@@ -205,7 +206,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _item_writes, _item_visible, _item_preview, _item_notify_step, _notify_item, _notify_items, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _item_writes, _item_visible, _item_preview, _item_notify_step, _notify_item, _notify_items, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _notify_test, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -758,6 +759,7 @@ const NOTIFY_REASONS = vm.runInContext('NOTIFY_REASONS', context)
 const NOTIFIER_KEY = vm.runInContext('NOTIFIER_KEY', context)
 const NOTIFIER_STALE_MS = vm.runInContext('NOTIFIER_STALE_MS', context)
 const NOTIFIER_REFRESH_MS = vm.runInContext('NOTIFIER_REFRESH_MS', context)
+const NOTIFY_TEST_DELAY_MS = vm.runInContext('NOTIFY_TEST_DELAY_MS', context)
 // the words of /notify
 check('notify words: none is the status', _parse_notify(''), { status: true })
 check('notify words: on alone names no reason (the default set)', _parse_notify('on'), { on: true, reasons: null })
@@ -767,8 +769,9 @@ check('notify words: off with reasons', _parse_notify('off done taken'), { off: 
 check('notify words: an unknown reason', _parse_notify('on soon').error.startsWith('unknown reason soon ('), true)
 check('notify words: an unknown word beside all is refused too', _parse_notify('on all typo').error.startsWith('unknown reason typo ('), true)
 check('notify words: off and test', [_parse_notify('off'), _parse_notify(' test ')], [{ off: true, reasons: null }, { test: true }])
-check('notify words: test takes no words', _parse_notify('test now').error, 'test takes no words')
-check('notify words: an unknown word', _parse_notify('maybe').error.startsWith('unknown word maybe ('), true)
+check('notify words: test with one item name', [_parse_notify('test #foo'), _parse_notify('  test   id:abc  ')], [{ test: true, name: '#foo' }, { test: true, name: 'id:abc' }])
+check('notify words: test takes one item name at most', _parse_notify('test #foo #bar').error, "test takes one item's name at most")
+check('notify words: an unknown word names test [item] in usage', _parse_notify('maybe').error, 'unknown word maybe (usage: /notify [on [reason...]|off [reason...]|test [item]])')
 // the setting after a word (additive: the owner's ask of 2026-10-03)
 const ATTENTION = ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item']
 check('setting: on from off is the default set, done and item included', _notify_setting(undefined, _parse_notify('on')), { reasons: ATTENTION })
@@ -858,7 +861,7 @@ context.window.addEventListener = () => {}
 context.document = { addEventListener: () => {}, hasFocus: () => false }
 context._todoer.dispatch_task = (name, fn) => (context.__captured[name] = fn)
 context._todoer._global_store = { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply'] } }
-const todo = (id, state, text = '#todo fix the cache\nmore') => ({ id, saved_id: 's' + id, name: '#t' + id, label: null, tags: ['#todo'], read: () => text, _global_store: state ? { _agent: { state } } : {} })
+const todo = (id, state, text = '#todo fix the cache\nmore') => ({ id, saved_id: 's' + id, name: '#t' + id, label: null, tags: ['#todo'], tags_visible: ['#todo'], read: () => text, _global_store: state ? { _agent: { state } } : {} })
 context.__todos = {}
 context._item = ref => context.__todos[ref] ?? null
 check('change: before the welcome nothing notifies (the baseline is pending)', _notify_change(todo('a', { held: 'owner', reason: 'question', epoch: 1 })), 'baseline')
@@ -3251,13 +3254,38 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     if (!when_confirmed) throw new Error('function when_server_confirmed not found in util/core.js')
 
     // isolated sandbox so each worker-notification scenario has its own navigator, localStorage and store
-    const makeEnv = ({ sw = null, worker = undefined, elected = 'tab-me', perm = 'granted', throwPage = false, relay = true, serverConfirmed = true, withWhenConfirmed = true, windowExtra = {}, locationSearch = '', now = 10_000, sharedWin = null, sharedStore = null, sharedItems = null, sharedByRef = null, sharedTasks = null } = {}) => {
+    const makeEnv = ({ sw = null, worker = undefined, elected = 'tab-me', perm = 'granted', throwPage = false, relay = true, serverConfirmed = true, withWhenConfirmed = true, windowExtra = {}, locationSearch = '', now = 10_000, fakeClock = false, sharedWin = null, sharedStore = null, sharedItems = null, sharedByRef = null, sharedTasks = null } = {}) => {
       let clock = now
       const setNow = t => { clock = t }
+      let nextTimerId = 1
+      const timers = []
+      const fakeSetTimeout = (fn, ms = 0) => {
+        const entry = { id: nextTimerId++, fn, ms: Number(ms) || 0, at: clock + Math.max(0, Number(ms) || 0) }
+        timers.push(entry)
+        return entry.id
+      }
+      const fakeClearTimeout = id => {
+        const i = timers.findIndex(t => t.id === id)
+        if (i >= 0) timers.splice(i, 1)
+      }
+      const advance = async ms => {
+        const target = clock + ms
+        while (true) {
+          timers.sort((a, b) => a.at - b.at || a.id - b.id)
+          if (!timers.length || timers[0].at > target) break
+          const next = timers.shift()
+          clock = Math.max(clock, next.at)
+          next.fn()
+          await tick()
+        }
+        clock = target
+        await tick()
+      }
       const storage = new Map(elected ? [[NOTIFIER_KEY, JSON.stringify({ id: elected, time: clock })]] : [])
       const pageShown = []
       const alerts = []
       const warns = []
+      const errors = []
       const selects = []
       const marks = []
       const order = []
@@ -3320,7 +3348,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       const env = {
         Object, Array, Set, Map, Promise, Error, URLSearchParams, Date: Object.assign(function (...a) { return new Date(...a) }, { now: () => clock }),
-        Math, Number, String, JSON, RegExp, setTimeout, clearTimeout,
+        Math, Number, String, JSON, RegExp, setTimeout: fakeClock ? fakeSetTimeout : setTimeout, clearTimeout: fakeClock ? fakeClearTimeout : clearTimeout,
         console: { warn: (...a) => warns.push(a.join(' ')), error: () => {}, debug: () => {} },
         each: (xs, f) => xs.forEach(f),
         values: Object.values,
@@ -3328,7 +3356,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         is_number: x => typeof x == 'number',
         alert: m => alerts.push(m),
         warn: () => {},
-        error: () => {},
+        error: (...a) => errors.push(a.join(' ')),
         _primary: true,
         _replace_tags: context._replace_tags,
         _command_id: () => 'tab-me',
@@ -3380,7 +3408,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         Object.defineProperty(c, 'global_store', { get: () => c._global_store })
         return addItem(c)
       }
-      return { env, win, tasks, pageShown, alerts, warns, selects, marks, order, focused: () => focused, items, byRef, addItem, makeTodo, makeChat, confirmWorker, clearWorker, winListeners, setNow }
+      return { env, win, tasks, pageShown, alerts, warns, errors, selects, marks, order, focused: () => focused, items, byRef, addItem, makeTodo, makeChat, confirmWorker, clearWorker, winListeners, setNow, timers, advance }
     }
 
     const fakeSW = ({ showDelay = 0, showErr = null, showGate = null, readyPromise = null, active = true, readyNever = false, throwAdd = false, noAdd = false, onPost = null } = {}) => {
@@ -3970,6 +3998,231 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [[dupTodo, dupUnsnooze, dupReply, dupItem], settled],
         [['unchanged', 'not snoozed', 'unchanged', 'seen'], ['notify', 'notify', 'notify', 'notify']])
     }
+
+    // 10. /notify test <name> and _notify_test(item) (2026-11-25)
+    {
+      const REPLY_TEXT = "#c_rep #_chat #_agent/vault\n<<user>> question?\n<<agent('vault/default · run ab12cd34 · 1s')>>\n<!--inert-->\nThe reply line.\nmore below\n<!--/inert-->"
+      const ANSWERED_REPLY = `${REPLY_TEXT}\n<<user>> thanks`
+      const { env, pageShown, alerts, selects, marks, focused, byRef, addItem, makeTodo, makeChat } = makeEnv({ elected: 'other-tab', now: 50_000 })
+      // disable /notify setting and keep election on another window to prove _notify_test ignores both
+      delete env._todoer._global_store.notify
+      const proj = makeTodo('proj', { held: 'agent', reason: 'delegated', project: true }, '#proj #todo Ship the release')
+      byRef.set('#proj', proj)
+      const tPlain = makeTodo('plain', null, '#t_plain\n#todo fix the cache')
+      const tBlocked = makeTodo('blk', { held: 'owner', reason: 'blocked', parent: '#proj', epoch: 1, rev: 1 }, '#t_blk\n#todo unblock the pipeline')
+      const tDeleg = makeTodo('del', { held: 'agent', reason: 'delegated', epoch: 1, rev: 1 }, '#t_del\n#todo still running')
+      const tSynth = makeTodo('syn', { held: 'owner', reason: 'reply', epoch: 1, rev: 1 }, '#t_syn\n#todo synthetic reply reason')
+      const tSynthItem = makeTodo('syni', { held: 'owner', reason: 'item', epoch: 1, rev: 1 }, '#t_syni\n#todo synthetic item reason')
+      const cReply = makeChat('rep', REPLY_TEXT)
+      const cAnswered = makeChat('ans', ANSWERED_REPLY)
+      const plainItem = addItem({
+        id: 'note1', saved_id: 's-note1', name: '#n_other', label: '#n_other',
+        tags: [], tags_visible: [], text: '#n_other\n<!-- hidden comment -->\nvisible first line\nsecond line',
+        read: () => '#n_other\n<!-- hidden comment -->\nvisible first line\nsecond line',
+        select: () => (selects.push(['select', 'note1']), true),
+        _global_store: {},
+      })
+      for (const it of [tPlain, tBlocked, tDeleg, tSynth, tSynthItem, cReply, cAnswered, plainItem]) byRef.set(it.name, it)
+
+      const steps = [
+        env._notify_test(tPlain),
+        env._notify_test(tBlocked),
+        env._notify_test(tDeleg),
+        env._notify_test(tSynth),
+        env._notify_test(tSynthItem),
+        env._notify_test(cReply),
+        env._notify_test(cAnswered),
+        env._notify_test(plainItem),
+      ]
+      const snap = n => ({ title: n.title, body: n.options.body, tag: n.options.tag, requireInteraction: n.options.requireInteraction, data: n.options.data })
+      check('_notify_test: shows notification even when another window holds the election and /notify is off',
+        [env._notifier_elected(), env._todoer._global_store.notify ?? null, steps, pageShown.length],
+        [false, null, ['notify', 'notify', 'notify', 'notify', 'notify', 'notify', 'notify', 'notify'], 8])
+      check('_notify_test: todo (plain, blocked with parent, delegated, synthetic reply/item), reply chat, and plain item produce matching title, body, tag, and data',
+        pageShown.map(snap),
+        [
+          { title: '[question] fix the cache', body: '#t_plain', tag: 'todoer:s-plain', requireInteraction: true, data: { source: 'todoer', item: 's-plain' } },
+          { title: '[blocked] unblock the pipeline', body: '#t_blk\nchild of #todo Ship the release', tag: 'todoer:s-blk', requireInteraction: true, data: { source: 'todoer', item: 's-blk' } },
+          { title: '[question] still running', body: '#t_del', tag: 'todoer:s-del', requireInteraction: true, data: { source: 'todoer', item: 's-del' } },
+          { title: '[question] synthetic reply reason', body: '#t_syn', tag: 'todoer:s-syn', requireInteraction: true, data: { source: 'todoer', item: 's-syn' } },
+          { title: '[question] synthetic item reason', body: '#t_syni', tag: 'todoer:s-syni', requireInteraction: true, data: { source: 'todoer', item: 's-syni' } },
+          { title: '[reply] #c_rep', body: 'The reply line.', tag: 'todoer:s-rep', requireInteraction: true, data: { source: 'todoer', item: 's-rep' } },
+          { title: '[reply] #c_ans', body: 'The reply line.', tag: 'todoer:s-ans', requireInteraction: true, data: { source: 'todoer', item: 's-ans' } },
+          { title: '[item] #n_other', body: 'visible first line', tag: 'todoer:s-note1', requireInteraction: true, data: { source: 'todoer', item: 's-note1' } },
+        ])
+      // clicking each shown notification closes it, focuses window, and calls _notify_click for that item
+      pageShown[0].onclick() // todo
+      pageShown[5].onclick() // reply chat
+      pageShown[7].onclick() // plain item
+      check('_notify_test: clicking the shown notification closes it, focuses the window, and runs _notify_click for that item',
+        [pageShown[0].closed, pageShown[5].closed, pageShown[7].closed, focused(), selects, marks, alerts],
+        [true, true, true, 3, [['select', 'plain'], ['select', 'rep'], ['select', 'note1']], ['#todo fix the cache'], []])
+    }
+    {
+      // _notify_test through a confirmed service worker (even with another window elected and /notify off)
+      const f = fakeSW()
+      const { env, byRef, makeTodo } = makeEnv({ sw: f.sw, elected: 'other-tab' })
+      delete env._todoer._global_store.notify
+      const t = makeTodo('sw1', { held: 'owner', reason: 'blocked', epoch: 1, rev: 1 }, '#t_sw1\n#todo worker test')
+      byRef.set(t.name, t)
+      const step = await env._notify_test(t)
+      const cards = await f.reg.getNotifications({ tag: 'todoer:s-sw1' })
+      check('_notify_test: through a confirmed service worker shows the item notification with its tag and data',
+        [step, cards.map(c => ({ title: c.title, body: c.options.body, tag: c.options.tag, data: c.options.data }))],
+        ['notify', [{ title: '[blocked] worker test', body: '#t_sw1', tag: 'todoer:s-sw1', data: { source: 'todoer', item: 's-sw1' } }]])
+    }
+    {
+      // _on_command_notify('test <name>'): unknown item, known item on fake clock, refusal after delay, ungranted permission
+      const s1 = makeEnv({ fakeClock: true, elected: 'other-tab' })
+      delete s1.env._todoer._global_store.notify
+      const t1 = s1.makeTodo('known', { held: 'owner', reason: 'blocked', epoch: 1, rev: 1 }, '#t_known\n#todo delayed test')
+      s1.byRef.set(t1.name, t1)
+
+      // unknown item: alerts, returns the command (stays in box), schedules nothing
+      const unkRet = await s1.env._on_command_notify('test #missing')
+      const unkTimers = s1.timers.length
+      await s1.advance(NOTIFY_TEST_DELAY_MS + 1000)
+      check('/notify test <name>: unknown item alerts, keeps the command, and schedules nothing',
+        [unkRet, unkTimers, s1.alerts, s1.pageShown.length],
+        ['/notify test #missing', 0, ['/notify: no item is named #missing'], 0])
+      s1.alerts.length = 0
+
+      // known item: nothing immediately, nothing at 4,999 ms, one notification at 5,000 ms (literal delay, not the constant)
+      const okRet = await s1.env._on_command_notify('test #t_known')
+      const atZero = [s1.pageShown.length, s1.timers.length, s1.timers[0]?.ms ?? null]
+      await s1.advance(4999)
+      const beforeDelay = s1.pageShown.length
+      await s1.advance(1)
+      const afterDelay = s1.pageShown.map(n => ({ title: n.title, body: n.options.body, tag: n.options.tag, data: n.options.data }))
+      check('/notify test <name>: known item shows nothing immediately or at 4999 ms, then shows at 5000 ms',
+        [okRet === undefined, atZero, beforeDelay, afterDelay, s1.alerts],
+        [
+          true,
+          [0, 1, 5000],
+          0,
+          [{ title: '[blocked] delayed test', body: '#t_known', tag: 'todoer:s-known', data: { source: 'todoer', item: 's-known' } }],
+          [],
+        ])
+
+      // refusal after the delay alerts 'notification refused by the browser' (both sync page and async SW fallback)
+      const sRef = makeEnv({ fakeClock: true, throwPage: true })
+      const tRef = sRef.makeTodo('ref', null, '#t_ref\n#todo refused test')
+      sRef.byRef.set(tRef.name, tRef)
+      const refRet = await sRef.env._on_command_notify('test #t_ref')
+      const alertsBefore = [...sRef.alerts]
+      await sRef.advance(NOTIFY_TEST_DELAY_MS)
+      const fRef = fakeSW({ showErr: new Error('sw denied') })
+      const sRefSw = makeEnv({ fakeClock: true, sw: fRef.sw, throwPage: true })
+      const tRefSw = sRefSw.makeTodo('refsw', null, '#t_refsw\n#todo refused sw test')
+      sRefSw.byRef.set(tRefSw.name, tRefSw)
+      const refSwRet = await sRefSw.env._on_command_notify('test #t_refsw')
+      await sRefSw.advance(NOTIFY_TEST_DELAY_MS)
+      await tick()
+      check('/notify test <name>: refusal after the delay alerts notification refused by the browser',
+        [refRet === undefined, alertsBefore, sRef.alerts, refSwRet === undefined, sRefSw.alerts],
+        [true, [], ['notification refused by the browser'], true, ['notification refused by the browser']])
+
+      // permission not granted (default and denied): alerts as plain test, schedules NO timer
+      const sDef = makeEnv({ fakeClock: true, perm: 'default' })
+      const tDef = sDef.makeTodo('def', null, '#t_def\n#todo default perm')
+      sDef.byRef.set(tDef.name, tDef)
+      const defRet = await sDef.env._on_command_notify('test #t_def')
+      const sDen = makeEnv({ fakeClock: true, perm: 'denied' })
+      const tDen = sDen.makeTodo('den', null, '#t_den\n#todo denied perm')
+      sDen.byRef.set(tDen.name, tDen)
+      const denRet = await sDen.env._on_command_notify('test #t_den')
+      check('/notify test <name>: permission not granted alerts and schedules no timer',
+        [defRet === undefined, sDef.timers.length, sDef.alerts, denRet === undefined, sDen.timers.length, sDen.alerts],
+        [
+          true, 0, ["notifications: this device's permission is default (/notify on asks for it)"],
+          true, 0, ["notifications: this device's permission is denied (/notify on asks for it)"],
+        ])
+
+      // item deleted during the wait: re-lookup finds nothing -> no notification and no alert
+      const sDel = makeEnv({ fakeClock: true })
+      const tDel = sDel.makeTodo('delwait', null, '#t_delwait\n#todo deleted before delay')
+      sDel.byRef.set(tDel.name, tDel)
+      const delRet = await sDel.env._on_command_notify('test #t_delwait')
+      sDel.byRef.delete(tDel.id)
+      sDel.byRef.delete(tDel.saved_id)
+      sDel.byRef.delete(tDel.name)
+      await sDel.advance(NOTIFY_TEST_DELAY_MS)
+      await tick()
+      check('/notify test <name>: item deleted during the wait shows nothing and alerts nothing',
+        [delRet === undefined, sDel.pageShown.length, sDel.alerts],
+        [true, 0, []])
+
+      // account left during the wait: _notify_account_left() -> no notification and no refusal alert
+      const sLeft = makeEnv({ fakeClock: true })
+      const tLeft = sLeft.makeTodo('leftwait', null, '#t_leftwait\n#todo account left before delay')
+      sLeft.byRef.set(tLeft.name, tLeft)
+      const leftRet = await sLeft.env._on_command_notify('test #t_leftwait')
+      sLeft.win._notification_account_left = true
+      await sLeft.advance(NOTIFY_TEST_DELAY_MS)
+      await tick()
+      check('/notify test <name>: account left during the wait shows nothing and alerts nothing',
+        [leftRet === undefined, sLeft.pageShown.length, sLeft.alerts],
+        [true, 0, []])
+
+      // hidden #todo dependency (review 0): #todo in tags (hidden #_todo) but NOT in tags_visible
+      // is an ordinary item (or reply chat), never a todo: _notify_test shows [item] / [reply],
+      // and neither page click nor worker click tries to extract a #todo snippet or logs an error
+      const HIDDEN_TEXT = '#note #_todo\nMeeting agenda'
+      const HIDDEN_REPLY = "#c_hid #_todo #_chat #_agent/vault\n<<user>> question?\n<<agent('vault/default · run ab12cd34 · 1s')>>\n<!--inert-->\nHidden-dep reply.\n<!--/inert-->"
+      const sHid = makeEnv({ elected: 'other-tab' })
+      delete sHid.env._todoer._global_store.notify
+      const hidNote = sHid.addItem({
+        id: 'hid1', saved_id: 's-hid1', name: '#note', label: '#note',
+        tags: ['#note', '#todo'], tags_visible: ['#note'],
+        text: HIDDEN_TEXT, read: () => HIDDEN_TEXT,
+        select: () => (sHid.selects.push(['select', 'hid1']), true),
+        _global_store: {},
+      })
+      const hidChat = sHid.addItem({
+        id: 'hidrep', saved_id: 's-hidrep', name: '#c_hid', label: '#c_hid',
+        tags: ['#c_hid', '#todo', '#chat', '#agent/vault'], tags_visible: ['#c_hid'],
+        text: HIDDEN_REPLY, read: () => view(HIDDEN_REPLY),
+        select: () => (sHid.selects.push(['select', 'hidrep']), true),
+        _global_store: {},
+      })
+      sHid.byRef.set(hidNote.name, hidNote)
+      sHid.byRef.set(hidChat.name, hidChat)
+      const hidSteps = [sHid.env._notify_test(hidNote), sHid.env._notify_test(hidChat)]
+      const hidCards = sHid.pageShown.map(n => ({ title: n.title, body: n.options.body, tag: n.options.tag, requireInteraction: n.options.requireInteraction, data: n.options.data }))
+      check('_notify_test: hidden #todo dependency produces [item] card (or [reply] for a chat) with no error logged',
+        [hidSteps, hidCards, sHid.errors],
+        [
+          ['notify', 'notify'],
+          [
+            { title: '[item] #note', body: 'Meeting agenda', tag: 'todoer:s-hid1', requireInteraction: true, data: { source: 'todoer', item: 's-hid1' } },
+            { title: '[reply] #c_hid', body: 'Hidden-dep reply.', tag: 'todoer:s-hidrep', requireInteraction: true, data: { source: 'todoer', item: 's-hidrep' } },
+          ],
+          [],
+        ])
+      // page click on hidden #todo dependency selects item without a todo line and logs no error
+      sHid.pageShown[0].onclick()
+      check('_notify_click: hidden #todo dependency selects item with no todo line and logs no error',
+        [sHid.pageShown[0].closed, sHid.focused(), sHid.selects, sHid.marks, sHid.errors],
+        [true, 1, [['select', 'hid1']], [], []])
+      // worker click on hidden #todo dependency selects item without a todo line, acks, and logs no error
+      const fHid = fakeSW()
+      const sHidSw = makeEnv({ sw: fHid.sw })
+      const hidSwNote = sHidSw.addItem({
+        id: 'hid1', saved_id: 's-hid1', name: '#note', label: '#note',
+        tags: ['#note', '#todo'], tags_visible: ['#note'],
+        text: HIDDEN_TEXT, read: () => HIDDEN_TEXT,
+        select: () => (sHidSw.selects.push(['select', 'hid1']), true),
+        _global_store: {},
+      })
+      sHidSw.byRef.set(hidSwNote.name, hidSwNote)
+      const swHandled = sHidSw.env._on_notify_message({
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-hid1', tag: 'todoer:s-hid1', data: { source: 'todoer', item: 's-hid1' } },
+        source: fHid.worker,
+      })
+      check('sw click: hidden #todo dependency selects item with no todo line and logs no error',
+        [swHandled, sHidSw.focused(), sHidSw.selects, sHidSw.marks, fHid.postedToWorker, sHidSw.errors],
+        [true, 1, [['select', 'hid1']], [], [{ type: NOTIFY_CLICK_RECEIVED, id: 'clk-hid1' }], []])
+    }
   })())
   // ---- bin buttons, next-row selection, up/down stepping, and j/k row keys (2026-11-24) --------
   // Evaluated in a dedicated DOM-capable VM context so we can drive _bin_buttons, _bin_press,
@@ -3980,6 +4233,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
       src.match(/\nconst _BIN_BUTTONS_CSS = `[\s\S]*?\n`\n/)[0],
       src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_KEYS = [^\n]*\n/)[0],
     ].join('\n')
     const binCode =
       binConsts +
@@ -3988,6 +4242,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '__bin_buttons',
         '_mounted_lists',
         '_bin_row',
+        '_row_buttons',
         '_row_beside',
         '_row_step',
         '_on_row_key',
@@ -4351,27 +4606,31 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [
             ['up', 'Previous row (k)', DIM, false, 16],
             ['down', 'Next row (j)', '#fff', false, 16],
-            ['agent', 'Delegate to the agent', '#6af', true, 16],
-            ['done', 'Done', '#6f6', false, 16],
-            ['snooze', 'Snooze', '#fa4', false, 16],
-            ['cancel', 'Delete', '#f66', false, 16],
+            ['agent', 'Delegate to the agent (a)', '#6af', true, 16],
+            ['done', 'Done (d)', '#6f6', false, 16],
+            ['snooze', 'Snooze (s)', '#fa4', false, 16],
+            ['cancel', 'Delete (x)', '#f66', false, 16],
           ],
           1, 1, 2,
         ])
-      check('bin buttons: middle row with bell has both up/down lit and yellow bell (box 24) before bins; reply row has up/down/bell/done/cancel only',
-        [mainBell.map(x => x.slice(0, 3)), mainBell[2], replyBtns.map(x => x[0]), replyBtns[1][2]],
+      check('bin buttons: middle row with bell has both up/down lit and yellow bell (box 24) before bins; reply row has up/down/bell only',
+        [mainBell.map(x => x.slice(0, 3)), mainBell[2], replyBtns.map(x => [x[0], x[1]]), replyBtns[1][2]],
         [
           [
             ['up', 'Previous row (k)', '#fff'],
             ['down', 'Next row (j)', '#fff'],
-            ['bell', 'Clear the notification', '#ff6'],
-            ['agent', 'Delegate to the agent', '#6af'],
-            ['done', 'Done', '#6f6'],
-            ['snooze', 'Snooze', '#fa4'],
-            ['cancel', 'Delete', '#f66'],
+            ['bell', 'Clear the notification (b)', '#ff6'],
+            ['agent', 'Delegate to the agent (a)', '#6af'],
+            ['done', 'Done (d)', '#6f6'],
+            ['snooze', 'Snooze (s)', '#fa4'],
+            ['cancel', 'Delete (x)', '#f66'],
           ],
-          ['bell', 'Clear the notification', '#ff6', true, 24],
-          ['up', 'down', 'bell', 'done', 'cancel'],
+          ['bell', 'Clear the notification (b)', '#ff6', true, 24],
+          [
+            ['up', 'Previous row (k)'],
+            ['down', 'Next row (j)'],
+            ['bell', 'Clear the notification (b)'],
+          ],
           DIM, // rep is last in main list so down is dim
         ])
       check('bin buttons: snoozed sole row dims both up/down and titles snooze as Unsnooze; delegated row with bell gets up/down/bell/agent/owner; unlisted and null hand over none',
@@ -4385,20 +4644,65 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [
             ['up', 'Previous row (k)', DIM],
             ['down', 'Next row (j)', DIM],
-            ['agent', 'Delegate to the agent', '#6af'],
-            ['done', 'Done', '#6f6'],
-            ['snooze', 'Unsnooze', '#fa4'],
-            ['cancel', 'Delete', '#f66'],
+            ['agent', 'Delegate to the agent (a)', '#6af'],
+            ['done', 'Done (d)', '#6f6'],
+            ['snooze', 'Unsnooze (s)', '#fa4'],
+            ['cancel', 'Delete (x)', '#f66'],
           ],
           [
             ['up', 'Previous row (k)', DIM],
             ['down', 'Next row (j)', DIM],
-            ['bell', 'Clear the notification', '#ff6'],
-            ['agent', 'Delegate to the agent', '#6af'],
-            ['owner', 'Take back from the agent', '#ccc'],
+            ['bell', 'Clear the notification (b)', '#ff6'],
+            ['agent', 'Delegate to the agent (a)', '#6af'],
+            ['owner', 'Take back from the agent (u)', '#ccc'],
           ],
           [],
           [],
+        ])
+      // _row_buttons directly for each row kind (with and without bell) agrees with drawn buttons
+      const dlPlain = s.makeItem('dlPlain')
+      const dlWidget = s.doc.querySelectorAll('.todoer-widget')[2]
+      const dlRowPlain = dlWidget.querySelector('.list').appendChild(new s.DomNode('div', { className: 'list-item-container', 'data-id': 'dlPlain' }))
+      dlRowPlain.appendChild(new s.DomNode('div', { className: 'list-item' }))
+      const rowKinds = [t1, t2, rep, snz, dlPlain, dlg].map(it => {
+        const rb = s.env._row_buttons(s.env._bin_row(it)).map(b => b.name)
+        const drawn = snap(it).map(b => b[0])
+        return [it.id, rb, JSON.stringify(rb) === JSON.stringify(drawn)]
+      })
+      check('_row_buttons: lists exact buttons for todo (with/without bell), reply, snoozed, and delegated (with/without bell), agreeing with drawn buttons',
+        rowKinds,
+        [
+          ['t1', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true],
+          ['t2', ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], true],
+          ['rep', ['up', 'down', 'bell'], true],
+          ['snz', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true],
+          ['dlPlain', ['up', 'down', 'agent', 'owner'], true],
+          ['dlg', ['up', 'down', 'bell', 'agent', 'owner'], true],
+        ])
+      check('bin buttons tooltips: every button names its key and reply row has up, down, and bell only',
+        [
+          snap(t2).map(x => [x[0], x[1]]),
+          snap(snz).find(x => x[0] == 'snooze')[1],
+          snap(dlg).find(x => x[0] == 'owner')[1],
+          snap(rep).map(x => [x[0], x[1]]),
+        ],
+        [
+          [
+            ['up', 'Previous row (k)'],
+            ['down', 'Next row (j)'],
+            ['bell', 'Clear the notification (b)'],
+            ['agent', 'Delegate to the agent (a)'],
+            ['done', 'Done (d)'],
+            ['snooze', 'Snooze (s)'],
+            ['cancel', 'Delete (x)'],
+          ],
+          'Unsnooze (s)',
+          'Take back from the agent (u)',
+          [
+            ['up', 'Previous row (k)'],
+            ['down', 'Next row (j)'],
+            ['bell', 'Clear the notification (b)'],
+          ],
         ])
       // pressing the generated up/down specs invokes _row_step when the box names the drawn item
       s.selected.length = 0
@@ -4478,7 +4782,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [false, false],
           ['todoer: the press on "done" was not taken: its item is in no list'],
           true,
-          'Snooze',
+          'Snooze (s)',
           true,
           ['liveNext'],
         ])
@@ -4819,7 +5123,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       let prevented = 0
       const ev = { preventDefault: () => prevented++ }
       hook1('KeyJ', ev)
-      const passRes = hook1('KeyX', ev)
+      const passRes = hook1('KeyT', ev)
       // second evaluation of todoer.js on same window replaces todoer wrapper while keeping original `prior`
       const eval2 = makeStage({ sharedWin })
       eval2.makeItem('n1')
@@ -4831,7 +5135,197 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const passRes2 = hook2('KeyY', ev)
       check('_row_keys: taken once per evaluation, prevents default on row keys, forwards other keys to prior hook, and unwraps prior across re-evaluations',
         [sameHook, prevented, eval1.selected, passRes, replaced, eval2.selected, passRes2, priorCalls],
-        [true, 2, ['m1'], 'from-prior:KeyX', true, ['n1'], 'from-prior:KeyY', ['KeyX', 'KeyY']])
+        [true, 2, ['m1'], 'from-prior:KeyT', true, ['n1'], 'from-prior:KeyY', ['KeyT', 'KeyY']])
+    }
+
+    // 8. Row button keys (_BIN_KEYS: a, d, s, x, b, u; repeat guard; reply-row done rule; not-rows forwarding) (2026-11-25)
+    {
+      const setupKeys = () => {
+        const priorCalls = []
+        const sharedWin = { innerWidth: 1000, _on_key: (key, e) => (priorCalls.push(key), 'prior:' + key) }
+        const s = makeStage({ sharedWin })
+        s.makeItem('m1'); s.makeItem('m2'); s.makeItem('mPlain'); s.makeItem('rep')
+        s.makeItem('sn1'); s.makeItem('sn2')
+        s.makeItem('dl1'); s.makeItem('dl2'); s.makeItem('dlBell')
+        s.makeItem('note')
+        s.makeWidget({ rows: [{ id: 'm1', bell: true }, { id: 'm2' }, { id: 'mPlain' }, { id: 'rep', waits: 'reply', bell: true }] })
+        s.makeWidget({ snoozed: true, rows: [{ id: 'sn1' }, { id: 'sn2' }] })
+        s.makeWidget({ delegated: true, rows: [{ id: 'dl1' }, { id: 'dl2' }, { id: 'dlBell', bell: true }] })
+        s.env._row_keys()
+        const send = (key, extra = {}) => {
+          let prevented = false
+          const res = sharedWin._on_key(key, { ...extra, preventDefault: () => { prevented = true } })
+          return { prevented, res }
+        }
+        return { s, sharedWin, priorCalls, send }
+      }
+
+      // 8a. Each of the six keys triggers its button's press on a row that has it, prevents default, and does not forward
+      const runOne = async (box, key) => {
+        const { s, priorCalls, send } = setupKeys()
+        s.setBox(box)
+        const { prevented, res } = send(key)
+        await tick()
+        return { prevented, forwarded: priorCalls.length, res: res ?? null, actions: s.actions, selected: s.selected }
+      }
+      check('row keys: a, d, s, x, b, u press their buttons on rows that have them (snoozed s unsnoozes; delegated a asks again and u takes back), prevent default, and do not forward',
+        [
+          await runOne('#m1', 'KeyB'),
+          await runOne('#m1', 'KeyA'),
+          await runOne('#m1', 'KeyD'),
+          await runOne('#m1', 'KeyS'),
+          await runOne('#m1', 'KeyX'),
+          await runOne('#sn1', 'KeyS'),
+          await runOne('#dl1', 'KeyA'),
+          await runOne('#dl1', 'KeyU'),
+          await runOne('#dlBell', 'KeyB'),
+        ],
+        [
+          { prevented: true, forwarded: 0, res: null, actions: [['bell-click', 'm1']], selected: [] },
+          { prevented: true, forwarded: 0, res: null, actions: [['delegate', 'm1']], selected: ['m2'] },
+          { prevented: true, forwarded: 0, res: null, actions: [['complete', 'm1', '#todo m1']], selected: ['m2'] },
+          { prevented: true, forwarded: 0, res: null, actions: [['snooze', 'm1', 9999]], selected: ['m2'] },
+          { prevented: true, forwarded: 0, res: null, actions: [['delete', 'm1', true]], selected: ['m2'] },
+          { prevented: true, forwarded: 0, res: null, actions: [['unsnooze', 'sn1', true]], selected: ['sn2'] },
+          { prevented: true, forwarded: 0, res: null, actions: [['delegate', 'dl1']], selected: [] },
+          { prevented: true, forwarded: 0, res: null, actions: [['takeback', 'dl1']], selected: ['dl2'] },
+          { prevented: true, forwarded: 0, res: null, actions: [['bell-click', 'dlBell']], selected: [] },
+        ])
+
+      // 8b. Not the rows': empty box or unlisted item -> forwarded with default left
+      {
+        const { s, priorCalls, send } = setupKeys()
+        s.setBox('')
+        const emptyD = send('KeyD')
+        s.setBox('#note')
+        const unlistedX = send('KeyX')
+        const protoKey = send('toString')
+        check('row keys not-rows (unlisted): empty box and unlisted item forward bin keys to prior hook with default left',
+          [emptyD, unlistedX, protoKey, priorCalls, s.actions],
+          [
+            { prevented: false, res: 'prior:KeyD' },
+            { prevented: false, res: 'prior:KeyX' },
+            { prevented: false, res: 'prior:toString' },
+            ['KeyD', 'KeyX', 'toString'],
+            [],
+          ])
+      }
+
+      // 8c. Not the rows': row lacks that button (u in main, d/s/x in delegated, a/d/s/x/u on reply, b without bell)
+      {
+        const { s, priorCalls, send } = setupKeys()
+        const cases = [
+          ['#mPlain', 'KeyU'],
+          ['#mPlain', 'KeyB'],
+          ['#dl1', 'KeyD'],
+          ['#dl1', 'KeyS'],
+          ['#dl1', 'KeyX'],
+          ['#dl1', 'KeyB'],
+          ['#rep', 'KeyA'],
+          ['#rep', 'KeyD'],
+          ['#rep', 'KeyS'],
+          ['#rep', 'KeyX'],
+          ['#rep', 'KeyU'],
+        ]
+        const got = cases.map(([box, key]) => {
+          s.setBox(box)
+          return send(key)
+        })
+        check('row keys not-rows (missing button): u in main, d/s/x in delegated, a/d/s/x/u on reply, b without bell forward to prior hook with default left',
+          [got, priorCalls, s.actions],
+          [
+            cases.map(([, key]) => ({ prevented: false, res: 'prior:' + key })),
+            cases.map(([, key]) => key),
+            [],
+          ])
+      }
+
+      // 8d. Not the rows': modifiers (Shift, Ctrl, Alt, Meta) on a selected todo where KeyD would otherwise fire
+      {
+        const { s, priorCalls, send } = setupKeys()
+        s.setBox('#m1')
+        const mods = [{ shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true }]
+        const got = mods.map(m => send('KeyD', m))
+        check('row keys not-rows (modifiers): Shift, Ctrl, Alt, and Meta on a selected todo forward to prior hook with default left',
+          [got, priorCalls, s.actions],
+          [
+            mods.map(() => ({ prevented: false, res: 'prior:KeyD' })),
+            ['KeyD', 'KeyD', 'KeyD', 'KeyD'],
+            [],
+          ])
+      }
+
+      // 8e. Not the rows': focused fields (TEXTAREA, INPUT, SELECT, contentEditable) on a selected todo; plain DIV allows
+      {
+        const { s, priorCalls, send } = setupKeys()
+        s.setBox('#m1')
+        const fields = [{ tagName: 'TEXTAREA' }, { tagName: 'INPUT' }, { tagName: 'SELECT' }, { tagName: 'DIV', isContentEditable: true }]
+        const blocked = fields.map(el => {
+          s.doc.activeElement = el
+          return send('KeyD')
+        })
+        const actionsWhileBlocked = [...s.actions]
+        s.doc.activeElement = { tagName: 'DIV', isContentEditable: false }
+        const allowed = send('KeyD')
+        await tick()
+        check('row keys not-rows (focused fields): textarea, input, select, and contentEditable forward to prior hook with default left; plain div takes key',
+          [blocked, actionsWhileBlocked, priorCalls, allowed, s.actions],
+          [
+            fields.map(() => ({ prevented: false, res: 'prior:KeyD' })),
+            [],
+            ['KeyD', 'KeyD', 'KeyD', 'KeyD'],
+            { prevented: true, res: undefined },
+            [['complete', 'm1', '#todo m1']],
+          ])
+      }
+
+      // 8f. Repeat guard: held key prevents default, does not forward, and presses nothing (while first non-repeat press acts once)
+      {
+        const { s, priorCalls, send } = setupKeys()
+        s.setBox('#m1')
+        const repOnly = send('KeyD', { repeat: true })
+        await tick()
+        const actionsAfterRepeat = [...s.actions]
+        const firstPress = send('KeyD', { repeat: false })
+        const secondHeld = send('KeyD', { repeat: true })
+        await tick()
+        check('row keys repeat: held key prevents default, does not forward to prior hook, and presses nothing',
+          [repOnly, actionsAfterRepeat, firstPress, secondHeld, priorCalls, s.actions],
+          [
+            { prevented: true, res: undefined },
+            [],
+            { prevented: true, res: undefined },
+            { prevented: true, res: undefined },
+            [],
+            [['complete', 'm1', '#todo m1']],
+          ])
+      }
+
+      // 8g. Reply row: only up, down, and bell are drawn (no bin buttons); a/d/s/x/u all forward with default left and no action; b clears the row
+      {
+        const { s, sharedWin, priorCalls, send } = setupKeys()
+        sharedWin._key_buttons = { guest: () => {} }
+        const rep = s.items.get('rep')
+        s.setBox('#rep')
+        s.env._bin_buttons(rep)
+        const drawnNames = sharedWin._key_buttons_guests.buttons.map(b => b.name)
+        const binKeys = ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU']
+        const binRes = binKeys.map(k => send(k))
+        const actionsBeforeBell = [...s.actions]
+        const bRes = send('KeyB')
+        await tick()
+        check('row keys reply: only up/down/bell drawn, a/d/s/x/u forward to prior hook with default left and no action, and b clears the row',
+          [drawnNames, binRes, actionsBeforeBell, bRes, priorCalls, s.actions, s.selected],
+          [
+            ['up', 'down', 'bell'],
+            binKeys.map(k => ({ prevented: false, res: 'prior:' + k })),
+            [],
+            { prevented: true, res: undefined },
+            binKeys,
+            [['bell-click', 'rep']],
+            ['mPlain'],
+          ])
+      }
     }
   })())
   // the item's files are embedded in the #todoer item's own text, where the app expands every
