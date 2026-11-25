@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -115,7 +115,12 @@ const picked =
     '_delegated_view',
     '_clear_pending',
     '_rerender_todoer_widgets',
+    '_task_refusal',
     '_task_target',
+    '_delegate_refusal',
+    '_takeback_refusal',
+    '_complete_refusal',
+    '_delete_refusal',
     '_command_target',
     '_delegate',
     '_carried_write',
@@ -4230,14 +4235,26 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // directly from todoer.js without disturbing the lightweight mock used by earlier rows.
   async_rows.push((async () => {
     const binConsts = [
+      src.match(/\nconst _pending_commands = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
       src.match(/\nconst _BIN_BUTTONS_CSS = `[\s\S]*?\n`\n/)[0],
       src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_KEYS = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_DRAFT = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_REFUSAL = [^\n]*\n/)[0],
+      src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
+      src.match(/\nconst _row_has = [^\n]*\n/)[0],
+      src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
     ].join('\n')
     const binCode =
       binConsts +
       pick([
+        '_task_state',
+        '_task_refusal',
+        '_delegate_refusal',
+        '_takeback_refusal',
+        '_complete_refusal',
+        '_delete_refusal',
         '_bin_buttons',
         '__bin_buttons',
         '_mounted_lists',
@@ -4246,6 +4263,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_row_beside',
         '_row_step',
         '_on_row_key',
+        '_row_now',
+        '_row_can',
+        '_row_goes',
         '_row_keys',
         '_next_listed',
         '_select_next',
@@ -4369,11 +4389,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const alerts = []
       const actions = []
       let boxText = ''
-      const makeItem = (id, { name = '#' + id, text = '#todo ' + id, editing = false, draft = null, deletes = true } = {}) => {
+      const makeItem = (id, { name = '#' + id, text = '#todo ' + id, tags = ['#todo'], saved_id = 'saved-' + id, editing = false, draft = null, deletes = true } = {}) => {
         const it = {
           id,
+          saved_id,
           name,
           text,
+          tags,
           editing,
           _global_store: {},
           get global_store() { return this._global_store },
@@ -4418,13 +4440,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         querySelectorAll: sel => root.querySelectorAll(sel),
       }
       const win = sharedWin ?? { innerWidth: 1000 }
+      if (!win._grammar) win._grammar = { version: 2 }
       const env = {
         window: win,
         document: doc,
         console: { warn: m => warns.push(m), error: m => errors.push(m) },
         alert: m => alerts.push(m),
         is_number: x => typeof x == 'number',
-        _todoer: { deephash },
+        _todoer: { deephash, store: {} },
         _item: ref => items.get(ref) ?? null,
         MindBox: { get: () => boxText, set: t => ((boxText = t), selected.push('set:' + t)) },
         _complete_todo: (it, log) => (actions.push(['complete', it.id, log]), true),
@@ -4440,6 +4463,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       vm.runInContext(binCode, env)
       return {
         env, win, doc, body, head, items, selected, warns, errors, alerts, actions,
+        eval: code => vm.runInContext(code, env),
         makeItem, makeWidget, setBox: t => (boxText = t), getBox: () => boxText, DomNode,
       }
     }
@@ -4850,16 +4874,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ],
         ])
       s.warns.length = 0
-      // async press holds busy mark, refuses second press with warning, selects next once settled, clears busy
+      // async press holds busy mark, refuses second press with warning, selects next once settled, clears busy;
+      // while pending, _ROW_SHORTCUTS hides button keys and keeps navigation keys (j/k), restoring button keys after settlement
       let resolveDelegate
       s.env._delegate = it => { s.actions.push(['delegate', it.id]); return new Promise(r => (resolveDelegate = r)) }
+      const keysFor = () => s.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
       s.setBox('#p1')
+      const keysBeforeBusy = keysFor()
       const pending = s.env._bin_press('agent', 'p1')
       const busyMid = !!s.win._todoer_bin_busy
+      const keysWhileBusyP1 = keysFor()
+      // Also check middle row p2 while busy: both j and k stay active while button keys hide
+      s.setBox('#p2')
+      const keysWhileBusyP2 = keysFor()
+      s.setBox('#p1')
       const second = s.env._bin_press('done', 'p1')
       const selectedMid = [...s.selected]
       resolveDelegate(true)
       await pending
+      const keysAfterBusyP2 = keysFor() // p2 is now selected after p1 moved on
       check('_bin_press busy: holds _todoer_bin_busy until settled, refuses overlapping press with console.warn, then selects next row and clears busy',
         [busyMid, second, s.warns, selectedMid, s.selected, !!s.win._todoer_bin_busy],
         [
@@ -4869,6 +4902,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [],
           ['p2'],
           false,
+        ])
+      check('_ROW_SHORTCUTS busy: hides button keys while a press is pending, keeps j/k navigation, and restores button keys once settled',
+        [keysBeforeBusy, keysWhileBusyP1, keysWhileBusyP2, keysAfterBusyP2],
+        [
+          ['j:the next row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
+          ['j:the next row'],
+          ['j:the next row', 'k:the previous row'],
+          ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
         ])
       // last row press selects previous; refused press selects nothing; rejected promise & sync throw still clear busy
       s.selected.length = 0
@@ -5325,6 +5366,509 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             [['bell-click', 'rep']],
             ['mPlain'],
           ])
+      }
+    }
+
+    // 9. _ROW_SHORTCUTS, _row_now, _row_has, _row_goes, and window._shortcuts.todoer registration (2026-11-25)
+    {
+      const s = makeStage()
+      const rowShortcuts = s.eval('_ROW_SHORTCUTS')
+      const binKeysObj = s.eval('_BIN_KEYS')
+      const binKeyLetters = Object.keys(binKeysObj).map(k => k.replace(/^Key/, '').toLowerCase())
+      const expectedKeys = [...new Set(['j', 'k', ...binKeyLetters])].sort()
+      const listedKeys = [...new Set(rowShortcuts.map(e => e.keys))].sort()
+      const shapesOk = rowShortcuts.every(e =>
+        typeof e.keys == 'string' && e.keys.length > 0 &&
+        typeof e.does == 'string' && e.does.length > 0 &&
+        typeof e.when == 'string' && e.when.length > 0 &&
+        typeof e.active == 'function' &&
+        e.context === undefined,
+      )
+      check('_ROW_SHORTCUTS: 11 entries cover every key of _BIN_KEYS plus j and k, with no extra keys, and valid shapes',
+        [rowShortcuts.length, listedKeys, shapesOk],
+        [11, expectedKeys, true])
+
+      // Build widgets covering every row state:
+      // main: m1 (start, plain), m2 (middle, bell), repMid (reply with bell, middle), m3 (end, plain), repEnd (reply without bell, end)
+      // snoozed: sn1 (start, plain), sn2 (middle, bell), sn3 (end, plain)
+      // delegated: dl1 (start, plain), dl2 (end, bell)
+      // unlisted: note
+      for (const id of ['m1', 'm2', 'repMid', 'm3', 'repEnd', 'sn1', 'sn2', 'sn3', 'dl1', 'dl2', 'note']) s.makeItem(id)
+      s.makeWidget({
+        rows: [
+          { id: 'm1' },
+          { id: 'm2', bell: true },
+          { id: 'repMid', waits: 'reply', bell: true },
+          { id: 'm3' },
+          { id: 'repEnd', waits: 'reply' },
+        ],
+      })
+      s.makeWidget({
+        snoozed: true,
+        rows: [{ id: 'sn1' }, { id: 'sn2', bell: true }, { id: 'sn3' }],
+      })
+      s.makeWidget({
+        delegated: true,
+        rows: [{ id: 'dl1' }, { id: 'dl2', bell: true }],
+      })
+
+      const activeEntries = box => {
+        s.setBox(box)
+        return rowShortcuts.filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+      }
+      const rowHas = name => s.eval(`_row_has(${JSON.stringify(name)})`)
+
+      // _row_now, _row_has, _row_goes directly
+      s.setBox('')
+      const nowEmpty = [s.env._row_now(), rowHas('done'), s.env._row_goes(1, true), s.env._row_goes(1, false), s.env._row_goes(-1, true), s.env._row_goes(-1, false)]
+      s.setBox('  #m2  ')
+      const nowTrimmed = [s.env._row_now()?.row?.getAttribute('data-id'), rowHas('done'), rowHas('bell'), rowHas('owner'), s.env._row_goes(1, true), s.env._row_goes(1, false)]
+      s.setBox('#note')
+      const nowUnlisted = [s.env._row_now(), rowHas('done'), s.env._row_goes(1, true), s.env._row_goes(1, false)]
+      check('_row_now, _row_has, _row_goes: empty/unlisted have no row and allow global j/k; trimmed label resolves row and buttons',
+        [nowEmpty, nowTrimmed, nowUnlisted],
+        [
+          [null, false, false, true, false, true],
+          ['m2', true, true, false, true, false],
+          [null, false, false, true],
+        ])
+
+      // Every row state across all 11 entries
+      check('_ROW_SHORTCUTS active: no row (empty or unlisted) activates main-list j and k alone; empty or parked-only main list activates none',
+        [
+          activeEntries(''),
+          activeEntries('#note'),
+          (() => {
+            const se = makeStage()
+            se.makeItem('pk')
+            se.makeItem('snOnly')
+            se.makeItem('dlOnly')
+            se.makeWidget({ parked: true, rows: [{ id: 'pk' }] })
+            se.makeWidget({ rows: [] })
+            se.makeWidget({ snoozed: true, rows: [{ id: 'snOnly' }] })
+            se.makeWidget({ delegated: true, rows: [{ id: 'dlOnly' }] })
+            se.setBox('')
+            return se.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+          })(),
+        ],
+        [
+          ["j:the main list's first row", "k:the main list's last row"],
+          ["j:the main list's first row", "k:the main list's last row"],
+          [],
+        ])
+
+      check('_ROW_SHORTCUTS active: main-list todo at start, middle (with bell), end (without bell), and sole row',
+        [
+          activeEntries('#m1'),
+          activeEntries('#m2'),
+          (() => {
+            // dedicated 3-todo main list to test todo at end without reply after it, plus 1-todo sole list
+            const sm = makeStage()
+            sm.makeItem('a1'); sm.makeItem('a2'); sm.makeItem('a3')
+            sm.makeWidget({ rows: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }] })
+            sm.setBox('#a3')
+            const endTodo = sm.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+            const sole = makeStage()
+            sole.makeItem('only')
+            sole.makeWidget({ rows: [{ id: 'only' }] })
+            sole.setBox('#only')
+            const soleTodo = sole.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+            return [endTodo, soleTodo]
+          })(),
+        ],
+        [
+          ['j:the next row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
+          ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
+          [
+            ['k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
+            ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
+          ],
+        ])
+
+      check('_ROW_SHORTCUTS active: reply row in middle with bell has j, k, b alone; reply row at end without bell has k alone',
+        [activeEntries('#repMid'), activeEntries('#repEnd')],
+        [
+          ['j:the next row', 'k:the previous row', 'b:clear the bell'],
+          ['k:the previous row'],
+        ])
+
+      check('_ROW_SHORTCUTS active: snoozed todo activates unsnooze (not snooze) with list position and bell',
+        [activeEntries('#sn1'), activeEntries('#sn2'), activeEntries('#sn3')],
+        [
+          ['j:the next row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question'],
+          ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question', 'b:clear the bell'],
+          ['k:the previous row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question'],
+        ])
+
+      check('_ROW_SHORTCUTS active: delegated todo activates agent and take-back (plus list position and bell), never done/snooze/delete',
+        [activeEntries('#dl1'), activeEntries('#dl2')],
+        [
+          ['j:the next row', 'a:delegate to the agent', 'u:take back from the agent'],
+          ['k:the previous row', 'a:delegate to the agent', 'b:clear the bell', 'u:take back from the agent'],
+        ])
+
+      // _row_can over every button name: no row, missing button, busy, dirty draft, clean open editor (incl ZWSP), unreadable editor
+      {
+        const names = ['agent', 'done', 'snooze', 'cancel', 'bell', 'owner']
+        const canAll = st => names.map(n => st.env._row_can(n))
+        const sc = makeStage()
+        const cleanMain = sc.makeItem('cm', { text: '#todo clean main' })
+        const dirtyMain = sc.makeItem('dm', { text: '#todo dirty main', editing: true, draft: '#todo dirty main edited' })
+        const untouchedMain = sc.makeItem('um', { text: '#todo untouched', editing: true, draft: '\u200b#todo untouched\u200b' })
+        const unreadMain = sc.makeItem('urm', { text: '#todo unreadable', editing: true })
+        unreadMain.elem = null // editor textarea cannot be read -> counts as holding a draft
+        const dirtySnz = sc.makeItem('ds', { text: '#todo dirty snoozed', editing: true, draft: '#todo dirty snoozed!' })
+        const dirtyDel = sc.makeItem('dd', { text: '#todo dirty delegated', editing: true, draft: '#todo dirty delegated!' })
+        const rep = sc.makeItem('rp')
+        sc.makeItem('unlisted')
+        sc.makeWidget({
+          rows: [
+            { id: 'cm', bell: true },
+            { id: 'dm', bell: true },
+            { id: 'um', bell: true },
+            { id: 'urm', bell: true },
+            { id: 'rp', waits: 'reply', bell: true },
+          ],
+        })
+        sc.makeWidget({ snoozed: true, rows: [{ id: 'ds', bell: true }] })
+        sc.makeWidget({ delegated: true, rows: [{ id: 'dd', bell: true }] })
+
+        sc.setBox('')
+        const onEmpty = canAll(sc)
+        sc.setBox('#unlisted')
+        const onUnlisted = canAll(sc)
+        sc.setBox('#cm')
+        const onCleanMain = canAll(sc)
+        sc.win._todoer_bin_busy = true
+        const onBusyMain = canAll(sc)
+        sc.win._todoer_bin_busy = false
+        sc.setBox('#dm')
+        const onDirtyMain = canAll(sc)
+        sc.setBox('#um')
+        const onUntouchedMain = canAll(sc)
+        sc.setBox('#urm')
+        const onUnreadMain = canAll(sc)
+        sc.setBox('#rp')
+        const onReply = canAll(sc)
+        sc.setBox('#ds')
+        const onDirtySnz = canAll(sc)
+        sc.setBox('#dd')
+        const onDirtyDel = canAll(sc)
+        check('_row_can: checks row buttons, pending busy mark, and _BIN_DRAFT (dirty, clean/ZWSP open editor, unreadable editor) for every button name',
+          [onEmpty, onUnlisted, onCleanMain, onBusyMain, onDirtyMain, onUntouchedMain, onUnreadMain, onReply, onDirtySnz, onDirtyDel],
+          [
+            [false, false, false, false, false, false], // empty box
+            [false, false, false, false, false, false], // unlisted
+            [true, true, true, true, true, false], // clean main todo with bell (no owner)
+            [false, false, false, false, false, false], // busy
+            [false, false, true, false, true, false], // dirty main: snooze & bell stay; agent/done/cancel refuse
+            [true, true, true, true, true, false], // open editor with ZWSP-only diff: no draft
+            [false, false, true, false, true, false], // unreadable editor counts as draft
+            [false, false, false, false, true, false], // reply with bell
+            [false, false, true, false, true, false], // dirty snoozed: unsnooze (snooze) & bell stay
+            [false, false, false, false, true, false], // dirty delegated: bell stays; agent & owner refuse
+          ])
+
+        // _ROW_SHORTCUTS with a dirty unfocused editor (main, snoozed, delegated) and after discarding draft
+        sc.doc.activeElement = null
+        const listOf = box => {
+          sc.setBox(box)
+          return sc.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+        }
+        const dirtyMainList = listOf('#dm')
+        const dirtySnzList = listOf('#ds')
+        const dirtyDelList = listOf('#dd')
+        dirtyMain.editing = false
+        const cleanAgainList = listOf('#dm')
+        check('_ROW_SHORTCUTS dirty unfocused editor: hides draft-refused keys (a, d, x, u), keeps j/k/s/b, and restores after draft ends',
+          [dirtyMainList, dirtySnzList, dirtyDelList, cleanAgainList],
+          [
+            ['j:the next row', 'k:the previous row', 's:snooze', 'b:clear the bell'],
+            ['s:unsnooze', 'b:clear the bell'],
+            ['b:clear the bell'],
+            ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
+          ])
+        // Sanity check corrected `when` descriptions
+        const whenByKey = sc.eval('_ROW_SHORTCUTS').map(e => `${e.keys}:${e.when}`)
+        check('_ROW_SHORTCUTS when: every entry names its row, the list that has its button, the list ends, and the unsaved-edit rule on the four draft-refused presses',
+          whenByKey,
+          [
+            'j:a row is selected that is not the last of its list',
+            'j:no row is selected, and the main list has a row',
+            'k:a row is selected that is not the first of its list',
+            'k:no row is selected, and the main list has a row',
+            'a:a todo is selected, with no unsaved edit in it',
+            'd:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
+            's:a todo of the main list is selected',
+            's:a snoozed todo is selected',
+            'x:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
+            'b:a row with a bell is selected',
+            'u:a delegated todo is selected, with no unsaved edit in it',
+          ])
+      }
+
+      // Agreement: for every button name, real _bin_act over a dirty draft refuses iff _BIN_DRAFT has the name
+      // (agreeing with _row_can), and the alert's word comes directly from _BIN_DRAFT; plus _BIN_REFUSAL
+      // agreement for pending take-back, unsaved items (a and u), and every refusal word of all four actions
+      {
+        const agCode =
+          binConsts +
+          pick([
+            '_task_state',
+            '_task_refusal',
+            '_delegate_refusal',
+            '_takeback_refusal',
+            '_complete_refusal',
+            '_delete_refusal',
+            '_mounted_lists',
+            '_bin_row',
+            '_row_buttons',
+            '_row_now',
+            '_row_can',
+            '_row_goes',
+            '_bin_act',
+            '_draft',
+            '_draft_word',
+            '_delete_listed',
+            '_task_target',
+            '_complete_todo',
+            '_delegate',
+            '_takeback',
+          ]).join('\n')
+        const root = new DomNode('html')
+        const body = root.appendChild(new DomNode('body'))
+        const itemsMap = new Map()
+        const alerts = []
+        const actions = []
+        let boxText = ''
+        const mkItem = (id, { saved_id = 'saved-' + id, tags = ['#todo'], editing = false, draft = null } = {}) => {
+          const it = {
+            id,
+            saved_id,
+            name: '#' + id,
+            text: '#todo ' + id,
+            tags,
+            editing,
+            _global_store: {},
+            get global_store() { return this._global_store },
+            elem: { querySelector: s => (s == 'textarea' && it.editing ? { value: draft ?? it.text } : null) },
+            delete: () => (actions.push(['delete', id]), true),
+            write: () => (actions.push(['write', id]), true),
+          }
+          itemsMap.set(id, it)
+          itemsMap.set(it.name, it)
+          return it
+        }
+        const mkDirty = id => mkItem(id, { editing: true, draft: '#todo ' + id + ' unsaved draft' })
+        const addRow = (list, id) => {
+          const row = list.appendChild(new DomNode('div', { className: 'list-item-container', 'data-id': id }))
+          row._log_text = '#todo ' + id
+          const li = row.appendChild(new DomNode('div', { className: 'list-item' }))
+          const bell = li.appendChild(new DomNode('mark', { className: 'waits' }))
+          bell.click = () => actions.push(['bell-click', id])
+          return row
+        }
+        const mkW = (opts, id) => {
+          const w = body.appendChild(new DomNode('div', { className: 'todoer-widget' }))
+          w._snoozed = !!opts.snoozed
+          w._delegated = !!opts.delegated
+          const list = w.appendChild(new DomNode('div', { className: 'list' }))
+          const bins = opts.delegated ? ['agent', 'owner'] : ['agent', 'done', 'snooze', 'cancel']
+          for (const b of bins) w.appendChild(new DomNode('div', { className: `${b} bin` }))
+          const row = addRow(list, id)
+          return { widget: w, list, row }
+        }
+        const dMain = mkDirty('agMain')
+        const dSnz = mkDirty('agSnz')
+        const dDel = mkDirty('agDel')
+        const wMain = mkW({}, 'agMain')
+        const wSnz = mkW({ snoozed: true }, 'agSnz')
+        const wDel = mkW({ delegated: true }, 'agDel')
+        const agTb = mkItem('agTb')
+        const agNew = mkItem('agNew', { saved_id: null })
+        const agDelNew = mkItem('agDelNew', { saved_id: null })
+        addRow(wMain.list, 'agTb')
+        addRow(wMain.list, 'agNew')
+        addRow(wDel.list, 'agDelNew')
+        const doc = {
+          body,
+          querySelector: sel => root.querySelector(sel),
+          querySelectorAll: sel => root.querySelectorAll(sel),
+        }
+        const grammarV2 = { version: 2, edit: (t, fn) => fn(t) }
+        const env = {
+          window: { _grammar: grammarV2 },
+          document: doc,
+          console: { warn: () => {}, error: () => {} },
+          alert: m => alerts.push(m),
+          is_number: x => typeof x == 'number',
+          _todoer: { store: {} },
+          _item: ref => itemsMap.get(ref) ?? null,
+          _exists: () => false,
+          _command_id: () => 'cmd-ag',
+          _clear_bell: () => {},
+          _delegated_view: v => v,
+          _replace_tags: (text, pattern, fn) => {
+            const re = new RegExp(pattern, 'g')
+            let m
+            while ((m = re.exec(text))) fn(m[0], m[1], m.index)
+            return text
+          },
+          MindBox: { get: () => boxText },
+          _carried_write: () => () => true,
+          _enqueue_command: () => Promise.resolve(true),
+          _snooze_dialog: () => Promise.resolve({ time: 9999, notify: false }),
+          _snooze: it => actions.push(['snooze', it.id]),
+          _unsnooze: it => actions.push(['unsnooze', it.id]),
+          _rerender_todoer_widgets: () => {},
+        }
+        vm.createContext(env)
+        vm.runInContext(agCode, env)
+        const binDraft = vm.runInContext('_BIN_DRAFT', env)
+        const binRefusal = vm.runInContext('_BIN_REFUSAL', env)
+        const agShortcuts = vm.runInContext('_ROW_SHORTCUTS', env)
+        const cases = [
+          ['agent', dMain, wMain.row, false],
+          ['done', dMain, wMain.row, false],
+          ['cancel', dMain, wMain.row, false],
+          ['snooze', dMain, wMain.row, false],
+          ['snooze', dSnz, wSnz.row, true],
+          ['bell', dMain, wMain.row, false],
+          ['owner', dDel, wDel.row, false],
+        ]
+        const results = []
+        for (const [name, item, row, snoozed] of cases) {
+          boxText = item.name
+          alerts.length = 0
+          const can = env._row_can(name)
+          const inTable = Object.hasOwn(binDraft, name)
+          const res = await env._bin_act(name, item, row, snoozed)
+          const refused = res === false
+          const msg = alerts[0] ?? null
+          const expectedMsg = inTable ? `can not ${binDraft[name]} ${item.name} with unsaved changes: save or cancel your edit first` : null
+          results.push([name, snoozed, inTable, can, refused, msg === expectedMsg && !String(msg).includes('undefined')])
+        }
+        check('_BIN_DRAFT agreement: real _bin_act over a draft refuses iff _BIN_DRAFT has the button name (matching !_row_can) with the table word',
+          results,
+          [
+            ['agent', false, true, false, true, true],
+            ['done', false, true, false, true, true],
+            ['cancel', false, true, false, true, true],
+            ['snooze', false, false, true, false, true],
+            ['snooze', true, false, true, false, true],
+            ['bell', false, false, true, false, true],
+            ['owner', false, true, false, true, true],
+          ])
+
+        // _ROW_SHORTCUTS + _row_can + real actions agreement for pending take-back and unsaved todos (a and u)
+        const keyListed = k => agShortcuts.some(e => e.keys == k && e.active())
+        const probeAction = async (item, key, btn, fn) => {
+          boxText = item.name
+          alerts.length = 0
+          const listed = keyListed(key)
+          const can = env._row_can(btn)
+          const ok = await fn(item)
+          return [listed, can, ok, alerts[0] ?? null]
+        }
+        env._todoer.store.pending = { agTb: { id: 'tb1', kind: 'takeback' } }
+        const tbPending = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
+        agTb._global_store._agent = { state: { acked: { other: 'ok' } } }
+        const tbOtherAcked = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
+        agTb._global_store._agent = { state: { acked: { tb1: 'ok' } } }
+        const tbAcked = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
+        const unsavedDelg = await probeAction(agNew, 'a', 'agent', it => env._delegate(it))
+        agNew.saved_id = 'saved-agNew'
+        const savedDelg = await probeAction(agNew, 'a', 'agent', it => env._delegate(it))
+        const unsavedTakeback = await probeAction(agDelNew, 'u', 'owner', it => env._takeback(it))
+        const unsavedDelgAlsoOff = [keyListed('a'), env._row_can('agent')]
+        agDelNew.saved_id = 'saved-agDelNew'
+        const savedTakeback = await probeAction(agDelNew, 'u', 'owner', it => env._takeback(it))
+        check('_BIN_REFUSAL row agreement: a (pending take-back and unsaved) and u (unsaved) align _ROW_SHORTCUTS, _row_can, and real _delegate/_takeback',
+          [tbPending, tbOtherAcked, tbAcked, unsavedDelg, savedDelg, unsavedTakeback, unsavedDelgAlsoOff, savedTakeback],
+          [
+            [false, false, false, 'take-back of #agTb pending; delegate again after it is acknowledged'],
+            [false, false, false, 'take-back of #agTb pending; delegate again after it is acknowledged'],
+            [true, true, true, null],
+            [false, false, false, 'cannot delegate #agNew: item not saved yet'],
+            [true, true, true, null],
+            [false, false, false, 'cannot take back #agDelNew: item not saved yet'],
+            [false, false],
+            [true, true, true, null],
+          ])
+
+        // Every refusal word of every function in _BIN_REFUSAL, paired with its real action alerting that exact word
+        const runRefusal = async (btn, item, action, { grammar = grammarV2, pending = null } = {}) => {
+          env.window._grammar = grammar
+          env._todoer.store.pending = pending ? { [item.id]: pending } : {}
+          alerts.length = 0
+          const word = binRefusal[btn](item)
+          const ok = await action(item)
+          return [word, ok, alerts.length, alerts[0] ?? null]
+        }
+        const refRows = [
+          // agent (_delegate_refusal + _delegate): 5 refusal words + clean ok
+          await runRefusal('agent', mkItem('refAgNoTag', { tags: [] }), it => env._delegate(it)),
+          await runRefusal('agent', mkItem('refAgUnsaved', { saved_id: null }), it => env._delegate(it)),
+          await runRefusal('agent', mkDirty('refAgDraft'), it => env._delegate(it)),
+          await runRefusal('agent', mkItem('refAgTb'), it => env._delegate(it), { pending: { id: 'tb2', kind: 'takeback' } }),
+          await runRefusal('agent', mkItem('refAgNoGram'), it => env._delegate(it), { grammar: { version: 1, edit: (t, fn) => fn(t) } }),
+          await runRefusal('agent', mkItem('refAgOk'), it => env._delegate(it)),
+          // owner (_takeback_refusal + _takeback): 3 refusal words + clean ok
+          await runRefusal('owner', mkItem('refOwNoTag', { tags: [] }), it => env._takeback(it)),
+          await runRefusal('owner', mkItem('refOwUnsaved', { saved_id: null }), it => env._takeback(it)),
+          await runRefusal('owner', mkDirty('refOwDraft'), it => env._takeback(it)),
+          await runRefusal('owner', mkItem('refOwOk'), it => env._takeback(it)),
+          // done (_complete_refusal + _complete_todo): 2 refusal words + clean ok
+          await runRefusal('done', mkItem('refDnNoGram'), it => env._complete_todo(it, it.text), { grammar: { version: 1, edit: (t, fn) => fn(t) } }),
+          await runRefusal('done', mkDirty('refDnDraft'), it => env._complete_todo(it, it.text)),
+          await runRefusal('done', mkItem('refDnOk'), it => env._complete_todo(it, it.text)),
+          // cancel (_delete_refusal + _delete_listed): 1 refusal word + clean ok
+          await runRefusal('cancel', mkDirty('refCnDraft'), it => env._delete_listed(it, true)),
+          await runRefusal('cancel', mkItem('refCnOk'), it => env._delete_listed(it, true)),
+        ]
+        env.window._grammar = grammarV2
+        env._todoer.store.pending = {}
+        check('_BIN_REFUSAL words: all four refusal functions cover every refusal word (and null) and their real actions alert that exact word',
+          [Object.keys(binRefusal), refRows],
+          [
+            ['agent', 'done', 'cancel', 'owner'],
+            [
+              ['cannot delegate #refAgNoTag: not a #todo item', false, 1, 'cannot delegate #refAgNoTag: not a #todo item'],
+              ['cannot delegate #refAgUnsaved: item not saved yet', false, 1, 'cannot delegate #refAgUnsaved: item not saved yet'],
+              ['can not delegate #refAgDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not delegate #refAgDraft with unsaved changes: save or cancel your edit first'],
+              ['take-back of #refAgTb pending; delegate again after it is acknowledged', false, 1, 'take-back of #refAgTb pending; delegate again after it is acknowledged'],
+              ['please reload to delegate todos (app update required)', false, 1, 'please reload to delegate todos (app update required)'],
+              [null, true, 0, null],
+              ['cannot take back #refOwNoTag: not a #todo item', false, 1, 'cannot take back #refOwNoTag: not a #todo item'],
+              ['cannot take back #refOwUnsaved: item not saved yet', false, 1, 'cannot take back #refOwUnsaved: item not saved yet'],
+              ['can not take back #refOwDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not take back #refOwDraft with unsaved changes: save or cancel your edit first'],
+              [null, true, 0, null],
+              ['please reload to complete todos (app update required)', false, 1, 'please reload to complete todos (app update required)'],
+              ['can not complete #refDnDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not complete #refDnDraft with unsaved changes: save or cancel your edit first'],
+              [null, true, 0, null],
+              ['can not delete #refCnDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not delete #refCnDraft with unsaved changes: save or cancel your edit first'],
+              [null, true, 0, null],
+            ],
+          ])
+      }
+
+      // _row_keys registers window._shortcuts.todoer, keeps sibling sections, and re-writes even when hook is already taken
+      {
+        const sharedWin = { innerWidth: 1000, _shortcuts: { other: [{ keys: 'z', does: 'keep me' }] } }
+        const sr = makeStage({ sharedWin })
+        const list = sr.eval('_ROW_SHORTCUTS')
+        sr.env._row_keys()
+        const firstHook = sharedWin._on_key
+        const afterFirst = [sharedWin._shortcuts.todoer === list, sharedWin._shortcuts.other.length]
+        delete sharedWin._shortcuts.todoer
+        sr.env._row_keys() // hook already taken: must still write window._shortcuts.todoer
+        const afterDeletedProp = [sharedWin._shortcuts.todoer === list, sharedWin._on_key === firstHook]
+        delete sharedWin._shortcuts
+        sr.env._row_keys() // whole registry wiped while hook taken: must recreate and write
+        const afterWipedReg = [sharedWin._shortcuts?.todoer === list, sharedWin._on_key === firstHook]
+        check('_row_keys: writes _ROW_SHORTCUTS to window._shortcuts.todoer while keeping other sections, also when the key hook was taken before',
+          [afterFirst, afterDeletedProp, afterWipedReg],
+          [[true, 1], [true, true], [true, true]])
       }
     }
   })())

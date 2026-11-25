@@ -144,7 +144,7 @@ function _shortcuts_html(view, context, added = window._shortcuts, taken = null)
 
 // draw or keep the page's one menu controller (the pattern of the key buttons' strip,
 // key_buttons_reconcile in key_buttons.js): it lives on the window, since the item's code is
-// evaluated afresh at every hook, and OWNS its style and its key listener. A controller drawn by
+// evaluated afresh at every hook, and OWNS its style and its two key listeners. A controller drawn by
 // other code or for another item is disposed before the new one is made. Only the page's one
 // item of this name has one: a controller of this item goes while a second item carries the name
 function _shortcuts_reconcile() {
@@ -162,7 +162,7 @@ function _shortcuts_reconcile() {
 }
 
 function _shortcuts_create() {
-  const self = { code: _shortcuts_code, item: _this.id, disposed: false, dialog: null, context: 'window', view: 'now', taken: null, held: false }
+  const self = { code: _shortcuts_code, item: _this.id, disposed: false, dialog: null, context: 'window', view: 'now', taken: null, held: null }
   const style = document.createElement('style')
   style.dataset.shortcuts = 'style'
   style.textContent = _SHORTCUTS_CSS
@@ -219,18 +219,24 @@ function _shortcuts_create() {
   // open one. The items' tests of what is active run here, at the press that opens. In a field
   // the plain key is a character to type, so there it counts only with Ctrl, Alt or Cmd. Another
   // dialog that is up keeps its keys. A key held down counts once, and a press that the menu
-  // took is the menu's to its end (`held`): its repeats are taken and do nothing, where they
-  // would else go on as characters into the field that has the focus back once the key closed
-  // the menu. A new press of any key ends that hold
+  // took is the menu's to its end (`held`: the PHYSICAL key of that press): its repeats are
+  // taken and do nothing, where they would else go on as characters into the field that has the
+  // focus back once the key closed the menu. They are known by the key, not by its character:
+  // with Shift let go first, the same key held on sends another character (the slash). The
+  // hold ends when that key is let go, or pressed afresh; another key pressed meanwhile does
+  // not end it
+  const pressed = e => e.code || e.key
   const key = e => {
     if (self.disposed) return
-    if (!e.repeat) self.held = false
+    if (self.held && pressed(e) == self.held) {
+      if (e.repeat) return take(e)
+      self.held = null // (a fresh press of that key)
+    }
     const open = self.open()
     if (!_shortcuts_key(e)) return open ? steer(e) : undefined
-    if (e.repeat && self.held) return take(e)
     if (open) {
       take(e)
-      self.held = true
+      self.held = pressed(e)
       if (!e.repeat) self.close()
       return
     }
@@ -238,14 +244,17 @@ function _shortcuts_create() {
     const context = _shortcuts_context()
     if (context != 'window' && !(e.ctrlKey || e.altKey || e.metaKey)) return
     take(e)
-    self.held = true
+    self.held = pressed(e)
     if (!e.repeat) self.show('now', context)
   }
+  const up = e => void (self.held && pressed(e) == self.held && (self.held = null))
   window.addEventListener('keydown', key, true)
+  window.addEventListener('keyup', up, true)
   self.dispose = () => {
     if (self.disposed) return
     self.disposed = true
     window.removeEventListener('keydown', key, true)
+    window.removeEventListener('keyup', up, true)
     self.close()
     style.remove()
     if (window._shortcuts_menu === self) delete window._shortcuts_menu

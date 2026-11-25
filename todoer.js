@@ -71,16 +71,19 @@ const _todoer = _item('$id')
 //   that takes a row out of its list, by drag or by button, the next row is selected (or the one
 //   before it after the last row; with no row on the page, the todo stays selected and its buttons
 //   update for its list now).
-// - **Up** and **down** buttons stand first among a selected item's buttons to select the row
-//   before or after it in its list (dimmed at the list's ends and with no row on the page); plain
-//   **`k`** and **`j`** do the same when no field has the focus, and with no row on the page **`j`**
-//   selects the first row of the main list and **`k`** its last. With a listed row or any todo
-//   selected and no field focused, plain keys press the buttons it has (shown in their tooltips,
-//   once per press while held): **`a`** delegates to the agent, **`d`** marks a todo done, **`s`**
-//   snoozes (or unsnoozes when snoozed), **`x`** deletes after asking, **`b`** clears its bell, and
-//   **`u`** takes it back from the agent. Because a reply's row has no bin buttons, none of the bin
-//   keys (`a`, `d`, `s`, `x`, `u`) act on it and **`b`** clears it; any key it does not take goes
-//   on to any prior key hook.
+// - **Up** and **down** buttons stand first among a selected item's buttons, and plain **`k`** and
+//   **`j`** do the same when no field has the focus: they cycle in page order through every row
+//   carrying a bell (in any mounted list) together with every row of the main list, passing over
+//   unbelled rows of other lists (from a selected unbelled row in another list, **`j`** goes to the
+//   nearest row of the sequence after it and **`k`** to the nearest before, wrapping at the ends;
+//   with no row on the page, **`j`** / **down** selects the sequence's first row and **`k`** /
+//   **up** its last; the two buttons are dimmed only where their press would select nothing). With
+//   a listed row or any todo selected and no field focused, plain keys press the buttons it has
+//   (shown in their tooltips, once per press while held): **`a`** delegates to the agent, **`d`**
+//   marks a todo done, **`s`** snoozes (or unsnoozes when snoozed), **`x`** deletes after asking,
+//   **`b`** clears its bell, and **`u`** takes it back from the agent. Because a reply's row has no
+//   bin buttons, none of the bin keys (`a`, `d`, `s`, `x`, `u`) act on it and **`b`** clears it; any
+//   key it does not take goes on to any prior key hook.
 
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
@@ -826,23 +829,17 @@ function _complete_todo(item, log_text, { back = () => {}, gone = () => {} } = {
   // §2.4): the fail-closed branch must not report completion, and item.write's
   // boolean result is the acceptance signal (a refused write must not log as done)
   const grammar = window._grammar
-  if (!(grammar?.version >= 2)) {
-    // FAIL CLOSED, never raw (review 150 §2.4), for every todo now: a raw rewrite
-    // could alter #todo bytes inside a vault_result candidate. restore the dragged
-    // row (the snooze branch's cancellation idiom) so the widget matches the
-    // unchanged item.
+  const refusal = _complete_refusal(item)
+  if (refusal) {
+    // without the grammar: FAIL CLOSED, never raw (review 150 §2.4), for every todo now: a raw
+    // rewrite could alter #todo bytes inside a vault_result candidate. With an open editor that
+    // holds the owner's draft (item.text is assigned when editing ends): a whole-item write would
+    // replace the editor's text, so nothing is written; with nothing typed there is no draft to
+    // lose, and the write below is saved at once (the owner, 2026-11-24: refused only when what
+    // is typed differs from what is saved). Either way the dragged row is restored (the snooze
+    // branch's cancellation idiom), so that the widget matches the unchanged item
     back()
-    alert('please reload to complete todos (app update required)')
-    return false
-  }
-  const draft = _draft_word(item, _BIN_DRAFT.done)
-  if (draft) {
-    // an open editor that holds the owner's draft (item.text is assigned when editing ends): a
-    // whole-item write would replace the editor's text, so nothing is written. With nothing
-    // typed there is no draft to lose, and the write below is saved at once (the owner,
-    // 2026-11-24: refused only when what is typed differs from what is saved)
-    back()
-    alert(draft)
+    alert(refusal)
     return false
   }
   // over the GRAMMAR VIEW (review 149 §2): a #todo inside a vault_result candidate
@@ -1636,10 +1633,11 @@ function __bin_buttons(target) {
   const snoozed = found ? !!found.widget._snoozed : list == 'snoozed'
   const shown = found ? _row_buttons(found) : list ? _todo_buttons(target, list) : []
   const came_up = !found && shown.some(b => b.name == 'bell') ? _task_state(target)?.surfaced ?? 0 : 0
-  // (a row button at its list's end is dim: there is no row to go to; with no row on the page both are dim)
+  const walk = shown.some(b => b.name in _ROW_STEP) ? _row_sequence() : null
+  // (a row button is dim exactly where its press would select nothing)
   const specs = shown.map(b =>
     b.name in _ROW_STEP
-      ? { ...b, color: found && _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
+      ? { ...b, color: _row_beside(found?.row ?? null, _ROW_STEP[b.name], walk) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
       : { ...b, title: b.name == 'snooze' && snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id, b.name == 'bell' ? came_up : undefined) }
   )
   const link = _window_button()
@@ -1764,7 +1762,8 @@ function _todo_list(item) {
 }
 
 // the buttons for a todo whose list is not on the page, in their order: the two row buttons
-// (drawn dim), its bell where _bell rings for it, then the bins of its list (_LIST_BINS)
+// (drawn dim where the walk's sequence is empty), its bell where _bell rings for it, then the bins
+// of its list (_LIST_BINS)
 function _todo_buttons(item, list = _todo_list(item)) {
   if (!list) return []
   const bins = _LIST_BINS[list]
@@ -1789,35 +1788,79 @@ function _todo_log_text(item, snoozed = false) {
   return (first_lines + shown).replace(/\s+/g, ' ')
 }
 
-// the row beside the given one in its list, the one after it (`by` 1) or before it (-1); null at
-// the list's end
-function _row_beside(row, by) {
-  const other = by > 0 ? row?.nextElementSibling : row?.previousElementSibling
-  return other?.getAttribute?.('data-id') ? other : null
+// the mounted rows in page order, and the walk's sequence among them: every row that carries a
+// bell (mark.waits, in any mounted list) and every row of the main list (a mounted widget that is
+// neither snoozed nor delegated), each once, in document order
+function _row_sequence() {
+  const all = []
+  const seq = []
+  const seen = new Set()
+  for (const widget of _mounted_lists()) {
+    const main = !widget._snoozed && !widget._delegated
+    for (const row of widget.querySelectorAll('.list .list-item-container[data-id]')) {
+      const id = row.getAttribute('data-id')
+      const item = id ? _item(id, { silent: true }) : null
+      const ok = !!item && (main || !!row.querySelector('mark.waits')) && !seen.has(id)
+      if (ok) seen.add(id)
+      const entry = { row, id, item, in_seq: ok }
+      all.push(entry)
+      if (ok) seq.push(entry)
+    }
+  }
+  return { all, seq }
 }
 
-// the selection moves from the listed item to the row beside it (the up and the down button, the
-// keys k and j): nothing at its list's end, nothing for an item in no list. True where it moved
+// the item the walk moves to from `row` (a mounted row, or null with no row on the page) for
+// `by` (1: j / down, -1: k / up), cycling over _row_sequence()'s sequence: from a row in it to
+// the next/previous (wrapping at the ends), from a row outside it to the nearest after/before
+// (wrapping past the ends), and from no row to the first/last; null where nothing else stands
+// in the sequence (empty sequence, or its only item is already selected)
+function _row_beside(row, by, walk = _row_sequence()) {
+  const { all, seq } = walk
+  if (!seq.length) return null
+  if (!row) return (by > 0 ? seq[0] : seq[seq.length - 1]).item
+  const cur_id = row.getAttribute('data-id')
+  const idx = seq.findIndex(e => e.row === row || (cur_id && e.id === cur_id))
+  if (idx >= 0) {
+    if (seq.length < 2) return null
+    if (by > 0) return (seq[idx + 1] ?? seq[0]).item
+    return (seq[idx - 1] ?? seq[seq.length - 1]).item
+  }
+  const pos = all.findIndex(e => e.row === row)
+  if (pos < 0) return (by > 0 ? seq[0] : seq[seq.length - 1]).item
+  for (let i = pos + by; i >= 0 && i < all.length; i += by) {
+    if (all[i].in_seq) return all[i].item
+  }
+  return (by > 0 ? seq[0] : seq[seq.length - 1]).item
+}
+
+// the selection moves to the next item of the walk (_row_beside, for the up and the down button):
+// from the item's mounted row, or from no row on the page to the sequence's first/last; nothing
+// where the walk has nowhere to go. True where it moved
 function _row_step(id, by) {
   const item = _item(id, { silent: true })
-  const beside = item ? _row_beside(_bin_row(item)?.row, by) : null
-  const next = beside ? _item(beside.getAttribute('data-id'), { silent: true }) : null
+  const next = item ? _row_beside(_bin_row(item)?.row ?? null, by) : null
   if (!next) return false
   _select_item(next)
   return true
 }
 
-// the keys j and k, handed on by the app where nobody took them (window._on_key): with a listed
-// item named by the box they go to the row after and before it; with none, j selects the first
-// row of the main list and k its last (the owner, 2026-11-24: "global j/k shortcuts that select
-// the first/last todo item, from main list only"). And the keys of a row's other buttons
-// (_BIN_KEYS): with a listed item named by the box whose row has the key's button, the key is
-// that button's press, once for a key held down; with no such row the key is not the rows',
-// and goes on to whoever held the hook before. So the bins' keys are a todo's alone: a reply's
-// row has its bell and no other of these buttons (_row_buttons), and the done key never becomes
-// the way to clear a bell (the owner, 2026-11-25: "i don't want to accidentally remove an actual
-// task row, since clearing a notification is a much lighter operation"). Only a plain press
-// counts, and never while a field has the focus. True where the key was the rows'
+// the keys j and k, handed on by the app where nobody took them (window._on_key): they cycle in
+// page order through _row_sequence()'s union of every row carrying a bell (in any mounted list)
+// and every row of the main list (the owner, 2026-11-25: "cycle through the union of notified
+// items ... and main list items, in order of their visibility on the page", "they should cycle,
+// not stop"). From a row outside the sequence, j goes to the nearest row of the sequence after it
+// and k to the nearest before (wrapping past the ends); with no row on the page for what the box
+// names, j selects the first row of the sequence and k its last. Where nothing else stands in the
+// sequence, the key is still the rows' if a row is selected and goes on to any prior hook if none
+// is. And the keys of a row's other buttons (_BIN_KEYS): with a listed row or off-list todo named
+// by the box that has the key's button, the key is that button's press, once for a key held down;
+// otherwise the key is not the rows' and goes on to whoever held the hook before. So the bins'
+// keys are a todo's alone: a reply's row has its bell and no other of these buttons (_row_buttons),
+// and the done key never becomes the way to clear a bell (the owner, 2026-11-25: "i don't want to
+// accidentally remove an actual task row, since clearing a notification is a much lighter
+// operation"). Only a plain press counts, and never while a field has the focus. True where the
+// key was the rows'
 function _on_row_key(key, e) {
   const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
   const bin = !by && Object.hasOwn(_BIN_KEYS, key) ? _BIN_KEYS[key] : null
@@ -1838,64 +1881,66 @@ function _on_row_key(key, e) {
     if (!e?.repeat) _send_press()
     return true
   }
-  if (found) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
-  const main = _mounted_lists().find(widget => !widget._snoozed && !widget._delegated)
-  const rows = [...(main?.querySelectorAll('.list .list-item-container[data-id]') ?? [])]
-  const row = by > 0 ? rows[0] : rows[rows.length - 1]
-  const item = row ? _item(row.getAttribute('data-id'), { silent: true }) : null
-  if (!item) return false
-  _select_item(item)
+  const next = _row_beside(found?.row ?? null, by)
+  if (!next) return !!found // (with a row selected, nothing to go to is still the rows'; with none, it goes on)
+  _select_item(next)
   return true
 }
 
-// the row of the item the box names, in the first mounted list that holds it ({ widget, row }),
-// or null: what the rows' keys act on at this moment
+// what the rows' keys act on at this moment, as _on_row_key reads it: the item the box names
+// (`named`), its row in the first mounted list that holds it (`found`: { widget, row }, or null),
+// the buttons it has (`shown`: its row's, or those of a todo whose list is not on the page), and
+// whether it is a snoozed todo (by its row's list, or by its own state where it has no row)
 function _row_now() {
   const named = _item(MindBox.get().trim(), { silent: true })
-  return named ? _bin_row(named) : null
+  const found = named ? _bin_row(named) : null
+  const list = named && !found ? _todo_list(named) : null
+  return { named, found, shown: found ? _row_buttons(found) : list ? _todo_buttons(named, list) : [], snoozed: found ? !!found.widget._snoozed : list == 'snoozed' }
 }
 
-// whether the key of a row button is the rows' now: a row is selected and has the button
-const _row_has = name => (found => !!found && _row_buttons(found).some(b => b.name == name))(_row_now())
+// whether the key of a button is the rows' now: the selected row has the button, or the selected
+// todo whose list is not on the page has it
+const _row_has = name => _row_now().shown.some(b => b.name == name)
 
 // whether a press of the named button would be CARRIED OUT now, for the row of the item the box
-// names: the row has the button (_row_has: the key is the rows' then), no earlier press is still
-// being carried out (_bin_press takes one at a time, and says so in the console) and no unsaved
-// edit in the item's open editor stands in its way (_BIN_DRAFT: those presses say so in an
-// alert). It reads and changes nothing: the shortcuts' menu asks it, and a press refuses by
-// these same tests
+// names: it has the button (_row_has: the key is the rows' then), no earlier press is still
+// being carried out (_bin_press takes one at a time, and says so in the console), and the press's
+// own action would not refuse it out of hand (_BIN_REFUSAL: an unsaved edit in the item's open
+// editor for the four presses of _BIN_DRAFT; for a delegation also a todo that is not saved yet
+// and a take-back not yet acknowledged). It reads and changes nothing: the shortcuts' menu asks
+// it, and a press refuses by these same functions
 function _row_can(name) {
   if (!_row_has(name) || window._todoer_bin_busy) return false
-  return !(Object.hasOwn(_BIN_DRAFT, name) && _draft(_item(MindBox.get().trim(), { silent: true })))
+  return !(Object.hasOwn(_BIN_REFUSAL, name) && _BIN_REFUSAL[name](_item(MindBox.get().trim(), { silent: true })))
 }
 
-// whether j (`by` 1) or k (-1) has a row to go to now: with a row selected (`selected`) the row
-// beside it in its list, and with none any row of the main list (its first or its last)
+// whether j (`by` 1) or k (-1) would select another row now, as _on_row_key decides it
+// (_row_beside: the walk through the rows with a bell and the main list's): from the selected row
+// (`selected`), or with no row selected
 function _row_goes(by, selected) {
-  const found = _row_now()
-  if (selected || found) return !!selected && !!found && !!_row_beside(found.row, by)
-  return !!_mounted_lists().find(widget => !widget._snoozed && !widget._delegated)?.querySelector('.list .list-item-container[data-id]')
+  const found = _row_now().found
+  return !!found == !!selected && !!_row_beside(found?.row ?? null, by)
 }
 
 // what the menu of the shortcuts item lists for this item (shortcuts.js: an item writes a list
 // under a section's name on the window; without that item nothing reads it). Each entry's test
 // says whether its key would do something now (_row_goes: there is a row to go to; _row_can: the
 // press would be carried out): the menu opens on those alone. The words (`when`) say the
-// standing condition: which row, of which list, its place in it, an unsaved edit (delegating is
+// standing condition: which row, of which list, an unsaved edit (delegating is
 // every list's, done, delete and snooze the main and the snoozed list's, taking back the
 // delegated list's: the lists' bins). They leave out the one
 // that passes by itself: while an earlier press on a row is still being carried out (its
 // dialog open, a delegation under way) no other button's key is carried out
 const _ROW_SAVED = ', with no unsaved edit in it'
 const _ROW_SHORTCUTS = [
-  { keys: 'j', does: 'the next row', when: 'a row is selected that is not the last of its list', active: () => _row_goes(1, true) },
-  { keys: 'j', does: "the main list's first row", when: 'no row is selected, and the main list has a row', active: () => _row_goes(1, false) },
-  { keys: 'k', does: 'the previous row', when: 'a row is selected that is not the first of its list', active: () => _row_goes(-1, true) },
-  { keys: 'k', does: "the main list's last row", when: 'no row is selected, and the main list has a row', active: () => _row_goes(-1, false) },
+  { keys: 'j', does: 'the next row', when: 'a row is selected: through the rows with a bell and the main list, round and round', active: () => _row_goes(1, true) },
+  { keys: 'j', does: 'the first row', when: 'no row is selected: of the rows with a bell and the main list', active: () => _row_goes(1, false) },
+  { keys: 'k', does: 'the previous row', when: 'a row is selected: through the rows with a bell and the main list, round and round', active: () => _row_goes(-1, true) },
+  { keys: 'k', does: 'the last row', when: 'no row is selected: of the rows with a bell and the main list', active: () => _row_goes(-1, false) },
   { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('agent') },
   { keys: 'd', does: 'done', when: 'a todo of the main or the snoozed list is selected' + _ROW_SAVED, active: () => _row_can('done') },
-  { keys: 's', does: 'snooze', when: 'a todo of the main list is selected', active: () => _row_can('snooze') && !_row_now().widget._snoozed },
-  { keys: 's', does: 'unsnooze', when: 'a snoozed todo is selected', active: () => _row_can('snooze') && !!_row_now().widget._snoozed },
+  { keys: 's', does: 'snooze', when: 'a todo of the main list is selected', active: () => _row_can('snooze') && !_row_now().snoozed },
+  { keys: 's', does: 'unsnooze', when: 'a snoozed todo is selected', active: () => _row_can('snooze') && _row_now().snoozed },
   { keys: 'x', does: 'delete, after a question', when: 'a todo of the main or the snoozed list is selected' + _ROW_SAVED, active: () => _row_can('cancel') },
   { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected', active: () => _row_can('bell') },
   { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected' + _ROW_SAVED, active: () => _row_can('owner') },
@@ -2065,7 +2110,7 @@ function _draft_word(item, what) {
 // open editor holds a draft; `sure` asks the app's question whatever the item (a row that is not
 // a todo's, and every press of the button). True where it was deleted
 function _delete_listed(item, sure = false) {
-  const word = _draft_word(item, _BIN_DRAFT.cancel)
+  const word = _delete_refusal(item)
   if (word) {
     alert(word)
     return false
@@ -2475,19 +2520,54 @@ function _clear_pending(item, command_id) {
   _rerender_todoer_widgets()
 }
 
+// why a gesture on `item` is refused out of hand, as the word that says so, or null: the checks
+// every gesture shares
+function _task_refusal(item, kind) {
+  if (!item.tags.includes('#todo')) return `cannot ${kind} ${item.name}: not a #todo item`
+  if (!item.saved_id) return `cannot ${kind} ${item.name}: item not saved yet`
+  return null
+}
+
 // the checks every gesture shares; returns the target item or null (reported)
 function _task_target(item, kind) {
   if (!item) return null
-  if (!item.tags.includes('#todo')) {
-    alert(`cannot ${kind} ${item.name}: not a #todo item`)
-    return null
-  }
-  if (!item.saved_id) {
-    alert(`cannot ${kind} ${item.name}: item not saved yet`)
-    return null
-  }
-  return item
+  const word = _task_refusal(item, kind)
+  if (word) alert(word)
+  return word ? null : item
 }
+
+// WHY A PRESS WOULD BE REFUSED before anything is asked of the bridge or written, as the word
+// that says so, or null: one function for each press that has such refusals, read by the action
+// itself (which says the word) and by what the shortcuts' menu lists (_row_can), so that the
+// menu cannot offer a press that its action refuses. They read and change nothing.
+// A delegation: no todo, not saved yet (a todo just made has a row before its first save), an
+// unsaved edit in its open editor, a take-back that the bridge has not acknowledged yet (the
+// todo stands in the main list by then, with the delegate button), an app without the grammar
+function _delegate_refusal(item) {
+  const word = _task_refusal(item, 'delegate') ?? _draft_word(item, _BIN_DRAFT.agent) // (the marker's write would replace what the editor holds)
+  if (word) return word
+  const pending = _pending_commands()[item.id]
+  if (pending?.kind == 'takeback' && !_task_state(item)?.acked?.[pending.id]) return `take-back of ${item.name} pending; delegate again after it is acknowledged`
+  return window._grammar?.version >= 2 ? null : 'please reload to delegate todos (app update required)'
+}
+
+// a take-back: no todo, not saved yet, an unsaved edit (the bridge's write of its marker follows)
+function _takeback_refusal(item) {
+  return _task_refusal(item, 'take back') ?? _draft_word(item, _BIN_DRAFT.owner)
+}
+
+// a completion: an app without the grammar, an unsaved edit (a whole-item write would replace
+// what the editor holds)
+function _complete_refusal(item) {
+  return window._grammar?.version >= 2 ? _draft_word(item, _BIN_DRAFT.done) : 'please reload to complete todos (app update required)'
+}
+
+// a deletion: an unsaved edit
+function _delete_refusal(item) {
+  return _draft_word(item, _BIN_DRAFT.cancel)
+}
+
+const _BIN_REFUSAL = { agent: _delegate_refusal, done: _complete_refusal, cancel: _delete_refusal, owner: _takeback_refusal }
 
 // the presentation write of a delegation, bound to the gesture that asks for it. It is the gesture's (a drop
 // into the agent bin, a command): its intent is captured when this is called, at the gesture and BEFORE any
@@ -2503,27 +2583,17 @@ function _carried_write() {
 // tag and the [delegated] marker) so the instruction is exactly what the owner wrote; a refused
 // enqueue (the size gate) reports and changes nothing; a pending take-back refuses the gesture
 async function _delegate(item, write = _carried_write()) {
-  item = _task_target(item, 'delegate')
   if (!item) return false
-  const draft = _draft_word(item, _BIN_DRAFT.agent) // the marker's write would replace what the editor holds
-  if (draft) {
-    alert(draft)
+  const refusal = _delegate_refusal(item)
+  if (refusal) {
+    alert(refusal)
     return false
   }
   const state = _task_state(item)
   const came_up = state?.surfaced // what the owner has seen of it at this gesture (its bell is cleared below); nothing where the bridge held none
-  const pending = _pending_commands()[item.id]
-  if (pending?.kind == 'takeback' && !state?.acked?.[pending.id]) {
-    alert(`take-back of ${item.name} pending; delegate again after it is acknowledged`)
-    return false
-  }
   // the capture is the RAW text (item.text): item.read() is the grammar view, whose inert
   // regions (the agent's answers and plans) are tokens, never the bytes the bridge must see
   const grammar = window._grammar
-  if (!(grammar?.version >= 2)) {
-    alert('please reload to delegate todos (app update required)')
-    return false
-  }
   const command = {
     task: item.saved_id,
     id: _command_id(),
@@ -2562,11 +2632,10 @@ function _delegated_view(view) {
 
 // take a delegated todo back (design 2.3): the command alone; the bridge writes [taken]
 async function _takeback(item) {
-  item = _task_target(item, 'take back')
   if (!item) return false
-  const draft = _draft_word(item, _BIN_DRAFT.owner) // the bridge's write of its marker follows
-  if (draft) {
-    alert(draft)
+  const refusal = _takeback_refusal(item)
+  if (refusal) {
+    alert(refusal)
     return false
   }
   const state = _task_state(item)
