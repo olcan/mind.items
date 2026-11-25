@@ -291,7 +291,7 @@ function key_buttons_caret_line(textarea, doc) {
 // edge), and 1 px free-edge border paths (inset 0.5 px so the stroke sits inside the glass edge
 // and never draws on page edges). `w_col` is the sparkle's slot (its circle in its margins);
 // `h_col` stays for the readers of the earlier shape, which had a column above the row
-function key_buttons_backdrop_geom(look, guests = 0) {
+function key_buttons_backdrop_geom(look, guests = 0, strip = 0) {
   const w_col = look.reload.size + 2 * look.reload.left
   const h_col = 0
   const h_row = look.reload.size + 2 * look.reload.bottom
@@ -305,7 +305,9 @@ function key_buttons_backdrop_geom(look, guests = 0) {
   const w_piece = 2 * look.reload.left + (2 + count) * look.reload.size + (count - groups) * look.gap + (groups + 1) * look.group + w_guests
   const r = look.reload.size / 2
   const pad = Math.max(24, look.backdrop.shadow_blur * 3)
-  const narrow = look.backdrop.merge
+  // the merged strip is drawn as wide as the widest window it shows in: `merge` px, or `strip` px
+  // where it also shows in a wider one (under a guest group's second floor: self.show)
+  const narrow = Math.max(look.backdrop.merge, strip)
   const clip_split = `M ${r} 0 H ${w_piece} V ${h_tot} H 0 V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`
   const clip_strip = `M 0 0 H ${narrow} V ${h_tot} H 0 Z`
   const [y0, y2] = [pad, pad + h_tot]
@@ -327,7 +329,11 @@ function key_buttons_in_glass(x, y, vw, vh, mode, right_shown = false, look = KE
   // the guests' second floor (`floor`: its width, 0 without one): a piece as high as the row,
   // right above it at the window's left edge
   const row = mode == 'mobile' ? look.size + 2 * look.bottom : look.reload.size + 2 * look.reload.bottom
-  if (floor && x <= floor && dy > row && dy <= 2 * row) return true
+  if (floor && x <= floor && dy > row && dy <= 2 * row) {
+    // (its top right corner is rounded as the piece's is: outside that arc there is no glass)
+    const r = look.reload.size / 2
+    return !(x > floor - r && dy > 2 * row - r) || (x - (floor - r)) ** 2 + (dy - (2 * row - r)) ** 2 <= r ** 2
+  }
   if (mode == 'mobile') return dy <= look.size + 2 * look.bottom
   const g = key_buttons_backdrop_geom(look, guests)
   const in_arc = (px, py, cx, cy) => (px - cx) ** 2 + (py - cy) ** 2 <= g.r ** 2
@@ -361,8 +367,8 @@ const KEY_BUTTONS_OWN_OVERLAY = ['.vault-sparkle-backdrop', '.vault-sparkle-menu
 // outer shadow (Gaussian blur of the glass's own shape, masked strictly outside the glass) and 1 px
 // free-edge border for the desktop split and narrow merged shapes, drawn in sibling SVGs so no
 // filter or mask ever sits on an ancestor of the backdrop-filter pane
-function key_buttons_backdrop_frame(look, guests = 0) {
-  const g = key_buttons_backdrop_geom(look, guests)
+function key_buttons_backdrop_frame(look, guests = 0, strip = 0) {
+  const g = key_buttons_backdrop_geom(look, guests, strip)
   const sigma = look.backdrop.shadow_blur / 2
   const svg = (cls, w, shape, border) =>
     `<svg class="key-buttons-bg-svg ${cls}" aria-hidden="true">` +
@@ -385,8 +391,8 @@ function key_buttons_backdrop_frame(look, guests = 0) {
 // the window has room for the whole piece; in a narrower window they shrink to a button's gap, so
 // that the strip's first button is not cut off at the window's left edge (with today's sizes the
 // seven buttons, the reload button and the sparkle then fit down to 292 px)
-function key_buttons_css(look, guests = 0) {
-  const g = key_buttons_backdrop_geom(look, guests)
+function key_buttons_css(look, guests = 0, strip = 0) {
+  const g = key_buttons_backdrop_geom(look, guests, strip)
   const own = key_buttons_backdrop_geom(look).w_piece // the piece without a guest group: the strip's own room
   const touch = key_buttons_reload_touch(look)
   return `
@@ -962,7 +968,7 @@ function key_buttons_create() {
   // the group stands on a second floor)
   const guests = (self.guests = nav_group('guests', 'key-buttons-guests', [], 'Actions for the named item'))
   const viewport = window.visualViewport
-  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null, guest_count: 0, guest_floor: 0 })
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null, guest_count: 0, guest_floor: 0, guest_strip: 0 })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
   // once the item is gone (its own task's cancel disposes this controller)
   const later = (name, run, ms) => {
@@ -1006,10 +1012,14 @@ function key_buttons_create() {
     self.guest_floor = floor ? 2 * floor_left + handed * floor_size + (handed - 1) * KEY_BUTTONS_LOOK.gap : 0
     Object.assign(backdrop_floor.style, floor ? { width: self.guest_floor + 'px', bottom: floor_row + 'px', height: floor_row + 'px' } : { width: '', bottom: '', height: '' })
     const guest_count = room ? handed : 0
-    if (guest_count !== self.guest_count) {
+    // a strip under a second floor also shows in a window of `merge` px and more, up to the width
+    // that has room for the wider piece: its glass, border and shadow are drawn to that width
+    const guest_strip = floor && bg_mode == 'desktop-strip' ? key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, handed).w_piece : 0
+    if (guest_count !== self.guest_count || guest_strip !== self.guest_strip) {
       self.guest_count = guest_count
-      style.textContent = key_buttons_css(KEY_BUTTONS_LOOK, guest_count)
-      backdrop_frame.innerHTML = key_buttons_backdrop_frame(KEY_BUTTONS_LOOK, guest_count)
+      self.guest_strip = guest_strip
+      style.textContent = key_buttons_css(KEY_BUTTONS_LOOK, guest_count, guest_strip)
+      backdrop_frame.innerHTML = key_buttons_backdrop_frame(KEY_BUTTONS_LOOK, guest_count, guest_strip)
     }
     self.keyboard_up = keyboard.up
     self.apply_nav()
@@ -1078,8 +1088,11 @@ function key_buttons_create() {
           // a tap that is not taken says so in the console: nothing else would tell its owner
           if (!own_click_ok(button, e)) return key_buttons_dropped(spec.name, 'it did not start on this button')
           const failed = error => console.error(`key buttons: a guest button's press failed: ${error}`)
-          // lit from the tap until the press's work is done (a press may return a promise for it)
-          const done = () => button.classList.remove('busy')
+          // lit from the tap until the press's work is done (a press may return a promise for it).
+          // Counted: a second tap while the first's work goes on (its guest refuses it, and says
+          // why) ends at once, and must leave the light of the first (the review, 2026-11-24)
+          const done = () => void ((button._busy = Math.max(0, (button._busy ?? 0) - 1)) || button.classList.remove('busy'))
+          button._busy = (button._busy ?? 0) + 1
           button.classList.add('busy')
           try {
             Promise.resolve(key_buttons_timed(spec.name, e, key_buttons_down_taken(button), () => spec.press?.())).catch(failed).then(done)
@@ -1182,11 +1195,14 @@ function key_buttons_create() {
     const r = b.getBoundingClientRect?.()
     return !!r && r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
   }
-  const own_button_at = (x, y) => {
+  const own_buttons = () => {
     const buttons = []
     if (!reloader.hidden) buttons.push(reloader)
     for (const g of [bar, keys, nav_strip, guests]) if (!g.hidden) buttons.push(...g.children)
-    for (const b of buttons) if (inside(b, x, y)) return b
+    return buttons
+  }
+  const own_button_at = (x, y) => {
+    for (const b of own_buttons()) if (inside(b, x, y)) return b
     return null
   }
   const glass_start = (e, source, touch) => {
@@ -1239,6 +1255,13 @@ function key_buttons_create() {
       return
     }
     if (!glass_press?.rejected) return
+    // a tap that began on the bare glass beside a button, and that the browser hands to that
+    // button: it is stopped here, before the button could say that it was not taken, so it is said
+    // here (the review, 2026-11-24). A click alone: a scroll over the glass makes none
+    if (e.type == 'click') {
+      const hit = own_buttons().find(b => b === e.target || b.contains?.(e.target))
+      if (hit) key_buttons_dropped(hit.dataset.guest ?? hit.dataset.key ?? hit.dataset.keyButtons ?? 'a button', 'it began on the glass beside the button')
+    }
     e.preventDefault()
     e.stopPropagation()
   }

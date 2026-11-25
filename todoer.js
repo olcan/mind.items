@@ -625,33 +625,19 @@ function __render(widget, widget_item) {
       if (e.item.getAttribute('data-waits')) {
         // a row that is not a todo. The done bin clears it, with nothing written into the item.
         // The cancel bin deletes the item, always after the app's question. The snooze and the
-        // agent bin first make the item a todo (_promote: the tag written after its name, saved) and
-        // then do with it what they do with a todo. A refusal puts the row back where it was
+        // agent bin are a todo's: the row goes back where it was, with the word a todo's bins
+        // have for an item that is none (_task_target). A refusal puts the row back too
         if (e.to == list) return
         e.to.firstChild.remove()
         if (!item) return // gone while its row was held: the list is drawn again without it
         const back = () => void list.insertBefore(e.item, list.children[e.oldIndex])
         const key = e.item.getAttribute('data-wait-key') // the reply the row showed
-        // a promotion that did not come about puts the row back, unless the item is gone
-        const undone = () => void (_item(id, { silent: true }) && back())
-        // the promotion, then the bin's own action with the task as the gesture found it (`drop`:
-        // its epoch and the count of times it had come up), read before any wait
-        const promoted = then => {
-          const state = _task_state(_item(id, { silent: true }) ?? item)
-          const drop = { epoch: state?.epoch ?? 0, surfaced: state?.surfaced ?? 0 }
-          return _promote(id, key)
-            .catch(e => (console.error(`promote: ${e}`), null))
-            .then(done => (done ? then(done, drop) : undone()))
-        }
         if (e.to == done_bin) _clear_waiting(item, key) ? _select_next(next, true) : back()
         else if (e.to == cancel_bin) _delete_listed(item, true) ? _select_next(next, true) : back()
-        else if (e.to == agent_bin) {
-          const write = _carried_write() // the gesture's intent, before any wait
-          _select_next(next, promoted((done, drop) => _delegate_promoted(done, write, drop)))
-        } else if (e.to == snooze_bin)
-          // (the picker can stand open for long: the promotion reads the item as it is by then)
-          _select_next(next, _snooze_dialog().then(answer => (is_number(answer?.time) ? promoted((done, drop) => _snooze_promoted(done, answer, drop)) : undone())))
-        else back()
+        else {
+          if (e.to == agent_bin || e.to == snooze_bin) _task_target(item, e.to == agent_bin ? 'delegate' : 'snooze')
+          back()
+        }
         return
       }
       if (e.to == agent_bin) {
@@ -659,7 +645,7 @@ function __render(widget, widget_item) {
         // the acceptance; the row moves through the overlay once it is enqueued
         agent_bin.firstChild.remove()
         _select_next(
-          next,
+          delegated ? null : next, // (asked again from the delegated list, the row stays in it: nothing to select after it)
           _delegate(item).then(ok => {
             if (!ok) list.insertBefore(e.item, list.children[e.oldIndex])
             return ok
@@ -694,22 +680,23 @@ function __render(widget, widget_item) {
         )
       } else if (e.to == snooze_bin) {
         snooze_bin.firstChild.remove()
-        if (_promotions()[item.id]) {
-          // its todo tag is still being saved (a waiting row's promotion, _promote)
-          list.insertBefore(e.item, list.children[e.oldIndex])
-          return alert(`cannot snooze ${item.name} yet: it is still being saved as a todo`)
-        }
         item.global_store._todoer ??= {}
         if (snoozed) {
           _unsnooze(item, true) // the owner's own drag out of the snoozed list
           _select_next(next, true)
         } else {
-          // the answer is the time and the dialog's box ({time, notify}, see _snooze_close)
-          _snooze_dialog().then(answer => {
-            if (!is_number(answer?.time)) list.insertBefore(e.item, list.children[e.oldIndex])
-            else _snooze(item, answer)
-            if (is_number(answer?.time)) _select_next(next, true)
-          })
+          // the answer is the time and the dialog's box ({time, notify}, see _snooze_close). The
+          // next row's selection is asked for here, at the drop, with the dialog's outcome to come
+          // (as the agent's and the owner's bin do): asked for after the dialog, it would take
+          // the gesture's intent when the drop is long over
+          _select_next(
+            next,
+            _snooze_dialog().then(answer => {
+              if (!is_number(answer?.time)) return void list.insertBefore(e.item, list.children[e.oldIndex]) ?? false
+              _snooze(item, answer)
+              return true
+            })
+          )
         }
       }
     },
@@ -1546,7 +1533,7 @@ function __bin_buttons(target) {
   // (a row button at its list's end is dim: there is no row to go to)
   const specs = shown.map(b =>
     b.name in _ROW_STEP
-      ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void _row_step(target.id, _ROW_STEP[b.name]) }
+      ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
       : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze' : b.title, press: () => _bin_press(b.name, target.id) }
   )
   // what is drawn, as one text: every render of a list comes through here, and buttons that
@@ -1598,10 +1585,17 @@ function __bin_buttons(target) {
   _bin_buttons_room()
 }
 
+// the lists that are on the page: a widget that the app has parked while its item is not drawn
+// (in its cache element, the one with the id cache-div) holds its rows as they were then, and is
+// none of them
+function _mounted_lists() {
+  return [...document.querySelectorAll('.todoer-widget')].filter(widget => !widget.closest?.('#cache-div'))
+}
+
 // the first mounted list that holds the item's row, with that row: { widget, row }, or null
 function _bin_row(item) {
   let found = null
-  document.querySelectorAll('.todoer-widget').forEach(widget => {
+  _mounted_lists().forEach(widget => {
     const row = found ? null : [...widget.querySelectorAll('.list-item-container')].find(e => e.getAttribute('data-id') == item.id)
     if (row) found = { widget, row }
   })
@@ -1641,7 +1635,7 @@ function _on_row_key(key, e) {
   if (active && (active.isContentEditable || ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName))) return false
   const named = _item(MindBox.get().trim(), { silent: true })
   if (named && _bin_row(named)) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
-  const main = [...document.querySelectorAll('.todoer-widget')].find(widget => !widget._snoozed && !widget._delegated)
+  const main = _mounted_lists().find(widget => !widget._snoozed && !widget._delegated)
   const rows = [...(main?.querySelectorAll('.list .list-item-container[data-id]') ?? [])]
   const row = by > 0 ? rows[0] : rows[rows.length - 1]
   const item = row ? _item(row.getAttribute('data-id'), { silent: true }) : null
@@ -1673,33 +1667,62 @@ function _next_listed(list, index) {
 // bin's button), the box names the item that followed it, so that the next action is one press
 // away (the owner, 2026-11-24: "when i take an action (via drag or button) on a todoer item,
 // select the next one"). `outcome` is the action's own result or a promise of it, and only
-// true counts: a refusal, a declined question and a row that stays where it is change nothing
+// true counts: a refusal, a declined question and a row that stays where it is change nothing.
+// The selection is the gesture's own: its intent is taken here, at the gesture, and carried over
+// the action's wait (the app's window._carry_input, as _carried_write does for a delegation's
+// write). Made after a wait without it, the selection came from no input, and the app wrote it
+// over the history's entry in place of a step of its own, so that Back passed the item over.
+// For an awaited action (`outcome` is a thenable: delegation, take-back, snooze picker), what the
+// box says is read here too, at the gesture: where the box says something else when the wait ends,
+// its owner has gone on meanwhile, and that selection stays (the review, 2026-11-24: with a
+// delegation held, Up selected another row, and the selection then jumped). Synchronous outcomes
+// (delete, complete, unsnooze, reply bell) have no wait for the owner to navigate during, and
+// Svelte flushes deleteItem's own clearing of editorText to MindBox.elem.value in a microtask
+// ahead of Promise.resolve(outcome).then(...)
 function _select_next(next, outcome) {
+  const select = item => void _select_item(item)
+  const carried = typeof window._carry_input == 'function' ? window._carry_input(select) : select
+  const waited = typeof outcome?.then == 'function'
+  const said = waited ? MindBox.get() : null
   return Promise.resolve(outcome)
     .catch(() => false)
     .then(ok => {
-      const item = ok === true && next ? _item(next.id, { silent: true }) : null
-      if (item) _select_item(item)
+      const item = ok === true && next && (!waited || MindBox.get() === said) ? _item(next.id, { silent: true }) : null
+      if (item) carried(item)
       return ok
     })
+}
+
+// the item a button was drawn for, where the box still names it at the press. The buttons are
+// drawn when the app reports a search, which for a name typed into the box is half a second
+// after the typing: until then the buttons on the page are those of the item the box named
+// before, and a press on them is not taken, and says so (the review, 2026-11-24: Done completed
+// the earlier item). Null where the box names another item or none
+function _pressed_item(name, id) {
+  const named = _item(MindBox.get().trim(), { silent: true })
+  if (named?.id === id) return named
+  console.warn(`todoer: the press on "${name}" was not taken: the box ${named ? 'names another item now' : 'no longer names its item'}`)
+  return null
 }
 
 // a button's press: the action for the item as its row stands now (the row may have gone, or
 // moved to another list, since the buttons were drawn), one at a time: a second press while the
 // first's dialog or save is open does nothing
 function _bin_press(name, id) {
-  const item = _item(id, { silent: true })
-  const found = item && _bin_row(item)
   // a press that is not taken says so in the console: nothing else would tell its owner
   if (window._todoer_bin_busy) return void console.warn(`todoer: the press on "${name}" was not taken: an earlier press is still being carried out`)
+  const item = _pressed_item(name, id)
+  if (!item) return
+  const found = _bin_row(item)
   if (!found) return void console.warn(`todoer: the press on "${name}" was not taken: its item is in no list`)
   window._todoer_bin_busy = true
   // the row that follows is selected after a press that takes the row out of its list, and only
   // then (the owner, 2026-11-24: "it should only advance if the action removes the row"). The
   // bell's press removes a reply's row (it waits by its bell alone) and leaves a todo's row
-  // where it is, selected
+  // where it is, selected; and a delegation asked again from the delegated list leaves its row
+  // in that list (the review, 2026-11-24)
   const rows = [...(found.row.parentElement?.children ?? [])]
-  const stays = name == 'bell' && !found.row.getAttribute('data-waits')
+  const stays = (name == 'bell' && !found.row.getAttribute('data-waits')) || (name == 'agent' && !!found.widget._delegated)
   const next = stays ? null : _next_listed({ children: rows.filter(row => row != found.row) }, rows.indexOf(found.row))
   let acted
   try {
@@ -1730,7 +1753,10 @@ function _bin_act(name, item, row, snoozed) {
   }
   if (name == 'agent') return _delegate(item)
   if (name == 'owner') return _takeback(item)
-  if (name == 'cancel') return _delete_listed(item)
+  // (a button's press always asks: by itself the app asks only for an item with a name of its
+  // own, and a todo that has none, as `/todo buy milk` makes one, went at one tap; the review,
+  // 2026-11-24. A drop on the delete bin asks as the app asks, as it always has)
+  if (name == 'cancel') return _delete_listed(item, true)
   if (name == 'done') return _complete_todo(item, row._log_text)
   if (name != 'snooze') return false
   item.global_store._todoer ??= {}
@@ -1757,7 +1783,7 @@ function _draft_word(item, what) {
 
 // deletes the item of a row (a drop on the delete bin, a press on the delete button), unless its
 // open editor holds a draft; `sure` asks the app's question whatever the item (a row that is not
-// a todo's). True where it was deleted
+// a todo's, and every press of the button). True where it was deleted
 function _delete_listed(item, sure = false) {
   const word = _draft_word(item, 'delete')
   if (word) {
@@ -2174,24 +2200,17 @@ function _carried_write() {
 
 // delegate a todo (design 2.3): the body is captured BEFORE the presentation edits (the route
 // tag and the [delegated] marker) so the instruction is exactly what the owner wrote; a refused
-// enqueue (the size gate) reports and changes nothing; a pending take-back refuses the gesture,
-// and so does a todo tag that is still being saved (_promotions)
-async function _delegate(item, write = _carried_write(), seen = null) {
+// enqueue (the size gate) reports and changes nothing; a pending take-back refuses the gesture
+async function _delegate(item, write = _carried_write()) {
   item = _task_target(item, 'delegate')
   if (!item) return false
-  // a chat whose todo tag this tab is still saving (a waiting row's promotion, _promote) is no
-  // todo for the bridge yet: it reads the tag in the text the server has
-  if (_promotions()[item.id]) return alert(`cannot delegate ${item.name} yet: it is still being saved as a todo`), false
   const draft = _draft_word(item, 'delegate') // the marker's write would replace what the editor holds
   if (draft) {
     alert(draft)
     return false
   }
   const state = _task_state(item)
-  // what the owner has seen of it at this gesture (its bell is cleared below): the count now, or
-  // the one that stood where the gesture began (`seen`: a waiting row's drop, made before the
-  // wait for its tag's save); nothing where the bridge held none
-  const came_up = seen ?? state?.surfaced
+  const came_up = state?.surfaced // what the owner has seen of it at this gesture (its bell is cleared below); nothing where the bridge held none
   const pending = _pending_commands()[item.id]
   if (pending?.kind == 'takeback' && !state?.acked?.[pending.id]) {
     alert(`take-back of ${item.name} pending; delegate again after it is acknowledged`)
@@ -2219,8 +2238,14 @@ async function _delegate(item, write = _carried_write(), seen = null) {
   // the presentation: the marker at every delegation and the route tag once, planned over the
   // grammar view of the CURRENT raw text (an edit made during the await is kept; the inert
   // regions survive the rewrite); a refused write is repaired by the bridge at the next state change
-  const text = grammar.edit(item.text, view => _delegated_view(view))
-  if (write(item, text) !== true) console.warn(`delegate: presentation write refused for ${item.name}`)
+  // An edit TYPED into the item's open editor during the enqueue's wait is a draft by now, and
+  // the write would put its text in the draft's place: the command is accepted, the delegation
+  // stands, and the presentation is left to the bridge (the review, 2026-11-24)
+  if (_draft(item)) console.warn(`delegate: ${item.name} holds an edit made since; the marker is left to the bridge`)
+  else {
+    const text = grammar.edit(item.text, view => _delegated_view(view))
+    if (write(item, text) !== true) console.warn(`delegate: presentation write refused for ${item.name}`)
+  }
   // a delegated item cannot be snoozed: delegating a snoozed one clears its snooze (design 2.3)
   if (item._global_store._todoer?.snoozed) item.global_store._todoer.snoozed = 0
   return true
@@ -2637,146 +2662,16 @@ function _waiting_parts(item) {
   return item.label ? [item.label, line] : ['', line || _visible(String(item.text ?? '').split('\n')[0] ?? '')]
 }
 
-// clears such an item's row (the bell's click, a drop on a bin): the reply the row SHOWED (`key`)
-// joins the item's cleared replies (_cleared: the last four added are kept). A newer reply that
-// arrived while the row was held or dragged has another key and goes on waiting. False when
-// there is nothing to clear
+// clears such an item's row (the bell's click, a drop on the done bin): the reply the row SHOWED
+// (`key`) joins the item's cleared replies (_cleared: the last four added are kept). A newer
+// reply that arrived while the row was held or dragged has another key and goes on waiting.
+// False when there is nothing to clear
 function _clear_waiting(item, key) {
   if (!item || !key) return false
   const kept = _cleared(item)
   // (reading global_store saves the store: only where there is a key to add)
   if (!kept.includes(key)) (item.global_store._todoer ??= {}).cleared = [...kept, key].slice(-4)
   return true
-}
-
-// this tab's promotions whose save has not settled yet, by item id (_tag_saved): such an item
-// shows as a todo here while the server may not have its tag, so its ordinary agent and snooze
-// actions wait (_delegate, the snooze bin)
-const _promotions = () => (_todoer.store.promoting ??= {})
-
-// makes an item that waits on the owner a todo, for the snooze and the agent bin, and CONFIRMS
-// it: resolves to `{ item, text }` (the item as it is then, and its text as the app took it)
-// once the item is a SAVED todo and its reply is acknowledged, else to null, with a word why
-// unless the item is gone.
-// - The item is read by its id as it is NOW (the row can have been held, the picker open, for
-//   long), and the row must still be the one the list would draw for it: an item that is gone
-//   is left alone; one that is a todo by now (made one elsewhere, or by a promotion of this tab
-//   that is still being saved), or whose last reply is no longer the one the row showed, is
-//   left to the row it has now, with a word. Nothing is written for any of them.
-// - The tag goes right after the item's name WHERE THE APP READS IT: past any leading runs of
-//   space and styling (the app's own rule for an item's header; a stylesheet there can name the
-//   same tag earlier), the name ending at a character no tag holds. An item without a name gets
-//   a todo line of its own before its text, so that a first turn keeps its line. Through the
-//   grammar view, so that inert regions keep their bytes.
-// - Nothing is written unless the app's own parser reads the result as a todo under the same
-//   name (a name that stands inside a stylesheet's lines is one it does not).
-// - The text is written without a save, then saved by the app's own save (_tag_saved). Only
-//   once that save has RESOLVED is the reply the row showed recorded as cleared: a save that
-//   failed or did not finish in time leaves the reply unacknowledged, and nothing more is done
-//   with the item (what a reload then shows, the reply's row or a todo's, depends on whether
-//   the tag reached the server)
-async function _promote(id, key) {
-  let item = _item(id, { silent: true })
-  if (!item) return null
-  const stale = why => (alert(`${item.name} ${why}: nothing was done; use the row it has now`), null)
-  if (_promotions()[item.id]) return stale('is still being saved as a todo')
-  if (item.tags_visible.includes('#todo')) return stale('is a todo by now')
-  const seen = _todoer.store.reply_seen?.[item.id]
-  if (!(seen?.last && _wait_key(seen) == key)) return stale('has a newer turn than its row showed')
-  const refuse = why => (alert(`could not make a todo of ${item.name}: ${why}`), null)
-  const [grammar, parse] = [window._grammar, window._parse_tags]
-  if (!(grammar?.version >= 2) || typeof parse != 'function') return refuse('please reload first (app update required)')
-  if (item.editing) return refuse('finish editing it first')
-  const label = String(item.label ?? '').toLowerCase()
-  const before = item.text
-  let text = before
-  try {
-    text = grammar.edit(before, view => {
-      const lead = view.match(/^(?:\s*<.*>\s*)*[^\S\n]*/)[0].length // where the app's header starts
-      const end = lead + label.length
-      const named = view.slice(lead, end).toLowerCase() == label && !/[^\s<>&?!,.;:"'`(){}\[\]]/.test(view.charAt(end))
-      const next = !label ? `#todo\n${view}` : named ? `${view.slice(0, end)} #todo${view.slice(end)}` : view
-      const tags = parse(next.toLowerCase()).visible // the app's reading of the result (it parses the lowercased view)
-      return tags.includes('#todo') && (!label || tags[0] == label) ? next : view
-    })
-  } catch (e) {
-    console.warn(`promote: ${e}`) // the grammar refused the edit
-  }
-  if (text == before) return refuse('the tag could not be placed after its name')
-  if (item.write(text, '', { skip_save: true }) !== true) return refuse('the write was refused')
-  text = item.text // as the app holds it (it takes zero-width spaces out of a text it is given)
-  const saved = await _tag_saved(item, before, text)
-  item = _item(id, { silent: true })
-  if (!item) return null
-  if (!saved) return alert(`could not confirm that ${item.name} was saved as a todo: nothing more was done, and its reply is not marked as seen`), null
-  if (!item.tags_visible.includes('#todo')) return alert(`${item.name} changed while it was saved: nothing more was done`), null
-  _clear_waiting(item, key)
-  return { item, text }
-}
-
-// the save of a promotion's text (`text`, written over `before`) by the app's own save (item.save
-// gives its promise). From here until that save SETTLES, however long it takes, the item is
-// among this tab's _promotions, which holds its ordinary agent and snooze actions back. Settled:
-// resolved, the item is a saved todo; rejected, the tag is taken out again where the text is
-// still the one written and no editor holds it, so the item is the waiting chat it was and the
-// same gesture is its retry. Resolves to whether the save resolved within `wait`; false also
-// where the app gave no promise (an item that is gone)
-function _tag_saved(item, before, text, wait = SAVE_WAIT_MS) {
-  const id = item.id
-  const revert = () => {
-    const now = _item(id, { silent: true })
-    if (now && !now.editing && now.text == text) now.write(before, '', { skip_save: true })
-  }
-  let task
-  try {
-    task = item.save()
-  } catch (e) {
-    console.warn(`promote: ${e}`) // the app refused the save
-  }
-  if (typeof task?.then != 'function') return revert(), Promise.resolve(false)
-  const promotions = _promotions()
-  promotions[id] = true
-  const settled = task
-    .then(() => true, () => false)
-    .then(ok => {
-      delete promotions[id]
-      if (!ok) revert()
-      return ok
-    })
-    .catch(e => (console.warn(`promote: ${e}`), false))
-  let timer
-  const late = new Promise(resolve => (timer = setTimeout(() => resolve(false), wait)))
-  return Promise.race([settled, late]).finally(() => clearTimeout(timer))
-}
-
-// whether an item that a waiting row's drop has made a todo is still the owner's to act on as
-// it was when the gesture found it: the bridge's task has not moved on (its epoch), no agent
-// holds it (the projection's `held` is `owner` or `agent`; another device can delegate the
-// saved todo while this tab waits for its own save, at the SAME epoch), and no command of this
-// tab is pending for it. The list a todo sits in does not say this: a project that asks its
-// owner something is an agent's and sits in the main list
-function _still_owners(item, epoch) {
-  const state = _task_state(item)
-  const pending = _pending_commands()[item.id]
-  return (state?.epoch ?? 0) == epoch && state?.held != 'agent' && !(pending && !state?.acked?.[pending.id])
-}
-
-// delegates an item that a drop on the agent bin has made a todo (_promote), as the gesture
-// meant it: with its intent (`write`), only while the item is what the owner dropped (the text
-// written for it, still theirs to act on: _still_owners), and acknowledging the count of times
-// it had come up at the drop (`drop`). Otherwise nothing is sent and a word says so; the item
-// stays a todo
-async function _delegate_promoted({ item, text }, write, drop) {
-  if (item.text != text || !_still_owners(item, drop.epoch))
-    return alert(`${item.name} is a todo now, but it changed meanwhile: delegate it from its row if you still want to`), false
-  return _delegate(item, write, drop.surfaced)
-}
-
-// snoozes an item that a drop on the snooze bin has made a todo (_promote), unless it is no
-// longer the owner's to act on (_still_owners: a delegated todo is not snoozed)
-function _snooze_promoted({ item }, answer, drop) {
-  if (!_still_owners(item, drop.epoch)) return alert(`${item.name} is a todo now, but its task changed meanwhile: it was not snoozed`), false
-  return _snooze(item, answer), true
 }
 
 // the list's start in the account: the baselines that keep the past out of it, in the #todoer
