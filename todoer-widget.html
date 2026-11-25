@@ -253,7 +253,9 @@
      padding around an item's content (10 px), and an ordinary background: it is painted below the
      app's number at the item's top right and takes no tap from it, where a positioned box or a layer
      of its own would lie above the number. Not during a drag, when the list shares its line with
-     the bins. A row's text stays where it is (10 - 7 is the 3 px every row is shifted by) */
+     the bins. A row's text stays where it is (10 - 7 is the 3 px every row is shifted by). The
+     green is #162b16 at three quarters over the item's #111 (the owner: "a bit more subtle (maybe
+     75% opacity)"), written as the one opaque colour that gives: the shadows below lie over the row */
   #widget:not(.dragging) .list > .list-item-container.selected {
     width: auto;
     max-width: none;
@@ -261,22 +263,22 @@
     margin-right: -10px;
     padding-left: 7px;
     padding-right: 10px;
-    background: #162b16;
+    background: #152515;
   }
   /* the first and the last row's band also fills the item's padding above and below, with the
      corners of the item's box, where this list is the first or the last thing its item shows (the
      classes first and last: todoer.js, _widget_edges). As a shadow, which moves nothing */
   #widget.first:not(.dragging) .list > .list-item-container.selected:first-child {
     border-radius: 4px 4px 0 0;
-    box-shadow: 0 -10px 0 0 #162b16;
+    box-shadow: 0 -10px 0 0 #152515;
   }
   #widget.last:not(.dragging) .list > .list-item-container.selected:last-child {
     border-radius: 0 0 4px 4px;
-    box-shadow: 0 10px 0 0 #162b16;
+    box-shadow: 0 10px 0 0 #152515;
   }
   #widget.first.last:not(.dragging) .list > .list-item-container.selected:first-child:last-child {
     border-radius: 4px;
-    box-shadow: 0 -10px 0 0 #162b16, 0 10px 0 0 #162b16;
+    box-shadow: 0 -10px 0 0 #152515, 0 10px 0 0 #152515;
   }
   #widget.dragging .list > .list-item-container {
     margin-left: -3px; /* eliminates horizontal shifting of dragged item */
