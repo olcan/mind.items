@@ -1602,20 +1602,14 @@ const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel',
 
 // the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
 // the two row buttons, its bell where it has one, then its list's bins. A row that is not a
-// todo's (a reply's) has no agent and no snooze button, as _bin_act has nothing for them, and
-// no done button: its bell clears it, which is all that done does for it, and a row without
-// that button is seen to be a notification and no todo (the owner, 2026-11-25: "we might as
-// well drop the button too then", "i need some way to tell when i'm looking at a notification
-// and not a todo item"). A drop of such a row on the done bin clears it as before
+// todo's (a reply's) has none of the bins' buttons: its bell clears it, and a row with the bell
+// alone is seen to be a notification and no todo (the owner, 2026-11-25: "let's try removing
+// both the button and its shortcut, and let's remove the delete button (and shortcut) also",
+// "i need some way to tell when i'm looking at a notification and not a todo item"). A drop of
+// such a row on the done or the delete bin does what it did
 function _row_buttons(found) {
   const reply = !!found.row.getAttribute('data-waits')
-  return _BIN_BUTTONS.filter(b =>
-    b.name in _ROW_STEP
-      ? true
-      : b.name == 'bell'
-        ? !!found.row.querySelector('mark.waits')
-        : !!found.widget.querySelector('.bin.' + b.name) && !(reply && (b.name == 'agent' || b.name == 'snooze' || b.name == 'done'))
-  )
+  return _BIN_BUTTONS.filter(b => (b.name in _ROW_STEP ? true : b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !reply && !!found.widget.querySelector('.bin.' + b.name)))
 }
 
 // the row beside the given one in its list, the one after it (`by` 1) or before it (-1); null at
@@ -1642,11 +1636,11 @@ function _row_step(id, by) {
 // the first/last todo item, from main list only"). And the keys of a row's other buttons
 // (_BIN_KEYS): with a listed item named by the box whose row has the key's button, the key is
 // that button's press, once for a key held down; with no such row the key is not the rows',
-// and goes on to whoever held the hook before. So the done button's key is a todo's alone: a
-// reply's row has no done button (_row_buttons), and the key never becomes the way to clear a
-// bell (the owner, 2026-11-25: "i don't want to accidentally remove an actual task row, since
-// clearing a notification is a much lighter operation"). Only a plain press counts, and never
-// while a field has the focus. True where the key was the rows'
+// and goes on to whoever held the hook before. So the bins' keys are a todo's alone: a reply's
+// row has its bell and no other of these buttons (_row_buttons), and the done key never becomes
+// the way to clear a bell (the owner, 2026-11-25: "i don't want to accidentally remove an actual
+// task row, since clearing a notification is a much lighter operation"). Only a plain press
+// counts, and never while a field has the focus. True where the key was the rows'
 function _on_row_key(key, e) {
   const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
   const bin = !by && Object.hasOwn(_BIN_KEYS, key) ? _BIN_KEYS[key] : null
@@ -1670,10 +1664,25 @@ function _on_row_key(key, e) {
   return true
 }
 
+// what the menu of the shortcuts item lists for this item (shortcuts.js: an item writes a list
+// under a section's name on the window; without that item nothing reads it)
+const _ROW_SHORTCUTS = [
+  { keys: 'j', does: 'the next row', when: "a row is selected; with none, the main list's first row" },
+  { keys: 'k', does: 'the previous row', when: "a row is selected; with none, the main list's last row" },
+  { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected' },
+  { keys: 'd', does: 'done', when: 'a todo is selected' },
+  { keys: 's', does: 'snooze, or unsnooze in the snoozed list', when: 'a todo is selected' },
+  { keys: 'x', does: 'delete, after a question', when: 'a todo is selected' },
+  { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected' },
+  { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected' },
+]
+
 // takes the app's key hook for the rows' keys, once per evaluation of this item; a key that is
 // not the rows' goes on to whoever held the hook before
 function _row_keys() {
-  if (typeof window == 'undefined' || window._on_key?._todoer_keys === _on_row_key) return
+  if (typeof window == 'undefined') return
+  ;(window._shortcuts ??= {}).todoer = _ROW_SHORTCUTS // (what the shortcuts item's menu lists for this item)
+  if (window._on_key?._todoer_keys === _on_row_key) return
   const before = window._on_key?._todoer_keys ? window._on_key._todoer_before : window._on_key
   const hook = (key, e) => (_on_row_key(key, e) ? void e?.preventDefault?.() : typeof before == 'function' ? before(key, e) : undefined)
   hook._todoer_keys = _on_row_key
