@@ -256,18 +256,20 @@
      outline, and the tint as the one colour it makes on the item's own background (1a241a),
      opaque, since a dragged row passes over other rows. Not on the dashed place a dragged row
      leaves in the list, and not on a bin, where the row is as any other row there (the rules
-     at the end). The bar stands 5 px further out than the row's own left edge, with that much
-     more room between it and the row's text, which stays where it is (the owner: "shift that
-     thick border outward a bit, maybe 2px, and add inner padding in its place", then "a bit too
-     subtle, let's add another 3px"): the box reaches 5 px further left and its padding grows by
-     as much. The look before this trial: a border of 1px solid 6c6 with a ring of the same */
+     at the end). The bar stands OUTSIDE the row's own left edge, 4 px wide and flush with it, so
+     that there are 5 px of the tint between it and the row's text (the owner: "shift that thick
+     border outward a bit, maybe 2px, and add inner padding in its place", then "a bit too
+     subtle, let's add another 3px"). It is a shadow of the row's box, so that selecting a row
+     changes nothing of its layout: a first version moved the box itself out by a negative
+     margin with more padding, and the owner saw the FIRST row's text shift inward when it was
+     selected (not reproduced in a mock-up; suspected: the margin is not applied to the row
+     beside the item's number, a box that gives way to a float). The look before this trial: a
+     border of 1px solid 6c6 with a ring of the same */
   #widget .list > .list-item-container.selected > .list-item {
-    box-shadow: inset 3px 0 0 #6c6;
+    box-shadow: -4px 0 0 0 #6c6;
     background: rgba(102, 204, 102, 0.1);
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
-    margin-left: -5px;
-    padding-left: 9px;
   }
   #widget .list > .list-item-container.selected:is(.sortable-drag, .sortable-chosen) > .list-item {
     background: #1a241a;
@@ -277,8 +279,6 @@
     box-shadow: none;
     background: none;
     border-radius: 4px;
-    margin-left: 0;
-    padding-left: 4px;
   }
   #widget.dragging .list > .list-item-container {
     margin-left: -3px; /* eliminates horizontal shifting of dragged item */
@@ -328,8 +328,6 @@
     box-shadow: none;
     background: #171717;
     border-radius: 4px;
-    margin-left: 0;
-    padding-left: 4px;
   }
   /* __styles__ */
 </style>
