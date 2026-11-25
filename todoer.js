@@ -3340,7 +3340,7 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 // Which window: of the app's other windows in this browser profile that have said they are there
 // (a BroadcastChannel; the same account only), the one used last (a focus, a press, a key). With
 // no such window, or with none that answers within SEND_ACK_MS, a selection made here is shown
-// here, as without the switch
+// here, as without the switch. An item is told by its saved id, so a new one once it is saved
 const SEND_KEY = 'mindpage_todoer_send'
 const SEND_CHANNEL = 'mindpage_todoer_windows'
 const SEND_ACK_MS = 300
@@ -3389,8 +3389,13 @@ function _send_toggle(on = !_send_on()) {
 function _send_selected(item, forced = false) {
   const windows = window._todoer_windows
   if (!windows) return false
+  clearTimeout(windows.saving) // (a selection made here comes before one that waits: for a save, or for an item to arrive)
+  clearTimeout(windows.taking)
   if (!item) return (windows.last = null), false
-  const id = item.saved_id ?? item.id
+  // an item that is not saved yet (a child just created) is known to this window alone, under an
+  // id of its own: it is told once it has its saved id, where the box still names it then
+  if (!item.saved_id) return _send_when_saved(item), false
+  const id = item.saved_id
   if (!forced && windows.last === id) return false
   windows.last = id
   const to = _send_on() ? _send_peer() : null
@@ -3408,18 +3413,35 @@ function _send_selected(item, forced = false) {
   return true
 }
 
+// tells the other windows of a selected item that has no saved id yet, once it has one: looked at
+// four times a second for ten seconds, and given up where the box names something else by then
+function _send_when_saved(item, tries = 40) {
+  const windows = window._todoer_windows
+  windows.saving = setTimeout(() => {
+    const named = _item(MindBox.get().trim(), { silent: true })
+    if (named?.id !== item.id) return
+    if (named.saved_id) _send_selected(named, true)
+    else if (tries > 0) _send_when_saved(item, tries - 1)
+  }, 250)
+}
+
 // makes another window's selection this window's too, as a notification's click selects an item
 // (a todo's line marked), without coming forward and without saying it back (the search it makes
-// here is the same item's); `asked`: by a list's window, which is told that it was shown
-function _send_take(message, asked) {
+// here is the same item's). `asked`: by a list's window, which is told at once that it was heard.
+// An item created a moment ago in the other window arrives here a little after its save: it is
+// looked for four times a second for three seconds
+function _send_take(message, asked, tries = 12) {
   const windows = window._todoer_windows
-  const item = typeof message.item == 'string' ? _item(message.item, { silent: true }) : null
-  if (!item) return false
+  if (typeof message.item != 'string') return false
+  if (asked && tries == 12) windows.say('took', { n: message.n })
+  const item = _item(message.item, { silent: true })
+  if (!item) {
+    if (tries > 0) windows.taking = setTimeout(() => void _send_take(message, asked, tries - 1), 250)
+    return false
+  }
   windows.last = item.saved_id ?? item.id
   const text = item.tags_visible?.includes('#todo') ? _extract_todo_snippet(item) : null
-  if (!_select_item(item, text ? _todo_line(text) : null, false, true)) return false
-  if (asked) windows.say('took', { n: message.n })
-  return true
+  return _select_item(item, text ? _todo_line(text) : null, false, true)
 }
 
 // the windows' channel, once per page (as the notifier's listeners): each window says that it is
@@ -3445,7 +3467,10 @@ function _start_windows() {
     if (message.type == 'who') windows.say('hello')
     // (a list's window asks this one to show its selection; or this is a list's window, and the
     // window it goes with has selected something)
-    else if (message.type == 'selected' && (message.to == me || (!message.to && _send_on() && message.id == _send_peer()))) _send_take(message, message.to == me)
+    else if (message.type == 'selected' && (message.to == me || (!message.to && _send_on() && message.id == _send_peer()))) {
+      clearTimeout(windows.taking) // (a newer selection comes before one that still waits for its item)
+      _send_take(message, message.to == me)
+    }
     else if (message.type == 'took' && windows.waits.has(message.n)) {
       clearTimeout(windows.waits.get(message.n))
       windows.waits.delete(message.n)
@@ -3463,6 +3488,29 @@ function _start_windows() {
   window.addEventListener('pagehide', () => windows.say('bye'))
   setInterval(() => windows.say('hello'), SEND_HELLO_MS)
   windows.say('who')
+}
+
+// holds this window's scroll position for a moment: the app scrolls to a selected item at the
+// page's next update, and again when a later layout moves the item (its own render, an item
+// that has just arrived from another window), so the position is put back at every scroll for
+// SEND_HOLD_MS. A wheel, a touch, a press or a key of the owner's ends the hold at once: the
+// window is theirs to move
+const SEND_HOLD_MS = 1500
+function _hold_scroll(top) {
+  const windows = window._todoer_windows
+  windows?.hold?.()
+  const put = () => void (document.body.scrollTop != top && (document.body.scrollTop = top))
+  const inputs = ['wheel', 'touchstart', 'pointerdown', 'keydown']
+  const end = () => {
+    document.removeEventListener('scroll', put, true)
+    inputs.forEach(type => window.removeEventListener(type, end, true))
+    clearTimeout(timer)
+    if (windows?.hold === end) windows.hold = null
+  }
+  document.addEventListener('scroll', put, { capture: true, passive: true })
+  inputs.forEach(type => window.addEventListener(type, end, { capture: true, passive: true }))
+  const timer = setTimeout(end, SEND_HOLD_MS)
+  if (windows) windows.hold = end
 }
 
 // selects an item, as a click on its number in the app does while the number is not green: the
@@ -3484,13 +3532,11 @@ function _select_item(item, selection, checked = false, received = false) {
     return true
   }
   // the list's window stays where it is, for a selection it shares with another window (made
-  // here and shown there, or made there and taken here): the
-  // app's select scrolls to the item at the page's next update, and the position from before
-  // is put back right after it, in the same frame (_update_dom waits as the app's own does,
-  // and is asked for after it)
+  // here and shown there, or made there and taken here): its position is held while the app
+  // brings the item into view (_hold_scroll)
   const top = (received ? _send_on() : _send_selected(item, true)) ? document.body.scrollTop : null
+  if (top != null) _hold_scroll(top)
   if (!item.select()) return false
-  if (top != null) _update_dom().then(() => void (document.body.scrollTop = top))
   if (checked) _select_range(item, ranged ? selection : null)
   else if (selection) MindBox.select_in_target(selection)
   return true
