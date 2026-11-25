@@ -2334,6 +2334,11 @@ const NOTIFIER_STALE_MS = 5 * 60 * 1000 // an election not refreshed for this lo
 const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its gesture stamps' spacing
 const UNSNOOZE_SKEW_MS = 60 * 1000 // a snooze that ended this close before its time ended by it (the devices' clocks differ)
 const ITEM_STAMP_MAX_AGE_MS = 10 * 60 * 1000 // an agent write stamp further than this from this device's clock (either direction) never notifies
+const NOTIFY_CLICK_TYPE = 'mindpage:notificationclick' // app service-worker contract: click relay
+const NOTIFY_CLICK_RELAY = 'mindpage:notificationclick:relay' // app service-worker contract: confirmed worker event
+const NOTIFY_CLICK_READY = 'mindpage:notificationclick:ready' // app service-worker contract: drain pending clicks
+const NOTIFY_CLICK_RECEIVED = 'mindpage:notificationclick:received' // app service-worker contract: acknowledge click receipt
+const NOTIFY_SW_WAIT_MS = 1500 // short wait for an active service worker before falling back to new Notification
 
 // => /notify [on [reason...]|off [reason...]|test]
 // desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
@@ -2352,7 +2357,7 @@ async function _on_command_notify(args) {
   }
   if (parsed.test) {
     if (_notify_permission() != 'granted') alert(`notifications: this device's permission is ${_notify_permission()} (/notify on asks for it)`)
-    else if (!_notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test' }, () => window.focus())) alert('notification refused by the browser')
+    else if (!(await _notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test', item: null }, () => window.focus()))) alert('notification refused by the browser')
     return
   }
   // this device's permission is asked from the command's own gesture (the browser prompts only
@@ -2524,7 +2529,7 @@ function _notify_reply(item, remote = true) {
   if (!_notifier_elected()) return 'another window'
   const shown = item.label || _visible(String(item.text ?? '').split('\n')[0] ?? '')
   const facts = { reason: 'reply', shown, label: null, parent: null, id: item.saved_id ?? item.id, body: _reply_line(item.text) }
-  return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+  return _notify_result(_notify_show(facts, () => _notify_click(item.id)))
 }
 
 // the question of a chat that became a todo. Where a todo's row would show nothing but the item's
@@ -2935,20 +2940,25 @@ function _notify_item(id, item = null) {
   if (!_notifier_elected()) return 'another window'
   const { shown, body } = _item_preview(item)
   const facts = { reason: 'item', shown, label: null, parent: null, id: item.saved_id ?? item.id, body }
-  return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+  return _notify_result(_notify_show(facts, () => _notify_click(item.id)))
 }
 
 // every entry in `_todoer._global_store._agent.wrote` decided (the todoer's store hook and the
-// notifier's minute scan); returns the count of alerts shown
+// notifier's minute scan); returns the count of alerts actually shown (a Promise<number> when
+// any alert takes the async service-worker path, else a number synchronously)
 function _notify_items() {
   if (!_todoer.store.item_seen) return 0
   const wrote = _item_writes()
   if (!wrote) return 0
   let notified = 0
+  const pending = []
   for (const id of Object.keys(wrote)) {
-    if (_notify_item(id) == 'notify') notified++
+    const res = _notify_item(id)
+    if (res == 'notify') notified++
+    else if (res && typeof res.then == 'function') pending.push(res)
   }
-  return notified
+  if (!pending.length) return notified
+  return Promise.all(pending).then(results => notified + results.filter(r => r == 'notify').length)
 }
 
 // the list a todo belongs to (_task_list over its projection, this tab's pending command and its
@@ -2986,13 +2996,14 @@ function _notify_change(item, { state = _task_state(item), list = null, parent =
 }
 
 // a todo's notification under `reason` from the device's elected window: the row's text, the
-// body naming a labelled item and a child's parent, the click targeting the item; the step
+// body naming a labelled item and a child's parent, the click targeting the item; returns the
+// step synchronously on the page path or a Promise<'notify' | 'refused'> on the worker path
 function _notify_todo(item, reason, { state = null, parent = null } = {}) {
   if (!_notifier_elected()) return 'another window'
   if (parent == null && state?.parent) parent = _parent_of(state.parent)
   const shown = _visible(_extract_todo_snippet(item) ?? '').replace(/\s+/g, ' ')
   const facts = { reason, shown, label: item.label, parent, id: item.saved_id ?? item.id }
-  return _notify_show(facts, () => _notify_click(item.id)) ? 'notify' : 'refused'
+  return _notify_result(_notify_show(facts, () => _notify_click(item.id)))
 }
 
 // a todo's snooze as the notifier records it: its snooze time while snoozed, else 0
@@ -3064,21 +3075,82 @@ function _scan_notify() {
   return compared
 }
 
+const _notify_tag = id => `todoer:${id}`
+
+// maps the boolean (or Promise<boolean>) returned by `_notify_show` onto `'notify'` or `'refused'`
+function _notify_result(shown) {
+  return shown && typeof shown.then == 'function' ? shown.then(ok => (ok ? 'notify' : 'refused')) : shown ? 'notify' : 'refused'
+}
+
+// resolves to the active service worker registration within `wait` ms, else null
+function _notify_registration(wait = NOTIFY_SW_WAIT_MS) {
+  const sw = typeof navigator != 'undefined' ? navigator.serviceWorker : null
+  const ready = sw?.ready
+  if (!ready || typeof ready.then != 'function') return Promise.resolve(null)
+  return new Promise(resolve => {
+    let settled = false
+    const done = reg => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(reg?.active ? reg : null)
+    }
+    const timer = setTimeout(() => done(null), wait)
+    Promise.resolve(ready).then(done, () => done(null))
+  })
+}
+
+// installs (or replaces after `/_update` without a reload) this evaluation's service-worker click
+// listener under its own guard on `window`, independent of `window._todoer_notifier`; returns true
+// when the listener is attached on `navigator.serviceWorker`
+function _ensure_notify_listener() {
+  if (typeof window == 'undefined') return false
+  const sw = typeof navigator != 'undefined' ? navigator.serviceWorker : null
+  if (!sw || typeof sw.addEventListener != 'function') return false
+  const prev = window._todoer_notify_listener
+  if (prev === _on_notify_message) return true
+  if (typeof prev == 'function') {
+    try {
+      sw.removeEventListener?.('message', prev)
+    } catch (e) {}
+  }
+  try {
+    sw.addEventListener('message', _on_notify_message)
+    sw.startMessages?.()
+  } catch (e) {
+    if (window._todoer_notify_listener === prev) delete window._todoer_notify_listener
+    return false
+  }
+  window._todoer_notify_listener = _on_notify_message
+  return true
+}
+
 // the facts of a task's notification: the title is the reason, then the row's text without the
 // tag and the marker (shortened); the body names a labelled item and a child's parent; one
 // notification per item (the tag: a newer one replaces the older and alerts again), the
-// attention reasons and a snooze's reminder (`unsnoozed`) kept on screen until dismissed
-function _notification_of({ reason, shown, label, parent, id, body = null }) {
+// attention reasons and a snooze's reminder (`unsnoozed`) kept on screen until dismissed; `data`
+// carries what the worker-relayed click needs (`source: 'todoer'` and the durable item id, or
+// null for `/notify test`)
+function _notification_of({ reason, shown, label, parent, id, body = null, item = id }) {
   const text = shown.replace(/(^|\s)#todo(?=\s|$)/g, '$1').replace(/(^|\s)\[[a-z]+\](?=\s|$)/, '$1').replace(/\s+/g, ' ').trim()
   const title = `[${reason}] ${text.length > 80 ? text.slice(0, 79).trimEnd() + '…' : text}`
   body ??= [label, parent ? `child of ${parent}` : null].filter(s => s).join('\n')
-  return { title, options: { body, tag: `todoer:${id}`, renotify: true, requireInteraction: NOTIFY_ATTENTION.includes(reason) || reason == 'unsnoozed', icon: '/favicon.ico' } }
+  return {
+    title,
+    options: {
+      body,
+      tag: _notify_tag(id),
+      renotify: true,
+      requireInteraction: NOTIFY_ATTENTION.includes(reason) || reason == 'unsnoozed',
+      icon: '/favicon.ico',
+      data: { source: 'todoer', item: item ?? null },
+    },
+  }
 }
 
-// the notification itself; `onclick` runs on its click (the notification closed first); false
-// when the browser refuses the constructor
-function _notify_show(facts, onclick) {
-  const { title, options } = _notification_of(facts)
+// page-owned notification fallback (today's `new Notification` path); `onclick` runs on its click
+// (the notification closed first); false when the browser refuses the constructor
+function _notify_show_page(title, options, onclick) {
   let notification
   try {
     notification = new Notification(title, options)
@@ -3091,6 +3163,58 @@ function _notify_show(facts, onclick) {
     onclick()
   }
   return true
+}
+
+// whether this document's authenticated account was left (the app sets
+// `window._notification_account_left = true` before requesting a reload on an account change or
+// explicit sign-out): once set, this document starts no notifications (worker or page), sends no
+// `ready`, and answers no clicks even if the owner cancels the reload at the discard prompt
+function _notify_account_left() {
+  return typeof window != 'undefined' && !!window._notification_account_left
+}
+
+// the specific service worker the page's strict `hello`/`relay` handshake confirmed (null before
+// confirmation, after this document's account was left, while a replacement worker is being
+// probed, on an isolated shared origin, or on an app from before the relay)
+function _notify_confirmed_worker() {
+  if (typeof window == 'undefined' || _notify_account_left() || window._notification_click_relay !== NOTIFY_CLICK_TYPE) return null
+  const worker = window._notification_click_worker
+  return worker && typeof worker.postMessage == 'function' ? worker : null
+}
+
+// whether this page's app has confirmed a live service worker with click relay
+function _notify_relayed() {
+  return !!_notify_confirmed_worker()
+}
+
+// shows the notification through the active service worker registration so it outlives a page
+// reload; declines all notifications (worker and page alike) once this document's account was
+// left; ensures this evaluation's click listener stands first, rechecks that the confirmed worker
+// is still `reg.active` at show time, and falls back to `_notify_show_page` when
+// `navigator.serviceWorker` is absent, no confirmed worker stands, the listener cannot be
+// installed, no active registration arrives within `wait` ms, `reg.active` no longer matches the
+// confirmed worker, or `showNotification` refuses. Returns a boolean synchronously on the
+// synchronous paths, else a Promise<boolean> resolving to whether a notification was actually shown
+function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
+  if (_notify_account_left()) return false
+  const { title, options } = _notification_of(facts)
+  if (typeof navigator == 'undefined' || !navigator.serviceWorker || !_notify_confirmed_worker() || !_ensure_notify_listener())
+    return _notify_show_page(title, options, onclick)
+  return (async () => {
+    const reg = await _notify_registration(wait)
+    if (_notify_account_left()) return false
+    const confirmed = _notify_confirmed_worker()
+    if (reg && confirmed && reg.active === confirmed && typeof reg.showNotification == 'function') {
+      try {
+        await reg.showNotification(title, options)
+        return true
+      } catch (e) {
+        console.warn(`todoer: worker notification refused: ${e?.message ?? e}`)
+      }
+    }
+    if (_notify_account_left()) return false
+    return _notify_show_page(title, options, onclick)
+  })()
 }
 
 // selects an item, as a click on its number in the app does while the number is not green: the
@@ -3108,11 +3232,13 @@ function _select_item(item, selection, checked = false) {
   const ranged = Array.isArray(selection) // a stretch by its offsets in the item's text
   if (typeof item.select != 'function') {
     const select = ranged ? item.text.slice(...selection) : selection
-    return MindBox.set(item.name, select ? { scroll: true, select } : { scroll: true })
+    MindBox.set(item.name, select ? { scroll: true, select } : { scroll: true })
+    return true
   }
-  if (!item.select()) return
+  if (!item.select()) return false
   if (checked) _select_range(item, ranged ? selection : null)
   else if (selection) MindBox.select_in_target(selection)
+  return true
 }
 
 // selects a stretch of `item` by its offsets in the item's raw text (`range`: [start, end], or
@@ -3180,11 +3306,163 @@ function _edit_item(item, selection, checked = false) {
 // item deleted meanwhile
 function _notify_click(id) {
   window.focus()
+  if (typeof id != 'string' || !id) return false
   const item = _item(id, { silent: true })
   if (!item) return false
-  const text = item.tags.includes('#todo') ? _extract_todo_snippet(item) : null
-  _select_item(item, text ? _todo_line(text) : null)
+  const text = item.tags?.includes('#todo') ? _extract_todo_snippet(item) : null
+  return _select_item(item, text ? _todo_line(text) : null)
+}
+
+// whether this window is a fixed shared view (fallback check when an item lacks `item.select`; on
+// current app builds `item.select()` directly refuses selection on fixed views with zero side effects)
+function _notify_fixed_view() {
+  try {
+    const search = typeof location != 'undefined' ? location.search : ''
+    return !!search && !!new URLSearchParams(search).get('shared')
+  } catch (e) {
+    return false
+  }
+}
+
+// acknowledges receipt of a worker-relayed click synchronously when a worker handle is at hand
+// (event.source, else controller, else active registration) so the worker can focus this window
+// and delete the stored click
+function _notify_ack(id, source = null) {
+  if (typeof id != 'string' || !id) return false
+  const ack = { type: NOTIFY_CLICK_RECEIVED, id }
+  if (typeof source?.postMessage == 'function') {
+    try {
+      source.postMessage(ack)
+      return true
+    } catch (e) {}
+  }
+  const sw = typeof navigator != 'undefined' ? navigator.serviceWorker : null
+  if (typeof sw?.controller?.postMessage == 'function') {
+    try {
+      sw.controller.postMessage(ack)
+      return true
+    } catch (e) {}
+  }
+  if (typeof sw?.getRegistration == 'function') {
+    Promise.resolve(sw.getRegistration()).then(
+      reg => {
+        try {
+          reg?.active?.postMessage?.(ack)
+        } catch (e) {}
+      },
+      () => {}
+    )
+    return true
+  }
+  if (sw?.ready && typeof sw.ready.then == 'function') {
+    Promise.resolve(sw.ready).then(
+      reg => {
+        try {
+          reg?.active?.postMessage?.(ack)
+        } catch (e) {}
+      },
+      () => {}
+    )
+    return true
+  }
+  return false
+}
+
+// handles a click relayed by the app's service worker (attached on EVERY window, not only the
+// elected one): leaves unrelated and foreign messages alone without answering; answers `received`
+// ONLY when this window can act on the click — the test notification (no item), a duplicate id
+// this window already handled, or an item that exists in this window and that this window can
+// select (a fixed, shared view refuses selection and stays silent so the worker asks the next
+// window or keeps the click)
+function _on_notify_message(event) {
+  if (_notify_account_left()) return false
+  const msg = event?.data
+  if (!msg || typeof msg != 'object' || msg.type != NOTIFY_CLICK_TYPE) return false
+  const data = msg.data
+  if (!data || typeof data != 'object' || data.source != 'todoer') return false
+  const id = typeof msg.id == 'string' && msg.id ? msg.id : null
+  const handled = (_todoer.store.notify_handled ??= new Set())
+  if (id && handled.has(id)) {
+    _notify_ack(id, event?.source ?? null)
+    return true
+  }
+  const remember = () => {
+    if (!id) return
+    handled.add(id)
+    if (handled.size > 50) handled.delete(handled.values().next().value)
+  }
+  if (!data.item) {
+    remember()
+    _notify_ack(id, event?.source ?? null)
+    window.focus()
+    return true
+  }
+  if (typeof data.item != 'string') return false
+  const item = _item(data.item, { silent: true })
+  if (!item) return false
+  const text = item.tags?.includes('#todo') ? _extract_todo_snippet(item) : null
+  const line = text ? _todo_line(text) : null
+  if (typeof item.select == 'function') {
+    if (!item.select()) return false
+    remember()
+    if (line) {
+      try {
+        MindBox.select_in_target(line)
+      } catch (e) {}
+    }
+  } else {
+    if (_notify_fixed_view()) return false
+    MindBox.set(item.name, line ? { scroll: true, select: line } : { scroll: true })
+    remember()
+  }
+  _notify_ack(id, event?.source ?? null)
+  window.focus()
   return true
+}
+
+// tells each newly confirmed service worker that this window's listener stands and its items are
+// loaded: subscribes immediately to the page's `mindpage:notificationclick:relay` event so worker
+// replacement (old active -> new confirmed active) sends `ready` whenever todoer's current click
+// listener stands and items are loaded, posts `ready` immediately when a confirmed worker already
+// stands, and — when welcome ran on an unconfirmed cached corpus (`window._server_confirmed === false`) —
+// schedules a one-time retry once the server confirms the corpus so clicks targeting items absent
+// from cache are drained when those items arrive. Returns whether `ready` was posted immediately
+function _notify_ready() {
+  if (typeof window == 'undefined' || window._shared_origin || _notify_account_left()) return false
+  if (!_todoer.store.notify_seen || !_ensure_notify_listener()) return false
+  const prev = window._todoer_notify_ready_listener
+  if (typeof prev == 'function') {
+    try {
+      window.removeEventListener?.(NOTIFY_CLICK_RELAY, prev)
+    } catch (e) {}
+  }
+  let lastWorker = null
+  const sendReady = (force = false) => {
+    if (typeof window == 'undefined' || window._shared_origin) return false
+    if (typeof window._todoer_notify_listener != 'function' || !_todoer.store.notify_seen) return false
+    const worker = _notify_confirmed_worker()
+    if (!worker || (!force && worker === lastWorker)) return false
+    try {
+      worker.postMessage({ type: NOTIFY_CLICK_READY })
+      lastWorker = worker
+      return true
+    } catch (e) {
+      return false
+    }
+  }
+  const onRelay = () => {
+    sendReady()
+  }
+  try {
+    window.addEventListener?.(NOTIFY_CLICK_RELAY, onRelay)
+    window._todoer_notify_ready_listener = onRelay
+  } catch (e) {}
+  const sent = sendReady()
+  // (the wait the pusher's and the sharer's welcome use: when_server_confirmed, util/core.js;
+  // guarded for an older installed #util/core that predates the helper)
+  if (window._server_confirmed === false && typeof when_server_confirmed == 'function')
+    when_server_confirmed(_todoer, 'notify_ready_confirmed', () => void sendReady(true))
+  return sent
 }
 
 // this window's id in the device's election (session-lived)
@@ -3292,8 +3570,10 @@ function _start_notifier() {
     window.addEventListener('pagehide', () => void _release_notifier())
     if (document.hasFocus()) _claim_notifier()
   }
+  _ensure_notify_listener()
   // the rows for replies (_waits) read this tab's records, which exist only now
   if (_rows_start() && Object.keys(replies).some(id => _waits(_item(id, { silent: true })))) _rerender_todoer_widgets()
+  _notify_ready()
   _todoer.dispatch_task(
     'notifier',
     () => {

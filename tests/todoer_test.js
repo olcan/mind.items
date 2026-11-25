@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', '_promotions', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', '_promotions', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -167,9 +167,20 @@ const picked =
     '_notify_todo',
     '_unsnooze_step',
     '_notify_unsnooze',
+    '_notify_result',
+    '_notify_registration',
+    '_ensure_notify_listener',
     '_notification_of',
+    '_notify_show_page',
+    '_notify_account_left',
+    '_notify_confirmed_worker',
+    '_notify_relayed',
     '_notify_show',
+    '_notify_ack',
     '_notify_click',
+    '_notify_fixed_view',
+    '_on_notify_message',
+    '_notify_ready',
     '_select_item',
     '_edit_item',
     '_notifier_parse',
@@ -792,8 +803,9 @@ check('step: the delegated list', notify_step({ list: 'delegated' }), 'not in th
 check('step: a reason not enabled, no reason', [notify_step({ reason: 'taken' }), notify_step({ reason: undefined, key: '' })], ['reason taken', 'reason none'])
 check('step: the permission last (the cause the owner can act on)', [notify_step({ permission: 'default' }), notify_step({ permission: 'denied', list: 'delegated' })], ['permission default', 'not in the main list'])
 // the notification's facts: the reason first, the row's text without the tag and the marker
-check('facts: a suffix snippet, a labelled item', _notification_of({ reason: 'question', shown: '#todo [question] fix the cache reverts on a returning device', label: '#e2e_task', parent: null, id: 's1' }), { title: '[question] fix the cache reverts on a returning device', options: { body: '#e2e_task', tag: 'todoer:s1', renotify: true, requireInteraction: true, icon: '/favicon.ico' } })
-check('facts: a prefix snippet, no label, a child, an opt-in reason (not kept on screen)', _notification_of({ reason: 'taken', shown: 'fix the cache [taken] #todo', label: null, parent: '#todo the project', id: 's2' }), { title: '[taken] fix the cache', options: { body: 'child of #todo the project', tag: 'todoer:s2', renotify: true, requireInteraction: false, icon: '/favicon.ico' } })
+check('facts: a suffix snippet, a labelled item', _notification_of({ reason: 'question', shown: '#todo [question] fix the cache reverts on a returning device', label: '#e2e_task', parent: null, id: 's1' }), { title: '[question] fix the cache reverts on a returning device', options: { body: '#e2e_task', tag: 'todoer:s1', renotify: true, requireInteraction: true, icon: '/favicon.ico', data: { source: 'todoer', item: 's1' } } })
+check('facts: a prefix snippet, no label, a child, an opt-in reason (not kept on screen)', _notification_of({ reason: 'taken', shown: 'fix the cache [taken] #todo', label: null, parent: '#todo the project', id: 's2' }), { title: '[taken] fix the cache', options: { body: 'child of #todo the project', tag: 'todoer:s2', renotify: true, requireInteraction: false, icon: '/favicon.ico', data: { source: 'todoer', item: 's2' } } })
+check('facts: /notify test carries no item id in data', _notification_of({ reason: 'question', shown: '#todo [question] a test', label: null, parent: null, id: 'test', item: null }), { title: '[question] a test', options: { body: '', tag: 'todoer:test', renotify: true, requireInteraction: true, icon: '/favicon.ico', data: { source: 'todoer', item: null } } })
 check('facts: done is kept on screen (the todo waits to be closed)', _notification_of({ reason: 'done', shown: '#todo [done] fix', label: null, parent: null, id: 's5' }).options.requireInteraction, true)
 check('facts: a long text is shortened', _notification_of({ reason: 'blocked', shown: '#todo ' + 'x'.repeat(100), label: null, parent: null, id: 's3' }).title, '[blocked] ' + 'x'.repeat(79) + '…')
 check('facts: the owner\'s own bracketed word elsewhere stays', _notification_of({ reason: 'budget', shown: '#todo [budget] [x] fix', label: null, parent: null, id: 's4' }).title, '[budget] [x] fix')
@@ -3304,6 +3316,737 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     }
     context.__now = null
   }
+  // ---- SERVICE-WORKER NOTIFICATIONS (protocol v2: listener guard, eligibility-gated ack, worker replacement, show results) ----
+  async_rows.push((async () => {
+    const NOTIFY_CLICK_TYPE = vm.runInContext('NOTIFY_CLICK_TYPE', context)
+    const NOTIFY_CLICK_RELAY = vm.runInContext('NOTIFY_CLICK_RELAY', context)
+    const NOTIFY_CLICK_READY = vm.runInContext('NOTIFY_CLICK_READY', context)
+    const NOTIFY_CLICK_RECEIVED = vm.runInContext('NOTIFY_CLICK_RECEIVED', context)
+
+    const when_confirmed = fs.readFileSync(path.join(__dirname, '..', 'util', 'core.js'), 'utf8').match(/\nfunction when_server_confirmed\([^\n]*\) \{[\s\S]*?\n\}\n/)?.[0]
+    if (!when_confirmed) throw new Error('function when_server_confirmed not found in util/core.js')
+
+    // isolated sandbox so each worker-notification scenario has its own navigator, localStorage and store
+    const makeEnv = ({ sw = null, worker = undefined, elected = 'tab-me', perm = 'granted', throwPage = false, relay = true, serverConfirmed = true, withWhenConfirmed = true, windowExtra = {}, locationSearch = '', now = 10_000, sharedWin = null, sharedStore = null, sharedItems = null, sharedByRef = null, sharedTasks = null } = {}) => {
+      let clock = now
+      const setNow = t => { clock = t }
+      const storage = new Map(elected ? [[NOTIFIER_KEY, JSON.stringify({ id: elected, time: clock })]] : [])
+      const pageShown = []
+      const alerts = []
+      const warns = []
+      const selects = []
+      const marks = []
+      const order = []
+      let focused = 0
+      const items = sharedItems ?? []
+      const byRef = sharedByRef ?? new Map()
+      const tasks = sharedTasks ?? new Map()
+      const winListeners = new Map()
+      const addItem = item => {
+        items.push(item)
+        byRef.set(item.id, item)
+        if (item.saved_id) byRef.set(item.saved_id, item)
+        return item
+      }
+      class PageNotif {
+        static permission = perm
+        constructor(title, options) {
+          if (throwPage) throw new Error('page refused')
+          this.title = title
+          this.options = options
+          this.closed = false
+          pageShown.push(this)
+        }
+        close() {
+          this.closed = true
+        }
+      }
+      const confirmedWorker = worker !== undefined ? worker : (relay ? sw?.controller ?? null : null)
+      const win = sharedWin ?? {
+        focus: () => { focused++; order.push('focus') },
+        addEventListener: (type, fn) => {
+          const list = winListeners.get(type) ?? []
+          if (!list.includes(fn)) list.push(fn)
+          winListeners.set(type, list)
+        },
+        removeEventListener: (type, fn) => {
+          const list = winListeners.get(type)
+          if (!list) return
+          const i = list.indexOf(fn)
+          if (i >= 0) list.splice(i, 1)
+        },
+        dispatchEvent: ev => {
+          for (const fn of [...(winListeners.get(ev.type) ?? [])]) fn(ev)
+          return true
+        },
+        _server_confirmed: serverConfirmed,
+        _server_current: true,
+        _grammar: { version: 2, edit: (t, fn) => fn(t) },
+        ...(relay && confirmedWorker ? { _notification_click_relay: NOTIFY_CLICK_TYPE, _notification_click_worker: confirmedWorker } : {}),
+        ...windowExtra,
+      }
+      const confirmWorker = w => {
+        win._notification_click_relay = NOTIFY_CLICK_TYPE
+        win._notification_click_worker = w
+        win.dispatchEvent({ type: NOTIFY_CLICK_RELAY, detail: { worker: w, version: 2 } })
+      }
+      const clearWorker = () => {
+        delete win._notification_click_relay
+        delete win._notification_click_worker
+      }
+      const env = {
+        Object, Array, Set, Map, Promise, Error, URLSearchParams, Date: Object.assign(function (...a) { return new Date(...a) }, { now: () => clock }),
+        Math, Number, String, JSON, RegExp, setTimeout, clearTimeout,
+        console: { warn: (...a) => warns.push(a.join(' ')), error: () => {}, debug: () => {} },
+        each: (xs, f) => xs.forEach(f),
+        values: Object.values,
+        merge: Object.assign,
+        is_number: x => typeof x == 'number',
+        alert: m => alerts.push(m),
+        warn: () => {},
+        error: () => {},
+        _primary: true,
+        _replace_tags: context._replace_tags,
+        _command_id: () => 'tab-me',
+        _todoer: {
+          id: 'todoer',
+          store: sharedStore ?? {},
+          _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item', 'checkin'] }, rows_base: {}, bells_base: {} },
+          dependents: [],
+          save_global_store: () => {},
+          dispatch_task: (name, fn, delay = 0, repeat = -1) => tasks.set(name, { fn, delay, repeat }),
+          log: () => {},
+        },
+        _this: { dependents: [] },
+        _items: () => items,
+        _item: ref => byRef.get(ref) ?? null,
+        _exists: ref => byRef.has(ref),
+        _rerender_todoer_widgets: () => {},
+        localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
+        location: { search: locationSearch },
+        window: win,
+        document: { addEventListener: () => {}, hasFocus: () => false, visibilityState: 'visible' },
+        navigator: sw ? { serviceWorker: sw, onLine: true } : { onLine: true },
+        Notification: PageNotif,
+        MindBox: { set: (...a) => selects.push(['set', ...a]), select_in_target: t => marks.push(t) },
+      }
+      vm.createContext(env)
+      vm.runInContext(picked, env)
+      if (withWhenConfirmed) vm.runInContext(when_confirmed, env) // the items' own wait for the server confirmation (util/core.js)
+      const makeTodo = (id, state, text = '#todo fix the cache\nmore', extra = {}) => {
+        const t = {
+          id, saved_id: 's-' + id, name: '#t_' + id, label: '#t_' + id,
+          tags: ['#todo'], tags_visible: ['#todo'], text, hash: extra.hash ?? 'h-' + id,
+          read: () => t.text,
+          select: () => { selects.push(['select', t.id]); order.push('select:' + t.id); return true },
+          _global_store: { ...(state ? { _agent: { state } } : {}), ...(extra.todoer ? { _todoer: extra.todoer } : {}) },
+          ...extra.fields,
+        }
+        Object.defineProperty(t, 'global_store', { get: () => t._global_store })
+        return addItem(t)
+      }
+      const makeChat = (id, text, extra = {}) => {
+        const c = {
+          id, saved_id: 's-' + id, name: '#c_' + id, label: '#c_' + id,
+          tags: ['#chat'], tags_visible: ['#chat'], text, hash: extra.hash ?? 'h-' + id,
+          read: () => view(c.text),
+          select: () => { selects.push(['select', c.id]); order.push('select:' + c.id); return true },
+          _global_store: extra.store ?? {},
+        }
+        Object.defineProperty(c, 'global_store', { get: () => c._global_store })
+        return addItem(c)
+      }
+      return { env, win, tasks, pageShown, alerts, warns, selects, marks, order, focused: () => focused, items, byRef, addItem, makeTodo, makeChat, confirmWorker, clearWorker, winListeners, setNow }
+    }
+
+    const fakeSW = ({ showDelay = 0, showErr = null, showGate = null, readyPromise = null, active = true, readyNever = false, throwAdd = false, noAdd = false, onPost = null } = {}) => {
+      const shown = new Map()
+      const postedToWorker = []
+      const listeners = []
+      const controllerListeners = []
+      let started = false
+      const worker = {
+        state: 'activated',
+        postMessage: msg => {
+          postedToWorker.push(msg)
+          onPost?.(msg)
+        },
+      }
+      const reg = {
+        active: active ? worker : null,
+        async showNotification(title, options) {
+          if (showGate) await showGate
+          if (showDelay) await new Promise(r => setTimeout(r, showDelay))
+          if (showErr) throw showErr
+          const entry = { title, options, closed: false, close() { this.closed = true; const list = shown.get(options.tag) ?? []; const i = list.indexOf(entry); if (i >= 0) list.splice(i, 1) } }
+          shown.set(options.tag, [entry])
+        },
+        async getNotifications({ tag } = {}) {
+          if (tag) return [...(shown.get(tag) ?? [])]
+          return [...shown.values()].flat()
+        },
+      }
+      const ready = readyPromise ?? (readyNever ? new Promise(() => {}) : Promise.resolve(reg))
+      const sw = {
+        controller: active ? worker : null,
+        ready,
+        getRegistration: async () => reg,
+        ...(noAdd ? {} : {
+          addEventListener: (type, fn) => {
+            if (throwAdd) throw new Error('addEventListener failed')
+            if (type == 'message') listeners.push(fn)
+            if (type == 'controllerchange') controllerListeners.push(fn)
+          },
+        }),
+        removeEventListener: (type, fn) => {
+          const list = type == 'message' ? listeners : type == 'controllerchange' ? controllerListeners : null
+          const i = list ? list.indexOf(fn) : -1
+          if (i >= 0) list.splice(i, 1)
+        },
+        startMessages: () => { started = true },
+      }
+      return {
+        sw, reg, worker, shown, postedToWorker, listeners, controllerListeners,
+        started: () => started,
+        fireControllerChange: w => { sw.controller = w; [...controllerListeners].forEach(fn => fn()) },
+      }
+    }
+
+    // 1. Choosing worker vs new Notification, and listener-before-show guard
+    {
+      const f = fakeSW()
+      const { env, pageShown } = makeEnv({ sw: f.sw })
+      const ok = await env._notify_show({ reason: 'question', shown: '#todo [question] check SW', label: '#lbl', parent: null, id: 's1' }, () => {}, 50)
+      const active = await f.reg.getNotifications({ tag: 'todoer:s1' })
+      check('sw show: uses registration.showNotification when mark stands and installs click listener first',
+        [ok, pageShown.length, f.listeners.length, typeof env.window._todoer_notify_listener, active.length, active[0].title, active[0].options],
+        [true, 0, 1, 'function', 1, '[question] check SW', { body: '#lbl', tag: 'todoer:s1', renotify: true, requireInteraction: true, icon: '/favicon.ico', data: { source: 'todoer', item: 's1' } }])
+    }
+    {
+      const { env, pageShown } = makeEnv({ sw: null })
+      const ok = env._notify_show({ reason: 'question', shown: '#todo no SW', label: null, parent: null, id: 's2' }, () => {})
+      check('sw show: no navigator.serviceWorker takes sync new Notification path', [ok, pageShown.length, pageShown[0].options.data], [true, 1, { source: 'todoer', item: 's2' }])
+    }
+    {
+      // no relay mark (old app, pre-v2 worker that never answered hello, or shared-page host)
+      const f = fakeSW()
+      const { env, pageShown } = makeEnv({ sw: f.sw, relay: false })
+      const ok = env._notify_show({ reason: 'question', shown: '#todo old app', label: null, parent: null, id: 's2b' }, () => {}, 50)
+      check('sw show: no mark, no worker way (takes sync new Notification path even with an active worker)', [ok, pageShown.length, (await f.reg.getNotifications()).length], [true, 1, 0])
+    }
+    {
+      // listener cannot be installed (addEventListener missing or throws): falls back to page kind
+      const fNoAdd = fakeSW({ noAdd: true })
+      const { env: env1, pageShown: page1 } = makeEnv({ sw: fNoAdd.sw })
+      const ok1 = env1._notify_show({ reason: 'question', shown: '#todo no listener api', label: null, parent: null, id: 's2c' }, () => {}, 50)
+      const fThrow = fakeSW({ throwAdd: true })
+      const { env: env2, pageShown: page2 } = makeEnv({ sw: fThrow.sw })
+      const ok2 = env2._notify_show({ reason: 'question', shown: '#todo throwing listener api', label: null, parent: null, id: 's2d' }, () => {}, 50)
+      check('sw show: a show that cannot install the click listener takes the page kind instead of the worker',
+        [ok1, page1.length, (await fNoAdd.reg.getNotifications()).length, ok2, page2.length, (await fThrow.reg.getNotifications()).length],
+        [true, 1, 0, true, 1, 0])
+    }
+    {
+      const f = fakeSW({ readyNever: true })
+      const { env, pageShown } = makeEnv({ sw: f.sw })
+      const ok = await env._notify_show({ reason: 'question', shown: '#todo timeout SW', label: null, parent: null, id: 's3' }, () => {}, 20)
+      check('sw show: no active registration within short wait falls back to new Notification', [ok, pageShown.length, pageShown[0].title], [true, 1, '[question] timeout SW'])
+    }
+    {
+      const f = fakeSW({ active: false })
+      const { env, pageShown } = makeEnv({ sw: f.sw, worker: f.worker })
+      const ok = await env._notify_show({ reason: 'question', shown: '#todo inactive SW', label: null, parent: null, id: 's4' }, () => {}, 20)
+      check('sw show: registration without active worker falls back to new Notification', [ok, pageShown.length], [true, 1])
+    }
+    {
+      // Confirmed worker is W1, but reg.active has already switched to unconfirmed W2 -> falls back to page notification
+      const f = fakeSW()
+      const replacedActive = { state: 'activated', postMessage: () => {} }
+      const { env, pageShown } = makeEnv({ sw: f.sw, worker: f.worker })
+      f.reg.active = replacedActive
+      const ok = await env._notify_show({ reason: 'question', shown: '#todo replaced worker', label: null, parent: null, id: 's4b' }, () => {}, 50)
+      check('sw show: when reg.active no longer matches the confirmed worker, falls back to new Notification',
+        [ok, pageShown.length, (await f.reg.getNotifications()).length],
+        [true, 1, 0])
+    }
+    {
+      const f = fakeSW({ showErr: new Error('permission denied') })
+      const { env, pageShown, warns } = makeEnv({ sw: f.sw })
+      const ok = await env._notify_show({ reason: 'question', shown: '#todo refused SW', label: null, parent: null, id: 's5' }, () => {}, 20)
+      check('sw show: worker showNotification refusal falls back to new Notification', [ok, pageShown.length, warns.length > 0], [true, 1, true])
+    }
+    {
+      const f = fakeSW({ showErr: new Error('sw denied') })
+      const { env, alerts } = makeEnv({ sw: f.sw, throwPage: true })
+      await env._on_command_notify('test')
+      check('sw show: /notify test alerts when both worker and page constructor refuse', alerts, ['notification refused by the browser'])
+    }
+
+    // 2. Listener's OWN guard (`window._todoer_notify_listener`): survives `/_update` without a reload
+    {
+      // Old todoer already set `window._todoer_notifier = true` before `/_update` without reload
+      const f = fakeSW()
+      const { env } = makeEnv({ sw: f.sw, windowExtra: { _todoer_notifier: true } })
+      env._start_notifier()
+      await tick()
+      check('sw listener guard: old window._todoer_notifier flag standing still installs the click listener in _start_notifier',
+        [f.listeners.length, env.window._todoer_notify_listener === env._on_notify_message],
+        [1, true])
+
+      // Idempotent: a second call keeps the single listener
+      env._ensure_notify_listener()
+      check('sw listener guard: repeated ensure keeps one listener', f.listeners.length, 1)
+    }
+    {
+      // Even if `_start_notifier` does NOT run again after `/_update` without reload, `_notify_show` installs it before showing
+      const f = fakeSW()
+      const { env } = makeEnv({ sw: f.sw, windowExtra: { _todoer_notifier: true } })
+      const ok = await env._notify_show({ reason: 'question', shown: '#todo after update', label: null, parent: null, id: 'u1' }, () => {}, 50)
+      check('sw listener guard: _notify_show installs click listener under standing _todoer_notifier flag before worker show',
+        [ok, f.listeners.length, (await f.reg.getNotifications()).length],
+        [true, 1, 1])
+    }
+    {
+      // A later evaluation after a second `/_update` without reload replaces the old function (remove old, add new)
+      const f = fakeSW()
+      const oldListener = () => 'old'
+      f.sw.addEventListener('message', oldListener)
+      const { env } = makeEnv({ sw: f.sw, windowExtra: { _todoer_notifier: true, _todoer_notify_listener: oldListener } })
+      env._ensure_notify_listener()
+      check('sw listener guard: later evaluation removes old window._todoer_notify_listener and installs the new one',
+        [f.listeners.length, f.listeners[0] === env._on_notify_message, f.listeners.includes(oldListener)],
+        [1, true, false])
+    }
+
+    // 3. Click handling: answers `received` ONLY when this window can act (test click, or item exists and can be selected)
+    {
+      const events = []
+      const f = fakeSW({ onPost: msg => events.push(['post', msg.type, msg.id ?? null]) })
+      const { env, selects, marks, order, focused, makeTodo } = makeEnv({ sw: f.sw, elected: 'tab-other' })
+      makeTodo('t1', { held: 'owner', reason: 'question', epoch: 1, surfaced: 1 }, '#todo answer me\nsecond line')
+      env._start_notifier()
+      await tick()
+      check('sw listen: non-elected window attaches message listener, calls startMessages, and posts ready to confirmed worker',
+        [env._notifier_elected(), f.listeners.length, f.started(), f.postedToWorker],
+        [false, 1, true, [{ type: NOTIFY_CLICK_READY }]])
+
+      const combined = []
+      const source = { postMessage: msg => { f.postedToWorker.push(msg); combined.push(['ack', msg.type, msg.id]) } }
+      const origFocus = env.window.focus
+      env.window.focus = () => { combined.push(['focus']); origFocus() }
+      const t1 = env._item('t1')
+      const origSelect = t1.select
+      t1.select = () => { combined.push(['select']); return origSelect() }
+
+      const handled = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-1', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      check('sw click: selects item, answers received with id, and focuses when item exists and is selectable',
+        [handled, combined, selects, marks],
+        [true, [['select'], ['ack', NOTIFY_CLICK_RECEIVED, 'clk-1'], ['focus']], [['select', 't1']], ['#todo answer me']])
+
+      // Duplicate delivery of the same click id still acks but does not re-select
+      combined.length = 0; selects.length = 0
+      const dup = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-1', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      check('sw click: duplicate id acks without running click work a second time',
+        [dup, combined, selects],
+        [true, [['ack', NOTIFY_CLICK_RECEIVED, 'clk-1']], []])
+
+      // Unknown / deleted item: does NOT answer `received`, does NOT focus, leaves view untouched so
+      // the worker asks the next window or keeps the click
+      combined.length = 0; selects.length = 0; marks.length = 0
+      const missingRes = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-gone', tag: 'todoer:gone', data: { source: 'todoer', item: 'gone' } },
+      })
+      check('sw click: missing item does NOT answer received or focus',
+        [missingRes, combined, selects, marks],
+        [false, [], [], []])
+
+      // Fixed, shared view where the app refuses selection (`item.select() === false`): does NOT answer `received`,
+      // does NOT focus, does NOT mark, so the worker asks the next window or keeps the click
+      combined.length = 0; selects.length = 0; marks.length = 0
+      const fixedItem = makeTodo('t-fixed', { held: 'owner', reason: 'question', epoch: 1, surfaced: 1 }, '#todo shared item')
+      fixedItem.select = () => { combined.push(['refused-select']); return false }
+      const fixedRes = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-fixed', tag: 'todoer:s-t-fixed', data: { source: 'todoer', item: 's-t-fixed' } },
+      })
+      check('sw click: fixed/shared view refusing selection does NOT answer received, focus, or mark',
+        [fixedRes, combined, selects, marks],
+        [false, [['refused-select']], [], []])
+
+      // Two-window probe: focused tab A lacks the item (silent), background tab B has it and selects + acks
+      const fA = fakeSW()
+      const fB = fakeSW()
+      const acksA = []
+      const acksB = []
+      const tabA = makeEnv({ sw: fA.sw })
+      const tabB = makeEnv({ sw: fB.sw })
+      tabB.makeTodo('t2', { held: 'owner', reason: 'question', epoch: 1, surfaced: 1 }, '#todo only in B')
+      tabA.env._start_notifier()
+      tabB.env._start_notifier()
+      const clickMsg = { type: NOTIFY_CLICK_TYPE, id: 'clk-ab', tag: 'todoer:s-t2', data: { source: 'todoer', item: 's-t2' } }
+      const resA = fA.listeners[0]({ source: { postMessage: m => acksA.push(m) }, data: clickMsg })
+      const resB = fB.listeners[0]({ source: { postMessage: m => acksB.push(m) }, data: clickMsg })
+      check('sw click: tab lacking the item stays silent so the tab that has it selects and answers received',
+        [resA, acksA, tabA.selects, resB, acksB, tabB.selects],
+        [false, [], [], true, [{ type: NOTIFY_CLICK_RECEIVED, id: 'clk-ab' }], [['select', 't2']]])
+
+      // /notify test click (no item): answers received and focuses alone
+      combined.length = 0
+      const testRes = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-test', tag: 'todoer:test', data: { source: 'todoer', item: null } },
+      })
+      check('sw click: /notify test answers received and focuses alone',
+        [testRes, combined, selects],
+        [true, [['ack', NOTIFY_CLICK_RECEIVED, 'clk-test'], ['focus']], []])
+
+      // Synchronous throw inside the optional text-marking helper does NOT repeat selection on
+      // redelivery and still acknowledges receipt: id is remembered immediately after item.select()
+      combined.length = 0; selects.length = 0
+      const origMark = env.MindBox.select_in_target
+      env.MindBox.select_in_target = () => { throw new Error('mark exploded') }
+      const markThrowFirst = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-mark-throw', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      const markThrowRetry = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-mark-throw', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      env.MindBox.select_in_target = origMark
+      check('sw click: text-marking helper throw still remembers id, acks, and avoids duplicate selection on retry',
+        [markThrowFirst, markThrowRetry, selects, combined],
+        [
+          true,
+          true,
+          [['select', 't1']],
+          [['select'], ['ack', NOTIFY_CLICK_RECEIVED, 'clk-mark-throw'], ['focus'], ['ack', NOTIFY_CLICK_RECEIVED, 'clk-mark-throw']],
+        ])
+
+      // Foreign message or unrelated message: left alone AND NOT answered
+      combined.length = 0
+      const postedBefore = f.postedToWorker.length
+      const ignored = [
+        f.listeners[0]({ source, data: { type: 'other:msg', id: 'f1', data: { source: 'todoer', item: 's-t1' } } }),
+        f.listeners[0]({ source, data: { type: NOTIFY_CLICK_TYPE, id: 'f2', tag: 'cal:1', data: { source: 'calendar', item: 's-t1' } } }),
+        f.listeners[0]({ source, data: null }),
+      ]
+      check('sw click: foreign and unrelated messages are left alone and NOT answered',
+        [ignored, combined, f.postedToWorker.length - postedBefore, order.length >= 0 && focused() >= 2],
+        [[false, false, false], [], 0, true])
+    }
+
+    // 4. `_notify_ready` across worker replacement (old active -> new confirmed, and across fresh evaluations)
+    {
+      // Old pre-v2 active worker ignores hello (unconfirmed), then a new worker activates and confirms
+      const f = fakeSW()
+      const oldPosted = []
+      const oldWorker = { state: 'activated', postMessage: msg => oldPosted.push(msg) }
+      f.reg.active = oldWorker
+      f.sw.controller = oldWorker
+      const eval1 = makeEnv({ sw: f.sw, relay: false })
+      eval1.env._start_notifier()
+      const initial = eval1.env._notify_ready()
+      check('sw ready (old active -> new active): unconfirmed old active worker receives no ready',
+        [initial, oldPosted, eval1.tasks.has('notify_ready_confirmed')],
+        [false, [], false])
+
+      // New worker confirms -> item posts ready to it
+      const newPosted = []
+      const newWorker = { state: 'activated', postMessage: msg => newPosted.push(msg) }
+      f.reg.active = newWorker
+      f.sw.controller = newWorker
+      eval1.confirmWorker(newWorker)
+      check('sw ready (old active -> new active): posts ready once when the new worker is confirmed',
+        [oldPosted, newPosted],
+        [[], [{ type: NOTIFY_CLICK_READY }]])
+
+      // Duplicate relay event for same confirmed worker does not re-post
+      eval1.confirmWorker(newWorker)
+      check('sw ready (old active -> new active): duplicate confirmation for same worker does not re-post',
+        newPosted,
+        [{ type: NOTIFY_CLICK_READY }])
+
+      // Intervening notification show from a SECOND fresh evaluation of todoer sharing the same
+      // window and item store replaces window._todoer_notify_listener; a newly confirmed replacement
+      // worker must STILL receive `ready` once!
+      const eval2 = makeEnv({
+        sw: f.sw,
+        sharedWin: eval1.win,
+        sharedStore: eval1.env._todoer.store,
+        sharedItems: eval1.items,
+        sharedByRef: eval1.byRef,
+        sharedTasks: eval1.tasks,
+      })
+      const shownFromEval2 = await eval2.env._notify_show(
+        { reason: 'question', shown: '#todo a test of the desktop notifications', label: null, parent: null, id: 'test', item: null },
+        () => {}
+      )
+      check('sw ready (cross-eval show): fresh evaluation replaced click listener and showed worker card',
+        [shownFromEval2, f.listeners.length, eval1.win._todoer_notify_listener === eval2.env._on_notify_message, eval1.win._todoer_notify_listener !== eval1.env._on_notify_message],
+        [true, 1, true, true])
+
+      const w3Posted = []
+      const worker3 = { state: 'activated', postMessage: msg => w3Posted.push(msg) }
+      f.reg.active = worker3
+      f.sw.controller = worker3
+      eval1.confirmWorker(worker3)
+      check('sw ready (confirmed -> replacement after fresh-eval show): posts ready once to newly confirmed worker',
+        w3Posted,
+        [{ type: NOTIFY_CLICK_READY }])
+
+      // Duplicate confirmation for worker3 still does not re-post
+      eval1.confirmWorker(worker3)
+      check('sw ready (confirmed -> replacement after fresh-eval show): duplicate confirmation does not re-post',
+        w3Posted,
+        [{ type: NOTIFY_CLICK_READY }])
+
+      // If listener no longer stands or items are not loaded, a later confirmation does NOT post ready
+      const w4Posted = []
+      const worker4 = { state: 'activated', postMessage: msg => w4Posted.push(msg) }
+      delete eval1.win._todoer_notify_listener
+      eval1.confirmWorker(worker4)
+      check('sw ready guard: does not post ready when click listener no longer stands', w4Posted, [])
+
+      eval2.env._ensure_notify_listener()
+      delete eval1.env._todoer.store.notify_seen
+      eval1.confirmWorker(worker4)
+      check('sw ready guard: does not post ready when items are not loaded', w4Posted, [])
+    }
+    {
+      // Shared-origin never posts ready
+      const f = fakeSW()
+      const { env } = makeEnv({ sw: f.sw, windowExtra: { _shared_origin: true } })
+      env._todoer.store.notify_seen = {}
+      const sent = env._notify_ready()
+      check('sw ready: suppressed on isolated shared origin', [sent, f.postedToWorker], [false, []])
+    }
+
+    // 4b. Unconfirmed welcome retry: cached items handled immediately on first `ready`, absent
+    //     target stays stored until server confirmation triggers one more `ready` -> one selection,
+    //     stored click removed
+    {
+      const pending = [
+        { type: NOTIFY_CLICK_TYPE, id: 'clk-cached', tag: 'todoer:s-t-cached', data: { source: 'todoer', item: 's-t-cached' } },
+        { type: NOTIFY_CLICK_TYPE, id: 'clk-late', tag: 'todoer:s-t-late', data: { source: 'todoer', item: 's-t-late' } },
+      ]
+      let readyCount = 0
+      const ackedIds = []
+      const f = fakeSW({
+        onPost: msg => {
+          if (msg.type === NOTIFY_CLICK_READY) {
+            readyCount++
+            for (const click of [...pending]) {
+              for (const fn of [...f.listeners]) fn({ source: f.worker, data: click })
+            }
+          } else if (msg.type === NOTIFY_CLICK_RECEIVED) {
+            ackedIds.push(msg.id)
+            const i = pending.findIndex(r => r.id === msg.id)
+            if (i >= 0) pending.splice(i, 1)
+          }
+        },
+      })
+      const { env, win, tasks, selects, makeTodo } = makeEnv({ sw: f.sw, serverConfirmed: false })
+      // Only the cached item exists when welcome runs on the unconfirmed cache
+      makeTodo('t-cached', { held: 'owner', reason: 'question', epoch: 1 }, '#todo already cached')
+
+      env._start_notifier()
+      check('sw ready (unconfirmed welcome): cached target handled immediately, absent target stays stored without ack',
+        [readyCount, selects, ackedIds, pending.map(r => r.id), tasks.has('notify_ready_confirmed')],
+        [1, [['select', 't-cached']], ['clk-cached'], ['clk-late'], true])
+
+      // Polling tick before confirmation keeps waiting and sends no extra `ready`
+      const waitTick = tasks.get('notify_ready_confirmed').fn()
+      check('sw ready (unconfirmed welcome): waits while still unconfirmed with no extra ready',
+        [waitTick, readyCount, selects, pending.map(r => r.id)],
+        [250, 1, [['select', 't-cached']], ['clk-late']])
+
+      // Target arrives with server confirmation -> task posts `ready` once more, ends (`null`),
+      // target is selected once, and stored click is removed
+      makeTodo('t-late', { held: 'owner', reason: 'question', epoch: 1 }, '#todo arrived on confirmation')
+      win._server_confirmed = true
+      const doneTick = await tasks.get('notify_ready_confirmed').fn()
+      check('sw ready (server confirmation retry): sends ready once more, selects arriving target once, removes stored click',
+        [doneTick, readyCount, selects, ackedIds, pending],
+        [null, 2, [['select', 't-cached'], ['select', 't-late']], ['clk-cached', 'clk-late'], []])
+    }
+
+    // 4c. Older installed #util/core without `when_server_confirmed`: unconfirmed welcome does not
+    //     throw and still starts the minute notifier task (without scheduling a second ready)
+    {
+      let readyCount = 0
+      const f = fakeSW({
+        onPost: msg => {
+          if (msg.type === NOTIFY_CLICK_READY) readyCount++
+        },
+      })
+      const { env, tasks } = makeEnv({ sw: f.sw, serverConfirmed: false, withWhenConfirmed: false })
+      let threw = null
+      try {
+        env._start_notifier()
+      } catch (e) {
+        threw = e?.message ?? String(e)
+      }
+      check('sw ready (older core without when_server_confirmed): unconfirmed welcome does not throw and starts minute notifier',
+        [threw, readyCount, tasks.has('notify_ready_confirmed'), tasks.has('notifier')],
+        [null, 1, false, true])
+    }
+
+    // 4d. Document whose account was changed elsewhere (canceled reload): once
+    //     `window._notification_account_left` stands (with relay marks withdrawn), the kept-alive
+    //     old item environment shows zero worker or page notifications when a due snooze sweeps or
+    //     `/notify test` runs, ignores and refuses to answer click messages, and sends no `ready`
+    //     to a newly confirmed worker.
+    {
+      const f = fakeSW()
+      const { env, win, pageShown, alerts, selects, marks, focused, makeTodo, confirmWorker, clearWorker, setNow } = makeEnv({ sw: f.sw, now: 10_000 })
+      const snoozedTodo = makeTodo('t-due', null, '#todo old-account reminder', { todoer: { snoozed: 15_000, notify: true } })
+      env._start_notifier()
+      // Show a prior card on Account A, then simulate external account change + cleanup + user clicking Stay
+      await env._notify_show({ reason: 'question', shown: '#todo prior A card', label: null, parent: null, id: 'prior-a', item: 's-t-due' }, () => {})
+      for (const n of await f.reg.getNotifications()) n.close()
+      win._notification_account_left = true
+      clearWorker()
+
+      // Advance clock past the snooze and run the normal sweep, then `/notify test`
+      setNow(16_000)
+      env._sweep()
+      await tick()
+      await env._on_command_notify('test')
+      const directShow = await env._notify_show({ reason: 'question', shown: '#todo direct', label: null, parent: null, id: 'direct', item: 's-t-due' }, () => {})
+      check('sw account left: kept-alive old environment shows zero worker or page notifications on due snooze sweep and /notify test',
+        [snoozedTodo._global_store._todoer.snoozed, (await f.reg.getNotifications()).length, pageShown.length, alerts, directShow],
+        [0, 0, 0, ['notification refused by the browser'], false])
+
+      // Click message on the kept-alive old environment: neither acted on nor answered
+      const sourcePosted = []
+      const source = { postMessage: m => sourcePosted.push(m) }
+      const postedBefore = f.postedToWorker.length
+      const clickItemRes = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-left-item', tag: 'todoer:s-t-due', data: { source: 'todoer', item: 's-t-due' } },
+      })
+      const clickTestRes = f.listeners[0]({
+        source,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'clk-left-test', tag: 'todoer:test', data: { source: 'todoer', item: null } },
+      })
+      check('sw account left: click message is neither acted on nor answered so worker keeps it for another window',
+        [clickItemRes, clickTestRes, selects, marks, focused(), sourcePosted, f.postedToWorker.length - postedBefore],
+        [false, false, [], [], 0, [], 0])
+
+      // Newly confirmed replacement worker receives no `ready`
+      const wNextPosted = []
+      const wNext = { state: 'activated', postMessage: m => wNextPosted.push(m) }
+      f.reg.active = wNext
+      f.sw.controller = wNext
+      confirmWorker(wNext)
+      const directReady = env._notify_ready()
+      check('sw account left: newly confirmed worker receives no ready', [wNextPosted, directReady], [[], false])
+    }
+    {
+      // Control (same-account canceled reload without the left mark): the exact same due-snooze
+      // sweep still shows the `[unsnoozed]` worker card.
+      const f = fakeSW()
+      const { env, pageShown, makeTodo, setNow } = makeEnv({ sw: f.sw, now: 10_000 })
+      makeTodo('t-due-ok', null, '#todo same-account reminder', { todoer: { snoozed: 15_000, notify: true } })
+      env._start_notifier()
+      setNow(16_000)
+      env._sweep()
+      await tick()
+      const cards = await f.reg.getNotifications()
+      check('sw account unchanged: due snooze sweep still shows worker card when document was not marked left',
+        [cards.map(n => n.title), pageShown.length],
+        [['[unsnoozed] same-account reminder'], 0])
+    }
+
+    // 5. Result of a show followed by EACH caller (todo, unsnooze, reply, item, _notify_items)
+    const runCallers = async ({ showErr = null, throwPage = false } = {}) => {
+      const f = fakeSW({ showErr })
+      const { env, makeTodo, makeChat } = makeEnv({ sw: f.sw, throwPage, now: 100_000 })
+      const todoItem = makeTodo('t1', { held: 'agent', reason: 'delegated', epoch: 1 }, '#todo ship fix')
+      const snoozeItem = makeTodo('t2', null, '#todo remind me', { todoer: { snoozed: 99_000, notify: true } })
+      const chatItem = makeChat('c1', '#chat\n<<user>> hi')
+      const agentItem = makeTodo('i1', null, '#agent_note\nBody text', { hash: 'h-i1' })
+      env._start_notifier()
+      await tick()
+
+      // (a) todo path
+      todoItem._global_store._agent.state = { held: 'owner', reason: 'question', epoch: 2 }
+      const todoRes = await env._notify_change(todoItem)
+
+      // (b) unsnooze path
+      snoozeItem._global_store._todoer = { snoozed: 0, notify: true }
+      const unsnoozeRes = await env._notify_unsnooze(snoozeItem)
+
+      // (c) reply path
+      chatItem.text = REPLY
+      const replyRes = await env._notify_reply(chatItem, true)
+
+      // (d) item path + _notify_items count
+      env._todoer._global_store._agent = { wrote: { 's-i1': { by: 'claude', at: 99_500, hash: 'h-i1' } } }
+      const itemsCount = await env._notify_items()
+      // separate direct _notify_item call
+      const agentItem2 = makeTodo('i2', null, '#agent_note2\nSecond', { hash: 'h-i2' })
+      env._todoer._global_store._agent.wrote['s-i2'] = { by: 'claude', at: 99_600, hash: 'h-i2' }
+      const itemRes = await env._notify_item('s-i2', agentItem2)
+
+      return { todoRes, unsnoozeRes, replyRes, itemRes, itemsCount, cards: (await f.reg.getNotifications()).length }
+    }
+    {
+      const ok = await runCallers()
+      check('sw callers: every caller resolves to notify (and count 1) when worker show succeeds',
+        ok,
+        { todoRes: 'notify', unsnoozeRes: 'notify', replyRes: 'notify', itemRes: 'notify', itemsCount: 1, cards: 5 })
+    }
+    {
+      const refused = await runCallers({ showErr: new Error('sw refused'), throwPage: true })
+      check('sw callers: every caller resolves to refused (and count 0) when both worker and page refuse',
+        refused,
+        { todoRes: 'refused', unsnoozeRes: 'refused', replyRes: 'refused', itemRes: 'refused', itemsCount: 0, cards: 0 })
+    }
+    {
+      // While a worker show is pending (held promise), repeat observations do not double-show
+      let releaseShow
+      const showGate = new Promise(r => { releaseShow = r })
+      const f = fakeSW({ showGate })
+      const { env, makeTodo, makeChat } = makeEnv({ sw: f.sw, now: 100_000 })
+      const t = makeTodo('p1', { held: 'agent', reason: 'delegated', epoch: 1 }, '#todo pending')
+      const s = makeTodo('p2', null, '#todo pending snooze', { todoer: { snoozed: 99_000, notify: true } })
+      const c = makeChat('p3', '#chat\n<<user>> hi')
+      const it = makeTodo('p4', null, '#pending_item\nBody', { hash: 'h-p4' })
+      env._start_notifier()
+      await tick()
+
+      t._global_store._agent.state = { held: 'owner', reason: 'question', epoch: 2 }
+      const pTodo = env._notify_change(t)
+      const dupTodo = env._notify_change(t)
+
+      s._global_store._todoer = { snoozed: 0, notify: true }
+      const pUnsnooze = env._notify_unsnooze(s)
+      const dupUnsnooze = env._notify_unsnooze(s)
+
+      c.text = REPLY
+      const pReply = env._notify_reply(c, true)
+      const dupReply = env._notify_reply(c, true)
+
+      env._todoer._global_store._agent = { wrote: { 's-p4': { by: 'claude', at: 99_500, hash: 'h-p4' } } }
+      const pItem = env._notify_item('s-p4', it)
+      const dupItem = env._notify_item('s-p4', it)
+
+      releaseShow()
+      const settled = await Promise.all([pTodo, pUnsnooze, pReply, pItem])
+      check('sw callers (pending): repeat calls while show is in flight are deduplicated and originals settle to notify',
+        [[dupTodo, dupUnsnooze, dupReply, dupItem], settled],
+        [['unchanged', 'not snoozed', 'unchanged', 'seen'], ['notify', 'notify', 'notify', 'notify']])
+    }
+  })())
   // the item's files are embedded in the #todoer item's own text, where the app expands every
   // macro opener that no backslash escapes, also in code and comments (a preview of another item
   // broke its page that way, 2026-11-23): none may stand unescaped in the script or the widget's file
