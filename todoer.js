@@ -1525,7 +1525,7 @@ function __bin_buttons(target) {
   const specs = shown.map(b =>
     b.name in _ROW_STEP
       ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
-      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
+      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze (s)' : b.name == 'done' && found.row.getAttribute('data-waits') ? 'Done' : b.title, press: () => _bin_press(b.name, target.id) } // (a reply's done button has no key: _on_row_key)
   )
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
@@ -1602,19 +1602,15 @@ const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel',
 
 // the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
 // the two row buttons, its bell where it has one, then its list's bins. A row that is not a
-// todo's (a reply's) has no agent and no snooze button, as _bin_act has nothing for them, and
-// no done button beside its bell: there the bell's press clears the row, which is all that done
-// does for it (the owner, 2026-11-25: "when clearing the bell would remove the row, can we just
-// show the bell button?"). A drop of such a row on the done bin clears it as before
+// todo's (a reply's) has no agent and no snooze button, as _bin_act has nothing for them
 function _row_buttons(found) {
   const reply = !!found.row.getAttribute('data-waits')
-  const bell = !!found.row.querySelector('mark.waits')
   return _BIN_BUTTONS.filter(b =>
     b.name in _ROW_STEP
       ? true
       : b.name == 'bell'
-        ? bell
-        : !!found.widget.querySelector('.bin.' + b.name) && !(reply && (b.name == 'agent' || b.name == 'snooze' || (b.name == 'done' && bell)))
+        ? !!found.row.querySelector('mark.waits')
+        : !!found.widget.querySelector('.bin.' + b.name) && !(reply && (b.name == 'agent' || b.name == 'snooze'))
   )
 }
 
@@ -1642,10 +1638,12 @@ function _row_step(id, by) {
 // the first/last todo item, from main list only"). And the keys of a row's other buttons
 // (_BIN_KEYS): with a listed item named by the box whose row has the key's button, the key is
 // that button's press, once for a key held down; with no such row the key is not the rows',
-// and goes on to whoever held the hook before. On a reply's row, which has its bell in the done
-// button's place, the done button's key is the bell's press too, so that the key goes down a
-// list that holds both kinds of row. Only a plain press counts, and never while a field has the
-// focus. True where the key was the rows'
+// and goes on to whoever held the hook before. The done button's key is a todo's alone: on a
+// reply's row, where that button only clears the row as its bell does, the key is not the rows',
+// so that it never becomes the way to clear a bell (the owner, 2026-11-25: "i don't want to
+// accidentally remove an actual task row, since clearing a notification is a much lighter
+// operation"). Only a plain press counts, and never while a field has the focus. True where the
+// key was the rows'
 function _on_row_key(key, e) {
   const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
   const bin = !by && Object.hasOwn(_BIN_KEYS, key) ? _BIN_KEYS[key] : null
@@ -1655,10 +1653,8 @@ function _on_row_key(key, e) {
   const named = _item(MindBox.get().trim(), { silent: true })
   const found = named ? _bin_row(named) : null
   if (bin) {
-    const names = found ? _row_buttons(found).map(b => b.name) : []
-    const name = bin == 'done' && !names.includes('done') && found?.row.getAttribute('data-waits') && names.includes('bell') ? 'bell' : bin
-    if (!names.includes(name)) return false
-    if (!e?.repeat) _bin_press(name, named.id)
+    if (!found || (bin == 'done' && found.row.getAttribute('data-waits')) || !_row_buttons(found).some(b => b.name == bin)) return false
+    if (!e?.repeat) _bin_press(bin, named.id)
     return true
   }
   if (found) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
