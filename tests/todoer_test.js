@@ -5333,4 +5333,29 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // broke its page that way, 2026-11-23): none may stand unescaped in the script or the widget's file
   for (const file of ['todoer.js', 'todoer-widget.html'])
     check(`embedded: ${file} holds no unescaped macro opener`, (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(?<!\\)<</g) ?? []).length, 0)
+  // the item's own visible text stays short, its functions table filters uppercase constants out,
+  // and the detached reference block in todoer.js preserves the old bullets' words (snooze,
+  // notification, and reply)
+  {
+    const md = fs.readFileSync(path.join(__dirname, '..', 'todoer.md'), 'utf8')
+    const js = fs.readFileSync(path.join(__dirname, '..', 'todoer.js'), 'utf8')
+    const visible = md.split('```')[0]
+    const ref = (js.match(/\/\/ HOW THE LISTS BEHAVE[\s\S]*?(?=\n\n)/)?.[0] ?? '')
+      .replace(/^\/\/ ?/gm, '')
+      .replace(/\n +/g, ' ')
+    const phrases = [
+      'Chrome wakes a hidden tab about once a minute',
+      'the way to grant a second device without resetting a custom set',
+      'the snooze and agent bins are for todos and put the row back',
+    ]
+    check(
+      'todoer.md & todoer.js: short visible text, js_table(/^[a-z]/) filter, and reference block keeps old bullets',
+      {
+        functionsPattern: /<<\s*js_table\(\/\^\[a-z\]\/\)\s*>>/.test(visible),
+        visibleUnder1500: visible.length < 1500,
+        refPhrases: phrases.map(p => ref.includes(p)),
+      },
+      { functionsPattern: true, visibleUnder1500: true, refPhrases: [true, true, true] }
+    )
+  }
 }

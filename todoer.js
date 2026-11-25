@@ -1,5 +1,85 @@
 const _todoer = _item('$id')
 
+// HOW THE LISTS BEHAVE, in the words the item's text had until 2026-11-25 (the owner: "its
+// visible text should be simplified significantly"). The text now has the short version and
+// the two tables the commands' and the macro's forms; this is the reference:
+// - Delegate a todo to the vault agent by dragging it to the widget's agent bin (or `/delegate`;
+//   `/delegate text` creates `#todo text` and delegates it, a `#todo` first word kept as written);
+//   it moves to the delegated list below the main one, and comes back when the agent hands it back
+//   (design: the vault's `notes/design/mind_task_agents.md`).
+// - A pinned item created before the delegated list exists shows only the main widget: add
+//   `todoer_widget({delegated: true})` below it (new pins carry both).
+// - Snooze a todo by dropping it on the widget's snooze bin and picking a time; a snoozed list
+//   (`todoer_widget({snoozed: true})`) shows them until their time, and a drop on its snooze bin
+//   brings one back now. A snoozed todo comes back at its time: within about a second while the
+//   account's most recently used tab (the one that brings todos back) is visible, within about a
+//   minute while that tab is hidden (Chrome wakes a hidden tab about once a minute; Safari wakes it
+//   less often the longer it stays hidden, not measured), and two minutes after the device wakes
+//   from sleep or the tab from a freeze (the tab first lets its copies catch up); if that tab is on
+//   a device that went to sleep, a tab you focus takes over at once (on a phone or a tablet, within
+//   a minute of your first touch or key press there), an unattended one within about three minutes.
+//   Check **notify on unsnooze** in the snooze dialog (it starts unchecked) for a desktop
+//   notification when the snooze time comes (`[unsnoozed]` and the todo's text, kept on screen
+//   until you click it, which opens the todo; one per device, from the window you used last). The
+//   box is that todo's own opt-in, whatever `/notify` is set to; checking it asks this device's
+//   permission if the browser never asked, and the hint beside it shows this device's permission
+//   when it is not granted (every device whose permission is granted shows the notification). A
+//   todo you bring back by hand, or one the agent hands back before its time (on a device that sees
+//   the hand-back before then), shows no such notification.
+// - `/notify on` asks for desktop notifications when a task comes back to the main list waiting on
+//   you (`question`, `blocked`, `proposal`, `budget`, `done`), when a vault or task chat gets the
+//   agent's reply (`reply`), and when an agent creates or edits an item with the item tool (`item`,
+//   stamped into the todoer's own store; when a tab opens, it skips writes it already knows about,
+//   and a tab that opens from its cache can still notify you about a recent write that arrives
+//   afterward): one per device, from the window you used last, shown through the app's service
+//   worker so it outlives a page reload (falling back to a page notification when no worker with
+//   click relay is active), kept on screen until you click it (the click focuses the window that
+//   takes it — waiting if a window is reloading — or opens the app and selects the item or chat);
+//   an existing saved set from before `item` existed lacks it until you run `/notify on` (or
+//   `/notify on item`) again; `/notify on taken` adds a reason (`interrupted`, `taken`, `checkin`
+//   for a delegated todo whose agent has something for you to look at while it goes on working, or
+//   `all`) and asks the permission too (the way to grant a second device without resetting a custom
+//   set, since `/notify on` alone resets it to the seven), `/notify off done` removes one, `/notify
+//   off` turns them off everywhere (a todo snoozed with **notify on unsnooze** keeps its own),
+//   `/notify test` shows one, `/notify test [item]` shows a sample notification for that item five
+//   seconds later (time to switch to another window), delivered and clicked as a real one is: its
+//   click selects the item, it comes from this window whichever is elected and whatever `/notify`
+//   is set to, and a real event's can differ in its bracket word and in whether it stays on screen,
+//   `/notify` shows the setting and this device's permission. After an update of this item, reload
+//   every open tab that takes part: a tab keeps the notifier and click listener it started with
+//   until then.
+// - A vault or task chat whose last turn is the agent's reply (since this list began in the
+//   account) shows in the main list with a `reply` bell, its name and the reply's first line. Click
+//   the row to open the chat, or click the bell (or drop the row on the done bin) to clear the row
+//   without changing the chat's text; answering in the chat clears it too, and a later reply brings
+//   it back. On such a row, the cancel bin deletes the chat after asking; the snooze and agent bins
+//   are for todos and put the row back (add `#todo` after the chat's name to make it one). A chat
+//   that became a todo shows the start of its first user turn after its name, and a second click on
+//   its row opens the editor with that stretch selected.
+// - A todo that came up for you carries a bell with its kind (its reason in the main list, or
+//   `checkin` on a delegated todo whose agent checked in while going on working). The bell stays
+//   even after a check-in's marker returns to working; click the bell to clear it while keeping the
+//   row (delegating the todo again clears it too), and it rings again if the todo comes up another
+//   time.
+// - Selecting a listed item shows buttons for its row's bins (and its bell, where it carries one; a
+//   reply's row shows only **up**, **down**, and its **bell**, with none of the bins' buttons,
+//   telling a notification from a todo — dropping it on the done or cancel bin still works as
+//   before) on the key buttons item's bar (or on a second row above the bar's left end in a narrow
+//   window and on a phone; without that item, at the page's lower left). A press does what a drag
+//   to that bin does, except that the delete button always asks first (refused while text typed in
+//   the item's open editor is not saved); after any action that takes a row out of its list, by
+//   drag or by button, the next row is selected (or the one before it after the last row).
+// - **Up** and **down** buttons stand first among a selected row's buttons to select the row before
+//   or after it in its list (dimmed at the list's ends); plain **`k`** and **`j`** do the same when
+//   no field has the focus, and with no row selected **`j`** selects the first row of the main list
+//   and **`k`** its last. With a listed row selected and no field focused, plain keys press the
+//   buttons that row has (shown in their tooltips, once per press while held): **`a`** delegates to
+//   the agent, **`d`** marks a todo done, **`s`** snoozes (or unsnoozes in the snoozed list),
+//   **`x`** deletes after asking, **`b`** clears its bell, and **`u`** takes it back from the
+//   agent. Because a reply's row has no bin buttons, none of the bin keys (`a`, `d`, `s`, `x`, `u`)
+//   act on it and **`b`** clears it; any key the selected row does not take goes on to any prior
+//   key hook.
+
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
   let {
@@ -17,6 +97,11 @@ function _extract_template_options(options = {}) {
 }
 
 // drag-and-drop widget macro
+// | `todoer_widget()` | the main list
+// | `todoer_widget({delegated: true})` | the todos the vault agent holds
+// | `todoer_widget({snoozed: true})` | the snoozed todos, until their time
+// | `height`, `style`, `styles`, `classes` | the widget's size and look
+// | `tags`, `storage_key` | only the todos that carry these tags too; the name a list's order is saved under
 function todoer_widget(options = {}) {
   // note this macro structure follows that of _plot in #util/plot
   const { style, styles, classes, ...widget_options } =
@@ -2302,7 +2387,10 @@ function _command_target(name, command) {
 }
 
 // => /delegate [item|text]
-// delegate `item` (default: the targeted item) to the vault agent, start or resume the task; other `text` creates `#todo text` and delegates it (a `#todo` first word is kept as written)
+// delegate a todo to the vault agent: its task starts or resumes
+// | `/delegate` | the targeted item
+// | `/delegate item` | that item
+// | `/delegate text` | a new todo with that text (a `#todo` first word is kept as written)
 async function _on_command_delegate(args, name) {
   // a reference is an empty argument (the target), a `#name` or `id:` first word (the todoer's own
   // reference syntax) or a whole argument _item resolves (a bare id); any other text is a new todo,
@@ -2390,7 +2478,14 @@ const NOTIFY_CLICK_RECEIVED = 'mindpage:notificationclick:received' // app servi
 const NOTIFY_SW_WAIT_MS = 1500 // short wait for an active service worker before falling back to new Notification
 
 // => /notify [on [reason...]|off [reason...]|test [item]]
-// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one, and `test` with an item's name shows a sample for that item five seconds after the command (time to go to another window), delivered and clicked as a real one is (its click selects the item); a real event's can differ in its bracket word and in whether it stays on screen; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
+// desktop notifications for what waits on you: todos, replies, an agent's writes
+// | `/notify` | the setting, and this device's permission
+// | `/notify on` | on for what waits on you (a custom set is reset); asks the permission
+// | `/notify on reason...` | adds reasons, or `all`, to the set (from off: to the seven); extra ones: `interrupted`, `taken`, `checkin`; asks too
+// | `/notify off reason...` | removes reasons
+// | `/notify off` | off on every device
+// | `/notify test` | shows one
+// | `/notify test item` | a sample for that item, five seconds later
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
