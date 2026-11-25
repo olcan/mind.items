@@ -1488,12 +1488,12 @@ const _BIN_BUTTONS = [
   { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
   { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
-  { name: 'bell', title: 'Clear the notification', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
-  { name: 'agent', title: 'Delegate to the agent', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
-  { name: 'done', title: 'Done', color: '#6f6', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
-  { name: 'snooze', title: 'Snooze', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
-  { name: 'cancel', title: 'Delete', color: '#f66', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
-  { name: 'owner', title: 'Take back from the agent', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
+  { name: 'bell', title: 'Clear the notification (b)', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
+  { name: 'agent', title: 'Delegate to the agent (a)', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
+  { name: 'done', title: 'Done (d)', color: '#6f6', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
+  { name: 'snooze', title: 'Snooze (s)', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
+  { name: 'cancel', title: 'Delete (x)', color: '#f66', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
+  { name: 'owner', title: 'Take back from the agent (u)', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
 ]
 const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
@@ -1520,21 +1520,12 @@ function _bin_buttons(target) {
 
 function __bin_buttons(target) {
   const found = target ? _bin_row(target) : null
-  const todo_only = !!found?.row.getAttribute('data-waits')
-  const shown = !found
-    ? []
-    : _BIN_BUTTONS.filter(b =>
-        b.name in _ROW_STEP
-          ? true
-          : b.name == 'bell'
-            ? !!found.row.querySelector('mark.waits')
-            : !!found.widget.querySelector('.bin.' + b.name) && !(todo_only && (b.name == 'agent' || b.name == 'snooze'))
-      )
+  const shown = found ? _row_buttons(found) : []
   // (a row button at its list's end is dim: there is no row to go to)
   const specs = shown.map(b =>
     b.name in _ROW_STEP
       ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
-      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze' : b.title, press: () => _bin_press(b.name, target.id) }
+      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
   )
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
@@ -1605,6 +1596,24 @@ function _bin_row(item) {
 // the row buttons and their keys: which way each goes in its list
 const _ROW_STEP = { up: -1, down: 1 }
 
+// the keys of a row's other buttons, by the key's code: the first letter of what each button
+// says, x for the delete button (the owner, 2026-11-25, of this suggestion: "i want them")
+const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel', KeyB: 'bell', KeyU: 'owner' }
+
+// the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
+// the two row buttons, its bell where it has one, then its list's bins. A row that is not a
+// todo's (a reply's) has no agent and no snooze button, as _bin_act has nothing for them
+function _row_buttons(found) {
+  const reply = !!found.row.getAttribute('data-waits')
+  return _BIN_BUTTONS.filter(b =>
+    b.name in _ROW_STEP
+      ? true
+      : b.name == 'bell'
+        ? !!found.row.querySelector('mark.waits')
+        : !!found.widget.querySelector('.bin.' + b.name) && !(reply && (b.name == 'agent' || b.name == 'snooze'))
+  )
+}
+
 // the row beside the given one in its list, the one after it (`by` 1) or before it (-1); null at
 // the list's end
 function _row_beside(row, by) {
@@ -1626,15 +1635,25 @@ function _row_step(id, by) {
 // the keys j and k, handed on by the app where nobody took them (window._on_key): with a listed
 // item named by the box they go to the row after and before it; with none, j selects the first
 // row of the main list and k its last (the owner, 2026-11-24: "global j/k shortcuts that select
-// the first/last todo item, from main list only"). Only a plain press counts, and never while a
+// the first/last todo item, from main list only"). And the keys of a row's other buttons
+// (_BIN_KEYS): with a listed item named by the box whose row has the key's button, the key is
+// that button's press, once for a key held down; with no such row the key is not the rows',
+// and goes on to whoever held the hook before. Only a plain press counts, and never while a
 // field has the focus. True where the key was the rows'
 function _on_row_key(key, e) {
   const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
-  if (!by || e?.metaKey || e?.ctrlKey || e?.altKey || e?.shiftKey) return false
+  const bin = !by && Object.hasOwn(_BIN_KEYS, key) ? _BIN_KEYS[key] : null
+  if ((!by && !bin) || e?.metaKey || e?.ctrlKey || e?.altKey || e?.shiftKey) return false
   const active = document.activeElement
   if (active && (active.isContentEditable || ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName))) return false
   const named = _item(MindBox.get().trim(), { silent: true })
-  if (named && _bin_row(named)) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
+  const found = named ? _bin_row(named) : null
+  if (bin) {
+    if (!found || !_row_buttons(found).some(b => b.name == bin)) return false
+    if (!e?.repeat) _bin_press(bin, named.id)
+    return true
+  }
+  if (found) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
   const main = _mounted_lists().find(widget => !widget._snoozed && !widget._delegated)
   const rows = [...(main?.querySelectorAll('.list .list-item-container[data-id]') ?? [])]
   const row = by > 0 ? rows[0] : rows[rows.length - 1]
