@@ -249,21 +249,28 @@
     border: 1px solid #666;
   }
   /* the selected item's row, A TRIAL ON THE PREVIEW (the owner, 2026-11-24: "can we try some other
-     selection styles"): a green bar inside the row's left edge, which moves nothing, over a faint
-     green tint. Kept while the row is grabbed and on the clone a drag carries, on the opaque
-     background every grabbed row has. Not on the dashed place a dragged row leaves in the list,
-     and not on a bin, where every row takes the bin's colour (the rules at the end). The look
-     before this trial: a border of 1px solid #6c6 with a ring, box-shadow 0 0 0 1px #6c6 */
+     selection styles", then of this one: "no rounding on left side, and maintain background and
+     border on drag (except on a bin)"): a green bar inside the row's left edge, which moves
+     nothing, over a faint green tint, the row's two left corners square so that the bar is
+     straight. The same look while the row is grabbed and on the clone a drag carries: no grey
+     outline, and the tint as the one colour it makes on the item's own background (1a241a),
+     opaque, since a dragged row passes over other rows. Not on the dashed place a dragged row
+     leaves in the list, and not on a bin, where the row is as any other row there (the rules
+     at the end). The look before this trial: a border of 1px solid 6c6 with a ring of the same */
   #widget .list > .list-item-container.selected > .list-item {
     box-shadow: inset 3px 0 0 #6c6;
     background: rgba(102, 204, 102, 0.1);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
   }
   #widget .list > .list-item-container.selected:is(.sortable-drag, .sortable-chosen) > .list-item {
-    background: #171717;
+    background: #1a241a;
+    border-color: transparent;
   }
   #widget .list > .list-item-container.selected.sortable-ghost > .list-item {
     box-shadow: none;
     background: none;
+    border-radius: 4px;
   }
   #widget.dragging .list > .list-item-container {
     margin-left: -3px; /* eliminates horizontal shifting of dragged item */
@@ -308,7 +315,11 @@
     color: inherit;
   }
   #widget:has(.bin:not(:empty)) .list > .list-item-container.selected.sortable-drag > .list-item {
-    box-shadow: none; /* (a selected row on a bin: the bin's one-pixel border, as any row there) */
+    /* (a selected row on a bin: the bin's one-pixel border on the grabbed row's own background,
+       all four corners round, as any row there) */
+    box-shadow: none;
+    background: #171717;
+    border-radius: 4px;
   }
   /* __styles__ */
 </style>
