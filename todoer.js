@@ -1488,12 +1488,12 @@ const _BIN_BUTTONS = [
   { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
   { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
-  { name: 'bell', title: 'Clear the notification', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
-  { name: 'agent', title: 'Delegate to the agent', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
-  { name: 'done', title: 'Done', color: '#6f6', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
-  { name: 'snooze', title: 'Snooze', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
-  { name: 'cancel', title: 'Delete', color: '#f66', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
-  { name: 'owner', title: 'Take back from the agent', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
+  { name: 'bell', title: 'Clear the notification (b)', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
+  { name: 'agent', title: 'Delegate to the agent (a)', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
+  { name: 'done', title: 'Done (d)', color: '#6f6', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
+  { name: 'snooze', title: 'Snooze (s)', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
+  { name: 'cancel', title: 'Delete (x)', color: '#f66', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
+  { name: 'owner', title: 'Take back from the agent (u)', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
 ]
 const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
@@ -1508,7 +1508,7 @@ const _BIN_BUTTONS_CSS = `
 
 // draws the buttons for the item the box names (null: none), from the first mounted list that
 // holds its row (_bin_row): its bell, then that list's bins, in their order. A row that is not a
-// todo's (a reply's) has the done and the delete button alone, as _bin_act has no more for it
+// todo's (a reply's) has its bell and none of the bins' buttons (_row_buttons)
 function _bin_buttons(target) {
   try {
     _row_keys()
@@ -1520,21 +1520,12 @@ function _bin_buttons(target) {
 
 function __bin_buttons(target) {
   const found = target ? _bin_row(target) : null
-  const todo_only = !!found?.row.getAttribute('data-waits')
-  const shown = !found
-    ? []
-    : _BIN_BUTTONS.filter(b =>
-        b.name in _ROW_STEP
-          ? true
-          : b.name == 'bell'
-            ? !!found.row.querySelector('mark.waits')
-            : !!found.widget.querySelector('.bin.' + b.name) && !(todo_only && (b.name == 'agent' || b.name == 'snooze'))
-      )
+  const shown = found ? _row_buttons(found) : []
   // (a row button at its list's end is dim: there is no row to go to)
   const specs = shown.map(b =>
     b.name in _ROW_STEP
       ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
-      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze' : b.title, press: () => _bin_press(b.name, target.id) }
+      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
   )
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
@@ -1605,6 +1596,22 @@ function _bin_row(item) {
 // the row buttons and their keys: which way each goes in its list
 const _ROW_STEP = { up: -1, down: 1 }
 
+// the keys of a row's other buttons, by the key's code: the first letter of what each button
+// says, x for the delete button (the owner, 2026-11-25, of this suggestion: "i want them")
+const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel', KeyB: 'bell', KeyU: 'owner' }
+
+// the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
+// the two row buttons, its bell where it has one, then its list's bins. A row that is not a
+// todo's (a reply's) has none of the bins' buttons: its bell clears it, and a row with the bell
+// alone is seen to be a notification and no todo (the owner, 2026-11-25: "let's try removing
+// both the button and its shortcut, and let's remove the delete button (and shortcut) also",
+// "i need some way to tell when i'm looking at a notification and not a todo item"). A drop of
+// such a row on the done or the delete bin does what it did
+function _row_buttons(found) {
+  const reply = !!found.row.getAttribute('data-waits')
+  return _BIN_BUTTONS.filter(b => (b.name in _ROW_STEP ? true : b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !reply && !!found.widget.querySelector('.bin.' + b.name)))
+}
+
 // the row beside the given one in its list, the one after it (`by` 1) or before it (-1); null at
 // the list's end
 function _row_beside(row, by) {
@@ -1626,15 +1633,28 @@ function _row_step(id, by) {
 // the keys j and k, handed on by the app where nobody took them (window._on_key): with a listed
 // item named by the box they go to the row after and before it; with none, j selects the first
 // row of the main list and k its last (the owner, 2026-11-24: "global j/k shortcuts that select
-// the first/last todo item, from main list only"). Only a plain press counts, and never while a
-// field has the focus. True where the key was the rows'
+// the first/last todo item, from main list only"). And the keys of a row's other buttons
+// (_BIN_KEYS): with a listed item named by the box whose row has the key's button, the key is
+// that button's press, once for a key held down; with no such row the key is not the rows',
+// and goes on to whoever held the hook before. So the bins' keys are a todo's alone: a reply's
+// row has its bell and no other of these buttons (_row_buttons), and the done key never becomes
+// the way to clear a bell (the owner, 2026-11-25: "i don't want to accidentally remove an actual
+// task row, since clearing a notification is a much lighter operation"). Only a plain press
+// counts, and never while a field has the focus. True where the key was the rows'
 function _on_row_key(key, e) {
   const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
-  if (!by || e?.metaKey || e?.ctrlKey || e?.altKey || e?.shiftKey) return false
+  const bin = !by && Object.hasOwn(_BIN_KEYS, key) ? _BIN_KEYS[key] : null
+  if ((!by && !bin) || e?.metaKey || e?.ctrlKey || e?.altKey || e?.shiftKey) return false
   const active = document.activeElement
   if (active && (active.isContentEditable || ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName))) return false
   const named = _item(MindBox.get().trim(), { silent: true })
-  if (named && _bin_row(named)) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
+  const found = named ? _bin_row(named) : null
+  if (bin) {
+    if (!found || !_row_buttons(found).some(b => b.name == bin)) return false
+    if (!e?.repeat) _bin_press(bin, named.id)
+    return true
+  }
+  if (found) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
   const main = _mounted_lists().find(widget => !widget._snoozed && !widget._delegated)
   const rows = [...(main?.querySelectorAll('.list .list-item-container[data-id]') ?? [])]
   const row = by > 0 ? rows[0] : rows[rows.length - 1]
@@ -2369,8 +2389,8 @@ const NOTIFY_CLICK_READY = 'mindpage:notificationclick:ready' // app service-wor
 const NOTIFY_CLICK_RECEIVED = 'mindpage:notificationclick:received' // app service-worker contract: acknowledge click receipt
 const NOTIFY_SW_WAIT_MS = 1500 // short wait for an active service worker before falling back to new Notification
 
-// => /notify [on [reason...]|off [reason...]|test]
-// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
+// => /notify [on [reason...]|off [reason...]|test [item]]
+// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one, and `test` with an item's name shows a sample for that item five seconds after the command (time to go to another window), delivered and clicked as a real one is (its click selects the item); a real event's can differ in its bracket word and in whether it stays on screen; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
@@ -2386,7 +2406,20 @@ async function _on_command_notify(args) {
   }
   if (parsed.test) {
     if (_notify_permission() != 'granted') alert(`notifications: this device's permission is ${_notify_permission()} (/notify on asks for it)`)
-    else if (!(await _notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test', item: null }, () => window.focus()))) alert('notification refused by the browser')
+    else if (parsed.name) {
+      const item = _item(parsed.name, { silent: true })
+      if (!item) {
+        alert(`/notify: no item is named ${parsed.name}`)
+        return `/notify ${args}`
+      }
+      // (an item deleted during the wait shows nothing, and neither does a page whose account was
+      // left meanwhile: a refusal's alert is for a browser that refused)
+      setTimeout(() => {
+        const live = _item(item.id, { silent: true })
+        if (!live || _notify_account_left()) return
+        void Promise.resolve(_notify_test(live)).then(step => void (step == 'notify' || alert('notification refused by the browser')))
+      }, NOTIFY_TEST_DELAY_MS)
+    } else if (!(await _notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test', item: null }, () => window.focus()))) alert('notification refused by the browser')
     return
   }
   // this device's permission is asked from the command's own gesture (the browser prompts only
@@ -2404,14 +2437,15 @@ async function _on_command_notify(args) {
   alert(`notifications: ${_notify_text(store.notify)}; this device: ${permission}` + (permission == 'denied' ? ' (allow notifications for this site in the browser, then /notify on again)' : ''))
 }
 
-// the words of /notify: nothing (the status), `on [reason...]`, `off [reason...]`, `test`; the
-// reasons validated (`all` names every one): {status} | {on, reasons} | {off, reasons} | {test} |
-// {error}, `reasons` the named ones (every one for `all`), or null when none was named
+// the words of /notify: nothing (the status), `on [reason...]`, `off [reason...]`, `test` alone
+// or with one item's name; the reasons validated (`all` names every one): {status} |
+// {on, reasons} | {off, reasons} | {test} | {test, name} | {error}, `reasons` the named ones
+// (every one for `all`), or null when none was named
 function _parse_notify(args) {
   const [word, ...rest] = String(args ?? '').trim().split(/\s+/).filter(w => w)
   if (!word) return { status: true }
-  if (word == 'test') return rest.length ? { error: 'test takes no words' } : { test: true }
-  if (word != 'on' && word != 'off') return { error: `unknown word ${word} (usage: /notify [on [reason...]|off [reason...]|test])` }
+  if (word == 'test') return rest.length > 1 ? { error: "test takes one item's name at most" } : rest.length ? { test: true, name: rest[0] } : { test: true }
+  if (word != 'on' && word != 'off') return { error: `unknown word ${word} (usage: /notify [on [reason...]|off [reason...]|test [item]])` }
   const unknown = rest.filter(r => r != 'all' && !NOTIFY_REASONS.includes(r))
   if (unknown.length) return { error: `unknown reason ${unknown.join(', ')} (one of ${NOTIFY_REASONS.join(', ')}, or all)` }
   const reasons = rest.includes('all') ? NOTIFY_REASONS : rest.length ? [...new Set(rest)] : null
@@ -2976,6 +3010,36 @@ function _scan_notify() {
 
 const _notify_tag = id => `todoer:${id}`
 
+const NOTIFY_TEST_DELAY_MS = 5000 // a named item's test notification shows this long after its command: time to go to another window
+
+// a test notification for a named item (`/notify test` with the item's name; the owner,
+// 2026-11-25: "i don't have a way to trigger them", "which i can then click and observe"): a
+// SAMPLE for the item through the real delivery and its click (_notify_click, through the
+// worker's relay or the page): a todo's under its task's reason where that is one that notifies
+// (`question` otherwise), a chat's last reply under `reply`, any other item's as an agent's write
+// of it under `item`. A real event's card can differ: a delegated todo's check-in is one that
+// does not stay on screen, and this shows its question, which does. A todo is told as the list
+// tells one, by its VISIBLE tags: an item that only depends on the todo tag through a hidden tag
+// is none (the review, 2026-11-25: such an item got an empty question; the two clicks below read
+// the same). Shown from this window whichever window is elected, under no setting but this
+// device's permission, which the command has checked; returns the step as _notify_result
+function _notify_test(item) {
+  const id = item.saved_id ?? item.id
+  const click = () => _notify_click(item.id)
+  if (item.tags_visible?.includes('#todo')) {
+    const state = _task_state(item)
+    const reason = NOTIFY_REASONS.includes(state?.reason) && state.reason != 'reply' && state.reason != 'item' ? state.reason : 'question'
+    const shown = _visible(_extract_todo_snippet(item) ?? '').replace(/\s+/g, ' ')
+    return _notify_result(_notify_show({ reason, shown, label: item.label, parent: state?.parent ? _parent_of(state.parent) : null, id }, click))
+  }
+  if (_vault_replies(item.read()).replies) {
+    const shown = item.label || _visible(String(item.text ?? '').split('\n')[0] ?? '')
+    return _notify_result(_notify_show({ reason: 'reply', shown, label: null, parent: null, id, body: _reply_line(item.text) }, click))
+  }
+  const { shown, body } = _item_preview(item)
+  return _notify_result(_notify_show({ reason: 'item', shown, label: null, parent: null, id, body }, click))
+}
+
 // maps the boolean (or Promise<boolean>) returned by `_notify_show` onto `'notify'` or `'refused'`
 function _notify_result(shown) {
   return shown && typeof shown.then == 'function' ? shown.then(ok => (ok ? 'notify' : 'refused')) : shown ? 'notify' : 'refused'
@@ -3208,7 +3272,7 @@ function _notify_click(id) {
   if (typeof id != 'string' || !id) return false
   const item = _item(id, { silent: true })
   if (!item) return false
-  const text = item.tags?.includes('#todo') ? _extract_todo_snippet(item) : null
+  const text = item.tags_visible?.includes('#todo') ? _extract_todo_snippet(item) : null
   return _select_item(item, text ? _todo_line(text) : null)
 }
 
@@ -3299,7 +3363,7 @@ function _on_notify_message(event) {
   if (typeof data.item != 'string') return false
   const item = _item(data.item, { silent: true })
   if (!item) return false
-  const text = item.tags?.includes('#todo') ? _extract_todo_snippet(item) : null
+  const text = item.tags_visible?.includes('#todo') ? _extract_todo_snippet(item) : null
   const line = text ? _todo_line(text) : null
   if (typeof item.select == 'function') {
     if (!item.select()) return false
