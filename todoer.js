@@ -1573,8 +1573,6 @@ const _BIN_BUTTONS = [
   // the row before and the row after the selected one, in its list (the keys k and j do the same)
   { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
   { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
-  // the window's switch: this window and another one of the app keep the same selection (_send_selected); two panes
-  { name: 'window', title: 'Show selections in the other window (w)', color: 'rgba(255, 255, 255, 0.25)', icon: 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
   { name: 'bell', title: 'Clear the notification (b)', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
   { name: 'agent', title: 'Delegate to the agent (a)', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
@@ -1582,6 +1580,9 @@ const _BIN_BUTTONS = [
   { name: 'snooze', title: 'Snooze (s)', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
   { name: 'cancel', title: 'Delete (x)', color: '#f66', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
   { name: 'owner', title: 'Take back from the agent (u)', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
+  // the window's switch (_window_button): this window and another one of the app keep one selection; two panes.
+  // The last of these buttons, shown whether or not a row is selected, while another window is there or it is on
+  { name: 'window', title: 'Link the selection with the other window (w)', color: 'rgba(255, 255, 255, 0.25)', icon: 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z' },
 ]
 const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
@@ -1613,10 +1614,10 @@ function __bin_buttons(target) {
   const specs = shown.map(b =>
     b.name in _ROW_STEP
       ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
-      : b.name == 'window'
-        ? { ...b, ...(_send_on() ? { title: 'Selections go to the other window: turn off (w)', color: 'rgb(102, 255, 255)' } : {}), press: () => void _send_toggle() }
-        : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
+      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
   )
+  const link = _window_button()
+  if (link) specs.push(link)
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
   // its click). This item's own code is part of it: an update draws them anew, with its presses
@@ -1683,6 +1684,19 @@ function _bin_row(item) {
   return found
 }
 
+// the window's switch as a button, or null where it is not shown: it is shown while this window
+// could be linked (another window of the app is there) or is (its switch is on), whether or not
+// a row is selected: what it does reaches beyond the rows (the owner, 2026-11-25: "the toggle
+// button should probably only appear when there is a second window that could be linked. and
+// since it takes effect outside of todoer items, it should probably be detached from its
+// buttons and remain visible even when no todoer item is selected")
+function _window_button() {
+  const on = _send_on()
+  if (!on && !_send_peer()) return null
+  const spec = _BIN_BUTTONS.find(b => b.name == 'window')
+  return { ...spec, ...(on ? { title: 'The selection is linked with the other window: unlink (w)', color: 'rgb(102, 255, 255)' } : {}), press: () => void _send_toggle() }
+}
+
 // the row buttons and their keys: which way each goes in its list
 const _ROW_STEP = { up: -1, down: 1 }
 
@@ -1699,7 +1713,7 @@ const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel',
 // such a row on the done or the delete bin does what it did
 function _row_buttons(found) {
   const reply = !!found.row.getAttribute('data-waits')
-  return _BIN_BUTTONS.filter(b => (b.name in _ROW_STEP || b.name == 'window' ? true : b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !reply && !!found.widget.querySelector('.bin.' + b.name)))
+  return _BIN_BUTTONS.filter(b => (b.name == 'window' ? false : b.name in _ROW_STEP ? true : b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !reply && !!found.widget.querySelector('.bin.' + b.name)))
 }
 
 // the row beside the given one in its list, the one after it (`by` 1) or before it (-1); null at
@@ -1734,7 +1748,7 @@ function _row_step(id, by) {
 function _on_row_key(key, e) {
   const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
   const bin = !by && Object.hasOwn(_BIN_KEYS, key) ? _BIN_KEYS[key] : null
-  const win = key == 'KeyW' // the window's switch, on a listed row as its button is
+  const win = key == 'KeyW' // the window's switch, wherever its button shows
   if ((!by && !bin && !win) || e?.metaKey || e?.ctrlKey || e?.altKey || e?.shiftKey) return false
   const active = document.activeElement
   if (active && (active.isContentEditable || ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName))) return false
@@ -1746,7 +1760,7 @@ function _on_row_key(key, e) {
     return true
   }
   if (win) {
-    if (!found) return false
+    if (!_send_on() && !_send_peer()) return false
     if (!e?.repeat) _send_toggle()
     return true
   }
@@ -3329,7 +3343,7 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 // view and avoid jumping back and forth in the same window", and "we will want to keep the list
 // consistent with the selection in the other window ... their todoer selection would be synced
 // but one of the windows would refuse to scroll to the selection"). A window's switch (the button
-// with two panes among a selected row's buttons, the key w; kept for the window in its session
+// with two panes after a row's buttons, the key w; shown while another window of the app is there or it is on, _window_button; kept for the window in its session
 // storage, so across its reloads) makes it the LIST'S window: while it is on, this window and ONE
 // other window of the app keep the same selected item. A selection made here, whatever made it
 // (a row's click, the rows' keys and buttons, the row selected after an action, a click on an
@@ -3376,7 +3390,7 @@ function _send_toggle(on = !_send_on()) {
     else sessionStorage.removeItem(SEND_KEY)
   } catch (e) {}
   if (on) window._todoer_windows?.say('who')
-  _rerender_todoer_widgets()
+  _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
   return _send_on()
 }
 
@@ -3462,8 +3476,12 @@ function _start_windows() {
     const message = event?.data
     if (!message || typeof message != 'object' || typeof message.id != 'string' || message.id == me) return
     if ((message.uid ?? null) !== account() || _notify_account_left()) return
-    if (message.type == 'bye') return void windows.peers.delete(message.id)
-    windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now() })
+    // (the switch's button shows while another window is there: drawn anew when the first one comes or the last one goes)
+    const there = !!_send_peer()
+    if (message.type == 'bye') windows.peers.delete(message.id)
+    else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now() })
+    if (!!_send_peer() != there) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    if (message.type == 'bye') return
     if (message.type == 'who') windows.say('hello')
     // (a list's window asks this one to show its selection; or this is a list's window, and the
     // window it goes with has selected something)
@@ -3486,7 +3504,13 @@ function _start_windows() {
   document.addEventListener('pointerdown', used, { capture: true, passive: true })
   document.addEventListener('keydown', used, true)
   window.addEventListener('pagehide', () => windows.say('bye'))
-  setInterval(() => windows.say('hello'), SEND_HELLO_MS)
+  // (a window that went without a word is forgotten after SEND_STALE_MS: the button follows at the next of these)
+  let there = false
+  setInterval(() => {
+    windows.say('hello')
+    if (!!_send_peer() != there) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    there = !!_send_peer()
+  }, SEND_HELLO_MS)
   windows.say('who')
 }
 
