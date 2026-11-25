@@ -2449,7 +2449,13 @@ async function _on_command_notify(args) {
         alert(`/notify: no item is named ${parsed.name}`)
         return `/notify ${args}`
       }
-      setTimeout(() => void Promise.resolve(_notify_test(item)).then(step => void (step == 'notify' || alert('notification refused by the browser'))), NOTIFY_TEST_DELAY_MS)
+      // (an item deleted during the wait shows nothing, and neither does a page whose account was
+      // left meanwhile: a refusal's alert is for a browser that refused)
+      setTimeout(() => {
+        const live = _item(item.id, { silent: true })
+        if (!live || _notify_account_left()) return
+        void Promise.resolve(_notify_test(live)).then(step => void (step == 'notify' || alert('notification refused by the browser')))
+      }, NOTIFY_TEST_DELAY_MS)
     } else if (!(await _notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test', item: null }, () => window.focus()))) alert('notification refused by the browser')
     return
   }
