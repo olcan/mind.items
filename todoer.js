@@ -1508,7 +1508,7 @@ const _BIN_BUTTONS_CSS = `
 
 // draws the buttons for the item the box names (null: none), from the first mounted list that
 // holds its row (_bin_row): its bell, then that list's bins, in their order. A row that is not a
-// todo's (a reply's) has the done and the delete button alone, as _bin_act has no more for it
+// todo's (a reply's) has its bell and none of the bins' buttons (_row_buttons)
 function _bin_buttons(target) {
   try {
     _row_keys()
@@ -2427,7 +2427,7 @@ const NOTIFY_CLICK_RECEIVED = 'mindpage:notificationclick:received' // app servi
 const NOTIFY_SW_WAIT_MS = 1500 // short wait for an active service worker before falling back to new Notification
 
 // => /notify [on [reason...]|off [reason...]|test [item]]
-// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one, and `test` with an item's name shows the one a real event of that item would show, five seconds after the command (time to go to another window; its click selects the item); no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
+// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one, and `test` with an item's name shows a sample for that item five seconds after the command (time to go to another window), delivered and clicked as a real one is (its click selects the item); a real event's can differ in its bracket word and in whether it stays on screen; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
@@ -3050,16 +3050,20 @@ const _notify_tag = id => `todoer:${id}`
 const NOTIFY_TEST_DELAY_MS = 5000 // a named item's test notification shows this long after its command: time to go to another window
 
 // a test notification for a named item (`/notify test` with the item's name; the owner,
-// 2026-11-25: "i don't have a way to trigger them", "which i can then click and observe"): the
-// one a real event of the item would show, with its click (_notify_click, through the worker's
-// relay or the page): a todo's under its task's reason where that is one that notifies
+// 2026-11-25: "i don't have a way to trigger them", "which i can then click and observe"): a
+// SAMPLE for the item through the real delivery and its click (_notify_click, through the
+// worker's relay or the page): a todo's under its task's reason where that is one that notifies
 // (`question` otherwise), a chat's last reply under `reply`, any other item's as an agent's write
-// of it under `item`. Shown from this window whichever window is elected, under no setting but
-// this device's permission, which the command has checked; returns the step as _notify_result
+// of it under `item`. A real event's card can differ: a delegated todo's check-in is one that
+// does not stay on screen, and this shows its question, which does. A todo is told as the list
+// tells one, by its VISIBLE tags: an item that only depends on the todo tag through a hidden tag
+// is none (the review, 2026-11-25: such an item got an empty question; the two clicks below read
+// the same). Shown from this window whichever window is elected, under no setting but this
+// device's permission, which the command has checked; returns the step as _notify_result
 function _notify_test(item) {
   const id = item.saved_id ?? item.id
   const click = () => _notify_click(item.id)
-  if (item.tags?.includes('#todo')) {
+  if (item.tags_visible?.includes('#todo')) {
     const state = _task_state(item)
     const reason = NOTIFY_REASONS.includes(state?.reason) && state.reason != 'reply' && state.reason != 'item' ? state.reason : 'question'
     const shown = _visible(_extract_todo_snippet(item) ?? '').replace(/\s+/g, ' ')
@@ -3305,7 +3309,7 @@ function _notify_click(id) {
   if (typeof id != 'string' || !id) return false
   const item = _item(id, { silent: true })
   if (!item) return false
-  const text = item.tags?.includes('#todo') ? _extract_todo_snippet(item) : null
+  const text = item.tags_visible?.includes('#todo') ? _extract_todo_snippet(item) : null
   return _select_item(item, text ? _todo_line(text) : null)
 }
 
@@ -3396,7 +3400,7 @@ function _on_notify_message(event) {
   if (typeof data.item != 'string') return false
   const item = _item(data.item, { silent: true })
   if (!item) return false
-  const text = item.tags?.includes('#todo') ? _extract_todo_snippet(item) : null
+  const text = item.tags_visible?.includes('#todo') ? _extract_todo_snippet(item) : null
   const line = text ? _todo_line(text) : null
   if (typeof item.select == 'function') {
     if (!item.select()) return false
