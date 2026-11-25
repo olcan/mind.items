@@ -1664,17 +1664,39 @@ function _on_row_key(key, e) {
   return true
 }
 
+// the row of the item the box names, in the first mounted list that holds it ({ widget, row }),
+// or null: what the rows' keys act on at this moment
+function _row_now() {
+  const named = _item(MindBox.get().trim(), { silent: true })
+  return named ? _bin_row(named) : null
+}
+
+// whether the key of a row button would do something now: a row is selected and has the button
+const _row_has = name => (found => !!found && _row_buttons(found).some(b => b.name == name))(_row_now())
+
+// whether j (`by` 1) or k (-1) has a row to go to now: with a row selected (`selected`) the row
+// beside it in its list, and with none any row of the main list (its first or its last)
+function _row_goes(by, selected) {
+  const found = _row_now()
+  if (selected || found) return !!selected && !!found && !!_row_beside(found.row, by)
+  return !!_mounted_lists().find(widget => !widget._snoozed && !widget._delegated)?.querySelector('.list .list-item-container[data-id]')
+}
+
 // what the menu of the shortcuts item lists for this item (shortcuts.js: an item writes a list
-// under a section's name on the window; without that item nothing reads it)
+// under a section's name on the window; without that item nothing reads it). Each entry's test
+// says whether its key would do something now: the menu opens on those alone
 const _ROW_SHORTCUTS = [
-  { keys: 'j', does: 'the next row', when: "a row is selected; with none, the main list's first row" },
-  { keys: 'k', does: 'the previous row', when: "a row is selected; with none, the main list's last row" },
-  { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected' },
-  { keys: 'd', does: 'done', when: 'a todo is selected' },
-  { keys: 's', does: 'snooze, or unsnooze in the snoozed list', when: 'a todo is selected' },
-  { keys: 'x', does: 'delete, after a question', when: 'a todo is selected' },
-  { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected' },
-  { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected' },
+  { keys: 'j', does: 'the next row', when: 'a row is selected', active: () => _row_goes(1, true) },
+  { keys: 'j', does: "the main list's first row", when: 'no row is selected', active: () => _row_goes(1, false) },
+  { keys: 'k', does: 'the previous row', when: 'a row is selected', active: () => _row_goes(-1, true) },
+  { keys: 'k', does: "the main list's last row", when: 'no row is selected', active: () => _row_goes(-1, false) },
+  { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected', active: () => _row_has('agent') },
+  { keys: 'd', does: 'done', when: 'a todo is selected', active: () => _row_has('done') },
+  { keys: 's', does: 'snooze', when: 'a todo is selected', active: () => _row_has('snooze') && !_row_now().widget._snoozed },
+  { keys: 's', does: 'unsnooze', when: 'a snoozed todo is selected', active: () => _row_has('snooze') && !!_row_now().widget._snoozed },
+  { keys: 'x', does: 'delete, after a question', when: 'a todo is selected', active: () => _row_has('cancel') },
+  { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected', active: () => _row_has('bell') },
+  { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected', active: () => _row_has('owner') },
 ]
 
 // takes the app's key hook for the rows' keys, once per evaluation of this item; a key that is
