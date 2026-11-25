@@ -1602,15 +1602,19 @@ const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel',
 
 // the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
 // the two row buttons, its bell where it has one, then its list's bins. A row that is not a
-// todo's (a reply's) has no agent and no snooze button, as _bin_act has nothing for them
+// todo's (a reply's) has no agent and no snooze button, as _bin_act has nothing for them, and
+// no done button beside its bell: there the bell's press clears the row, which is all that done
+// does for it (the owner, 2026-11-25: "when clearing the bell would remove the row, can we just
+// show the bell button?"). A drop of such a row on the done bin clears it as before
 function _row_buttons(found) {
   const reply = !!found.row.getAttribute('data-waits')
+  const bell = !!found.row.querySelector('mark.waits')
   return _BIN_BUTTONS.filter(b =>
     b.name in _ROW_STEP
       ? true
       : b.name == 'bell'
-        ? !!found.row.querySelector('mark.waits')
-        : !!found.widget.querySelector('.bin.' + b.name) && !(reply && (b.name == 'agent' || b.name == 'snooze'))
+        ? bell
+        : !!found.widget.querySelector('.bin.' + b.name) && !(reply && (b.name == 'agent' || b.name == 'snooze' || (b.name == 'done' && bell)))
   )
 }
 
@@ -1638,8 +1642,10 @@ function _row_step(id, by) {
 // the first/last todo item, from main list only"). And the keys of a row's other buttons
 // (_BIN_KEYS): with a listed item named by the box whose row has the key's button, the key is
 // that button's press, once for a key held down; with no such row the key is not the rows',
-// and goes on to whoever held the hook before. Only a plain press counts, and never while a
-// field has the focus. True where the key was the rows'
+// and goes on to whoever held the hook before. On a reply's row, which has its bell in the done
+// button's place, the done button's key is the bell's press too, so that the key goes down a
+// list that holds both kinds of row. Only a plain press counts, and never while a field has the
+// focus. True where the key was the rows'
 function _on_row_key(key, e) {
   const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
   const bin = !by && Object.hasOwn(_BIN_KEYS, key) ? _BIN_KEYS[key] : null
@@ -1649,8 +1655,10 @@ function _on_row_key(key, e) {
   const named = _item(MindBox.get().trim(), { silent: true })
   const found = named ? _bin_row(named) : null
   if (bin) {
-    if (!found || !_row_buttons(found).some(b => b.name == bin)) return false
-    if (!e?.repeat) _bin_press(bin, named.id)
+    const names = found ? _row_buttons(found).map(b => b.name) : []
+    const name = bin == 'done' && !names.includes('done') && found?.row.getAttribute('data-waits') && names.includes('bell') ? 'bell' : bin
+    if (!names.includes(name)) return false
+    if (!e?.repeat) _bin_press(name, named.id)
     return true
   }
   if (found) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
@@ -2388,8 +2396,8 @@ const NOTIFY_CLICK_READY = 'mindpage:notificationclick:ready' // app service-wor
 const NOTIFY_CLICK_RECEIVED = 'mindpage:notificationclick:received' // app service-worker contract: acknowledge click receipt
 const NOTIFY_SW_WAIT_MS = 1500 // short wait for an active service worker before falling back to new Notification
 
-// => /notify [on [reason...]|off [reason...]|test]
-// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one; no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
+// => /notify [on [reason...]|off [reason...]|test [item]]
+// desktop notifications for tasks that come back to the main list, for the agent's replies on vault and task chats, and for items an agent created or edited with the item tool: `on` enables them for the reasons that wait on you (`question`, `blocked`, `proposal`, `budget`, `done`, `reply`, `item`; a custom set is RESET to these) and asks this device's permission, `on <reason...>` adds reasons to the current set (`interrupted`, `taken`, or `all`) and asks the permission too, `off <reason...>` removes some, `off` alone disables them on every device, `test` shows one, and `test` with an item's name shows the one a real event of that item would show, five seconds after the command (time to go to another window; its click selects the item); no word shows the setting and this device's permission. A todo snoozed with the snooze dialog's `notify on unsnooze` box notifies (`[unsnoozed]`) when its snooze time comes, whatever this setting: the box is its opt-in, and checking it asks this device's permission
 async function _on_command_notify(args) {
   const parsed = _parse_notify(args)
   if (parsed.error) {
@@ -2405,7 +2413,14 @@ async function _on_command_notify(args) {
   }
   if (parsed.test) {
     if (_notify_permission() != 'granted') alert(`notifications: this device's permission is ${_notify_permission()} (/notify on asks for it)`)
-    else if (!(await _notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test', item: null }, () => window.focus()))) alert('notification refused by the browser')
+    else if (parsed.name) {
+      const item = _item(parsed.name, { silent: true })
+      if (!item) {
+        alert(`/notify: no item is named ${parsed.name}`)
+        return `/notify ${args}`
+      }
+      setTimeout(() => void Promise.resolve(_notify_test(item)).then(step => void (step == 'notify' || alert('notification refused by the browser'))), NOTIFY_TEST_DELAY_MS)
+    } else if (!(await _notify_show({ reason: 'question', shown: '#todo [question] a test of the desktop notifications', label: null, parent: null, id: 'test', item: null }, () => window.focus()))) alert('notification refused by the browser')
     return
   }
   // this device's permission is asked from the command's own gesture (the browser prompts only
@@ -2423,14 +2438,15 @@ async function _on_command_notify(args) {
   alert(`notifications: ${_notify_text(store.notify)}; this device: ${permission}` + (permission == 'denied' ? ' (allow notifications for this site in the browser, then /notify on again)' : ''))
 }
 
-// the words of /notify: nothing (the status), `on [reason...]`, `off [reason...]`, `test`; the
-// reasons validated (`all` names every one): {status} | {on, reasons} | {off, reasons} | {test} |
-// {error}, `reasons` the named ones (every one for `all`), or null when none was named
+// the words of /notify: nothing (the status), `on [reason...]`, `off [reason...]`, `test` alone
+// or with one item's name; the reasons validated (`all` names every one): {status} |
+// {on, reasons} | {off, reasons} | {test} | {test, name} | {error}, `reasons` the named ones
+// (every one for `all`), or null when none was named
 function _parse_notify(args) {
   const [word, ...rest] = String(args ?? '').trim().split(/\s+/).filter(w => w)
   if (!word) return { status: true }
-  if (word == 'test') return rest.length ? { error: 'test takes no words' } : { test: true }
-  if (word != 'on' && word != 'off') return { error: `unknown word ${word} (usage: /notify [on [reason...]|off [reason...]|test])` }
+  if (word == 'test') return rest.length > 1 ? { error: "test takes one item's name at most" } : rest.length ? { test: true, name: rest[0] } : { test: true }
+  if (word != 'on' && word != 'off') return { error: `unknown word ${word} (usage: /notify [on [reason...]|off [reason...]|test [item]])` }
   const unknown = rest.filter(r => r != 'all' && !NOTIFY_REASONS.includes(r))
   if (unknown.length) return { error: `unknown reason ${unknown.join(', ')} (one of ${NOTIFY_REASONS.join(', ')}, or all)` }
   const reasons = rest.includes('all') ? NOTIFY_REASONS : rest.length ? [...new Set(rest)] : null
@@ -2994,6 +3010,32 @@ function _scan_notify() {
 }
 
 const _notify_tag = id => `todoer:${id}`
+
+const NOTIFY_TEST_DELAY_MS = 5000 // a named item's test notification shows this long after its command: time to go to another window
+
+// a test notification for a named item (`/notify test` with the item's name; the owner,
+// 2026-11-25: "i don't have a way to trigger them", "which i can then click and observe"): the
+// one a real event of the item would show, with its click (_notify_click, through the worker's
+// relay or the page): a todo's under its task's reason where that is one that notifies
+// (`question` otherwise), a chat's last reply under `reply`, any other item's as an agent's write
+// of it under `item`. Shown from this window whichever window is elected, under no setting but
+// this device's permission, which the command has checked; returns the step as _notify_result
+function _notify_test(item) {
+  const id = item.saved_id ?? item.id
+  const click = () => _notify_click(item.id)
+  if (item.tags?.includes('#todo')) {
+    const state = _task_state(item)
+    const reason = NOTIFY_REASONS.includes(state?.reason) && state.reason != 'reply' && state.reason != 'item' ? state.reason : 'question'
+    const shown = _visible(_extract_todo_snippet(item) ?? '').replace(/\s+/g, ' ')
+    return _notify_result(_notify_show({ reason, shown, label: item.label, parent: state?.parent ? _parent_of(state.parent) : null, id }, click))
+  }
+  if (_vault_replies(item.read()).replies) {
+    const shown = item.label || _visible(String(item.text ?? '').split('\n')[0] ?? '')
+    return _notify_result(_notify_show({ reason: 'reply', shown, label: null, parent: null, id, body: _reply_line(item.text) }, click))
+  }
+  const { shown, body } = _item_preview(item)
+  return _notify_result(_notify_show({ reason: 'item', shown, label: null, parent: null, id, body }, click))
+}
 
 // maps the boolean (or Promise<boolean>) returned by `_notify_show` onto `'notify'` or `'refused'`
 function _notify_result(shown) {
