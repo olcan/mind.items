@@ -710,6 +710,28 @@ const key_buttons_waited = (e, now = key_buttons_now()) => {
   const waited = stamp > 1e12 ? Date.now() - stamp : now - stamp // an older browser stamps with the date
   return waited >= 0 ? Math.round(waited) : null
 }
+// what the browser's long animation frames say of a stretch of time (`from` to `to`, on the page's clock):
+// the frames that overlap it, their four longest scripts (how each was called, its function and its file with
+// the place in it where the browser names them, its time, and its share of forced layout where that is 50 ms
+// or more), and the
+// frames' time in style and layout at their ends; '' where no frame overlaps (a browser without such
+// frames, or a wait that was no frame's). A script is one call from outside (an event's handler, a timer, a
+// promise's step): what it called inside is not told apart
+const key_buttons_busy = (frames, from, to) => {
+  const hit = (frames ?? []).filter(f => f.startTime < to && f.startTime + f.duration > from)
+  if (!hit.length) return ''
+  const file = url => String(url ?? '').split(/[?#]/)[0].split('/').pop()
+  const scripts = hit.flatMap(f => [...(f.scripts ?? [])]).sort((a, b) => b.duration - a.duration).slice(0, 4)
+  const said = scripts.map(
+    s =>
+      `${Math.round(s.duration)} ms ${[s.invokerType, s.invoker].filter(Boolean).join(' ') || 'script'}` +
+      (s.sourceFunctionName ? ` in ${s.sourceFunctionName}` : '') +
+      (file(s.sourceURL) ? ` (${file(s.sourceURL)}${s.sourceCharPosition >= 0 ? ':' + s.sourceCharPosition : ''})` : '') +
+      (s.forcedStyleAndLayoutDuration >= 50 ? `, ${Math.round(s.forcedStyleAndLayoutDuration)} ms of it layout` : '')
+  )
+  const render = hit.reduce((sum, f) => sum + (f.styleAndLayoutStart ? Math.max(0, f.startTime + f.duration - f.styleAndLayoutStart) : 0), 0)
+  return `; the browser names ${hit.length} long frame${hit.length > 1 ? 's' : ''}: ${said.join('; ') || 'no script'}` + (render >= 50 ? `; ${Math.round(render)} ms of style and layout at their ends` : '')
+}
 // the line for a press that waited, or whose work took long; null where neither did. `down` is the wait
 // since the finger came down (where a touch was seen), `waited` since the tap's click, `work` the time
 // the press's own work took
@@ -1298,10 +1320,34 @@ function key_buttons_create() {
   const tick_reset = () => void ((tick_at = key_buttons_now()), (tick_front = false)) // the page hidden or shown: no measure across it
   document.addEventListener?.('visibilitychange', tick_reset)
   window.addEventListener?.('pageshow', tick_reset)
+  // what the page was busy with, where the browser says (long animation frames: Chromium 123 and later):
+  // the last frames are kept, and a late tick's line names what they held (key_buttons_busy). The frames
+  // of a wait are handed over a moment after it ends, so the line is then written 300 ms later; without
+  // such frames it is written at once, as before (the owner, 2026-11-25, of a wait of 1681 ms at a click on
+  // a name tag: "i believe i've seen the same warning for delays around 2-3s before but don't recall which
+  // event caused them")
+  const frames = []
+  let frame_watch = null
+  try {
+    if (typeof PerformanceObserver == 'function' && PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame')) {
+      frame_watch = new PerformanceObserver(list => {
+        frames.push(...list.getEntries())
+        if (frames.length > 60) frames.splice(0, frames.length - 60)
+      })
+      frame_watch.observe({ type: 'long-animation-frame', buffered: false })
+    }
+  } catch (e) {
+    frame_watch = null
+  }
   const ticker = typeof setInterval != 'function' ? null : setInterval(() => {
     const now = key_buttons_now()
     const late = now - tick_at - KEY_BUTTONS_SLOW.tick
-    if (tick_front && in_front() && late >= KEY_BUTTONS_SLOW.stuck) console.warn(`key buttons: the page did not respond for ${Math.round(late)} ms, until ${new Date().toLocaleTimeString()}`)
+    if (tick_front && in_front() && late >= KEY_BUTTONS_SLOW.stuck) {
+      const line = `key buttons: the page did not respond for ${Math.round(late)} ms, until ${new Date().toLocaleTimeString()}`
+      const from = tick_at
+      if (frame_watch) setTimeout(() => console.warn(line + key_buttons_busy(frames, from, now)), 300)
+      else console.warn(line)
+    }
     tick_at = now
     tick_front = in_front()
   }, KEY_BUTTONS_SLOW.tick)
@@ -1311,6 +1357,7 @@ function key_buttons_create() {
     if (self.disposed) return
     self.disposed = true
     if (ticker != null) clearInterval(ticker)
+    frame_watch?.disconnect?.()
     document.removeEventListener?.('visibilitychange', tick_reset)
     window.removeEventListener?.('pageshow', tick_reset)
     viewport?.removeEventListener('resize', look)
