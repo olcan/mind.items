@@ -59,26 +59,28 @@ const _todoer = _item('$id')
 // - A todo that came up for you carries a bell with its kind (its reason in the main list, or
 //   `checkin` on a delegated todo whose agent checked in while going on working). The bell stays
 //   even after a check-in's marker returns to working; click the bell to clear it while keeping the
-//   row (delegating the todo again clears it too), and it rings again if the todo comes up another
-//   time.
-// - Selecting a listed item shows buttons for its row's bins (and its bell, where it carries one; a
-//   reply's row shows only **up**, **down**, and its **bell**, with none of the bins' buttons,
-//   telling a notification from a todo — dropping it on the done or cancel bin still works as
-//   before) on the key buttons item's bar (or on a second row above the bar's left end in a narrow
-//   window and on a phone; without that item, at the page's lower left). A press does what a drag
-//   to that bin does, except that the delete button always asks first (refused while text typed in
-//   the item's open editor is not saved); after any action that takes a row out of its list, by
-//   drag or by button, the next row is selected (or the one before it after the last row).
-// - **Up** and **down** buttons stand first among a selected row's buttons to select the row before
-//   or after it in its list (dimmed at the list's ends); plain **`k`** and **`j`** do the same when
-//   no field has the focus, and with no row selected **`j`** selects the first row of the main list
-//   and **`k`** its last. With a listed row selected and no field focused, plain keys press the
-//   buttons that row has (shown in their tooltips, once per press while held): **`a`** delegates to
-//   the agent, **`d`** marks a todo done, **`s`** snoozes (or unsnoozes in the snoozed list),
-//   **`x`** deletes after asking, **`b`** clears its bell, and **`u`** takes it back from the
-//   agent. Because a reply's row has no bin buttons, none of the bin keys (`a`, `d`, `s`, `x`, `u`)
-//   act on it and **`b`** clears it; any key the selected row does not take goes on to any prior
-//   key hook.
+//   row (delegating or snoozing clears it too), and it rings again if the todo comes up another
+//   time; a ringing bell unsnoozes a snoozed todo (primary tab, no unsnooze reminder).
+// - Selecting a listed item — or any todo whose list is not on the page — shows buttons for its
+//   list's bins (and its bell, where it carries one; a reply's row shows only **up**, **down**, and
+//   its **bell**, with none of the bins' buttons, telling a notification from a todo — dropping it
+//   on the done or cancel bin still works as before) on the key buttons item's bar (or on a second
+//   row above the bar's left end in a narrow window and on a phone; without that item, at the page's
+//   lower left). A press does what a drag to that bin does, except that the delete button always
+//   asks first (refused while text typed in the item's open editor is not saved); after any action
+//   that takes a row out of its list, by drag or by button, the next row is selected (or the one
+//   before it after the last row; with no row on the page, the todo stays selected and its buttons
+//   update for its list now).
+// - **Up** and **down** buttons stand first among a selected item's buttons to select the row
+//   before or after it in its list (dimmed at the list's ends and with no row on the page); plain
+//   **`k`** and **`j`** do the same when no field has the focus, and with no row on the page **`j`**
+//   selects the first row of the main list and **`k`** its last. With a listed row or any todo
+//   selected and no field focused, plain keys press the buttons it has (shown in their tooltips,
+//   once per press while held): **`a`** delegates to the agent, **`d`** marks a todo done, **`s`**
+//   snoozes (or unsnoozes when snoozed), **`x`** deletes after asking, **`b`** clears its bell, and
+//   **`u`** takes it back from the agent. Because a reply's row has no bin buttons, none of the bin
+//   keys (`a`, `d`, `s`, `x`, `u`) act on it and **`b`** clears it; any key it does not take goes
+//   on to any prior key hook.
 
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
@@ -249,20 +251,18 @@ function __render(widget, widget_item) {
 
   // the bins: the AGENT bin (a delegation) comes FIRST on every widget, followed by
   // done/snooze/cancel on the main and snoozed lists; the delegated list (design 2.2) has the
-  // agent bin (a re-delegation) and the OWNER bin (a take-back) only.
+  // agent bin (a re-delegation) and the OWNER bin (a take-back) only (_LIST_BINS, shared with
+  // _todo_buttons so a widget and a no-row todo cannot drift apart).
   // NOTE: the widget is a flex row (the list, then the bins) while a row is dragged, so the append
   // order below is the row order; the bins' rounded outer edges and drag margins in todoer-widget.html follow it
-  const bin = name => {
+  const bins = {}
+  for (const name of _LIST_BINS[delegated ? 'delegated' : snoozed ? 'snoozed' : 'main']) {
     const elem = document.createElement('div')
     elem.className = `${name} bin`
     widget.appendChild(elem)
-    return elem
+    bins[name] = elem
   }
-  const agent_bin = bin('agent')
-  const done_bin = delegated ? null : bin('done')
-  const snooze_bin = delegated ? null : bin('snooze')
-  const cancel_bin = delegated ? null : bin('cancel')
-  const owner_bin = delegated ? bin('owner') : null
+  const { agent: agent_bin = null, done: done_bin = null, snooze: snooze_bin = null, cancel: cancel_bin = null, owner: owner_bin = null } = bins
   if (is_string(tags)) tags = tags.split(/[,;\s]+/).filter(t => t)
   tags = tags.map(tag => {
     if (tag.match(/^[^#!-]/)) return '#' + tag // tag w/o # or negation
@@ -788,8 +788,7 @@ function __render(widget, widget_item) {
     },
   })
 
-  for (const elem of [done_bin, snooze_bin, cancel_bin, owner_bin, agent_bin])
-    if (elem) elem.sortable = Sortable.create(elem, { group: widget.id })
+  for (const elem of Object.values(bins)) elem.sortable = Sortable.create(elem, { group: widget.id })
 
   // a drag's order not yet persisted (see onUnchoose) puts the rows in that order at every
   // render until the list's save persists it (the save task deletes it); rows the order lacks
@@ -1016,14 +1015,16 @@ function _snooze_close(time) {
 }
 
 // a todo snoozed until `time` with the dialog's box written beside it as `notify` (a desktop
-// notification when the snooze ends by its time, see _notify_unsnooze), both in the SAME save of
-// the todo's own store (every device sees them together); an unchecked box removes a flag an
-// earlier snooze left
+// notification when the snooze ends by its time, see _notify_unsnooze), and any surfaced count
+// recorded as seen on `bell` (what _clear_bell writes), all in the SAME save of the todo's own
+// store (every device sees them together); an unchecked box removes a flag an earlier snooze left
 function _snooze(item, { time, notify }) {
   const store = (item.global_store._todoer ??= {})
   store.snoozed = time
   if (notify) store.notify = true
   else delete store.notify
+  const count = _task_state(item)?.surfaced
+  if (count > 0 && !(store.bell >= count)) store.bell = count
 }
 
 // the snooze dialog's box changed: a check asks THIS device's notification permission when the
@@ -1493,6 +1494,12 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
       })
     }
   })
+  // (the buttons of a selected todo whose list is not on the page are drawn from the item itself:
+  // drawn anew when that item changes, or goes; any other item's change is not theirs)
+  if (typeof _bin_buttons == 'function') {
+    const named = _item(MindBox.get().trim(), { silent: true })
+    if (!item || named?.id === id) _bin_buttons(named)
+  }
 }
 
 // whether any widget of a pinned item lists the todo (membership is tracked per widget)
@@ -1500,14 +1507,18 @@ function _listed(pinned, id) {
   return Object.values(pinned.store._todoer?.items ?? {}).some(set => set.has(id))
 }
 
-// detect any changes to global stores: `#todoer`'s own store carries agent item write stamps
-// (`_agent.wrote`), checked before everything else; on todo items, the desktop notification of
-// a projection change first (independent of any widget on the page; a project's bound children
-// follow its projection, so they are compared too), then the widgets' re-render. The #vault
-// item's store is the one other store the rows read (the bridge's listing, for a marker's
-// review link): a change of what they read of it renders every mounted widget again
+// detect any changes to global stores: todoer's own store carries agent item write stamps
+// (`_agent.wrote`), checked before everything else; on todo items, a ringing bell unsnoozes a
+// snoozed todo first (primary tab, sweep rules), then the desktop notification of a projection
+// change (independent of any widget on the page; a project's bound children follow its
+// projection, so they are compared too), then the widgets' re-render. The vault item's store is
+// the one other store the rows read (the bridge's listing, for a marker's review link): a change
+// of what they read of it renders every mounted widget again
 function _on_global_store_change(id, remote) {
-  if (id != null && id == _todoer.id) _notify_items()
+  if (id != null && id == _todoer.id) {
+    _notify_items()
+    if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+  }
   const item = _item(id, { silent: true }) // can be null if item deleted
   if (_listing_changed(item)) return _rerender_todoer_widgets()
   if (!item?.tags.includes('#todo')) {
@@ -1515,6 +1526,7 @@ function _on_global_store_change(id, remote) {
     if (item && (_waits(item) || (_todoer.dependents ?? []).some(dep => _listed(_item(dep), id)))) _rerender_todoer_widgets()
     return
   }
+  _unsnooze_for_bell(item)
   _notify_change(item)
   _notify_children(item)
   _on_item_change(id)
@@ -1574,6 +1586,10 @@ function _on_search(text) {
 // The names start with an underscore, and no comment here holds a hash word: the item's page
 // draws its table of definitions from this file's comments (js_table), where a colour written
 // with its hash sign is read as a tag that no item carries (seen on a test page, 2026-11-24)
+// the bins of each list, in their order: shared by the widget's render (__render) and a selected
+// todo whose list is not on the page (_todo_buttons), so the two cannot drift apart
+const _LIST_BINS = { main: ['agent', 'done', 'snooze', 'cancel'], snoozed: ['agent', 'done', 'snooze', 'cancel'], delegated: ['agent', 'owner'] }
+
 const _BIN_BUTTONS = [
   // the row before and the row after the selected one, in its list (the keys k and j do the same)
   { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
@@ -1616,19 +1632,22 @@ function _bin_buttons(target) {
 
 function __bin_buttons(target) {
   const found = target ? _bin_row(target) : null
-  const shown = found ? _row_buttons(found) : []
-  // (a row button at its list's end is dim: there is no row to go to)
+  const list = found ? null : target ? _todo_list(target) : null
+  const snoozed = found ? !!found.widget._snoozed : list == 'snoozed'
+  const shown = found ? _row_buttons(found) : list ? _todo_buttons(target, list) : []
+  const came_up = !found && shown.some(b => b.name == 'bell') ? _task_state(target)?.surfaced ?? 0 : 0
+  // (a row button at its list's end is dim: there is no row to go to; with no row on the page both are dim)
   const specs = shown.map(b =>
     b.name in _ROW_STEP
-      ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
-      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
+      ? { ...b, color: found && _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void (_pressed_item(b.name, target.id) && _row_step(target.id, _ROW_STEP[b.name])) }
+      : { ...b, title: b.name == 'snooze' && snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id, b.name == 'bell' ? came_up : undefined) }
   )
   const link = _window_button()
   if (link) specs.push(link)
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
   // its click). This item's own code is part of it: an update draws them anew, with its presses
-  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, specs.map(spec => [spec.name, spec.title, spec.color])])
+  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, came_up, specs.map(spec => [spec.name, spec.title, spec.color])])
   let piece = document.querySelector('.todoer-bin-buttons')
   // handed over on the window in every case: a strip that is drawn later (its item installed or
   // updated after this) takes them from there and says so (`taken`: the piece of their own goes)
@@ -1732,6 +1751,44 @@ function _row_buttons(found) {
   return _BIN_BUTTONS.filter(b => (b.name == 'window' ? false : b.name in _ROW_STEP ? true : b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !reply && !!found.widget.querySelector('.bin.' + b.name)))
 }
 
+// which list a todo belongs to by its own state ('main', 'snoozed', or 'delegated'), or null for
+// an item that is no todo (by its visible tags, skipping menu items, as __render decides)
+function _todo_list(item) {
+  if (!item?.tags_visible?.includes('#todo') || item.tags?.includes('#menu')) return null
+  // (no list has a row for an item whose todo tag yields no snippet, a tag written with capitals
+  // or with a suffix: it gets no buttons of a list either)
+  if (!_extract_todo_snippet(item)) return null
+  const state = _task_state(item)
+  if (_list_of(item, state) == 'delegated') return 'delegated'
+  return item._global_store?._todoer?.snoozed ? 'snoozed' : 'main'
+}
+
+// the buttons for a todo whose list is not on the page, in their order: the two row buttons
+// (drawn dim), its bell where _bell rings for it, then the bins of its list (_LIST_BINS)
+function _todo_buttons(item, list = _todo_list(item)) {
+  if (!list) return []
+  const bins = _LIST_BINS[list]
+  const state = _task_state(item)
+  const rings = !!_bell(item, state, list == 'delegated' ? 'delegated' : 'main')
+  return _BIN_BUTTONS.filter(b => (b.name in _ROW_STEP ? true : b.name == 'bell' ? rings : bins.includes(b.name)))
+}
+
+// what the done bin logs for a todo item when no row on the page holds it: the same text
+// __render builds for container._log_text (snooze time and parent prefix, then the visible
+// snippet and any chat-todo question)
+function _todo_log_text(item, snoozed = false) {
+  const state = _task_state(item)
+  const parent = state?.parent ? _parent_of(state.parent) : null
+  const text = _extract_todo_snippet(item) ?? ''
+  const question = text ? _row_question(item, text) : null
+  const first_lines =
+    (snoozed && item._global_store?._todoer?.snoozed ? new Date(item._global_store._todoer.snoozed).toLocaleString() + '\n' : '') +
+    (parent ? `child of ${parent}\n` : '')
+  const asked = question ? _visible(question.raw) + (question.more ? ' …' : '') : ''
+  const shown = text ? (_visible(text) + (asked ? ' ' + asked : '')).replace(/\s+/g, ' ') : item.name
+  return (first_lines + shown).replace(/\s+/g, ' ')
+}
+
 // the row beside the given one in its list, the one after it (`by` 1) or before it (-1); null at
 // the list's end
 function _row_beside(row, by) {
@@ -1771,7 +1828,8 @@ function _on_row_key(key, e) {
   const named = _item(MindBox.get().trim(), { silent: true })
   const found = named ? _bin_row(named) : null
   if (bin) {
-    if (!found || !_row_buttons(found).some(b => b.name == bin)) return false
+    const shown = found ? _row_buttons(found) : named ? _todo_buttons(named) : []
+    if (!shown.some(b => b.name == bin)) return false
     if (!e?.repeat) _bin_press(bin, named.id)
     return true
   }
@@ -1909,44 +1967,59 @@ function _pressed_item(name, id) {
 // a button's press: the action for the item as its row stands now (the row may have gone, or
 // moved to another list, since the buttons were drawn), one at a time: a second press while the
 // first's dialog or save is open does nothing
-function _bin_press(name, id) {
+function _bin_press(name, id, bell_count) {
   // a press that is not taken says so in the console: nothing else would tell its owner
   if (window._todoer_bin_busy) return void console.warn(`todoer: the press on "${name}" was not taken: an earlier press is still being carried out`)
   const item = _pressed_item(name, id)
   if (!item) return
   const found = _bin_row(item)
-  if (!found) return void console.warn(`todoer: the press on "${name}" was not taken: its item is in no list`)
+  const list = found ? null : _todo_list(item)
+  if (!found && !list) return void console.warn(`todoer: the press on "${name}" was not taken: its item is in no list`)
+  if (!found && !_todo_buttons(item, list).some(b => b.name == name))
+    return void console.warn(`todoer: the press on "${name}" was not taken: its list has no "${name}" button now`)
   window._todoer_bin_busy = true
   // the row that follows is selected after a press that takes the row out of its list, and only
   // then (the owner, 2026-11-24: "it should only advance if the action removes the row"). The
   // bell's press removes a reply's row (it waits by its bell alone) and leaves a todo's row
-  // where it is, selected; and a delegation asked again from the delegated list leaves its row
-  // in that list (the review, 2026-11-24)
-  const rows = [...(found.row.parentElement?.children ?? [])]
-  const stays = (name == 'bell' && !found.row.getAttribute('data-waits')) || (name == 'agent' && !!found.widget._delegated)
+  // where it is, selected; a delegation asked again from the delegated list leaves its row in
+  // that list (the review, 2026-11-24); and with no row on the page there is nothing to follow
+  const rows = found ? [...(found.row.parentElement?.children ?? [])] : []
+  const stays = !found || (name == 'bell' && !found.row.getAttribute('data-waits')) || (name == 'agent' && !!found.widget._delegated)
   const next = stays ? null : _next_listed({ children: rows.filter(row => row != found.row) }, rows.indexOf(found.row))
   let acted
   try {
-    acted = _bin_act(name, item, found.row, !!found.widget._snoozed) // within the press: a delegation reads the gesture
+    acted = _bin_act(name, item, found?.row ?? null, found ? !!found.widget._snoozed : list == 'snoozed', bell_count) // within the press: a delegation reads the gesture
   } finally {
-    acted = _select_next(next, acted).then(() => void (window._todoer_bin_busy = false))
+    acted = _select_next(next, acted).then(() => {
+      window._todoer_bin_busy = false
+      if (!found) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    })
   }
   return acted // settles when the press's work is done: the button that took it stays lit until then
 }
 
 // what a drop of the item's row on the named bin does (the list's onEnd in __render), without a
 // row to move: nothing is put back after a refusal, and the list is drawn again by the item's
-// own change. `row` is the row the list shows for the item (what it logs, whether it is a row
-// that waits without being a todo's, the reply it showed, its bell) and `snoozed` whether its
-// list is the snoozed one. A row that is not a todo's has the done and the delete bin alone, as
-// its drop. The bell's press is a click on the row's own bell: what that click clears
-function _bin_act(name, item, row, snoozed) {
+// own change. `row` is the row the list shows for the item (or null when the todo's list is not
+// on the page, in which case the bell and log text come from the item itself) and `snoozed`
+// whether its list is the snoozed one. A row that is not a todo's has the done and the delete
+// bin alone, as its drop. The bell's press is a click on the row's own bell, or _clear_bell
+// with the count it showed when there is no row
+function _bin_act(name, item, row, snoozed, bell_count) {
   if (name == 'bell') {
-    const bell = row.querySelector('mark.waits')
-    bell?.click()
-    return !!bell
+    if (row) {
+      const bell = row.querySelector('mark.waits')
+      bell?.click()
+      return !!bell
+    }
+    const state = _task_state(item)
+    if (!_bell(item, state)) return false
+    const count = bell_count > 0 ? Math.min(bell_count, state.surfaced) : state.surfaced
+    if (!_clear_bell(item, count)) return false
+    _rerender_todoer_widgets()
+    return true
   }
-  if (row.getAttribute('data-waits')) {
+  if (row?.getAttribute('data-waits')) {
     if (name == 'cancel') return _delete_listed(item, true)
     if (name != 'done' || !_clear_waiting(item, row.getAttribute('data-wait-key'))) return false
     _rerender_todoer_widgets() // the row goes, as after its bell's click (a drop takes the row out itself)
@@ -1958,7 +2031,7 @@ function _bin_act(name, item, row, snoozed) {
   // own, and a todo that has none, as `/todo buy milk` makes one, went at one tap; the review,
   // 2026-11-24. A drop on the delete bin asks as the app asks, as it always has)
   if (name == 'cancel') return _delete_listed(item, true)
-  if (name == 'done') return _complete_todo(item, row._log_text)
+  if (name == 'done') return _complete_todo(item, row ? row._log_text : _todo_log_text(item, snoozed))
   if (name != 'snooze') return false
   item.global_store._todoer ??= {}
   if (snoozed) return _unsnooze(item, true), true // out of the snoozed list, as the owner's own drag
@@ -2035,6 +2108,7 @@ function _on_welcome() {
     window.addEventListener('online', () => void _start_sweep())
   }
   _start_notifier()
+  if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
 }
 
 // the sweep's task, dispatched now: the app's dispatch_task replaces a pending tick of the same
@@ -2044,29 +2118,48 @@ function _start_sweep() {
   _todoer.dispatch_task('unsnooze', _sweep, 0, SWEEP_PERIOD_MS)
 }
 
-// one tick of the unsnooze sweep: every todo whose snooze time passed is unsnoozed when the
-// step allows it (_sweep_step), its unsnooze observed at once (the reminder, _notify_change: the
-// store's own hook runs from the store's save task, which a throttled hidden page runs up to a
-// minute later, 60 s measured; the records keep it to one; a throw of it is logged, so that it
-// neither stops the pass, leaving the later due todos snoozed, nor ends the task, as the app's
-// dispatch_task ends a task whose function throws), and the delay to the next tick is returned,
-// from the clock reading the pass decided by: a second reading after the pass saw a time this
-// tick woke a millisecond early for as past and slept to the next minute (60 s late)
+// unsnoozes a snoozed todo whose bell rings, under the sweep's own rules (_sweep_step): called
+// from _on_global_store_change as soon as this tab observes a ringing bell, and from _sweep
+// (passing its pass's step) for one that already stands snoozed with a bell. While a remote
+// snapshot is applying, the app holds window._server_current false until the snapshot's lease
+// seals (a microtask later), so a direct call that waits there kicks _start_sweep() for the next
+// turn once the live signal rises (still gated by _sweep_step). Without manual: the reminder's
+// flag stays, and _unsnooze_step already skips a reminder for an early end
+function _unsnooze_for_bell(item, step = null) {
+  if (!(item?.tags_visible ?? item?.tags)?.includes('#todo') || !item._global_store?._todoer?.snoozed) return false
+  if (!_bell(item)) return false
+  const direct = step == null
+  step ??= _sweep_step({ primary: _primary, confirmed: _corpus_current(window), online: navigator.onLine, held: _held() })
+  if (step != 'sweep') {
+    if (direct && step == 'wait' && !_corpus_current(window)) _start_sweep()
+    return false
+  }
+  _unsnooze(item)
+  return true
+}
+
+// one tick of the unsnooze sweep: every todo whose snooze time passed, or whose bell rings, is
+// unsnoozed when the step allows it (_sweep_step), its unsnooze observed at once (the reminder,
+// _notify_change: the store's own hook runs from the store's save task, which a throttled hidden
+// page runs up to a minute later, 60 s measured; the records keep it to one; a throw of it is
+// logged, so that it neither stops the pass, leaving the later due todos snoozed, nor ends the
+// task, as the app's dispatch_task ends a task whose function throws), and the delay to the next
+// tick is returned, from the clock reading the pass decided by: a second reading after the pass
+// saw a time this tick woke a millisecond early for as past and slept to the next minute (60 s late)
 function _sweep() {
   const step = _sweep_step({ primary: _primary, confirmed: _corpus_current(window), online: navigator.onLine, held: _held() })
   const now = Date.now()
   const snoozes = [] // the snooze times left
   each(_items(), item => {
-    const snoozed = item._global_store._todoer?.snoozed
-    if (!snoozed) return
-    if (step == 'sweep' && now >= snoozed) {
-      _unsnooze(item)
+    const snoozed = item._global_store?._todoer?.snoozed
+    const due = !!snoozed && step == 'sweep' && now >= snoozed
+    if ((due && (_unsnooze(item), true)) || _unsnooze_for_bell(item, step)) {
       try {
         _notify_change(item)
       } catch (e) {
         console.error(`todoer: unsnooze reminder failed for ${item.name}: ${e?.message ?? e}`)
       }
-    } else snoozes.push(snoozed)
+    } else if (snoozed) snoozes.push(snoozed)
   })
   return _sweep_delay({ now, snoozes, hold_until: _todoer.store.hold_until, hidden: document.visibilityState == 'hidden' })
 }
@@ -2342,6 +2435,7 @@ function _rerender_todoer_widgets() {
     const item = _item(dep)
     item.elem?.querySelectorAll('.todoer-widget').forEach(widget => _render_todoer_widget(widget, item))
   })
+  if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
 }
 
 // enqueue a command document through the app's narrow operation (design 2.2, 3.1): the overlay
@@ -3183,6 +3277,7 @@ function _notify_children(item) {
     if (child.id == item.id || !child.tags.includes('#todo')) return
     const parent = _task_state(child)?.parent
     if (!parent || _item(parent, { silent: true })?.id != item.id) return
+    _unsnooze_for_bell(child)
     _notify_change(child)
     compared++
   })
