@@ -1702,11 +1702,13 @@ function _window_button() {
   const shown = !on && !!_send_shown()
   if (!on && !_send_peer()) return null
   const spec = _BIN_BUTTONS.find(b => b.name == 'window')
-  // (the lit pane is the outline with three strokes in it: at this size they read as filled)
+  // (the lit pane is a solid box: the outline with strokes that overlap it and one another; three
+  // strokes inside it left a thin line between the border and the fill, and the owner, 2026-11-25:
+  // "i'd just make the highlighted side a solid box")
   const lit = on
-    ? { title: 'Linked: this window keeps the list, the other one shows the item. Unlink (w)', icon: spec.icon + 'M3.2 5v6M4.25 5v6M5.3 5v6' }
+    ? { title: 'Linked: this window keeps the list, the other one shows the item. Unlink (w)', icon: spec.icon + 'M2.3 4.3v7.4M3.1 4.3v7.4M3.9 4.3v7.4M4.7 4.3v7.4M5.5 4.3v7.4M6.2 4.3v7.4' }
     : shown
-      ? { title: 'Linked: this window shows the item, the other one keeps the list. Unlink (w)', icon: spec.icon + 'M10.7 5v6M11.75 5v6M12.8 5v6' }
+      ? { title: 'Linked: this window shows the item, the other one keeps the list. Unlink (w)', icon: spec.icon + 'M9.8 4.3v7.4M10.6 4.3v7.4M11.4 4.3v7.4M12.2 4.3v7.4M13 4.3v7.4M13.7 4.3v7.4' }
       : null
   return { ...spec, ...(lit ? { ...lit, color: 'rgb(102, 255, 255)' } : {}), press: () => void _send_press() }
 }
@@ -1821,20 +1823,22 @@ function _row_goes(by, selected) {
 // under a section's name on the window; without that item nothing reads it). Each entry's test
 // says whether its key would do something now (_row_goes: there is a row to go to; _row_can: the
 // press would be carried out): the menu opens on those alone. The words (`when`) say the
-// standing condition: which row, its place in its list, an unsaved edit. They leave out the one
+// standing condition: which row, of which list, its place in it, an unsaved edit (delegating is
+// every list's, done, delete and snooze the main and the snoozed list's, taking back the
+// delegated list's: the lists' bins). They leave out the one
 // that passes by itself: while an earlier press on a row is still being carried out (its
 // dialog open, a delegation under way) no other button's key is carried out
 const _ROW_SAVED = ', with no unsaved edit in it'
 const _ROW_SHORTCUTS = [
   { keys: 'j', does: 'the next row', when: 'a row is selected that is not the last of its list', active: () => _row_goes(1, true) },
-  { keys: 'j', does: "the main list's first row", when: 'no row is selected', active: () => _row_goes(1, false) },
+  { keys: 'j', does: "the main list's first row", when: 'no row is selected, and the main list has a row', active: () => _row_goes(1, false) },
   { keys: 'k', does: 'the previous row', when: 'a row is selected that is not the first of its list', active: () => _row_goes(-1, true) },
-  { keys: 'k', does: "the main list's last row", when: 'no row is selected', active: () => _row_goes(-1, false) },
+  { keys: 'k', does: "the main list's last row", when: 'no row is selected, and the main list has a row', active: () => _row_goes(-1, false) },
   { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('agent') },
-  { keys: 'd', does: 'done', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('done') },
-  { keys: 's', does: 'snooze', when: 'a todo that is not snoozed is selected', active: () => _row_can('snooze') && !_row_now().widget._snoozed },
+  { keys: 'd', does: 'done', when: 'a todo of the main or the snoozed list is selected' + _ROW_SAVED, active: () => _row_can('done') },
+  { keys: 's', does: 'snooze', when: 'a todo of the main list is selected', active: () => _row_can('snooze') && !_row_now().widget._snoozed },
   { keys: 's', does: 'unsnooze', when: 'a snoozed todo is selected', active: () => _row_can('snooze') && !!_row_now().widget._snoozed },
-  { keys: 'x', does: 'delete, after a question', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('cancel') },
+  { keys: 'x', does: 'delete, after a question', when: 'a todo of the main or the snoozed list is selected' + _ROW_SAVED, active: () => _row_can('cancel') },
   { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected', active: () => _row_can('bell') },
   { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected' + _ROW_SAVED, active: () => _row_can('owner') },
 ]
@@ -3387,12 +3391,15 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 // session storage, so across its reloads) and has the left pane lit; the window that shows its
 // selections has the right pane lit; a press in either ends the link (_send_press). Only one
 // window of an account keeps the list at a time: a later one takes it over (_start_windows).
-// While the link is on, the two windows keep the same selected item. A selection made in the
-// list's window, whatever made it (a row's click, the rows' keys and buttons, the row selected
-// after an action, a click on an item's number or a tag, a name typed into the box: every
-// search the app reports that names an item), is asked of the other window, which shows the
-// item as a row's click does, without coming forward; a selection made there is made in the
-// list's window too. For a selection made by its rows (their clicks, keys and buttons, the row
+// While the link is on, the two windows keep the same selected item OF THE LISTS: an item that
+// has a row in a list on the list's window's page. Such an item selected in the list's window,
+// whatever selected it (a row's click, the rows' keys and buttons, the row selected after an
+// action, a click on its number or a tag, its name typed into the box: every search the app
+// reports that names it), is asked of the other window, which shows it as a row's click does,
+// without coming forward; and such an item selected in the other window is selected in the
+// list's window too. Any other item that either window opens is that window's alone: the other
+// window stays free to read around in, and the list's window keeps its row (the owner chose
+// this over every selection shared: _send_selected). For a selection made by its rows (their clicks, keys and buttons, the row
 // selected after an action) and for one taken from the other window, the list's window does not
 // go to the item: it holds its place, and moves only as far as it takes to keep the selected ROW
 // in view (_stay_put, from _select_item). A selection made in the list's window in any other way
@@ -3485,6 +3492,11 @@ function _send_selected(item, forced = false) {
   clearTimeout(windows.saving) // (a selection made here comes before one that waits: for a save, or for an item to arrive)
   clearTimeout(windows.taking)
   if (!item) return (windows.last = null), false
+  // the list's window shares the items of its lists alone: one that has a row in a list on its
+  // page (the owner, 2026-11-25, of every selection shared: "i'm not sure about this ... can you
+  // compare that to an 'only sync selection of visible todoer listed items' behavior?", then
+  // "ok let's do it"). Anything else selected here is this window's alone
+  if (_send_on() && !_bin_row(item)) return (windows.last = null), false
   // an item that is not saved yet (a child just created) is known to this window alone, under an
   // id of its own: it is told once it has its saved id, where the box still names it then
   if (!item.saved_id) return _send_when_saved(item), false
@@ -3536,7 +3548,10 @@ function _send_take(message, asked, tries = 12) {
   if (typeof message.item != 'string') return false
   if (asked && tries == 12) windows.say('took', { n: message.n })
   const item = _item(message.item, { silent: true })
-  if (!item) {
+  // (the list's window takes an item of its lists alone, as it tells one: whatever else the other
+  // window opens leaves this one as it is. A todo made there a moment ago has its row here a
+  // little after its save, so the row is looked for as the item is)
+  if (!item || (!asked && !_bin_row(item))) {
     if (tries > 0) windows.taking = setTimeout(() => void _send_take(message, asked, tries - 1), 250)
     return false
   }
