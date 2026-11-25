@@ -3511,6 +3511,23 @@ function _hold_scroll(top) {
   inputs.forEach(type => window.addEventListener(type, end, { capture: true, passive: true }))
   const timer = setTimeout(end, SEND_HOLD_MS)
   if (windows) windows.hold = end
+  put()
+}
+
+// the scroll position that keeps the row of `item` in view from the position `top`: `top` itself
+// where the row is in view there (or the item has no row), else the nearest position that shows
+// the row whole, below the window's top edge or above the strip of buttons at its lower edge.
+// The keys j and k walk a list that can be longer than the window (the owner, 2026-11-25, of
+// this: "ok yes we should do that, the list is already getting long")
+const SEND_ROW_EDGE = 8 // px kept between the row and the window's top edge
+const SEND_ROW_FOOT = 64 // px kept free at the window's lower edge (the key buttons' strip)
+function _row_view_top(item, top) {
+  const box = _bin_row(item)?.row?.getBoundingClientRect?.()
+  if (!box || !box.height) return top
+  const y = box.top + document.body.scrollTop // the row's place in the page, whatever the position now
+  if (y < top + SEND_ROW_EDGE) return Math.max(0, y - SEND_ROW_EDGE)
+  const low = top + innerHeight - SEND_ROW_FOOT
+  return y + box.height > low ? top + (y + box.height - low) : top
 }
 
 // selects an item, as a click on its number in the app does while the number is not green: the
@@ -3535,7 +3552,14 @@ function _select_item(item, selection, checked = false, received = false) {
   // here and shown there, or made there and taken here): its position is held while the app
   // brings the item into view (_hold_scroll)
   const top = (received ? _send_on() : _send_selected(item, true)) ? document.body.scrollTop : null
-  if (top != null) _hold_scroll(top)
+  if (top != null) {
+    _hold_scroll(top)
+    // (and moves just far enough to keep the selected ROW in view, once the page has its update)
+    _update_dom().then(() => {
+      const to = _row_view_top(item, top)
+      if (to != top) _hold_scroll(to)
+    })
+  }
   if (!item.select()) return false
   if (checked) _select_range(item, ranged ? selection : null)
   else if (selection) MindBox.select_in_target(selection)
