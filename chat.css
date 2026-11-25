@@ -243,3 +243,12 @@
 .dep_chat > .content:has(.vault-result) .message.user .label {
   margin-left: 0;
 }
+/* (the owner, 2026-11-24, of the same chats: "use a smaller font (80%) for the headers, and apply
+   a top margin (say 3px)": a role row's name at four fifths of the text's size, and each role
+   row 3 px lower) */
+.dep_chat > .content:has(.vault-result) .message .label {
+  font-size: 80%;
+}
+.dep_chat > .content:has(.vault-result) .message {
+  margin-top: 3px;
+}
