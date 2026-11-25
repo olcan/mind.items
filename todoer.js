@@ -1694,15 +1694,13 @@ function _bin_press(name, id) {
   if (window._todoer_bin_busy) return void console.warn(`todoer: the press on "${name}" was not taken: an earlier press is still being carried out`)
   if (!found) return void console.warn(`todoer: the press on "${name}" was not taken: its item is in no list`)
   window._todoer_bin_busy = true
-  // the row that follows is selected after every press that is carried out, the bell's too (the
-  // owner, 2026-11-24: "this did not work for the bell button; i had to separately hit j or down
-  // button to go to the next item"). After the last row's press it is the one before, where the
-  // row leaves its list; a todo's row whose bell was cleared stays, and with no row after it
-  // nothing is selected
+  // the row that follows is selected after a press that takes the row out of its list, and only
+  // then (the owner, 2026-11-24: "it should only advance if the action removes the row"). The
+  // bell's press removes a reply's row (it waits by its bell alone) and leaves a todo's row
+  // where it is, selected
   const rows = [...(found.row.parentElement?.children ?? [])]
-  const at = rows.indexOf(found.row)
   const stays = name == 'bell' && !found.row.getAttribute('data-waits')
-  const next = stays ? _next_listed({ children: rows.slice(at + 1) }, 0) : _next_listed({ children: rows.filter(row => row != found.row) }, at)
+  const next = stays ? null : _next_listed({ children: rows.filter(row => row != found.row) }, rows.indexOf(found.row))
   let acted
   try {
     acted = _bin_act(name, item, found.row, !!found.widget._snoozed) // within the press: a delegation reads the gesture
