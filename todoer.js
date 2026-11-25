@@ -56,6 +56,9 @@ const _todoer = _item('$id')
 //   are for todos and put the row back (add `#todo` after the chat's name to make it one). A chat
 //   that became a todo shows the start of its first user turn after its name, and a second click on
 //   its row opens the editor with that stretch selected.
+// - A non-todo item an agent wrote with the item tool (past this kind's baseline in the account)
+//   shows in the main list with an `item` bell, its name and its first line until cleared (`b`, the
+//   bell, or the done bin) or edited; a chat that waits both ways keeps its `reply` row.
 // - A todo that came up for you carries a bell with its kind (its reason in the main list, or
 //   `checkin` on a delegated todo whose agent checked in while going on working). The bell stays
 //   even after a check-in's marker returns to working; click the bell to clear it while keeping the
@@ -317,14 +320,14 @@ function __render(widget, widget_item) {
       if (item.id == selected) container.classList.add('selected')
       const div = document.createElement('div')
       div.className = 'list-item'
-      const [name, line] = _waiting_parts(item)
-      // the reply this row shows, kept on the row: a clear made from it (the bell, a bin) is of
-      // THIS reply, also when a newer one has arrived while the row was held or dragged
-      const key = _wait_key(_todoer.store.reply_seen[item.id])
+      const [name, line] = _waiting_parts(item, waits)
+      // what this row shows (the reply or the write stamp), kept on the row: a clear made from it
+      // (the bell, a bin) is of THIS one, also when a newer one has arrived while held or dragged
+      const key = _wait_key_of(item, waits)
       container.setAttribute('data-wait-key', key)
       container.title = `${waits}: waits on you; click the bell or drop it on done to clear it\n${[name, line].join(' ').trim()}`
-      // the name as a tag, then the reply's line as TEXT: the chat shows a reply's body inert, so
-      // nothing in it becomes a link here either (a click on it selects the chat, as elsewhere)
+      // the name as a tag, then the line as TEXT: neither a chat reply nor a write preview
+      // becomes a link here (a click on it selects the item, as elsewhere)
       div.innerHTML = `<mark class="waits">${waits}</mark> ` + (name ? _mark_tags(_.escape(name)) + ' ' : '')
       div.append(line)
       // the bell's own click clears the row (as its drop on the done bin does), not the row's
@@ -1515,6 +1518,7 @@ function _on_global_store_change(id, remote) {
   if (id != null && id == _todoer.id) {
     _notify_items()
     if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    if (_writes_changed()) return _rerender_todoer_widgets()
   }
   const item = _item(id, { silent: true }) // can be null if item deleted
   if (_listing_changed(item)) return _rerender_todoer_widgets()
@@ -1527,6 +1531,20 @@ function _on_global_store_change(id, remote) {
   _notify_change(item)
   _notify_children(item)
   _on_item_change(id)
+}
+
+// whether a change of the todoer's own store changed what the rows read of it: the agent write
+// stamps (`_agent.wrote`) or their baseline (`items_base`). Unrelated changes (such as the notify
+// setting) render nothing; the first delivery of a session renders once
+function _writes_changed() {
+  const gs = _todoer._global_store
+  const wrote = _item_writes()
+  const entries = wrote ? Object.keys(wrote).sort().map(id => [id, wrote[id]?.at ?? null, wrote[id]?.hash ?? null]) : []
+  const base = gs?.items_base && typeof gs.items_base == 'object' ? Object.keys(gs.items_base).sort().map(id => [id, gs.items_base[id]]) : null
+  const seen = JSON.stringify([entries, base])
+  if (seen == _todoer.store.writes_seen) return false
+  _todoer.store.writes_seen = seen
+  return true
 }
 
 // whether a store change of the #vault item changed what the rows' marker links read of the
@@ -1944,6 +1962,9 @@ const _ROW_SHORTCUTS = [
   { keys: 'x', does: 'delete, after a question', when: 'a todo of the main or the snoozed list is selected' + _ROW_SAVED, active: () => _row_can('cancel') },
   { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected', active: () => _row_can('bell') },
   { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected' + _ROW_SAVED, active: () => _row_can('owner') },
+  // (the window's key, as _on_row_key and _send_press decide it: no row need be selected)
+  { keys: 'w', does: 'link the selection with the other window', when: 'another window of the app is open, and the two are not linked: this one then keeps the list', active: () => !_send_on() && !_send_shown() && !!_send_peer() },
+  { keys: 'w', does: 'unlink the two windows', when: 'the two windows are linked, in either of them', active: () => _send_on() || !!_send_shown() },
 ]
 
 // takes the app's key hook for the rows' keys, once per evaluation of this item; a key that is
@@ -2476,9 +2497,9 @@ function _review_anchor_builder() {
 
 // re-render every todoer widget (the overlay changed)
 function _rerender_todoer_widgets() {
-  each(_todoer.dependents, dep => {
+  each(_todoer.dependents ?? [], dep => {
     const item = _item(dep)
-    item.elem?.querySelectorAll('.todoer-widget').forEach(widget => _render_todoer_widget(widget, item))
+    item?.elem?.querySelectorAll('.todoer-widget').forEach(widget => _render_todoer_widget(widget, item))
   })
   if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
 }
@@ -3014,6 +3035,18 @@ function _question_range(item, raw) {
 }
 
 const _wait_key = seen => `${seen.replies}|${seen.footer}`
+const _item_wait_key = entry => `item|${entry.at}|${entry.hash}`
+// the valid agent write stamp for an item from the todoer store's `_agent.wrote`, or null
+function _item_stamp(item) {
+  const id = item?.saved_id ?? item?.id
+  if (!id) return null
+  const wrote = _item_writes()
+  const entry = wrote && Object.prototype.hasOwnProperty.call(wrote, id) ? wrote[id] : null
+  if (!entry || typeof entry != 'object' || Array.isArray(entry)) return null
+  if (typeof entry.at != 'number' || !Number.isFinite(entry.at) || typeof entry.hash != 'string' || !entry.hash) return null
+  return entry
+}
+const _wait_key_of = (item, waits) => (waits == 'item' ? _item_wait_key(_item_stamp(item)) : _wait_key(_todoer.store.reply_seen[item.id]))
 // a short mark of a reply's key (32-bit FNV-1a, hex), for the baseline of replies (rows_base)
 function _key_mark(key) {
   let hash = 0x811c9dc5
@@ -3025,40 +3058,60 @@ function _key_mark(key) {
 // (_cleared: kept in the item's own synced store, as its snooze is, so a row cleared on one
 // device goes on the others). The owner's own answer in the chat ends it (the reply is no longer
 // the last turn), and a later reply shows the row again. A reply that was its chat's last turn
-// when the list began (_rows_start) does not show
+// when the list began (_rows_start) does not show. `item`: an item that an agent wrote (a stamp in
+// the todoer store's `_agent.wrote` past `items_base`, while the page's item is at the stamped
+// hash and the stamp has not been cleared; no age limit). A chat waiting both ways shows `reply`
 function _waits(item) {
-  const seen = item ? _todoer.store.reply_seen?.[item.id] : null
-  if (!seen?.replies || !seen.last) return null
-  const base = _todoer._global_store.rows_base
-  if (!base) return null // the list has not begun in the account
-  const key = _wait_key(seen)
-  if (base[item.saved_id ?? item.id] == _key_mark(key)) return null // it stood when the list began
-  return _cleared(item).includes(key) ? null : 'reply'
+  if (!item || (item.tags_visible ?? item.tags)?.includes('#todo')) return null
+  const id = item.saved_id ?? item.id
+  const cleared = _cleared(item)
+  const seen = _todoer.store.reply_seen?.[item.id]
+  if (seen?.replies && seen.last) {
+    const base = _todoer._global_store?.rows_base
+    if (base) {
+      const key = _wait_key(seen)
+      if (base[id] != _key_mark(key) && !cleared.includes(key)) return 'reply'
+    }
+  }
+  const entry = _item_stamp(item)
+  if (!entry) return null
+  const base = _todoer._global_store?.items_base
+  if (!base) return null // this kind has not begun in the account
+  if (Object.hasOwn(base, id) && Number.isFinite(base[id]) && !(entry.at > base[id])) return null // it stood when this kind began
+  if (typeof item.hash != 'string' || item.hash !== entry.hash) return null // edited since, or not at the stamped version
+  const key = _item_wait_key(entry)
+  return cleared.includes(key) ? null : 'item'
 }
 
-// the replies of an item that the owner has cleared, as their keys (_wait_key), from the item's
-// own store: the four most recently ADDED distinct keys that this tab has seen there
-// (_clear_waiting adds one; a fifth puts the oldest out, a repeated clear does not move its
-// key). With one key that each clear replaced, a row drawn from an older text put its own key
-// over the clear of a newer reply that had come from another device before that reply's text
-// (the app can hold a text back while a save of its own is pending), and the newer reply came
-// up again. A store is written whole, so a clear this tab has not seen can still be lost to its
-// write. A store of the list's first versions holds one key, as a string
+// the waiting keys of an item that the owner has cleared (_wait_key for replies, _item_wait_key
+// for write stamps), from the item's own store: the four most recently ADDED distinct keys that
+// this tab has seen there (_clear_waiting adds one; a fifth puts the oldest out, a repeated clear
+// does not move its key). With one key that each clear replaced, a row drawn from an older text
+// put its own key over the clear of a newer reply that had come from another device before that
+// reply's text (the app can hold a text back while a save of its own is pending), and the newer
+// reply came up again. A store is written whole, so a clear this tab has not seen can still be
+// lost to its write. A store of the list's first versions holds one key, as a string
 function _cleared(item) {
   const kept = item?._global_store?._todoer?.cleared
   return Array.isArray(kept) ? kept : kept ? [kept] : []
 }
 
-// the two parts of such an item's row: its name when it has one, and the reply's first line (for
-// an item without a name and without such a line, its own first line)
-function _waiting_parts(item) {
+// the two parts of such an item's row: its name when it has one, and its first line (for `reply`,
+// the reply's first line, or the item's own first line when unnamed without one; for `item`, the
+// name and first visible line as `_item_preview` shows them)
+function _waiting_parts(item, kind = 'reply') {
+  if (kind == 'item') {
+    const { shown, body } = _item_preview(item)
+    const named = typeof item.name == 'string' && item.name.startsWith('#') && item.name.toLowerCase() != '#todo'
+    return named ? [shown, body] : ['', shown]
+  }
   const line = _reply_line(item.text)
   return item.label ? [item.label, line] : ['', line || _visible(String(item.text ?? '').split('\n')[0] ?? '')]
 }
 
-// clears such an item's row (the bell's click, a drop on the done bin): the reply the row SHOWED
-// (`key`) joins the item's cleared replies (_cleared: the last four added are kept). A newer
-// reply that arrived while the row was held or dragged has another key and goes on waiting.
+// clears such an item's row (the bell's click, a drop on the done bin): what the row SHOWED
+// (`key`) joins the item's cleared keys (_cleared: the last four added are kept). A newer reply
+// or stamp that arrived while the row was held or dragged has another key and goes on waiting.
 // False when there is nothing to clear
 function _clear_waiting(item, key) {
   if (!item || !key) return false
@@ -3068,7 +3121,7 @@ function _clear_waiting(item, key) {
   return true
 }
 
-// the list's start in the account: the baselines that keep the past out of it, in the #todoer
+// the list's start in the account: the baselines that keep the past out of it, in the todoer
 // item's own store. `rows_base` holds, for every chat whose last turn was a bridge reply then, a
 // mark of that reply's key: a reply waits by its OWN key, so an old chat that is selected or
 // edited later (the app moves an item's time then) stays out, and a new reply on it comes in.
@@ -3076,22 +3129,24 @@ function _clear_waiting(item, key) {
 // of the owner's has no mark, and shows if that turn is taken out again. A mark is 32 bits: a
 // replacement reply whose key has the same mark as the one before it on the same chat would
 // stay out (about one chance in four billion per replacement, if the marks spread evenly).
-// `bells_base` holds every todo's count of the times it had come up (_bells_now). Written in one
-// save, by a tab that has neither yet, only from a server-confirmed, currently served corpus past
-// a resume hold (the order save's rule, _order_save_step: a store is written whole from this
+// `bells_base` holds every todo's count of the times it had come up (_bells_now). `items_base`
+// holds every valid agent write stamp's time from `_agent.wrote` (_items_now). Written in one
+// save, by a tab that lacks any of them, only from a server-confirmed, currently served corpus
+// past a resume hold (the order save's rule, _order_save_step: a store is written whole from this
 // tab's copy); two tabs that start together can both write, each from its own view. An account
 // that ran the list's first versions has `rows_since` (a time) and no `rows_base`: what waited
 // under their rule (a chat changed after that time, its reply not cleared) goes on waiting, the
 // rest becomes the baseline. Whether the baselines stand
 function _rows_start() {
   const kept = _todoer._global_store
-  if (kept.rows_base && kept.bells_base) return true
+  if (kept.rows_base && kept.bells_base && kept.items_base) return true
   if (!_corpus_current(window) || _held()) return false
   const store = _todoer.global_store // one save for all of it
   const since = store.rows_since
   store.rows_base ??= _rows_now((item, key) => since > 0 && item.time > since && !_cleared(item).includes(key))
   store.rows_since ??= Date.now()
   store.bells_base ??= _bells_now()
+  store.items_base ??= _items_now()
   return true
 }
 
@@ -3116,6 +3171,19 @@ function _bells_now() {
     const count = item.tags.includes('#todo') ? _task_state(item)?.surfaced : 0
     if (count > 0) base[item.saved_id ?? item.id] = count
   })
+  return base
+}
+
+// every valid agent write stamp in the todoer store's `_agent.wrote` when this kind begins, by
+// saved id (`at`): the baseline of agent-written items' rows (`items_base`)
+function _items_now() {
+  const base = {}
+  const wrote = _item_writes()
+  if (!wrote) return base
+  for (const id of Object.keys(wrote)) {
+    const entry = _item_stamp({ saved_id: id })
+    if (entry) base[id] = entry.at
+  }
   return base
 }
 
@@ -3366,6 +3434,7 @@ function _scan_notify() {
     compared++
   })
   _notify_items()
+  if (_writes_changed()) _rerender_todoer_widgets()
   return compared
 }
 
