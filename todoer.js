@@ -160,6 +160,7 @@ function __render(widget, widget_item) {
   const options = widget_item.store[widget.id]?.options ?? {}
   let { tags = [], snoozed, delegated, storage_key } = options
   widget._snoozed = !!snoozed // read by a bin button's press (its snooze button brings a snoozed todo back)
+  widget._delegated = !!delegated // with _snoozed: neither says the main list (the rows' keys start there)
 
   // the bins: the AGENT bin (a delegation) comes FIRST on every widget, followed by
   // done/snooze/cancel on the main and snoozed lists; the delegated list (design 2.2) has the
@@ -1496,6 +1497,9 @@ function _on_search(text) {
 // draws its table of definitions from this file's comments (js_table), where a colour written
 // with its hash sign is read as a tag that no item carries (seen on a test page, 2026-11-24)
 const _BIN_BUTTONS = [
+  // the row before and the row after the selected one, in its list (the keys k and j do the same)
+  { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
+  { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
   { name: 'bell', title: 'Clear the notification', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
   { name: 'agent', title: 'Delegate to the agent', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
@@ -1520,6 +1524,7 @@ const _BIN_BUTTONS_CSS = `
 // todo's (a reply's) has the done and the delete button alone, as _bin_act has no more for it
 function _bin_buttons(target) {
   try {
+    _row_keys()
     __bin_buttons(target)
   } catch (e) {
     console.error(`bin buttons: ${e}`) // a fault of these buttons must never stop a list's render
@@ -1532,13 +1537,22 @@ function __bin_buttons(target) {
   const shown = !found
     ? []
     : _BIN_BUTTONS.filter(b =>
-        b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !!found.widget.querySelector('.bin.' + b.name) && !(todo_only && (b.name == 'agent' || b.name == 'snooze'))
+        b.name in _ROW_STEP
+          ? true
+          : b.name == 'bell'
+            ? !!found.row.querySelector('mark.waits')
+            : !!found.widget.querySelector('.bin.' + b.name) && !(todo_only && (b.name == 'agent' || b.name == 'snooze'))
       )
-  const specs = shown.map(b => ({ ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze' : b.title, press: () => _bin_press(b.name, target.id) }))
+  // (a row button at its list's end is dim: there is no row to go to)
+  const specs = shown.map(b =>
+    b.name in _ROW_STEP
+      ? { ...b, color: _row_beside(found.row, _ROW_STEP[b.name]) ? b.color : 'rgba(255, 255, 255, 0.25)', press: () => void _row_step(target.id, _ROW_STEP[b.name]) }
+      : { ...b, title: b.name == 'snooze' && found.widget._snoozed ? 'Unsnooze' : b.title, press: () => _bin_press(b.name, target.id) }
+  )
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
   // its click). This item's own code is part of it: an update draws them anew, with its presses
-  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, specs.map(spec => [spec.name, spec.title])])
+  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, specs.map(spec => [spec.name, spec.title, spec.color])])
   let piece = document.querySelector('.todoer-bin-buttons')
   // handed over on the window in every case: a strip that is drawn later (its item installed or
   // updated after this) takes them from there and says so (`taken`: the piece of their own goes)
@@ -1592,6 +1606,59 @@ function _bin_row(item) {
     if (row) found = { widget, row }
   })
   return found
+}
+
+// the row buttons and their keys: which way each goes in its list
+const _ROW_STEP = { up: -1, down: 1 }
+
+// the row beside the given one in its list, the one after it (`by` 1) or before it (-1); null at
+// the list's end
+function _row_beside(row, by) {
+  const other = by > 0 ? row?.nextElementSibling : row?.previousElementSibling
+  return other?.getAttribute?.('data-id') ? other : null
+}
+
+// the selection moves from the listed item to the row beside it (the up and the down button, the
+// keys k and j): nothing at its list's end, nothing for an item in no list. True where it moved
+function _row_step(id, by) {
+  const item = _item(id, { silent: true })
+  const beside = item ? _row_beside(_bin_row(item)?.row, by) : null
+  const next = beside ? _item(beside.getAttribute('data-id'), { silent: true }) : null
+  if (!next) return false
+  _select_item(next)
+  return true
+}
+
+// the keys j and k, handed on by the app where nobody took them (window._on_key): with a listed
+// item named by the box they go to the row after and before it; with none, j selects the first
+// row of the main list and k its last (the owner, 2026-11-24: "global j/k shortcuts that select
+// the first/last todo item, from main list only"). Only a plain press counts, and never while a
+// field has the focus. True where the key was the rows'
+function _on_row_key(key, e) {
+  const by = key == 'KeyJ' ? 1 : key == 'KeyK' ? -1 : 0
+  if (!by || e?.metaKey || e?.ctrlKey || e?.altKey || e?.shiftKey) return false
+  const active = document.activeElement
+  if (active && (active.isContentEditable || ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName))) return false
+  const named = _item(MindBox.get().trim(), { silent: true })
+  if (named && _bin_row(named)) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
+  const main = [...document.querySelectorAll('.todoer-widget')].find(widget => !widget._snoozed && !widget._delegated)
+  const rows = [...(main?.querySelectorAll('.list .list-item-container[data-id]') ?? [])]
+  const row = by > 0 ? rows[0] : rows[rows.length - 1]
+  const item = row ? _item(row.getAttribute('data-id'), { silent: true }) : null
+  if (!item) return false
+  _select_item(item)
+  return true
+}
+
+// takes the app's key hook for the rows' keys, once per evaluation of this item; a key that is
+// not the rows' goes on to whoever held the hook before
+function _row_keys() {
+  if (typeof window == 'undefined' || window._on_key?._todoer_keys === _on_row_key) return
+  const before = window._on_key?._todoer_keys ? window._on_key._todoer_before : window._on_key
+  const hook = (key, e) => (_on_row_key(key, e) ? void e?.preventDefault?.() : typeof before == 'function' ? before(key, e) : undefined)
+  hook._todoer_keys = _on_row_key
+  hook._todoer_before = before
+  window._on_key = hook
 }
 
 // the item of the row that follows the given place in a list, else of the one before it: what
