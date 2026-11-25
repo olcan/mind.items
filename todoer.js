@@ -836,7 +836,7 @@ function _complete_todo(item, log_text, { back = () => {}, gone = () => {} } = {
     alert('please reload to complete todos (app update required)')
     return false
   }
-  const draft = _draft_word(item, 'complete')
+  const draft = _draft_word(item, _BIN_DRAFT.done)
   if (draft) {
     // an open editor that holds the owner's draft (item.text is assigned when editing ends): a
     // whole-item write would replace the editor's text, so nothing is written. With nothing
@@ -1542,7 +1542,11 @@ function _listing_changed(item) {
 function _on_search(text) {
   const target_item = _item(text.trim(), { silent: true }) // null if text does not match item
   if (typeof _bin_buttons == 'function') _bin_buttons(target_item) // (a table loads this function alone)
-  if (typeof _send_selected == 'function') _send_selected(target_item) // (the other window keeps the same selection)
+  // (the other window keeps the same selection. This window is not held in place for it here: the
+  // app reports a search after it has begun to show the item, and a report that comes late, under
+  // quick selections, would hold the window wherever it is by then; seen in a browser, where five
+  // quick presses of j let the list slip down the page)
+  if (typeof _send_selected == 'function') _send_selected(target_item)
   // a named item renders the widgets that list it, so its row is marked: a todo's row, and the
   // row of an item that waits on the owner without being a todo (a reply's). Until 2026-11-24
   // only a todo's name went on from here, and a reply's row stayed unmarked until something
@@ -1581,9 +1585,10 @@ const _BIN_BUTTONS = [
   { name: 'snooze', title: 'Snooze (s)', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
   { name: 'cancel', title: 'Delete (x)', color: '#f66', icon: 'M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4M6.8 7v3.6M9.2 7v3.6' },
   { name: 'owner', title: 'Take back from the agent (u)', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
-  // the window's switch (_window_button): this window and another one of the app keep one selection; two panes.
-  // The last of these buttons, shown whether or not a row is selected, while another window is there or it is on
-  { name: 'window', title: 'Link the selection with the other window (w)', color: 'rgba(255, 255, 255, 0.25)', icon: 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z' },
+  // the windows' link (_window_button): this window and another one of the app keep one selection; two panes,
+  // of which the list's window has the left one lit and the window that shows the item the right one.
+  // The last of these buttons, shown whether or not a row is selected, while another window is there or the link is on
+  { name: 'window', title: 'Link the selection with the other window: this one keeps the list (w)', color: 'rgba(255, 255, 255, 0.25)', icon: 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z' },
 ]
 const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
@@ -1596,7 +1601,8 @@ const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons > button.fill > svg { fill: currentColor; stroke: none }
 `
 
-// draws the buttons for the item the box names (null: none), from the first mounted list that
+// draws the buttons for the item the box names (null: none of a row's; the windows' link has its
+// button with or without a row, _window_button), from the first mounted list that
 // holds its row (_bin_row): its bell, then that list's bins, in their order. A row that is not a
 // todo's (a reply's) has its bell and none of the bins' buttons (_row_buttons)
 function _bin_buttons(target) {
@@ -1693,9 +1699,16 @@ function _bin_row(item) {
 // buttons and remain visible even when no todoer item is selected")
 function _window_button() {
   const on = _send_on()
+  const shown = !on && !!_send_shown()
   if (!on && !_send_peer()) return null
   const spec = _BIN_BUTTONS.find(b => b.name == 'window')
-  return { ...spec, ...(on ? { title: 'The selection is linked with the other window: unlink (w)', color: 'rgb(102, 255, 255)' } : {}), press: () => void _send_toggle() }
+  // (the lit pane is the outline with three strokes in it: at this size they read as filled)
+  const lit = on
+    ? { title: 'Linked: this window keeps the list, the other one shows the item. Unlink (w)', icon: spec.icon + 'M3.2 5v6M4.25 5v6M5.3 5v6' }
+    : shown
+      ? { title: 'Linked: this window shows the item, the other one keeps the list. Unlink (w)', icon: spec.icon + 'M10.7 5v6M11.75 5v6M12.8 5v6' }
+      : null
+  return { ...spec, ...(lit ? { ...lit, color: 'rgb(102, 255, 255)' } : {}), press: () => void _send_press() }
 }
 
 // the row buttons and their keys: which way each goes in its list
@@ -1762,7 +1775,7 @@ function _on_row_key(key, e) {
   }
   if (win) {
     if (!_send_on() && !_send_peer()) return false
-    if (!e?.repeat) _send_toggle()
+    if (!e?.repeat) _send_press()
     return true
   }
   if (found) return _row_step(named.id, by), true // (at its list's end the key is still the rows')
@@ -1782,8 +1795,19 @@ function _row_now() {
   return named ? _bin_row(named) : null
 }
 
-// whether the key of a row button would do something now: a row is selected and has the button
+// whether the key of a row button is the rows' now: a row is selected and has the button
 const _row_has = name => (found => !!found && _row_buttons(found).some(b => b.name == name))(_row_now())
+
+// whether a press of the named button would be CARRIED OUT now, for the row of the item the box
+// names: the row has the button (_row_has: the key is the rows' then), no earlier press is still
+// being carried out (_bin_press takes one at a time, and says so in the console) and no unsaved
+// edit in the item's open editor stands in its way (_BIN_DRAFT: those presses say so in an
+// alert). It reads and changes nothing: the shortcuts' menu asks it, and a press refuses by
+// these same tests
+function _row_can(name) {
+  if (!_row_has(name) || window._todoer_bin_busy) return false
+  return !(Object.hasOwn(_BIN_DRAFT, name) && _draft(_item(MindBox.get().trim(), { silent: true })))
+}
 
 // whether j (`by` 1) or k (-1) has a row to go to now: with a row selected (`selected`) the row
 // beside it in its list, and with none any row of the main list (its first or its last)
@@ -1795,19 +1819,24 @@ function _row_goes(by, selected) {
 
 // what the menu of the shortcuts item lists for this item (shortcuts.js: an item writes a list
 // under a section's name on the window; without that item nothing reads it). Each entry's test
-// says whether its key would do something now: the menu opens on those alone
+// says whether its key would do something now (_row_goes: there is a row to go to; _row_can: the
+// press would be carried out): the menu opens on those alone. The words (`when`) say the
+// standing condition: which row, its place in its list, an unsaved edit. They leave out the one
+// that passes by itself: while an earlier press on a row is still being carried out (its
+// dialog open, a delegation under way) no other button's key is carried out
+const _ROW_SAVED = ', with no unsaved edit in it'
 const _ROW_SHORTCUTS = [
-  { keys: 'j', does: 'the next row', when: 'a row is selected', active: () => _row_goes(1, true) },
+  { keys: 'j', does: 'the next row', when: 'a row is selected that is not the last of its list', active: () => _row_goes(1, true) },
   { keys: 'j', does: "the main list's first row", when: 'no row is selected', active: () => _row_goes(1, false) },
-  { keys: 'k', does: 'the previous row', when: 'a row is selected', active: () => _row_goes(-1, true) },
+  { keys: 'k', does: 'the previous row', when: 'a row is selected that is not the first of its list', active: () => _row_goes(-1, true) },
   { keys: 'k', does: "the main list's last row", when: 'no row is selected', active: () => _row_goes(-1, false) },
-  { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected', active: () => _row_has('agent') },
-  { keys: 'd', does: 'done', when: 'a todo is selected', active: () => _row_has('done') },
-  { keys: 's', does: 'snooze', when: 'a todo is selected', active: () => _row_has('snooze') && !_row_now().widget._snoozed },
-  { keys: 's', does: 'unsnooze', when: 'a snoozed todo is selected', active: () => _row_has('snooze') && !!_row_now().widget._snoozed },
-  { keys: 'x', does: 'delete, after a question', when: 'a todo is selected', active: () => _row_has('cancel') },
-  { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected', active: () => _row_has('bell') },
-  { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected', active: () => _row_has('owner') },
+  { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('agent') },
+  { keys: 'd', does: 'done', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('done') },
+  { keys: 's', does: 'snooze', when: 'a todo that is not snoozed is selected', active: () => _row_can('snooze') && !_row_now().widget._snoozed },
+  { keys: 's', does: 'unsnooze', when: 'a snoozed todo is selected', active: () => _row_can('snooze') && !!_row_now().widget._snoozed },
+  { keys: 'x', does: 'delete, after a question', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('cancel') },
+  { keys: 'b', does: 'clear the bell', when: 'a row with a bell is selected', active: () => _row_can('bell') },
+  { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected' + _ROW_SAVED, active: () => _row_can('owner') },
 ]
 
 // takes the app's key hook for the rows' keys, once per evaluation of this item; a key that is
@@ -1943,6 +1972,12 @@ function _draft(item) {
   return !textarea || bare(textarea.value) != bare(item.text)
 }
 
+// the presses that such a draft refuses, each with the word its refusal says (_draft_word): they
+// write into the item's text, or delete it. A snooze, an unsnooze and the clearing of a bell
+// leave the text alone and are carried out over a draft. One table for the refusals and for
+// what the shortcuts' menu lists (_row_can), so that the two cannot say different things
+const _BIN_DRAFT = { agent: 'delegate', done: 'complete', cancel: 'delete', owner: 'take back' }
+
 // the word for an action refused because of such a draft, or null where there is none (the
 // owner, 2026-11-24: refused only when what is typed differs from what is saved)
 function _draft_word(item, what) {
@@ -1953,7 +1988,7 @@ function _draft_word(item, what) {
 // open editor holds a draft; `sure` asks the app's question whatever the item (a row that is not
 // a todo's, and every press of the button). True where it was deleted
 function _delete_listed(item, sure = false) {
-  const word = _draft_word(item, 'delete')
+  const word = _draft_word(item, _BIN_DRAFT.cancel)
   if (word) {
     alert(word)
     return false
@@ -2372,7 +2407,7 @@ function _carried_write() {
 async function _delegate(item, write = _carried_write()) {
   item = _task_target(item, 'delegate')
   if (!item) return false
-  const draft = _draft_word(item, 'delegate') // the marker's write would replace what the editor holds
+  const draft = _draft_word(item, _BIN_DRAFT.agent) // the marker's write would replace what the editor holds
   if (draft) {
     alert(draft)
     return false
@@ -2431,7 +2466,7 @@ function _delegated_view(view) {
 async function _takeback(item) {
   item = _task_target(item, 'take back')
   if (!item) return false
-  const draft = _draft_word(item, 'take back') // the bridge's write of its marker follows
+  const draft = _draft_word(item, _BIN_DRAFT.owner) // the bridge's write of its marker follows
   if (draft) {
     alert(draft)
     return false
@@ -3343,31 +3378,72 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 // block its own scroll to the selected item since that's the main goal here: to keep the list in
 // view and avoid jumping back and forth in the same window", and "we will want to keep the list
 // consistent with the selection in the other window ... their todoer selection would be synced
-// but one of the windows would refuse to scroll to the selection"). A window's switch (the button
-// with two panes after a row's buttons, the key w; shown while another window of the app is there or it is on, _window_button; kept for the window in its session
-// storage, so across its reloads) makes it the LIST'S window: while it is on, this window and ONE
-// other window of the app keep the same selected item. A selection made here, whatever made it
-// (a row's click, the rows' keys and buttons, the row selected after an action, a click on an
-// item's number or a tag: every search the app reports that names an item), is asked of the
-// other window, which shows the item as a notification's click does, without coming forward; a
-// selection made there is made here too. The list's window never scrolls for either
-// (_select_item). Only an item's selection is passed on: a search text stays in its window.
-// Which window: of the app's other windows in this browser profile that have said they are there
-// (a BroadcastChannel; the same account only), the one used last (a focus, a press, a key). With
-// no such window, or with none that answers within SEND_ACK_MS, a selection made here is shown
-// here, as without the switch. An item is told by its saved id, so a new one once it is saved
+// but one of the windows would refuse to scroll to the selection").
+// ONE LINK between two windows of the app (the owner, of two switches: "presumably i should not
+// be allowed to toggle both"; "perhaps one side highlights one half the icon and the other the
+// other"). Its button, the one with two panes, is the last of the todoer's buttons, with the key
+// w, shown in every window while another window of the app is there or the link is on
+// (_window_button). The window it is pressed in becomes the LIST'S window (kept in that window's
+// session storage, so across its reloads) and has the left pane lit; the window that shows its
+// selections has the right pane lit; a press in either ends the link (_send_press). Only one
+// window of an account keeps the list at a time: a later one takes it over (_start_windows).
+// While the link is on, the two windows keep the same selected item. A selection made in the
+// list's window, whatever made it (a row's click, the rows' keys and buttons, the row selected
+// after an action, a click on an item's number or a tag, a name typed into the box: every
+// search the app reports that names an item), is asked of the other window, which shows the
+// item as a row's click does, without coming forward; a selection made there is made in the
+// list's window too. For a selection made by its rows (their clicks, keys and buttons, the row
+// selected after an action) and for one taken from the other window, the list's window does not
+// go to the item: it holds its place, and moves only as far as it takes to keep the selected ROW
+// in view (_stay_put, from _select_item). A selection made in the list's window in any other way
+// is its owner's act on that window and scrolls it as ever: a click on an item's number or tag
+// there, a name typed into its box, an item created there (which has no saved id while its
+// editor is open, and is told to the other window once it is saved). Only an item's selection
+// is passed on: a search text stays in its window.
+// Which window is the other one: of the app's other windows in this browser profile that have
+// said they are there (a BroadcastChannel; the same account only), the one used last (a focus,
+// a press, a key). With no such window, or where that window does not answer within
+// SEND_ACK_MS, a selection made in the list's window is shown there, as without the link. An
+// item is told by its saved id
 const SEND_KEY = 'mindpage_todoer_send'
 const SEND_CHANNEL = 'mindpage_todoer_windows'
-const SEND_ACK_MS = 300
+const SEND_ACK_MS = 3000 // (a window that is busy with its own update answers late: a large account's selection can hold its page for more than a second)
 const SEND_HELLO_MS = 30 * 1000 // a window says that it is there this often (a hidden tab's timers run about once a minute)
 const SEND_STALE_MS = 2 * 60 * 1000 // a window not heard from for this long is taken to be gone
 
 function _send_on() {
+  return _send_since() > 0
+}
+
+// when this window became the list's window (0: it is not): the switch's own value, so that of
+// two windows that both say they keep the list the later one is right
+function _send_since() {
   try {
-    return sessionStorage.getItem(SEND_KEY) == '1'
+    const kept = sessionStorage.getItem(SEND_KEY)
+    return kept ? Number(kept) || 1 : 0
   } catch (e) {
-    return false
+    return 0
   }
+}
+
+// the list's window whose selections THIS window shows (its id), or null: a window heard from
+// lately that keeps the list and names this window as the one it shows in
+function _send_shown(now = Date.now()) {
+  const windows = window._todoer_windows
+  if (!windows) return null
+  for (const [id, peer] of windows.peers) if (peer.on && peer.to === windows.me && now - peer.seen <= SEND_STALE_MS) return id
+  return null
+}
+
+// the button's press and its key: ONE link between two windows, ended from either of them (the
+// owner, 2026-11-25: "the selection linking button is visible on both windows, which is a bit
+// odd, and presumably i should not be allowed to toggle both"). In the list's window it ends
+// the link; in the window that shows the item it asks the list's window to end it; in any other
+// window it makes this window the list's window
+function _send_press() {
+  const from = _send_on() ? null : _send_shown()
+  if (from) return void window._todoer_windows.say('unlink', { to: from })
+  _send_toggle()
 }
 
 // the other window to ask: the one used last among those heard from lately; null for none
@@ -3383,14 +3459,15 @@ function _send_peer(now = Date.now()) {
 // whether this window's selections go to another window now
 const _send_ready = () => _send_on() && !!_send_peer()
 
-// turns this window's switch (to `on`, or over); the buttons are drawn anew, and the other
-// windows are asked to say that they are there
+// makes this window the list's window (`on`), or ends that (to `on`, or over); the buttons are
+// drawn anew, and the other windows hear of it: asked to say that they are there where it goes
+// on, told where it goes off
 function _send_toggle(on = !_send_on()) {
   try {
-    if (on) sessionStorage.setItem(SEND_KEY, '1')
+    if (on) sessionStorage.setItem(SEND_KEY, String(Date.now()))
     else sessionStorage.removeItem(SEND_KEY)
   } catch (e) {}
-  if (on) window._todoer_windows?.say('who')
+  window._todoer_windows?.say(on ? 'who' : 'hello') // (every message says what this window is now: _start_windows)
   _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
   return _send_on()
 }
@@ -3398,9 +3475,10 @@ function _send_toggle(on = !_send_on()) {
 // tells the other windows that this window has selected `item` (null: none, a search text or an
 // empty box), once per item (`forced`: again, a click on the row that is selected already). The
 // list's window names the window that is to show it and waits for its answer; any other window
-// says it for a list's window that follows it. True where a window was asked to show it (this
-// window then stays where it is). An answer that does not come shows the item here after all
-// (where the box still names it), and that window is forgotten until it says hello
+// says it for a list's window that follows it. True where a window was asked to show it (the
+// caller then keeps this window where it is: _stay_put). An answer that does not come within
+// SEND_ACK_MS shows the item here after all (where the box still names it; no second window is
+// tried), and that window is forgotten until it is heard from again
 function _send_selected(item, forced = false) {
   const windows = window._todoer_windows
   if (!windows) return false
@@ -3414,7 +3492,7 @@ function _send_selected(item, forced = false) {
   if (!forced && windows.last === id) return false
   windows.last = id
   const to = _send_on() ? _send_peer() : null
-  if (!to) return windows.say(_send_on() ? 'who' : 'selected', { item: id }), false
+  if (!to) return _send_on() ? windows.say('who') : windows.say('selected', { item: id }), false
   const n = `${_notifier_id()}:${++windows.n}`
   windows.say('selected', { item: id, to, n })
   windows.waits.set(
@@ -3422,14 +3500,19 @@ function _send_selected(item, forced = false) {
     setTimeout(() => {
       windows.waits.delete(n)
       windows.peers.delete(to)
-      if (_item(MindBox.get().trim(), { silent: true })?.id === item.id) MindBox.scroll_to_target()
+      _bin_buttons(_item(MindBox.get().trim(), { silent: true })) // (the link's button follows)
+      if (_item(MindBox.get().trim(), { silent: true })?.id === item.id) {
+        windows.hold?.()
+        MindBox.scroll_to_target()
+      }
     }, SEND_ACK_MS)
   )
   return true
 }
 
 // tells the other windows of a selected item that has no saved id yet, once it has one: looked at
-// four times a second for ten seconds, and given up where the box names something else by then
+// four times a second for about ten seconds, and given up where the box names something else by
+// then
 function _send_when_saved(item, tries = 40) {
   const windows = window._todoer_windows
   windows.saving = setTimeout(() => {
@@ -3440,11 +3523,14 @@ function _send_when_saved(item, tries = 40) {
   }, 250)
 }
 
-// makes another window's selection this window's too, as a notification's click selects an item
-// (a todo's line marked), without coming forward and without saying it back (the search it makes
-// here is the same item's). `asked`: by a list's window, which is told at once that it was heard.
-// An item created a moment ago in the other window arrives here a little after its save: it is
-// looked for four times a second for three seconds
+// makes another window's selection this window's too, as a click on its row selects an item,
+// without coming forward and without saying it back (the search it makes here is the same
+// item's). No line of a todo is marked for it: the core's mark looks for its text in whatever
+// item the page shows at that moment, which under quick selections is still the one before, and
+// said so in the console (seen in a browser under j pressed quickly). `asked`: by a list's
+// window, which is told at once that it was heard. An item created a moment ago in the other
+// window arrives here a little after its save: it is looked for four times a second for three
+// seconds
 function _send_take(message, asked, tries = 12) {
   const windows = window._todoer_windows
   if (typeof message.item != 'string') return false
@@ -3455,8 +3541,7 @@ function _send_take(message, asked, tries = 12) {
     return false
   }
   windows.last = item.saved_id ?? item.id
-  const text = item.tags_visible?.includes('#todo') ? _extract_todo_snippet(item) : null
-  return _select_item(item, text ? _todo_line(text) : null, false, true)
+  return _select_item(item, null, false, true)
 }
 
 // the windows' channel, once per page (as the notifier's listeners): each window says that it is
@@ -3467,22 +3552,42 @@ function _start_windows() {
   if (window._todoer_windows || typeof BroadcastChannel != 'function') return
   const me = _notifier_id()
   const account = () => window._user?.uid ?? null
-  const windows = (window._todoer_windows = { channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), waits: new Map(), n: 0, last: null, used: document.hasFocus() ? Date.now() : 0, said: 0 })
+  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), waits: new Map(), n: 0, last: null, used: document.hasFocus() ? Date.now() : 0, said: 0 })
+  // (every message says what its window is: whether it keeps the list, since when, and which
+  // window it shows its selections in; the others draw their buttons by it)
   windows.say = (type, more = {}) => {
+    if (_notify_account_left()) return // (a window whose account was left is no window of this account)
     try {
-      windows.channel.postMessage({ type, id: me, uid: account(), used: windows.used, ...more })
+      const since = _send_since()
+      windows.channel.postMessage({ type, id: me, uid: account(), used: windows.used, on: since > 0, since, to: since > 0 ? _send_peer() : null, ...more })
     } catch (e) {}
   }
+  // what this window's button shows: redrawn when it changes
+  const look = () => `${!!_send_peer()}|${_send_on()}|${_send_shown()}`
   windows.channel.onmessage = event => {
     const message = event?.data
     if (!message || typeof message != 'object' || typeof message.id != 'string' || message.id == me) return
     if ((message.uid ?? null) !== account() || _notify_account_left()) return
-    // (the switch's button shows while another window is there: drawn anew when the first one comes or the last one goes)
-    const there = !!_send_peer()
+    // (the link's button shows while another window is there, and says which of the two this
+    // window is: drawn anew when that changes)
+    const before = look()
+    const shows = _send_on() ? _send_peer() : null
     if (message.type == 'bye') windows.peers.delete(message.id)
-    else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now() })
-    if (!!_send_peer() != there) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
-    if (message.type == 'bye') return
+    else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now(), on: !!message.on, to: message.to ?? null, since: Number(message.since) || 0 })
+    // ONE list's window: of two that both say they keep the list, the one that said so later
+    // stays (the same moment: the greater id), and the other gives way
+    const mine = _send_since()
+    if (message.on && mine > 0 && message.type != 'bye') {
+      const theirs = Number(message.since) || 0
+      if (theirs > mine || (theirs == mine && message.id > me)) _send_toggle(false)
+      else if (message.type != 'who') windows.say('hello')
+    }
+    // asked by the window that shows this one's selections to end the link
+    else if (message.type == 'unlink' && message.to == me && mine > 0) _send_toggle(false)
+    // (the window this one shows in is another now: the others are told, for their buttons)
+    else if (_send_on() && _send_peer() != shows && message.type != 'who') windows.say('hello')
+    if (look() != before) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    if (message.type == 'bye' || message.type == 'unlink') return
     if (message.type == 'who') windows.say('hello')
     // (a list's window asks this one to show its selection; or this is a list's window, and the
     // window it goes with has selected something)
@@ -3506,11 +3611,11 @@ function _start_windows() {
   document.addEventListener('keydown', used, true)
   window.addEventListener('pagehide', () => windows.say('bye'))
   // (a window that went without a word is forgotten after SEND_STALE_MS: the button follows at the next of these)
-  let there = false
+  let drawn = look()
   setInterval(() => {
     windows.say('hello')
-    if (!!_send_peer() != there) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
-    there = !!_send_peer()
+    if (look() != drawn) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    drawn = look()
   }, SEND_HELLO_MS)
   windows.say('who')
 }
@@ -3521,22 +3626,41 @@ function _start_windows() {
 // SEND_HOLD_MS. A wheel, a touch, a press or a key of the owner's ends the hold at once: the
 // window is theirs to move
 const SEND_HOLD_MS = 1500
+const SEND_HOLD_STEP_MS = 100 // the hold's time is counted in steps of this length
 function _hold_scroll(top) {
   const windows = window._todoer_windows
   windows?.hold?.()
   const put = () => void (document.body.scrollTop != top && (document.body.scrollTop = top))
   const inputs = ['wheel', 'touchstart', 'pointerdown', 'keydown']
-  const end = () => {
+  const end = e => {
     document.removeEventListener('scroll', put, true)
     inputs.forEach(type => window.removeEventListener(type, end, true))
     clearTimeout(timer)
     if (windows?.hold === end) windows.hold = null
+    if (e?.type == 'keydown') put()
   }
   document.addEventListener('scroll', put, { capture: true, passive: true })
   inputs.forEach(type => window.addEventListener(type, end, { capture: true, passive: true }))
-  const timer = setTimeout(end, SEND_HOLD_MS)
+  // (counted in short steps, each started when the one before it has run: a page that is busy
+  // for longer than the hold, as a large account's update can be, has then spent one step of it,
+  // not all, and the hold still stands when the app's scroll comes after the wait)
+  let left = Math.ceil(SEND_HOLD_MS / SEND_HOLD_STEP_MS)
+  const step = () => void (--left > 0 ? (timer = setTimeout(step, SEND_HOLD_STEP_MS)) : end())
+  let timer = setTimeout(step, SEND_HOLD_STEP_MS)
   if (windows) windows.hold = end
   put()
+}
+
+// the list's window stays where it is for a selection it shares with another window: its
+// position is held while the app brings the item into view (_hold_scroll), and moved just far
+// enough to keep the selected ROW in view, once the page has its update (_row_view_top)
+function _stay_put(item) {
+  const top = document.body.scrollTop
+  _hold_scroll(top)
+  _update_dom().then(() => {
+    const to = _row_view_top(item, top)
+    if (to != top) _hold_scroll(to)
+  })
 }
 
 // the scroll position that keeps the row of `item` in view from the position `top`: `top` itself
@@ -3574,17 +3698,8 @@ function _select_item(item, selection, checked = false, received = false) {
     return true
   }
   // the list's window stays where it is, for a selection it shares with another window (made
-  // here and shown there, or made there and taken here): its position is held while the app
-  // brings the item into view (_hold_scroll)
-  const top = (received ? _send_on() : _send_selected(item, true)) ? document.body.scrollTop : null
-  if (top != null) {
-    _hold_scroll(top)
-    // (and moves just far enough to keep the selected ROW in view, once the page has its update)
-    _update_dom().then(() => {
-      const to = _row_view_top(item, top)
-      if (to != top) _hold_scroll(to)
-    })
-  }
+  // here and shown there, or made there and taken here)
+  if (received ? _send_on() : _send_selected(item, true)) _stay_put(item)
   if (!item.select()) return false
   if (checked) _select_range(item, ranged ? selection : null)
   else if (selection) MindBox.select_in_target(selection)

@@ -4,6 +4,7 @@
 - Select a row (a click, or **`j`** and **`k`**) for its buttons and their keys: **`a`** agent, **`d`** done, **`s`** snooze, **`x`** delete, **`b`** clear the bell, **`u`** take back.
 - A bell says why a row came up; a chat with a new reply from the agent is listed with a `reply` bell. A click on a bell clears it.
 - `/notify on` turns on desktop notifications for what waits on you.
+- With a second window of the app open, **`w`** (or the button with two panes) links the two windows: a selection made in one is made in the other, and the window you pressed it in stays on its list (its button has the left pane lit, the other window's the right one). **`w`** in either window ends the link.
 #### Commands
 << command_table() >>
 #### Functions
