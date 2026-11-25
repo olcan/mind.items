@@ -1140,8 +1140,8 @@ const VAULT_SPARKLE_CSS = `
 .vault-sparkle-menu > div[data-vault-tip="line"] { max-width: min(330px, calc(100vw - 64px)); padding: 0 12px 3px 22px }
 @media (hover: none) { .vault-sparkle-menu, .vault-sparkle-menu > button, .vault-sparkle-backdrop { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none } }
 @media (pointer: coarse) { .vault-sparkle { right: 10px; bottom: 6px; width: 32px; height: 32px } .vault-sparkle-menu { bottom: 46px } }
-/* A TRIAL ON THE PREVIEW, not the sparkle's (the owner, 2026-11-24: "can we give the inert section in task items (not the ones in chats that already have a header with margin) a 5px upper margin?"): 5 px more room above an agent's sections in an item that is no chat, closed (2 px of the app's own, so 7) and open (5 px of the app's own, so 10). The app's stylesheet is the place for it at the release */
-.item:not(.dep_chat) > .content span.inert-block { margin-top: 7px !important }
+/* A TRIAL ON THE PREVIEW, not the sparkle's (the owner, 2026-11-24: "can we give the inert section in task items (not the ones in chats that already have a header with margin) a 5px upper margin?"): more room above an agent's sections in an item that is no chat; then "let me also see 10px open or closed": 10 px above them, closed (the app's own is 2) and open (the app's own is 5). The app's stylesheet is the place for it at the release */
+.item:not(.dep_chat) > .content span.inert-block { margin-top: 10px !important }
 .item:not(.dep_chat) > .content span.inert-block:is(.opened, .matched:not(.closed)), .container.target .item:not(.dep_chat) > .content span.inert-block:not(.closed) { margin-top: 10px !important }
 `
 const VAULT_SPARKLE_SVG =
