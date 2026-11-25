@@ -140,5 +140,77 @@ check(
   (html_tmpl.match(/%name/g) ?? []).length
 )
 
+// chat.css role-row rules in chats the bridge answers (2026-11-24): inside the trial look's scope
+// `.dep_chat > .content:has(.vault-result)` and in no wider scope, role-row headers set `.label`
+// font-size to 80% and `.message` margin-top to 5px
+{
+  const css = fs
+    .readFileSync(path.join(__dirname, '..', 'chat.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  const splitTopLevel = str => {
+    const out = []
+    let depth = 0
+    let start = 0
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '(') depth++
+      else if (str[i] === ')') depth = Math.max(0, depth - 1)
+      else if (str[i] === ',' && depth === 0) {
+        out.push(str.slice(start, i))
+        start = i + 1
+      }
+    }
+    out.push(str.slice(start))
+    return out
+  }
+  const rules = []
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selectors = splitTopLevel(m[1])
+      .map(s => s.trim().replace(/\s+/g, ' '))
+      .filter(Boolean)
+    const decls = m[2]
+      .split(';')
+      .map(d => d.trim())
+      .filter(Boolean)
+      .map(d => {
+        const i = d.indexOf(':')
+        return i < 0 ? null : [d.slice(0, i).trim().toLowerCase(), d.slice(i + 1).trim().replace(/\s+/g, ' ')]
+      })
+      .filter(Boolean)
+    for (const sel of selectors) rules.push({ sel, decls })
+  }
+  const SCOPE = '.dep_chat > .content:has(.vault-result)'
+  const inScope = sel => sel === SCOPE || sel.startsWith(`${SCOPE} `) || sel.startsWith(`${SCOPE}>`)
+  const hasDecl = (r, prop, val) => r.decls.some(([p, v]) => p === prop && (val === undefined || v === val))
+  const tailOf = sel => sel.split(/[\s>]+/).at(-1) ?? ''
+  const targetsLabel = sel => /(?:^|\.)label(?=$|[:.[])/.test(tailOf(sel))
+  const targetsMessageRow = sel => {
+    const tail = tailOf(sel)
+    return !tail.startsWith('code') && /(?:^|\.)message(?=$|[:.[])/.test(tail)
+  }
+
+  check(
+    'chat.css: role row label font-size is 80% in inert-chat scope (.dep_chat > .content:has(.vault-result))',
+    rules.some(r => r.sel === `${SCOPE} .message .label` && hasDecl(r, 'font-size', '80%')),
+    true
+  )
+  check(
+    'chat.css: role row top margin is 5px in inert-chat scope (.dep_chat > .content:has(.vault-result))',
+    rules.some(r => r.sel === `${SCOPE} .message` && hasDecl(r, 'margin-top', '5px')),
+    true
+  )
+  check(
+    'chat.css: no wider-scope rule sets role row label font-size or role row top margin',
+    {
+      labelWider: rules
+        .filter(r => targetsLabel(r.sel) && hasDecl(r, 'font-size') && !inScope(r.sel))
+        .map(r => r.sel),
+      rowMarginWider: rules
+        .filter(r => targetsMessageRow(r.sel) && (hasDecl(r, 'margin-top') || hasDecl(r, 'margin')) && !inScope(r.sel))
+        .map(r => r.sel),
+    },
+    { labelWider: [], rowMarginWider: [] }
+  )
+}
+
 console.log(failures ? `${failures} failures` : 'all checks passed')
 process.exit(failures ? 1 : 0)

@@ -194,6 +194,13 @@ const picked =
     '_listed',
     '_render_todoer_widget',
     '_on_search',
+    '_complete_todo',
+    '_bin_act',
+    '_draft',
+    '_draft_word',
+    '_delete_listed',
+    '_next_listed',
+    '_select_next',
   ]).join('\n') +
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
@@ -1363,7 +1370,7 @@ delete context.__todos.p
   check('confirm: an unchecked box writes the time alone, removing an earlier flag', snoozable.global_store, { _todoer: { snoozed: 9000 } })
   // the drop's handler and the dialog's markup (the render, which the table cannot run): pinned by the sources
   const modal_html = fs.readFileSync(path.join(__dirname, '..', 'todoer-snooze-modal.html'), 'utf8')
-  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {12}else _snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
+  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {14}_snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
   check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
   check('drag: the snoozed list\'s bin unsnoozes as the owner\'s own act', /\n {10}_unsnooze\(item, true\) \/\//.test(src), true)
   const swept = { global_store: { _todoer: { snoozed: 100, notify: true } } }
@@ -1602,6 +1609,97 @@ const { replaceTags, parseTags } = (() => {
   const taken = await _on_command_takeback('#other', '#other')
   check('takeback: handled, it returns nothing and the command is enqueued', [taken === undefined, docs.at(-1).cmd.kind, docs.at(-1).cmd.task, docs.length], [true, 'takeback', 's2', 7])
   check('takeback: a missing item is refused, the command kept', [await _on_command_takeback('id:nope', 'id:nope'), alerts.at(-1), docs.length], ['/takeback id:nope', '/takeback: id:nope missing or ambiguous', 7])
+  // an item open in its editor (the owner, 2026-11-24): a draft typed there (the editor's text is
+  // not the item's) refuses the delegation and the take-back with a word, the command kept and
+  // nothing enqueued; the editor's own zero-width spaces are no draft, and with nothing typed both
+  // go through, the delegation's marker written with its save asked for. An editor that cannot be
+  // read counts as holding a draft
+  const edited = (id, typed, readable = true) => {
+    const item = make(id, null, '#todo edit me\n', 's-' + id)
+    const saves = []
+    Object.assign(item, { editing: true, elem: { querySelector: () => (readable ? { value: typed(item.text) } : null) }, write: (t, type, options) => (saves.push(options), (item.text = t), true) })
+    return [item, saves]
+  }
+  const [drafted] = edited('e1', text => text + 'typed since')
+  check('delegate: a draft in the item\'s open editor refuses it with a word, nothing enqueued, the command kept', [await _on_command_delegate('e1', 'e1'), alerts.at(-1), docs.length, drafted.text], ['/delegate e1', 'can not delegate e1 with unsaved changes: save or cancel your edit first', 7, '#todo edit me\n'])
+  check('takeback: the same draft refuses it', [await _on_command_takeback('e1', 'e1'), alerts.at(-1), docs.length], ['/takeback e1', 'can not take back e1 with unsaved changes: save or cancel your edit first', 7])
+  edited('e2', text => text, false)
+  check('delegate: an editor that cannot be read counts as a draft', [await _on_command_delegate('e2', 'e2'), alerts.at(-1), docs.length], ['/delegate e2', 'can not delegate e2 with unsaved changes: save or cancel your edit first', 7])
+  const [open, saves] = edited('e3', text => text.split('').join(String.fromCharCode(0x200b)))
+  check('delegate: an open editor with nothing typed (its zero-width spaces are no draft) delegates, and the marker\'s write asks for its save', [await _on_command_delegate('e3', 'e3'), docs.at(-1).cmd.task, docs.length, open.text, saves], [null, 's-e3', 8, '#todo [delegated] edit me\n#_agent/vault\n', [{ skip_save: false }]])
+  check('takeback: the same open editor takes it back', [(await _on_command_takeback('e3', 'e3')) === undefined, docs.at(-1).cmd.kind, docs.length], [true, 'takeback', 9])
+  // an edit typed into an open editor while the enqueue is waiting is kept: _delegate rechecks
+  // _draft(item) after the await, leaves the marker write out with a console warning, and still
+  // returns true (the command was accepted); with nothing typed the marker is written as before
+  {
+    const origEnqueue = context.window._enqueue_hidden_document
+    const origConsole = context.console
+    const warns = []
+    context.console = { ...origConsole, warn: m => warns.push(m) }
+    try {
+      const runHeld = async (id, typeDuringWait) => {
+        let release
+        const hold = new Promise(r => (release = r))
+        const docsBefore = docs.length
+        context.window._enqueue_hidden_document = async (name, cmd) => {
+          docs.push({ name, cmd })
+          await hold
+          return { id: 'doc-' + cmd.id, written: Promise.resolve() }
+        }
+        const item = make(id, null, '#todo prepare\n', 's-' + id)
+        const ta = { value: item.text }
+        const writes = []
+        Object.assign(item, {
+          editing: true,
+          elem: { querySelector: () => ta },
+          write: (t, type, options) => (writes.push({ t, type, options }), (item.text = t), (ta.value = t), true),
+        })
+        const pending = context._delegate(item)
+        if (typeDuringWait) ta.value = typeDuringWait
+        release()
+        const ok = await pending
+        return {
+          ok,
+          enqueued: docs.length - docsBefore,
+          body: docs.at(-1).cmd.body,
+          editor: ta.value,
+          text: item.text,
+          writes: writes.length,
+          saveOpts: writes[0]?.options ?? null,
+        }
+      }
+      const typed = await runHeld('e4', '#todo prepare a draft\n')
+      const clean = await runHeld('e5', null)
+      check(
+        'delegate: an edit typed into an open editor during a held enqueue is kept (one command enqueued, no presentation write, warning logged, returns true); nothing typed still writes the marker',
+        [typed, clean, warns],
+        [
+          {
+            ok: true,
+            enqueued: 1,
+            body: '#todo prepare\n',
+            editor: '#todo prepare a draft\n',
+            text: '#todo prepare\n',
+            writes: 0,
+            saveOpts: null,
+          },
+          {
+            ok: true,
+            enqueued: 1,
+            body: '#todo prepare\n',
+            editor: '#todo [delegated] prepare\n#_agent/vault\n',
+            text: '#todo [delegated] prepare\n#_agent/vault\n',
+            writes: 1,
+            saveOpts: { skip_save: false },
+          },
+          ['delegate: e4 holds an edit made since; the marker is left to the bridge'],
+        ]
+      )
+    } finally {
+      context.window._enqueue_hidden_document = origEnqueue
+      context.console = origConsole
+    }
+  }
   // wiki links in a row (the vault's design notes/design/wiki_links.md 2.3): the app's REAL grammar
   // and builder (src/wiki_links.ts, loaded by node's type stripping) through window, and the app's
   // REAL tag-exclusion replacer for the url pass (replaceTags and its exclusions, evaluated from
@@ -2298,10 +2396,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   const NAMED_DONE = ['#todo-list #done ship it to İzmir, see `#todo` and https://example.com/list#todo', 'then (#done) again, #done#x too, under #_todo', 'and #done#@{ "see #todo" }@ with a macro', ...LITERALS].join('\n')
   const TEXTS = { short: '#todo fix the cache', task: TASK, long: LONG, named: NAMED }
   // `snooze` is every todo's own store (the widget is then the snoozed list while a snooze time
-  // stands), `editing` the id of the todo open in its editor, with a draft typed since
+  // stands), `editing` the id of the todo open in its editor, with a draft typed since unless
+  // `typed` is false (the editor then holds the item's own text)
   // `target` is the id of the item the page targets, `app` whether the items carry the app's select
   // `extra` adds items of its own to the four ({ id: { text, label } }, each named by its label)
-  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, target = null, app = true, extra = null } = {}) => {
+  const world = ({ version = 2, accepted = true, logger = true, snooze = null, editing = null, typed = true, target = null, app = true, extra = null } = {}) => {
     const calls = []
     let selected = null // the item the app's select made the page's target
     const texts = { ...TEXTS, ...Object.fromEntries(Object.entries(extra ?? {}).map(([id, item]) => [id, item.text])) }
@@ -2311,17 +2410,20 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const item = { id, saved_id: 's-' + id, text, label, name: id == 'named' || extra?.[id] ? label : 'id:' + id, _global_store: snooze ? { _todoer: { ...snooze } } : {} }
       Object.defineProperty(item, 'tags', { get: () => parsed(item.text).all }) // hidden ones included, their underscore dropped
       Object.defineProperty(item, 'tags_visible', { get: () => parsed(item.text).visible })
-      if (id == editing) Object.assign(item, { editing: true, draft: text + '\na line typed since' })
+      if (id == editing) Object.assign(item, { editing: true, ...(typed ? { draft: text + '\na line typed since' } : {}) })
+      // the item's own element, where its open editor's textarea is found
+      Object.defineProperty(item, 'elem', { get: () => ({ querySelector: selector => (selector == 'textarea' ? textarea(id) : null) }) })
       Object.defineProperty(item, 'global_store', { get: () => (calls.push(['store', id]), item._global_store) })
       item.read = () => view(item.text)
-      item.write = (text, type) => {
-        calls.push(['write', id, type])
+      // (a write that does not ask for its save is recorded as such: in an open editor the app would leave it unsaved)
+      item.write = (text, type, options) => {
+        calls.push(['write', id, type, ...(options?.skip_save === false ? [] : ['save not asked for'])])
         if (!accepted) return false
         item.text = text
         if (item.editing) item.draft = text
         return true
       }
-      item.delete = () => (calls.push(['delete', id]), true)
+      item.delete = (...args) => (calls.push(['delete', id, ...args]), true)
       if (app) item.select = () => ((selected = id), calls.push(['select', id]), true)
       return item
     })
@@ -2393,7 +2495,20 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       rows().find(row => row.getAttribute('data-id') == id).children[0].onclick({ stopPropagation() {}, preventDefault() {} })
       return calls
     }
-    return { rows, ids, drop, render, click, item: ctx._item, ctx, widget, pinned, calls, marks, opened }
+    // a bin button's press for an item, by the row the render drew for it: what stands afterwards,
+    // as a drop's record without the row's moves ({ text, calls, store, draft })
+    const press = (id, bin = 'done') => {
+      const row = rows().find(row => row.getAttribute('data-id') == id)
+      if (!row) return calls.push(['no row', id]), { calls }
+      try {
+        ctx._bin_act(bin, ctx._item(id), row, !!snooze?.snoozed)
+      } catch (e) {
+        calls.push(['threw', e.message]) // an action that throws fails its row, not the table
+      }
+      const { text, draft, _global_store } = ctx._item(id)
+      return { text, calls, store: _global_store._todoer, draft }
+    }
+    return { rows, ids, drop, press, render, click, item: ctx._item, ctx, widget, pinned, calls, marks, opened }
   }
   // ---- a chat that became a todo: its row shows the question after its name ------------------
   {
@@ -2494,8 +2609,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   check('done: a refused write leaves the todo, puts the row back in its place and says so; no log line', world({ accepted: false }).drop('task'), { text: TASK, calls: [['write', 'task', ''], ['alert', 'could not complete todo (mutation refused) for id:task']], rows: ALL, left: 0 })
   const reload = { calls: [['alert', 'please reload to complete todos (app update required)']], rows: ALL, left: 0 }
   check('done: an app grammar too old to rewrite safely fails closed for every todo, short or long: nothing written or deleted, the row back', [world({ version: 1 }).drop('short'), world({ version: 1 }).drop('long')], [{ text: '#todo fix the cache', ...reload }, { text: LONG, ...reload }])
-  // a todo open in its editor holds a draft the app's whole-text write would replace, unsaved
-  check('done: a todo open in its editor keeps its draft and its row: nothing written, no log line, the owner told to finish editing', world({ editing: 'task' }).drop('task'), { text: TASK, calls: [['alert', 'can not complete a todo while editing it: finish editing id:task first']], rows: ALL, left: 0, draft: TASK + '\na line typed since' })
+  // a todo open in its editor with a draft typed: the app's whole-text write would replace the
+  // draft. With nothing typed there (the owner, 2026-11-24) it is completed as any other, and the
+  // write asks for its save (every row's write does: the world records one that does not)
+  const UNSAVED = what => `can not ${what} with unsaved changes: save or cancel your edit first`
+  check('done: a todo open in its editor with a draft keeps its draft and its row: nothing written, no log line, the owner told to save or cancel', world({ editing: 'task' }).drop('task'), { text: TASK, calls: [['alert', UNSAVED('complete id:task')]], rows: ALL, left: 0, draft: TASK + '\na line typed since' })
+  const plain_done = world().drop('task')
+  check('done: a todo open in its editor with nothing typed is completed as one that is closed, and the editor holds the new text', world({ editing: 'task', typed: false }).drop('task'), { ...plain_done, draft: plain_done.text })
   // a completed todo's snooze and reminder: cleared in one store save after the accepted write,
   // never through _unsnooze (no `unsnoozed` mark, no listener called); the flag also when the
   // snooze ended already (the sweep keeps it for the other devices' notifiers); both kept by a refusal
@@ -2515,6 +2635,61 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['edit', '#todo fix the cache']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
   check('click: on an app without the select the box is set as before', world({ app: false }).click('short'), [['set', 'id:short', { scroll: true, select: '#todo fix the cache' }]])
   check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
+  // A BIN BUTTON'S PRESS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): what a drop
+  // of the item's row on that bin does, by the same code (_bin_act; the done bin's work in
+  // _complete_todo, which the drop calls too), with no row to move. Every case of the done bin
+  // above, pressed and dropped in a world of its own: the same text, calls, store and draft
+  const moved = ({ text, calls, store, draft }) => ({ text, calls, store, draft })
+  const both = (make, id, bin = 'done') => [moved(make().press(id, bin)), moved(make().drop(id, bin))]
+  const elsewhere_too = () => {
+    const w = world({ snooze: snoozed })
+    w.item('short').text = '#done fix the cache'
+    return w
+  }
+  const PRESSED = [
+    ['a short todo', () => world(), 'short'],
+    ['a task', () => world(), 'task'],
+    ['a long todo', () => world(), 'long'],
+    ['a named todo', () => world(), 'named'],
+    ['without a logger', () => world({ logger: false }), 'short'],
+    ['a refused write', () => world({ accepted: false }), 'task'],
+    ['an app grammar too old', () => world({ version: 1 }), 'long'],
+    ['a todo open in its editor', () => world({ editing: 'task' }), 'task'],
+    ['a todo open in its editor, nothing typed', () => world({ editing: 'task', typed: false }), 'task'],
+    ['a snoozed todo', () => world({ snooze: snoozed }), 'short'],
+    ['a todo whose snooze ended', () => world({ snooze: ended }), 'short'],
+    ['a snoozed todo, the write refused', () => world({ snooze: snoozed, accepted: false }), 'short'],
+    ['a todo completed elsewhere', elsewhere_too, 'short'],
+  ]
+  for (const [what, make, id] of PRESSED) {
+    const [pressed, dropped] = both(make, id)
+    check(`press: done on ${what} is its drop on the done bin`, pressed, dropped)
+  }
+  check('press: done completes the todo (the first case in full: one whole-text write, then the log line)', moved(world().press('short')), { text: '#done fix the cache', calls: [['write', 'short', ''], ['log', '/log done #todo fix the cache']], store: undefined, draft: undefined })
+  check('press: a refusal says its word and writes nothing more (the editor\'s case in full)', moved(world({ editing: 'task' }).press('task')), { text: TASK, calls: [['alert', UNSAVED('complete id:task')]], store: undefined, draft: TASK + '\na line typed since' })
+  check(
+    'press: delete button on a todo asks for confirmation (item.delete(true)), while a drop on the cancel bin does not (item.delete())',
+    [moved(world().press('short', 'cancel')), moved(world().drop('short', 'cancel'))],
+    [
+      { text: '#todo fix the cache', calls: [['delete', 'short', true]], store: undefined, draft: undefined },
+      { text: '#todo fix the cache', calls: [['delete', 'short']], store: undefined, draft: undefined },
+    ]
+  )
+  // a draft in the item's open editor would go with the item: refused with the same word, by the
+  // button and by the drop (the row back in its place); with nothing typed it is deleted
+  const kept = both(() => world({ editing: 'short' }), 'short', 'cancel')
+  check('press: delete on a todo open in its editor with a draft deletes nothing and says so, as the cancel bin\'s drop', kept, [{ text: '#todo fix the cache', calls: [['alert', UNSAVED('delete id:short')]], store: undefined, draft: '#todo fix the cache\na line typed since' }, kept[1]])
+  check('cancel: such a drop puts the row back in its place', (({ rows, left }) => [rows, left])(world({ editing: 'short' }).drop('short', 'cancel')), [ALL, 0])
+  check('press: delete on a todo open in its editor with nothing typed deletes it', world({ editing: 'short', typed: false }).press('short', 'cancel').calls, [['delete', 'short', true]])
+  check('press: a row that is gone is left alone', world().press('nope'), { calls: [['no row', 'nope']] })
+  // the agent's and the owner's buttons call what their bins call, within the press
+  const handed = name => {
+    const w = world()
+    w.ctx._delegate = item => (w.calls.push(['delegate', item.id]), Promise.resolve(true))
+    w.ctx._takeback = item => (w.calls.push(['takeback', item.id]), Promise.resolve(true))
+    return [w.press('task', name).calls, w.ctx._bin_act('nope', w.item('task'), w.rows()[1], false)]
+  }
+  check('press: delegate and take back call the bins\' own functions with the item; a name that is no bin does nothing', [handed('agent'), handed('owner')], [[[['delegate', 'task']], false], [[['takeback', 'task']], false]])
   // A ROW'S TOOLTIP (the owner, 2026-11-19: "the tooltip ... in the todoer widget somehow shows
   // 3-4 blank lines after the first line (ending in a tag) and then `...`"): the snippet in its
   // lines, each by the row's own rule of what is visible (_visible), read here as the `title`
@@ -2729,6 +2904,183 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     napping.ctx.is_number = x => typeof x == 'number'
     napping.ctx._snooze_dialog = () => ({ then: f => f({ time: T, notify: true }) })
     check('snooze: a todo dropped on the snooze bin is snoozed at the picked time with its reminder, as before', kinds(napping.drop('short', 'snooze')), { text: '#todo fix the cache', rows: ['task', 'long', 'named'], left: 0, store: { snoozed: T, notify: true }, draft: undefined, calls: ['store', 'store'] })
+    // the snooze button: the picker and the snooze as the bin's drop, a declined picker likewise,
+    // and in the snoozed list the todo brought back now
+    const picking = answer => () => {
+      const w = world()
+      w.ctx.is_number = x => typeof x == 'number'
+      w.ctx._snooze_dialog = () => ({ then: f => f(answer) })
+      return w
+    }
+    const moved_of = ({ text, calls, store, draft }) => ({ text, calls, store, draft })
+    const pressed_snooze = make => [moved_of(make().press('short', 'snooze')), moved_of(make().drop('short', 'snooze'))]
+    const picked_time = pressed_snooze(picking({ time: T, notify: true }))
+    check('press: snooze opens the picker and snoozes at the picked time with its reminder, as the bin\'s drop', [picked_time[0], picked_time[0].store], [picked_time[1], { snoozed: T, notify: true }])
+    const declined_time = pressed_snooze(picking(null))
+    check('press: a picker that is closed without a time snoozes nothing, as the bin\'s drop', [declined_time[0], declined_time[0].store], [declined_time[1], {}])
+    // (the time of the return is the clock's: compared as a mark that is there)
+    const woken = pressed_snooze(() => world({ snooze: { snoozed: T } })).map(w => ({ ...w, store: { ...w.store, unsnoozed: !!w.store.unsnoozed } }))
+    check('press: in the snoozed list the snooze button brings the todo back now, as a drop on that list\'s snooze bin', [woken[0], woken[0].store], [woken[1], { snoozed: 0, unsnoozed: true }])
+    // a row that is not a todo's: done clears it and delete deletes its item after the app's
+    // question, as their drops; the agent's and the snooze button are not drawn for it, and their
+    // action does nothing
+    // (a press moves no row: the lists are drawn again, as after the bell's own click)
+    const pressed_chat = (bin, options) => {
+      const [a, b] = [chatting(options), chatting(options)]
+      a.ctx._rerender_todoer_widgets = () => void a.called.push('drawn again')
+      const [pressed, dropped] = [a.press('chat', bin), b.drop('chat', bin)]
+      return [[pressed.store, pressed.calls, a.called], [dropped.store, dropped.calls, b.called]]
+    }
+    const chat_done = pressed_chat('done')
+    check('press: done on a reply\'s row clears it in the chat\'s own store, writes nothing and draws the lists again; its drop clears the same', chat_done, [[{ cleared: [KEY] }, [], ['drawn again']], [{ cleared: [KEY] }, [], []]])
+    const chat_deleted = pressed_chat('cancel')
+    check('press: delete on a reply\'s row deletes the chat, asking first, as its drop', chat_deleted, [[undefined, [], [['delete', true]]], chat_deleted[1]])
+    const idle = chatting()
+    idle.ctx._delegate = async () => void idle.called.push('delegate')
+    idle.ctx._snooze_dialog = () => (idle.called.push('picker'), { then: f => f({ time: T, notify: false }) })
+    check('press: the agent\'s and the snooze action do nothing for a reply\'s row', [idle.press('chat', 'agent').store, idle.press('chat', 'snooze').store, idle.called, idle.calls], [undefined, undefined, [], []])
+    // drag drops select the next row (or previous after the last, none when sole or refused/declined)
+    async_rows.push((async () => {
+      const settle = () => new Promise(r => setImmediate(r))
+      const selected_of = w => w.calls.filter(c => c[0] == 'select').map(c => c[1])
+      const dropped_select = async (make, id, bin, setup) => {
+        const w = make()
+        if (setup) setup(w)
+        w.drop(id, bin)
+        await settle()
+        return selected_of(w)
+      }
+      const delegating = (ok = true) => w => { w.ctx._delegate = async () => ok }
+      const taking = (ok = true) => w => {
+        for (const id of ALL) w.item(id)._global_store = { _agent: { state: { held: 'agent', epoch: 1 } } }
+        w.pinned.store.w.options = { delegated: true }
+        w.render()
+        w.ctx._takeback = async () => ok
+      }
+      const snoozing = answer => w => {
+        w.ctx.is_number = x => typeof x == 'number'
+        w.ctx._snooze_dialog = () => Promise.resolve(answer)
+      }
+      check('drop select-next: done, cancel, snooze, unsnooze, delegate and takeback select the following row; the last row selects the previous; refused or declined changes nothing',
+        await Promise.all([
+          dropped_select(() => world(), 'task', 'done'),
+          dropped_select(() => world(), 'named', 'done'),
+          dropped_select(() => world({ accepted: false }), 'task', 'done'),
+          dropped_select(() => world({ editing: 'task' }), 'task', 'done'),
+          dropped_select(() => world(), 'short', 'cancel'),
+          dropped_select(() => world({ editing: 'short' }), 'short', 'cancel'),
+          dropped_select(() => world(), 'short', 'snooze', snoozing({ time: T, notify: false })),
+          dropped_select(() => world(), 'short', 'snooze', snoozing(null)),
+          dropped_select(() => world({ snooze: { snoozed: T } }), 'task', 'snooze'),
+          dropped_select(() => world(), 'short', 'agent', delegating(true)),
+          dropped_select(() => world(), 'short', 'agent', delegating(false)),
+          dropped_select(() => world(), 'long', 'owner', taking(true)),
+          dropped_select(() => world(), 'long', 'owner', taking(false)),
+        ]),
+        [['long'], ['long'], [], [], ['task'], [], ['task'], [], ['long'], ['task'], [], ['named'], []])
+      // snooze drop asks for selection at the drop (before the dialog answers), capturing input
+      // carry synchronously; an accepted time snoozes and selects next through the carry, while
+      // a declined dialog puts the row back at its index and selects nothing
+      const dropSnoozeDeferred = async answer => {
+        const order = []
+        let finish
+        const w = world()
+        w.ctx.is_number = x => typeof x == 'number'
+        w.ctx.window._carry_input = f => (order.push('carry'), (...args) => (order.push('carried-select'), f(...args)))
+        w.ctx._snooze_dialog = () => (order.push('dialog'), new Promise(r => (finish = r)))
+        w.drop('short', 'snooze')
+        const atDrop = [...order]
+        const rowsBeforeAnswer = w.ids()
+        finish(answer)
+        await settle()
+        return {
+          atDrop,
+          rowsBeforeAnswer,
+          order,
+          selected: selected_of(w),
+          rows: w.ids(),
+          store: w.item('short')._global_store._todoer,
+        }
+      }
+      check(
+        'drop select-next: snooze drop asks for selection at the drop (captures carry before dialog answers), selecting next on time and putting row back on decline',
+        await Promise.all([dropSnoozeDeferred({ time: T, notify: true }), dropSnoozeDeferred(null)]),
+        [
+          {
+            atDrop: ['dialog', 'carry'],
+            rowsBeforeAnswer: ['task', 'long', 'named'],
+            order: ['dialog', 'carry', 'carried-select'],
+            selected: ['task'],
+            rows: ['task', 'long', 'named'],
+            store: { snoozed: T, notify: true },
+          },
+          {
+            atDrop: ['dialog', 'carry'],
+            rowsBeforeAnswer: ['task', 'long', 'named'],
+            order: ['dialog', 'carry'],
+            selected: [],
+            rows: ['short', 'task', 'long', 'named'],
+            store: {},
+          },
+        ]
+      )
+      // drop begun while the box names another item selects next when nothing changed during the
+      // wait, and does not when the box changed meanwhile
+      const dropWithBox = async changeDuringWait => {
+        let box = '#named'
+        let release
+        const w = world()
+        w.ctx.MindBox.get = () => box
+        w.ctx._delegate = () => new Promise(r => (release = r))
+        w.drop('short', 'agent')
+        if (changeDuringWait) box = '#long'
+        release(true)
+        await settle()
+        return selected_of(w)
+      }
+      check(
+        'drop select-next: a drop begun while the box names another item selects next when the box is unchanged during the wait, and does not when the box changed',
+        await Promise.all([dropWithBox(false), dropWithBox(true)]),
+        [['task'], []]
+      )
+      // re-delegating the first of two delegated rows via drop on the delegated list's agent bin
+      // enqueues one delegate command and keeps the selection (does not advance to the second row)
+      {
+        const w = world()
+        for (const id of ['short', 'task']) w.item(id)._global_store = { _agent: { state: { held: 'agent', epoch: 1 } } }
+        w.pinned.store.w.options = { delegated: true }
+        w.render()
+        const enqueued = []
+        let cid = 0
+        w.ctx._rerender_todoer_widgets = () => {}
+        w.ctx._command_id = () => 'rd' + ++cid
+        w.ctx.window._enqueue_hidden_document = async (name, cmd) => (enqueued.push({ name, task: cmd.task, kind: cmd.kind }), { id: 'doc-' + cmd.id, written: Promise.resolve() })
+        const rowsBefore = w.ids()
+        w.drop('short', 'agent')
+        await settle()
+        check(
+          'drop select-next: dropping the first row of a two-row delegated list onto its agent bin enqueues one command and keeps the selection',
+          [rowsBefore, enqueued, w.item('short').text, selected_of(w)],
+          [['short', 'task'], [{ name: 'task_command_rd1', task: 's-short', kind: 'delegate' }], '#todo [delegated] fix the cache\n#_agent/vault\n', []]
+        )
+      }
+      // reply row drops: done and cancel select the neighbor (previous when last); snooze/agent and declined cancel select nothing
+      const chat_drop_sel = async (bin, options) => {
+        const w = chatting(options)
+        w.drop('chat', bin)
+        await settle()
+        return selected_of(w)
+      }
+      check('drop select-next: reply row done and cancel select the previous row (chat is last); declined cancel and bounced snooze/agent select nothing',
+        await Promise.all([
+          chat_drop_sel('done'),
+          chat_drop_sel('cancel'),
+          chat_drop_sel('cancel', { deletes: false }),
+          chat_drop_sel('snooze'),
+          chat_drop_sel('agent'),
+        ]),
+        [['named'], ['named'], [], [], []])
+    })())
     const clicked = chatting()
     clicked.click('chat')
     check('waits: a click on the row selects the chat', clicked.called, ['select'])
@@ -3617,6 +3969,869 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('sw callers (pending): repeat calls while show is in flight are deduplicated and originals settle to notify',
         [[dupTodo, dupUnsnooze, dupReply, dupItem], settled],
         [['unchanged', 'not snoozed', 'unchanged', 'seen'], ['notify', 'notify', 'notify', 'notify']])
+    }
+  })())
+  // ---- bin buttons, next-row selection, up/down stepping, and j/k row keys (2026-11-24) --------
+  // Evaluated in a dedicated DOM-capable VM context so we can drive _bin_buttons, _bin_press,
+  // _next_listed, _select_next, _row_beside, _row_step, _on_row_key, _row_keys, and _bin_buttons_room
+  // directly from todoer.js without disturbing the lightweight mock used by earlier rows.
+  async_rows.push((async () => {
+    const binConsts = [
+      src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
+      src.match(/\nconst _BIN_BUTTONS_CSS = `[\s\S]*?\n`\n/)[0],
+      src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
+    ].join('\n')
+    const binCode =
+      binConsts +
+      pick([
+        '_bin_buttons',
+        '__bin_buttons',
+        '_mounted_lists',
+        '_bin_row',
+        '_row_beside',
+        '_row_step',
+        '_on_row_key',
+        '_row_keys',
+        '_next_listed',
+        '_select_next',
+        '_pressed_item',
+        '_bin_press',
+        '_bin_act',
+        '_draft',
+        '_draft_word',
+        '_delete_listed',
+        '_bin_buttons_room',
+        '_select_item',
+      ]).join('\n')
+
+    class DomNode {
+      constructor(tag = 'div', attrs = {}) {
+        Object.assign(this, {
+          tagName: tag.toUpperCase(),
+          id: attrs.id ?? '',
+          className: attrs.className ?? '',
+          attrs: { ...attrs },
+          children: [],
+          parentElement: null,
+          style: {},
+          hidden: false,
+          textContent: '',
+          innerHTML: '',
+          title: '',
+          _rect: { width: 100 },
+        })
+        delete this.attrs.className
+        delete this.attrs.id
+      }
+      get childElementCount() { return this.children.length }
+      get classList() {
+        return {
+          contains: c => this.className.split(/\s+/).includes(c),
+        }
+      }
+      get nextElementSibling() {
+        const sibs = this.parentElement?.children ?? []
+        const i = sibs.indexOf(this)
+        return i >= 0 ? sibs[i + 1] ?? null : null
+      }
+      get previousElementSibling() {
+        const sibs = this.parentElement?.children ?? []
+        const i = sibs.indexOf(this)
+        return i > 0 ? sibs[i - 1] ?? null : null
+      }
+      getAttribute(k) { return k in this.attrs ? this.attrs[k] : null }
+      setAttribute(k, v) { this.attrs[k] = String(v) }
+      getBoundingClientRect() { return this._rect }
+      appendChild(child) {
+        if (child.parentElement) child.remove()
+        child.parentElement = this
+        this.children.push(child)
+        return child
+      }
+      replaceChildren(...nodes) {
+        for (const c of this.children) c.parentElement = null
+        this.children = []
+        for (const n of nodes) this.appendChild(n)
+      }
+      remove() {
+        if (!this.parentElement) return
+        this.parentElement.children = this.parentElement.children.filter(c => c !== this)
+        this.parentElement = null
+      }
+      matches(sel) {
+        for (const part of sel.split(',').map(s => s.trim())) {
+          if (part.includes(' ')) continue
+          let rest = part
+          if (rest.endsWith(':not([hidden])')) {
+            if (this.hidden) continue
+            rest = rest.slice(0, -':not([hidden])'.length)
+          }
+          const attrM = rest.match(/\[([^\]=]+)\]$/)
+          if (attrM) {
+            if (this.getAttribute(attrM[1]) === null) continue
+            rest = rest.slice(0, -attrM[0].length)
+          }
+          if (rest.startsWith('#')) {
+            if (this.id == rest.slice(1)) return true
+            continue
+          }
+          const segs = rest.split('.')
+          const tag = segs[0]
+          const classes = segs.slice(1)
+          if (tag && this.tagName.toLowerCase() != tag.toLowerCase()) continue
+          if (classes.every(c => this.classList.contains(c))) return true
+        }
+        return false
+      }
+      closest(sel) {
+        for (let cur = this; cur; cur = cur.parentElement) if (cur.matches(sel)) return cur
+        return null
+      }
+      _walk(out = []) {
+        for (const c of this.children) { out.push(c); c._walk(out) }
+        return out
+      }
+      querySelectorAll(sel) {
+        const parts = sel.trim().split(/\s+/)
+        if (parts.length == 1) return this._walk().filter(n => n.matches(parts[0]))
+        const roots = this.querySelectorAll(parts[0])
+        const rest = parts.slice(1).join(' ')
+        const seen = new Set()
+        for (const r of roots) for (const m of r.querySelectorAll(rest)) seen.add(m)
+        return [...seen]
+      }
+      querySelector(sel) { return this.querySelectorAll(sel)[0] ?? null }
+    }
+
+    const makeStage = ({ sharedWin = null, deephash = 1 } = {}) => {
+      const root = new DomNode('html')
+      const head = root.appendChild(new DomNode('head'))
+      const body = root.appendChild(new DomNode('body'))
+      const items = new Map()
+      const selected = []
+      const warns = []
+      const errors = []
+      const alerts = []
+      const actions = []
+      let boxText = ''
+      const makeItem = (id, { name = '#' + id, text = '#todo ' + id, editing = false, draft = null, deletes = true } = {}) => {
+        const it = {
+          id,
+          name,
+          text,
+          editing,
+          _global_store: {},
+          get global_store() { return this._global_store },
+          elem: { querySelector: s => (s == 'textarea' && it.editing ? { value: draft ?? it.text } : null) },
+          select: () => (selected.push(id), (boxText = it.name), true),
+          delete: sure => (actions.push(['delete', id, !!sure]), deletes),
+        }
+        items.set(id, it)
+        items.set(name, it)
+        return it
+      }
+      const makeWidget = ({ snoozed = false, delegated = false, parked = false, rows = [] } = {}) => {
+        let host = body
+        if (parked) {
+          const cache = body.children.find(c => c.id == 'cache-div') ?? body.appendChild(new DomNode('div', { id: 'cache-div' }))
+          host = cache.appendChild(new DomNode('div', { className: 'super-container' }))
+        }
+        const w = host.appendChild(new DomNode('div', { className: 'todoer-widget' }))
+        w._snoozed = snoozed
+        w._delegated = delegated
+        const list = w.appendChild(new DomNode('div', { className: 'list' }))
+        const bins = delegated ? ['agent', 'owner'] : ['agent', 'done', 'snooze', 'cancel']
+        for (const b of bins) w.appendChild(new DomNode('div', { className: `${b} bin` }))
+        for (const r of rows) {
+          const row = list.appendChild(new DomNode('div', { className: 'list-item-container', 'data-id': r.id, ...(r.waits ? { 'data-waits': r.waits, 'data-wait-key': r.wait_key ?? 'k1' } : {}) }))
+          row._log_text = r.log ?? '#todo ' + r.id
+          const li = row.appendChild(new DomNode('div', { className: 'list-item' }))
+          if (r.bell) {
+            const mark = li.appendChild(new DomNode('mark', { className: 'waits' }))
+            mark.click = () => actions.push(['bell-click', r.id])
+          }
+        }
+        return { widget: w, list }
+      }
+      const doc = {
+        head,
+        body,
+        activeElement: null,
+        createElement: tag => new DomNode(tag),
+        getElementById: id => root._walk().find(n => n.id == id) ?? null,
+        querySelector: sel => root.querySelector(sel),
+        querySelectorAll: sel => root.querySelectorAll(sel),
+      }
+      const win = sharedWin ?? { innerWidth: 1000 }
+      const env = {
+        window: win,
+        document: doc,
+        console: { warn: m => warns.push(m), error: m => errors.push(m) },
+        alert: m => alerts.push(m),
+        is_number: x => typeof x == 'number',
+        _todoer: { deephash },
+        _item: ref => items.get(ref) ?? null,
+        MindBox: { get: () => boxText, set: t => ((boxText = t), selected.push('set:' + t)) },
+        _complete_todo: (it, log) => (actions.push(['complete', it.id, log]), true),
+        _delegate: it => (actions.push(['delegate', it.id]), Promise.resolve(true)),
+        _takeback: it => (actions.push(['takeback', it.id]), Promise.resolve(true)),
+        _snooze_dialog: () => Promise.resolve({ time: 9999, notify: false }),
+        _snooze: (it, ans) => actions.push(['snooze', it.id, ans.time]),
+        _unsnooze: (it, manual) => actions.push(['unsnooze', it.id, manual]),
+        _clear_waiting: (it, key) => (actions.push(['clear-waiting', it.id, key]), true),
+        _rerender_todoer_widgets: () => actions.push(['rerender']),
+      }
+      vm.createContext(env)
+      vm.runInContext(binCode, env)
+      return {
+        env, win, doc, body, head, items, selected, warns, errors, alerts, actions,
+        makeItem, makeWidget, setBox: t => (boxText = t), getBox: () => boxText, DomNode,
+      }
+    }
+
+    // 1. _next_listed: following row, fallback to previous at end, empty list, missing data-id/item, null list
+    {
+      const s = makeStage()
+      const a = s.makeItem('a')
+      const b = s.makeItem('b')
+      const c = s.makeItem('c')
+      const { list } = s.makeWidget({ rows: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] })
+      const plain = new s.DomNode('div') // no data-id
+      check('_next_listed: returns item at index (following row), falls back to index-1 after last, null when empty, missing id, unknown item, or null list',
+        [
+          s.env._next_listed(list, 0)?.id ?? null,
+          s.env._next_listed(list, 2)?.id ?? null,
+          s.env._next_listed(list, 3)?.id ?? null,
+          s.env._next_listed({ children: [] }, 0),
+          s.env._next_listed({ children: [plain] }, 0),
+          s.env._next_listed({ children: [new s.DomNode('div', { 'data-id': 'gone' })] }, 0),
+          s.env._next_listed(null, 0),
+          a.id + b.id + c.id,
+        ],
+        ['a', 'c', 'c', null, null, null, null, 'abc'])
+    }
+
+    // 2. _select_next: sync/async true selects fresh item; false/null/undefined/truthy-string/rejected/null-next/deleted-next select nothing
+    {
+      const s = makeStage()
+      const a = s.makeItem('a')
+      const b = s.makeItem('b')
+      const r1 = await s.env._select_next(a, true)
+      const r2 = await s.env._select_next(b, Promise.resolve(true))
+      const r3 = await s.env._select_next(a, false)
+      const r4 = await s.env._select_next(a, undefined)
+      const r5 = await s.env._select_next(a, null)
+      const r6 = await s.env._select_next(a, 'yes')
+      const r7 = await s.env._select_next(a, Promise.reject(new Error('boom')))
+      const r8 = await s.env._select_next(null, true)
+      const r9 = await s.env._select_next({ id: 'deleted' }, true)
+      check('_select_next: selects only on strict true (sync or async) with a live next item; rejects/falsy/non-boolean/missing-next change nothing',
+        [[r1, r2, r3, r4, r5, r6, r7, r8, r9], s.selected],
+        [[true, true, false, undefined, null, 'yes', false, true, true], ['a', 'b']])
+
+      // with window._carry_input: called once synchronously at _select_next call before outcome settles,
+      // and selection runs through what it returned for value and promise outcomes; non-true/missing select nothing
+      const sc = makeStage()
+      const ca = sc.makeItem('ca')
+      const cb = sc.makeItem('cb')
+      const carryTrace = []
+      sc.win._carry_input = fn => {
+        const idx = carryTrace.length
+        carryTrace.push(['capture', idx])
+        return (...args) => {
+          carryTrace.push(['run', idx, args[0]?.id ?? null])
+          return fn(...args)
+        }
+      }
+      const pVal = sc.env._select_next(ca, true)
+      const afterValCall = [[...carryTrace], [...sc.selected]]
+      await pVal
+      const afterValSettle = [[...carryTrace], [...sc.selected]]
+      let resolveCarry
+      const pAsync = sc.env._select_next(cb, new Promise(r => (resolveCarry = r)))
+      const beforeResolve = [[...carryTrace], [...sc.selected]]
+      resolveCarry(true)
+      await pAsync
+      const afterResolve = [[...carryTrace], [...sc.selected]]
+      const runBeforeNeg = carryTrace.filter(e => e[0] == 'run').length
+      const selBeforeNeg = sc.selected.length
+      await sc.env._select_next(ca, false)
+      await sc.env._select_next(ca, undefined)
+      await sc.env._select_next(ca, null)
+      await sc.env._select_next(ca, 'yes')
+      await sc.env._select_next(ca, Promise.reject(new Error('nope')))
+      await sc.env._select_next(null, true)
+      await sc.env._select_next({ id: 'gone' }, true)
+      const negRuns = carryTrace.filter(e => e[0] == 'run').length - runBeforeNeg
+      const negSel = sc.selected.length - selBeforeNeg
+      check('_select_next carry: calls window._carry_input once synchronously before outcome settles and runs selection through its wrapper for value and promise outcomes; non-true/missing select nothing',
+        [afterValCall, afterValSettle, beforeResolve, afterResolve, negRuns, negSel],
+        [
+          [[['capture', 0]], []],
+          [[['capture', 0], ['run', 0, 'ca']], ['ca']],
+          [[['capture', 0], ['run', 0, 'ca'], ['capture', 2]], ['ca']],
+          [[['capture', 0], ['run', 0, 'ca'], ['capture', 2], ['run', 2, 'cb']], ['ca', 'cb']],
+          0,
+          0,
+        ])
+    }
+
+    // 3. _row_beside and _row_step: forward/backward within the row's own list, ends, non-row sibling, missing/unlisted items
+    {
+      const s = makeStage()
+      s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
+      s.makeItem('d1'); s.makeItem('d2'); s.makeItem('u1')
+      const main = s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
+      const del = s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+      main.list.appendChild(new s.DomNode('div')) // trailing non-row without data-id
+      const [r1, r2, r3] = main.list.children
+      check('_row_beside: steps to adjacent sibling with data-id, returns null at ends, before non-row sibling, or for null',
+        [
+          s.env._row_beside(r1, -1),
+          s.env._row_beside(r1, 1)?.getAttribute('data-id'),
+          s.env._row_beside(r2, -1)?.getAttribute('data-id'),
+          s.env._row_beside(r2, 1)?.getAttribute('data-id'),
+          s.env._row_beside(r3, 1),
+          s.env._row_beside(null, 1),
+        ],
+        [null, 'm2', 'm1', 'm3', null, null])
+      const stepRes = [
+        s.env._row_step('m1', 1),
+        s.env._row_step('m1', -1),
+        s.env._row_step('m3', 1),
+        s.env._row_step('m3', -1),
+        s.env._row_step('d1', 1),
+        s.env._row_step('d2', 1),
+        s.env._row_step('u1', 1),
+        s.env._row_step('nope', 1),
+      ]
+      // deleted neighbor in DOM
+      del.list.children[1].setAttribute('data-id', 'deleted')
+      stepRes.push(s.env._row_step('d1', 1))
+      check('_row_step: selects beside row in main or delegated list, returns false at ends, for unlisted/unknown items, or deleted neighbor',
+        [stepRes, s.selected],
+        [[true, false, false, true, true, false, false, false, false], ['m2', 'm2', 'd2']])
+    }
+
+    // 4. _bin_buttons: per-list button sets, reply row filter, bell, Snooze vs Unsnooze title, dim state on up/down,
+    //    handoff dedup & deephash invalidation, fallback piece & _bin_buttons_room, error isolation
+    {
+      const s = makeStage({ deephash: 10 })
+      const t1 = s.makeItem('t1'); const t2 = s.makeItem('t2'); const t3 = s.makeItem('t3')
+      const rep = s.makeItem('rep')
+      const snz = s.makeItem('snz')
+      const dlg = s.makeItem('dlg')
+      const unlisted = s.makeItem('unlisted')
+      s.makeWidget({ rows: [{ id: 't1' }, { id: 't2', bell: true }, { id: 't3' }, { id: 'rep', waits: 'reply', bell: true }] })
+      s.makeWidget({ snoozed: true, rows: [{ id: 'snz' }] })
+      s.makeWidget({ delegated: true, rows: [{ id: 'dlg', bell: true }] })
+      let guestCalls = 0
+      s.win._key_buttons = { guest: () => guestCalls++ }
+      const snap = target => {
+        s.env._bin_buttons(target)
+        return (s.win._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title, b.color, !!b.fill, b.box ?? 16])
+      }
+      const DIM = 'rgba(255, 255, 255, 0.25)'
+      const mainFirst = snap(t1)
+      const callsAfterFirst = guestCalls
+      s.env._bin_buttons(t1) // identical render: must NOT re-call strip.guest()
+      const callsAfterDup = guestCalls
+      s.env._todoer.deephash = 11 // code update: MUST redraw
+      s.env._bin_buttons(t1)
+      const callsAfterHash = guestCalls
+      const mainBell = snap(t2)
+      const replyBtns = snap(rep)
+      const snoozeBtns = snap(snz)
+      const delegBtns = snap(dlg)
+      const noneUnlisted = snap(unlisted)
+      const noneNull = snap(null)
+      check('bin buttons: main list first row has up dimmed, down lit, orange snooze, no bell; dedups unchanged renders and redraws on deephash change',
+        [mainFirst, callsAfterFirst, callsAfterDup, callsAfterHash],
+        [
+          [
+            ['up', 'Previous row (k)', DIM, false, 16],
+            ['down', 'Next row (j)', '#fff', false, 16],
+            ['agent', 'Delegate to the agent', '#6af', true, 16],
+            ['done', 'Done', '#6f6', false, 16],
+            ['snooze', 'Snooze', '#fa4', false, 16],
+            ['cancel', 'Delete', '#f66', false, 16],
+          ],
+          1, 1, 2,
+        ])
+      check('bin buttons: middle row with bell has both up/down lit and yellow bell (box 24) before bins; reply row has up/down/bell/done/cancel only',
+        [mainBell.map(x => x.slice(0, 3)), mainBell[2], replyBtns.map(x => x[0]), replyBtns[1][2]],
+        [
+          [
+            ['up', 'Previous row (k)', '#fff'],
+            ['down', 'Next row (j)', '#fff'],
+            ['bell', 'Clear the notification', '#ff6'],
+            ['agent', 'Delegate to the agent', '#6af'],
+            ['done', 'Done', '#6f6'],
+            ['snooze', 'Snooze', '#fa4'],
+            ['cancel', 'Delete', '#f66'],
+          ],
+          ['bell', 'Clear the notification', '#ff6', true, 24],
+          ['up', 'down', 'bell', 'done', 'cancel'],
+          DIM, // rep is last in main list so down is dim
+        ])
+      check('bin buttons: snoozed sole row dims both up/down and titles snooze as Unsnooze; delegated row with bell gets up/down/bell/agent/owner; unlisted and null hand over none',
+        [
+          snoozeBtns.map(x => [x[0], x[1], x[2]]),
+          delegBtns.map(x => [x[0], x[1], x[2]]),
+          noneUnlisted,
+          noneNull,
+        ],
+        [
+          [
+            ['up', 'Previous row (k)', DIM],
+            ['down', 'Next row (j)', DIM],
+            ['agent', 'Delegate to the agent', '#6af'],
+            ['done', 'Done', '#6f6'],
+            ['snooze', 'Unsnooze', '#fa4'],
+            ['cancel', 'Delete', '#f66'],
+          ],
+          [
+            ['up', 'Previous row (k)', DIM],
+            ['down', 'Next row (j)', DIM],
+            ['bell', 'Clear the notification', '#ff6'],
+            ['agent', 'Delegate to the agent', '#6af'],
+            ['owner', 'Take back from the agent', '#ccc'],
+          ],
+          [],
+          [],
+        ])
+      // pressing the generated up/down specs invokes _row_step when the box names the drawn item
+      s.selected.length = 0
+      snap(t2)
+      s.setBox('#t2')
+      s.win._key_buttons_guests.buttons.find(b => b.name == 'up').press()
+      s.setBox('#t2')
+      s.win._key_buttons_guests.buttons.find(b => b.name == 'down').press()
+      check('bin buttons: generated up/down press callbacks step to previous and next rows', s.selected, ['t1', 't3'])
+      // fallback piece when no key_buttons strip exists, room check, and taken() cleanup
+      delete s.win._key_buttons
+      s.env._bin_buttons(t1)
+      const piece = s.doc.querySelector('.todoer-bin-buttons')
+      const drawnFallback = [!!piece, piece.hidden, piece.children.length, !!s.doc.getElementById('todoer-bin-buttons-style')]
+      // narrow against a split glass pane
+      const glass = s.body.appendChild(new s.DomNode('div', { className: 'key-buttons-bg desktop split' }))
+      const pane = glass.appendChild(new s.DomNode('div', { className: 'key-buttons-bg-pane' }))
+      pane._rect = { width: 340 }
+      piece._rect = { width: 200 }
+      s.win.innerWidth = 500 // 500 - 340 = 160 < 200 -> hidden
+      s.env._bin_buttons_room()
+      const tightHidden = piece.hidden
+      s.win.innerWidth = 600 // 600 - 340 = 260 >= 200 -> shown
+      s.env._bin_buttons_room()
+      const wideShown = piece.hidden
+      glass.className = 'key-buttons-bg desktop' // full-width strip -> taken = Infinity -> hidden
+      s.env._bin_buttons_room()
+      const stripHidden = piece.hidden
+      s.win._key_buttons_guests.taken()
+      const afterTaken = !!s.doc.querySelector('.todoer-bin-buttons')
+      // error inside __bin_buttons is caught and logged, never thrown
+      const origQSA = s.doc.querySelectorAll
+      s.doc.querySelectorAll = () => { throw new Error('dom exploded') }
+      s.env._bin_buttons(t1)
+      s.doc.querySelectorAll = origQSA
+      check('bin buttons: fallback piece draws without strip, obeys _bin_buttons_room, is removed by taken(), and _bin_buttons catches errors',
+        [drawnFallback, tightHidden, wideShown, stripHidden, afterTaken, s.errors],
+        [[true, false, 6, true], true, false, true, false, ['bin buttons: Error: dom exploded']])
+    }
+
+    // 4b. Parked lists (#cache-div) in _bin_row: parked-only items get no row, no buttons, no step,
+    //     and refuse press; a parked widget ahead of a mounted one holding the same item is passed over
+    {
+      const s = makeStage()
+      const pkOnly = s.makeItem('pkOnly')
+      s.makeItem('pkPeer')
+      const both = s.makeItem('both')
+      s.makeItem('liveNext')
+      s.makeWidget({ parked: true, snoozed: true, rows: [{ id: 'pkOnly' }, { id: 'pkPeer' }, { id: 'both' }] })
+      const mounted = s.makeWidget({ rows: [{ id: 'both' }, { id: 'liveNext' }] })
+      s.win._key_buttons = { guest: () => {} }
+      const parkedRow = s.env._bin_row(pkOnly)?.row?.getAttribute?.('data-id') ?? null
+      s.env._bin_buttons(pkOnly)
+      const parkedBtns = (s.win._key_buttons_guests?.buttons ?? []).map(b => b.name)
+      const parkedStep = [s.env._row_step('pkOnly', 1), s.env._row_step('pkOnly', -1)]
+      s.setBox('#pkOnly')
+      await s.env._bin_press('done', 'pkOnly')
+      const parkedWarn = [...s.warns]
+      const foundBoth = s.env._bin_row(both)
+      s.env._bin_buttons(both)
+      const bothSnoozeTitle = (s.win._key_buttons_guests?.buttons ?? []).find(b => b.name == 'snooze')?.title ?? null
+      const steppedBoth = s.env._row_step('both', 1)
+      check('parked lists (_bin_row): parked-only item gets no row/buttons/step and refuses press; parked widget ahead of mounted one holding same item is passed over',
+        [
+          parkedRow,
+          parkedBtns,
+          parkedStep,
+          parkedWarn,
+          foundBoth?.widget === mounted.widget,
+          bothSnoozeTitle,
+          steppedBoth,
+          s.selected,
+        ],
+        [
+          null,
+          [],
+          [false, false],
+          ['todoer: the press on "done" was not taken: its item is in no list'],
+          true,
+          'Snooze',
+          true,
+          ['liveNext'],
+        ])
+    }
+
+    // 5. _bin_press and _bin_act('bell'): busy mark, refusals with console.warn, bell rule (todo stays,
+    //    reply advances), select-next for middle/last/sole/refused, busy reset after rejection and sync throw
+    {
+      const s = makeStage()
+      s.makeItem('p1'); s.makeItem('p2'); s.makeItem('p3'); s.makeItem('unlisted')
+      const main = s.makeWidget({ rows: [{ id: 'p1', bell: true }, { id: 'p2' }, { id: 'p3' }] })
+      // _bin_act('bell'): present vs absent
+      const bellOk = s.env._bin_act('bell', s.items.get('p1'), main.list.children[0], false)
+      const bellNone = s.env._bin_act('bell', s.items.get('p2'), main.list.children[1], false)
+      check('_bin_act bell: clicks mark.waits when present and returns true; returns false when absent',
+        [bellOk, bellNone, s.actions],
+        [true, false, [['bell-click', 'p1']]])
+      s.actions.length = 0
+      // bell press via _bin_press on a TODO row (no data-waits): row stays, so leaves selection unchanged and clears busy
+      s.setBox('#p1')
+      await s.env._bin_press('bell', 'p1')
+      check('_bin_press bell (todo): clicks bell, leaves selection unchanged, clears busy mark',
+        [s.actions, s.selected, !!s.win._todoer_bin_busy],
+        [[['bell-click', 'p1']], [], false])
+      // bell press via _bin_press on a REPLY row (data-waits): row goes, so selects following row,
+      // previous row after last, and nothing when it was the only row
+      const sr = makeStage()
+      sr.makeItem('r1'); sr.makeItem('t2'); sr.makeItem('r3')
+      sr.makeWidget({ rows: [{ id: 'r1', waits: 'reply', bell: true }, { id: 't2' }, { id: 'r3', waits: 'reply', bell: true }] })
+      sr.setBox('#r1')
+      await sr.env._bin_press('bell', 'r1')
+      const afterFirstReply = [[...sr.actions], [...sr.selected], !!sr.win._todoer_bin_busy]
+      sr.actions.length = 0
+      sr.selected.length = 0
+      sr.setBox('#r3')
+      await sr.env._bin_press('bell', 'r3')
+      const afterLastReply = [[...sr.actions], [...sr.selected], !!sr.win._todoer_bin_busy]
+      const srSole = makeStage()
+      srSole.makeItem('rOnly')
+      srSole.makeWidget({ rows: [{ id: 'rOnly', waits: 'reply', bell: true }] })
+      srSole.setBox('#rOnly')
+      await srSole.env._bin_press('bell', 'rOnly')
+      const afterSoleReply = [[...srSole.actions], [...srSole.selected], !!srSole.win._todoer_bin_busy]
+      check('_bin_press bell (reply): clicks bell and selects following row, previous after last, nothing when sole',
+        [afterFirstReply, afterLastReply, afterSoleReply],
+        [
+          [[['bell-click', 'r1']], ['t2'], false],
+          [[['bell-click', 'r3']], ['t2'], false],
+          [[['bell-click', 'rOnly']], [], false],
+        ])
+      // unlisted / missing item refusal with exact console.warn
+      s.setBox('#unlisted')
+      const notFound1 = s.env._bin_press('done', 'unlisted')
+      s.setBox('#missing')
+      const notFound2 = s.env._bin_press('cancel', 'missing')
+      check('_bin_press: unlisted or missing item warns and does not set busy',
+        [notFound1, notFound2, !!s.win._todoer_bin_busy, s.warns],
+        [
+          undefined,
+          undefined,
+          false,
+          [
+            'todoer: the press on "done" was not taken: its item is in no list',
+            'todoer: the press on "cancel" was not taken: the box no longer names its item',
+          ],
+        ])
+      s.warns.length = 0
+      // async press holds busy mark, refuses second press with warning, selects next once settled, clears busy
+      let resolveDelegate
+      s.env._delegate = it => { s.actions.push(['delegate', it.id]); return new Promise(r => (resolveDelegate = r)) }
+      s.setBox('#p1')
+      const pending = s.env._bin_press('agent', 'p1')
+      const busyMid = !!s.win._todoer_bin_busy
+      const second = s.env._bin_press('done', 'p1')
+      const selectedMid = [...s.selected]
+      resolveDelegate(true)
+      await pending
+      check('_bin_press busy: holds _todoer_bin_busy until settled, refuses overlapping press with console.warn, then selects next row and clears busy',
+        [busyMid, second, s.warns, selectedMid, s.selected, !!s.win._todoer_bin_busy],
+        [
+          true,
+          undefined,
+          ['todoer: the press on "done" was not taken: an earlier press is still being carried out'],
+          [],
+          ['p2'],
+          false,
+        ])
+      // last row press selects previous; refused press selects nothing; rejected promise & sync throw still clear busy
+      s.selected.length = 0
+      s.setBox('#p3')
+      await s.env._bin_press('done', 'p3')
+      const afterLast = [...s.selected]
+      s.selected.length = 0
+      s.env._complete_todo = () => false
+      s.setBox('#p2')
+      await s.env._bin_press('done', 'p2')
+      const afterRefused = [...s.selected]
+      s.env._delegate = () => Promise.reject(new Error('net down'))
+      s.setBox('#p2')
+      await s.env._bin_press('agent', 'p2')
+      const afterReject = [s.selected.length, !!s.win._todoer_bin_busy]
+      s.env._complete_todo = () => { throw new Error('sync fail') }
+      let threw = null
+      s.setBox('#p2')
+      try { s.env._bin_press('done', 'p2') } catch (e) { threw = e.message }
+      await new Promise(r => setImmediate(r))
+      const afterThrow = [threw, s.selected.length, !!s.win._todoer_bin_busy]
+      // sole row in list selects nothing
+      const s2 = makeStage()
+      s2.makeItem('only')
+      s2.makeWidget({ rows: [{ id: 'only' }] })
+      s2.setBox('#only')
+      await s2.env._bin_press('done', 'only')
+      check('_bin_press: last row selects previous; refused/rejected/thrown/sole select nothing and always release busy',
+        [afterLast, afterRefused, afterReject, afterThrow, s2.selected, !!s2.win._todoer_bin_busy],
+        [['p2'], [], [0, false], ['sync fail', 0, false], [], false])
+    }
+
+    // 5b. _pressed_item: a button acts only for the item the box names at the press; stale drawn
+    //     done, up, and down callbacks are refused with a console warning when the box names
+    //     another item or no item
+    {
+      const s = makeStage()
+      const a = s.makeItem('A'); const b = s.makeItem('B'); s.makeItem('C')
+      s.makeWidget({ rows: [{ id: 'A' }, { id: 'B' }, { id: 'C' }] })
+      s.win._key_buttons = { guest: () => {} }
+      // draw buttons for A, then point the box to C (and then to nothing) with no new render
+      s.setBox('#A')
+      s.env._bin_buttons(a)
+      const aDone = s.win._key_buttons_guests.buttons.find(btn => btn.name == 'done')
+      s.setBox('#C')
+      aDone.press()
+      const doneOther = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
+      s.warns.length = 0
+      s.setBox('')
+      aDone.press()
+      const doneNone = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
+      s.warns.length = 0
+      // draw buttons for B (middle row: both up -> A and down -> C would move if allowed)
+      s.setBox('#B')
+      s.env._bin_buttons(b)
+      const bUp = s.win._key_buttons_guests.buttons.find(btn => btn.name == 'up')
+      const bDown = s.win._key_buttons_guests.buttons.find(btn => btn.name == 'down')
+      s.setBox('#C')
+      bUp.press()
+      bDown.press()
+      const stepOther = [[...s.selected], [...s.warns]]
+      s.warns.length = 0
+      s.setBox('')
+      bUp.press()
+      bDown.press()
+      const stepNone = [[...s.selected], [...s.warns]]
+      check('_pressed_item: stale drawn done, up, and down callbacks are refused with console.warn when the box names another item or no item',
+        [doneOther, doneNone, stepOther, stepNone],
+        [
+          [[], [], false, ['todoer: the press on "done" was not taken: the box names another item now']],
+          [[], [], false, ['todoer: the press on "done" was not taken: the box no longer names its item']],
+          [[], [
+            'todoer: the press on "up" was not taken: the box names another item now',
+            'todoer: the press on "down" was not taken: the box names another item now',
+          ]],
+          [[], [
+            'todoer: the press on "up" was not taken: the box no longer names its item',
+            'todoer: the press on "down" was not taken: the box no longer names its item',
+          ]],
+        ])
+    }
+
+    // 5c. _select_next box guard: a selection made while an action waits stays (held delegation on B,
+    //     Up pressed meanwhile to select A, release enqueue -> A stays selected, B is delegated);
+    //     uninterrupted selects C
+    {
+      const runHeldBtn = async interruptUp => {
+        const s = makeStage()
+        s.makeItem('A'); const b = s.makeItem('B'); s.makeItem('C')
+        s.makeWidget({ rows: [{ id: 'A' }, { id: 'B' }, { id: 'C' }] })
+        s.win._key_buttons = { guest: () => {} }
+        let release
+        s.env._delegate = it => { s.actions.push(['delegate', it.id]); return new Promise(r => (release = r)) }
+        s.setBox('#B')
+        s.env._bin_buttons(b)
+        const btns = s.win._key_buttons_guests.buttons
+        const pending = btns.find(btn => btn.name == 'agent').press()
+        if (interruptUp) btns.find(btn => btn.name == 'up').press()
+        release(true)
+        await pending
+        return { box: s.getBox(), selected: s.selected, actions: s.actions, busy: !!s.win._todoer_bin_busy }
+      }
+      check('_select_next box guard: a held delegation on B interrupted by pressing Up keeps A selected while still delegating B; uninterrupted selects C',
+        [await runHeldBtn(true), await runHeldBtn(false)],
+        [
+          { box: '#A', selected: ['A'], actions: [['delegate', 'B']], busy: false },
+          { box: '#C', selected: ['C'], actions: [['delegate', 'B']], busy: false },
+        ])
+      // synchronous delete clears editorText in Svelte's microtask (before Promise.resolve(true).then);
+      // because there was no async wait, _select_next still selects the next row
+      const sd = makeStage()
+      const da = sd.makeItem('A')
+      sd.makeItem('B')
+      da.delete = sure => {
+        sd.actions.push(['delete', 'A', !!sure])
+        Promise.resolve().then(() => sd.setBox('')) // models Svelte flushing deleteItem's editorText = ''
+        return true
+      }
+      sd.makeWidget({ rows: [{ id: 'A' }, { id: 'B' }] })
+      sd.setBox('#A')
+      await sd.env._bin_press('cancel', 'A')
+      check('_select_next sync delete: microtask box clear from deleteItem still selects the next row',
+        [sd.actions, sd.selected, sd.getBox(), !!sd.win._todoer_bin_busy],
+        [[['delete', 'A', true]], ['B'], '#B', false])
+    }
+
+    // 5d. Re-delegating the first of two delegated rows via the agent button delegates once and keeps
+    //     the selection on that row; take back still advances to the second row
+    {
+      const s = makeStage()
+      const d1 = s.makeItem('d1'); s.makeItem('d2')
+      s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+      s.win._key_buttons = { guest: () => {} }
+      s.setBox('#d1')
+      s.env._bin_buttons(d1)
+      const btns = s.win._key_buttons_guests.buttons
+      await btns.find(btn => btn.name == 'agent').press()
+      const afterRedelegate = { box: s.getBox(), selected: [...s.selected], actions: [...s.actions], busy: !!s.win._todoer_bin_busy }
+      await btns.find(btn => btn.name == 'owner').press()
+      const afterTakeback = { box: s.getBox(), selected: [...s.selected], actions: [...s.actions], busy: !!s.win._todoer_bin_busy }
+      check('_bin_press delegated agent: pressing agent on the first of two delegated rows delegates once and keeps selection on it; take back advances to the second',
+        [afterRedelegate, afterTakeback],
+        [
+          { box: '#d1', selected: [], actions: [['delegate', 'd1']], busy: false },
+          { box: '#d2', selected: ['d2'], actions: [['delegate', 'd1'], ['takeback', 'd1']], busy: false },
+        ])
+    }
+
+    // 6. _on_row_key: every branch (selected row, ends, none selected -> main list only, empty main list,
+    //    focused fields, modifiers, unrelated keys)
+    {
+      const s = makeStage()
+      s.makeItem('sn1'); s.makeItem('dl1')
+      s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
+      s.makeItem('note')
+      // intentionally mount snoozed and delegated widgets BEFORE main to prove global j/k picks main only
+      s.makeWidget({ snoozed: true, rows: [{ id: 'sn1' }] })
+      s.makeWidget({ delegated: true, rows: [{ id: 'dl1' }] })
+      s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
+      // unrelated keys and modified j/k
+      const rejected = [
+        s.env._on_row_key('KeyA', {}),
+        s.env._on_row_key('ArrowDown', {}),
+        s.env._on_row_key('KeyJ', { metaKey: true }),
+        s.env._on_row_key('KeyJ', { ctrlKey: true }),
+        s.env._on_row_key('KeyJ', { altKey: true }),
+        s.env._on_row_key('KeyJ', { shiftKey: true }),
+        s.env._on_row_key('KeyK', { shiftKey: true }),
+      ]
+      // focused fields reject; non-editable elements allow
+      const fieldBlocked = []
+      for (const el of [{ tagName: 'TEXTAREA' }, { tagName: 'INPUT' }, { tagName: 'SELECT' }, { tagName: 'DIV', isContentEditable: true }]) {
+        s.doc.activeElement = el
+        fieldBlocked.push(s.env._on_row_key('KeyJ', {}))
+      }
+      s.doc.activeElement = { tagName: 'DIV', isContentEditable: false }
+      // empty box -> j selects first of main list (m1), k selects last of main list (m3)
+      const globalJ = s.env._on_row_key('KeyJ', {})
+      const boxAfterJ = s.getBox()
+      const stepDown = s.env._on_row_key('KeyJ', {})
+      const boxAfterDown = s.getBox()
+      const stepUp = s.env._on_row_key('KeyK', {})
+      const boxAfterUp = s.getBox()
+      // at top of list: k still returns true (claims the key) without changing selection
+      const atTop = s.env._on_row_key('KeyK', {})
+      const boxAtTop = s.getBox()
+      // unlisted item in box -> treated as no row selected: k selects last of main list (m3)
+      s.setBox('#note')
+      const globalK = s.env._on_row_key('KeyK', {})
+      const boxAfterK = s.getBox()
+      // at end of list: j still returns true without changing selection
+      const atEnd = s.env._on_row_key('KeyJ', {})
+      const boxAtEnd = s.getBox()
+      // selected row in delegated list: j at end claims key without jumping to main
+      s.setBox('#dl1')
+      const delEnd = s.env._on_row_key('KeyJ', {})
+      const boxDelEnd = s.getBox()
+      // empty main list (only delegated widget) with no selection -> returns false
+      const sEmpty = makeStage()
+      sEmpty.makeItem('d1')
+      sEmpty.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+      sEmpty.makeWidget({ rows: [] })
+      const emptyRes = [sEmpty.env._on_row_key('KeyJ', {}), sEmpty.env._on_row_key('KeyK', {})]
+      check('_on_row_key: ignores other keys, modifiers, and focused fields; steps a selected row and claims ends; selects main-list first/last when no row is selected; false when main empty',
+        [
+          rejected, fieldBlocked,
+          [globalJ, boxAfterJ, stepDown, boxAfterDown, stepUp, boxAfterUp, atTop, boxAtTop],
+          [globalK, boxAfterK, atEnd, boxAtEnd, delEnd, boxDelEnd],
+          emptyRes,
+        ],
+        [
+          [false, false, false, false, false, false, false],
+          [false, false, false, false],
+          [true, '#m1', true, '#m2', true, '#m1', true, '#m1'],
+          [true, '#m3', true, '#m3', true, '#dl1'],
+          [false, false],
+        ])
+
+      // parked main list ahead of a mounted main list is passed over by global j/k; parked-only main list yields false
+      const sPark = makeStage()
+      sPark.makeItem('pk1'); sPark.makeItem('pk2')
+      sPark.makeItem('m1'); sPark.makeItem('m2'); sPark.makeItem('m3')
+      sPark.makeWidget({ parked: true, rows: [{ id: 'pk1' }, { id: 'pk2' }] })
+      sPark.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
+      const pGlobalJ = sPark.env._on_row_key('KeyJ', {})
+      const pBoxJ = sPark.getBox()
+      sPark.setBox('')
+      const pGlobalK = sPark.env._on_row_key('KeyK', {})
+      const pBoxK = sPark.getBox()
+      const sParkOnly = makeStage()
+      sParkOnly.makeItem('pkOnly')
+      sParkOnly.makeWidget({ parked: true, rows: [{ id: 'pkOnly' }] })
+      const pOnlyRes = [sParkOnly.env._on_row_key('KeyJ', {}), sParkOnly.env._on_row_key('KeyK', {}), sParkOnly.selected]
+      check('parked lists (_on_row_key): global j/k passes over a parked main list ahead of a mounted one, and returns false when only a parked main list exists',
+        [[pGlobalJ, pBoxJ, pGlobalK, pBoxK], pOnlyRes],
+        [[true, '#m1', true, '#m3'], [false, false, []]])
+    }
+
+    // 7. _row_keys: idempotent per evaluation, prevents default on handled keys, chains unhandled keys to prior hook,
+    //    and a second evaluation replaces the todoer hook without double-wrapping the prior hook
+    {
+      const priorCalls = []
+      const prior = (key, e) => (priorCalls.push(key), 'from-prior:' + key)
+      const sharedWin = { innerWidth: 1000, _on_key: prior }
+      const eval1 = makeStage({ sharedWin })
+      eval1.makeItem('m1'); eval1.makeItem('m2')
+      eval1.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+      eval1.env._row_keys()
+      const hook1 = sharedWin._on_key
+      eval1.env._row_keys() // idempotent within same evaluation
+      const sameHook = sharedWin._on_key === hook1
+      let prevented = 0
+      const ev = { preventDefault: () => prevented++ }
+      hook1('KeyJ', ev)
+      const passRes = hook1('KeyX', ev)
+      // second evaluation of todoer.js on same window replaces todoer wrapper while keeping original `prior`
+      const eval2 = makeStage({ sharedWin })
+      eval2.makeItem('n1')
+      eval2.makeWidget({ rows: [{ id: 'n1' }] })
+      eval2.env._row_keys()
+      const hook2 = sharedWin._on_key
+      const replaced = hook2 !== hook1 && hook2._todoer_before === prior
+      hook2('KeyJ', ev)
+      const passRes2 = hook2('KeyY', ev)
+      check('_row_keys: taken once per evaluation, prevents default on row keys, forwards other keys to prior hook, and unwraps prior across re-evaluations',
+        [sameHook, prevented, eval1.selected, passRes, replaced, eval2.selected, passRes2, priorCalls],
+        [true, 2, ['m1'], 'from-prior:KeyX', true, ['n1'], 'from-prior:KeyY', ['KeyX', 'KeyY']])
     }
   })())
   // the item's files are embedded in the #todoer item's own text, where the app expands every

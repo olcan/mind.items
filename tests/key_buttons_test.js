@@ -30,9 +30,20 @@ class FakeNode {
   get tagName() { return this.tag.toUpperCase() }
   appendChild(child) { child.parent = this; this.children.push(child); if (child.dataset.keyButtons) log.push('+' + child.dataset.keyButtons + (child.hidden ? ' hidden' : '')); return child }
   remove() { if (!this.parent) return; this.parent.children = this.parent.children.filter(c => c !== this); this.parent = null; log.push('-' + this.dataset.keyButtons) }
+  get childElementCount() { return this.children.length }
+  replaceChildren(...nodes) { for (const child of this.children) child.parent = null; this.children = []; for (const node of nodes) this.appendChild(node) }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
   removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] ?? []).filter(f => f !== fn) }
   setAttribute(name, value) { this.attrs[name] = value }
+  contains(node) { for (let n = node; n; n = n.parent) if (n === this) return true; return false }
+  get classList() {
+    const list = () => (this.className ?? '').split(/\s+/).filter(Boolean)
+    return {
+      contains: c => list().includes(c),
+      add: (...cs) => { const set = new Set(list()); cs.forEach(c => set.add(c)); this.className = [...set].join(' ') },
+      remove: (...cs) => { this.className = list().filter(c => !cs.includes(c)).join(' ') },
+    }
+  }
   closest(selector) { for (let n = this; n; n = n.parent) if (selector == '[data-key-buttons]' ? n.dataset.keyButtons : (n.className ?? '').split(' ').includes(selector.slice(1))) return n; return null }
   dispatchEvent(event) { this.got.push(event) } // a key sent here
   fire(type, more = {}) {
@@ -42,7 +53,7 @@ class FakeNode {
   }
 }
 const scrolled = []
-const page = Object.assign(new FakeNode('document'), { head: new FakeNode('head'), body: new FakeNode('body'), activeElement: null, createElement: tag => new FakeNode(tag) })
+const page = Object.assign(new FakeNode('document'), { head: new FakeNode('head'), body: new FakeNode('body'), activeElement: null, createElement: tag => new FakeNode(tag), createElementNS: (space, tag) => new FakeNode(tag) })
 page.documentElement = new FakeNode('html')
 page.body.scrollBy = (x, y) => scrolled.push([x, y])
 const all = () => { const out = []; const walk = n => { out.push(n); n.children.forEach(walk) }; walk(page.head); walk(page.body); return out }
@@ -160,9 +171,23 @@ check('reload: its circle and shadow, its dim idle look, its brighter look under
     '.key-buttons-reload[hidden] { display: none }'].map(rule => sheet.includes(rule)).concat(look.layer < Number(layer[1])),
   [true, true, true, true, true, true, true])
 const reload_shown = (wide, up, shown_row, switches) => v1('key_buttons_reload_shown(__args.win, __args.keyboard, __args.row, KEY_BUTTONS_LOOK, __args.parts ?? KEY_BUTTONS_PARTS)', { win: { innerWidth: wide }, keyboard: { up }, row: shown_row, parts: switches })
-check('reload: it shows on every device, a desktop too; not while a keyboard is on the screen; not where the main row, while it shows, comes within a gap of it (a window under 350 px); and never with its part off',
-  [reload_shown(1280, false, null), reload_shown(390, false, 'main'), reload_shown(390, true, 'keyboard'), reload_shown(390, true, null), reload_shown(350, false, 'main'), reload_shown(349, false, 'main'), reload_shown(320, false, 'main'), reload_shown(320, false, null), reload_shown(390, false, 'main', { reload_button: false })],
+check('reload: it shows on every device, a desktop too; not while a keyboard is on the screen; not where the main row, while it shows, comes within a gap of it (a window under 354 px, the button being as large as a button of the row on a phone); and never with its part off',
+  [reload_shown(1280, false, null), reload_shown(390, false, 'main'), reload_shown(390, true, 'keyboard'), reload_shown(390, true, null), reload_shown(354, false, 'main'), reload_shown(353, false, 'main'), reload_shown(320, false, 'main'), reload_shown(320, false, null), reload_shown(390, false, 'main', { reload_button: false })],
   [true, true, false, false, true, false, false, true, false])
+// touch size of both corner buttons: the row's 32 px, centred on the desktop 24 px button's point,
+// matched against vault.md's @media (pointer: coarse) rule for .vault-sparkle and its menu
+const touch_reload = v1('key_buttons_reload_touch(KEY_BUTTONS_LOOK)')
+const touch_sparkle = vault.match(/@media \(pointer: coarse\) \{ \.vault-sparkle \{ right: (\d+)px; bottom: (\d+)px; width: (\d+)px; height: (\d+)px \} \.vault-sparkle-menu \{ bottom: (\d+)px \} \}/)
+const custom_touch = v1('key_buttons_reload_touch({ size: 40, reload: { size: 24, left: 14, bottom: 10 } })')
+check('reload touch size: 32 px centred on the desktop point (26, 22), mirrored by vault.md coarse-pointer sparkle (32 px at 10/6, menu bottom 46), and scales with look',
+  [
+    touch_reload,
+    [touch_reload.left + touch_reload.size / 2, touch_reload.bottom + touch_reload.size / 2],
+    [look.reload.left + look.reload.size / 2, look.reload.bottom + look.reload.size / 2],
+    touch_sparkle?.slice(1, 6).map(Number) ?? null,
+    custom_touch,
+  ],
+  [{ size: 32, left: 10, bottom: 6 }, [26, 22], [26, 22], [10, 6, 32, 32, 46], { size: 40, left: 6, bottom: 2 }])
 const geom = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK)')
 const frame = v1('key_buttons_backdrop_frame(KEY_BUTTONS_LOOK)')
 check("nav look: in a window narrower than the piece the group gaps shrink to the button gap, so the strip's first button stays inside at 320 and 300 px (it began left of the window with the wide gaps)",
@@ -179,6 +204,8 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     sheet.includes('.key-buttons > button.valid { color: #9f9 }'),
     sheet.includes(`.key-buttons > button.dim > svg { opacity: ${look.dim} }`),
     sheet.includes(`.key-buttons-reload.desktop { left: auto; right: ${right + width + look.group}px }`),
+    sheet.includes(`.key-buttons-reload:not(.desktop) { left: ${right - (look.size - width) / 2}px; bottom: ${look.reload.bottom - (look.size - width) / 2}px; width: ${look.size}px; height: ${look.size}px }`),
+    sheet.includes(`.key-buttons-guests > button:active, .key-buttons-guests > button.busy { background: ${look.pressed} }`),
     sheet.includes(`.key-buttons-nav { position: fixed; right: ${right + 2 * width + 2 * look.group}px; bottom: ${bottom}px; z-index: ${look.layer}; display: flex; gap: ${look.gap}px;`),
     sheet.includes(`.key-buttons-nav > button[data-lead]:not(:first-child) { margin-left: ${look.group - look.gap}px }`),
     !sheet.includes('.key-buttons-nav.vertical'),
@@ -198,7 +225,7 @@ check('nav look: valid arrows are green (#9f9) and invalid arrows dim to look.di
     frame.includes(`stroke="${look.backdrop.border}" stroke-width="1"`),
     frame.includes('class="key-buttons-bg-svg split"') && frame.includes('class="key-buttons-bg-svg strip"'),
     look.layer - 1 < look.layer && look.layer < Number(layer[1])],
-  [18, '#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
+  [18, '#9f9', 0.25, { fill: 'rgba(17, 17, 17, 0.65)', blur: '4px', border: 'rgba(255, 255, 255, 0.09)', shadow: 'rgba(0, 0, 0, 1)', shadow_blur: 12, merge: 480 }, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true])
 check('backdrop geom & frame: one right piece (w_piece 340, h_col 0, h_tot 44, top-left radius 12) and its split and strip clip, shadow-caster and border SVG paths',
   [geom.w_col, geom.h_col, geom.h_row, geom.h_tot, geom.w_piece, geom.r, geom.pad, geom.narrow,
     geom.clip_split, geom.clip_strip, geom.shape_split, geom.border_split, geom.shape_strip, geom.border_strip,
@@ -495,7 +522,7 @@ v1('_on_welcome()')
 const [bg, bar, keys, nav_strip] = [parts('backdrop')[0], parts('bar')[0], parts('keyboard')[0], parts('nav-strip')[0]]
 check('controller: the page\'s welcome draws one style, the backdrop (with its pane, SVG frame and unused right piece children), the two rows, the reload button and the one desktop nav strip under the body, each put there hidden; on a narrow (390 px) desktop with empty box the strip and merged desktop backdrop show (arrows dimmed, non-arrows untouched)',
   [log, parts('style').length, parts('nav-vertical').length, parts('nav-horizontal').length, bg.parent === page.body, bg.children.map(c => c.className), bg.children[1].innerHTML === frame, bar.parent === page.body, keys.parent === page.body, nav_strip.parent === page.body, bar.children.map(b => b.dataset.key), keys.children.map(b => b.dataset.key), nav_strip.children.map(b => [b.dataset.key, b.dataset.lead ?? null]), nav_strip.className, bg.className, bg.attrs['aria-hidden'], bg.hidden, bar.hidden, keys.hidden, nav_strip.hidden, nav_strip.children.map(b => [b.dataset.key, b.className ?? '']), tasks.key_buttons.delay, tasks.key_buttons.repeat],
-  [['+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', 'task key_buttons'], 1, 0, 0, true, ['key-buttons-bg-pane', 'key-buttons-bg-frame', 'key-buttons-bg-right'], true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), [['top', '1'], ['back', null], ['left', '1'], ['up', null], ['down', null], ['right', null], ['create', '1']], 'key-buttons-nav', 'key-buttons-bg desktop', 'true', false, true, true, false, [['top', ''], ['back', ''], ['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim'], ['create', '']], 15000, 15000])
+  [['+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', '+guests hidden', 'task key_buttons'], 1, 0, 0, true, ['key-buttons-bg-pane', 'key-buttons-bg-frame', 'key-buttons-bg-right', 'key-buttons-bg-floor'], true, true, true, true, buttons.map(b => b.name), above.map(b => b.name), [['top', '1'], ['back', null], ['left', '1'], ['up', null], ['down', null], ['right', null], ['create', '1']], 'key-buttons-nav', 'key-buttons-bg desktop', 'true', false, true, true, false, [['top', ''], ['back', ''], ['left', 'dim'], ['up', 'dim'], ['down', 'dim'], ['right', 'dim'], ['create', '']], 15000, 15000])
 const again = parts('reload')[0]
 check('reload: drawn under the body with the rows and shown on a desktop with class desktop; named for a screen reader, its icon a line drawing, and within the Tab order as the sparkle is',
   [parts('reload').length, again.parent === page.body, again.hidden, again.className, again.title, again.attrs['aria-label'], again.innerHTML, 'tabIndex' in again],
@@ -655,7 +682,7 @@ v2('_on_item_change("keys-id")')
 const [bar2, keys2] = [parts('bar')[0], parts('keyboard')[0]]
 check('controller: an update of the item replaces the rows: the earlier ones go before the new ones are drawn, shown at once, and the earlier task is cancelled',
   [log, parts('bar').length, parts('keyboard').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('backdrop').length, bar2 !== bar, bar2.hidden, parts('style').length, parts('reload').length, parts('reload')[0] !== again],
-  [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style', '+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', 'task key_buttons'], 1, 1, 1, 0, 0, 1, true, false, 1, 1, true])
+  [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style', '+style', '+backdrop hidden', '+bar hidden', '+keyboard hidden', '+reload hidden', '+nav-strip hidden', '+guests hidden', 'task key_buttons'], 1, 1, 1, 0, 0, 1, true, false, 1, 1, true])
 bar.hidden = false // as if it were still shown: only its disposal keeps a replaced row quiet
 button('down').fire('click')
 again.hidden = false
@@ -1066,14 +1093,14 @@ check('controller: an item that only carries the code draws nothing and leaves t
   win.innerHeight = 800
   pointer.matches = prev_pointer
 }
-check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], 0, 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
+check('controller: the item renamed, its code kept, takes its rows and its button away', [log, parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length, parts('style').length, listening(), v2('typeof window._key_buttons')], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], 0, 0, 0, 0, 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], 'undefined'])
 items['#key_buttons'] = { id: 'keys-id' }
 v2('_on_item_change("keys-id")')
 check('controller: named #key_buttons again it draws again', [parts('backdrop').length, parts('bar').length, parts('keyboard').length, parts('reload').length, parts('nav-strip').length, parts('nav-vertical').length, parts('nav-horizontal').length], [1, 1, 1, 1, 1, 0, 0])
 log.length = 0
 tasks.key_buttons._on_cancel() // the app, at the task's next run after the item's deletion
 check('controller: the item\'s deletion removes the rows, their style and the listeners at the task\'s cancel, and its task then ends',
-  [log, parts('backdrop').length, parts('bar').length, parts('reload').length, parts('nav-strip').length, listening(), tasks.key_buttons.fn()], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
+  [log, parts('backdrop').length, parts('bar').length, parts('reload').length, parts('nav-strip').length, listening(), tasks.key_buttons.fn()], [['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], 0, 0, 0, 0, [0, 0, 0, 0, 0, 0], null])
 
 // ---- the caret's scroll, switched on in the table: once for each opening of the keyboard ---------
 {
@@ -1186,14 +1213,14 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
   const retired = [own.key_buttons.fn(), [...log], ['backdrop', 'bar', 'keyboard', 'reload', 'nav-strip', 'style'].map(kind => parts(kind).length), listening(), run('typeof window._key_buttons')]
   log.length = 0
   check('stale: the task keeps a controller whose code is still the item\'s; once the item\'s hash is another (its code removed, or the app\'s #_debug tag put on it: no hook says so) the next run retires it: the rows, the button, the style and every listener go, the task ends, and a later run does nothing',
-    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
+    [kept, retired, own.key_buttons.fn(), log], [[undefined, 1, [1, 1, 1, 1, 1, 1]], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 'undefined'], null, []])
   const theirs = {}
   const gone = evaluation(7, 'keys-id', theirs)
   gone('_on_welcome()')
   Object.defineProperty(gone.item, 'deephash', { get() { throw new Error('item keys-id is deleted') } })
   log.length = 0
   check('stale: a controller whose item can no longer be read (deleted, should the app not have cancelled its task) is retired the same way',
-    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
+    [theirs.key_buttons.fn(), [...log], listening(), gone('typeof window._key_buttons')], [null, ['-backdrop', '-bar', '-keyboard', '-reload', '-nav-strip', '-guests', '-style'], [0, 0, 0, 0, 0, 0], 'undefined'])
   log.length = 0
 }
 
@@ -1247,6 +1274,513 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
   await settled()
   check('reload: a controller that is gone by the time of the answer reloads nothing', [asked.length, reloads], [1, []])
   Object.assign(open, clean)
+
+  // ---- guests' part of the bar: geom, glass hit-testing, inline vs second floor, busy & dropped --
+  {
+    const g0 = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, 0)')
+    const g4 = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, 4)')
+    const g6 = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, 6)')
+    const css6 = v1('key_buttons_css(KEY_BUTTONS_LOOK, 6)')
+    const frame6 = v1('key_buttons_backdrop_frame(KEY_BUTTONS_LOOK, 6)')
+    check('guests geom & css: guest group widens split w_piece by n*24 + (n-1)*6 + 18 while keeping narrow-gap @media keyed on own piece (339 px)',
+      [
+        [g0.w_guests, g0.w_piece],
+        [g4.w_guests, g4.w_piece],
+        [g6.w_guests, g6.w_piece],
+        css6.includes(`@media (max-width: ${g0.w_piece - 1}px)`),
+        css6.includes(`.key-buttons-guests { position: fixed; right: ${g0.w_piece - look.reload.left + look.group}px; bottom: ${look.reload.bottom}px;`),
+        css6.includes(`.key-buttons-guests.floor { right: auto; left: ${look.reload.left}px; bottom: ${g0.h_row + look.reload.bottom}px }`),
+        css6.includes(`.key-buttons-guests.floor.touch { left: ${touch_reload.left}px; bottom: ${look.size + 3 * look.bottom}px }`),
+        css6.includes(`width: ${g6.w_piece}px; -webkit-clip-path: path('${g6.clip_split}')`),
+        frame6.includes(`<path d="${g6.border_split}"`),
+      ],
+      [[0, 340], [132, 472], [192, 532], true, true, true, true, true, true])
+    // third parameter `strip`: defaults to merge (480); widens narrow, strip paths, CSS clip, and frame SVG
+    const gStripDef = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, 0)')
+    const gStripSmall = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, 0, 400)')
+    const gStrip532 = v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, 0, 532)')
+    const cssStripDef = v1('key_buttons_css(KEY_BUTTONS_LOOK, 0)')
+    const cssStrip532 = v1('key_buttons_css(KEY_BUTTONS_LOOK, 0, 532)')
+    const frameStripDef = v1('key_buttons_backdrop_frame(KEY_BUTTONS_LOOK, 0)')
+    const frameStrip532 = v1('key_buttons_backdrop_frame(KEY_BUTTONS_LOOK, 0, 532)')
+    check('guests strip geom & frame: third parameter strip widens narrow, clip/shape/border strip paths, CSS clip, and frame strip SVG past merge (480 default)',
+      [
+        [gStripDef.narrow, gStripDef.clip_strip, gStripDef.shape_strip, gStripDef.border_strip],
+        gStripSmall.narrow,
+        [gStrip532.narrow, gStrip532.clip_strip, gStrip532.shape_strip, gStrip532.border_strip],
+        cssStripDef.includes(`clip-path: path('${gStripDef.clip_strip}')`),
+        cssStrip532.includes(`-webkit-clip-path: path('${gStrip532.clip_strip}'); clip-path: path('${gStrip532.clip_strip}')`),
+        [
+          frameStripDef.includes('<mask id="key-buttons-bg-out-strip" maskUnits="userSpaceOnUse" x="0" y="0" width="480"'),
+          frameStripDef.includes(`<path d="${gStripDef.shape_strip}"`),
+          frameStripDef.includes(`<path d="${gStripDef.border_strip}"`),
+        ],
+        [
+          frameStrip532.includes('<mask id="key-buttons-bg-out-strip" maskUnits="userSpaceOnUse" x="0" y="0" width="532"'),
+          frameStrip532.includes(`<path d="${gStrip532.shape_strip}"`),
+          frameStrip532.includes(`<path d="${gStrip532.border_strip}"`),
+        ],
+      ],
+      [
+        [480, 'M 0 0 H 480 V 44 H 0 Z', 'M -36 36 H 516 V 116 H -36 Z', 'M 0 36.5 H 480'],
+        480,
+        [532, 'M 0 0 H 532 V 44 H 0 Z', 'M -36 36 H 568 V 116 H -36 Z', 'M 0 36.5 H 532'],
+        true,
+        true,
+        [true, true, true],
+        [true, true, true],
+      ])
+    const in_glass = (x, y, vw, vh, mode, guests, floor) =>
+      v1('key_buttons_in_glass(__args.x, __args.y, __args.vw, __args.vh, __args.mode, false, KEY_BUTTONS_LOOK, __args.guests, __args.floor)', { x, y, vw, vh, mode, guests, floor })
+    // vw=1000, vh=600: with 6 guests split extends from x=1000-532=468..1000 (without guests 660..1000);
+    // second floor width=202 covers x<=202, dy in (44, 88] => y in [512, 556)
+    check('guests in_glass: split piece includes guest extension (and group gap) only when guests > 0; second floor covers x<=floor, row < dy <= 2*row on desktop-strip and mobile',
+      [
+        in_glass(500, 578, 1000, 600, 'desktop-split', 0, 0),
+        in_glass(500, 578, 1000, 600, 'desktop-split', 6, 0),
+        in_glass(460, 578, 1000, 600, 'desktop-split', 6, 0),
+        in_glass(100, 530, 500, 600, 'desktop-strip', 0, 0),
+        in_glass(100, 530, 500, 600, 'desktop-strip', 0, 202),
+        in_glass(203, 530, 500, 600, 'desktop-strip', 0, 202),
+        in_glass(100, 511, 500, 600, 'desktop-strip', 0, 202),
+        in_glass(100, 530, 390, 844, 'mobile', 0, 242),
+        in_glass(243, 530, 390, 844, 'mobile', 0, 242),
+        in_glass(100, 755, 390, 844, 'mobile', 0, 242), // dy=89 > 88
+        in_glass(100, 756, 390, 844, 'mobile', 0, 242), // dy=88 <= 88
+      ],
+      [false, true, false, false, true, false, false, false, false, false, true])
+    // second floor's rounded top-right corner (radius = look.reload.size / 2 = 12):
+    // outer sliver is no glass, inside the arc and elsewhere on the floor are glass (desktop and phone)
+    check('guests in_glass corner: second floor excludes the 12 px outer sliver of its top-right corner and includes points inside the arc and elsewhere on desktop and phone',
+      [
+        // desktop floor: vw=500, vh=600, floor=202, row=44, 2*row=88 -> arc centre (190, dy=76 -> y=524)
+        in_glass(201, 513, 500, 600, 'desktop-strip', 0, 202), // outer sliver (11^2 + 11^2 = 242 > 144)
+        in_glass(199, 515, 500, 600, 'desktop-strip', 0, 202), // outer sliver (9^2 + 9^2 = 162 > 144)
+        in_glass(198, 516, 500, 600, 'desktop-strip', 0, 202), // inside arc (8^2 + 8^2 = 128 <= 144)
+        in_glass(190, 512, 500, 600, 'desktop-strip', 0, 202), // arc top tangent
+        in_glass(10, 513, 500, 600, 'desktop-strip', 0, 202),  // top-left of floor (unrounded)
+        in_glass(100, 530, 500, 600, 'desktop-strip', 0, 202), // interior of floor
+        // phone floor: vw=390, vh=844, floor=242, row=44, 2*row=88 -> arc centre (230, dy=76 -> y=768)
+        in_glass(241, 757, 390, 844, 'mobile', 0, 242),        // outer sliver (11^2 + 11^2 = 242 > 144)
+        in_glass(239, 759, 390, 844, 'mobile', 0, 242),        // outer sliver (9^2 + 9^2 = 162 > 144)
+        in_glass(238, 760, 390, 844, 'mobile', 0, 242),        // inside arc (8^2 + 8^2 = 128 <= 144)
+        in_glass(230, 756, 390, 844, 'mobile', 0, 242),        // arc top tangent
+        in_glass(5, 757, 390, 844, 'mobile', 0, 242),          // top-left of floor (unrounded)
+        in_glass(100, 778, 390, 844, 'mobile', 0, 242),        // interior of floor
+      ],
+      [false, false, true, true, true, true, false, false, true, true, true, true])
+
+    // controller lifecycle for guests, inline vs floor vs phone touch vs keyboard-up, busy & dropped
+    calm()
+    const gWarns = []
+    const gErrors = []
+    let perfNow = 1000
+    const gOwn = {}
+    const gContext = vm.createContext({
+      _this: {
+        id: 'keys-id', deephash: 20,
+        dispatch_task(name, fn, delay, repeat) { gOwn[name]?._on_cancel?.(); return (gOwn[name] = { fn, delay, repeat }) },
+      },
+      _item: label => items[label] ?? null,
+      document: page,
+      window: win,
+      KeyboardEvent: FakeKey,
+      Date: { now: () => clock.now },
+      performance: { now: () => perfNow },
+      console: { warn: m => gWarns.push(m), error: m => gErrors.push(m) },
+    })
+    vm.runInContext(code, gContext)
+    win.innerWidth = 1000
+    win.innerHeight = 800
+    pointer.matches = false
+    let takenCalls = 0
+    let resolveAsync
+    let asyncPending = false
+    const pressed = []
+    const makeSpecs = (n = 6) =>
+      Array.from({ length: n }, (_, i) => ({
+        name: ['up', 'down', 'agent', 'done', 'snooze', 'cancel'][i] ?? 'g' + i,
+        title: 'Title ' + i,
+        icon: 'M0 0h10',
+        box: i == 2 ? 24 : undefined,
+        fill: i == 2,
+        color: i == 4 ? '#fa4' : '#fff',
+        press: () => {
+          pressed.push(i)
+          if (i == 0) {
+            if (asyncPending) return undefined
+            asyncPending = true
+            return new Promise(r => (resolveAsync = () => { asyncPending = false; r() }))
+          }
+          if (i == 1) return Promise.reject(new Error('async boom'))
+          if (i == 2) throw new Error('sync boom')
+        },
+      }))
+    // hand over BEFORE controller draws: key_buttons_create() calls self.guest() on creation
+    win._key_buttons_guests = { buttons: makeSpecs(6), taken: () => takenCalls++ }
+    vm.runInContext('_on_welcome()', gContext)
+    const ctrl = win._key_buttons
+    const gEl = parts('guests')[0]
+    const gBg = parts('backdrop')[0]
+    const gFloor = gBg.children.find(c => c.className == 'key-buttons-bg-floor')
+    const gStyle = parts('style')[0]
+    const gFrame = gBg.children.find(c => c.className == 'key-buttons-bg-frame')
+    const stripDraw = () => [
+      ctrl.guest_strip,
+      gStyle.textContent.match(/clip-path: path\('(M 0 0 H \d+ V 44 H 0 Z)'\)/)?.[1] ?? null,
+      gFrame.innerHTML.match(/<path d="(M 0 36\.5 H \d+)"/)?.[1] ?? null,
+      gFrame.innerHTML.match(/<mask id="key-buttons-bg-out-strip"[^>]*width="(\d+)"/)?.[1] ?? null,
+    ]
+    const built = gEl.children.map(b => [b.dataset.guest, b.className ?? '', b.style.color, b.title, b.attrs['aria-label'], b.children[0].attrs.viewBox])
+    const wideState = [takenCalls, gEl.hidden, gEl.className, gBg.className, ctrl.guest_count, ctrl.guest_floor, gFloor.style]
+    const stripWide = stripDraw()
+    // narrow desktop between merge (480) and w_piece(6) (532): switches to desktop-strip + second floor
+    win.innerWidth = 500
+    viewport.fire('resize')
+    const midNarrow = [gEl.hidden, gEl.className, gBg.className, ctrl.bg_mode, ctrl.guest_count, ctrl.guest_floor, { ...gFloor.style }]
+    const strip500 = stripDraw()
+    // narrow desktop below merge (430): stays on desktop floor, strip still drawn to 532
+    win.innerWidth = 430
+    viewport.fire('resize')
+    const belowMerge = [gEl.hidden, gEl.className, gBg.className, ctrl.guest_floor]
+    const strip430 = stripDraw()
+    // phone touch (390): second floor with touch class, 32 px buttons lined up with touch reload (left 10 -> width 2*10 + 6*32 + 5*6 = 242)
+    win.innerWidth = 390
+    pointer.matches = true
+    pointer.fire('change')
+    const phoneFloor = [gEl.hidden, gEl.className, gBg.className, ctrl.bg_mode, ctrl.guest_floor, { ...gFloor.style }]
+    const stripPhone = stripDraw()
+    // on-screen keyboard up hides guests and backdrop
+    focus(editor)
+    viewport.height = 464
+    viewport.fire('resize')
+    const kbdHidden = [gEl.hidden, gBg.hidden, ctrl.guest_floor, { ...gFloor.style }]
+    viewport.height = 800
+    viewport.fire('resize')
+    blur(gOwn)
+    // back to wide desktop, test glass rejection on guest extension & second floor, busy class, and dropped warning
+    const gUnder = new FakeNode('div')
+    // phone floor glass (vw=390, vh=800, floor=242, row=44 -> dy=66 is y=734): x=100 inside floor rejected, x=260 outside passed
+    const floorHit = [
+      page.fire('pointerdown', { target: gUnder, clientX: 100, clientY: 734, pointerType: 'touch', isPrimary: true }).stopped,
+      page.fire('pointerdown', { target: gUnder, clientX: 260, clientY: 734, pointerType: 'touch', isPrimary: true }).stopped,
+    ]
+    pointer.matches = false
+    win.innerWidth = 1000
+    pointer.fire('change')
+    // wide desktop split with 6 guests (w_piece=532 -> x in [468, 1000], dy=22 -> y=778): x=500 in guest glass rejected, x=450 outside passed
+    const extHit = [
+      page.fire('pointerdown', { target: gUnder, clientX: 500, clientY: 778, pointerType: 'mouse', isPrimary: true }).stopped,
+      page.fire('pointerdown', { target: gUnder, clientX: 450, clientY: 778, pointerType: 'mouse', isPrimary: true }).stopped,
+    ]
+    const b0 = gEl.children[0]
+    const b1 = gEl.children[1]
+    const b2 = gEl.children[2]
+    b0.getBoundingClientRect = () => ({ left: 500, right: 524, top: 766, bottom: 790, width: 24, height: 24 })
+    // tap started on bare glass beside b0 (x=495, y=778), click arrives on b0 -> rejected and warned
+    page.fire('pointerdown', { target: b0, clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    page.fire('pointerup', { target: b0, clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    b0.fire('click', { detail: 1, pointerType: 'touch', timeStamp: 990 })
+    const droppedWarn = [...gWarns]
+    const pressedAfterDrop = [...pressed]
+    // valid click on b0 (async promise): stays .busy until resolved
+    page.fire('pointerdown', { target: b0, clientX: 512, clientY: 778, pointerType: 'mouse', isPrimary: true })
+    page.fire('pointerup', { target: b0, clientX: 512, clientY: 778, pointerType: 'mouse', isPrimary: true })
+    b0.fire('click', { detail: 1, pointerType: 'mouse', timeStamp: 990 })
+    const busyWhilePending = b0.classList.contains('busy')
+    resolveAsync()
+    await settled()
+    const busyAfterResolve = b0.classList.contains('busy')
+    // overlapping second tap on b0 while first promise is pending returns at once: .busy stays lit
+    // until the first promise resolves (counted per button)
+    pressed.length = 0
+    page.fire('pointerdown', { target: b0, clientX: 512, clientY: 778, pointerType: 'mouse', isPrimary: true })
+    page.fire('pointerup', { target: b0, clientX: 512, clientY: 778, pointerType: 'mouse', isPrimary: true })
+    b0.fire('click', { detail: 1, pointerType: 'mouse', timeStamp: 990 })
+    const busyFirstTap = b0.classList.contains('busy')
+    page.fire('pointerdown', { target: b0, clientX: 512, clientY: 778, pointerType: 'mouse', isPrimary: true })
+    page.fire('pointerup', { target: b0, clientX: 512, clientY: 778, pointerType: 'mouse', isPrimary: true })
+    b0.fire('click', { detail: 1, pointerType: 'mouse', timeStamp: 995 })
+    await settled()
+    const busyAfterSecondTap = b0.classList.contains('busy')
+    resolveAsync()
+    await settled()
+    const busyAfterFirstDone = b0.classList.contains('busy')
+    const overlappingPresses = [...pressed]
+    // adjusted tap started on bare glass beside b0, dispatched through document capture first:
+    // glass_block stops it before b0 sees it and logs one warning (also for its inner svg);
+    // scrolling over glass (no click) and clicking bare glass outside any button stay quiet
+    gWarns.length = 0
+    pressed.length = 0
+    page.fire('pointerdown', { target: b0, clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    page.fire('touchstart', { target: b0, touches: [{ clientX: 495, clientY: 778 }] })
+    page.fire('pointerup', { target: b0, clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    page.fire('touchend', { target: b0, touches: [], changedTouches: [{ clientX: 495, clientY: 778 }] })
+    const capBtn = page.fire('click', { target: b0, detail: 1, pointerType: 'touch', timeStamp: 990 })
+    if (!capBtn.stopped) b0.fire('click', { detail: 1, pointerType: 'touch', timeStamp: 990 })
+    const glassTapBtn = [capBtn.stopped, capBtn.prevented, [...pressed], [...gWarns]]
+    gWarns.length = 0
+    page.fire('pointerdown', { target: b0.children[0], clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    page.fire('pointerup', { target: b0.children[0], clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    const capSvg = page.fire('click', { target: b0.children[0], detail: 1, pointerType: 'touch', timeStamp: 990 })
+    if (!capSvg.stopped) b0.fire('click', { detail: 1, pointerType: 'touch', timeStamp: 990 })
+    const glassTapSvg = [capSvg.stopped, [...pressed], [...gWarns]]
+    gWarns.length = 0
+    page.fire('pointerdown', { target: gUnder, clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    page.fire('touchstart', { target: gUnder, touches: [{ clientX: 495, clientY: 778 }] })
+    page.fire('touchmove', { target: gUnder, touches: [{ clientX: 495, clientY: 740 }] })
+    page.fire('pointercancel', { target: gUnder, pointerType: 'touch', isPrimary: true })
+    page.fire('touchend', { target: gUnder, touches: [], changedTouches: [{ clientX: 495, clientY: 740 }] })
+    const glassScroll = [[...pressed], [...gWarns]]
+    gWarns.length = 0
+    page.fire('pointerdown', { target: gUnder, clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    page.fire('pointerup', { target: gUnder, clientX: 495, clientY: 778, pointerType: 'touch', isPrimary: true })
+    const capBare = page.fire('click', { target: gUnder, detail: 1, pointerType: 'touch', timeStamp: 990 })
+    const glassBareClick = [capBare.stopped, [...gWarns]]
+    // valid synthetic clicks on b1 (rejects) and b2 (sync throws): both log console.error and clear .busy
+    b1.fire('click', { isTrusted: false })
+    b2.fire('click', { isTrusted: false })
+    await settled()
+    const errorsAfterFail = [b1.classList.contains('busy'), b2.classList.contains('busy'), [...gErrors]]
+    // returning to 500 px raises guest_strip to 532 again; widening back to 1000 px (room for wider piece) resets to 0
+    win.innerWidth = 500
+    viewport.fire('resize')
+    const stripBack500 = stripDraw()
+    win.innerWidth = 1000
+    viewport.fire('resize')
+    const stripBackWide = stripDraw()
+    // clearing guests while at 500 px (no floor stands) also resets guest_strip to 0
+    win.innerWidth = 500
+    viewport.fire('resize')
+    win._key_buttons_guests = { buttons: [] }
+    ctrl.guest()
+    const stripCleared500 = stripDraw()
+    // re-hand over at 1000 px so clearedState tests taken() error isolation on wide desktop
+    win.innerWidth = 1000
+    win._key_buttons_guests = { buttons: makeSpecs(6) }
+    ctrl.guest()
+    // taken() throwing is caught and logged; empty buttons hides guests
+    gErrors.length = 0
+    win._key_buttons_guests = { buttons: [], taken: () => { throw new Error('taken boom') } }
+    ctrl.guest()
+    const clearedState = [gEl.hidden, ctrl.guest_count, ctrl.guest_floor, gBg.className, [...gErrors]]
+    ctrl.dispose()
+    delete win._key_buttons_guests
+    win.innerWidth = 390
+    check('guests controller: builds guest buttons on welcome, places inline on wide desktop, moves to second floor when narrow (500 and 430) and on phone touch (width 242), hides under keyboard',
+      [built.slice(0, 3), built[4], wideState, midNarrow, belowMerge, phoneFloor, kbdHidden],
+      [
+        [['up', '', '#fff', 'Title 0', 'Title 0', '0 0 16 16'], ['down', '', '#fff', 'Title 1', 'Title 1', '0 0 16 16'], ['agent', 'fill', '#fff', 'Title 2', 'Title 2', '0 0 24 24']],
+        ['snooze', '', '#fa4', 'Title 4', 'Title 4', '0 0 16 16'],
+        [1, false, 'key-buttons-guests', 'key-buttons-bg desktop split', 6, 0, { width: '', bottom: '', height: '' }],
+        [false, 'key-buttons-guests floor', 'key-buttons-bg desktop floor', 'desktop-strip', 0, 202, { width: '202px', bottom: '44px', height: '44px' }],
+        [false, 'key-buttons-guests floor', 'key-buttons-bg desktop floor', 202],
+        [false, 'key-buttons-guests floor touch', 'key-buttons-bg floor', 'mobile', 242, { width: '242px', bottom: '44px', height: '44px' }],
+        [true, true, 0, { width: '', bottom: '', height: '' }],
+      ])
+    const STRIP_480 = [0, 'M 0 0 H 480 V 44 H 0 Z', 'M 0 36.5 H 480', '480']
+    const STRIP_532 = [532, 'M 0 0 H 532 V 44 H 0 Z', 'M 0 36.5 H 532', '532']
+    check('guests controller strip: 500 px and 430 px desktop floors draw strip to w_piece (532) in guest_strip, stylesheet clip, and frame; resets to 0 (480) on mobile, wide desktop, or when floor clears',
+      [stripWide, strip500, strip430, stripPhone, stripBack500, stripBackWide, stripCleared500],
+      [STRIP_480, STRIP_532, STRIP_532, STRIP_480, STRIP_532, STRIP_480, STRIP_480])
+    check('guests controller: rejects bare glass on guest extension and second floor, rejects click started off button with console.warn, keeps .busy until promise settles (resolve, reject, sync throw), logs press/taken errors, hides when cleared',
+      [floorHit, extHit, droppedWarn, pressedAfterDrop, busyWhilePending, busyAfterResolve, errorsAfterFail, clearedState],
+      [
+        [1, 0],
+        [1, 0],
+        ['key buttons: a tap on "up" was not taken: it did not start on this button'],
+        [],
+        true,
+        false,
+        [false, false, ["key buttons: a guest button's press failed: Error: sync boom", "key buttons: a guest button's press failed: Error: async boom"]],
+        [true, 0, 0, 'key-buttons-bg desktop split', ["key buttons: a guest's taken() failed: Error: taken boom"]],
+      ])
+    check('guests controller busy count: second tap returning immediately leaves .busy lit until first pending promise resolves',
+      [busyFirstTap, busyAfterSecondTap, busyAfterFirstDone, overlappingPresses],
+      [true, true, false, [0, 0]])
+    check('guests controller glass capture: adjusted tap onto a button (or its svg) through document capture runs no press and logs one warning; scrolling over glass or clicking bare glass stays quiet',
+      [glassTapBtn, glassTapSvg, glassScroll, glassBareClick],
+      [
+        [1, 1, [], ['key buttons: a tap on "up" was not taken: it began on the glass beside the button']],
+        [1, [], ['key buttons: a tap on "up" was not taken: it began on the glass beside the button']],
+        [[], []],
+        [1, []],
+      ])
+  }
+
+  // ---- timing diagnostics: thresholds, waited/slow_line/timed/down/dropped, and stuck ticker ----
+  {
+    const slow = v1('KEY_BUTTONS_SLOW')
+    check('diagnostics table: thresholds for waited (300 ms), work (1000 ms), stuck (1000 ms) and tick (200 ms)',
+      slow, { waited: 300, work: 1000, stuck: 1000, tick: 200 })
+    const waited = (e, now) => v1('key_buttons_waited(__args.e, __args.now)', { e, now })
+    clock.now = 1_700_000_000_500
+    check('diagnostics waited: computes rounded ms for perf stamps and epoch (>1e12) stamps, null for invalid/zero/negative/future stamps',
+      [
+        waited(null, 1000),
+        waited({}, 1000),
+        waited({ timeStamp: 0 }, 1000),
+        waited({ timeStamp: -5 }, 1000),
+        waited({ timeStamp: 1001 }, 1000),
+        waited({ timeStamp: 1000 }, 1000),
+        waited({ timeStamp: 699.6 }, 1000),
+        waited({ timeStamp: 1_700_000_000_120 }, 1000),
+        waited({ timeStamp: 1_700_000_000_600 }, 1000),
+      ],
+      [null, null, null, null, null, 0, 300, 380, null])
+    const slow_line = (name, marks, thr) =>
+      v1('key_buttons_slow_line(__args.name, __args.marks, __args.thr ?? KEY_BUTTONS_SLOW)', { name, marks, thr })
+    check('diagnostics slow_line: null below all thresholds (299/999), warns at exact thresholds (waited 300, down 300, work 1000), formats optional down/work and unknown waited, honors custom thresholds',
+      [
+        slow_line('done', { down: 299, waited: 299, work: 999 }),
+        slow_line('done', { waited: 300 }),
+        slow_line('done', { down: 300, waited: 50, work: 12.4 }),
+        slow_line('done', { work: 1000 }),
+        slow_line('done', { waited: 100 }, { waited: 100, work: 1000 }),
+      ],
+      [
+        null,
+        'key buttons: the tap on "done" reached the page 300 ms after the finger left',
+        'key buttons: the tap on "done" reached the page 50 ms after the finger left (300 ms after it came down); its work took 12 ms',
+        'key buttons: the tap on "done" reached the page ? ms after the finger left; its work took 1000 ms',
+        'key buttons: the tap on "done" reached the page 100 ms after the finger left',
+      ])
+
+    // timed, down/down_taken, dropped on mobile bar button, and stuck ticker with fake setInterval
+    calm()
+    const dWarns = []
+    let dNow = 5000
+    const intervals = []
+    const clearedIds = []
+    const dDoc = Object.assign(new FakeNode('document'), {
+      head: new FakeNode('head'),
+      body: new FakeNode('body'),
+      documentElement: new FakeNode('html'),
+      activeElement: null,
+      visibilityState: 'visible',
+      createElement: tag => new FakeNode(tag),
+      createElementNS: (_, tag) => new FakeNode(tag),
+    })
+    const dWin = Object.assign(new FakeNode('window'), {
+      innerWidth: 390,
+      innerHeight: 800,
+      visualViewport: Object.assign(new FakeNode('viewport'), { width: 390, height: 800, scale: 1, offsetLeft: 0, offsetTop: 0 }),
+      matchMedia: q => (q == '(pointer: coarse)' ? Object.assign(new FakeNode('media'), { matches: true }) : { matches: false }),
+      _items: () => [],
+    })
+    const dTasks = {}
+    const dCtx = vm.createContext({
+      _this: { id: 'keys-id', deephash: 30, dispatch_task(name, fn, delay, repeat) { return (dTasks[name] = { fn, delay, repeat }) } },
+      _item: label => (label == '#key_buttons' ? { id: 'keys-id' } : null),
+      document: dDoc,
+      window: dWin,
+      KeyboardEvent: FakeKey,
+      Date: class extends Date {
+        static now() { return 1_700_000_000_000 }
+        toLocaleTimeString() { return '12:00:00' }
+      },
+      performance: { now: () => dNow },
+      console: { warn: m => dWarns.push(m), error: () => {} },
+      setInterval: (fn, ms) => { const h = { id: intervals.length + 1, fn, ms, unref() {} }; intervals.push(h); return h },
+      clearInterval: h => clearedIds.push(h.id),
+    })
+    vm.runInContext(code, dCtx)
+    const dEval = (expr, args) => { dCtx.__args = args; return vm.runInContext(expr, dCtx) }
+    // key_buttons_down / down_taken + key_buttons_timed (sync fast, sync slow work, async resolve/reject, sync throw)
+    const btn = {}
+    dNow = 5000
+    dEval('key_buttons_down(__args.btn, __args.e)', { btn, e: { timeStamp: 4950 } }) // down_at = 4950
+    const takenOnce = dEval('key_buttons_down_taken(__args)', btn)
+    const takenTwice = dEval('key_buttons_down_taken(__args)', btn)
+    dNow = 5100
+    dEval('key_buttons_timed(__args.n, __args.e, __args.d, __args.w)', { n: 'fast', e: { timeStamp: 5050 }, d: 5000, w: () => 42 }) // waited=50, down=100, work=0 -> silent
+    const afterFast = dWarns.length
+    dEval('key_buttons_timed(__args.n, __args.e, __args.d, __args.w)', { n: 'slow-work', e: { timeStamp: 5080 }, d: 5050, w: () => { dNow += 1000 } }) // work=1000 -> warns
+    let resP
+    const pSlow = dEval('key_buttons_timed(__args.n, __args.e, __args.d, __args.w)', { n: 'async-ok', e: { timeStamp: dNow - 10 }, d: null, w: () => new Promise(r => (resP = r)) })
+    const beforeAsyncSettle = dWarns.length
+    dNow += 1050
+    resP('ok')
+    await pSlow
+    let rejP
+    const pRej = dEval('key_buttons_timed(__args.n, __args.e, __args.d, __args.w)', { n: 'async-err', e: { timeStamp: dNow - 350 }, d: null, w: () => new Promise((_, r) => (rejP = r)) })
+    rejP(new Error('nope'))
+    await pRej.catch(() => {})
+    let syncErr = null
+    try { dEval('key_buttons_timed(__args.n, __args.e, __args.d, __args.w)', { n: 'sync-throw', e: { timeStamp: dNow - 310 }, d: null, w: () => { throw new Error('kaboom') } }) } catch (e) { syncErr = e.message }
+    const timedWarns = [...dWarns]
+    // bar button dropped tap warning + stuck ticker via controller
+    dWarns.length = 0
+    dNow = 10_000
+    vm.runInContext('_on_welcome()', dCtx)
+    const tickFn = intervals[0].fn
+    const tickMs = intervals[0].ms
+    // normal tick (+200 ms, late=0) and 999 ms late (+1199 ms) -> silent
+    dNow += 200; tickFn()
+    dNow += 1199; tickFn()
+    const tickerSilent = dWarns.length
+    // 1000 ms late (+1200 ms) while visible -> warns
+    dNow += 1200; tickFn()
+    const tickerStuck = [...dWarns]
+    dWarns.length = 0
+    // page hidden -> visibilitychange resets baseline; waking 5000 ms later must NOT warn
+    dDoc.visibilityState = 'hidden'
+    dDoc.fire('visibilitychange')
+    dNow += 5000
+    dDoc.visibilityState = 'visible'
+    dDoc.fire('visibilitychange')
+    tickFn() // tick_front was false -> no warn, sets tick_front = true
+    const afterWake = dWarns.length
+    // pageshow also resets baseline
+    dWin.fire('pageshow')
+    dNow += 3000
+    tickFn()
+    const afterPageshow = dWarns.length
+    // subsequent visible stall warns again
+    dNow += 1500
+    tickFn()
+    const afterSecondStall = [...dWarns]
+    // bar button dropped click warns
+    dWarns.length = 0
+    const mobBar = dDoc.body.children.find(n => n.dataset.keyButtons == 'bar')
+    const leftMob = mobBar.children.find(b => b.dataset.key == 'left')
+    leftMob.getBoundingClientRect = () => ({ left: 150, right: 182, top: 806, bottom: 838, width: 32, height: 32 })
+    dDoc.fire('pointerdown', { target: leftMob, clientX: 145, clientY: 822, pointerType: 'touch', isPrimary: true })
+    dDoc.fire('pointerup', { target: leftMob, clientX: 145, clientY: 822, pointerType: 'touch', isPrimary: true })
+    leftMob.fire('click', { detail: 1, pointerType: 'touch', timeStamp: dNow - 10 })
+    const barDropped = [...dWarns]
+    const visBefore = [(dDoc.listeners.visibilitychange ?? []).length, (dWin.listeners.pageshow ?? []).length]
+    dWin._key_buttons.dispose()
+    const visAfter = [(dDoc.listeners.visibilitychange ?? []).length, (dWin.listeners.pageshow ?? []).length, clearedIds]
+    check('diagnostics timed & down: consumes _down_at once, stays quiet when fast, warns on slow sync work, async resolve/reject, and sync throw (rethrowing)',
+      [takenOnce, takenTwice, afterFast, beforeAsyncSettle, syncErr, timedWarns],
+      [
+        4950,
+        null,
+        0,
+        1,
+        'kaboom',
+        [
+          'key buttons: the tap on "slow-work" reached the page 20 ms after the finger left (50 ms after it came down); its work took 1000 ms',
+          'key buttons: the tap on "async-ok" reached the page 10 ms after the finger left; its work took 1050 ms',
+          'key buttons: the tap on "async-err" reached the page 350 ms after the finger left; its work took 0 ms',
+          'key buttons: the tap on "sync-throw" reached the page 310 ms after the finger left; its work took 0 ms',
+        ],
+      ])
+    check('diagnostics ticker & bar drop: ticks every 200 ms, warns at >=1000 ms late when visible, ignores hide/show/pageshow gaps, warns on bar dropped tap, and cleans up on dispose',
+      [tickMs, tickerSilent, tickerStuck, afterWake, afterPageshow, afterSecondStall, barDropped, visBefore, visAfter],
+      [
+        200,
+        0,
+        ['key buttons: the page did not respond for 1000 ms, until 12:00:00'],
+        0,
+        0,
+        ['key buttons: the page did not respond for 1300 ms, until 12:00:00'],
+        ['key buttons: a tap on "left" was not taken: it did not start on this button'],
+        [1, 1],
+        [0, 0, [1]],
+      ])
+  }
 
   if (failures) {
     console.log(`${failures} FAILED`)
