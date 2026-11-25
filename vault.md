@@ -1140,11 +1140,6 @@ const VAULT_SPARKLE_CSS = `
 .vault-sparkle-menu > div[data-vault-tip="line"] { max-width: min(330px, calc(100vw - 64px)); padding: 0 12px 3px 22px }
 @media (hover: none) { .vault-sparkle-menu, .vault-sparkle-menu > button, .vault-sparkle-backdrop { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none } }
 @media (pointer: coarse) { .vault-sparkle { right: 10px; bottom: 6px; width: 32px; height: 32px } .vault-sparkle-menu { bottom: 46px } }
-/* A TRIAL ON THE PREVIEW, not the sparkle's (the owner, 2026-11-24: "can we give the inert section in task items (not the ones in chats that already have a header with margin) a 5px upper margin?"): more room above an agent's sections in an item that is no chat; then "let me also see 10px open or closed": 10 px above them, closed (the app's own is 2) and open (the app's own is 5). The app's stylesheet is the place for it at the release */
-.item:not(.dep_chat) > .content span.inert-block { margin-top: 10px !important }
-.item:not(.dep_chat) > .content span.inert-block:is(.opened, .matched:not(.closed)), .container.target .item:not(.dep_chat) > .content span.inert-block:not(.closed) { margin-top: 10px !important }
-/* and in a chat (the owner: "expanding the inert section gives it some additional margin under the agent header; can we remove that additional expanded margin"): an open block stands as close under its role row as a closed one, 2 px (the app gives an open one 5) */
-.item.dep_chat > .content span.inert-block:is(.opened, .matched:not(.closed)), .container.target .item.dep_chat > .content span.inert-block:not(.closed) { margin-top: 2px !important }
 `
 const VAULT_SPARKLE_SVG =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z"/></svg>'
