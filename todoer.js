@@ -100,7 +100,8 @@ function _extract_template_options(options = {}) {
 // | `todoer_widget()` | the main list
 // | `todoer_widget({delegated: true})` | the todos the vault agent holds
 // | `todoer_widget({snoozed: true})` | the snoozed todos, until their time
-// | `height`, `style`, `styles`, `classes` | options for the widget's box
+// | `height`, `style`, `styles`, `classes` | the widget's size and look
+// | `tags`, `storage_key` | only the todos that carry these tags too; the name a list's order is saved under
 function todoer_widget(options = {}) {
   // note this macro structure follows that of _plot in #util/plot
   const { style, styles, classes, ...widget_options } =
@@ -2540,10 +2541,10 @@ const NOTIFY_CLICK_RECEIVED = 'mindpage:notificationclick:received' // app servi
 const NOTIFY_SW_WAIT_MS = 1500 // short wait for an active service worker before falling back to new Notification
 
 // => /notify [on [reason...]|off [reason...]|test [item]]
-// desktop notifications for the todos and replies that wait on you
+// desktop notifications for what waits on you: todos, replies, an agent's writes
 // | `/notify` | the setting, and this device's permission
 // | `/notify on` | on for what waits on you (a custom set is reset); asks the permission
-// | `/notify on reason...` | adds reasons: `interrupted`, `taken`, `checkin`, or `all`
+// | `/notify on reason...` | adds reasons, or `all`, to the set (from off: to the seven); extra ones: `interrupted`, `taken`, `checkin`; asks too
 // | `/notify off reason...` | removes reasons
 // | `/notify off` | off on every device
 // | `/notify test` | shows one

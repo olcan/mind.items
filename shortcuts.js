@@ -94,13 +94,15 @@ const _SHORTCUTS_WHERE = { window: 'the window', box: 'the box', editor: "an ite
 // the menu's content for a view: `now` (what the keys do at this moment, in the context the
 // menu was opened from: `context`), one of the contexts, or `all` (the lists of reference: every
 // entry, with its condition in words). First the views' buttons, the shown one marked, then a
-// table for each section. One line of markup, every text escaped: the app's dialog takes its
+// table for each section. One line of markup, every text escaped and kept on one line: the app's dialog takes its
 // content as Markdown, which leaves a block of markup alone up to its first empty line. A
 // button's click goes no further than the button: showing another view replaces the content,
 // the pressed button with it, and the dialog takes a click whose target is no longer in it for
 // a click beside it, which closes it (seen in a browser: the menu closed at every switch)
 function _shortcuts_html(view, context, added = window._shortcuts) {
-  const text = s => _.escape(String(s ?? ''))
+  // (a text is shown as its characters, on one line: a line break in it would end the block of
+  // markup at an empty line, and what follows would be read as Markdown)
+  const text = s => _.escape(String(s ?? '').replace(/\s+/g, ' '))
   const now = view == 'now'
   const tabs = ['now', ..._SHORTCUTS_CONTEXTS, 'all']
     .map(v => `<button type="button" data-view="${v}"${v == view ? ' class="on"' : ''} onclick="event.stopPropagation();window._shortcuts_menu?.show(this.dataset.view)">${v}</button>`)
