@@ -245,8 +245,35 @@
     background: #171717;
     border: 1px solid #666;
   }
-  #widget .list > .list-item-container.selected > .list-item {
-    border: 1px solid #242;
+  /* the selected item's row: a green band across the item's whole width, in place of a border (the
+     owner, 2026-11-24). The band is the row's OWN box, widened to the item's edges by the app's
+     padding around an item's content (10 px), and an ordinary background: it is painted below the
+     app's number at the item's top right and takes no tap from it, where a positioned box or a layer
+     of its own would lie above the number. Not during a drag, when the list shares its line with
+     the bins. A row's text stays where it is (10 - 7 is the 3 px every row is shifted by) */
+  #widget:not(.dragging) .list > .list-item-container.selected {
+    width: auto;
+    max-width: none;
+    margin-left: -10px;
+    margin-right: -10px;
+    padding-left: 7px;
+    padding-right: 10px;
+    background: #162b16;
+  }
+  /* the first and the last row's band also fills the item's padding above and below, with the
+     corners of the item's box, where this list is the first or the last thing its item shows (the
+     classes first and last: todoer.js, _widget_edges). As a shadow, which moves nothing */
+  #widget.first:not(.dragging) .list > .list-item-container.selected:first-child {
+    border-radius: 4px 4px 0 0;
+    box-shadow: 0 -10px 0 0 #162b16;
+  }
+  #widget.last:not(.dragging) .list > .list-item-container.selected:last-child {
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 10px 0 0 #162b16;
+  }
+  #widget.first.last:not(.dragging) .list > .list-item-container.selected:first-child:last-child {
+    border-radius: 4px;
+    box-shadow: 0 -10px 0 0 #162b16, 0 10px 0 0 #162b16;
   }
   #widget.dragging .list > .list-item-container {
     margin-left: -3px; /* eliminates horizontal shifting of dragged item */

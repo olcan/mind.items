@@ -161,6 +161,7 @@ function __render(widget, widget_item) {
   let { tags = [], snoozed, delegated, storage_key } = options
   widget._snoozed = !!snoozed // read by a bin button's press (its snooze button brings a snoozed todo back)
   widget._delegated = !!delegated // with _snoozed: neither says the main list (the rows' keys start there)
+  _widget_edges(widget)
 
   // the bins: the AGENT bin (a delegation) comes FIRST on every widget, followed by
   // done/snooze/cancel on the main and snoozed lists; the delegated list (design 2.2) has the
@@ -1606,6 +1607,21 @@ function _bin_row(item) {
     if (row) found = { widget, row }
   })
   return found
+}
+
+// marks a list that is the first or the last thing its item shows (the classes first and last),
+// for the selected row's band, which then also fills the item's padding above the first and below
+// the last row (todoer-widget.html): no sibling before it, or after it, that shows something.
+// Another list of the same item counts whatever it holds yet; a style, a script and whatever has
+// no height (the item's first line where it holds hidden tags alone) do not
+function _widget_edges(widget) {
+  const shown = e => !!e.classList?.contains('todoer-widget') || (!['STYLE', 'SCRIPT'].includes(e.tagName) && e.offsetHeight > 0)
+  const none = next => {
+    for (let e = next(widget); e; e = next(e)) if (shown(e)) return false
+    return true
+  }
+  widget.classList.toggle('first', none(e => e.previousElementSibling))
+  widget.classList.toggle('last', none(e => e.nextElementSibling))
 }
 
 // the row buttons and their keys: which way each goes in its list
