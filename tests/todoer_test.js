@@ -193,6 +193,8 @@ const picked =
     '_draft',
     '_draft_word',
     '_delete_listed',
+    '_next_listed',
+    '_select_next',
   ]).join('\n') +
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]

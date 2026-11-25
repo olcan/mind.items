@@ -619,6 +619,8 @@ function __render(widget, widget_item) {
       // widget.classList.remove('dragging')
       const id = e.item.getAttribute('data-id')
       const item = _item(id)
+      // (the dragged row has left the list by now: the row at its old place is the one that followed it)
+      const next = e.to == list ? null : _next_listed(list, e.oldIndex)
       if (e.item.getAttribute('data-waits')) {
         // a row that is not a todo. The done bin clears it, with nothing written into the item.
         // The cancel bin deletes the item, always after the app's question. The snooze and the
@@ -640,14 +642,14 @@ function __render(widget, widget_item) {
             .catch(e => (console.error(`promote: ${e}`), null))
             .then(done => (done ? then(done, drop) : undone()))
         }
-        if (e.to == done_bin) _clear_waiting(item, key) || back()
-        else if (e.to == cancel_bin) _delete_listed(item, true) || back()
+        if (e.to == done_bin) _clear_waiting(item, key) ? _select_next(next, true) : back()
+        else if (e.to == cancel_bin) _delete_listed(item, true) ? _select_next(next, true) : back()
         else if (e.to == agent_bin) {
           const write = _carried_write() // the gesture's intent, before any wait
-          promoted((done, drop) => _delegate_promoted(done, write, drop))
+          _select_next(next, promoted((done, drop) => _delegate_promoted(done, write, drop)))
         } else if (e.to == snooze_bin)
           // (the picker can stand open for long: the promotion reads the item as it is by then)
-          _snooze_dialog().then(answer => (is_number(answer?.time) ? promoted((done, drop) => _snooze_promoted(done, answer, drop)) : undone()))
+          _select_next(next, _snooze_dialog().then(answer => (is_number(answer?.time) ? promoted((done, drop) => _snooze_promoted(done, answer, drop)) : undone())))
         else back()
         return
       }
@@ -655,28 +657,40 @@ function __render(widget, widget_item) {
         // a delegation (or a re-delegation from the delegated list): the command document is
         // the acceptance; the row moves through the overlay once it is enqueued
         agent_bin.firstChild.remove()
-        _delegate(item).then(ok => {
-          if (!ok) list.insertBefore(e.item, list.children[e.oldIndex])
-        })
+        _select_next(
+          next,
+          _delegate(item).then(ok => {
+            if (!ok) list.insertBefore(e.item, list.children[e.oldIndex])
+            return ok
+          })
+        )
       } else if (e.to == owner_bin) {
         owner_bin.firstChild.remove()
-        _takeback(item).then(ok => {
-          if (!ok) list.insertBefore(e.item, list.children[e.oldIndex])
-        })
+        _select_next(
+          next,
+          _takeback(item).then(ok => {
+            if (!ok) list.insertBefore(e.item, list.children[e.oldIndex])
+            return ok
+          })
+        )
       } else if (e.to == cancel_bin) {
         cancel_bin.firstChild.remove()
         // (a deletion refused or declined leaves the item: its row goes back, as a reply's row does)
         if (!_delete_listed(item)) list.insertBefore(e.item, list.children[e.oldIndex])
+        else _select_next(next, true)
         // alternative (not enabled): delete only a todo whose snippet is whole, else keep it:
         // item.write(item.text.replace(/#todo\b/g, '#cancelled'), '')
         // // log if logger exists
         // if (_exists('#logger'))
         //   MindBox.create('/log cancelled ' + e.item._log_text)
       } else if (e.to == done_bin) {
-        _complete_todo(item, e.item._log_text, {
-          back: () => void list.insertBefore(e.item, list.children[e.oldIndex]),
-          gone: () => void done_bin.firstChild.remove(),
-        })
+        _select_next(
+          next,
+          _complete_todo(item, e.item._log_text, {
+            back: () => void list.insertBefore(e.item, list.children[e.oldIndex]),
+            gone: () => void done_bin.firstChild.remove(),
+          })
+        )
       } else if (e.to == snooze_bin) {
         snooze_bin.firstChild.remove()
         if (_promotions()[item.id]) {
@@ -687,11 +701,13 @@ function __render(widget, widget_item) {
         item.global_store._todoer ??= {}
         if (snoozed) {
           _unsnooze(item, true) // the owner's own drag out of the snoozed list
+          _select_next(next, true)
         } else {
           // the answer is the time and the dialog's box ({time, notify}, see _snooze_close)
           _snooze_dialog().then(answer => {
             if (!is_number(answer?.time)) list.insertBefore(e.item, list.children[e.oldIndex])
             else _snooze(item, answer)
+            if (is_number(answer?.time)) _select_next(next, true)
           })
         }
       }
@@ -1578,6 +1594,29 @@ function _bin_row(item) {
   return found
 }
 
+// the item of the row that follows the given place in a list, else of the one before it: what
+// the box names once the row that stood there has left the list
+function _next_listed(list, index) {
+  const row = list?.children?.[index] ?? list?.children?.[index - 1]
+  const id = row?.getAttribute?.('data-id')
+  return id ? _item(id, { silent: true }) : null
+}
+
+// after an action that took an item out of its list (a drop of its row on a bin, a press of a
+// bin's button), the box names the item that followed it, so that the next action is one press
+// away (the owner, 2026-11-24: "when i take an action (via drag or button) on a todoer item,
+// select the next one"). `outcome` is the action's own result or a promise of it, and only
+// true counts: a refusal, a declined question and a row that stays where it is change nothing
+function _select_next(next, outcome) {
+  return Promise.resolve(outcome)
+    .catch(() => false)
+    .then(ok => {
+      const item = ok === true && next ? _item(next.id, { silent: true }) : null
+      if (item) _select_item(item)
+      return ok
+    })
+}
+
 // a button's press: the action for the item as its row stands now (the row may have gone, or
 // moved to another list, since the buttons were drawn), one at a time: a second press while the
 // first's dialog or save is open does nothing
@@ -1588,13 +1627,14 @@ function _bin_press(name, id) {
   if (window._todoer_bin_busy) return void console.warn(`todoer: the press on "${name}" was not taken: an earlier press is still being carried out`)
   if (!found) return void console.warn(`todoer: the press on "${name}" was not taken: its item is in no list`)
   window._todoer_bin_busy = true
+  // (the bell's press leaves its row where it is: nothing to select after it)
+  const rows = [...(found.row.parentElement?.children ?? [])]
+  const next = name == 'bell' ? null : _next_listed({ children: rows.filter(row => row != found.row) }, rows.indexOf(found.row))
   let acted
   try {
     acted = _bin_act(name, item, found.row, !!found.widget._snoozed) // within the press: a delegation reads the gesture
   } finally {
-    acted = Promise.resolve(acted)
-      .catch(() => {})
-      .then(() => void (window._todoer_bin_busy = false))
+    acted = _select_next(next, acted).then(() => void (window._todoer_bin_busy = false))
   }
   return acted // settles when the press's work is done: the button that took it stays lit until then
 }
@@ -1623,8 +1663,8 @@ function _bin_act(name, item, row, snoozed) {
   if (name == 'done') return _complete_todo(item, row._log_text)
   if (name != 'snooze') return false
   item.global_store._todoer ??= {}
-  if (snoozed) return _unsnooze(item, true) // out of the snoozed list, as the owner's own drag
-  return _snooze_dialog().then(answer => (is_number(answer?.time) ? _snooze(item, answer) : false))
+  if (snoozed) return _unsnooze(item, true), true // out of the snoozed list, as the owner's own drag
+  return _snooze_dialog().then(answer => (is_number(answer?.time) ? (_snooze(item, answer), true) : false))
 }
 
 // whether the item's open editor holds text that is not saved: what a write into the item, or
