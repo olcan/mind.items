@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -214,6 +214,27 @@ const picked =
     '_delete_listed',
     '_next_listed',
     '_select_next',
+    '_send_on',
+    '_send_since',
+    '_send_shown',
+    '_send_link',
+    '_send_same_link',
+    '_send_cancel',
+    '_send_retire',
+    '_send_press',
+    '_send_peer',
+    '_row_view_foot',
+    '_send_toggle',
+    '_send_selected',
+    '_send_when_saved',
+    '_send_take',
+    '_start_windows',
+    '_send_steps',
+    '_target_scroll_y',
+    '_swallow_scroll',
+    '_hold_scroll',
+    '_stay_put',
+    '_row_view_top',
   ]).join('\n') +
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
@@ -5444,6 +5465,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const binCode =
       binConsts +
@@ -5459,6 +5481,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_watch_list_visibility',
         '_mounted_lists',
         '_bin_row',
+        '_window_button',
         '_row_buttons',
         '_todo_list',
         '_todo_buttons',
@@ -5493,6 +5516,29 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_todo_offset',
         '_extract_todo_snippet',
         '_row_question',
+        '_notify_account_left',
+        '_notify_fixed_view',
+        '_send_on',
+        '_send_since',
+        '_send_shown',
+        '_send_link',
+        '_send_same_link',
+        '_send_cancel',
+        '_send_retire',
+        '_send_press',
+        '_send_peer',
+        '_send_toggle',
+        '_send_selected',
+        '_send_when_saved',
+        '_send_take',
+        '_start_windows',
+        '_send_steps',
+        '_target_scroll_y',
+        '_swallow_scroll',
+        '_hold_scroll',
+        '_stay_put',
+        '_row_view_foot',
+        '_row_view_top',
       ]).join('\n')
 
     class DomNode {
@@ -7392,7 +7438,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         const rowShortcuts = s.eval('_ROW_SHORTCUTS')
         const binKeysObj = s.eval('_BIN_KEYS')
         const binKeyLetters = Object.keys(binKeysObj).map(k => k.replace(/^Key/, '').toLowerCase())
-        const expectedKeys = [...new Set(['j', 'k', ...binKeyLetters])].sort()
+        const expectedKeys = [...new Set(['j', 'k', 'w', ...binKeyLetters])].sort()
         const listedKeys = [...new Set(rowShortcuts.map(e => e.keys))].sort()
         const shapesOk = rowShortcuts.every(e =>
           typeof e.keys == 'string' && e.keys.length > 0 &&
@@ -7401,9 +7447,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           typeof e.active == 'function' &&
           e.context === undefined,
         )
-        check('_ROW_SHORTCUTS: 11 entries cover every key of _BIN_KEYS plus j and k, with no extra keys, and valid shapes',
+        check('_ROW_SHORTCUTS: 13 entries cover every key of _BIN_KEYS plus j, k, and w, with no extra keys, and valid shapes',
           [rowShortcuts.length, listedKeys, shapesOk],
-          [11, expectedKeys, true])
+          [13, expectedKeys, true])
 
         // Build widgets covering every mounted row state:
         // main: m1 (start, plain), m2 (middle, bell), repMid (reply with bell, middle), m3 (end, plain), repEnd (reply without bell, end)
@@ -7625,6 +7671,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               'x:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
               'b:a row or todo with a bell is selected',
               'u:a delegated todo is selected, with no unsaved edit in it',
+              'w:another window of the app is open, and the two are not linked: this one then keeps the list',
+              'w:the two windows are linked, in either of them',
             ])
         }
 
@@ -9058,6 +9106,3674 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ])
         }
       }
+    }
+  })())
+  // ---- two windows, one selection (2026-11-25) -------------------------------------------------
+  // Joins two (and three) isolated VM windows over a made-up BroadcastChannel bus, each window
+  // with its own sessionStorage, fake clock, timers, DOM, scroll position, and items.
+  async_rows.push((async () => {
+    const winConsts = [
+      src.match(/\nconst _LIST_BINS = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
+      src.match(/\nconst _BIN_BUTTONS_CSS = `[\s\S]*?\n`\n/)[0],
+      src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_KEYS = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_DRAFT = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_REFUSAL = [^\n]*\n/)[0],
+      src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
+      src.match(/\nconst _row_has = [^\n]*\n/)[0],
+      src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+    ].join('\n')
+    const winCode =
+      winConsts +
+      pick([
+        '_task_refusal',
+        '_delegate_refusal',
+        '_takeback_refusal',
+        '_complete_refusal',
+        '_delete_refusal',
+        '_draft',
+        '_draft_word',
+        '_notify_fixed_view',
+        '_send_on',
+        '_send_since',
+        '_send_shown',
+        '_send_link',
+        '_send_same_link',
+        '_send_cancel',
+        '_send_retire',
+        '_send_press',
+        '_send_peer',
+        '_send_toggle',
+        '_send_selected',
+        '_send_when_saved',
+        '_send_take',
+        '_start_windows',
+        '_send_steps',
+        '_target_scroll_y',
+        '_swallow_scroll',
+        '_hold_scroll',
+        '_stay_put',
+        '_row_view_foot',
+        '_row_view_top',
+        '_select_item',
+        '_edit_item',
+        '_on_search',
+        '_shown_bell',
+        '_bin_buttons',
+        '__bin_buttons',
+        '_watch_list_visibility',
+        '_mounted_lists',
+        '_bin_row',
+        '_window_button',
+        '_row_buttons',
+        '_todo_list',
+        '_todo_buttons',
+        '_todo_log_text',
+        '_row_sequence',
+        '_row_beside',
+        '_list_of',
+        '_clear_bell',
+        '_parent_of',
+        '_row_step',
+        '_on_row_key',
+        '_row_now',
+        '_row_can',
+        '_row_goes',
+        '_row_keys',
+        '_bin_buttons_room',
+        '_pressed_item',
+        '_bin_press',
+        '_bin_act',
+        '_next_listed',
+        '_select_next',
+        '_notify_account_left',
+        '_snippet_uses_suffix',
+        '_todo_offset',
+        '_without_log',
+        '_extract_todo_snippet',
+        '_todo_line',
+        '__render',
+      ]).join('\n')
+
+    class WinDomNode {
+      constructor(tag = 'div', attrs = {}) {
+        Object.assign(this, {
+          tagName: tag.toUpperCase(),
+          id: attrs.id ?? '',
+          className: attrs.className ?? '',
+          attrs: { ...attrs },
+          children: [],
+          parentElement: null,
+          style: {},
+          hidden: false,
+          textContent: '',
+          innerHTML: '',
+          title: '',
+          scrollTop: 0,
+          _rect: { top: 0, bottom: 0, height: 0, width: 100 },
+        })
+        delete this.attrs.className
+        delete this.attrs.id
+      }
+      get childElementCount() { return this.children.length }
+      get classList() {
+        const list = () => this.className.split(/\s+/).filter(Boolean)
+        return {
+          contains: c => list().includes(c),
+          add: (...cs) => { const s = new Set(list()); cs.forEach(c => s.add(c)); this.className = [...s].join(' ') },
+          remove: (...cs) => { const s = new Set(list()); cs.forEach(c => s.delete(c)); this.className = [...s].join(' ') },
+        }
+      }
+      get nextElementSibling() {
+        const sibs = this.parentElement?.children ?? []
+        const i = sibs.indexOf(this)
+        return i >= 0 ? sibs[i + 1] ?? null : null
+      }
+      get previousElementSibling() {
+        const sibs = this.parentElement?.children ?? []
+        const i = sibs.indexOf(this)
+        return i > 0 ? sibs[i - 1] ?? null : null
+      }
+      getAttribute(k) { return k in this.attrs ? this.attrs[k] : null }
+      setAttribute(k, v) { this.attrs[k] = String(v) }
+      getBoundingClientRect() { return this._rect }
+      appendChild(child) {
+        if (child.parentElement) child.remove()
+        child.parentElement = this
+        this.children.push(child)
+        return child
+      }
+      prepend(...nodes) {
+        for (const n of nodes.reverse()) if (n && typeof n == 'object') { n.parentElement = this; this.children.unshift(n) }
+      }
+      append(...nodes) {
+        for (const n of nodes) if (n && typeof n == 'object') this.appendChild(n)
+      }
+      replaceChildren(...nodes) {
+        for (const c of this.children) c.parentElement = null
+        this.children = []
+        for (const n of nodes) this.appendChild(n)
+      }
+      remove() {
+        if (!this.parentElement) return
+        this.parentElement.children = this.parentElement.children.filter(c => c !== this)
+        this.parentElement = null
+      }
+      matches(sel) {
+        for (const part of sel.split(',').map(s => s.trim())) {
+          if (part.includes(' ')) continue
+          let rest = part
+          if (rest.startsWith(':is(') && rest.endsWith(')')) {
+            if (rest.slice(4, -1).split(',').some(p => this.matches(p.trim()))) return true
+            continue
+          }
+          if (rest.endsWith(':not([hidden])')) {
+            if (this.hidden) continue
+            rest = rest.slice(0, -':not([hidden])'.length)
+          }
+          rest = rest.replace(/:not\(\.[^)]+\)/g, '')
+          const attrM = rest.match(/\[([^\]=]+)\]$/)
+          if (attrM) {
+            const hasAttr = attrM[1] == 'hidden' ? this.hidden || this.getAttribute('hidden') !== null : this.getAttribute(attrM[1]) !== null
+            if (!hasAttr) continue
+            rest = rest.slice(0, -attrM[0].length)
+          }
+          if (rest.startsWith('#')) {
+            if (this.id == rest.slice(1)) return true
+            continue
+          }
+          const segs = rest.split('.')
+          const tag = segs[0]
+          const classes = segs.slice(1).filter(Boolean)
+          if (tag && this.tagName.toLowerCase() != tag.toLowerCase()) continue
+          if (classes.every(c => this.classList.contains(c))) return true
+        }
+        return false
+      }
+      closest(sel) {
+        for (let cur = this; cur; cur = cur.parentElement) if (cur.matches(sel)) return cur
+        return null
+      }
+      _walk(out = []) {
+        for (const c of this.children) { out.push(c); c._walk(out) }
+        return out
+      }
+      querySelectorAll(sel) {
+        if (sel.includes(',')) {
+          const seen = new Set()
+          for (const piece of sel.split(',')) for (const m of this.querySelectorAll(piece)) seen.add(m)
+          return [...seen]
+        }
+        const parts = sel.trim().split(/\s+/)
+        if (parts.length == 1) return this._walk().filter(n => n.matches(parts[0]))
+        const roots = this.querySelectorAll(parts[0])
+        const rest = parts.slice(1).join(' ')
+        const seen = new Set()
+        for (const r of roots) for (const m of r.querySelectorAll(rest)) seen.add(m)
+        return [...seen]
+      }
+      querySelector(sel) { return this.querySelectorAll(sel)[0] ?? null }
+      scrollTo(x, y) {
+        this._scrollToCalls?.push(y)
+        this._onScrollTo?.(y)
+      }
+    }
+
+    const makeBus = ({ maxDeliveries = 40 } = {}) => {
+      const channels = new Map()
+      const sent = []
+      const queue = []
+      let overflows = 0
+      const flush = () => {
+        let count = 0
+        while (queue.length) {
+          if (++count > maxDeliveries) { overflows++; queue.length = 0; break }
+          const { sender, channel, data } = queue.shift()
+          for (const peer of [...(channels.get(channel) ?? [])]) {
+            if (peer === sender || peer.closed || peer.muted || typeof peer.onmessage != 'function') continue
+            if (peer.paused) { peer.held.push(JSON.parse(JSON.stringify(data))); continue }
+            peer.onmessage({ data: JSON.parse(JSON.stringify(data)) })
+          }
+        }
+      }
+      const makeChannelClass = ownerId =>
+        class FakeBroadcastChannel {
+          constructor(name) {
+            this.name = name
+            this.ownerId = ownerId
+            this.onmessage = null
+            this.closed = false
+            this.muted = false
+            this.paused = false
+            this.held = []
+            if (!channels.has(name)) channels.set(name, new Set())
+            channels.get(name).add(this)
+          }
+          unpause() {
+            this.paused = false
+            const pending = this.held.splice(0)
+            for (const msg of pending) {
+              if (!this.closed && !this.muted && typeof this.onmessage == 'function') this.onmessage({ data: msg })
+              flush()
+            }
+          }
+          postMessage(data) {
+            if (this.closed) return
+            const clone = JSON.parse(JSON.stringify(data))
+            sent.push({ channel: this.name, from: this.ownerId, data: clone })
+            queue.push({ sender: this, channel: this.name, data: clone })
+          }
+          close() {
+            this.closed = true
+            channels.get(this.name)?.delete(this)
+          }
+        }
+      return {
+        sent,
+        flush,
+        get overflows() { return overflows },
+        makeChannelClass,
+        inject: (ch, data) => ch.onmessage?.({ data: JSON.parse(JSON.stringify(data)) }),
+      }
+    }
+
+    const makeWindow = (bus, { id, uid = 'u1', now = 1_700_000_000_000, focused = false, innerHeight = 700, scrollTop = 595, headerTop = scrollTop, autoSearch = true, hasBC = true, storage = new Map(), deferDom = false, deferSelect = false, search = '' } = {}) => {
+      const clock = { now }
+      const timers = new Map()
+      let nextTid = 1
+      const setTimer = (fn, delay = 0, repeat = false) => {
+        const tid = nextTid++
+        const ms = repeat ? Math.max(1, Number(delay) || 1) : Math.max(0, Number(delay) || 0)
+        timers.set(tid, { tid, fn, at: clock.now + ms, interval: repeat ? ms : null })
+        return tid
+      }
+      const clearTimer = tid => void timers.delete(tid)
+      const nextDue = target => {
+        let best = null
+        for (const t of timers.values()) if (t.at <= target && (!best || t.at < best.at || (t.at == best.at && t.tid < best.tid))) best = t
+        return best
+      }
+      const advance = ms => {
+        const target = clock.now + ms
+        while (true) {
+          bus.flush()
+          const t = nextDue(target)
+          if (!t) break
+          clock.now = t.at
+          if (t.interval != null) t.at += t.interval
+          else timers.delete(t.tid)
+          t.fn()
+          bus.flush()
+        }
+        clock.now = target
+        bus.flush()
+      }
+      const stall = ms => {
+        clock.now += ms
+        const due = [...timers.values()].filter(t => t.at <= clock.now).sort((x, y) => x.at - y.at || x.tid - y.tid)
+        for (const t of due) {
+          if (!timers.has(t.tid)) continue
+          if (t.interval != null) t.at = clock.now + t.interval
+          else timers.delete(t.tid)
+          t.fn()
+        }
+        bus.flush()
+      }
+      class WinDate extends RealDate {
+        static now() { return clock.now }
+      }
+      const sessionStorage = {
+        getItem: k => (storage.has(k) ? storage.get(k) : null),
+        setItem: (k, v) => void storage.set(k, String(v)),
+        removeItem: k => void storage.delete(k),
+      }
+      const root = new WinDomNode('html')
+      const head = root.appendChild(new WinDomNode('head'))
+      const body = root.appendChild(new WinDomNode('body'))
+      body.scrollTop = scrollTop
+      body.offsetHeight = innerHeight
+      body._scrollToCalls = []
+      if (headerTop != null) {
+        const hdr = body.appendChild(new WinDomNode('div', { className: 'header' }))
+        hdr.offsetTop = headerTop
+      }
+      const colPad = body.appendChild(new WinDomNode('div', { className: 'column-padding' }))
+      colPad.offsetHeight = 0.85 * innerHeight
+      colPad.style.height = 0.85 * innerHeight + 'px' // (the route writes it inline; on iOS it writes none and CSS gives the height)
+      const targetContainer = body.appendChild(new WinDomNode('div', { className: 'container target' }))
+      const winListeners = new Map()
+      const docListeners = new Map()
+      const vvListeners = new Map()
+      const addL = (map, type, fn, opts) => {
+        const cap = typeof opts == 'boolean' ? opts : !!opts?.capture
+        if (!map.has(type)) map.set(type, [])
+        if (!map.get(type).some(e => e.fn === fn && e.cap === cap)) map.get(type).push({ fn, cap })
+      }
+      const remL = (map, type, fn, opts) => {
+        const cap = typeof opts == 'boolean' ? opts : !!opts?.capture
+        if (!map.has(type)) return
+        map.set(type, map.get(type).filter(e => !(e.fn === fn && e.cap === cap)))
+      }
+      const fireL = (map, type, ev = {}) => {
+        const prev = win.event
+        win.event = ev && ev.type ? ev : { type, ...ev }
+        try {
+          const all = [...(map.get(type) ?? [])]
+          for (const e of all.filter(x => x.cap)) e.fn(ev)
+          for (const e of all.filter(x => !x.cap)) e.fn(ev)
+        } finally {
+          win.event = prev
+        }
+      }
+      const simScroll = y => {
+        body.scrollTop = y
+        fireL(docListeners, 'scroll', { type: 'scroll' })
+      }
+      body._onScrollTo = y => simScroll(y)
+
+      const items = new Map()
+      const itemList = []
+      const selects = []
+      const edits = []
+      const marks = []
+      const scrollToTargetCalls = []
+      const binButtonDraws = []
+      let boxText = ''
+      let isFocused = focused
+
+      const lookupItem = ref => {
+        if (!ref) return null
+        const s = String(ref)
+        if (items.has(s)) return items.get(s)
+        const bare = s.startsWith('id:') ? s.slice(3) : s
+        for (const it of itemList) if (it.id === bare || it.saved_id === bare || it.name === s) return it
+        return null
+      }
+      const superNodes = new Map()
+      const inScrollBand = el => {
+        const vh = env.visualViewport?.height ?? env.innerHeight
+        return el.offsetTop >= body.scrollTop && el.offsetTop <= body.scrollTop + vh - 200
+      }
+      const scrollToTargetPos = (it = null) => {
+        const el = it ? superNodes.get(it.id) : body.querySelector('.super-container.target')
+        const home = body.querySelector('.header')?.offsetTop ?? 0
+        const vh = env.visualViewport?.height ?? env.innerHeight
+        return el ? (inScrollBand(el) ? null : Math.max(home, el.offsetTop - vh / 4)) : it?.scrollY ?? null
+      }
+      const makeItem = (itemId, { saved_id = 's_' + itemId, name = '#' + itemId, text = '#todo ' + itemId, tags = ['#todo'], tags_visible = ['#todo'], scrollY = 1600, offsetTop = null, refuseSelect = false } = {}) => {
+        const sup = body.appendChild(new WinDomNode('div', { id: 'super-container-' + itemId, className: 'super-container' }))
+        sup.offsetTop = offsetTop ?? scrollY + innerHeight / 4
+        superNodes.set(itemId, sup)
+        const it = {
+          id: itemId,
+          saved_id,
+          name,
+          label: name.startsWith('#') ? name : null,
+          text,
+          tags,
+          tags_visible,
+          _global_store: {},
+          get global_store() { return this._global_store },
+          read: () => it.text,
+          scrollY,
+          select: () => {
+            if (refuseSelect) return false
+            selects.push({ id: it.id, scrollBefore: body.scrollTop })
+            boxText = it.name
+            for (const s of superNodes.values()) s.classList.remove('target')
+            sup.classList.add('target')
+            targetContainer.setAttribute('data-item-id', it.id)
+            const doScroll = () => {
+              const y = scrollToTargetPos()
+              if (y != null) body.scrollTo(0, y)
+            }
+            if (deferSelect) env._update_dom().then(doScroll)
+            else doScroll()
+            if (autoSearch) env._on_search(it.name)
+            return true
+          },
+        }
+        items.set(itemId, it)
+        items.set(name, it)
+        if (saved_id) items.set(saved_id, it)
+        itemList.push(it)
+        return it
+      }
+      const makeWidget = ({ snoozed = false, delegated = false, parked = false, rows = [] } = {}) => {
+        const host = parked ? body.appendChild(new WinDomNode('div', { id: 'cache-div' })) : body
+        const w = host.appendChild(new WinDomNode('div', { className: 'todoer-widget' }))
+        w._snoozed = snoozed
+        w._delegated = delegated
+        const list = w.appendChild(new WinDomNode('div', { className: 'list' }))
+        const bins = delegated ? ['agent', 'owner'] : ['agent', 'done', 'snooze', 'cancel']
+        for (const b of bins) w.appendChild(new WinDomNode('div', { className: `${b} bin` }))
+        const rowNodes = new Map()
+        for (const r of rows) {
+          const row = list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': r.id, ...(r.waits ? { 'data-waits': r.waits } : {}) }))
+          if (r.pageY != null) {
+            const h = r.height ?? 32
+            const left = r.left ?? 0
+            const width = r.width ?? 400
+            const right = r.right ?? left + width
+            row.getBoundingClientRect = () => ({ top: r.pageY - body.scrollTop, bottom: r.pageY + h - body.scrollTop, left, right, height: h, width })
+          }
+          const li = row.appendChild(new WinDomNode('div', { className: 'list-item' }))
+          if (r.bell) li.appendChild(new WinDomNode('mark', { className: 'waits' }))
+          rowNodes.set(r.id, row)
+        }
+        return { widget: w, list, rowNodes }
+      }
+
+      const win = {
+        innerWidth: 1100,
+        innerHeight,
+        _user: uid == null ? null : { uid },
+        _notification_account_left: false,
+        _key_buttons: { guest: () => binButtonDraws.push((win._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title, b.color])) },
+        addEventListener: (type, fn, opts) => addL(winListeners, type, fn, opts),
+        removeEventListener: (type, fn, opts) => remL(winListeners, type, fn, opts),
+      }
+      const doc = {
+        head,
+        body,
+        activeElement: null,
+        hasFocus: () => isFocused,
+        createElement: tag => new WinDomNode(tag),
+        getElementById: elId => root._walk().find(n => n.id == elId) ?? null,
+        querySelector: sel => root.querySelector(sel),
+        querySelectorAll: sel => root.querySelectorAll(sel),
+        addEventListener: (type, fn, opts) => addL(docListeners, type, fn, opts),
+        removeEventListener: (type, fn, opts) => remL(docListeners, type, fn, opts),
+      }
+      const binCalls = []
+      const domQueue = []
+      const env = {
+        window: win,
+        document: doc,
+        location: { search },
+        URLSearchParams,
+        innerHeight,
+        visualViewport: {
+          height: innerHeight,
+          scale: 1,
+          addEventListener: (type, fn, opts) => addL(vvListeners, type, fn, opts),
+          removeEventListener: (type, fn, opts) => remL(vvListeners, type, fn, opts),
+        },
+        _scroll_to: y => {
+          scrollToTargetCalls.push(boxText)
+          body.scrollTo(0, y)
+        },
+        sessionStorage,
+        Date: WinDate,
+        setTimeout: (fn, d) => setTimer(fn, d, false),
+        clearTimeout: clearTimer,
+        setInterval: (fn, d) => setTimer(fn, d, true),
+        clearInterval: clearTimer,
+        BroadcastChannel: hasBC ? bus.makeChannelClass(id) : undefined,
+        console: { warn: () => {}, error: () => {}, debug: () => {} },
+        navigator: { userAgent: 'Chrome', maxTouchPoints: 0 },
+        _todoer: { deephash: 1, store: { notifier_id: id } },
+        _this: { dependents: [] },
+        _item: lookupItem,
+        _items: () => itemList,
+        each: (xs, f) => xs.forEach(f),
+        uniq: xs => [...new Set(xs)],
+        is_string: x => typeof x == 'string',
+        is_number: x => typeof x == 'number',
+        sort_by: (xs, f) => [...xs].sort((a, b) => f(a) - f(b)),
+        apply: () => {},
+        _replace_tags: context._replace_tags,
+        error: () => {},
+        warn: () => {},
+        debug: () => {},
+        fatal: m => { throw new Error(m) },
+        Sortable: { dragged: null, create: () => ({ destroy: () => {}, save: () => {}, toArray: () => [], sort: () => {} }) },
+        MindBox: {
+          get: () => boxText,
+          set: (t, opts) => { boxText = t; selects.push({ set: t, opts }) },
+          select_in_target: t => marks.push(t),
+          edit_target: t => edits.push({ box: boxText, text: t }),
+          scroll_to_target: () => {
+            scrollToTargetCalls.push(boxText)
+            const run = () => {
+              const it = lookupItem(boxText.trim())
+              const y = it ? scrollToTargetPos(it) : null
+              if (y != null) body.scrollTo(0, y)
+            }
+            if (deferSelect) env._update_dom().then(run)
+            else run()
+          },
+        },
+        _update_dom: () => (deferDom ? new Promise(resolve => domQueue.push(resolve)) : Promise.resolve()),
+        _task_state: () => null,
+        _task_list: () => 'main',
+        _pending_commands: () => ({}),
+        _row_question: () => null,
+        _question_range: () => null,
+        _visible: s => s,
+        _row_title: s => s,
+        _notify_change: () => {},
+        _row_html: s => s,
+        _decorate_row: h => h,
+        _row_label: () => null,
+        _review_anchor_builder: () => null,
+        _bell: () => null,
+        _wire_row_links: () => {},
+        _suppress_touch_context_menu: () => {},
+        _grab_on_sideways_touch: () => {},
+        _waits: () => null,
+        _waiting_parts: () => ['', ''],
+        _wait_key: () => '',
+        _run_deferred_renders: () => {},
+        _listed: () => false,
+        _render_todoer_widget: () => {},
+        _rerender_todoer_widgets: () => {},
+        _complete_todo: () => true,
+        _delegate: () => Promise.resolve(true),
+        _takeback: () => Promise.resolve(true),
+        _snooze_dialog: () => Promise.resolve({ time: 1, notify: false }),
+        _snooze: () => {},
+        _unsnooze: () => {},
+        _clear_waiting: () => true,
+        _delete_listed: () => true,
+        _select_range: () => {},
+      }
+      vm.createContext(env)
+      vm.runInContext(winCode, env)
+      const origBinButtons = env._bin_buttons
+      env._bin_buttons = target => {
+        binCalls.push(target?.id ?? null)
+        return origBinButtons(target)
+      }
+      return {
+        id, env, win, doc, body, targetContainer, storage, clock, timers, domQueue,
+        items, itemList, selects, edits, marks, scrollToTargetCalls, binCalls, binButtonDraws,
+        makeItem, makeWidget, simScroll, advance, stall, nextDue,
+        setBox: t => { boxText = t },
+        getBox: () => boxText,
+        setFocused: v => { isFocused = v },
+        fireWin: (type, ev) => fireL(winListeners, type, ev),
+        fireDoc: (type, ev) => fireL(docListeners, type, ev),
+        fireVv: (type, ev) => fireL(vvListeners, type, ev),
+        setScrollTop: y => { body.scrollTop = y },
+        getScrollTop: () => body.scrollTop,
+        setInnerHeight: h => { env.innerHeight = win.innerHeight = env.visualViewport.height = body.offsetHeight = h },
+        setTargetItem: itemId => { targetContainer.setAttribute('data-item-id', itemId) },
+      }
+    }
+
+    const advanceAll = (bus, wins, ms) => {
+      const targets = new Map(wins.map(w => [w, w.clock.now + ms]))
+      while (true) {
+        bus.flush()
+        let pickW = null
+        let pickT = null
+        for (const w of wins) {
+          const t = w.nextDue(targets.get(w))
+          if (t && (!pickT || t.at < pickT.at)) { pickW = w; pickT = t }
+        }
+        if (!pickW) break
+        pickW.clock.now = pickT.at
+        if (pickT.interval != null) pickT.at += pickT.interval
+        else pickW.timers.delete(pickT.tid)
+        pickT.fn()
+        bus.flush()
+      }
+      for (const w of wins) w.clock.now = targets.get(w)
+      bus.flush()
+    }
+
+    // 1. _send_peer: none, one, last used of two, tie by last seen, stale passed over (boundary live)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      const beforeStart = a.env._send_peer(10_000)
+      a.env._start_windows()
+      const empty = a.env._send_peer(a.clock.now)
+      const t0 = a.clock.now
+      a.win._todoer_windows.peers.set('p1', { used: 100, seen: t0 })
+      const one = a.env._send_peer(t0)
+      a.win._todoer_windows.peers.set('p2', { used: 200, seen: t0 - 5000 })
+      const lastUsed = a.env._send_peer(t0)
+      a.win._todoer_windows.peers.set('p3', { used: 200, seen: t0 - 1000 })
+      const tieSeen = a.env._send_peer(t0)
+      // stale peer (seen > SEND_STALE_MS ago) passed over even with highest used; exact boundary stays live
+      a.win._todoer_windows.peers.set('p4', { used: 999, seen: t0 - 120_001 })
+      a.win._todoer_windows.peers.set('p5', { used: 500, seen: t0 - 120_000 })
+      const boundary = a.env._send_peer(t0)
+      const afterStale = a.env._send_peer(t0 + 1)
+      check(
+        'windows _send_peer: none, one, last used of two, tie by last seen, stale passed over (boundary live)',
+        [beforeStart, empty, one, lastUsed, tieSeen, boundary, afterStale],
+        [null, null, 'p1', 'p2', 'p3', 'p5', 'p3']
+      )
+    }
+
+    // 2. channel filtering: start sends who once, own message ignored, other account ignored, account-left ignored
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', uid: 'u1' })
+      const noBC = makeWindow(bus, { id: 'N', hasBC: false })
+      noBC.env._start_windows()
+      a.env._start_windows()
+      a.env._start_windows() // second call is a no-op
+      const startMsgs = bus.sent.map(m => [m.from, m.data.type, m.data.uid])
+      // inject A's own id -> ignored
+      bus.inject(a.win._todoer_windows.channel, { type: 'who', id: 'A', uid: 'u1', used: a.clock.now })
+      const peersAfterOwn = a.win._todoer_windows.peers.size
+      // other account (B on u2) and anonymous (C on null) -> ignored by A
+      const b = makeWindow(bus, { id: 'B', uid: 'u2' })
+      const c = makeWindow(bus, { id: 'C', uid: null })
+      b.env._start_windows()
+      c.env._start_windows()
+      bus.flush()
+      const peersOtherAccount = a.win._todoer_windows.peers.size
+      // same-account peer D joins, then A leaves account: D's later selection is ignored
+      const d = makeWindow(bus, { id: 'D', uid: 'u1' })
+      d.env._start_windows()
+      bus.flush()
+      const peersSameAccount = a.win._todoer_windows.peers.size
+      a.makeItem('x1', { saved_id: 'sx1' })
+      const dx1 = d.makeItem('x1', { saved_id: 'sx1' })
+      a.win._notification_account_left = true
+      d.env._send_toggle(true)
+      d.env._send_selected(dx1, true)
+      bus.flush()
+      const selectsAfterLeft = a.selects.length
+      check(
+        'windows channel: start sends who once, own message ignored, other account ignored, account-left ignored',
+        [!!noBC.win._todoer_windows, startMsgs, peersAfterOwn, peersOtherAccount, peersSameAccount, selectsAfterLeft],
+        [false, [['A', 'who', 'u1']], 0, 0, 1, 0]
+      )
+    }
+
+    // 3. channel lifecycle: who answered with hello, bye removes peer, hello on focus/pointerdown/keydown throttled to 1s
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      bus.flush()
+      bus.sent.length = 0
+      b.env._start_windows() // B sends who -> A answers hello
+      bus.flush()
+      const handshake = bus.sent.map(m => [m.from, m.data.type])
+      const peersAfterHandshake = [a.win._todoer_windows.peers.has('B'), b.win._todoer_windows.peers.has('A')]
+      bus.sent.length = 0
+      // focus fires hello; pointerdown 400ms later updates used locally without hello; keydown at +1000ms fires hello
+      b.advance(500)
+      b.fireWin('focus')
+      bus.flush()
+      const afterFocus = bus.sent.map(m => [m.from, m.data.type, m.data.used])
+      b.advance(400)
+      b.fireDoc('pointerdown')
+      bus.flush()
+      const afterFastPress = [bus.sent.length, b.win._todoer_windows.used]
+      b.advance(600) // total 1000ms since focus
+      b.fireDoc('keydown')
+      bus.flush()
+      const afterSecond = bus.sent.map(m => [m.from, m.data.type, m.data.used])
+      // pagehide sends bye and removes B from A's peers
+      bus.sent.length = 0
+      b.fireWin('pagehide')
+      bus.flush()
+      const afterBye = [bus.sent.map(m => [m.from, m.data.type]), a.win._todoer_windows.peers.has('B')]
+      check(
+        'windows channel: who answered with hello, bye removes peer, hello on focus/pointerdown/keydown throttled to 1s',
+        [handshake, peersAfterHandshake, afterFocus, afterFastPress, afterSecond, afterBye],
+        [
+          [['B', 'who'], ['A', 'hello']],
+          [true, true],
+          [['B', 'hello', 1_700_000_000_500]],
+          [1, 1_700_000_000_900],
+          [['B', 'hello', 1_700_000_000_500], ['B', 'hello', 1_700_000_001_500]],
+          [[['B', 'bye']], false],
+        ]
+      )
+    }
+
+    // 4. channel button redraws: drawn anew when first peer joins and when last leaves, not in between, and on stale interval
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      a.env._start_windows()
+      bus.flush()
+      a.binCalls.length = 0
+      const b = makeWindow(bus, { id: 'B' })
+      b.env._start_windows() // 0 -> 1: draws
+      bus.flush()
+      const afterFirst = a.binCalls.length
+      const c = makeWindow(bus, { id: 'C' })
+      c.env._start_windows() // 1 -> 2: does NOT draw
+      bus.flush()
+      const afterSecond = a.binCalls.length
+      b.advance(2000)
+      b.fireWin('focus') // repeated hello while already >0 peers: does NOT draw
+      bus.flush()
+      const afterRepeat = a.binCalls.length
+      b.fireWin('pagehide') // 2 -> 1: does NOT draw
+      bus.flush()
+      const afterOneLeft = a.binCalls.length
+      c.fireWin('pagehide') // 1 -> 0: draws
+      bus.flush()
+      const afterLastLeft = a.binCalls.length
+      // peer that goes silent without bye: forgotten after SEND_STALE_MS, button redrawn at interval
+      const d = makeWindow(bus, { id: 'D', now: a.clock.now })
+      d.env._start_windows()
+      bus.flush()
+      a.advance(30_000) // sync interval's `there = true` while D is still live
+      d.win._todoer_windows.channel.close() // D vanishes silently
+      a.binButtonDraws.length = 0
+      a.advance(150_000) // past SEND_STALE_MS (120s) + next SEND_HELLO_MS (30s)
+      const afterStale = [a.env._send_peer(), a.binButtonDraws[a.binButtonDraws.length - 1]]
+      check(
+        'windows channel: buttons drawn anew on first peer join and last peer leave, not in between, and on stale timeout',
+        [afterFirst, afterSecond, afterRepeat, afterOneLeft, afterLastLeft, afterStale],
+        [1, 1, 1, 1, 2, [null, []]]
+      )
+    }
+
+    // 5. _window_button: hidden alone & off, shown with peer (off title/dim) and alone while on (on title/cyan), click toggles & asks who only on
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      a.env._start_windows()
+      bus.flush()
+      const aloneOff = a.env._window_button()
+      const b = makeWindow(bus, { id: 'B' })
+      b.env._start_windows()
+      bus.flush()
+      const withPeerOff = a.env._window_button()
+      bus.sent.length = 0
+      withPeerOff.press() // turns on -> asks who
+      bus.flush()
+      const afterOn = [a.env._send_on(), a.storage.get('mindpage_todoer_send'), bus.sent.filter(m => m.from == 'A').map(m => m.data.type), a.env._window_button()]
+      b.fireWin('pagehide') // B leaves while A is on -> button stays shown!
+      bus.flush()
+      const aloneOn = [a.env._send_peer(), a.env._window_button()]
+      bus.sent.length = 0
+      aloneOn[1].press() // turns off -> does NOT ask who, button hides
+      bus.flush()
+      const afterOff = [a.env._send_on(), a.storage.get('mindpage_todoer_send') ?? null, bus.sent.filter(m => m.from == 'A').map(m => m.data.type), a.env._window_button()]
+      const origGet = a.env.sessionStorage.getItem
+      a.env.sessionStorage.getItem = () => { throw new Error('blocked') }
+      const brokenOn = a.env._send_on()
+      a.env.sessionStorage.getItem = origGet
+      check(
+        'windows button: hidden alone and off, shown with peer (off title/dim) and alone while on (on title/cyan), click toggles and asks who on / hello off',
+        [
+          aloneOff,
+          [withPeerOff.name, withPeerOff.title, withPeerOff.color, withPeerOff.icon.includes('M2.3 4.3v7.4'), withPeerOff.icon.includes('M9.8 4.3v7.4')],
+          [afterOn[0], afterOn[1], afterOn[2], afterOn[3].title, afterOn[3].color, afterOn[3].icon.includes('M2.3 4.3v7.4M3.1 4.3v7.4M3.9 4.3v7.4M4.7 4.3v7.4M5.5 4.3v7.4M6.2 4.3v7.4')],
+          [aloneOn[0], aloneOn[1].title, aloneOn[1].color, aloneOn[1].icon.includes('M2.3 4.3v7.4M3.1 4.3v7.4M3.9 4.3v7.4M4.7 4.3v7.4M5.5 4.3v7.4M6.2 4.3v7.4')],
+          afterOff,
+          brokenOn,
+        ],
+        [
+          null,
+          ['window', 'Link the selection with the other window: this one keeps the list (w)', 'rgba(255, 255, 255, 0.25)', false, false],
+          [true, JSON.stringify({ uid: 'u1', since: a.clock.now }), ['who'], 'Linked: this window keeps the list, the other one shows the item. Unlink (w)', 'rgb(102, 255, 255)', true],
+          [null, 'Linked: this window keeps the list, the other one shows the item. Unlink (w)', 'rgb(102, 255, 255)', true],
+          [false, null, ['hello'], null],
+          false,
+        ]
+      )
+    }
+
+    // 6. _row_buttons omits window on every list type, and __bin_buttons places window last (with or without selected row)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      const b = makeWindow(bus, { id: 'B' })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('t1')
+      const rep = a.makeItem('rep', { tags: [], tags_visible: [] })
+      const del = a.makeItem('del')
+      a.makeWidget({ rows: [{ id: 't1', bell: true }, { id: 'rep', waits: 'reply', bell: true }] })
+      a.makeWidget({ delegated: true, rows: [{ id: 'del' }] })
+      const rowBtnNames = it => a.env._row_buttons(a.env._bin_row(it)).map(x => x.name)
+      a.env._bin_buttons(t1)
+      const drawnWithRow = a.win._key_buttons_guests.buttons.map(x => x.name)
+      a.env._bin_buttons(null)
+      const drawnNoRow = a.win._key_buttons_guests.buttons.map(x => x.name)
+      check(
+        'windows button: _row_buttons omits window on every list type, and __bin_buttons places window last (with or without selected row)',
+        [rowBtnNames(t1).includes('window'), rowBtnNames(rep).includes('window'), rowBtnNames(del).includes('window'), drawnWithRow, drawnNoRow],
+        [false, false, false, ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel', 'window'], ['window']]
+      )
+    }
+
+    // 7. key w: ignored alone and off, works with no row or a row selected, ignores modifiers and focused fields, repeat does not re-toggle
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      const prior = []
+      a.win._on_key = k => { prior.push(k); return 'prior:' + k }
+      a.env._start_windows()
+      a.env._row_keys()
+      const t1 = a.makeItem('t1')
+      a.makeWidget({ rows: [{ id: 't1' }] })
+      const sendKey = (code, opts = {}) => {
+        let prevented = false
+        const res = a.win._on_key(code, { ...opts, preventDefault: () => (prevented = true) })
+        return { prevented, res }
+      }
+      // alone & off -> ignored, forwarded to prior
+      const aloneRes = sendKey('KeyW')
+      const aloneOn = a.env._send_on()
+      // second window joins -> w works with NO row selected
+      const b = makeWindow(bus, { id: 'B' })
+      b.env._start_windows()
+      bus.flush()
+      prior.length = 0
+      a.setBox('')
+      const noRowOn = [sendKey('KeyW'), a.env._send_on()]
+      // w works with a row selected
+      a.setBox('#t1')
+      const withRowOff = [sendKey('KeyW'), a.env._send_on()]
+      // modifiers -> ignored, forwarded
+      const mods = [{ metaKey: true }, { ctrlKey: true }, { altKey: true }, { shiftKey: true }]
+      const modRes = mods.map(m => sendKey('KeyW', m))
+      const modOn = a.env._send_on()
+      // focused fields -> ignored, forwarded; plain DIV allowed
+      const fields = [{ tagName: 'TEXTAREA' }, { tagName: 'INPUT' }, { tagName: 'SELECT' }, { tagName: 'DIV', isContentEditable: true }]
+      const fieldRes = fields.map(el => { a.doc.activeElement = el; return sendKey('KeyW') })
+      const fieldOn = a.env._send_on()
+      a.doc.activeElement = { tagName: 'DIV', isContentEditable: false }
+      // held down (repeat: true) -> prevented, not forwarded, does NOT toggle
+      const repRes = sendKey('KeyW', { repeat: true })
+      const repOn = a.env._send_on()
+      const plainDivRes = sendKey('KeyW', { repeat: false })
+      const plainDivOn = a.env._send_on()
+      // alone while on -> w still works to turn off!
+      b.fireWin('pagehide')
+      bus.flush()
+      const aloneWhileOn = [sendKey('KeyW'), a.env._send_on()]
+      check(
+        'windows key w: ignored alone and off, works with no row or a row selected, ignores modifiers and focused fields, repeat does not re-toggle',
+        [aloneRes, aloneOn, noRowOn, withRowOff, modRes.every(r => !r.prevented), modOn, fieldRes.every(r => !r.prevented), fieldOn, repRes, repOn, plainDivRes, plainDivOn, aloneWhileOn, t1.id],
+        [
+          { prevented: false, res: 'prior:KeyW' },
+          false,
+          [{ prevented: true, res: undefined }, true],
+          [{ prevented: true, res: undefined }, false],
+          true,
+          false,
+          true,
+          false,
+          { prevented: true, res: undefined },
+          false,
+          { prevented: true, res: undefined },
+          true,
+          [{ prevented: true, res: undefined }, false],
+          't1',
+        ]
+      )
+    }
+
+    // 8. _send_selected: once per item via _on_search, forced sends again, non-item search clears last, switch off sends unaddressed, switch on alone sends who & returns false
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      a.env._start_windows()
+      const t1 = a.makeItem('t1', { saved_id: 's1' })
+      a.makeWidget({ rows: [{ id: 't1' }] })
+      // switch off: sends unaddressed selected, dedups second unforced call, forced sends again
+      bus.sent.length = 0
+      const r1 = a.env._send_selected(t1)
+      const r2 = a.env._send_selected(t1)
+      const r3 = a.env._send_selected(t1, true)
+      const offMsgs = bus.sent.map(m => [m.data.type, m.data.item, m.data.to, 'n' in m.data])
+      // non-item search clears windows.last so next unforced _on_search sends again
+      bus.sent.length = 0
+      a.env._on_search('plain search words')
+      const afterClear = [a.win._todoer_windows.last, bus.sent.length]
+      a.env._on_search('#t1')
+      const afterReselect = bus.sent.map(m => [m.data.type, m.data.item])
+      // switch on with no peer: sends who (without item) and returns false
+      a.env._send_toggle(true)
+      bus.sent.length = 0
+      const rAloneOn = a.env._send_selected(t1, true)
+      const aloneMsgs = bus.sent.map(m => [m.data.type, 'item' in m.data])
+      check(
+        'windows _send_selected: once per item via _on_search, forced sends again, non-item search clears last, switch off sends unaddressed, switch on alone sends who and returns false',
+        [[r1, r2, r3], offMsgs, afterClear, afterReselect, rAloneOn, aloneMsgs],
+        [
+          [false, false, false],
+          [['selected', 's1', null, false], ['selected', 's1', null, false]],
+          [null, 0],
+          [['selected', 's1']],
+          false,
+          [['who', false]],
+        ]
+      )
+    }
+
+    // 9. _send_selected switch on: names peer and n, took in time keeps peer & skips scroll; no answer forgets peer, releases hold & scrolls only when box still names item
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 595 })
+      const b = makeWindow(bus, { id: 'B' })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('t1', { saved_id: 's1', scrollY: 1600 })
+      const t2 = a.makeItem('t2', { saved_id: 's2', scrollY: 1800 })
+      a.makeWidget({ rows: [{ id: 't1' }, { id: 't2' }] })
+      b.makeItem('t1', { saved_id: 's1', scrollY: 1600 })
+      a.env._send_toggle(true)
+      bus.flush()
+      // answer in time -> peer kept, scroll_to_target not called, scroll stays held
+      bus.sent.length = 0
+      a.env._select_item(t1)
+      bus.flush()
+      const sentAsk = bus.sent.find(m => m.from == 'A' && m.data.type == 'selected')?.data
+      const sentTook = bus.sent.find(m => m.from == 'B' && m.data.type == 'took')?.data
+      advanceAll(bus, [a, b], 3100)
+      const afterAck = [sentAsk?.to, typeof sentAsk?.n == 'string' && sentAsk.n.startsWith('A:'), sentTook?.n === sentAsk?.n, a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      // silent peer (never answers took) while box still names item -> forgets peer at SEND_ACK_MS (3000ms),
+      // releases a stepped hold that is still active (e.g. after a busy stall), redraws buttons, and scrolls to target!
+      b.win._todoer_windows.channel.muted = true
+      a.setScrollTop(595)
+      a.binCalls.length = 0
+      a.env._select_item(t2)
+      bus.flush()
+      const midHoldScroll = a.getScrollTop()
+      a.stall(2800) // busy main thread: only 1 of 15 hold steps spent, 14 steps left!
+      a.advance(199) // 2999ms: still waiting for ack
+      const at2999 = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length]
+      a.advance(1) // 3000ms: SEND_ACK_MS fires while stepped hold STILL has 12 steps active!
+      await Promise.resolve()
+      const afterTimeoutSame = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop(), a.binCalls.length > 0]
+      // silent peer when box moved to another item before SEND_ACK_MS -> forgets peer, does NOT scroll_to_target
+      const c = makeWindow(bus, { id: 'C', now: a.clock.now })
+      c.env._start_windows()
+      bus.flush()
+      c.win._todoer_windows.channel.muted = true
+      a.scrollToTargetCalls.length = 0
+      a.setBox('#t1')
+      const askedC = a.env._send_selected(t1, true)
+      bus.flush()
+      a.setBox('#t2') // box moved on
+      a.advance(3000)
+      const afterTimeoutMoved = [askedC, a.win._todoer_windows.peers.has('C'), a.scrollToTargetCalls.length]
+      check(
+        'windows _send_selected: switch on names peer and n, took in time keeps peer and skips scroll; no answer forgets peer, releases hold and scrolls only when box still names item',
+        [afterAck, midHoldScroll, at2999, afterTimeoutSame, afterTimeoutMoved],
+        [
+          ['B', true, true, true, 0, 595],
+          595,
+          [true, 0],
+          [false, 1, 1800, true],
+          [true, false, 0],
+        ]
+      )
+    }
+
+    // 10. unsaved item: told once saved_id arrives, abandoned when box moves on or after timeout, superseded by a selection made meanwhile
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      const b = makeWindow(bus, { id: 'B' })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.env._send_toggle(true)
+      bus.flush()
+      a.makeWidget({ rows: [{ id: 'u1' }, { id: 'u2' }, { id: 'u3' }, { id: 's4' }, { id: 'u5' }] })
+      // (a) told once saved_id arrives (at 750ms)
+      const u1 = a.makeItem('u1', { saved_id: null, name: '#u1' })
+      a.setBox('#u1')
+      bus.sent.length = 0
+      const retUnsaved = a.env._send_selected(u1)
+      a.advance(500) // still unsaved
+      const sentBeforeSave = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length
+      u1.saved_id = 'saved_u1'
+      a.items.set('saved_u1', u1)
+      b.makeItem('u1', { saved_id: 'saved_u1', name: '#u1' })
+      a.advance(250) // 750ms: poll sees saved_id and sends!
+      const sentAfterSave = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => [m.data.item, m.data.to])
+      const bBoxAfterSave = b.getBox()
+      // (b) abandoned when box moves on before saved_id appears
+      const u2 = a.makeItem('u2', { saved_id: null, name: '#u2' })
+      a.setBox('#u2')
+      bus.sent.length = 0
+      a.env._send_selected(u2)
+      a.advance(250)
+      a.setBox('#other')
+      u2.saved_id = 'saved_u2'
+      a.advance(500)
+      const sentWhenMoved = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length
+      // (c) a selection made meanwhile comes first (clears windows.saving)
+      const u3 = a.makeItem('u3', { saved_id: null, name: '#u3' })
+      const s4 = a.makeItem('s4', { saved_id: 'saved_s4', name: '#s4' })
+      b.makeItem('s4', { saved_id: 'saved_s4', name: '#s4' })
+      a.setBox('#u3')
+      bus.sent.length = 0
+      a.env._send_selected(u3)
+      a.setBox('#s4')
+      a.env._send_selected(s4)
+      u3.saved_id = 'saved_u3'
+      a.setBox('#u3') // even if box returns, cleared saving timer must not fire u3
+      a.advance(500)
+      const sentSuperseded = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => m.data.item)
+      // (d) never saves within 10.25s -> stops polling, sends nothing
+      const u5 = a.makeItem('u5', { saved_id: null, name: '#u5' })
+      a.setBox('#u5')
+      bus.sent.length = 0
+      a.env._send_selected(u5)
+      a.advance(10_500)
+      u5.saved_id = 'too_late'
+      a.advance(1000)
+      const sentTooLate = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length
+      check(
+        'windows unsaved item: told once saved_id arrives, abandoned when box moves on or after timeout, superseded by a selection made meanwhile',
+        [retUnsaved, sentBeforeSave, sentAfterSave, bBoxAfterSave, sentWhenMoved, sentSuperseded, sentTooLate],
+        [false, 0, [['saved_u1', 'B']], '#u1', 0, ['saved_s4'], 0]
+      )
+    }
+
+    // 11. _send_take: took sent only after select succeeds when asked (never before lookup or when unasked), late item selected within 2s with no line marked, missing item stops at 2s and sender falls back at 3s, newer message cancels waiting one
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      const b = makeWindow(bus, { id: 'B' })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.env._send_toggle(true)
+      bus.flush()
+      a.makeWidget({ rows: [{ id: 'late' }, { id: 'u0' }, { id: 'ghost' }, { id: 'm1' }, { id: 'm2' }, { id: 'plain' }] })
+      const late = a.makeItem('late', { saved_id: 's_late', name: '#late', text: '#todo arrive late' })
+      bus.sent.length = 0
+      // A selects `late` BEFORE B has it; B sends NO `took` before item is selected, then answers `took` once selected at 750ms!
+      a.env._select_item(late)
+      bus.flush()
+      const tookImmediate = bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length
+      advanceAll(bus, [a, b], 500)
+      const at500 = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, b.selects.length]
+      // item arrives in B at 500ms -> selected with NO line marked and sends `took` now (well within 2s deadline and 3s ack wait)
+      b.makeItem('late', { saved_id: 's_late', name: '#late', text: '#todo arrive late' })
+      advanceAll(bus, [a, b], 250)
+      const at750 = [b.getBox(), b.marks.length, bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      // unasked (B selects -> A takes with switch on): A must NOT send took
+      bus.sent.length = 0
+      const unasked = b.makeItem('u0', { saved_id: 's_u0', name: '#u0' })
+      a.makeItem('u0', { saved_id: 's_u0', name: '#u0' })
+      b.env._send_selected(unasked, true)
+      bus.flush()
+      const tookWhenUnasked = bus.sent.filter(m => m.from == 'A' && m.data.type == 'took').length
+      // never arrives (past 2s receive / 3s ack) -> B stops polling without sending `took`, A forgets B at 3s!
+      const ghost = a.makeItem('ghost', { saved_id: 's_ghost', name: '#ghost' })
+      b.selects.length = 0
+      a.env._send_selected(ghost, true)
+      bus.flush()
+      advanceAll(bus, [a, b], 3500)
+      const peerKeptOnGhost = a.win._todoer_windows.peers.has('B')
+      b.makeItem('ghost', { saved_id: 's_ghost', name: '#ghost' })
+      advanceAll(bus, [a, b], 500)
+      const afterGhost = b.selects.length
+      // reconnect B via focus before testing newer message and non-todo
+      b.advance(2000)
+      b.fireWin('focus')
+      bus.flush()
+      // newer message cancels waiting one (m1 missing, m2 arrives -> only m2 selected even if m1 appears later)
+      const m1 = a.makeItem('m1', { saved_id: 's_m1', name: '#m1' })
+      const m2 = a.makeItem('m2', { saved_id: 's_m2', name: '#m2' })
+      b.makeItem('m2', { saved_id: 's_m2', name: '#m2' })
+      b.selects.length = 0
+      a.env._send_selected(m1, true)
+      advanceAll(bus, [a, b], 200)
+      a.env._send_selected(m2, true)
+      bus.flush()
+      b.makeItem('m1', { saved_id: 's_m1', name: '#m1' })
+      advanceAll(bus, [a, b], 500)
+      const afterNewer = b.selects.map(s => s.id)
+      // non-todo item marks no line; non-string item returns false and sends no took
+      b.marks.length = 0
+      const plain = a.makeItem('plain', { saved_id: 's_plain', name: '#plain', text: 'just a note', tags: [], tags_visible: [] })
+      b.makeItem('plain', { saved_id: 's_plain', name: '#plain', text: 'just a note', tags: [], tags_visible: [] })
+      a.env._send_selected(plain, true)
+      bus.flush()
+      const plainMarks = b.marks.length
+      bus.sent.length = 0
+      const badItem = b.env._send_take({ item: 42, n: 'A:99' }, true)
+      const tookBad = bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length
+      check(
+        'windows _send_take: took sent only after select succeeds when asked (never before lookup or unasked), late item selected within 2s with no line marked, missing item stops at 2s and sender falls back at 3s, newer message cancels waiting one',
+        [tookImmediate, at500, at750, tookWhenUnasked, peerKeptOnGhost, afterGhost, afterNewer, plainMarks, badItem, tookBad],
+        [0, [true, 0, 0], ['#late', 0, 1], 0, false, 0, ['m2'], 0, false, 0]
+      )
+    }
+
+    // 12a. echo guard (once-per-item): A asks B, B's _on_search after select sends nothing back (no ping-pong echo)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', autoSearch: true })
+      const b = makeWindow(bus, { id: 'B', autoSearch: true })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.env._send_toggle(true)
+      bus.flush()
+      const itA = a.makeItem('e1', { saved_id: 's_e1', name: '#e1' })
+      a.makeWidget({ rows: [{ id: 'e1' }] })
+      b.makeItem('e1', { saved_id: 's_e1', name: '#e1' })
+      bus.sent.length = 0
+      a.env._select_item(itA)
+      bus.flush()
+      const selectedMsgs = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null])
+      check(
+        'windows echo guard (once-per-item): A asks B, B _on_search after select sends nothing back (no ping-pong echo)',
+        [selectedMsgs, bus.overflows, a.selects.length, b.selects.length],
+        [[['A', 's_e1', 'B']], 0, 1, 1]
+      )
+    }
+
+    // 12b. echo guard (received): B's _select_item(..., received=true) never calls _send_selected back (even with autoSearch off)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', autoSearch: false })
+      const b = makeWindow(bus, { id: 'B', autoSearch: false })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.env._send_toggle(true)
+      bus.flush()
+      const itA = a.makeItem('e2', { saved_id: 's_e2', name: '#e2' })
+      a.makeWidget({ rows: [{ id: 'e2' }] })
+      b.makeItem('e2', { saved_id: 's_e2', name: '#e2' })
+      bus.sent.length = 0
+      a.env._select_item(itA)
+      bus.flush()
+      const bSelectedBack = bus.sent.filter(m => m.from == 'B' && m.data.type == 'selected')
+      check(
+        'windows echo guard (received): taken selection in B sends no selected message back',
+        [bSelectedBack, bus.overflows, b.selects.map(s => s.id)],
+        [[], 0, ['e2']]
+      )
+    }
+
+    // 13. who takes what (3 windows): addressed always taken; unaddressed taken only by switch-on window from its _send_peer, not another window, and never when switch is off
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      const c = makeWindow(bus, { id: 'C', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      b.env._start_windows()
+      c.env._start_windows()
+      bus.flush()
+      for (const w of [a, b, c]) {
+        w.makeItem('k1', { saved_id: 's_k1', name: '#k1' })
+        w.makeItem('k2', { saved_id: 's_k2', name: '#k2' })
+        w.makeItem('k3', { saved_id: 's_k3', name: '#k3' })
+        w.makeItem('k4', { saved_id: 's_k4', name: '#k4' })
+      }
+      a.makeWidget({ rows: [{ id: 'k1' }, { id: 'k2' }, { id: 'k3' }, { id: 'k4' }] })
+      // B used most recently -> A's _send_peer is B
+      advanceAll(bus, [a, b, c], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      // with A's switch OFF, B's unaddressed selection is NOT taken by A or C
+      b.env._send_selected(b.items.get('k1'), true)
+      bus.flush()
+      const offBoxes = [a.getBox(), c.getBox()]
+      // turn A's switch ON: B's unaddressed selection IS taken by A (not C); C's unaddressed selection is NOT taken by A
+      a.env._send_toggle(true)
+      bus.flush()
+      b.env._send_selected(b.items.get('k2'), true)
+      bus.flush()
+      const afterB = [a.getBox(), c.getBox()]
+      c.env._send_selected(c.items.get('k3'), true)
+      bus.flush()
+      const afterCWhilePeerB = a.getBox()
+      // now C is used more recently -> A's _send_peer becomes C; C's selection IS taken by A
+      advanceAll(bus, [a, b, c], 2000)
+      c.fireWin('focus')
+      bus.flush()
+      const peerNow = a.env._send_peer()
+      c.env._send_selected(c.items.get('k3'), true)
+      bus.flush()
+      const afterCNowPeer = a.getBox()
+      // addressed message from A to C is taken by C even though C's switch is OFF
+      a.env._send_selected(a.items.get('k4'), true)
+      bus.flush()
+      const afterAddressed = [c.getBox(), b.getBox()]
+      check(
+        'windows routing (3 windows): addressed always taken; unaddressed taken only by switch-on window from its _send_peer, not another window, and never when switch is off',
+        [offBoxes, afterB, afterCWhilePeerB, peerNow, afterCNowPeer, afterAddressed],
+        [['', ''], ['#k2', ''], '#k2', 'C', '#k3', ['#k4', '']]
+      )
+    }
+
+    // 14a. _hold_scroll: holds scrollTop against scroll events until SEND_HOLD_MS, and new hold replaces old
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 300 })
+      a.env._start_windows()
+      a.env._hold_scroll(300)
+      a.simScroll(1500)
+      const heldAt300 = a.getScrollTop()
+      // a new hold replaces the old hold (different top, fresh 1500ms timer)
+      a.advance(1000)
+      a.env._hold_scroll(450)
+      a.simScroll(1500)
+      const heldAt450 = a.getScrollTop()
+      a.advance(600) // 1600ms since first hold (would have expired old timer), only 600ms into new hold
+      a.simScroll(1500)
+      const stillHeld450 = a.getScrollTop()
+      a.advance(900) // now 1500ms into new hold -> expired
+      a.simScroll(1500)
+      const afterExpire = a.getScrollTop()
+      check(
+        'windows _hold_scroll: holds scrollTop against scroll events until SEND_HOLD_MS and new hold replaces old',
+        [heldAt300, heldAt450, stillHeld450, afterExpire],
+        [300, 450, 450, 1500]
+      )
+    }
+
+    // 14b. _hold_scroll inputs: each of wheel, touchstart, pointerdown, and keydown ends the hold immediately;
+    // keydown flushes any un-dispatched app scroll back to top before releasing so rapid j/k never inherits it,
+    // while wheel/touchstart/pointerdown leave the current scroll intact
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 300 })
+      a.env._start_windows()
+      const results = []
+      for (const input of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+        a.setScrollTop(300)
+        a.env._hold_scroll(300)
+        a.simScroll(1200)
+        const beforeInput = a.getScrollTop()
+        a.setScrollTop(460)
+        a.fireWin(input, { type: input })
+        const atEnd = a.getScrollTop()
+        a.simScroll(1200)
+        const afterInput = a.getScrollTop()
+        results.push([input, beforeInput, atEnd, afterInput])
+      }
+      check(
+        'windows _hold_scroll inputs: each of wheel, touchstart, pointerdown, and keydown ends the hold immediately',
+        results,
+        [
+          ['wheel', 300, 460, 1200],
+          ['touchstart', 300, 460, 1200],
+          ['pointerdown', 300, 460, 1200],
+          ['keydown', 300, 300, 1200],
+        ]
+      )
+    }
+
+    // 15. _row_view_top: owner's rule at all edges (prefer top of mindbox .header.offsetTop whenever
+    // row is in view from there regardless of current top; just past foot -> 80% depth; above box -> y-8
+    // clamped at 0; missing row / zero height keeps top; row below box never goes above home; missing .header -> 0)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const inView = a.makeItem('rv1')
+      const atEdge = a.makeItem('rvEdge')
+      const justPast = a.makeItem('rvPast')
+      const above = a.makeItem('rv2')
+      const nearTop = a.makeItem('rv3')
+      const below = a.makeItem('rv4')
+      const noRow = a.makeItem('rv5')
+      const zeroH = a.makeItem('rv6')
+      const tallTop = a.makeItem('rv7')
+      const tallBot = a.makeItem('rv8')
+      const rightUnderBox = a.makeItem('rvUnder')
+      a.makeWidget({
+        rows: [
+          { id: 'rv1', pageY: 600, height: 32 }, // in [508, 1136] -> 500 (home), whatever `top` is
+          { id: 'rvEdge', pageY: 1104, height: 32 }, // bottom 1136 === home+700-64 -> 500 (home)
+          { id: 'rvPast', pageY: 1105, height: 32 }, // bottom 1137 > 1136 -> 80% depth (560) -> 1137-560 = 577
+          { id: 'rv2', pageY: 420, height: 32 }, // above home+8 (508) -> 412
+          { id: 'rv3', pageY: 4, height: 32 }, // above home+8, 4-8 clamps to 0
+          { id: 'rv4', pageY: 1400, height: 32 }, // far down: bottom 1432 -> 1432-560 = 872
+          { id: 'rv6', pageY: 900, height: 0 }, // height 0 -> keeps `top`
+          { id: 'rv7', pageY: 490, height: 700 }, // above home+8 -> 482
+          { id: 'rv8', pageY: 520, height: 700 }, // bottom 1220 > 1136 -> 1220-560 = 660 (>= home)
+          { id: 'rvUnder', pageY: 508, height: 32 }, // right at home+8, in view -> 500 (never < home)
+        ],
+      })
+      // simulate document.body.scrollTop already moved elsewhere: y still uses page coords and in-view returns home regardless of `top`
+      a.setScrollTop(1600)
+      // window with no .header element -> home defaults to 0
+      const noHdr = makeWindow(bus, { id: 'NH', innerHeight: 700, scrollTop: 300, headerTop: null })
+      const nhIn = noHdr.makeItem('nh1')
+      const nhOut = noHdr.makeItem('nh2')
+      noHdr.makeWidget({
+        rows: [
+          { id: 'nh1', pageY: 100, height: 32 }, // in [8, 636] -> 0
+          { id: 'nh2', pageY: 650, height: 32 }, // bottom 682 > 636 -> 682-560 = 122
+        ],
+      })
+      check(
+        'windows _row_view_top: in view from home (any top), foot edge, 1px past foot to 80%, far down, above (0 clamp), no row/zero height, tall, never above home, no .header',
+        [
+          a.env._row_view_top(inView, 500),
+          a.env._row_view_top(inView, 1200),
+          a.env._row_view_top(inView, 200),
+          a.env._row_view_top(atEdge, 900),
+          a.env._row_view_top(justPast, 500),
+          a.env._row_view_top(below, 500),
+          a.env._row_view_top(above, 500),
+          a.env._row_view_top(nearTop, 500),
+          a.env._row_view_top(noRow, 777),
+          a.env._row_view_top(zeroH, 777),
+          a.env._row_view_top(tallTop, 500),
+          a.env._row_view_top(tallBot, 500),
+          a.env._row_view_top(rightUnderBox, 900),
+          noHdr.env._row_view_top(nhIn, 300),
+          noHdr.env._row_view_top(nhOut, 300),
+        ],
+        [500, 500, 500, 500, 577, 872, 412, 0, 777, 777, 482, 660, 500, 0, 122]
+      )
+    }
+
+    // 16a. _select_item row-in-view: shared selection holds scroll at home for in-view rows, puts far row at 80% depth, returns to home on near row, and handles row above box
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.env._send_toggle(true)
+      bus.flush()
+      const rIn = a.makeItem('si1', { saved_id: 's_si1', scrollY: 2000 })
+      const rBelow = a.makeItem('si2', { saved_id: 's_si2', scrollY: 2600 })
+      const rAbove = a.makeItem('si3', { saved_id: 's_si3', scrollY: 3200 })
+      for (const [id, y] of [['si1', 2000], ['si2', 2600], ['si3', 3200]]) b.makeItem(id, { saved_id: 's_' + id, scrollY: y })
+      a.makeWidget({
+        rows: [
+          { id: 'si1', pageY: 600, height: 32 },
+          { id: 'si2', pageY: 1200, height: 32 }, // bottom 1232 > 1136 -> 80% depth (560) -> 1232-560 = 672
+          { id: 'si3', pageY: 400, height: 32 }, // above home+8 (508) -> 392
+        ],
+      })
+      a.env._select_item(rIn)
+      bus.flush()
+      await Promise.resolve()
+      const afterIn = [a.getScrollTop(), b.getScrollTop(), b.getBox()]
+      a.env._select_item(rBelow)
+      bus.flush()
+      await Promise.resolve()
+      const afterBelow = [a.getScrollTop(), b.getScrollTop(), b.getBox()]
+      a.env._select_item(rIn)
+      bus.flush()
+      await Promise.resolve()
+      const afterBackHome = [a.getScrollTop(), b.getScrollTop(), b.getBox()]
+      a.env._select_item(rAbove)
+      bus.flush()
+      await Promise.resolve()
+      const afterAbove = [a.getScrollTop(), b.getScrollTop(), b.getBox()]
+      check(
+        'windows _select_item row-in-view: shared selection holds scroll when row is in view and moves only as far as _row_view_top when row is below or above',
+        [afterIn, afterBelow, afterBackHome, afterAbove],
+        [
+          [500, 2000, '#si1'],
+          [672, 2600, '#si2'],
+          [500, 2000, '#si1'],
+          [392, 3200, '#si3'],
+        ]
+      )
+    }
+
+    // 16b. _select_item received: switch-on holds scroll for a selection taken from peer, while switch-off scrolls freely for a selection it takes
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.env._send_toggle(true)
+      bus.flush()
+      const itA = a.makeItem('rc1', { saved_id: 's_rc1', scrollY: 1900 })
+      const itB = b.makeItem('rc1', { saved_id: 's_rc1', scrollY: 1900 })
+      const itA2 = a.makeItem('rc2', { saved_id: 's_rc2', scrollY: 2100 })
+      b.makeItem('rc2', { saved_id: 's_rc2', scrollY: 2100 })
+      a.makeWidget({ rows: [{ id: 'rc1', pageY: 600, height: 32 }, { id: 'rc2', pageY: 632, height: 32 }] })
+      // B (switch off) selects rc1 -> A (switch on) takes it and holds scroll at 500
+      b.env._select_item(itB)
+      bus.flush()
+      await Promise.resolve()
+      const aTookOn = [a.getBox(), a.getScrollTop(), b.getScrollTop()]
+      // A (switch on) selects rc2 -> B (switch off) takes it and scrolls freely to 2100
+      b.setScrollTop(500)
+      a.env._select_item(itA2)
+      bus.flush()
+      await Promise.resolve()
+      const bTookOff = [b.getBox(), b.getScrollTop(), a.getScrollTop(), itA.id]
+      check(
+        'windows _select_item received: switch-on holds scroll for a selection taken from peer, while switch-off scrolls freely for a selection it takes',
+        [aTookOn, bTookOff],
+        [['#rc1', 500, 1900], ['#rc2', 2100, 500, 'rc1']]
+      )
+    }
+
+    // 17. second click on the selected row (__render): opens editor without _send_ready and re-selects to peer without editing when _send_ready
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const item = a.makeItem('sc1', { saved_id: 's_sc1', name: '#sc1', text: '#todo click twice', scrollY: 1700 })
+      b.makeItem('sc1', { saved_id: 's_sc1', name: '#sc1', text: '#todo click twice', scrollY: 1700 })
+      const widget = a.body.appendChild(new WinDomNode('div', { id: 'w_sc', className: 'todoer-widget' }))
+      const widgetItem = { store: { w_sc: { options: {} } }, _global_store: {} }
+      a.setBox('#sc1')
+      a.setTargetItem('sc1')
+      a.env.__render(widget, widgetItem)
+      const rowDiv = widget.querySelector('.list-item')
+      const clickEv = { stopPropagation: () => {}, preventDefault: () => {} }
+      // (a) switch off (_send_ready() == false): second click opens editor
+      rowDiv.onclick(clickEv)
+      bus.flush()
+      const offClick = [a.edits.length, a.selects.length, b.selects.length]
+      // (b) switch on + peer (_send_ready() == true): second click re-selects to B and opens NO editor
+      a.edits.length = 0
+      a.selects.length = 0
+      a.setScrollTop(500)
+      a.env._send_toggle(true)
+      bus.flush()
+      b.selects.length = 0 // linking already told the currently selected listed item (#sc1) to B
+      rowDiv.onclick(clickEv)
+      bus.flush()
+      const onWithPeerClick = [a.edits.length, a.selects.length, b.selects.map(s => s.id), a.getScrollTop()]
+      // (c) switch on but peer gone (_send_ready() == false): second click opens editor again
+      b.fireWin('pagehide')
+      bus.flush()
+      a.edits.length = 0
+      a.selects.length = 0
+      rowDiv.onclick(clickEv)
+      bus.flush()
+      const onAloneClick = [a.edits.length, a.selects.length, item.id]
+      check(
+        'windows second click (__render): clicking the already-selected row opens editor without _send_ready and re-selects to peer without editing when _send_ready',
+        [offClick, onWithPeerClick, onAloneClick],
+        [
+          [1, 1, 0], // _edit_item calls item.select() then MindBox.edit_target()
+          [0, 1, ['sc1'], 500],
+          [1, 1, 'sc1'],
+        ]
+      )
+    }
+
+    // 18. every message carries on, since, and to, and peers store them
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const itA = a.makeItem('f1', { saved_id: 'sf1' })
+      a.makeWidget({ rows: [{ id: 'f1' }] })
+      b.makeItem('f1', { saved_id: 'sf1' })
+      bus.sent.length = 0
+      a.advance(100)
+      a.env._send_toggle(true) // who (on: true, since: T, to: 'B')
+      bus.flush()
+      const tOn = a.clock.now
+      a.env._send_selected(itA, true) // selected + took
+      bus.flush()
+      b.env._send_press() // unlink (to: 'A') -> A hello (on: false, since: 0, to: null)
+      bus.flush()
+      b.fireWin('pagehide') // bye
+      bus.flush()
+      const types = bus.sent.map(m => [m.from, m.data.type, m.data.on, m.data.since, m.data.to])
+      const everyHasFields = bus.sent.every(m => typeof m.data.on == 'boolean' && typeof m.data.since == 'number' && 'to' in m.data)
+      // verify peer record stores used, seen, on, to, since when A is on
+      const c = makeWindow(bus, { id: 'C', now: a.clock.now })
+      c.env._start_windows()
+      bus.flush()
+      a.advance(50)
+      a.env._send_toggle(true)
+      bus.flush()
+      const peerA = c.win._todoer_windows.peers.get('A')
+      check(
+        'windows messages & peers: every message carries on, since, and to, and peers store them',
+        [everyHasFields, types, [peerA.on, peerA.to, peerA.since, typeof peerA.used, typeof peerA.seen]],
+        [
+          true,
+          [
+            ['A', 'who', true, tOn, 'B'],
+            ['B', 'hello', false, 0, null],
+            ['A', 'selected', true, tOn, 'B'],
+            ['B', 'took', false, 0, null],
+            ['B', 'unlink', false, 0, 'A'],
+            ['A', 'hello', false, 0, null],
+            ['B', 'bye', false, 0, null],
+          ],
+          [true, 'C', a.clock.now, 'number', 'number'],
+        ]
+      )
+    }
+
+    // 19. _send_shown: none, list window naming this one, list window naming another, stale list window (boundary live)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const beforeStart = a.env._send_shown(a.clock.now)
+      a.env._start_windows()
+      const t0 = a.clock.now
+      const empty = a.env._send_shown(t0)
+      a.win._todoer_windows.peers.set('pOff', { used: 10, seen: t0, on: false, to: 'A', since: 0 })
+      const peerOff = a.env._send_shown(t0)
+      a.win._todoer_windows.peers.set('pOther', { used: 20, seen: t0, on: true, to: 'Z', since: t0 })
+      const toOther = a.env._send_shown(t0)
+      a.win._todoer_windows.peers.set('pMe', { used: 30, seen: t0 - 120_000, on: true, to: 'A', since: t0 })
+      const atBoundary = a.env._send_shown(t0)
+      const pastStale = a.env._send_shown(t0 + 1)
+      check(
+        'windows _send_shown: none, list window naming this one, list window naming another, stale list window (boundary live)',
+        [beforeStart, empty, peerOff, toOther, atBoundary, pastStale],
+        [null, null, null, null, 'pMe', null]
+      )
+    }
+
+    // 20. three looks of _window_button in two windows and three (which other window shows as _send_peer changes, and the hello that tells it)
+    {
+      const LEFT_FILL = 'M2.3 4.3v7.4M3.1 4.3v7.4M3.9 4.3v7.4M4.7 4.3v7.4M5.5 4.3v7.4M6.2 4.3v7.4'
+      const RIGHT_FILL = 'M9.8 4.3v7.4M10.6 4.3v7.4M11.4 4.3v7.4M12.2 4.3v7.4M13 4.3v7.4M13.7 4.3v7.4'
+      const paneOf = btn => (!btn ? null : [btn.title, btn.color, btn.icon.includes(LEFT_FILL) ? 'left' : btn.icon.includes(RIGHT_FILL) ? 'right' : 'plain'])
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      const c = makeWindow(bus, { id: 'C', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const unlinked2 = [paneOf(a.env._window_button()), paneOf(b.env._window_button())]
+      // B used more recently -> A links -> A left-lit, B right-lit
+      advanceAll(bus, [a, b, c], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      a.env._send_press()
+      bus.flush()
+      const linked2 = [paneOf(a.env._window_button()), paneOf(b.env._window_button())]
+      // C joins (unfocused, used=0 < B's used): A left-lit, B STILL right-lit, C plain!
+      c.env._start_windows()
+      bus.flush()
+      const withThird = [paneOf(a.env._window_button())[2], paneOf(b.env._window_button())[2], paneOf(c.env._window_button())[2]]
+      // C is focused -> A sees _send_peer change B -> C and sends hello with to:'C' -> B becomes plain, C becomes right-lit!
+      bus.sent.length = 0
+      advanceAll(bus, [a, b, c], 2000)
+      c.fireWin('focus')
+      bus.flush()
+      const helloFromA = bus.sent.filter(m => m.from == 'A' && m.data.type == 'hello').map(m => m.data.to)
+      const afterCFocus = [paneOf(a.env._window_button())[2], paneOf(b.env._window_button())[2], paneOf(c.env._window_button())[2]]
+      check(
+        'windows three looks (2 and 3 windows): plain, left-lit, right-lit follow _send_peer changes via hello',
+        [unlinked2, linked2, withThird, helloFromA, afterCFocus],
+        [
+          [
+            ['Link the selection with the other window: this one keeps the list (w)', 'rgba(255, 255, 255, 0.25)', 'plain'],
+            ['Link the selection with the other window: this one keeps the list (w)', 'rgba(255, 255, 255, 0.25)', 'plain'],
+          ],
+          [
+            ['Linked: this window keeps the list, the other one shows the item. Unlink (w)', 'rgb(102, 255, 255)', 'left'],
+            ['Linked: this window shows the item, the other one keeps the list. Unlink (w)', 'rgb(102, 255, 255)', 'right'],
+          ],
+          ['left', 'right', 'plain'],
+          ['C'],
+          ['left', 'plain', 'right'],
+        ]
+      )
+    }
+
+    // 21. button drawn anew exactly when look changes (peer join/leave, link on/off, showing target change, not on unrelated messages)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      const c = makeWindow(bus, { id: 'C', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      bus.flush()
+      a.binCalls.length = 0
+      b.env._start_windows() // A: 0 -> 1 peer (draws)
+      bus.flush()
+      const aAfterBJoin = a.binCalls.length
+      // give B a higher `used` so an unfocused third window C will not steal _send_peer via seen tie
+      advanceAll(bus, [a, b, c], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      b.binCalls.length = 0
+      // A turns on -> B's look changes (null -> A) -> B draws!
+      a.env._send_press()
+      bus.flush()
+      const bAfterAOn = b.binCalls.length
+      // repeated hello from A with same look -> B does NOT draw!
+      b.binCalls.length = 0
+      a.advance(2000)
+      a.fireWin('focus')
+      bus.flush()
+      const bAfterSameHello = b.binCalls.length
+      // C joins unfocused -> neither A's nor B's look changes -> neither draws!
+      a.binCalls.length = 0
+      b.binCalls.length = 0
+      c.env._start_windows()
+      bus.flush()
+      const afterCJoin = [a.binCalls.length, b.binCalls.length]
+      // C focused -> A switches to:'C' -> B draws (right->plain), C draws (plain->right), A does NOT draw!
+      a.binCalls.length = 0
+      b.binCalls.length = 0
+      c.binCalls.length = 0
+      advanceAll(bus, [a, b, c], 2000)
+      c.fireWin('focus')
+      bus.flush()
+      const afterTargetSwitch = [a.binCalls.length, b.binCalls.length, c.binCalls.length]
+      // A unlinks -> C draws (right->plain), B does NOT draw (already plain)!
+      b.binCalls.length = 0
+      c.binCalls.length = 0
+      a.env._send_press()
+      bus.flush()
+      const afterUnlink = [b.binCalls.length, c.binCalls.length]
+      check(
+        'windows look redraw: buttons redrawn exactly when look changes and not on unchanged messages',
+        [aAfterBJoin, bAfterAOn, bAfterSameHello, afterCJoin, afterTargetSwitch, afterUnlink],
+        [1, 1, 0, [0, 0], [0, 1, 1], [0, 1]]
+      )
+    }
+
+    // 22. _send_press and w in all three roles (unlinked, list window, showing window), third window takeover, and alone
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      const c = makeWindow(bus, { id: 'C', now: 1_700_000_000_000 })
+      for (const w of [a, b, c]) { w.env._start_windows(); w.env._row_keys() }
+      bus.flush()
+      const pressW = w => { let p = false; w.win._on_key('KeyW', { preventDefault: () => (p = true) }); bus.flush(); return p }
+      // Focus B so A links to B
+      advanceAll(bus, [a, b, c], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      // (a) unlinked A presses w -> A becomes list window, B shows
+      const pAOn = pressW(a)
+      const afterAOn = [a.env._send_on(), b.env._send_on(), b.env._send_shown(), c.env._send_shown()]
+      // (b) showing B presses w -> sends unlink to A, does NOT turn B on; link ends in both!
+      bus.sent.length = 0
+      const pBOff = pressW(b)
+      const bSentTypes = bus.sent.filter(m => m.from == 'B').map(m => [m.data.type, m.data.to])
+      const afterBOff = [a.env._send_on(), b.env._send_on(), b.env._send_shown()]
+      // (c) A turns on again, then third (plain) window C presses w -> C becomes sole list window, A gives way!
+      advanceAll(bus, [a, b, c], 100)
+      pressW(a)
+      advanceAll(bus, [a, b, c], 100)
+      const pCTake = pressW(c)
+      const afterCTake = [a.env._send_on(), b.env._send_on(), c.env._send_on()]
+      // (d) list window C presses w -> turns C off
+      const pCOff = pressW(c)
+      const afterCOff = [a.env._send_on(), b.env._send_on(), c.env._send_on()]
+      check(
+        'windows _send_press & w in all roles: unlinked turns on, list window turns off, showing window sends unlink without turning own switch on, third window takes over',
+        [pAOn, afterAOn, pBOff, bSentTypes, afterBOff, pCTake, afterCTake, pCOff, afterCOff],
+        [
+          true,
+          [true, false, 'A', null],
+          true,
+          [['unlink', 'A']],
+          [false, false, null],
+          true,
+          [false, false, true],
+          true,
+          [false, false, false],
+        ]
+      )
+    }
+
+    // 23. unlink taken only by the list's window it names (not another list window, not a non-list window)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.env._send_toggle(true)
+      bus.flush()
+      bus.sent.length = 0
+      // unlink naming OTHER -> A stays ON, posts nothing
+      bus.inject(a.win._todoer_windows.channel, { type: 'unlink', id: 'B', uid: 'u1', used: 0, on: false, since: 0, to: 'OTHER' })
+      bus.flush()
+      const afterWrongTo = [a.env._send_on(), bus.sent.length]
+      // unlink naming non-list window B -> B stays OFF, posts nothing
+      bus.inject(b.win._todoer_windows.channel, { type: 'unlink', id: 'A', uid: 'u1', used: 0, on: false, since: 0, to: 'B' })
+      bus.flush()
+      const afterNonList = [b.env._send_on(), bus.sent.length]
+      // unlink naming A -> A turns OFF and says hello
+      bus.inject(a.win._todoer_windows.channel, { type: 'unlink', id: 'B', uid: 'u1', used: 0, on: false, since: 0, to: 'A' })
+      bus.flush()
+      const afterRightTo = [a.env._send_on(), bus.sent.filter(m => m.from == 'A').map(m => [m.data.type, m.data.on])]
+      check(
+        'windows unlink targeting: unlink turns off only the named list window and is ignored by other windows or non-list windows',
+        [afterWrongTo, afterNonList, afterRightTo],
+        [[true, 0], [false, 0], [false, [['hello', false]]]]
+      )
+    }
+
+    // 24. only one list window: later since stays and earlier gives way (both announcement directions), same since broken by greater id, no message storm
+    {
+      // (a) A on earlier (t=1000), B turns on later (t=2000) -> A gives way, B stays, <= 4 messages
+      const bus1 = makeBus()
+      const a1 = makeWindow(bus1, { id: 'A', now: 1_700_000_001_000 })
+      const b1 = makeWindow(bus1, { id: 'B', now: 1_700_000_001_000 })
+      a1.env._start_windows()
+      b1.env._start_windows()
+      bus1.flush()
+      a1.env._send_toggle(true)
+      bus1.flush()
+      advanceAll(bus1, [a1, b1], 1000)
+      bus1.sent.length = 0
+      b1.env._send_toggle(true)
+      bus1.flush()
+      const caseLaterAnnounces = [a1.env._send_on(), b1.env._send_on(), a1.env._send_shown(), bus1.sent.length <= 4, bus1.overflows]
+
+      // (b) B on later (t=2000), earlier A (t=1000, restored from storage) sends who -> B stays, replies hello, A gives way, <= 4 messages
+      const bus2 = makeBus()
+      const sA2 = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_001_000 })]])
+      const sB2 = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_002_000 })]])
+      const b2 = makeWindow(bus2, { id: 'B', now: 1_700_000_002_500, storage: sB2 })
+      b2.env._start_windows()
+      bus2.flush()
+      bus2.sent.length = 0
+      const a2 = makeWindow(bus2, { id: 'A', now: 1_700_000_002_500, storage: sA2 })
+      a2.env._start_windows()
+      bus2.flush()
+      const caseEarlierAnnounces = [a2.env._send_on(), b2.env._send_on(), a2.env._send_shown(), bus2.sent.length <= 4, bus2.overflows]
+
+      // (c) exact same since (tie): greater id ('Z' > 'A') stays, smaller id gives way, <= 4 messages
+      const bus3 = makeBus()
+      const tie = JSON.stringify({ uid: 'u1', since: 1_700_000_005_000 })
+      const a3 = makeWindow(bus3, { id: 'A', now: 1_700_000_005_000, storage: new Map([['mindpage_todoer_send', tie]]) })
+      const z3 = makeWindow(bus3, { id: 'Z', now: 1_700_000_005_000, storage: new Map([['mindpage_todoer_send', tie]]) })
+      z3.env._start_windows()
+      bus3.flush()
+      bus3.sent.length = 0
+      a3.env._start_windows()
+      bus3.flush()
+      const caseTie = [a3.env._send_on(), z3.env._send_on(), a3.env._send_shown(), bus3.sent.length <= 4, bus3.overflows]
+
+      check(
+        'windows one list window: later since stays and earlier gives way (both announcement orders), same since broken by greater id, no message storm',
+        [caseLaterAnnounces, caseEarlierAnnounces, caseTie],
+        [
+          [false, true, 'B', true, 0],
+          [false, true, 'B', true, 0],
+          [false, true, 'Z', true, 0],
+        ]
+      )
+    }
+
+    // 25. switch across reload (kept time) and legacy first-version '1' read as earliest (1) and yields to newer
+    {
+      const bus = makeBus()
+      const sharedStore = new Map()
+      const a1 = makeWindow(bus, { id: 'A1', now: 1_700_000_010_000, storage: sharedStore })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_010_000 })
+      a1.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a1.env._send_toggle(true)
+      bus.flush()
+      const storedTs = sharedStore.get('mindpage_todoer_send')
+      // simulate reload: A1 closes (pagehide -> bye), fresh A2 boots on same sessionStorage
+      a1.fireWin('pagehide')
+      a1.win._todoer_windows.channel.close()
+      bus.flush()
+      const a2 = makeWindow(bus, { id: 'A2', now: 1_700_000_012_000, storage: sharedStore })
+      a2.env._start_windows()
+      bus.flush()
+      const afterReload = [a2.env._send_since(), a2.env._send_on(), b.env._send_shown()]
+      // unowned legacy '1' (no uid) is forgotten and cleared so another account never inherits it
+      const legStore = new Map([['mindpage_todoer_send', '1']])
+      const leg = makeWindow(bus, { id: 'LEG', now: 1_700_000_012_000, storage: legStore })
+      const legBefore = [leg.env._send_since(), leg.env._send_on(), legStore.get('mindpage_todoer_send') ?? null]
+      leg.env._start_windows()
+      bus.flush()
+      const legAfter = [leg.env._send_on(), a2.env._send_on()]
+      check(
+        'windows reload & unowned value: owned sessionStorage record survives same-account reload (re-lighting showing peer) and unowned legacy "1" is forgotten and cleared',
+        [storedTs, afterReload, legBefore, legAfter],
+        [
+          JSON.stringify({ uid: 'u1', since: 1_700_000_010_000 }),
+          [1_700_000_010_000, true, 'A2'],
+          [0, false, null],
+          [false, true],
+        ]
+      )
+    }
+
+    // 26. busy peer (SEND_ACK_MS = 3000): peer busy for 1500ms is not forgotten, second selection reaches it, both ack in time
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 595 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 595 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const it1 = a.makeItem('bp1', { saved_id: 's_bp1', scrollY: 1600 })
+      const it2 = a.makeItem('bp2', { saved_id: 's_bp2', scrollY: 1800 })
+      a.makeWidget({ rows: [{ id: 'bp1' }, { id: 'bp2' }] })
+      b.makeItem('bp1', { saved_id: 's_bp1', scrollY: 1600 })
+      b.makeItem('bp2', { saved_id: 's_bp2', scrollY: 1800 })
+      a.env._send_toggle(true)
+      bus.flush()
+      // pause B (busy for 1500ms > old 300ms, < 3000ms)
+      b.win._todoer_windows.channel.paused = true
+      a.env._select_item(it1)
+      bus.flush()
+      advanceAll(bus, [a, b], 500) // past old 300ms! B must NOT be forgotten
+      const at500 = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      // second selection while B is still busy -> still addressed to B!
+      bus.sent.length = 0
+      a.env._select_item(it2)
+      bus.flush()
+      const secondTo = bus.sent.find(m => m.from == 'A' && m.data.type == 'selected')?.data.to ?? null
+      advanceAll(bus, [a, b], 1000) // t=1500ms: B finishes busy work and processes queued messages
+      b.win._todoer_windows.channel.unpause()
+      advanceAll(bus, [a, b], 2500) // past 3000ms from both selections -> neither times out!
+      const afterUnpause = [b.getBox(), a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      check(
+        'windows busy peer (SEND_ACK_MS 3000): peer busy 1500ms is not forgotten, second selection reaches it, and both ack in time',
+        [at500, secondTo, afterUnpause],
+        [[true, 0, 595], 'B', ['#bp2', true, 0, 595]]
+      )
+    }
+
+    // 27. stepped hold (SEND_HOLD_STEP_MS = 100): stall longer than SEND_HOLD_MS spends one step so hold still blocks scroll after stall until remaining steps run out
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 300 })
+      a.env._start_windows()
+      a.env._hold_scroll(300)
+      // stall main thread for 1800ms (> SEND_HOLD_MS = 1500ms!): spends only 1 of 15 steps, leaving 14 steps (1400ms)!
+      a.stall(1800)
+      a.simScroll(1500)
+      const afterStall = a.getScrollTop()
+      a.advance(1399) // 13 more steps run, 1 step (1ms) left -> still held!
+      a.simScroll(1500)
+      const justBeforeEnd = a.getScrollTop()
+      a.advance(1) // 15th step runs -> end()!
+      a.simScroll(1500)
+      const afterEnd = a.getScrollTop()
+      check(
+        'windows stepped hold: stall longer than SEND_HOLD_MS spends one step so hold still blocks scroll after stall until remaining steps run out',
+        [afterStall, justBeforeEnd, afterEnd],
+        [300, 300, 1500]
+      )
+    }
+
+    // 28. _on_search does not call _stay_put: non-todoer search starts no hold and late search report never overwrites an active hold
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 595 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 595 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const it1 = a.makeItem('os1', { saved_id: 's_os1', scrollY: 1600 })
+      const it2 = a.makeItem('os2', { saved_id: 's_os2', scrollY: 1800 })
+      a.makeWidget({ rows: [{ id: 'os1' }, { id: 'os2' }] })
+      b.makeItem('os1', { saved_id: 's_os1', scrollY: 1600 })
+      b.makeItem('os2', { saved_id: 's_os2', scrollY: 1800 })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) non-todoer search (e.g. typed name in MindBox): B follows, A starts NO hold
+      a.setScrollTop(1600)
+      a.env._on_search('#os1')
+      bus.flush()
+      const holdAfterSearch = !!a.win._todoer_windows.hold
+      const bAfterSearch = b.getBox()
+      // (b) active hold at 595 during rapid j; app momentarily moves scrollTop to 1800 and fires late _on_search('#os2'):
+      // _on_search must NOT call _stay_put (which would overwrite the hold from 595 to 1800!)
+      a.setScrollTop(595)
+      a.env._hold_scroll(595)
+      a.setScrollTop(1800) // un-dispatched app scroll before put()
+      a.env._on_search('#os2')
+      bus.flush()
+      a.simScroll(1800) // browser scroll frame fires -> must still snap back to 595, NOT stay at 1800!
+      const scrollAfterLateReport = a.getScrollTop()
+      check(
+        'windows _on_search does not call _stay_put: non-todoer search starts no hold and late search report never overwrites an active hold',
+        [holdAfterSearch, bAfterSearch, scrollAfterLateReport, it1.id, it2.id],
+        [false, '#os1', 595, 'os1', 'os2']
+      )
+    }
+
+    // 29. nothing said after _notify_account_left(), and who carries no item field
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      a.env._start_windows()
+      bus.flush()
+      const it = a.makeItem('al1', { saved_id: 's_al1' })
+      a.makeWidget({ rows: [{ id: 'al1' }] })
+      a.env._send_toggle(true)
+      bus.flush()
+      bus.sent.length = 0
+      a.env._send_selected(it, true) // alone & on -> who without item
+      bus.flush()
+      const whoMsg = bus.sent.find(m => m.from == 'A' && m.data.type == 'who')?.data
+      // now leave account -> nothing said on toggle, select, focus, pagehide, or heartbeat interval!
+      bus.sent.length = 0
+      a.win._notification_account_left = true
+      a.env._send_toggle(false)
+      a.env._send_selected(it, true)
+      a.advance(2000)
+      a.fireWin('focus')
+      a.fireWin('pagehide')
+      a.advance(30_000)
+      const sentAfterLeft = bus.sent.filter(m => m.from == 'A')
+      check(
+        'windows account-left & who: windows.say posts nothing after _notify_account_left, and who carries no item field',
+        [whoMsg?.type, 'item' in (whoMsg ?? {}), sentAfterLeft.length],
+        ['who', false, 0]
+      )
+    }
+
+    // 30. solid-box icon paths: each lit look holds the plain outline and all six strokes of its own pane, none of the other pane, with unchanged titles and colours
+    {
+      const OUTLINE = 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z'
+      const LEFT_STROKES = ['M2.3 4.3v7.4', 'M3.1 4.3v7.4', 'M3.9 4.3v7.4', 'M4.7 4.3v7.4', 'M5.5 4.3v7.4', 'M6.2 4.3v7.4']
+      const RIGHT_STROKES = ['M9.8 4.3v7.4', 'M10.6 4.3v7.4', 'M11.4 4.3v7.4', 'M12.2 4.3v7.4', 'M13 4.3v7.4', 'M13.7 4.3v7.4']
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      const b = makeWindow(bus, { id: 'B' })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const plain = a.env._window_button()
+      a.env._send_press()
+      bus.flush()
+      const left = a.env._window_button()
+      const right = b.env._window_button()
+      const inspect = btn => ({
+        title: btn.title,
+        color: btn.color,
+        hasOutline: btn.icon.startsWith(OUTLINE),
+        leftCount: LEFT_STROKES.filter(s => btn.icon.includes(s)).length,
+        rightCount: RIGHT_STROKES.filter(s => btn.icon.includes(s)).length,
+        exact: btn.icon,
+      })
+      check(
+        'windows solid-box icons: each lit look holds the plain outline and all six strokes of its own pane, none of the other pane, with unchanged titles and colours',
+        [inspect(plain), inspect(left), inspect(right)],
+        [
+          {
+            title: 'Link the selection with the other window: this one keeps the list (w)',
+            color: 'rgba(255, 255, 255, 0.25)',
+            hasOutline: true,
+            leftCount: 0,
+            rightCount: 0,
+            exact: OUTLINE,
+          },
+          {
+            title: 'Linked: this window keeps the list, the other one shows the item. Unlink (w)',
+            color: 'rgb(102, 255, 255)',
+            hasOutline: true,
+            leftCount: 6,
+            rightCount: 0,
+            exact: OUTLINE + LEFT_STROKES.join(''),
+          },
+          {
+            title: 'Linked: this window shows the item, the other one keeps the list. Unlink (w)',
+            color: 'rgb(102, 255, 255)',
+            hasOutline: true,
+            leftCount: 0,
+            rightCount: 6,
+            exact: OUTLINE + RIGHT_STROKES.join(''),
+          },
+        ]
+      )
+    }
+
+    // 31. listed-only telling: list window skips unlisted items (including parked and unsaved), clears windows.last, starts no wait or hold; other window tells listed and unlisted alike
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const listed = a.makeItem('lt1', { saved_id: 's_lt1', scrollY: 1600 })
+      const unlisted = a.makeItem('ul1', { saved_id: 's_ul1', scrollY: 1700, tags: [], tags_visible: [] })
+      const parked = a.makeItem('pk1', { saved_id: 's_pk1', scrollY: 1750 })
+      const unsavedUnlisted = a.makeItem('uu1', { saved_id: null, scrollY: 1800, tags: [], tags_visible: [] })
+      a.makeWidget({ rows: [{ id: 'lt1', pageY: 560, height: 32 }] })
+      a.makeWidget({ parked: true, rows: [{ id: 'pk1' }] })
+      b.makeItem('lt1', { saved_id: 's_lt1', scrollY: 1600 })
+      b.makeItem('ul1', { saved_id: 's_ul1', scrollY: 1700, tags: [], tags_visible: [] })
+      b.makeItem('pk1', { saved_id: 's_pk1', scrollY: 1750 })
+      const bUnlisted = b.makeItem('bu1', { saved_id: 's_bu1', tags: [], tags_visible: [] })
+      const bListed = b.makeItem('bl1', { saved_id: 's_bl1' })
+      b.makeWidget({ rows: [{ id: 'bl1' }] })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) list window A selects listed item -> sent to B, windows.last set, scroll held
+      bus.sent.length = 0
+      a.env._select_item(listed)
+      bus.flush()
+      const afterListed = [bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => m.data.item), a.win._todoer_windows.last, b.getBox(), a.getScrollTop()]
+      a.win._todoer_windows.hold?.() // release hold before testing unlisted selection
+      // (b) list window A selects saved unlisted item -> returns false, posts nothing, clears windows.last, starts NO hold (scrolls to 1700), leaves B on #lt1
+      bus.sent.length = 0
+      const retUnlisted = a.env._send_selected(unlisted)
+      bus.flush()
+      const afterUnlisted = [retUnlisted, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, a.win._todoer_windows.last, b.getBox()]
+      a.setScrollTop(500)
+      a.env._select_item(unlisted)
+      bus.flush()
+      const unlistedSelectScroll = [a.getScrollTop(), !!a.win._todoer_windows.hold, b.getBox()]
+      // (c) because windows.last was cleared, unforced _on_search('#lt1') sends #lt1 again!
+      bus.sent.length = 0
+      a.env._on_search('#lt1')
+      bus.flush()
+      const resentAfterClear = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => m.data.item)
+      // (d) item whose row is only in a parked #cache-div widget is NOT listed -> not told
+      bus.sent.length = 0
+      const retParked = a.env._send_selected(parked, true)
+      bus.flush()
+      const afterParked = [retParked, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, a.win._todoer_windows.last]
+      // (e) unsaved item with no row in list window A -> returns false and starts NO _send_when_saved timer (even when saved_id arrives 250ms later!)
+      bus.sent.length = 0
+      a.setBox('#uu1')
+      const retUnsavedUnlisted = a.env._send_selected(unsavedUnlisted)
+      unsavedUnlisted.saved_id = 's_uu1'
+      a.items.set('s_uu1', unsavedUnlisted)
+      a.advance(500)
+      const sentUnsavedUnlisted = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length
+      // (f) non-list window B tells BOTH listed and unlisted items as before
+      bus.sent.length = 0
+      b.env._send_selected(bUnlisted, true)
+      b.env._send_selected(bListed, true)
+      const bSent = bus.sent.filter(m => m.from == 'B' && m.data.type == 'selected').map(m => [m.data.item, m.data.to])
+      check(
+        'windows listed-only telling: list window skips unlisted items (including parked and unsaved), clears windows.last, starts no wait or hold; other window tells listed and unlisted alike',
+        [afterListed, afterUnlisted, unlistedSelectScroll, resentAfterClear, afterParked, [retUnsavedUnlisted, sentUnsavedUnlisted], bSent],
+        [
+          [['s_lt1'], 's_lt1', '#lt1', 500],
+          [false, 0, null, '#lt1'],
+          [1700, false, '#lt1'],
+          ['s_lt1'],
+          [false, 0, null],
+          [false, 0],
+          [['s_bu1', null], ['s_bl1', null]],
+        ]
+      )
+    }
+
+    // 32. listed-only taking: list window takes listed items and items whose row arrives within 3s, skips unlisted items leaving box/row/scroll intact, cancels waiting poll on newer message or own selection; other window takes asked items with no list on its page
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 }) // B has NO todoer widgets on its page!
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const listed = a.makeItem('tk1', { saved_id: 's_tk1', scrollY: 1600 })
+      a.makeItem('tk2', { saved_id: 's_tk2', scrollY: 1650 })
+      a.makeItem('tkNoRow', { saved_id: 's_tkNoRow', scrollY: 1700, tags: [], tags_visible: [] })
+      a.makeItem('tkLateRow', { saved_id: 's_tkLateRow', scrollY: 1750 })
+      a.makeItem('tkCancel', { saved_id: 's_tkCancel', scrollY: 1800 })
+      a.makeItem('tkCancel2', { saved_id: 's_tkCancel2', scrollY: 1850 })
+      const aw = a.makeWidget({ rows: [{ id: 'tk1', pageY: 560, height: 32 }, { id: 'tk2', pageY: 592, height: 32 }] })
+      const bTk1 = b.makeItem('tk1', { saved_id: 's_tk1', scrollY: 1600 })
+      const bTk2 = b.makeItem('tk2', { saved_id: 's_tk2', scrollY: 1650 })
+      const bNoRow = b.makeItem('tkNoRow', { saved_id: 's_tkNoRow', scrollY: 1700, tags: [], tags_visible: [] })
+      const bLateRow = b.makeItem('tkLateRow', { saved_id: 's_tkLateRow', scrollY: 1750 })
+      const bCancel = b.makeItem('tkCancel', { saved_id: 's_tkCancel', scrollY: 1800 })
+      const bCancel2 = b.makeItem('tkCancel2', { saved_id: 's_tkCancel2', scrollY: 1850 })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) asked by list window A, other window B takes item even with NO todoer widget on B's page
+      a.env._select_item(listed)
+      bus.flush()
+      const bTookNoWidget = [b.getBox(), b.getScrollTop(), a.getBox(), a.getScrollTop()]
+      // (b) B selects listed item tk2 -> A takes it and holds scroll at 500
+      b.env._send_selected(bTk2, true)
+      bus.flush()
+      const aTookListed = [a.getBox(), a.getScrollTop(), a.win._todoer_windows.last]
+      // (c) B selects unlisted item tkNoRow -> A polls 3s, never takes it, leaves box/last/scroll intact; adding row at 3.5s is too late
+      a.selects.length = 0
+      b.env._send_selected(bNoRow, true)
+      advanceAll(bus, [a, b], 3500)
+      const afterNoRow = [a.getBox(), a.win._todoer_windows.last, a.getScrollTop(), a.selects.length]
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkNoRow' }))
+      advanceAll(bus, [a, b], 500)
+      const afterTooLateRow = [a.getBox(), a.selects.length]
+      // (d) B selects tkLateRow (item exists in A, row not rendered yet -> row arrives at 500ms -> A takes at 750ms!)
+      a.selects.length = 0
+      b.env._send_selected(bLateRow, true)
+      advanceAll(bus, [a, b], 500)
+      const beforeLateRow = [a.getBox(), a.selects.length]
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkLateRow' }))
+      advanceAll(bus, [a, b], 250)
+      const afterLateRow = [a.getBox(), a.getScrollTop(), a.selects.length]
+      // (e) newer message from B cancels waiting missing-row poll (tkCancel waiting -> B sends tk1 -> row for tkCancel arrives -> only tk1 taken)
+      a.selects.length = 0
+      b.env._send_selected(bCancel, true)
+      advanceAll(bus, [a, b], 200)
+      b.env._send_selected(bTk1, true)
+      bus.flush()
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkCancel' }))
+      advanceAll(bus, [a, b], 500)
+      const afterNewerCancels = [a.getBox(), a.selects.map(s => s.id)]
+      // (f) own selection in A (even unlisted!) cancels waiting missing-row poll
+      a.selects.length = 0
+      b.env._send_selected(bCancel2, true)
+      advanceAll(bus, [a, b], 200)
+      a.env._send_selected(a.makeItem('ownUnlisted', { saved_id: 's_ownU', tags: [], tags_visible: [] }))
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkCancel2' }))
+      advanceAll(bus, [a, b], 500)
+      const afterOwnCancels = [a.getBox(), a.selects.length]
+      check(
+        'windows listed-only taking: list window takes listed items and items whose row arrives within 3s, skips unlisted items leaving box/row/scroll intact, cancels waiting poll on newer message or own selection; other window takes asked items with no list on its page',
+        [bTookNoWidget, aTookListed, afterNoRow, afterTooLateRow, beforeLateRow, afterLateRow, afterNewerCancels, afterOwnCancels],
+        [
+          ['#tk1', 1600, '#tk1', 500],
+          ['#tk2', 500, 's_tk2'],
+          ['#tk2', 's_tk2', 500, 0],
+          ['#tk2', 0],
+          ['#tk2', 0],
+          ['#tkLateRow', 500, 1],
+          ['#tk1', ['tk1']],
+          ['#tk1', 0],
+        ]
+      )
+    }
+
+    // 33. todo made in other window vs child made under todo in other window
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const orig = a.makeItem('t0', { saved_id: 's_t0', scrollY: 1600 })
+      const aw = a.makeWidget({ rows: [{ id: 't0', pageY: 560, height: 32 }] })
+      b.makeItem('t0', { saved_id: 's_t0', scrollY: 1600 })
+      a.env._send_toggle(true)
+      bus.flush()
+      a.env._select_item(orig)
+      bus.flush()
+      // (a) new todo created in B: unsaved -> saves at 500ms -> B tells it -> item arrives in A at 750ms -> row renders in A at 1000ms -> A takes it and holds scroll!
+      const newTodoB = b.makeItem('ntB', { saved_id: null, name: '#ntB', text: '#todo created in B', scrollY: 1900 })
+      b.setBox('#ntB')
+      b.env._send_selected(newTodoB)
+      advanceAll(bus, [a, b], 250) // still unsaved in B
+      const beforeTodoSave = a.getBox()
+      newTodoB.saved_id = 's_ntB'
+      b.items.set('s_ntB', newTodoB)
+      advanceAll(bus, [a, b], 250) // 500ms: B sends selected(s_ntB); A doesn't have item yet
+      a.makeItem('ntB', { saved_id: 's_ntB', name: '#ntB', text: '#todo created in B', scrollY: 1900 })
+      advanceAll(bus, [a, b], 250) // 750ms: item exists in A, but row has NOT rendered yet -> still waiting!
+      const beforeTodoRow = a.getBox()
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ntB' }))
+      advanceAll(bus, [a, b], 250) // 1000ms: row rendered -> A takes #ntB and holds scroll at 500!
+      const afterTodoRow = [a.getBox(), a.getScrollTop()]
+      // (b) child created under a todo in B: unsaved -> saves at 250ms -> B tells it -> item arrives in A with NO row -> A never takes it (even past 3.5s)
+      const childB = b.makeItem('chB', { saved_id: null, name: '#t0/0', text: '#t0/0 a task chat child', tags: [], tags_visible: [], scrollY: 2000 })
+      b.setBox('#t0/0')
+      b.env._send_selected(childB)
+      childB.saved_id = 's_chB'
+      b.items.set('s_chB', childB)
+      a.makeItem('chB', { saved_id: 's_chB', name: '#t0/0', text: '#t0/0 a task chat child', tags: [], tags_visible: [], scrollY: 2000 })
+      a.selects.length = 0
+      advanceAll(bus, [a, b], 4000)
+      const afterChild = [a.getBox(), a.getScrollTop(), a.selects.length]
+      check(
+        'windows new todo vs child in other window: todo created in B is told once saved and taken by A once its row renders; child under todo created in B is never taken by A',
+        [beforeTodoSave, beforeTodoRow, afterTodoRow, afterChild],
+        ['#t0', '#t0', ['#ntB', 500], ['#ntB', 500, 0]]
+      )
+    }
+
+    // 33b. the link ended while the list's window still waits for a row: the selection is not taken after all
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const orig = a.makeItem('t0', { saved_id: 's_t0', scrollY: 1600 })
+      const aw = a.makeWidget({ rows: [{ id: 't0', pageY: 560, height: 32 }] })
+      b.makeItem('t0', { saved_id: 's_t0', scrollY: 1600 })
+      a.env._send_toggle(true)
+      bus.flush()
+      a.env._select_item(orig)
+      bus.flush()
+      // B selects an item that A holds without a row: A waits for the row
+      const lateB = b.makeItem('lateU', { saved_id: 's_lateU', name: '#lateU', text: '#todo late', scrollY: 1900 })
+      a.makeItem('lateU', { saved_id: 's_lateU', name: '#lateU', text: '#todo late', scrollY: 1900 })
+      b.setBox('#lateU')
+      b.env._send_selected(lateB)
+      advanceAll(bus, [a, b], 300)
+      const whileWaiting = a.getBox()
+      a.env._send_toggle(false) // the link is ended in the list's window
+      bus.flush()
+      a.selects.length = 0
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'lateU' }))
+      advanceAll(bus, [a, b], 3500)
+      check(
+        "windows unlink while a row is waited for: the list's window does not take the selection once its link is ended, though the row arrives within the 3 s",
+        [whileWaiting, a.getBox(), a.selects.length],
+        ['#t0', '#t0', 0]
+      )
+    }
+
+    // 34. _ROW_SHORTCUTS w entries side by side with _on_row_key('KeyW') and _send_press in every role
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
+      const aPrior = []
+      a.win._on_key = k => { aPrior.push(k); return 'prior' }
+      a.env._start_windows()
+      a.env._row_keys()
+      const wEntries = w => w.win._shortcuts.todoer.filter(e => e.keys == 'w')
+      const wState = w => wEntries(w).map(e => [e.does, e.active()])
+      const pressW = w => {
+        let prevented = false
+        w.win._on_key('KeyW', { preventDefault: () => (prevented = true) })
+        bus.flush()
+        return prevented
+      }
+      // (1) alone and off -> neither w active, KeyW ignored (forwarded to prior)
+      const aloneMenu = wState(a)
+      const alonePrev = pressW(a)
+      const aloneAfter = [a.env._send_on(), aPrior.length]
+      // (2) second window joins, no link -> entry 1 (link) active alone in both; pressing w in A makes A list window
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      b.env._start_windows()
+      b.env._row_keys()
+      bus.flush()
+      advanceAll(bus, [a, b], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      const unlinkedMenu = [wState(a), wState(b)]
+      const linkPrev = pressW(a)
+      // (3) & (4) linked: A is list window, B is showing window -> entry 2 (unlink) active alone in BOTH!
+      const linkedMenu = [wState(a), wState(b)]
+      // pressing w in showing window B sends unlink to A and ends link (without turning B on)
+      bus.sent.length = 0
+      const showingPrev = pressW(b)
+      const showingUnlinked = [a.env._send_on(), b.env._send_on(), bus.sent.filter(m => m.from == 'B').map(m => [m.data.type, m.data.to])]
+      // re-link A -> B, then third window C joins -> in C, entry 1 (link) active alone; pressing w in C makes C list window and A gives way
+      advanceAll(bus, [a, b], 100)
+      pressW(a)
+      const c = makeWindow(bus, { id: 'C', now: a.clock.now })
+      c.env._start_windows()
+      c.env._row_keys()
+      bus.flush()
+      const thirdMenu = [wState(a), wState(b), wState(c)]
+      advanceAll(bus, [a, b, c], 100)
+      const thirdPrev = pressW(c)
+      const thirdAfter = [a.env._send_on(), b.env._send_on(), c.env._send_on(), wState(c)]
+      // (5) list window C presses w -> turns off
+      const listOffPrev = pressW(c)
+      const listOffAfter = [c.env._send_on(), wState(c)]
+      // (6) list window A after peers leave -> entry 2 (unlink) stays active alone; pressing w turns off and hides both
+      advanceAll(bus, [a, b, c], 100)
+      pressW(a)
+      b.fireWin('pagehide')
+      c.fireWin('pagehide')
+      bus.flush()
+      const aloneOnMenu = wState(a)
+      const aloneOnPrev = pressW(a)
+      const aloneOnAfter = [a.env._send_on(), wState(a)]
+      const LINK = 'link the selection with the other window'
+      const UNLINK = 'unlink the two windows'
+      check(
+        'windows _ROW_SHORTCUTS w entries: exact agreement with _on_row_key and _send_press in every role (alone, unlinked with peer, list window, showing window, third window while linked, list window after peer left)',
+        [
+          [aloneMenu, alonePrev, aloneAfter],
+          [unlinkedMenu, linkPrev],
+          [linkedMenu, showingPrev, showingUnlinked],
+          [thirdMenu, thirdPrev, thirdAfter],
+          [listOffPrev, listOffAfter],
+          [aloneOnMenu, aloneOnPrev, aloneOnAfter],
+        ],
+        [
+          [[[LINK, false], [UNLINK, false]], false, [false, 1]],
+          [[[[LINK, true], [UNLINK, false]], [[LINK, true], [UNLINK, false]]], true],
+          [[[[LINK, false], [UNLINK, true]], [[LINK, false], [UNLINK, true]]], true, [false, false, [['unlink', 'A']]]],
+          [
+            [[[LINK, false], [UNLINK, true]], [[LINK, false], [UNLINK, true]], [[LINK, true], [UNLINK, false]]],
+            true,
+            [false, false, true, [[LINK, false], [UNLINK, true]]],
+          ],
+          [true, [false, [[LINK, true], [UNLINK, false]]]],
+          [[[LINK, false], [UNLINK, true]], true, [false, [[LINK, false], [UNLINK, false]]]],
+        ]
+      )
+    }
+
+    // 35. Fix 1: owner scroll wins through pending _update_dom, quick reversal across edge, and 3s sender fallback (while leaving fallback intact when owner left page alone)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, deferDom: true })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const rBelow = a.makeItem('ow_below', { saved_id: 's_ow_below', scrollY: 1600 })
+      const rTop = a.makeItem('ow_top', { saved_id: 's_ow_top', scrollY: 1800 })
+      a.makeWidget({
+        rows: [
+          { id: 'ow_top', pageY: 560, height: 32 },
+          { id: 'ow_below', pageY: 1200, height: 32 }, // at scrollTop=500 -> bottom 1232 > 1136 -> would adjust to 596
+        ],
+      })
+      b.makeItem('ow_below', { saved_id: 's_ow_below', scrollY: 1600 })
+      b.makeItem('ow_top', { saved_id: 's_ow_top', scrollY: 1800 })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) wheel during pending _update_dom: wheel moves to 800 and ends hold; resolving _update_dom must NOT move to 596 or reinstate hold
+      a.env._select_item(rBelow)
+      bus.flush()
+      a.fireWin('wheel')
+      a.setScrollTop(800)
+      while (a.domQueue.length) a.domQueue.shift()()
+      await Promise.resolve()
+      const afterWheelDom = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      // (b) quick reversal across edge: older rBelow's pending _update_dom resolves AFTER rTop started its own hold -> must NOT pull to 596
+      a.setScrollTop(500)
+      a.env._select_item(rBelow)
+      bus.flush()
+      const dom1 = a.domQueue.shift()
+      a.env._select_item(rTop)
+      bus.flush()
+      const dom2 = a.domQueue.shift()
+      dom1()
+      await Promise.resolve()
+      const afterOldDom = a.getScrollTop()
+      dom2()
+      await Promise.resolve()
+      const afterNewDom = a.getScrollTop()
+      // (c) wheel during 3s sender ack wait: dead peer is forgotten, but fallback must NOT pull owner from 225 to 1600
+      b.win._todoer_windows.channel.muted = true
+      a.setScrollTop(500)
+      a.scrollToTargetCalls.length = 0
+      a.env._select_item(rBelow)
+      bus.flush()
+      a.fireWin('wheel')
+      a.setScrollTop(225)
+      while (a.domQueue.length) a.domQueue.shift()()
+      await Promise.resolve()
+      a.advance(3100)
+      while (a.domQueue.length) a.domQueue.shift()()
+      await Promise.resolve()
+      const afterWheelFallback = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      // (d) positive control: owner leaves page alone -> 3s fallback STILL shows item (even though 1500ms hold already expired!)
+      const c = makeWindow(bus, { id: 'C', now: a.clock.now })
+      c.env._start_windows()
+      bus.flush()
+      c.win._todoer_windows.channel.muted = true
+      a.setScrollTop(500)
+      a.scrollToTargetCalls.length = 0
+      a.env._select_item(rTop)
+      bus.flush()
+      while (a.domQueue.length) a.domQueue.shift()()
+      await Promise.resolve()
+      a.advance(3100)
+      while (a.domQueue.length) a.domQueue.shift()()
+      await Promise.resolve()
+      const afterIdleFallback = [a.win._todoer_windows.peers.has('C'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      check(
+        'windows owner scroll wins: wheel beats pending _update_dom and 3s fallback, older _update_dom cannot move newer selection, idle 3s fallback still scrolls',
+        [afterWheelDom, afterOldDom, afterNewDom, afterWheelFallback, afterIdleFallback],
+        [
+          [800, false],
+          500,
+          500,
+          [false, 0, 225],
+          [false, 1, 1800],
+        ]
+      )
+    }
+
+    // 36. Fix 2: handoff acks only after _select_item succeeds; missing/refused falls back locally; 2s receive and 10s save use clock deadlines (stalled window drops old work)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const ghost = a.makeItem('f2_ghost', { saved_id: 's_f2_ghost', scrollY: 1700 })
+      const refIt = a.makeItem('f2_ref', { saved_id: 's_f2_ref', scrollY: 1750 })
+      const late = a.makeItem('f2_late', { saved_id: 's_f2_late', scrollY: 1800 })
+      const stallIt = a.makeItem('f2_stall', { saved_id: 's_f2_stall', scrollY: 1850 })
+      a.makeWidget({ rows: [{ id: 'f2_ghost' }, { id: 'f2_ref' }, { id: 'f2_late' }, { id: 'f2_stall' }] })
+      b.makeItem('f2_ref', { saved_id: 's_f2_ref', scrollY: 1750, refuseSelect: true })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) missing item: B sends 0 took (stops at 2s), A falls back at 3s and scrolls to ghost
+      bus.sent.length = 0
+      a.scrollToTargetCalls.length = 0
+      a.env._select_item(ghost)
+      bus.flush()
+      const ghostTookAt0 = bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length
+      advanceAll(bus, [a, b], 2100)
+      const ghostAt2100 = [bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length, a.scrollToTargetCalls.length]
+      advanceAll(bus, [a, b], 1000) // 3100ms: A falls back!
+      await Promise.resolve()
+      const ghostAt3100 = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      // reconnect B (both tabs share one machine clock)
+      advanceAll(bus, [a, b], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      // (b) refused item.select(): B sends 0 took, preserves b.last, A falls back at 3s
+      bus.sent.length = 0
+      a.scrollToTargetCalls.length = 0
+      a.setScrollTop(500)
+      b.win._todoer_windows.last = 'prev_last'
+      a.env._select_item(refIt)
+      bus.flush()
+      const refusedImmediate = [bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length, b.win._todoer_windows.last]
+      advanceAll(bus, [a, b], 3100)
+      await Promise.resolve()
+      const refusedFallback = [a.scrollToTargetCalls.length, a.getScrollTop()]
+      // reconnect B (both tabs share one machine clock)
+      advanceAll(bus, [a, b], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      // (c) late item arrives at 500ms (<= 2s deadline): 0 took at t=0, 1 took at 750ms after select, A stays at 500 and keeps peer past 3s
+      bus.sent.length = 0
+      a.scrollToTargetCalls.length = 0
+      a.setScrollTop(500)
+      a.env._select_item(late)
+      bus.flush()
+      const lateTookAt0 = bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length
+      advanceAll(bus, [a, b], 500)
+      b.makeItem('f2_late', { saved_id: 's_f2_late', scrollY: 1800 })
+      advanceAll(bus, [a, b], 250)
+      const lateAt750 = [b.getBox(), bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      advanceAll(bus, [a, b], 3000)
+      const latePast3s = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      // (d) stalled receiver past 2s deadline (60s stall): item appears during stall -> B MUST NOT take 60s-old selection
+      b.selects.length = 0
+      bus.sent.length = 0
+      a.env._select_item(stallIt)
+      bus.flush()
+      b.makeItem('f2_stall', { saved_id: 's_f2_stall', scrollY: 1850 })
+      b.stall(60_000)
+      const afterStallReceive = [b.selects.length, bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      // (e) stalled unsaved item past 10s deadline (60s stall): saved_id arrives during stall -> B MUST NOT broadcast 60s-old selection
+      const unsaved = b.makeItem('f2_us', { saved_id: null, name: '#f2_us' })
+      b.setBox('#f2_us')
+      bus.sent.length = 0
+      b.env._send_selected(unsaved)
+      unsaved.saved_id = 's_f2_us'
+      b.items.set('s_f2_us', unsaved)
+      b.stall(60_000)
+      const afterStallSave = bus.sent.filter(m => m.from == 'B' && m.data.type == 'selected').length
+      check(
+        'windows handoff ack & clock deadlines: took only after select succeeds, missing/refused fall back locally, late item acks within 2s, 60s stall drops receive (>2s) and save (>10s)',
+        [ghostTookAt0, ghostAt2100, ghostAt3100, refusedImmediate, refusedFallback, lateTookAt0, lateAt750, latePast3s, afterStallReceive, afterStallSave],
+        [
+          0,
+          [0, 0],
+          [false, 1, 1700],
+          [0, 'prev_last'],
+          [1, 1750],
+          0,
+          ['#f2_late', 1],
+          [true, 0, 500],
+          [0, 0],
+          0,
+        ]
+      )
+    }
+
+    // 37. Fix 3: fixed shared page (?shared=...) is no window of the link (no channel/messages, no button, w ignored, no shortcut active)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      a.env._start_windows()
+      bus.flush()
+      bus.sent.length = 0
+      const prior = []
+      const preStore = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_000_000 })]])
+      const sh = makeWindow(bus, { id: 'SH', search: '?shared=u1/demo', storage: preStore })
+      sh.win._on_key = k => { prior.push(k); return 'prior' }
+      sh.env._start_windows()
+      sh.env._row_keys()
+      bus.flush()
+      let prevented = false
+      const keyRes = sh.win._on_key('KeyW', { preventDefault: () => (prevented = true) })
+      const wActives = sh.win._shortcuts.todoer.filter(e => e.keys == 'w').map(e => e.active())
+      check(
+        'windows fixed shared page: starts no channel, sends nothing, unseen by peers, hides button, ignores w even with stored switch, lists no active w shortcut',
+        [
+          !!sh.win._todoer_windows,
+          bus.sent.length,
+          a.win._todoer_windows.peers.size,
+          sh.env._send_on(),
+          sh.env._window_button(),
+          [prevented, keyRes, prior.length],
+          wActives,
+        ],
+        [false, 0, 0, false, null, [false, 'prior', 1], [false, false]]
+      )
+    }
+
+    // 38. Fix 4: retire deferred work on unlink (either side), peer bye (taking retired, sender fallback kept), account left; persisted switch owned by uid
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const missB = a.makeItem('f4_missB', { saved_id: 's_f4_missB', scrollY: 1600 })
+      const lateA = a.makeItem('f4_lateA', { saved_id: 's_f4_lateA', scrollY: 1650 })
+      const leftA = a.makeItem('f4_leftA', { saved_id: 's_f4_leftA', scrollY: 1700 })
+      const unlkA = a.makeItem('f4_unlkA', { saved_id: 's_f4_unlkA', scrollY: 1750 })
+      const byeA = a.makeItem('f4_byeA', { saved_id: 's_f4_byeA', scrollY: 1800 })
+      const aw = a.makeWidget({ rows: [{ id: 'f4_missB' }, { id: 'f4_unlkA' }, { id: 'f4_byeA' }] })
+      const bLateA = b.makeItem('f4_lateA', { saved_id: 's_f4_lateA', scrollY: 1650 })
+      const bLeftA = b.makeItem('f4_leftA', { saved_id: 's_f4_leftA', scrollY: 1700 })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) A asks B for missing item, A unlinks, B hears hello(on:false), then item arrives in B -> B does NOT open it
+      b.selects.length = 0
+      a.env._select_item(missB)
+      bus.flush()
+      a.env._send_toggle(false)
+      bus.flush()
+      b.makeItem('f4_missB', { saved_id: 's_f4_missB', scrollY: 1600 })
+      advanceAll(bus, [a, b], 2500)
+      const afterUnlinkTakeB = [b.getBox(), b.selects.length]
+      // (b) re-link; B selects late-row item, B sends bye, then row renders in A -> A does NOT take it
+      a.env._send_toggle(true)
+      bus.flush()
+      a.setBox('#f4_missB')
+      a.selects.length = 0
+      b.env._send_selected(bLateA, true)
+      bus.flush()
+      b.fireWin('pagehide')
+      b.win._todoer_windows.channel.close()
+      bus.flush()
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'f4_lateA' }))
+      advanceAll(bus, [a, b], 2500)
+      const afterByeTakeA = [a.getBox(), a.selects.length]
+      // (c) re-join B; pending sender ack wait in A, then A explicitly unlinks -> no fallback scroll at 3s
+      const b2 = makeWindow(bus, { id: 'B2', now: a.clock.now })
+      b2.env._start_windows()
+      bus.flush()
+      b2.win._todoer_windows.channel.muted = true
+      a.setScrollTop(500)
+      a.scrollToTargetCalls.length = 0
+      a.env._select_item(unlkA)
+      bus.flush()
+      a.env._send_toggle(false)
+      bus.flush()
+      const retiredImmediately = [!a.win._todoer_windows.hold, !a.win._todoer_windows.swallow, !a.win._todoer_windows.pending]
+      a.advance(3500)
+      await Promise.resolve()
+      const afterUnlinkNoFallback = [retiredImmediately, a.scrollToTargetCalls.length, a.getScrollTop()]
+      // (d) pending sender ack wait in A when B2 simply leaves (bye) while link stays ON -> fallback STAYS and scrolls A!
+      a.env._send_toggle(true)
+      bus.flush()
+      b2.win._todoer_windows.channel.muted = false
+      b2.advance(2000)
+      b2.fireWin('focus')
+      bus.flush()
+      b2.win._todoer_windows.channel.muted = true
+      a.setScrollTop(500)
+      a.scrollToTargetCalls.length = 0
+      a.env._select_item(byeA)
+      bus.flush()
+      b2.win._todoer_windows.channel.muted = false
+      b2.fireWin('pagehide')
+      b2.win._todoer_windows.channel.close()
+      bus.flush()
+      a.advance(3500)
+      await Promise.resolve()
+      const afterPeerByeFallback = [a.scrollToTargetCalls.length, a.getScrollTop()]
+      // (e) pending lookup in A and pending saving in B when account is left -> neither fires!
+      const b3 = makeWindow(bus, { id: 'B3', now: a.clock.now })
+      b3.env._start_windows()
+      bus.flush()
+      a.selects.length = 0
+      a.setBox('#f4_byeA')
+      b3.env._send_selected(b3.makeItem('f4_leftA', { saved_id: 's_f4_leftA' }), true)
+      bus.flush()
+      a.win._notification_account_left = true
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'f4_leftA' }))
+      advanceAll(bus, [a, b3], 2500)
+      const afterAccountLeftTake = [a.getBox(), a.selects.length]
+      const usLeft = b3.makeItem('f4_usLeft', { saved_id: null, name: '#f4_usLeft' })
+      b3.setBox('#f4_usLeft')
+      b3.win._todoer_windows.last = 'keep_last'
+      bus.sent.length = 0
+      b3.env._send_selected(usLeft)
+      b3.win._notification_account_left = true
+      usLeft.saved_id = 's_f4_usLeft'
+      b3.items.set('s_f4_usLeft', usLeft)
+      b3.advance(500)
+      const afterAccountLeftSave = [bus.sent.filter(m => m.from == 'B3' && m.data.type == 'selected').length, b3.win._todoer_windows.last]
+      // (f) persisted switch owned by uid: same-account reload keeps link; different account on same tab storage forgets it!
+      const bus2 = makeBus()
+      const tabStore = new Map()
+      const u1a = makeWindow(bus2, { id: 'U1A', uid: 'u1', now: 1_700_000_010_000, storage: tabStore })
+      const u1b = makeWindow(bus2, { id: 'U1B', uid: 'u1', now: 1_700_000_010_000 })
+      u1a.env._start_windows()
+      u1b.env._start_windows()
+      bus2.flush()
+      u1a.env._send_toggle(true)
+      bus2.flush()
+      u1a.fireWin('pagehide')
+      u1a.win._todoer_windows.channel.close()
+      bus2.flush()
+      const u1aReload = makeWindow(bus2, { id: 'U1A2', uid: 'u1', now: 1_700_000_012_000, storage: tabStore })
+      u1aReload.env._start_windows()
+      bus2.flush()
+      const sameAcctReload = [u1aReload.env._send_on(), u1b.env._send_shown()]
+      u1aReload.fireWin('pagehide')
+      u1aReload.win._todoer_windows.channel.close()
+      bus2.flush()
+      // Now account u2 boots in the SAME tab (same tabStore) with a live u2 peer!
+      const u2peer = makeWindow(bus2, { id: 'U2P', uid: 'u2', now: 1_700_000_015_000 })
+      u2peer.env._start_windows()
+      bus2.flush()
+      bus2.sent.length = 0
+      const u2tab = makeWindow(bus2, { id: 'U2A', uid: 'u2', now: 1_700_000_015_000, storage: tabStore })
+      u2tab.env._start_windows()
+      bus2.flush()
+      const diffAcctReset = [
+        u2tab.env._send_on(),
+        tabStore.get('mindpage_todoer_send') ?? null,
+        u2peer.env._send_shown(),
+        bus2.sent.filter(m => m.from == 'U2A').every(m => !m.data.on),
+      ]
+      check(
+        'windows retire & switch owner: unlink/bye/account-left drop stale work while peer-bye keeps sender fallback, and another account forgets stored switch',
+        [afterUnlinkTakeB, afterByeTakeA, afterUnlinkNoFallback, afterPeerByeFallback, afterAccountLeftTake, afterAccountLeftSave, sameAcctReload, diffAcctReset, leftA.id, bLeftA.id],
+        [
+          ['', 0],
+          ['#f4_missB', 0],
+          [[true, true, true], 0, 500],
+          [1, 1800],
+          ['#f4_byeA', 0],
+          [0, 'keep_last'],
+          [true, 'U1A2'],
+          [false, null, null, true],
+          'f4_leftA',
+          'f4_leftA',
+        ]
+      )
+    }
+
+    // 39. Fix 5: crossing selections converge in both orders (later clock wins; exact tie goes to greater window id) with zero fallback/peer loss
+    {
+      const runCross = (idA, tA, idB, tB, bFirst) => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: idA, now: 1_700_000_000_000, scrollTop: 500 })
+        const b = makeWindow(bus, { id: idB, now: 1_700_000_000_000, scrollTop: 500 })
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        const aOne = a.makeItem('one', { saved_id: 's_one', name: '#one', scrollY: 1600 })
+        const aTwo = a.makeItem('two', { saved_id: 's_two', name: '#two', scrollY: 1700 })
+        a.makeWidget({ rows: [{ id: 'one' }, { id: 'two' }] })
+        b.makeItem('one', { saved_id: 's_one', name: '#one', scrollY: 1600 })
+        const bTwo = b.makeItem('two', { saved_id: 's_two', name: '#two', scrollY: 1700 })
+        a.env._send_toggle(true)
+        bus.flush()
+        a.clock.now = tA
+        b.clock.now = tB
+        a.scrollToTargetCalls.length = 0
+        if (bFirst) {
+          b.env._select_item(bTwo)
+          a.env._select_item(aOne)
+        } else {
+          a.env._select_item(aOne)
+          b.env._select_item(bTwo)
+        }
+        bus.flush()
+        advanceAll(bus, [a, b], 4000)
+        return [a.getBox(), b.getBox(), a.win._todoer_windows.peers.has(idB), a.scrollToTargetCalls.length, aTwo.id]
+      }
+      const bLaterAB = runCross('A', 1_700_000_001_000, 'B', 1_700_000_001_005, false)
+      const bLaterBA = runCross('A', 1_700_000_001_000, 'B', 1_700_000_001_005, true)
+      const aLaterAB = runCross('A', 1_700_000_001_005, 'B', 1_700_000_001_000, false)
+      const aLaterBA = runCross('A', 1_700_000_001_005, 'B', 1_700_000_001_000, true)
+      const tieBWins = runCross('A', 1_700_000_001_000, 'B', 1_700_000_001_000, false)
+      const tieAWins = runCross('Z', 1_700_000_001_000, 'B', 1_700_000_001_000, true)
+      check(
+        'windows crossing selections converge: later clock wins in both flush orders, exact tie goes to greater window id, peer stays and fallback does not fire',
+        [bLaterAB, bLaterBA, aLaterAB, aLaterBA, tieBWins, tieAWins],
+        [
+          ['#two', '#two', true, 0, 'two'],
+          ['#two', '#two', true, 0, 'two'],
+          ['#one', '#one', true, 0, 'two'],
+          ['#one', '#one', true, 0, 'two'],
+          ['#two', '#two', true, 0, 'two'],
+          ['#one', '#one', true, 0, 'two'],
+        ]
+      )
+    }
+
+    // 40. Fix 6 + Sitting 5: _row_view_top with measured strip clearance under the owner's rule:
+    // "in view" from home clears the overlapping visible strip; out-of-view goes to min(80% height, stripTop - 8),
+    // so on a tall window out-of-view lands at 80% while on a low narrow window (420px, 88px 2nd floor)
+    // stripTop - 8 (324) beats 80% (336) and keeps the row above the glass
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 800, scrollTop: 500, headerTop: 500 })
+      const item = a.makeItem('st1')
+      a.makeWidget({ rows: [{ id: 'st1', pageY: 1200, height: 32, left: 16, right: 414 }] }) // bottom 1232 (in view under 64px=1236, OUT under 88px 2nd floor=1204!)
+      // (a) tall 800px window with overlapping second floor (top=712, foot=96): bottom 1232 > 1204 -> out of view -> low=min(640,704)=640 -> 1232-640=592
+      const bg = a.body.appendChild(new WinDomNode('div', { className: 'key-buttons-bg desktop floor' }))
+      const pane = bg.appendChild(new WinDomNode('div', { className: 'key-buttons-bg-pane' }))
+      pane.getBoundingClientRect = () => ({ top: 756, bottom: 800, left: 0, right: 430, width: 430, height: 44 })
+      const floor = bg.appendChild(new WinDomNode('div', { className: 'key-buttons-bg-floor' }))
+      floor.getBoundingClientRect = () => ({ top: 712, bottom: 756, left: 0, right: 236, width: 236, height: 44 })
+      const withSecondFloor = a.env._row_view_top(item, 500)
+      // (b) floor hidden (0x0 rect, single bottom pane top=756, foot=52): bottom 1232 <= 500+748=1248 -> in view -> 500
+      floor.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 })
+      const withSingleFloor = a.env._row_view_top(item, 500)
+      // (c) strip hidden -> fallback 64px (cutoff 1236): st1 (1232) -> 500; st2 (bottom 1242 > 1236) -> 1242-640 = 602
+      bg.hidden = true
+      const itemLow = a.makeItem('st2')
+      a.makeWidget({ rows: [{ id: 'st2', pageY: 1210, height: 32, left: 16, right: 414 }] })
+      const withHiddenFallback = [a.env._row_view_top(item, 500), a.env._row_view_top(itemLow, 500)]
+      // (d) non-overlapping wide split strip (left: 900..1200) -> ignored, fallback 64px -> st2 moves to 602
+      bg.hidden = false
+      pane.getBoundingClientRect = () => ({ top: 712, bottom: 800, left: 900, right: 1200, width: 300, height: 88 })
+      const withNonOverlap = a.env._row_view_top(itemLow, 500)
+      // (e) standalone .todoer-bin-buttons overlapping row (top=720, height=80 -> foot=88, cutoff=1212): st1 (1232 > 1212) -> out of view -> 1232-640 = 592
+      bg.remove()
+      const ownBar = a.body.appendChild(new WinDomNode('div', { className: 'todoer-bin-buttons' }))
+      ownBar.getBoundingClientRect = () => ({ top: 720, bottom: 800, left: 0, right: 320, width: 320, height: 80 })
+      const withStandalone = a.env._row_view_top(item, 500)
+      // (f) low narrow 420px window with 88px two-floor strip (top=332 -> foot=96, inner-foot=324 < 0.8*420=336!):
+      //     row bottom lands at 324 (8px above the glass), NOT 336 (4px under it)!
+      const lowWin = makeWindow(bus, { id: 'LW', innerHeight: 420, scrollTop: 500, headerTop: 500 })
+      const lwBg = lowWin.body.appendChild(new WinDomNode('div', { className: 'key-buttons-bg desktop floor' }))
+      const lwFloor = lwBg.appendChild(new WinDomNode('div', { className: 'key-buttons-bg-floor' }))
+      lwFloor.getBoundingClientRect = () => ({ top: 332, bottom: 376, left: 0, right: 236, width: 236, height: 44 })
+      const lwFar = lowWin.makeItem('lw_far')
+      const lwEdge = lowWin.makeItem('lw_edge')
+      lowWin.makeWidget({
+        rows: [
+          { id: 'lw_far', pageY: 900, height: 32, left: 16, right: 414 }, // bottom 932 -> 932-324 = 608 (not 932-336=596)
+          { id: 'lw_edge', pageY: 800, height: 32, left: 16, right: 414 }, // bottom 832 > 500+324=824 (would be in view under 64px=856) -> 832-324 = 508
+        ],
+      })
+      const lowNarrow = [lowWin.env._row_view_top(lwFar, 500), lowWin.env._row_view_top(lwEdge, 500)]
+      check(
+        'windows _row_view_top strip clearance: clears overlapping second-floor #key_buttons and standalone bar, ignores hidden/non-overlapping and falls back to 64px',
+        [withSecondFloor, withSingleFloor, withHiddenFallback, withNonOverlap, withStandalone, lowNarrow],
+        [592, 500, [500, 602], 602, 592, [608, 508]]
+      )
+    }
+
+    // 41. Link starts with what is selected: turning link on with a listed item selected tells it to the other window at once (unlisted is not told)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('init1', { saved_id: 's_init1', scrollY: 1600 })
+      const note = a.makeItem('initNote', { saved_id: 's_initNote', tags: [], tags_visible: [] })
+      a.makeWidget({ rows: [{ id: 'init1' }] })
+      b.makeItem('init1', { saved_id: 's_init1', scrollY: 1600 })
+      b.makeItem('initNote', { saved_id: 's_initNote', tags: [], tags_visible: [] })
+      // A already selected #init1 while unlinked (windows.last already set), B is empty -> turning link on tells #init1 to B at once!
+      a.env._select_item(t1)
+      bus.flush()
+      const bBeforeLink = b.getBox()
+      a.env._send_press()
+      bus.flush()
+      const bAfterLinkListed = b.getBox()
+      // Unlink, select unlisted #initNote in A, link again -> B keeps #init1 (unlisted NOT told)
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(note)
+      bus.flush()
+      a.env._send_press()
+      bus.flush()
+      const bAfterLinkUnlisted = b.getBox()
+      check(
+        'windows link starts with selected listed item: turning link on tells currently selected listed item to peer at once, skips unlisted item',
+        [bBeforeLink, bAfterLinkListed, bAfterLinkUnlisted],
+        ['', '#init1', '#init1']
+      )
+    }
+
+    // 42. Sitting 5 + 6 + 8 + 9: targeted _swallow_scroll lifecycle — swallows ONLY item's target scroll
+    // (zero scroll events, drains at 0 ms when unheld), passes non-matching scrollTo, synchronous scrollTo
+    // inside a keydown (window.event), and scrollTo after .column-padding height changes (updating its
+    // baseline while staying armed), drops on popstate in capture before bubble, unlink/takeover/account-left,
+    // expiry, and 3s fallback, keeps swallow across pointer/wheel/touch/keydown/resize/visualViewport.resize,
+    // and stays safe across sequential/overlapping calls
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const swItem = a.makeItem('sw1', { saved_id: 's_sw1', scrollY: 1600 })
+      const swItem2 = a.makeItem('sw2', { saved_id: 's_sw2', scrollY: 1650 })
+      const hasShadow = w => Object.prototype.hasOwnProperty.call(w.body, 'scrollTo')
+      // (a) before swallow: no own scrollTo, scrollTo works normally
+      const beforeSwallow = [hasShadow(a), (a.body.scrollTo(0, 900), a.getScrollTop())]
+      a.setScrollTop(500)
+      a.body._scrollToCalls.length = 0
+      // (b) during swallow + hold: target scroll (1600) swallowed with zero scroll events, non-matching (1300) passes through; expiry removes it
+      let scrollEvents = 0
+      a.doc.addEventListener('scroll', () => scrollEvents++, true)
+      a.env._swallow_scroll(swItem)
+      a.env._hold_scroll(500)
+      const duringShadow = hasShadow(a)
+      a.body.scrollTo(0, 1600)
+      const duringState = [a.getScrollTop(), a.body._scrollToCalls.length, scrollEvents]
+      a.advance(1500)
+      const afterExpiry = [hasShadow(a), (a.body.scrollTo(0, 1100), a.getScrollTop())]
+      // (c) pointer/wheel/touch inputs end hold while keeping targeted swallow armed (non-matching passes, target swallowed & drained at 0ms);
+      //     popstate drops BOTH hold and swallow in capture BEFORE bubble listeners run;
+      //     keydown ends hold, keeps swallow standing, passes synchronous scrollTo inside keydown via window.event,
+      //     and still swallows a non-keydown target scroll afterwards;
+      //     window resize and visualViewport resize end hold while keeping swallow armed (padding change passes even target coordinate and re-arms baseline)
+      const inputOrder = []
+      for (const input of ['wheel', 'touchstart', 'pointerdown']) {
+        a.setScrollTop(500)
+        a.env._swallow_scroll(swItem)
+        a.env._hold_scroll(500)
+        a.fireWin(input, { type: input })
+        a.body.scrollTo(0, 1300) // non-matching passes straight through!
+        const nonMatchTop = a.getScrollTop()
+        a.body.scrollTo(0, 1600) // matching target scroll still swallowed!
+        const afterTargetTop = a.getScrollTop()
+        a.advance(0) // 0ms drain drops shadow now that hold is gone
+        inputOrder.push([input, !!a.win._todoer_windows.hold, nonMatchTop, afterTargetTop, hasShadow(a)])
+      }
+      const navOrder = []
+      for (const ev of ['popstate', 'keydown']) {
+        a.setScrollTop(500)
+        a.env._swallow_scroll(swItem)
+        a.env._hold_scroll(500)
+        let bubbleSawShadow = null
+        const appBubble = () => {
+          bubbleSawShadow = hasShadow(a)
+          a.body.scrollTo(0, 1600) // popstate dropped swallow; keydown passes via window.event
+        }
+        a.win.addEventListener(ev, appBubble, false)
+        a.fireWin(ev, { type: ev })
+        a.win.removeEventListener(ev, appBubble, false)
+        const duringTop = a.getScrollTop()
+        const afterEvShadow = hasShadow(a)
+        let postKeySwallow = null
+        if (ev == 'keydown') {
+          a.setScrollTop(500)
+          a.body.scrollTo(0, 1600) // outside keydown: still swallowed and drained at 0ms
+          a.advance(0)
+          postKeySwallow = [a.getScrollTop(), hasShadow(a)]
+        }
+        navOrder.push([ev, bubbleSawShadow, afterEvShadow, !!a.win._todoer_windows.hold, duringTop, postKeySwallow])
+      }
+      const colPad = a.body.querySelector('.column-padding')
+      colPad.offsetHeight = 595
+      colPad.style.height = '595px'
+      a.setScrollTop(500)
+      a.env._swallow_scroll(swItem)
+      a.env._hold_scroll(500)
+      a.fireWin('resize', { type: 'resize' })
+      const afterWinResize = [hasShadow(a), !!a.win._todoer_windows.hold]
+      colPad.offsetHeight = 510
+      colPad.style.height = '510px'
+      a.body.scrollTo(0, 1600) // the route wrote a new inline height -> passes even exact target coordinate, updating baseline
+      const afterWinResizePad = [a.getScrollTop(), hasShadow(a)]
+      a.setScrollTop(560)
+      a.body.scrollTo(0, 1600) // padding unchanged -> target scroll still swallowed and drained at 0ms
+      a.advance(0)
+      const afterWinResizeTarget = [a.getScrollTop(), hasShadow(a)]
+      // the signal is the inline height the route writes: a height that CSS alone changes (as on iOS, where the route
+      // writes none) gives no pass, nor does a cleared inline value, which the remembered value follows (so the same
+      // height written again afterwards is a change, and passes)
+      a.setScrollTop(560)
+      a.env._swallow_scroll(swItem)
+      a.env._hold_scroll(560)
+      a.fireWin('resize', { type: 'resize' }) // (a change of the window's height ends the hold, which would else put a passed scroll back)
+      colPad.offsetHeight = 425
+      a.body.scrollTo(0, 1600)
+      const afterCssOnly = a.getScrollTop()
+      colPad.style.height = ''
+      a.body.scrollTo(0, 1600)
+      const afterCleared = a.getScrollTop()
+      colPad.style.height = '510px'
+      a.body.scrollTo(0, 1600)
+      const afterRewritten = [a.getScrollTop(), hasShadow(a)]
+      a.win._todoer_windows.hold?.()
+      a.win._todoer_windows.swallow?.()
+      check('windows _swallow_scroll padding signal: CSS-only height change and a cleared inline height give no pass, a rewritten one passes', [afterCssOnly, afterCleared, afterRewritten], [560, 560, [1600, true]])
+      colPad.offsetHeight = 595
+      colPad.style.height = '595px'
+      a.setScrollTop(500)
+      a.env._swallow_scroll(swItem)
+      a.env._hold_scroll(500)
+      a.fireVv('resize', { type: 'resize' })
+      const afterVvResize = [hasShadow(a), !!a.win._todoer_windows.hold]
+      a.win._todoer_windows.swallow?.()
+      // (d) link ended from list window, from showing window (unlink), and by takeover all delete shadow
+      a.setScrollTop(500)
+      a.env._send_toggle(true)
+      bus.flush()
+      a.env._swallow_scroll(swItem)
+      const onListSwallow = hasShadow(a)
+      a.env._send_toggle(false)
+      bus.flush()
+      const afterOwnUnlink = hasShadow(a)
+      a.env._send_toggle(true)
+      bus.flush()
+      a.env._swallow_scroll(swItem)
+      b.env._send_press() // showing window sends unlink
+      bus.flush()
+      const afterPeerUnlink = hasShadow(a)
+      a.env._send_toggle(true)
+      bus.flush()
+      a.env._swallow_scroll(swItem)
+      const c = makeWindow(bus, { id: 'C', now: a.clock.now + 5000 })
+      c.env._start_windows()
+      bus.flush()
+      c.env._send_toggle(true) // later list window forces A to give way
+      bus.flush()
+      const afterTakeover = hasShadow(a)
+      c.env._send_toggle(false)
+      c.fireWin('pagehide')
+      c.win._todoer_windows.channel.close()
+      bus.flush()
+      // (e) account left removes shadow on step/heartbeat
+      const d = makeWindow(bus, { id: 'D', scrollTop: 500, headerTop: 500 })
+      d.env._start_windows()
+      const dItem = d.makeItem('dsw', { saved_id: 's_dsw', scrollY: 1600 })
+      d.env._swallow_scroll(dItem)
+      const dBeforeLeft = hasShadow(d)
+      d.win._notification_account_left = true
+      d.advance(100) // next step sees account left -> calls drop()
+      const dAfterLeft = hasShadow(d)
+      // (f) two swallows in a row, two overlapping swallows with windows (stale drop1 never deletes swallow2's shadow),
+      //     and two swallows at once without windows
+      a.setScrollTop(500)
+      const seq1 = a.env._swallow_scroll(swItem)
+      const seq1On = hasShadow(a)
+      seq1()
+      const seq1Off = hasShadow(a)
+      const seq2 = a.env._swallow_scroll(swItem2)
+      const seq2On = hasShadow(a)
+      seq2()
+      const seq2Off = hasShadow(a)
+      const ov1 = a.env._swallow_scroll(swItem)
+      const ov2 = a.env._swallow_scroll(swItem2)
+      a.env._hold_scroll(650)
+      const ovBothStarted = hasShadow(a)
+      ov1() // stale drop of swallow 1!
+      a.body.scrollTo(0, 1650)
+      const ovAfterStaleEnd1 = [hasShadow(a), a.getScrollTop()]
+      ov2()
+      a.win._todoer_windows.hold?.()
+      const ovAfterEnd2 = hasShadow(a)
+      const bare = makeWindow(bus, { id: 'BARE', scrollTop: 500, headerTop: 500 }) // _start_windows not called
+      const bi1 = bare.makeItem('bi1', { saved_id: 's_bi1', scrollY: 1600 })
+      const bi2 = bare.makeItem('bi2', { saved_id: 's_bi2', scrollY: 1650 })
+      const b1 = bare.env._swallow_scroll(bi1)
+      const b2 = bare.env._swallow_scroll(bi2)
+      b1() // dropping swallow 1 must NOT delete swallow 2's shadow
+      bare.body.scrollTo(0, 1650)
+      const bareAfterB1 = [hasShadow(bare), bare.getScrollTop()]
+      b2()
+      const bareAfterB2 = hasShadow(bare)
+      // (g) 3s fallback while stepped hold + swallow still stand deletes shadow BEFORE scrolling to target
+      const fb = makeWindow(bus, { id: 'FB', scrollTop: 500, headerTop: 500 })
+      const fbp = makeWindow(bus, { id: 'FBP', scrollTop: 500, headerTop: 500 })
+      fb.env._start_windows()
+      fbp.env._start_windows()
+      bus.flush()
+      fb.env._send_toggle(true)
+      bus.flush()
+      const fbItem = fb.makeItem('fb1', { saved_id: 's_fb1', scrollY: 1750 })
+      fb.makeWidget({ rows: [{ id: 'fb1', pageY: 580, height: 32 }] })
+      fbp.win._todoer_windows.channel.muted = true
+      fb.env._select_item(fbItem)
+      bus.flush()
+      fb.stall(3100) // stepped hold & swallow spent only 1 step, STILL standing when 3s ack timeout fires!
+      await Promise.resolve()
+      const afterStallFallback = [hasShadow(fb), fb.getScrollTop()]
+      check(
+        'windows _swallow_scroll lifecycle: swallows target scroll only, drains unheld, passes non-matching/keydown/padding-change scrollTo, drops on popstate/unlink/takeover/account-left/fallback, keeps swallow across keydown/resize, safe across overlaps',
+        [
+          beforeSwallow,
+          duringShadow,
+          duringState,
+          afterExpiry,
+          inputOrder,
+          navOrder,
+          [afterWinResize, afterWinResizePad, afterWinResizeTarget],
+          afterVvResize,
+          [onListSwallow, afterOwnUnlink, afterPeerUnlink, afterTakeover],
+          [dBeforeLeft, dAfterLeft],
+          [seq1On, seq1Off, seq2On, seq2Off],
+          [ovBothStarted, ovAfterStaleEnd1, ovAfterEnd2],
+          [bareAfterB1, bareAfterB2],
+          afterStallFallback,
+        ],
+        [
+          [false, 900],
+          true,
+          [500, 0, 0],
+          [false, 1100],
+          [
+            ['wheel', false, 1300, 1300, false],
+            ['touchstart', false, 1300, 1300, false],
+            ['pointerdown', false, 1300, 1300, false],
+          ],
+          [
+            ['popstate', false, false, false, 1600, null],
+            ['keydown', true, true, false, 1600, [500, false]],
+          ],
+          [[true, false], [1600, true], [560, false]],
+          [true, false],
+          [true, false, false, false],
+          [true, false],
+          [true, false, true, false],
+          [true, [true, 650], false],
+          [[true, 500], false],
+          [false, 1750],
+        ]
+      )
+    }
+
+    // 43. Sitting 6 Case 1: owner's scroll wins at the actual write across all three deferred writers
+    //     (app's update_dom().then(scrollToTarget), 3s fallback's deferred write, and a received selection whose row mounts after input)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500, deferDom: true, deferSelect: true })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const hasShadow = w => Object.prototype.hasOwnProperty.call(w.body, 'scrollTo')
+      const flushDom = async w => {
+        while (w.domQueue.length) {
+          const fn = w.domQueue.shift()
+          fn()
+          await Promise.resolve()
+        }
+        await Promise.resolve()
+      }
+      const r1 = a.makeItem('w6_1', { saved_id: 's_w6_1', scrollY: 1775 })
+      const r2 = a.makeItem('w6_2', { saved_id: 's_w6_2', scrollY: 1775 })
+      const r3 = a.makeItem('w6_3', { saved_id: 's_w6_3', scrollY: 1775 })
+      const rLate = a.makeItem('w6_late', { saved_id: 's_w6_late', scrollY: 1775 })
+      for (const id of ['w6_1', 'w6_2', 'w6_3']) b.makeItem(id, { saved_id: 's_' + id, scrollY: 1775 })
+      const bLate = b.makeItem('w6_late', { saved_id: 's_w6_late', scrollY: 1775 })
+      const aw = a.makeWidget({
+        rows: [
+          { id: 'w6_1', pageY: 600, height: 32 },
+          { id: 'w6_2', pageY: 640, height: 32 },
+          { id: 'w6_3', pageY: 680, height: 32 },
+        ],
+      })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) wheel right after selection, BEFORE app's update_dom().then(scrollToTarget):
+      //     hold ends, targeted swallow stays for w6_1's automatic scroll, swallows 1775, then drops; list stays at 800
+      a.setScrollTop(500)
+      a.env._select_item(r1)
+      bus.flush()
+      a.fireWin('wheel')
+      a.setScrollTop(800)
+      await flushDom(a)
+      a.advance(0)
+      const afterWheelBeforeLayout = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      // (b) wheel after 3s fallback checked for input, BEFORE its deferred _update_dom write resolves -> stays at 800
+      b.win._todoer_windows.channel.muted = true
+      a.setScrollTop(500)
+      a.env._select_item(r2)
+      bus.flush()
+      await flushDom(a)
+      a.advance(3000) // fallback fires and schedules deferred _update_dom()
+      a.fireWin('wheel')
+      a.setScrollTop(800)
+      await flushDom(a)
+      const afterWheelBeforeFallbackWrite = a.getScrollTop()
+      // positive control: idle fallback with no wheel still scrolls to 1775 once _update_dom resolves
+      const c = makeWindow(bus, { id: 'C', now: a.clock.now })
+      c.env._start_windows()
+      bus.flush()
+      c.win._todoer_windows.channel.muted = true
+      a.setScrollTop(500)
+      a.env._select_item(r3)
+      bus.flush()
+      await flushDom(a)
+      a.advance(3000)
+      await flushDom(a)
+      const afterIdleFallbackWrite = a.getScrollTop()
+      c.fireWin('pagehide')
+      c.win._todoer_windows.channel.close()
+      bus.flush()
+      // (c) wheel while a received selection waits for its row to mount:
+      //     row arrives after wheel -> box syncs, automatic scroll to 1775 swallowed, NO hold started, stays at 800 (not pulled back to 500)
+      b.win._todoer_windows.channel.muted = false
+      b.clock.now = a.clock.now
+      advanceAll(bus, [a, b], 2000)
+      b.fireWin('focus')
+      bus.flush()
+      a.setScrollTop(500)
+      b.env._send_selected(bLate, true)
+      bus.flush()
+      a.fireWin('wheel')
+      a.setScrollTop(800)
+      const lateNode = new WinDomNode('div', { className: 'list-item-container', 'data-id': 'w6_late' })
+      lateNode.getBoundingClientRect = () => ({ top: 600 - a.getScrollTop(), bottom: 632 - a.getScrollTop(), left: 0, right: 400, height: 32, width: 400 })
+      aw.list.appendChild(lateNode)
+      a.advance(250)
+      await flushDom(a)
+      a.advance(0)
+      const afterLateRowAfterWheel = [a.getBox(), a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      check(
+        'windows wheel wins at actual write: wheel beats deferred app scrollToTarget, deferred 3s fallback write, and late-mounting received row while idle fallback still scrolls',
+        [afterWheelBeforeLayout, afterWheelBeforeFallbackWrite, afterIdleFallbackWrite, afterLateRowAfterWheel, rLate.id],
+        [[800, false, false], 800, 1775, ['#w6_late', 800, false, false], 'w6_late']
+      )
+    }
+
+    // 44. Sitting 6 Case 2 + Sitting 8 Case 2 + Sitting 9 Case 2: history restore (popstate) ends hold + swallow
+    //     before app handler; viewport resize (700 -> 600, padding 595 -> 510) ends hold while keeping targeted
+    //     swallow armed so queued selection callbacks are STILL swallowed and padding adjustment lands at 510
+    //     for both far items (never 1715) and near-header items whose clamped target coordinate equals 510
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 595, headerTop: 595, deferDom: true, deferSelect: true })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 595, headerTop: 595 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const hasShadow = w => Object.prototype.hasOwnProperty.call(w.body, 'scrollTo')
+      const flushDom = async w => {
+        while (w.domQueue.length) {
+          const fn = w.domQueue.shift()
+          fn()
+          await Promise.resolve()
+        }
+        await Promise.resolve()
+      }
+      const hdr = a.body.querySelector('.header')
+      const colPad = a.body.querySelector('.column-padding')
+      const r1 = a.makeItem('h6_1', { saved_id: 's_h6_1', scrollY: 1775 }) // sup.offsetTop = 1950 at vh=700
+      const r1Sup = a.body.querySelector('#super-container-h6_1')
+      const rNear = a.makeItem('h6_near', { saved_id: 's_h6_near', offsetTop: 655 }) // in-band near header; shifts 655 -> 570 on shrink, target clamped to 510
+      const rNearSup = a.body.querySelector('#super-container-h6_near')
+      b.makeItem('h6_1', { saved_id: 's_h6_1', scrollY: 1775 })
+      b.makeItem('h6_near', { saved_id: 's_h6_near', offsetTop: 655 })
+      a.makeWidget({ rows: [{ id: 'h6_1', pageY: 660, height: 32 }, { id: 'h6_near', pageY: 700, height: 32 }] })
+      a.env._send_toggle(true)
+      bus.flush()
+      let pad = 0.85 * 700 // 595
+      const resetGeom = () => {
+        a.setInnerHeight(700)
+        pad = 0.85 * 700
+        colPad.offsetHeight = pad
+        colPad.style.height = pad + 'px'
+        hdr.offsetTop = pad
+        r1Sup.offsetTop = 1950
+        rNearSup.offsetTop = 655
+        a.setScrollTop(pad)
+        a.domQueue.length = 0
+        a.win._todoer_windows.hold?.()
+        a.win._todoer_windows.swallow?.()
+      }
+      const applyPadding = () => {
+        const nextPad = 0.85 * a.env.visualViewport.height
+        const delta = nextPad - pad
+        pad = nextPad
+        colPad.offsetHeight = nextPad
+        colPad.style.height = nextPad + 'px'
+        hdr.offsetTop += delta
+        r1Sup.offsetTop += delta
+        rNearSup.offsetTop += delta
+        a.body.scrollTo(0, a.getScrollTop() + delta)
+      }
+      // as on iOS: the route's padding function returns at once (no inline height, no adjustment call), and the height
+      // that CSS gives the padding (85vh) follows the layout viewport on its own
+      const applyCssPadding = () => {
+        const nextPad = 0.85 * a.env.visualViewport.height
+        const delta = nextPad - pad
+        pad = nextPad
+        colPad.offsetHeight = nextPad
+        hdr.offsetTop += delta
+        r1Sup.offsetTop += delta
+        rNearSup.offsetTop += delta
+      }
+      const resizeTo = h => {
+        a.setInnerHeight(h)
+        a.fireWin('resize', { type: 'resize' })
+        a.fireVv('resize', { type: 'resize' })
+      }
+      // (a) replay route's history restore during an active hold at 595: restores both box and scroll position 240
+      let popStateScrollPending = false
+      const onPopState = () => {
+        a.setBox('#prev_history')
+        popStateScrollPending = true
+        a.env._update_dom().then(() => {
+          a.body.scrollTo(0, 240)
+          popStateScrollPending = false
+        })
+      }
+      a.win.addEventListener('popstate', onPopState, false)
+      resetGeom()
+      a.env._select_item(r1)
+      bus.flush()
+      a.domQueue.length = 0 // popstate suppresses r1's old layout via restoredScrollQuery
+      a.fireWin('popstate', { type: 'popstate' })
+      await flushDom(a)
+      const afterPopImmediate = [a.getBox(), a.getScrollTop(), popStateScrollPending, !!a.win._todoer_windows.hold, hasShadow(a)]
+      a.advance(2000)
+      const afterPopExpired = [a.getBox(), a.getScrollTop()]
+      a.win.removeEventListener('popstate', onPopState, false)
+      // (b1) far item: resize (700 -> 600) AFTER selection frames finished -> padding adjustment moves 595 -> 510
+      resetGeom()
+      a.env._select_item(r1)
+      bus.flush()
+      await flushDom(a)
+      resizeTo(600)
+      applyPadding()
+      a.advance(0)
+      const afterResizeAfterFrames = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      // (b2) far item: resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), padding before flush ->
+      //      padding moves 595 -> 510, queued scrollToTarget(1715) is swallowed -> eventual position stays 510!
+      resetGeom()
+      a.env._select_item(r1)
+      bus.flush()
+      resizeTo(600)
+      applyPadding()
+      await flushDom(a)
+      a.advance(0)
+      const afterResizeBeforeFramesPadFirst = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      // (b3) far item: resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), delayed checkLayout padding AFTER flush ->
+      //      queued scrollToTarget(1800) is swallowed, then padding moves 595 -> 510 -> eventual position stays 510!
+      resetGeom()
+      a.env._select_item(r1)
+      bus.flush()
+      resizeTo(600)
+      await flushDom(a)
+      a.advance(0)
+      applyPadding()
+      const afterResizeBeforeFramesPadLater = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      // (b3-ios) far item, no inline height (iOS): resize (700 -> 600) BEFORE selection frames run, the CSS height follows,
+      //      no adjustment is asked for -> the queued scrollToTarget(1715) is still swallowed, the list stays at 595 past expiry!
+      resetGeom()
+      colPad.style.height = ''
+      a.env._select_item(r1)
+      bus.flush()
+      resizeTo(600)
+      applyCssPadding()
+      await flushDom(a)
+      a.advance(0)
+      const iosAfterImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const iosAfterExp = [a.getScrollTop(), hasShadow(a)]
+      check('windows resize where CSS alone changes the padding (no inline height, as on iOS): the queued selection scroll stays swallowed and the list stays put', [iosAfterImmed, iosAfterExp], [[595, false], [595, false]])
+      // (b4) near-header item (offsetTop 655 at 595, shifts to 570 at 510 -> clamped target == 510!):
+      //      resize (700 -> 600) AFTER selection frames finish -> padding change passes 510, stays 510 past expiry!
+      resetGeom()
+      a.env._select_item(rNear)
+      bus.flush()
+      await flushDom(a)
+      resizeTo(600)
+      applyPadding()
+      const nearAfterImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const nearAfterExp = [a.getScrollTop(), hasShadow(a)]
+      // (b5) near-header item: resize (700 -> 600) BEFORE selection frames, padding before flush -> lands at 510, stays 510 past expiry!
+      resetGeom()
+      a.env._select_item(rNear)
+      bus.flush()
+      resizeTo(600)
+      applyPadding()
+      await flushDom(a)
+      const nearBeforeImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const nearBeforeExp = [a.getScrollTop(), hasShadow(a)]
+      // (c) non-matching scrollTo (e.g. 240) passes through while swallow for 1775 is armed, and 1775 is still swallowed
+      resetGeom()
+      a.env._select_item(r1)
+      bus.flush()
+      a.fireWin('wheel')
+      a.setScrollTop(800)
+      a.body.scrollTo(0, 240)
+      const afterOtherScroll = a.getScrollTop()
+      await flushDom(a) // r1's automatic 1775 scroll fires -> swallowed!
+      a.advance(0)
+      const afterTargetSwallowed = [a.getScrollTop(), hasShadow(a)]
+      check(
+        'windows history restore & resize during hold: popstate restores box and scroll position, resize keeps swallow so queued callbacks stay suppressed before/after frames and padding lands at 510 for both far and near-header items, and non-matching scrollTo passes',
+        [afterPopImmediate, afterPopExpired, afterResizeAfterFrames, afterResizeBeforeFramesPadFirst, afterResizeBeforeFramesPadLater, [nearAfterImmed, nearAfterExp], [nearBeforeImmed, nearBeforeExp], afterOtherScroll, afterTargetSwallowed],
+        [['#prev_history', 240, false, false, false], ['#prev_history', 240], [510, false], [510, false, false], [510, false, false], [[510, false], [510, false]], [[510, false], [510, false]], 240, [240, false]]
+      )
+    }
+
+    // 45. Sitting 6 Case 3: handoff expires by absolute send timestamp on first delivery (paused B drops stale #x),
+    //     third window taking over as showing window retires B's pending ask, while sole peer disappearing keeps local fallback
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const hx = a.makeItem('hx', { saved_id: 's_hx', scrollY: 1600 })
+      const hy = a.makeItem('hy', { saved_id: 's_hy', scrollY: 1650 })
+      const hrep = a.makeItem('hrep', { saved_id: 's_hrep', scrollY: 1600 })
+      const hgone = a.makeItem('hgone', { saved_id: 's_hgone', scrollY: 1650 })
+      for (const id of ['hx', 'hy', 'hrep', 'hgone']) b.makeItem(id, { saved_id: 's_' + id, scrollY: 1600 })
+      a.makeWidget({ rows: [{ id: 'hx' }, { id: 'hy' }, { id: 'hrep' }, { id: 'hgone' }] })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) pause delivery to B, select #hx in A, let A fall back, select #hy in A, resume B -> B drops expired #hx!
+      b.win._todoer_windows.channel.paused = true
+      a.env._select_item(hx)
+      bus.flush()
+      a.advance(3100) // A falls back on #hx and forgets B
+      await Promise.resolve()
+      a.env._select_item(hy)
+      bus.flush()
+      b.clock.now = a.clock.now + 500 // 3.6s after #hx was sent (> SEND_TAKE_MS = 2s)
+      b.win._todoer_windows.channel.unpause()
+      bus.flush()
+      advanceAll(bus, [a, b], 4000)
+      const afterPausedExpiry = [a.getBox(), b.getBox()]
+      // (b) B paused again, A selects #hrep, then third window C takes over as showing window -> B's pending ask retired (no fallback scroll!)
+      b.clock.now = a.clock.now
+      advanceAll(bus, [a, b], 1500)
+      b.fireWin('focus')
+      bus.flush()
+      b.win._todoer_windows.channel.paused = true
+      a.setScrollTop(500)
+      a.env._select_item(hrep)
+      bus.flush()
+      const c = makeWindow(bus, { id: 'C', now: a.clock.now + 1000, scrollTop: 500, headerTop: 500 })
+      c.makeItem('hrep', { saved_id: 's_hrep', scrollY: 1600 })
+      c.env._start_windows()
+      c.fireWin('focus')
+      bus.flush()
+      const peerWhenCReplaced = a.env._send_peer()
+      a.advance(3500)
+      await Promise.resolve()
+      const afterReplacement = [peerWhenCReplaced, a.getScrollTop(), a.env._send_peer()]
+      // (c) sole destination disappears (bye, no replacement) -> fallback STILL runs and scrolls A to 1650
+      b.win._todoer_windows.channel.paused = false
+      b.fireWin('pagehide')
+      b.win._todoer_windows.channel.close()
+      bus.flush()
+      c.win._todoer_windows.channel.muted = true
+      a.setScrollTop(500)
+      a.env._select_item(hgone)
+      bus.flush()
+      c.win._todoer_windows.channel.muted = false
+      c.fireWin('pagehide')
+      c.win._todoer_windows.channel.close()
+      bus.flush()
+      a.advance(3500)
+      await Promise.resolve()
+      const afterSoleBye = [a.getScrollTop(), a.env._send_peer()]
+      // (b2) Sitting 8 Case 3: replacement window C2 arrives AFTER 3s timeout checked destination & deleted B2,
+      //      BEFORE fallback's deferred _update_dom() write resolves -> A2 stays at 500 (never scrolls to 1775)
+      const bus2 = makeBus()
+      const a2 = makeWindow(bus2, { id: 'A2', innerHeight: 700, scrollTop: 500, headerTop: 500, deferDom: true, deferSelect: true })
+      const b2 = makeWindow(bus2, { id: 'B2', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a2.env._start_windows()
+      b2.env._start_windows()
+      bus2.flush()
+      const hrep2 = a2.makeItem('hrep2', { saved_id: 's_hrep2', scrollY: 1775 })
+      b2.makeItem('hrep2', { saved_id: 's_hrep2', scrollY: 1775 })
+      a2.makeWidget({ rows: [{ id: 'hrep2', pageY: 580, height: 32 }] })
+      a2.env._send_toggle(true)
+      bus2.flush()
+      b2.win._todoer_windows.channel.paused = true
+      a2.env._select_item(hrep2)
+      bus2.flush()
+      while (a2.domQueue.length) { a2.domQueue.shift()(); await Promise.resolve() }
+      a2.advance(3000) // 3s timeout deletes B2 and schedules deferred _update_dom() write
+      const c2 = makeWindow(bus2, { id: 'C2', now: a2.clock.now + 50, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      c2.env._start_windows()
+      c2.fireWin('focus')
+      bus2.flush()
+      const beforeDeferredWrite = [a2.getScrollTop(), a2.env._send_peer(), !a2.win._todoer_windows.pending]
+      while (a2.domQueue.length) { a2.domQueue.shift()(); await Promise.resolve() }
+      await Promise.resolve()
+      const afterLateReplacementWrite = [beforeDeferredWrite, a2.getScrollTop(), a2.env._send_peer()]
+      check(
+        'windows handoff expiry & destination change: paused delivery expired from send time is dropped, destination replacement retires old ask before and after 3s timeout, sole peer bye keeps local fallback',
+        [afterPausedExpiry, afterReplacement, afterLateReplacementWrite, afterSoleBye],
+        [['#hy', ''], ['C', 500, 'C'], [[500, 'C2', true], 500, 'C2'], [1650, null]]
+      )
+    }
+
+    // 46. Sitting 6 Case 4: pending save carries selection's stamp (beats older incoming selection) and retires
+    //     on local unlink and on peer unlink/relink (never fires into a new link)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const oneA = a.makeItem('ps_one', { saved_id: 's_ps_one' })
+      b.makeItem('ps_one', { saved_id: 's_ps_one' })
+      const aw = a.makeWidget({ rows: [{ id: 'ps_one' }] })
+      a.env._send_toggle(true)
+      bus.flush()
+      // (a) A selects saved #ps_one at t=1000; 5ms later B selects new unsaved #ps_new before A's message arrives;
+      //     A's older message arrives while #ps_new is still saving -> B ignores it, #ps_new saves -> BOTH end on #ps_new!
+      a.clock.now = 1_700_000_001_000
+      b.clock.now = 1_700_000_001_005
+      a.win._todoer_windows.channel.paused = true
+      b.win._todoer_windows.channel.paused = true
+      a.env._select_item(oneA)
+      const newB = b.makeItem('ps_new', { saved_id: null, name: '#ps_new' })
+      b.setBox('#ps_new')
+      b.env._send_selected(newB, true)
+      b.win._todoer_windows.channel.unpause() // A's older #ps_one arrives at B while #ps_new is unsaved!
+      bus.flush()
+      a.win._todoer_windows.channel.unpause()
+      bus.flush()
+      // #ps_new finishes saving and its row mounts in A
+      newB.saved_id = 's_ps_new'
+      b.items.set('s_ps_new', newB)
+      a.makeItem('ps_new', { saved_id: 's_ps_new', name: '#ps_new' })
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ps_new' }))
+      advanceAll(bus, [a, b], 500)
+      const afterUnsavedWins = [a.getBox(), b.getBox()]
+      // (b1) B selects unsaved #ps_u1, B presses unlink, A links again with empty box, #ps_u1 saves -> A stays empty!
+      const u1B = b.makeItem('ps_u1', { saved_id: null, name: '#ps_u1' })
+      b.setBox('#ps_u1')
+      b.env._send_selected(u1B, true)
+      b.env._send_press() // B unlinks!
+      bus.flush()
+      a.setBox('')
+      a.clock.now += 100
+      b.clock.now = a.clock.now
+      a.env._send_toggle(true) // A starts a NEW link with empty box
+      bus.flush()
+      u1B.saved_id = 's_ps_u1'
+      b.items.set('s_ps_u1', u1B)
+      a.makeItem('ps_u1', { saved_id: 's_ps_u1', name: '#ps_u1' })
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ps_u1' }))
+      advanceAll(bus, [a, b], 600)
+      const afterLocalUnlinkSave = a.getBox()
+      // (b2) B selects unsaved #ps_u2, A unlinks and links again with empty box, #ps_u2 saves -> A stays empty!
+      const u2B = b.makeItem('ps_u2', { saved_id: null, name: '#ps_u2' })
+      b.setBox('#ps_u2')
+      b.env._send_selected(u2B, true)
+      a.env._send_toggle(false)
+      bus.flush()
+      a.setBox('')
+      a.clock.now += 100
+      b.clock.now = a.clock.now
+      a.env._send_toggle(true)
+      bus.flush()
+      u2B.saved_id = 's_ps_u2'
+      b.items.set('s_ps_u2', u2B)
+      a.makeItem('ps_u2', { saved_id: 's_ps_u2', name: '#ps_u2' })
+      aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ps_u2' }))
+      advanceAll(bus, [a, b], 600)
+      const afterPeerRelinkSave = a.getBox()
+      check(
+        'windows pending save order & lifetime: unsaved selection beats older incoming selection, and pending save retires across local unlink or peer unlink/relink',
+        [afterUnsavedWins, afterLocalUnlinkSave, afterPeerRelinkSave],
+        [['#ps_new', '#ps_new'], '', '']
+      )
+    }
+
+    // 47. Sitting 8 Case 1 + Sitting 9 Case 1: synchronous scrollTo inside keydown passes _swallow_scroll
+    //     via window.event without dropping the swallow — explicit route keys (0 and Ctrl+Alt+Down) scroll
+    //     visibly and record matching history entries for BOTH far items and in-band items (where layout skipped
+    //     automatic scrolling), and even before layout runs, while quick j and an ordinary key before layout
+    //     still keep the delayed selection scroll suppressed
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500, deferDom: true, deferSelect: true })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const hasShadow = w => Object.prototype.hasOwnProperty.call(w.body, 'scrollTo')
+      const flushDom = async w => {
+        while (w.domQueue.length) {
+          const fn = w.domQueue.shift()
+          fn()
+          await Promise.resolve()
+        }
+        await Promise.resolve()
+      }
+      const k1 = a.makeItem('k8_1', { saved_id: 's_k8_1', scrollY: 1775 })
+      const k2 = a.makeItem('k8_2', { saved_id: 's_k8_2', scrollY: 1900 })
+      const kIn = a.makeItem('k8_in', { saved_id: 's_k8_in', offsetTop: 900 }) // in-band at 500 (500 <= 900 <= 1000); targetY = 725
+      b.makeItem('k8_1', { saved_id: 's_k8_1', scrollY: 1775 })
+      b.makeItem('k8_2', { saved_id: 's_k8_2', scrollY: 1900 })
+      b.makeItem('k8_in', { saved_id: 's_k8_in', offsetTop: 900 })
+      a.makeWidget({ rows: [{ id: 'k8_1', pageY: 560, height: 32 }, { id: 'k8_2', pageY: 600, height: 32 }, { id: 'k8_in', pageY: 640, height: 32 }] })
+      a.env._send_toggle(true)
+      bus.flush()
+      // Replay index.svelte's actual keydown handler (lines 12071-12108 + scrollToTargetWithHistory lines 2190-2212)
+      let history = []
+      const appKeyDown = e => {
+        const key = e.code
+        const modified = !!(e.ctrlKey || e.altKey || e.metaKey || e.shiftKey)
+        const target = a.body.querySelector('.super-container.target')
+        const home = a.body.querySelector('.header')?.offsetTop ?? 0
+        const targetY = target ? Math.max(home, target.offsetTop - a.env.visualViewport.height / 4) : null
+        if (key == 'ArrowDown' && [e.ctrlKey, e.altKey, e.metaKey].filter(Boolean).length >= 2) {
+          if (targetY == null || Math.abs(targetY - a.getScrollTop()) <= 2) return
+          history[history.length - 1] = { ...history[history.length - 1], scrollPosition: a.getScrollTop() }
+          history.push({ editorText: a.getBox(), scrollPosition: targetY, final: true, scrolledToTop: false })
+          a.body.scrollTo(0, targetY)
+          return
+        }
+        if (key == 'Digit0' && !modified) {
+          a.body.scrollTo(0, targetY ?? home)
+          return
+        }
+        a.env._on_row_key(key, e)
+      }
+      a.win.addEventListener('keydown', appKeyDown, false)
+      // (a) far item k8_1, let layout finish, press `0` within hold -> scrolls visibly to 1775 and stays past expiry
+      a.setScrollTop(500)
+      a.env._select_item(k1)
+      bus.flush()
+      await flushDom(a)
+      history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
+      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
+      const digit0Imm = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const afterDigit0 = [...digit0Imm, a.getScrollTop(), hasShadow(a)]
+      // (b) far item k8_1, let layout finish, press Ctrl+Alt+Down within hold -> visible 1775 AND history entry 1775 past expiry
+      a.setScrollTop(500)
+      a.env._select_item(k1)
+      bus.flush()
+      await flushDom(a)
+      history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
+      a.fireWin('keydown', { type: 'keydown', code: 'ArrowDown', key: 'ArrowDown', ctrlKey: true, altKey: true })
+      const cadImm = [a.getScrollTop(), history.length, history[history.length - 1].scrollPosition, !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const afterCtrlAltDown = [...cadImm, a.getScrollTop(), hasShadow(a)]
+      // (c) in-band item k8_in (offsetTop 900 at 500, vh 700 -> layout skips scrollTo!), press `0` -> moves to 725 and stays past expiry!
+      a.setScrollTop(500)
+      a.body._scrollToCalls.length = 0
+      a.env._select_item(kIn)
+      bus.flush()
+      await flushDom(a)
+      const inBandAutoCalls = a.body._scrollToCalls.length
+      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
+      const inBand0Imm = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const afterInBand0 = [inBandAutoCalls, ...inBand0Imm, a.getScrollTop(), hasShadow(a)]
+      // (d) in-band item k8_in, let layout finish, wheel to 950, press Ctrl+Alt+Down -> moves to 725 AND history records 725 past expiry!
+      a.setScrollTop(500)
+      a.env._select_item(kIn)
+      bus.flush()
+      await flushDom(a)
+      a.fireWin('wheel')
+      a.setScrollTop(950)
+      history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
+      a.fireWin('keydown', { type: 'keydown', code: 'ArrowDown', key: 'ArrowDown', ctrlKey: true, altKey: true })
+      const inBandCadImm = [a.getScrollTop(), history.length, history[history.length - 1].scrollPosition]
+      a.advance(2000)
+      const afterInBandCad = [...inBandCadImm, a.getScrollTop(), history[history.length - 1].scrollPosition, hasShadow(a)]
+      // (e) early `0` BEFORE layout runs on far item k8_1 -> scrolls to 1775 immediately while swallow stands, stays 1775 past expiry
+      a.setScrollTop(500)
+      a.env._select_item(k1)
+      bus.flush()
+      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
+      const early0Imm = [a.getScrollTop(), hasShadow(a)]
+      await flushDom(a)
+      a.advance(2000)
+      const afterEarly0 = [...early0Imm, a.getScrollTop(), hasShadow(a)]
+      // (f) quick `j` after selection BEFORE first layout runs: drops old swallow, selects k8_2 with its own swallow,
+      //     and older queued scroll (computed for live target k8_2 = 1900) plus k8_2's scroll are both swallowed -> stays at 500!
+      a.setScrollTop(500)
+      a.env._select_item(k1)
+      bus.flush()
+      a.fireWin('keydown', { type: 'keydown', code: 'KeyJ', key: 'j' })
+      bus.flush()
+      await flushDom(a)
+      const afterQuickJ = [a.getBox(), b.getBox(), a.getScrollTop(), !!a.win._todoer_windows.hold]
+      // (g) a key that selects nothing (Shift) BEFORE the layout runs: the hold ends, the swallow stands, and the
+      //     selection's queued scroll is still swallowed -> stays at 500; `0` after that goes to the item
+      a.setScrollTop(500)
+      a.env._select_item(k1)
+      bus.flush()
+      a.fireWin('keydown', { type: 'keydown', code: 'ShiftLeft', key: 'Shift', shiftKey: true })
+      const earlyKey = [!!a.win._todoer_windows.hold, hasShadow(a)]
+      await flushDom(a)
+      a.advance(0)
+      earlyKey.push(a.getScrollTop(), hasShadow(a))
+      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
+      earlyKey.push(a.getScrollTop())
+      a.win.removeEventListener('keydown', appKeyDown, false)
+      check(
+        'windows explicit key navigation passes swallow: 0 and Ctrl+Alt+Down scroll to target (with matching history entry) for far, in-band, and pre-layout selections, while quick j and an ordinary key before layout keep the list in place',
+        [afterDigit0, afterCtrlAltDown, afterInBand0, afterInBandCad, afterEarly0, afterQuickJ, k2.id, earlyKey],
+        [[1775, false, 1775, false], [1775, 2, 1775, false, 1775, false], [0, 725, false, 725, false], [725, 2, 725, 725, 725, false], [1775, true, 1775, false], ['#k8_2', '#k8_2', 500, true], 'k8_2', [false, true, 500, false, 1775]]
+      )
     }
   })())
   // the item's files are embedded in the #todoer item's own text, where the app expands every
