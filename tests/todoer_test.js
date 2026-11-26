@@ -224,6 +224,7 @@ const picked =
     '_send_press',
     '_send_peer',
     '_row_view_foot',
+    '_row_strip_top',
     '_send_toggle',
     '_send_selected',
     '_send_when_saved',
@@ -5538,6 +5539,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_hold_scroll',
         '_stay_put',
         '_row_view_foot',
+        '_row_strip_top',
         '_row_view_top',
       ]).join('\n')
 
@@ -9156,6 +9158,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_hold_scroll',
         '_stay_put',
         '_row_view_foot',
+        '_row_strip_top',
         '_row_view_top',
         '_select_item',
         '_edit_item',
@@ -10409,10 +10412,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 15. _row_view_top: stays at `top` whenever the row is in view where the window stands
-    // (y >= top+8 and y+h <= top+innerHeight-foot); otherwise moves to y-8 (clamped at 0) when above
-    // home+8, to home (.header.offsetTop, or 0) when in view from home, else 80% depth (or clear of
-    // the strip); missing row / zero height keeps top
+    // 15. _row_view_top: stays at `top` whenever the row is wholly readable where the window stands
+    // (y >= top and y+h <= top + the strip's top, or the window's lower edge where no strip overlaps:
+    // a row that touches an edge stays, one clipped by 1 px moves); a row that has to be placed goes
+    // to y-8 (clamped at 0) when above home+8, to home (.header.offsetTop, or 0) when it shows from
+    // there clear of the 64 px foot, else to 80% depth; missing row / zero height keeps top
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
@@ -10429,12 +10433,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const rightUnderBox = a.makeItem('rvUnder')
       a.makeWidget({
         rows: [
-          { id: 'rv1', pageY: 600, height: 32 }, // in [508, 1136]: stays at top when in view (500, 550, 592, 200); moves to home (500) when above upper edge (593, 1200)
-          { id: 'rvEdge', pageY: 1104, height: 32 }, // bottom 1136 === home+700-64: stays at 500 or 900; from 1200 (above upper edge) moves to 500
-          { id: 'rvPast', pageY: 1105, height: 32 }, // bottom 1137: at 500 is 1px past foot -> 577; at 501 fits -> 501
+          { id: 'rv1', pageY: 600, height: 32 }, // stays at top when readable (500, 550, 200), also touching the upper edge (600); 1 px clipped at the upper edge (601) or far above it (1200) -> home (500)
+          { id: 'rvEdge', pageY: 1104, height: 32 }, // bottom 1136 === home+700-64: stays at 900; placed from 1200 (above the upper edge) it shows from home clear of the foot -> 500
+          { id: 'rvPast', pageY: 1105, height: 32 }, // bottom 1137: at 500 it is readable (63 px above the lower edge, no strip) -> stays 500; placed from 1200 it is 1 px past the foot from home -> 577
           { id: 'rv2', pageY: 420, height: 32 }, // above home+8: out of view at 500 -> 412; in view at 300 -> 300
           { id: 'rv3', pageY: 4, height: 32 }, // above home+8, 4-8 clamps to 0
-          { id: 'rv4', pageY: 1400, height: 32 }, // far down (bottom 1432): from 500 -> 872; at 900 or 796 fits -> stays; at 795 (1px behind strip) -> 872; at 1393 (1px past upper margin) -> 872
+          { id: 'rv4', pageY: 1400, height: 32 }, // far down (bottom 1432): from 500 -> 872; at 900 readable -> stays; at 732 it touches the lower edge -> stays; at 731 (1 px clipped below) -> 872; at 1401 (1 px clipped above) -> 872
           { id: 'rv6', pageY: 900, height: 0 }, // height 0 -> keeps `top`
           { id: 'rv7', pageY: 490, height: 700 }, // taller than viewport, above home+8 -> 482
           { id: 'rv8', pageY: 520, height: 700 }, // bottom 1220 > 1136 -> 1220-560 = 660 (>= home)
@@ -10450,27 +10454,27 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       noHdr.makeWidget({
         rows: [
           { id: 'nh1', pageY: 100, height: 32 }, // above top+8 (308) -> moves to home (0)
-          { id: 'nh2', pageY: 650, height: 32 }, // in [308, 936] -> stays at 300; at 0 (bottom 682 > 636) -> 122
+          { id: 'nh2', pageY: 680, height: 32 }, // readable at 300 -> stays; at 0 its bottom 712 is clipped by the lower edge (700) -> 712-560 = 152
         ],
       })
       check(
-        'windows _row_view_top: stays when in view at top (middle, exact edges), moves when past upper margin or strip, above (0 clamp), no row/zero height, tall, no .header',
+        'windows _row_view_top: stays when wholly in view at top (middle, an edge touched), moves when clipped by 1 px above or below, above (0 clamp), no row/zero height, tall, no .header',
         [
           a.env._row_view_top(inView, 500),
           a.env._row_view_top(inView, 550),
-          a.env._row_view_top(inView, 592),
-          a.env._row_view_top(inView, 593),
+          a.env._row_view_top(inView, 600),
+          a.env._row_view_top(inView, 601),
           a.env._row_view_top(inView, 1200),
           a.env._row_view_top(inView, 200),
           a.env._row_view_top(atEdge, 900),
           a.env._row_view_top(atEdge, 1200),
           a.env._row_view_top(justPast, 500),
-          a.env._row_view_top(justPast, 501),
+          a.env._row_view_top(justPast, 1200),
           a.env._row_view_top(below, 500),
           a.env._row_view_top(below, 900),
-          a.env._row_view_top(below, 796),
-          a.env._row_view_top(below, 795),
-          a.env._row_view_top(below, 1393),
+          a.env._row_view_top(below, 732),
+          a.env._row_view_top(below, 731),
+          a.env._row_view_top(below, 1401),
           a.env._row_view_top(above, 500),
           a.env._row_view_top(above, 300),
           a.env._row_view_top(nearTop, 500),
@@ -10483,7 +10487,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           noHdr.env._row_view_top(nhOut, 300),
           noHdr.env._row_view_top(nhOut, 0),
         ],
-        [500, 550, 592, 500, 500, 200, 900, 500, 577, 501, 872, 900, 796, 872, 872, 412, 300, 0, 777, 777, 482, 660, 500, 0, 300, 122]
+        [500, 550, 600, 500, 500, 200, 900, 500, 500, 577, 872, 900, 732, 872, 872, 412, 300, 0, 777, 777, 482, 660, 500, 0, 300, 152]
       )
     }
 
@@ -11932,12 +11936,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // (b) floor hidden (0x0 rect, single bottom pane top=756, foot=52): bottom 1232 <= 500+748=1248 -> in view -> 500
       floor.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 })
       const withSingleFloor = a.env._row_view_top(item, 500)
-      // (c) strip hidden -> fallback 64px (cutoff 1236): st1 (1232) -> 500; st2 (bottom 1242 > 1236) -> 1242-640 = 602
+      // (c) strip hidden -> no strip counts: st1 (1232) and st2 (bottom 1242) are both readable above the window's lower edge (1300) -> stay at 500 (a hidden strip wrongly counted would move both)
       bg.hidden = true
       const itemLow = a.makeItem('st2')
       a.makeWidget({ rows: [{ id: 'st2', pageY: 1210, height: 32, left: 16, right: 414 }] })
       const withHiddenFallback = [a.env._row_view_top(item, 500), a.env._row_view_top(itemLow, 500)]
-      // (d) non-overlapping wide split strip (left: 900..1200) -> ignored, fallback 64px -> st2 moves to 602
+      // (d) non-overlapping wide split strip (left: 900..1200) -> ignored: st2 is readable -> stays at 500 (counted, its top 712 would clip st2 and move it to 602)
       bg.hidden = false
       pane.getBoundingClientRect = () => ({ top: 712, bottom: 800, left: 900, right: 1200, width: 300, height: 88 })
       const withNonOverlap = a.env._row_view_top(itemLow, 500)
@@ -11957,10 +11961,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       lowWin.makeWidget({
         rows: [
           { id: 'lw_far', pageY: 900, height: 32, left: 16, right: 414 }, // bottom 932 -> 932-324 = 608 (not 932-336=596)
-          { id: 'lw_edge', pageY: 800, height: 32, left: 16, right: 414 }, // bottom 832 > 500+324=824 (would be in view under 64px=856) -> 832-324 = 508
+          { id: 'lw_edge', pageY: 800, height: 32, left: 16, right: 414 }, // bottom 832 === 500+332: it touches the strip's top -> readable -> stays at 500
+          { id: 'lw_clip', pageY: 801, height: 32, left: 16, right: 414 }, // bottom 833: 1 px behind the strip -> placed 8 px above it: 833-324 = 509
         ],
       })
-      const lowNarrow = [lowWin.env._row_view_top(lwFar, 500), lowWin.env._row_view_top(lwEdge, 500)]
+      const lwClip = lowWin.makeItem('lw_clip')
+      const lowNarrow = [lowWin.env._row_view_top(lwFar, 500), lowWin.env._row_view_top(lwEdge, 500), lowWin.env._row_view_top(lwClip, 500)]
       // (g) scrolled window (top=600) with a row at 1300..1332: clear of single pane (limit 1348 -> stays at 600),
       //     partly behind overlapping 2nd floor (limit 1304 -> moves to 1332-640 = 692)
       ownBar.remove()
@@ -11975,9 +11981,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       floorMid.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 })
       const scrolledClearOfStrip = a.env._row_view_top(itemMid, 600)
       check(
-        'windows _row_view_top strip clearance: clears overlapping second-floor #key_buttons and standalone bar (at home and scrolled), ignores hidden/non-overlapping and falls back to 64px',
+        'windows _row_view_top strip clearance: clears overlapping second-floor #key_buttons and standalone bar (at home and scrolled), ignores hidden/non-overlapping strips, and a row that touches the strip stays while one 1 px behind it lands 8 px above',
         [withSecondFloor, withSingleFloor, withHiddenFallback, withNonOverlap, withStandalone, lowNarrow, [scrolledBehindStrip, scrolledClearOfStrip]],
-        [592, 500, [500, 602], 602, 592, [608, 508], [692, 600]]
+        [592, 500, [500, 500], 500, 592, [608, 500, 509], [692, 600]]
       )
     }
 
@@ -12846,15 +12852,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       a.env._send_toggle(true)
       bus.flush()
-      // visible standalone strip: top=648, height=52 -> foot=700-648+8=60 -> clear limit at top=620 is 620+640=1260 (viewport bottom 1320)
-      const strip = a.body.appendChild(new WinDomNode('div', { className: 'todoer-bin-buttons' }))
-      strip.getBoundingClientRect = () => ({ top: 648, bottom: 700, left: 0, right: 320, width: 320, height: 52 })
+      // visible standalone strip: top=648, height=52: at top=620 a row is readable down to 620+648=1268 (the strip's top); placed, it lands with foot=700-648+8=60
       const defs = [
-        ['rs_above', 540, 2000], // well above top+8 (628), fits from home (572 <= 1140) -> moves to 500
-        ['rs_edge', 624, 2100], // 4px below window top (< 628, inside upper margin!), fits from home -> moves to 500
-        ['rs_in1', 700, 2200], // in [628, 1260] -> stays at 620
-        ['rs_in2', 740, 2300], // in [628, 1260] -> stays at 620 (received from B)
-        ['rs_strip', 1230, 2400], // bottom 1262 in (1260, 1320]: inside viewport yet partly behind strip -> moves to 1262-560 = 702
+        ['rs_above', 540, 2000], // well above the window's upper edge (620), fits from home (572 <= 1140) -> moves to 500
+        ['rs_edge', 619, 2100], // 1 px above the window's upper edge: clipped, fits from home -> moves to 500
+        ['rs_in1', 620, 2200], // touches the window's upper edge: readable -> stays at 620
+        ['rs_in2', 1236, 2300], // bottom 1268 touches the strip's top: readable -> stays at 620 (received from B)
+        ['rs_strip', 1237, 2400], // bottom 1269: 1 px behind the strip -> moves to 1269-560 = 709
       ]
       const aItems = {}
       const bItems = {}
@@ -12863,6 +12867,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         bItems[id] = b.makeItem(id, { saved_id: 's_' + id, scrollY: sy })
       }
       a.makeWidget({ rows: defs.map(([id, pageY]) => ({ id, pageY, height: 32, left: 16, right: 300 })) })
+      // (a key_buttons pane stands for the strip, added AFTER the widget: making the widget lays the made-up page out
+      // anew, and a selection draws the todoer's own bar, which replaces a made-up `.todoer-bin-buttons`)
+      const stripBg = a.body.appendChild(new WinDomNode('div', { className: 'key-buttons-bg desktop' }))
+      const strip = stripBg.appendChild(new WinDomNode('div', { className: 'key-buttons-bg-pane' }))
+      strip.getBoundingClientRect = () => ({ top: 648, bottom: 700, left: 0, right: 320, width: 320, height: 52 })
+      const stripSeen = [a.env._row_strip_top({ left: 16, right: 300 })]
       let scrollEvents = 0
       a.doc.addEventListener('scroll', () => scrollEvents++, true)
       // (1) local selection in middle of page (620), row in view -> stays at 620, first hold stands, zero scroll events
@@ -12879,7 +12889,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const h2 = a.win._todoer_windows.hold
       await Promise.resolve()
       const recvMid = [a.getScrollTop(), a.win._todoer_windows.hold === h2, scrollEvents, a.getBox()]
-      // (3) row partly behind strip at 620 (bottom 1262 > 1260, <= 1320) -> moves to 702 (new hold)
+      // (3) row 1 px behind the strip at 620 (bottom 1269 > 1268) -> moves to 709 (new hold)
       a.fireWin('wheel')
       a.setScrollTop(620)
       a.env._select_item(aItems.rs_strip)
@@ -12887,7 +12897,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       await Promise.resolve()
       const behindStrip = [a.getScrollTop(), a.win._todoer_windows.hold === h3]
-      // (4) row at window's upper edge (y=624 < 620+8) -> moves to home (500)
+      // (4) row 1 px above the window's upper edge (y=619 < 620) -> moves to home (500)
       a.fireWin('wheel')
       a.setScrollTop(620)
       a.env._select_item(aItems.rs_edge)
@@ -12901,10 +12911,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       await Promise.resolve()
       const aboveUpperEdge = a.getScrollTop()
+      stripSeen.push(a.env._row_strip_top({ left: 16, right: 300 })) // (still there after the selections)
       check(
-        'windows stay in view: middle of page stays with same hold (local and received), row partly behind strip moves, row at or above window upper edge moves to home',
-        [localMid, recvMid, behindStrip, atUpperEdge, aboveUpperEdge],
-        [[620, true, 0, '#rs_in1'], [620, true, 0, '#rs_in2'], [702, false], 500, 500]
+        'windows stay in view: middle of page stays with same hold (local and received, each touching an edge), a row 1 px behind the strip moves, a row 1 px or well above the window upper edge moves to home',
+        [stripSeen, localMid, recvMid, behindStrip, atUpperEdge, aboveUpperEdge],
+        [[648, 648], [620, true, 0, '#rs_in1'], [620, true, 0, '#rs_in2'], [709, false], 500, 500]
       )
     }
 
@@ -12919,9 +12930,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       a.env._send_toggle(true)
       bus.flush()
-      // 9 rows at 36px pitch starting at 1000 (height 32, fallback foot=64, low=560):
-      // rows 0..2 fit from 500 (<=1136); row 3 (bottom 1140) moves to 580 (limit 1216);
-      // rows 4..5 fit from 580; row 6 (bottom 1248) moves to 688 (limit 1324); rows 7..8 fit from 688
+      // 9 rows at 36px pitch starting at 1000 (height 32, no strip: readable down to the window's lower edge; placed with low=560):
+      // rows 0..4 are readable from 500 (bottoms <= 1200); row 5 (bottom 1212) is clipped and moves to 1212-560 = 652;
+      // rows 6..8 are readable from 652 (bottoms <= 1352)
       const rows = []
       const itemsA = []
       for (let i = 0; i < 9; i++) {
@@ -12954,8 +12965,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         'windows j walk down long list: stays for each row in view, moves once by depth rule when leaving view, and stays again for next rows',
         [tops, sameHolds, bBoxes],
         [
-          [500, 500, 500, 580, 580, 580, 688, 688, 688],
-          [true, true, true, false, true, true, false, true, true],
+          [500, 500, 500, 500, 500, 652, 652, 652, 652],
+          [true, true, true, true, true, false, true, true, true],
           ['#jw_0', '#jw_1', '#jw_2', '#jw_3', '#jw_4', '#jw_5', '#jw_6', '#jw_7', '#jw_8'],
         ]
       )
