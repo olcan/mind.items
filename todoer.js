@@ -59,7 +59,9 @@ const _todoer = _item('$id')
 // - A non-todo item an agent wrote with the item tool (past this kind's baseline in the account,
 //   within the stamp map's latest hundred items) shows in the main list with an `item` bell, its
 //   name and its first line until cleared (`b`, the bell, or the done bin), edited, or evicted by
-//   newer stamped items; a chat that waits both ways keeps its `reply` row.
+//   newer stamped items; a chat that waits both ways keeps its `reply` row. On either waiting row
+//   (`reply` or `item`), wiki links in the line open as links (clicking one opens the file without
+//   selecting the row) while tags, markdown links, addresses, and markup stay plain text.
 // - A todo that came up for you carries a bell with its kind (its reason in the main list, or
 //   `checkin` on a delegated todo whose agent checked in while going on working). The bell stays
 //   even after a check-in's marker returns to working; click the bell to clear it while keeping the
@@ -331,10 +333,12 @@ function __render(widget, widget_item) {
       const key = _wait_key_of(item, waits)
       container.setAttribute('data-wait-key', key)
       container.title = `${waits}: waits on you; click the bell or drop it on done to clear it\n${[name, line].join(' ').trim()}`
-      // the name as a tag, then the line as TEXT: neither a chat reply nor a write preview
-      // becomes a link here (a click on it selects the item, as elsewhere)
-      div.innerHTML = `<mark class="waits">${waits}</mark> ` + (name ? _mark_tags(_.escape(name)) + ' ' : '')
-      div.append(line)
+      // the name as a tag, then the escaped line with its wiki links alone (the app's builder):
+      // everything else in a chat reply or write preview stays text
+      div.innerHTML =
+        `<mark class="waits">${waits}</mark> ` +
+        (name ? _mark_tags(_.escape(name)) + ' ' : '') +
+        _link_wiki(_.escape(line))
       // the bell's own click clears the row (as its drop on the done bin does), not the row's
       const bell = div.querySelector?.('mark.waits')
       if (bell)
@@ -343,6 +347,7 @@ function __render(widget, widget_item) {
           e.preventDefault()
           if (_clear_waiting(item, key)) _rerender_todoer_widgets()
         }
+      _wire_row_links(div)
       div.onclick = e => {
         e.stopPropagation() // do not propagate click to item
         e.preventDefault()

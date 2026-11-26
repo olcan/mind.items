@@ -4467,6 +4467,235 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ]
         )
       }
+
+      // 14. wiki links in waiting rows (reply and agent-written item): the line is escaped first,
+      //     only the app's own builder writes wiki anchors, everything else stays text, hostile
+      //     inputs never become markup or live links, absent builder keeps rows as before, and
+      //     _wire_row_links stops anchor clicks so clicking a wiki link does not select the row
+      {
+        const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
+        const config = { url: 'x://h/f' }
+        const packed = { url: 'vscode-insiders://olcan.auto-open-obsidian/link/{link}', root: '/vault' }
+        const parseAnchors = html => {
+          const out = []
+          for (const m of String(html ?? '').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)) {
+            const attrs = {}
+            for (const a of m[1].matchAll(/([a-zA-Z0-9_-]+)(?:="([^"]*)")?/g)) attrs[a[1]] = a[2] ?? ''
+            out.push({
+              attrs,
+              href: attrs.href ?? '',
+              title: attrs.title ?? '',
+              innerText: m[2],
+              target: undefined,
+              onclick: null,
+              hasAttribute(name) { return name in this.attrs },
+              getAttribute(name) { return this.attrs[name] ?? null },
+            })
+          }
+          return out
+        }
+        const withAnchors = w => {
+          const origCreate = w.ctx.document.createElement.bind(w.ctx.document)
+          w.ctx.document.createElement = tag => {
+            const el = origCreate(tag)
+            const origQsa = el.querySelectorAll.bind(el)
+            el.querySelectorAll = sel => {
+              if (sel == 'a') {
+                if (el._anchorsHtml !== el.innerHTML) {
+                  el._anchorsHtml = el.innerHTML
+                  el._anchors = parseAnchors(el.innerHTML)
+                }
+                return el._anchors
+              }
+              return origQsa(sel)
+            }
+            return el
+          }
+          return w
+        }
+        const setWiki = (w, cfg) => {
+          if (cfg === false) {
+            delete w.ctx.window._wiki_link_regexp
+            delete w.ctx.window._wiki_link_html
+          } else if (cfg === 'no-builder') {
+            w.ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
+            delete w.ctx.window._wiki_link_html
+          } else {
+            w.ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
+            w.ctx.window._wiki_link_html = (target, alias, options) => wiki.wikiLinkHtml(cfg, target, alias, options)
+          }
+          w.render()
+          return w
+        }
+        const replyRow = (line, cfg = config) => {
+          const w = setWiki(withAnchors(chatting({ text: REPLY.replace('Two parts: alpha and beta.', line) })), cfg)
+          return { w, row: w.rows().find(r => r.getAttribute('data-id') == 'chat') }
+        }
+        const itemRow = (text, cfg = config, opts = {}) => {
+          const w = setWiki(withAnchors(writing({ text, render: false, ...opts })), cfg)
+          return { w, row: w.rows().find(r => r.getAttribute('data-id') == 'note') }
+        }
+        const replyHtml = (line, cfg = config) => replyRow(line, cfg).row.children[0].innerHTML
+        const itemHtml = (text, cfg = config, opts = {}) => itemRow(text, cfg, opts).row.children[0].innerHTML
+        const RPFX = '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> '
+        const IPFX = '<mark class="waits">item</mark> <mark>#notes/a</mark> '
+
+        // reply row: wiki link + markdown script link + url + tag + raw html in one line (under 120 chars)
+        const mixedReply = replyHtml('See [[docs/x]] and [the plan](javascript:alert(1)) and https://example.com/x and #tag and <b>hi</b>')
+        const aliasedReply = replyHtml('See [[notes/A&B|see #topic [x](y)]] and #tag and https://example.com/x')
+        check(
+          'waits wiki (reply): wiki links become app anchors; markdown script link, url, tag, and markup stay text',
+          [mixedReply, aliasedReply, /target=|rel=|\son\w+=/.test(mixedReply + aliasedReply)],
+          [
+            RPFX +
+              'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> ' +
+              'and [the plan](javascript:alert(1)) and https://example.com/x and #tag and &lt;b&gt;hi&lt;/b&gt;',
+            RPFX +
+              'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;notes&#37;2FA&#37;26B" title="notes&#47;A&#38;B" data-wiki-link>see &#35;topic &#91;x&#93;&#40;y&#41;</a> ' +
+              'and #tag and https://example.com/x',
+            false,
+          ]
+        )
+        check(
+          'waits wiki (reply): packed config with #diff builds packed anchor with diff title',
+          replyHtml('Review [[docs/x#diff|the diff]]', packed),
+          RPFX + 'Review <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>'
+        )
+
+        // agent-written item rows: named and unnamed
+        check(
+          'waits wiki (item, named): wiki link becomes app anchor; markdown script link, url, and tag stay text',
+          itemHtml('#notes/a\nSee [[docs/x|guide]] and [bad](javascript:alert(1)) and https://example.com/x and #tag'),
+          IPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>guide</a> and [bad](javascript:alert(1)) and https://example.com/x and #tag'
+        )
+        check(
+          'waits wiki (item, unnamed): wiki link becomes app anchor; markdown script link stays text',
+          itemHtml('See [[docs/x]] and [bad](javascript:alert(1))\nSecond line', config, { label: '', name: 'id:note' }),
+          '<mark class="waits">item</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> and [bad](javascript:alert(1))'
+        )
+
+        // hostile cases (exact HTML expected)
+        check(
+          'waits wiki hostile (quotes): double-quote path refused and escaped; single-quote path and quoted alias encoded',
+          [
+            replyHtml('Path [[docs/a" onclick="alert(1)]] stays'),
+            replyHtml("Open [[docs/a'b|say \"hi\" & 'bye']] now"),
+          ],
+          [
+            RPFX + 'Path [[docs/a&quot; onclick=&quot;alert(1)]] stays',
+            RPFX + 'Open <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fa&#39;b" title="docs&#47;a&#39;b" data-wiki-link>say &#34;hi&#34; &#38; &#39;bye&#39;</a> now',
+          ]
+        )
+        check(
+          'waits wiki hostile (angle brackets): path refused, alias and fragment encoded, surrounding html escaped',
+          [
+            replyHtml('Bad [[docs/<script>alert(1)</script>]] here'),
+            replyHtml('See [[docs/x|</a><img src=x onerror=alert(1)>]] here'),
+            replyHtml('See [[docs/x#<img src=x>]] here'),
+            replyHtml('<img src=x onerror=alert(1)> [[docs/x]]'),
+          ],
+          [
+            RPFX + 'Bad [[docs/&lt;script&gt;alert(1)&lt;/script&gt;]] here',
+            RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>&#60;&#47;a&#62;&#60;img src&#61;x onerror&#61;alert&#40;1&#41;&#62;</a> here',
+            RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x&#35;&#60;img src&#61;x&#62;</a> here',
+            RPFX + '&lt;img src=x onerror=alert(1)&gt; <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+          ]
+        )
+        check(
+          'waits wiki hostile (second pair of brackets): nested brackets in path or alias keep outer text literal; single brackets in alias stay encoded',
+          [
+            replyHtml('Try [[docs/a[[docs/b]]]] end'),
+            replyHtml('Try [[docs/x|a [[docs/y]] b]] end'),
+            replyHtml('Try [[docs/x|see [bad](javascript:alert(1))]] end'),
+          ],
+          [
+            RPFX + 'Try [[docs/a<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fb" title="docs&#47;b" data-wiki-link>docs&#47;b</a>]] end',
+            RPFX + 'Try [[docs/x|a <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>docs&#47;y</a> b]] end',
+            RPFX + 'Try <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>see &#91;bad&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;</a> end',
+          ]
+        )
+        check(
+          'waits wiki hostile (script address): javascript target refused; wiki link plus markdown script link in one line links only the first',
+          [
+            replyHtml('No [[javascript:alert(1)]] or [[javascript:alert(1)|click]]'),
+            replyHtml('See [[docs/x]] and [the plan](javascript:alert(1))'),
+          ],
+          [
+            RPFX + 'No [[javascript:alert(1)]] or [[javascript:alert(1)|click]]',
+            RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> and [the plan](javascript:alert(1))',
+          ]
+        )
+        check(
+          'waits wiki hostile (character references): named and numeric refs stay literal and never decode into tags or schemes',
+          [
+            replyHtml('Ref [[docs/x|&lt;script&gt; &#60;b&#62; &quot;q&quot;]] end'),
+            replyHtml('Ref [[docs/&lt;x]] and [[javascript&#58;alert(1)]] and [[../&lt;x]]'),
+          ],
+          [
+            RPFX + 'Ref <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>&#38;lt&#59;script&#38;gt&#59; &#38;&#35;60&#59;b&#38;&#35;62&#59; &#38;quot&#59;q&#38;quot&#59;</a> end',
+            RPFX + 'Ref <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2F&#37;26lt&#37;3Bx" title="docs&#47;&#38;lt&#59;x" data-wiki-link>docs&#47;&#38;lt&#59;x</a> and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;javascript&#37;26" title="javascript&#38;" data-wiki-link>javascript&#38;&#35;58&#59;alert&#40;1&#41;</a> and [[../&amp;lt;x]]',
+          ]
+        )
+        check(
+          'waits wiki hostile (refused paths): traversal, absolute, and backslash targets stay as written',
+          replyHtml('No [[../secret]] [[/etc/passwd]] [[a\\b]]'),
+          RPFX + 'No [[../secret]] [[/etc/passwd]] [[a\\b]]'
+        )
+
+        // no builder / setting off: row stays as today
+        check(
+          'waits wiki (no builder or off): reply and item rows keep wiki links literal and escaped',
+          [
+            replyHtml('See [[docs/x]] and <b>hi</b>', false),
+            replyHtml('See [[docs/x]] and <b>hi</b>', 'no-builder'),
+            replyHtml('See [[docs/x]] and <b>hi</b>', null),
+            itemHtml('#notes/a\nSee [[docs/x]] and <b>hi</b>', false),
+            itemHtml('#notes/a\nSee [[docs/x]] and <b>hi</b>', 'no-builder'),
+            itemHtml('#notes/a\nSee [[docs/x]] and <b>hi</b>', null),
+          ],
+          [
+            RPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            RPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            RPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            IPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            IPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            IPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+          ]
+        )
+
+        // click wiring on waiting rows: clicking the wiki anchor stops propagation (does not select
+        // the row) and keeps default (no target); clicking the row still selects the item
+        const clickProbe = ({ w, row }) => {
+          const div = row.children[0]
+          const anchors = div.querySelectorAll('a')
+          const ev = { stopped: 0, prevented: 0, stopPropagation() { this.stopped++ }, preventDefault() { this.prevented++ } }
+          anchors[0]?.onclick?.(ev)
+          if (!ev.stopped) div.onclick?.(ev)
+          const afterLink = [...w.called]
+          const rowEv = { stopped: 0, prevented: 0, stopPropagation() { this.stopped++ }, preventDefault() { this.prevented++ } }
+          div.onclick?.(rowEv)
+          const afterRow = [...w.called]
+          return {
+            count: anchors.length,
+            target: anchors[0]?.target,
+            stopped: ev.stopped,
+            prevented: ev.prevented,
+            afterLink,
+            afterRow,
+          }
+        }
+        check(
+          'waits wiki (click wiring): clicking a wiki link in a reply or item row keeps default, has no target, and does not select the row; clicking the row selects it',
+          [
+            clickProbe(replyRow('See [[docs/x]] here')),
+            clickProbe(itemRow('#notes/a\nSee [[docs/x]] here')),
+          ],
+          [
+            { count: 1, target: undefined, stopped: 1, prevented: 0, afterLink: [], afterRow: ['select'] },
+            { count: 1, target: undefined, stopped: 1, prevented: 0, afterLink: [], afterRow: [['select', 'note']] },
+          ]
+        )
+      }
     }
     context.__now = null
   }
