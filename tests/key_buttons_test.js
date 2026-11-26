@@ -71,7 +71,7 @@ const asked = []
 const dialog = { answer: true }
 page.getElementById = id => open.fields[id] ?? null
 const win = Object.assign(new FakeNode('window'), {
-  innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }),
+  innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { origin: 'https://olcan.com', reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }),
   _items: () => open.items,
   _reload: () => { reloads.push('page'); return Promise.resolve(true) },
   _modal: text => { asked.push(text); return typeof dialog.answer == 'function' ? dialog.answer() : Promise.resolve(dialog.answer) },
@@ -105,7 +105,7 @@ const evaluation = (deephash, id = 'keys-id', own = tasks, source = code) => {
       return (own[name] = { fn, delay, repeat })
     },
   }
-  const context = vm.createContext({ _this, _item: label => items[label] ?? null, document: page, window: win, KeyboardEvent: FakeKey, Date: { now: () => clock.now } })
+  const context = vm.createContext({ _this, _item: label => items[label] ?? null, document: page, window: win, KeyboardEvent: FakeKey, URL, Date: { now: () => clock.now } })
   vm.runInContext(source, context)
   context.key_buttons_caret_line = () => caret.line // the measuring is the browser lane's
   return Object.assign((src, args) => { context.__args = args; return vm.runInContext(src, context) }, { item: _this })
@@ -1779,6 +1779,448 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
         ['key buttons: a tap on "left" was not taken: it did not start on this button'],
         [1, 1],
         [0, 0, [1]],
+      ])
+
+    // ---- key_buttons_busy (long animation frames) ----
+    const busy = (frames, from, to) => v1('key_buttons_busy(__args.frames, __args.from, __args.to)', { frames, from, to })
+    check('diagnostics busy overlap: empty on null/empty or non-overlapping frames, strict edges at from and to, includes overlapping frames',
+      [
+        busy(null, 100, 200),
+        busy([], 100, 200),
+        busy([
+          { startTime: 20, duration: 50, scripts: [{ duration: 50, invokerType: 'event-listener', invoker: 'DIV.onclick' }] },
+          { startTime: 50, duration: 50, scripts: [{ duration: 50, invokerType: 'event-listener', invoker: 'SPAN.onclick' }] },
+          { startTime: 200, duration: 50, scripts: [{ duration: 50, invokerType: 'event-listener', invoker: 'A.onclick' }] },
+          { startTime: 250, duration: 50, scripts: [{ duration: 50, invokerType: 'event-listener', invoker: 'P.onclick' }] },
+        ], 100, 200),
+        busy([
+          { startTime: 50, duration: 51, scripts: [{ duration: 51, invokerType: 'event-listener', invoker: 'BUTTON.onclick' }] },
+          { startTime: 199, duration: 50, scripts: [{ duration: 50, invokerType: 'user-callback', invoker: 'FrameRequestCallback' }] },
+        ], 100, 200),
+      ],
+      ['', '', '', '; the browser names 2 long frames: 51 ms event-listener BUTTON.onclick; 50 ms user-callback FrameRequestCallback'])
+
+    check('diagnostics busy scripts: top four longest scripts across frames, the kind and the safe invoker alone (no function, file or place, whatever the address), forced style/layout only from 50 ms',
+      [
+        busy([
+          {
+            startTime: 100,
+            duration: 900,
+            scripts: [
+              { duration: 80, invokerType: 'classic-script', invoker: 'https://olcan.com/_app/immutable/chunks/fifth.js', sourceURL: 'https://olcan.com/_app/immutable/chunks/fifth.js', sourceCharPosition: 1 },
+              { duration: 450.4, invokerType: 'event-listener', invoker: 'SPAN.onclick', sourceFunctionName: 'onTag', sourceURL: 'https://olcan.com/_app/immutable/nodes/2.DC9Vbosy.js?v=2#frag', sourceCharPosition: 42, forcedStyleAndLayoutDuration: 84.6 },
+              { duration: 120, invokerType: 'weird-kind', sourceFunctionName: 'App.fn_1', sourceURL: 'https://olcan.com/_app/immutable/workers/kdf_worker-DhNkOoTV.js?q=1', sourceCharPosition: -1, forcedStyleAndLayoutDuration: 49.9 },
+            ],
+          },
+          {
+            startTime: 200,
+            duration: 600,
+            scripts: [
+              { duration: 310, invokerType: 'user-callback', invoker: 'TimerHandler:setTimeout', sourceURL: 'https://olcan.com/_app/immutable/chunks/BTOe9b8E.js#hash', sourceCharPosition: 0, forcedStyleAndLayoutDuration: 50 },
+              { duration: 200, invokerType: 'resolve-promise', invoker: 'import.then', sourceFunctionName: 'bad fn name', sourceURL: 'https://olcan.com/_app/immutable/entry/app.BJVqzvZH.js', sourceCharPosition: null },
+            ],
+          },
+        ], 100, 1000),
+        busy([
+          {
+            startTime: 100,
+            duration: 400,
+            scripts: [
+              { duration: 300, invokerType: 'module-script', invoker: 'https://olcan.com/_app/immutable/chunks/BTOe9b8E.js', sourceFunctionName: 'a'.repeat(61), sourceURL: 'https://olcan.com/_app/immutable/chunks/BTOe9b8E.js', sourceCharPosition: 9 },
+              { duration: 200, invokerType: 'user-callback', invoker: 'MessagePort.onmessage', sourceFunctionName: 'okFn', sourceURL: `https://olcan.com/_app/immutable/chunks/${'x'.repeat(78)}.js`, sourceCharPosition: 3 },
+              { duration: 150, invokerType: 'event-listener', invoker: 'DOMWindow.onkeydown', sourceURL: 'https://olcan.com/_app/immutable/chunks/../../file/secret.js', sourceFunctionName: 'leak', sourceCharPosition: 5 },
+              { duration: 120, invokerType: 'user-callback', invoker: 'Window.onmessage', sourceURL: 'blob:https://olcan.com/_app/immutable/chunks/blob.js', sourceFunctionName: 'blobFn', sourceCharPosition: 2 },
+            ],
+          },
+        ], 100, 600),
+      ],
+      [
+        '; the browser names 2 long frames: 450 ms event-listener SPAN.onclick, 85 ms of it forced style/layout; 310 ms user-callback TimerHandler:setTimeout, 50 ms of it forced style/layout; 200 ms resolve-promise; 120 ms script',
+        '; the browser names 1 long frame: 300 ms module-script; 200 ms user-callback MessagePort.onmessage; 150 ms event-listener Window.onkeydown; 120 ms user-callback Window.onmessage',
+      ])
+
+    // the invoker strings as Chromium 151 gave them in a probe (2026-11-26): a listener on the document
+    // carries its node name, the window `DOMWindow`, an SVG element its lowercase tag
+    check('diagnostics busy invokers as the browser gives them: the document, the window, an SVG element, a custom element, a message port, and a promise step',
+      busy([
+        {
+          startTime: 100,
+          duration: 900,
+          scripts: [
+            { duration: 160, invokerType: 'event-listener', invoker: '#document.onclick' },
+            { duration: 150, invokerType: 'event-listener', invoker: 'DOMWindow.onkeydown' },
+            { duration: 140, invokerType: 'event-listener', invoker: 'circle#c.onclick' },
+            { duration: 130, invokerType: 'event-listener', invoker: 'MY-WIDGET#w.onclick' },
+          ],
+        },
+        {
+          startTime: 1000,
+          duration: 400,
+          scripts: [
+            { duration: 120, invokerType: 'event-listener', invoker: 'MessagePort.onmessage' },
+            { duration: 110, invokerType: 'resolve-promise', invoker: 'Window.fetch.then' },
+          ],
+        },
+      ], 100, 1400).replace(/^; the browser names 2 long frames: /, '').split('; ').slice(0, 4).concat(
+        busy([{ startTime: 1000, duration: 400, scripts: [{ duration: 120, invokerType: 'event-listener', invoker: 'MessagePort.onmessage' }, { duration: 110, invokerType: 'resolve-promise', invoker: 'Window.fetch.then' }] }], 1000, 1400).replace(/^; the browser names 1 long frame: /, '').split('; ')
+      ),
+      [
+        '160 ms event-listener Document.onclick',
+        '150 ms event-listener Window.onkeydown',
+        '140 ms event-listener CIRCLE.onclick',
+        '130 ms event-listener element.onclick',
+        '120 ms event-listener MessagePort.onmessage',
+        '110 ms resolve-promise',
+      ])
+
+    const loafPrivacyLines = [
+      busy([{ startTime: 100, duration: 300, scripts: [
+        { duration: 300, invokerType: 'event-listener', invoker: 'H2#quarterly-payroll-s1.onclick', sourceFunctionName: 'fnSecretS1', sourceURL: '', sourceCharPosition: 11 },
+        { duration: 250, invokerType: 'event-listener', invoker: 'DIV.secret-class-s2.onclick', sourceFunctionName: 'fnSecretS2', sourceURL: 'https://olcan.com/file/item-secret-s2.js?q=qS2#fS2', sourceCharPosition: 22 },
+        { duration: 200, invokerType: 'event-listener', invoker: 'PAYROLL-CARD-S3#id-s3.onclick', sourceFunctionName: 'fnSecretS3', sourceURL: 'https://olcan.com/vendor/cdn.example/secret-s3.js', sourceCharPosition: 33 },
+        { duration: 150, invokerType: 'classic-script', invoker: 'https://other.example/file-secret-s4.js?tok=qSecretS4#fragSecretS4', sourceFunctionName: 'fnSecretS4', sourceURL: 'https://other.example/file-secret-s4.js?tok=qSecretS4#fragSecretS4', sourceCharPosition: 44 },
+      ] }], 100, 500),
+      busy([{ startTime: 100, duration: 300, scripts: [
+        { duration: 300, invokerType: 'event-listener', invoker: 'IMG[src="https://secret.example/img-s5.png?tok=qS5#fS5"].onload', sourceFunctionName: 'fnSecretS5', sourceURL: 'https://olcan.com/proxy/http://127.0.0.1/secret-s5.js', sourceCharPosition: 55 },
+        { duration: 250, invokerType: 'module-script', invoker: 'https://olcan.com/_app/immutable/nodes/fileShapedS6.js?tok=invQueryS6#invFragS6', sourceFunctionName: 'fnShapedS6', sourceURL: 'https://olcan.com/_app/immutable/nodes/fileShapedS6.js?tok=srcQueryS6#srcFragS6', sourceCharPosition: 15 },
+        { duration: 200, invokerType: 'event-listener', invoker: 'BUTTON#idS7.onsecretEventS7', sourceFunctionName: 'fnSecretS7', sourceURL: 'https://olcan.com/', sourceCharPosition: 77 },
+        { duration: 150, invokerType: 'user-callback', invoker: 'customCbSecretS8', sourceFunctionName: 'fnSecretS8', sourceURL: 'https://other.example/_app/immutable/chunks/evilS8.js', sourceCharPosition: 88 },
+      ] }], 100, 500),
+    ]
+    const loafSentinels = [
+      'quarterly-payroll-s1', 'fnSecretS1', 'secret-class-s2', 'fnSecretS2', 'item-secret-s2', 'qS2', 'fS2',
+      'PAYROLL-CARD-S3', 'payroll-card-s3', 'id-s3', 'fnSecretS3', 'secret-s3',
+      'file-secret-s4', 'qSecretS4', 'fragSecretS4', 'fnSecretS4', 'other.example',
+      'img-s5', 'qS5', 'fS5', 'secret.example', 'fnSecretS5', 'secret-s5',
+      'fileShapedS6', 'fnShapedS6', 'invQueryS6', 'invFragS6', 'srcQueryS6', 'srcFragS6', '_app', ':15',
+      'idS7', 'secretEventS7', 'fnSecretS7', 'customCbSecretS8', 'fnSecretS8', 'evilS8',
+    ]
+    const loafAll = loafPrivacyLines.join('\n')
+    check('diagnostics busy privacy: never leaks heading ids, classes, custom tags, function or file names (an app-shaped address included), URL queries/fragments, image sources, or raw invokers while keeping safe attribution',
+      [loafSentinels.filter(s => loafAll.includes(s)), loafPrivacyLines],
+      [
+        [],
+        [
+          '; the browser names 1 long frame: 300 ms event-listener H2.onclick; 250 ms event-listener DIV.onclick; 200 ms event-listener element.onclick; 150 ms classic-script',
+          '; the browser names 1 long frame: 300 ms event-listener IMG.onload; 250 ms module-script; 200 ms event-listener; 150 ms user-callback',
+        ],
+      ])
+
+    check('diagnostics busy render & empty: sums time from style/layout start to frame end only from 50 ms, singular/plural frame, no script when empty',
+      [
+        busy([{ startTime: 100, duration: 120, scripts: [] }], 100, 250),
+        busy([{ startTime: 100, duration: 80, styleAndLayoutStart: 155 }, { startTime: 180, duration: 80, styleAndLayoutStart: 236 }], 100, 300),
+        busy([{ startTime: 100, duration: 80, styleAndLayoutStart: 150 }, { startTime: 180, duration: 80, styleAndLayoutStart: 235 }], 100, 300),
+        busy([{ startTime: 100, duration: 100, styleAndLayoutStart: 0 }, { startTime: 120, duration: 50, styleAndLayoutStart: 200 }], 100, 300),
+      ],
+      [
+        '; the browser names 1 long frame: no script',
+        '; the browser names 2 long frames: no script',
+        '; the browser names 2 long frames: no script; 55 ms from style/layout start to frame end',
+        '; the browser names 2 long frames: no script',
+      ])
+
+    // ---- key_buttons_busy_events (Event Timing fallback: Safari 26.2+, Firefox) ----
+    const busyEvents = (events, from, to) => v1('key_buttons_busy_events(__args.events, __args.from, __args.to)', { events, from, to })
+    check('diagnostics busy events overlap & order: empty on null/empty/edges, top three longest in order, singular/plural event',
+      [
+        busyEvents(null, 100, 200),
+        busyEvents([], 100, 200),
+        busyEvents([
+          { name: 'click', startTime: 50, duration: 50, processingStart: 51, processingEnd: 99 },
+          { name: 'click', startTime: 200, duration: 50, processingStart: 201, processingEnd: 249 },
+        ], 100, 200),
+        busyEvents([
+          { name: 'click', startTime: 1000, duration: 1650, processingStart: 1012, processingEnd: 2642, target: { tagName: 'SPAN', className: 'tag extra', textContent: 'secret note', value: 'secret val' } },
+        ], 900, 2700),
+        busyEvents([
+          { name: 'keydown', startTime: 50, duration: 51, processingStart: 51, processingEnd: 95, target: { tagName: 'TEXTAREA', id: 'box' } },
+          { name: 'click', startTime: 110, duration: 400, processingStart: 120, processingEnd: 500, target: { tagName: 'BUTTON', className: 'go' } },
+          { name: 'pointerup', startTime: 115, duration: 300, processingStart: 125, processingEnd: 410, target: { tagName: 'BUTTON' } },
+          { name: 'input', startTime: 199, duration: 150, processingStart: 198.5, processingEnd: 340, target: null },
+        ], 100, 200),
+      ],
+      [
+        '',
+        '',
+        '',
+        '; the browser names 1 slow event: 1650 ms click on SPAN (waited 12 ms, handled for 1630 ms)',
+        '; the browser names 4 slow events: 400 ms click on BUTTON (waited 10 ms, handled for 380 ms); 300 ms pointerup on BUTTON (waited 10 ms, handled for 285 ms); 150 ms input (waited 0 ms, handled for 142 ms)',
+      ])
+    check('diagnostics busy events ranking: slow handler beats earlier 0 ms hover/pointer events sharing the same delayed paint, and interactionId breaks equal-duration 0 ms ties',
+      [
+        busyEvents([
+          { name: 'pointerover', startTime: 1000, duration: 1512, processingStart: 1000, processingEnd: 1000, interactionId: 0, target: { tagName: 'BUTTON', id: 'go' } },
+          { name: 'pointerenter', startTime: 1000, duration: 1504, processingStart: 1000, processingEnd: 1000, interactionId: 0, target: null },
+          { name: 'pointerdown', startTime: 1004, duration: 1504, processingStart: 1004, processingEnd: 1004, interactionId: 7, target: { tagName: 'BUTTON', id: 'go' } },
+          { name: 'click', startTime: 1004, duration: 1504, processingStart: 1004, processingEnd: 2504, interactionId: 7, target: { tagName: 'BUTTON', id: 'go' } },
+        ], 900, 2600),
+      ],
+      ['; the browser names 4 slow events: 1504 ms click on BUTTON (waited 0 ms, handled for 1500 ms); 1512 ms pointerover on BUTTON (waited 0 ms, handled for 0 ms); 1504 ms pointerdown on BUTTON (waited 0 ms, handled for 0 ms)'])
+
+    const evTargetLines = [
+      busyEvents([{ name: 'click', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: { tagName: 'H2', id: 'quarterly-payroll-e1', className: 'cls-secret-e1 other', textContent: 'private diary e1', innerText: 'private diary e1', value: 'secret-val-e1' } }], 100, 300),
+      busyEvents([{ name: 'click', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: { tagName: 'SPAN', id: '  ', className: '  cls-secret-e2  other ', textContent: 'private diary e2', value: 'secret-val-e2' } }], 100, 300),
+      busyEvents([{ name: 'click', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: { tagName: 'svg', className: { baseVal: 'icon-secret-e3 spin' }, textContent: 'private diary e3' } }], 100, 300),
+      busyEvents([{ name: 'click', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: { tagName: 'DIV', classList: ['list-secret-e4', 'second-cls'], className: 'other', textContent: 'private diary e4' } }], 100, 300),
+      busyEvents([{ name: 'click', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: { tagName: 'PAYROLL-WIDGET-E5', id: 'id-e5', className: 'cls-e5', textContent: 'private diary e5' } }], 100, 300),
+      busyEvents([{ name: 'secret-event-e6', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: { tagName: 'BUTTON', id: 'id-e6', textContent: 'private diary e6' } }], 100, 300),
+      busyEvents([{ name: 'click', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: null }], 100, 300),
+      busyEvents([{ name: 'click', startTime: 100, duration: 200, processingStart: 105, processingEnd: 295, target: { nodeType: 3, nodeValue: 'private diary e7' } }], 100, 300),
+    ]
+    const evSentinels = [
+      'quarterly-payroll-e1', 'cls-secret-e1', 'private diary', 'secret-val-e1',
+      'cls-secret-e2', 'secret-val-e2', 'icon-secret-e3', 'list-secret-e4',
+      'PAYROLL-WIDGET-E5', 'payroll-widget-e5', 'id-e5', 'cls-e5', 'secret-event-e6', 'id-e6',
+    ]
+    const evTargetAll = evTargetLines.join('\n')
+    check('diagnostics busy events target: uses standard HTML/SVG tag alone or element fallback, never id, class, custom tag, event name outside list, text, or value, omits target when gone or non-element',
+      [evSentinels.filter(s => evTargetAll.includes(s)), evTargetLines],
+      [
+        [],
+        [
+          '; the browser names 1 slow event: 200 ms click on H2 (waited 5 ms, handled for 190 ms)',
+          '; the browser names 1 slow event: 200 ms click on SPAN (waited 5 ms, handled for 190 ms)',
+          '; the browser names 1 slow event: 200 ms click on SVG (waited 5 ms, handled for 190 ms)',
+          '; the browser names 1 slow event: 200 ms click on DIV (waited 5 ms, handled for 190 ms)',
+          '; the browser names 1 slow event: 200 ms click on element (waited 5 ms, handled for 190 ms)',
+          '; the browser names 1 slow event: 200 ms event on BUTTON (waited 5 ms, handled for 190 ms)',
+          '; the browser names 1 slow event: 200 ms click (waited 5 ms, handled for 190 ms)',
+          '; the browser names 1 slow event: 200 ms click (waited 5 ms, handled for 190 ms)',
+        ],
+      ])
+
+    // ---- ticker with stand-in PerformanceObserver (long-animation-frame, event, both, none, throwing) ----
+    const runClock = ({ supportedEntryTypes, ctorThrows = false, observeThrows = false } = {}) => {
+      const cWarns = []
+      const cIntervals = []
+      const cTimers = []
+      const cInstances = []
+      let cNow = 10_000
+      const cDoc = Object.assign(new FakeNode('document'), {
+        head: new FakeNode('head'),
+        body: new FakeNode('body'),
+        documentElement: new FakeNode('html'),
+        activeElement: null,
+        visibilityState: 'visible',
+        createElement: tag => new FakeNode(tag),
+        createElementNS: (_, tag) => new FakeNode(tag),
+      })
+      const cWin = Object.assign(new FakeNode('window'), {
+        innerWidth: 1000,
+        innerHeight: 800,
+        visualViewport: Object.assign(new FakeNode('viewport'), { width: 1000, height: 800, scale: 1, offsetLeft: 0, offsetTop: 0 }),
+        matchMedia: () => ({ matches: false }),
+        _items: () => [],
+      })
+      class StandInObserver {
+        constructor(cb) {
+          if (ctorThrows) throw new Error('ctor boom')
+          this.cb = cb
+          this.observed = []
+          this.disconnected = 0
+          cInstances.push(this)
+        }
+        observe(opts) {
+          this.observed.push(opts)
+          if (observeThrows) throw new Error('observe boom')
+        }
+        disconnect() {
+          this.disconnected++
+        }
+        emit(entries) {
+          this.cb({ getEntries: () => entries })
+        }
+      }
+      if (supportedEntryTypes !== undefined) StandInObserver.supportedEntryTypes = supportedEntryTypes
+      const globals = {
+        _this: { id: 'keys-id', deephash: 31, dispatch_task(name, fn, delay, repeat) { return { name, fn, delay, repeat } } },
+        _item: label => (label == '#key_buttons' ? { id: 'keys-id' } : null),
+        document: cDoc,
+        window: cWin,
+        location: cWin.location,
+        URL,
+        KeyboardEvent: FakeKey,
+        Date: class extends Date {
+          static now() { return 1_700_000_000_000 }
+          toLocaleTimeString() { return '12:00:00' }
+        },
+        performance: { now: () => cNow },
+        console: { warn: m => cWarns.push(m), error: () => {} },
+        setInterval: (fn, ms) => { const h = { fn, ms, unref() {} }; cIntervals.push(h); return h },
+        clearInterval: () => {},
+        setTimeout: (fn, ms) => { const h = { fn, ms, unref() {} }; cTimers.push(h); return h },
+      }
+      if (supportedEntryTypes !== undefined) globals.PerformanceObserver = StandInObserver
+      const cCtx = vm.createContext(globals)
+      vm.runInContext(code, cCtx)
+      vm.runInContext('_on_welcome()', cCtx)
+      return {
+        warns: cWarns,
+        timers: cTimers,
+        instances: cInstances,
+        now: () => cNow,
+        tick(advance) { cNow += advance; cIntervals[0].fn() },
+        flushTimers() { while (cTimers.length) cTimers.shift().fn() },
+        dispose() { cWin._key_buttons?.dispose() },
+      }
+    }
+
+    // 1. long-animation-frame: waits 300 ms, includes frames arriving after tick, writes one line, disconnects on dispose
+    const loaf = runClock({ supportedEntryTypes: ['long-animation-frame'] })
+    loaf.tick(1500) // from 10000 to 11500, deadline 10200, late = 1300 ms
+    const loafImmediate = [loaf.warns.length, loaf.timers.map(t => t.ms)]
+    // frame arrives AFTER the late tick, during the 300 ms wait
+    loaf.instances[0].emit([{ startTime: 10_100, duration: 1300, scripts: [{ duration: 1280, invokerType: 'event-listener', invoker: 'SPAN#secret.onclick', sourceFunctionName: 'openTag', sourceURL: 'https://olcan.com/_app/immutable/nodes/2.DC9Vbosy.js?v=1', sourceCharPosition: 7 }] }])
+    loaf.flushTimers()
+    const loafAfterWait = [...loaf.warns]
+    const loafDiscBefore = loaf.instances[0].disconnected
+    loaf.dispose()
+    const loafDiscAfter = loaf.instances[0].disconnected
+    check('diagnostics clock long-animation-frame: observes loaf, waits 300 ms for late frames, writes one line with the safe attribution, disconnects on dispose',
+      [loaf.instances.length, loaf.instances[0].observed, loafImmediate, loafAfterWait, loafDiscBefore, loafDiscAfter],
+      [
+        1,
+        [{ type: 'long-animation-frame', buffered: false }],
+        [0, [300]],
+        ['key buttons: the page did not respond for 1300 ms, until 12:00:00; the browser names 1 long frame: 1280 ms event-listener SPAN.onclick'],
+        0,
+        1,
+      ])
+
+    // 2. cap of 60 frames kept (fixtures inside the missed window 10200..11500); the five old frames'
+    // scripts take 900 ms and the sixty kept ones 100 ms, which tells them apart in the line
+    const cap = runClock({ supportedEntryTypes: ['long-animation-frame'] })
+    const oldFive = Array.from({ length: 5 }, (_, i) => ({ startTime: 10_210 + i, duration: 900, scripts: [{ duration: 900, invokerType: 'classic-script' }] }))
+    const newSixty = Array.from({ length: 60 }, (_, i) => ({ startTime: 10_220 + i, duration: 100, scripts: [{ duration: 100, invokerType: 'classic-script' }] }))
+    cap.instances[0].emit(oldFive)
+    cap.instances[0].emit(newSixty)
+    cap.tick(1500)
+    cap.flushTimers()
+    cap.dispose()
+    check('diagnostics clock cap: more than 60 long frames keep only the last 60',
+      [cap.warns.length, cap.warns[0].includes('60 long frames'), cap.warns[0].includes('100 ms classic-script'), cap.warns[0].includes('900 ms')],
+      [1, true, true, false])
+
+    // 3. attribution starts at the missed deadline (tick_at + 200), excluding entries ending by it and including entries spanning it
+    const dlLoaf = runClock({ supportedEntryTypes: ['long-animation-frame'] })
+    dlLoaf.instances[0].emit([
+      { startTime: 10_010, duration: 80, scripts: [{ duration: 80, invokerType: 'event-listener', invoker: 'DIV.onclick' }] }, // ends 10090 < 10200
+      { startTime: 10_100, duration: 100, scripts: [{ duration: 100, invokerType: 'event-listener', invoker: 'SPAN.onclick' }] }, // ends 10200 == deadline
+      { startTime: 10_150, duration: 100, scripts: [{ duration: 100, invokerType: 'event-listener', invoker: 'BUTTON.onclick' }] }, // spans 10200 -> 10250
+    ])
+    dlLoaf.tick(1500) // deadline 10200..11500
+    dlLoaf.flushTimers()
+    dlLoaf.dispose()
+    const dlEv = runClock({ supportedEntryTypes: ['event'] })
+    dlEv.instances[0].emit([
+      { name: 'keydown', startTime: 10_010, duration: 104, processingStart: 10_012, processingEnd: 10_110, target: { tagName: 'INPUT' } }, // ends 10114 < 10200
+      { name: 'pointerup', startTime: 10_080, duration: 120, processingStart: 10_082, processingEnd: 10_190, target: { tagName: 'DIV' } }, // ends 10200 == deadline
+      { name: 'click', startTime: 10_150, duration: 200, processingStart: 10_155, processingEnd: 10_340, target: { tagName: 'BUTTON' } }, // spans 10200 -> 10350
+    ])
+    dlEv.tick(1500) // deadline 10200..11500
+    dlEv.flushTimers()
+    dlEv.dispose()
+    check('diagnostics clock deadline: starts lookup at missed deadline (tick_at + 200), excludes entries ending by it and includes entries spanning it on both paths',
+      [dlLoaf.warns, dlEv.warns],
+      [
+        ['key buttons: the page did not respond for 1300 ms, until 12:00:00; the browser names 1 long frame: 100 ms event-listener BUTTON.onclick'],
+        ['key buttons: the page did not respond for 1300 ms, until 12:00:00; the browser names 1 slow event: 200 ms click on BUTTON (waited 5 ms, handled for 185 ms)'],
+      ])
+
+    // 4. disposal before delayed warning timer fires stays silent on both paths
+    const dispLoaf = runClock({ supportedEntryTypes: ['long-animation-frame'] })
+    dispLoaf.tick(1500)
+    dispLoaf.instances[0].emit([{ startTime: 10_250, duration: 400, scripts: [{ duration: 400, invokerType: 'event-listener', invoker: 'BUTTON.onclick' }] }])
+    const dispLoafPending = dispLoaf.timers.length
+    dispLoaf.dispose()
+    dispLoaf.flushTimers()
+    const dispEv = runClock({ supportedEntryTypes: ['event'] })
+    dispEv.tick(1500)
+    dispEv.instances[0].emit([{ name: 'click', startTime: 10_250, duration: 400, processingStart: 10_255, processingEnd: 10_650, target: { tagName: 'BUTTON' } }])
+    const dispEvPending = dispEv.timers.length
+    dispEv.dispose()
+    dispEv.flushTimers()
+    check('diagnostics clock dispose before delayed warn: late tick followed by disposal writes nothing when pending timer flushes',
+      [dispLoafPending, dispLoaf.warns, dispEvPending, dispEv.warns],
+      [1, [], 1, []])
+
+    // 5. unsupported, constructor throws, observe throws -> plain line written at once
+    const none = runClock({ supportedEntryTypes: [] })
+    none.tick(1500)
+    const noneRes = [none.instances.length, none.timers.length, [...none.warns]]
+    none.dispose()
+    const ctorBad = runClock({ supportedEntryTypes: ['long-animation-frame'], ctorThrows: true })
+    ctorBad.tick(1500)
+    const ctorRes = [ctorBad.instances.length, ctorBad.timers.length, [...ctorBad.warns]]
+    ctorBad.dispose()
+    const obsBad = runClock({ supportedEntryTypes: ['long-animation-frame'], observeThrows: true })
+    obsBad.tick(1500)
+    const obsRes = [obsBad.timers.length, [...obsBad.warns]]
+    obsBad.dispose()
+    const PLAIN_1300 = ['key buttons: the page did not respond for 1300 ms, until 12:00:00']
+    check('diagnostics clock fallback: unsupported or throwing PerformanceObserver/observe writes plain line at once',
+      [noneRes, ctorRes, obsRes],
+      [[0, 0, PLAIN_1300], [0, 0, PLAIN_1300], [0, PLAIN_1300]])
+
+    // 6. event supported alone (Safari 26.2+, Firefox): observes event with 104 ms threshold, waits 300 ms, caps at 60 inside the missed window, disconnects on dispose
+    const ev = runClock({ supportedEntryTypes: ['event'] })
+    ev.tick(1800) // from 10000 to 11800, deadline 10200, late = 1600 ms
+    const evImmediate = [ev.warns.length, ev.timers.map(t => t.ms)]
+    ev.instances[0].emit([
+      { name: 'click', startTime: 10_100, duration: 1650, processingStart: 10_112, processingEnd: 11_742, target: { tagName: 'SPAN', id: 'secret-id', className: 'tag', textContent: 'secret' } },
+    ])
+    ev.flushTimers()
+    const evAfterWait = [...ev.warns]
+    const evDiscBefore = ev.instances[0].disconnected
+    ev.dispose()
+    const evDiscAfter = ev.instances[0].disconnected
+    const evCap = runClock({ supportedEntryTypes: ['event'] })
+    evCap.instances[0].emit(Array.from({ length: 5 }, (_, i) => ({ name: 'keydown', startTime: 10_210 + i, duration: 500, processingStart: 10_211 + i, processingEnd: 10_700 + i, target: { tagName: 'INPUT', id: `old_${i}` } })))
+    evCap.instances[0].emit(Array.from({ length: 60 }, (_, i) => ({ name: 'click', startTime: 10_220 + i, duration: 120, processingStart: 10_221 + i, processingEnd: 10_335 + i, target: { tagName: 'BUTTON', id: `new_${i}` } })))
+    evCap.tick(1500)
+    evCap.flushTimers()
+    evCap.dispose()
+    check('diagnostics clock event fallback: observes event alone with 104 ms threshold, waits 300 ms, writes safe slow events, keeps last 60, disconnects on dispose',
+      [
+        ev.instances.length,
+        ev.instances[0].observed,
+        evImmediate,
+        evAfterWait,
+        evDiscBefore,
+        evDiscAfter,
+        evCap.warns.length,
+        evCap.warns[0].includes('60 slow events'),
+        evCap.warns[0].includes('120 ms click on BUTTON'),
+        evCap.warns[0].includes('keydown'),
+        evCap.warns[0].includes('old_') || evCap.warns[0].includes('new_'),
+      ],
+      [
+        1,
+        [{ type: 'event', buffered: false, durationThreshold: 104 }],
+        [0, [300]],
+        ['key buttons: the page did not respond for 1600 ms, until 12:00:00; the browser names 1 slow event: 1650 ms click on SPAN (waited 12 ms, handled for 1630 ms)'],
+        0,
+        1,
+        1,
+        true,
+        true,
+        false,
+        false,
+      ])
+
+    // 7. both supported: long-animation-frame wins and no second observer is made
+    const both = runClock({ supportedEntryTypes: ['long-animation-frame', 'event'] })
+    both.tick(1500)
+    both.instances[0].emit([{ startTime: 10_250, duration: 1200, scripts: [{ duration: 1200, invokerType: 'event-listener', invoker: 'BUTTON#secret.onclick' }] }])
+    both.flushTimers()
+    both.dispose()
+    check('diagnostics clock priority: when both long-animation-frame and event are supported, long frames win and no second observer is made',
+      [both.instances.length, both.instances[0].observed, both.warns],
+      [
+        1,
+        [{ type: 'long-animation-frame', buffered: false }],
+        ['key buttons: the page did not respond for 1300 ms, until 12:00:00; the browser names 1 long frame: 1200 ms event-listener BUTTON.onclick'],
       ])
   }
 
