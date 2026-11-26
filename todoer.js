@@ -3880,7 +3880,16 @@ function _hold_scroll(top) {
   windows?.hold?.()
   const put = () => void (document.body.scrollTop != top && (document.body.scrollTop = top))
   const inputs = ['wheel', 'touchstart', 'pointerdown', 'keydown']
+  // (the app scrolls to a selected item in the callback of its page update, right before a frame
+  // is drawn, and a position put back at the scroll's event comes one frame late: that frame was
+  // seen, as a flicker (the owner, 2026-11-25; the frames of a selection, taken one by one,
+  // showed the page drawn once at the item). So while the hold stands the app's own scroll is not
+  // made at all: the body's scrollTo, the one call the app scrolls by, answers nothing. The
+  // listener stays for a scroll that comes another way)
+  const body = document.body
+  body.scrollTo = () => {}
   const end = e => {
+    delete body.scrollTo
     document.removeEventListener('scroll', put, true)
     inputs.forEach(type => window.removeEventListener(type, end, true))
     clearTimeout(timer)
@@ -3899,9 +3908,9 @@ function _hold_scroll(top) {
   put()
 }
 
-// the list's window stays where it is for a selection it shares with another window: its
-// position is held while the app brings the item into view (_hold_scroll), and moved just far
-// enough to keep the selected ROW in view, once the page has its update (_row_view_top)
+// the list's window does not go to the item of a selection it shares with another window: its
+// position is held while the app would bring the item into view (_hold_scroll), and once the
+// page has its update it takes the place that shows the selected ROW (_row_view_top)
 function _stay_put(item) {
   const top = document.body.scrollTop
   _hold_scroll(top)
@@ -3911,20 +3920,27 @@ function _stay_put(item) {
   })
 }
 
-// the scroll position that keeps the row of `item` in view from the position `top`: `top` itself
-// where the row is in view there (or the item has no row), else the nearest position that shows
-// the row whole, below the window's top edge or above the strip of buttons at its lower edge.
-// The keys j and k walk a list that can be longer than the window (the owner, 2026-11-25, of
-// this: "ok yes we should do that, the list is already getting long")
+// the scroll position the list's window takes for the selected row of `item` (the owner,
+// 2026-11-25: "it should probably prefer to scroll to top and only scroll down if the row would
+// be out of view, and in that case try to scroll it well inside the viewport, maybe 20% or so to
+// leave some margin for additional rows below", and "by top of page i mean top of mindbox, not
+// the padding above it"): the app's top position, where the box stands at the window's upper
+// edge, wherever the row is in view from there; else the position that puts the row's lower edge
+// at SEND_ROW_DEPTH of the window's height, so that the next rows show below it. `top` (where the
+// window stands) for an item without a row. (Until then the window stayed where it was and moved
+// by the least that showed the row: the owner, of walking a long list with the keys, "ok yes we
+// should do that, the list is already getting long")
 const SEND_ROW_EDGE = 8 // px kept between the row and the window's top edge
 const SEND_ROW_FOOT = 64 // px kept free at the window's lower edge (the key buttons' strip)
+const SEND_ROW_DEPTH = 0.8 // a row out of view from the top: its lower edge at this part of the window's height
 function _row_view_top(item, top) {
   const box = _bin_row(item)?.row?.getBoundingClientRect?.()
   if (!box || !box.height) return top
   const y = box.top + document.body.scrollTop // the row's place in the page, whatever the position now
-  if (y < top + SEND_ROW_EDGE) return Math.max(0, y - SEND_ROW_EDGE)
-  const low = top + innerHeight - SEND_ROW_FOOT
-  return y + box.height > low ? top + (y + box.height - low) : top
+  const home = document.querySelector('.header')?.offsetTop ?? 0 // the app's top position
+  if (y < home + SEND_ROW_EDGE) return Math.max(0, y - SEND_ROW_EDGE) // (a row above the box: no list stands there)
+  if (y + box.height <= home + innerHeight - SEND_ROW_FOOT) return home
+  return Math.max(home, Math.round(y + box.height - SEND_ROW_DEPTH * innerHeight))
 }
 
 // selects an item, as a click on its number in the app does while the number is not green: the
