@@ -487,8 +487,10 @@ function __render(widget, widget_item) {
     // the row shows the snippet's visible text (_visible) on one line, its tooltip the same in
     // its lines (_row_title), under the tooltip's own first lines: a snoozed todo's time, a
     // child's parent. the done bin logs the row's text under those lines, as it always has
+    const snoozed_until = snoozed ? item._global_store?._todoer?.snoozed : undefined
+    const snoozed_at = snoozed ? new Date(snoozed_until).toLocaleString() : ''
     const first_lines =
-      (snoozed ? new Date(item._global_store._todoer.snoozed).toLocaleString() + '\n' : '') +
+      (snoozed ? snoozed_at + '\n' : '') +
       (parent ? `child of ${parent}\n` : '')
     const snippet_shown = _visible(text).replace(/\s+/g, ' ')
     const asked = question ? _visible(question.raw) + (question.more ? ' …' : '') : ''
@@ -562,17 +564,19 @@ function __render(widget, widget_item) {
       age.className = 'age'
       // the age since the last state change, then the stats the bridge projects (vault design
       // mind_task_agents 9.6): workers started and the summed nominal cost, when present
-      age.innerText = _age(updated, Date.now()) + _stats_suffix(state?.stats) + _wake_suffix(state?.wake, Date.now())
-      age.title = _age_title(updated, state?.stats, state?.wake)
+      const label = _age(updated, Date.now()) + _stats_suffix(state?.stats) + _wake_suffix(state?.wake, Date.now())
+      age.innerText = label
+      // on a row that is cut on the left a narrow window cuts this mark at its end: its tooltip
+      // then begins with the whole label, so what the ellipsis hides can still be read
+      age.title = (div.classList.contains('rtl') ? label + '\n' : '') + _age_title(updated, state?.stats, state?.wake)
       div.prepend(age, ' ')
     } else if (snoozed) {
-      const until = item._global_store?._todoer?.snoozed
-      const left = _snooze_left(until, Date.now())
+      const left = _snooze_left(snoozed_until, Date.now())
       if (left) {
         const age = document.createElement('mark')
         age.className = 'age'
         age.innerText = left
-        age.title = new Date(until).toLocaleString()
+        age.title = snoozed_at
         div.prepend(age, ' ')
       }
     }
@@ -626,8 +630,10 @@ function __render(widget, widget_item) {
       // keyboard navigation and child creation work, which an id reference never gives.
       // the target's row EDITS it where it is (_edit_item); any other row SELECTS its item
       // (_select_item)
-      // (while linked with another window, a click on the selected row shows it there again)
-      if (edit && !_send_ready()) _edit_item(item, selection, !!question)
+      // (linked with another window or not: the row of the item THIS window shows edits it here.
+      // the owner, 2026-11-26, of a link under which that click only selected: "is that
+      // intentional"; one rule for a window in either role, since the list's window shows no item)
+      if (edit) _edit_item(item, selection, !!question)
       else _select_item(item, selection, !!question)
     }
   }
@@ -4001,7 +4007,6 @@ function _send_partner(now = Date.now()) {
 }
 
 const _send_linked = () => _send_on() || !!_send_partner() // link on (including alone while switch is stored)
-const _send_ready = () => !!_send_partner() // live linked partner available now
 
 // current link identity ({ id: holderWindowId, since }, or null when unlinked), used to retire a
 // pending save whenever the link ends or is replaced
@@ -4037,6 +4042,7 @@ function _send_retire(windows) {
   _send_cancel(windows)
   windows.hold?.()
   windows.last = null
+  windows.reported = null
   windows.shown = null
   _sync_marks(_window_target())
 }
@@ -4156,7 +4162,7 @@ function _send_selected(item, forced = false, acted_at = null, ask = false, sele
   if (!windows || _notify_fixed_view() || _notify_account_left()) return false
   windows.clear_recheck?.()
   const next_last = item ? item.saved_id ?? null : ''
-  if (!ask && !forced && next_last !== null && windows.last === next_last) {
+  if (!ask && !forced && next_last !== null && windows.last === next_last && windows.reported === next_last) {
     if (windows.pending?.kind == 'take' && windows.pending.asked) _send_cancel(windows)
     return false
   }
@@ -4167,6 +4173,7 @@ function _send_selected(item, forced = false, acted_at = null, ask = false, sele
   const to = _send_partner()
   if (!to) {
     windows.last = null
+    windows.reported = null
     if (ask && _send_on()) windows.say('who')
     return false
   }
@@ -4179,7 +4186,7 @@ function _send_selected(item, forced = false, acted_at = null, ask = false, sele
   // SEND_SAVE_MS by the clock, while it remains selected and the same link stands)
   if (item && !item.saved_id) {
     if (!ask) windows.say('hello', { target: true, at })
-    else if (!_window_target() && windows.last !== '') windows.say('hello', { target: null, at })
+    else if (!_window_target() && (windows.last !== '' || windows.reported !== '')) windows.say('hello', { target: null, at })
     _send_when_saved(item, Date.now() + SEND_SAVE_MS, at, ask, selection, checked)
     return false
   }
@@ -4280,14 +4287,15 @@ function _send_take(message, asked, until = null) {
       if (windows.acted === acted) _move_to_row(item)
       return true
     }
-    const prev = [windows.last, windows.sel, windows.seen_at, windows.shown]
+    const prev = [windows.last, windows.reported, windows.sel, windows.seen_at, windows.shown]
     windows.clear_recheck?.()
     windows.hold?.()
     windows.shown = null
     windows.last = item.saved_id ?? item.id
+    windows.reported = item.saved_id ?? item.id
     windows.sel = stamp
     windows.seen_at = Math.max(windows.seen_at ?? 0, stamp.at)
-    if (!_open_here(item, null, false)) { [windows.last, windows.sel, windows.seen_at, windows.shown] = prev; return false }
+    if (!_open_here(item, null, false)) { [windows.last, windows.reported, windows.sel, windows.seen_at, windows.shown] = prev; return false }
     windows.say('took', { n: message.n, target: _send_target_id(item) })
     return true
   }
@@ -4302,27 +4310,32 @@ function _start_windows() {
   const api = { show: item => _send_ask(item), linked: _send_linked, toggle: _send_press }
   if (window._todoer_windows) return void Object.assign(window._todoer_windows, api)
   const me = _notifier_id()
-  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, recheck: null, n: 0, last: null, shown: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
+  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, recheck: null, held: false, n: 0, last: null, reported: null, shown: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
   const clear_recheck = () => {
+    windows.held = false
     if (!windows.recheck) return
     clearTimeout(windows.recheck)
     windows.recheck = null
   }
-  const schedule_recheck = () => {
+  const sync_applied = () => {
+    if (_notify_fixed_view() || _notify_account_left() || windows.pending?.kind == 'ask' || windows.pending?.kind == 'save') return void clear_recheck()
+    if (!_send_partner()) return
     clear_recheck()
+    const live = _send_target_id()
+    if ((live == null ? '' : live) === windows.reported) return
+    windows.say('hello', { target: live })
+  }
+  const schedule_recheck = () => {
+    if (windows.recheck) clearTimeout(windows.recheck)
     const uid = _send_account()
     const check = () => {
       windows.recheck = null
-      if (_notify_fixed_view() || _notify_account_left() || _send_account() !== uid || !_send_partner()) return
-      if (windows.pending?.kind == 'ask' || windows.pending?.kind == 'save') return
+      if (_notify_fixed_view() || _notify_account_left() || _send_account() !== uid) return void clear_recheck()
       if (window._mindboxDebounced) {
         windows.recheck = setTimeout(check, 100)
         return
       }
-      const item = _window_target()
-      const live = _send_target_id(item)
-      if ((live == null ? '' : live) === windows.last) return
-      _send_selected(item)
+      sync_applied()
     }
     windows.recheck = setTimeout(check, 500)
   }
@@ -4331,13 +4344,24 @@ function _start_windows() {
     if (_notify_account_left() || _notify_fixed_view()) return
     try {
       const since = _send_since()
-      const prevLast = windows.last
-      const target = 'target' in more ? more.target : (window._mindboxDebounced && prevLast !== null ? (prevLast || null) : _send_target_id())
+      const prevReported = windows.reported
+      const debounced = !!window._mindboxDebounced
+      const ordered = type == 'selected' || type == 'took' || (type == 'hello' && 'at' in more)
+      const target = 'target' in more ? more.target : (debounced ? (prevReported || null) : _send_target_id())
       windows.channel.postMessage({ type, id: me, uid: _send_account(), used: windows.used, on: since > 0, since, to: since > 0 ? _send_peer() : null, ...more, target })
-      if (type != 'bye' && type != 'unlink' && _send_partner()) {
+      if (type != 'bye' && type != 'unlink') {
         const told = target == null ? '' : target
-        windows.last = told
-        if (type == 'hello' && !('target' in more) && prevLast !== null && told !== prevLast) schedule_recheck()
+        windows.reported = told
+        if (ordered && _send_partner()) windows.last = told
+        if (!ordered && debounced) {
+          windows.held = true
+          schedule_recheck()
+        } else if (type == 'hello' && !('target' in more) && prevReported !== null && told !== prevReported) {
+          windows.held = false
+          schedule_recheck()
+        } else if (!debounced && !('target' in more)) {
+          clear_recheck()
+        }
       }
     } catch (e) {}
   }
@@ -4416,6 +4440,7 @@ function _start_windows() {
       }
       else if (message.type == 'took' && windows.pending?.kind == 'ask' && windows.pending.n == message.n && windows.pending.to == message.id) _send_cancel(windows, null, true)
     }
+    if (partner && windows.held && !window._mindboxDebounced) sync_applied()
     if (partner) _send_sync_shown(windows, partner)
     if (yielded || look() != before || windows.shown !== prevShown) _bin_buttons(_selected_item())
   }
@@ -4426,7 +4451,7 @@ function _start_windows() {
     windows.used = Date.now()
     if (windows.used - windows.said < 1000) return
     windows.said = windows.used
-    windows.say('hello', typing && windows.last !== null ? { target: windows.last || null } : {})
+    windows.say('hello', typing && windows.reported !== null ? { target: windows.reported || null } : {})
   }
   window.addEventListener('focus', () => used(false))
   document.addEventListener('pointerdown', () => used(false), { capture: true, passive: true })
@@ -4608,6 +4633,7 @@ function _select_item(item, selection, checked = false) {
   }
   if (windows && !to && listed && typeof _send_on == 'function' && _send_on() && !_notify_fixed_view() && !_notify_account_left()) {
     windows.last = null
+    windows.reported = null
     windows.say('who')
   }
   windows?.hold?.()

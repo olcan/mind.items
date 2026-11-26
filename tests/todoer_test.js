@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -3060,9 +3060,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     [rtlDelegated.rd_age.div.className, rtlDelegated.rd_age.html, rtlDelegated.rd_bell.div.className, rtlDelegated.rd_bell.html, rtlDelegated.d1.div.className],
     [
       'list-item rtl',
-      '<mark class="age" title="11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;delegated prefix <mark>#todo</mark></span>',
+      '<mark class="age" title="5m · 2w · $1.50\n11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;delegated prefix <mark>#todo</mark></span>',
       'list-item rtl',
-      '<mark class="age" title="11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <mark class="waits" title="checkin: came up for you; click the bell to clear it">checkin</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;delegated bell prefix <mark>#todo</mark></span>',
+      '<mark class="age" title="5m · 2w · $1.50\n11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <mark class="waits" title="checkin: came up for you; click the bell to clear it">checkin</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;delegated bell prefix <mark>#todo</mark></span>',
       'list-item',
     ]
   )
@@ -3422,7 +3422,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       w.ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
       w.ctx.window._wiki_link_html = (target, alias, options) => wiki.wikiLinkHtml(cfg, target, alias, options)
       w.render()
-      return w.rows().find(r => r.getAttribute('data-id') == id).children[0].innerHTML
+      // a row that is cut on the left keeps its text in an inner box, after its marks
+      const row = w.rows().find(r => r.getAttribute('data-id') == id).children[0]
+      return (row.children.find(c => c.className == 'rtl-text') ?? row).innerHTML
     }
     const rightCutHtml = renderTodoRow('right_cut', {
       text: '#todo See [[docs/ok]] and `code [[docs/code]] ' + 'word '.repeat(35) + 'end`',
@@ -6569,7 +6571,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
-      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const binCode =
       binConsts +
@@ -10575,7 +10577,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
-      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const winCode =
       winConsts +
@@ -12092,7 +12094,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 17. second click on the selected row (__render): opens editor without _send_ready and re-selects to partner without editing when _send_ready (both windows)
+    // 17. second click on the row of the item this window shows (__render): opens its editor, linked or not, and asks nothing of the other window (both windows)
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
@@ -12114,12 +12116,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const rowDivA = widgetA.querySelector('.list-item')
       const rowDivB = widgetB.querySelector('.list-item')
       const clickEv = { stopPropagation: () => {}, preventDefault: () => {} }
-      // (a) unlinked (_send_ready() == false): second click opens editor
+      // (a) unlinked: second click opens editor
       rowDivA.onclick(clickEv)
       bus.flush()
       const offClick = [a.edits.length, a.selects.length, b.selects.length]
-      // (b) linked (_send_ready() == true in BOTH A and B): both on #sc1 -> click in A gives A's target up (#todo),
-      //     opens no editor, asks B; then A has #sc1 again (both targets) -> click in B gives B's target up (#todo), asks A
+      // (b) linked, both on #sc1: a click on its own row in A opens the editor there (the box stays, B is asked
+      //     nothing); the same in B (the owner, 2026-11-26: one rule, linked or not)
       a.edits.length = 0
       a.selects.length = 0
       a.setScrollTop(500)
@@ -12129,7 +12131,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       rowDivA.onclick(clickEv)
       bus.flush()
       const aLinkedClick = [a.edits.length, a.getBox(), b.selects.map(s => s.id), a.getScrollTop()]
-      // restore A target to #sc1 (both have targets) so click in B gives B's target up and asks A
+      // A's query applied once more, then the same click in B
       a.setBox('#sc1')
       a.env._on_search('#sc1')
       bus.flush()
@@ -12141,7 +12143,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       rowDivB.onclick(clickEv)
       bus.flush()
       const bLinkedClick = [b.edits.length, b.getBox(), a.selects.map(s => s.id), b.getScrollTop()]
-      // (c) peer gone (_send_ready() == false): second click in A (which holds #sc1 target) opens editor again
+      // (c) peer gone: second click in A (which holds #sc1 target) opens editor as before
       b.fireWin('pagehide')
       bus.flush()
       a.edits.length = 0
@@ -12150,12 +12152,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       const onAloneClick = [a.edits.length, a.selects.length, item.id]
       check(
-        'windows second click (__render): clicking the already-selected row opens editor without _send_ready and hands off without editing in both windows when _send_ready',
+        'windows second click (__render): clicking the row of the item this window shows opens its editor, linked or not, and asks nothing of the other window',
         [offClick, aLinkedClick, bLinkedClick, onAloneClick],
         [
           [1, 1, 0], // _edit_item calls item.select() then MindBox.edit_target()
-          [0, '#todo', ['sc1'], 500],
-          [0, '#todo', ['sc1'], 500],
+          [1, '#sc1', [], 1700],
+          [1, '#sc1', [], 1700],
           [1, 1, 'sc1'],
         ]
       )
@@ -12507,6 +12509,80 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [1_700_000_010_000, true, 'A2'],
           [0, false, null],
           [false, true],
+        ]
+      )
+    }
+
+    // 25b. reload during typing debounce: first report must not publish unapplied draft (#old2), and
+    //      once debounce settles back on already-applied #old (with no _on_search hook), Done in the
+    //      reloaded list window acts on old — both when A2 replies right away and when A2 is busy past 500ms
+    {
+      const runReloadDuringTyping = async ({ pauseA2Ms = 0 } = {}) => {
+        const bus = makeBus()
+        const sharedStore = new Map()
+        const a1 = makeWindow(bus, { id: 'A1', now: 1_700_000_010_000, storage: sharedStore })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_010_000 })
+        for (const w of [a1, b]) {
+          w.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
+          w.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
+        }
+        a1.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 580 }] })
+        a1.setBox('#todo')
+        b.setBox('#old')
+        a1.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        a1.env._send_toggle(true)
+        bus.flush()
+        b.env._on_search('#old')
+        bus.flush()
+        // reload A: A1 closes (pagehide -> bye; B retires)
+        a1.fireWin('pagehide')
+        a1.win._todoer_windows.channel.close()
+        bus.flush()
+        // while A is away, type '2' in B -> box holds unapplied draft '#old2' while debounced
+        advanceAll(bus, [b], 2000)
+        b.win._mindboxDebounced = true
+        b.setBox('#old2')
+        // fresh A2 boots on same sessionStorage with #todo list and rediscovers B while B is debounced
+        const a2 = makeWindow(bus, { id: 'A2', now: b.clock.now, storage: sharedStore })
+        const doneHits = []
+        a2.env._complete_todo = it => (doneHits.push(it.id), false)
+        a2.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
+        a2.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
+        const wA2 = a2.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 580 }] })
+        const markedA2 = () => [...wA2.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        const pressDoneA2 = async () => {
+          doneHits.length = 0
+          const btn = a2.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+          await btn?.press?.()
+          return doneHits[0] ?? null
+        }
+        a2.setBox('#todo')
+        a2.env._start_windows()
+        if (pauseA2Ms > 0) a2.win._todoer_windows.channel.paused = true
+        bus.flush()
+        const duringDebounce = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
+        // backspace before debounce settles -> returns to already-applied '#old', so app skips _on_search
+        advanceAll(bus, [a2, b], 100)
+        b.setBox('#old')
+        advanceAll(bus, [a2, b], 200)
+        b.win._mindboxDebounced = false
+        if (pauseA2Ms > 0) {
+          advanceAll(bus, [a2, b], pauseA2Ms)
+          a2.win._todoer_windows.channel.unpause()
+        }
+        // two seconds later, A2's actual Done button must act on 'old'
+        advanceAll(bus, [a2, b], 2000)
+        const afterTwoSeconds = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
+        return [duringDebounce, afterTwoSeconds]
+      }
+      check(
+        'windows reload during typing debounce: first report holds back unapplied draft and applied target reaches reloaded list window for Done without _on_search',
+        [await runReloadDuringTyping(), await runReloadDuringTyping({ pauseA2Ms: 600 })],
+        [
+          [[null, [], null], ['s_old', ['old'], 'old']],
+          [[null, [], null], ['s_old', ['old'], 'old']],
         ]
       )
     }
@@ -15730,6 +15806,61 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [0, true, 'abc'],
           ['', 'take', 'beta', 0],
         ]
+      )
+    }
+
+    // 68. Presence report is not a selection: A clicks row Z (delivery held 20ms), B applies #new
+    //     and runs its deferred _on_search('#new'); whether B's 30s heartbeat runs BEFORE or AFTER
+    //     the deferred search hook, B stays on #new and A marks new (and scrolls to show it)
+    {
+      const runHeartbeatOrder = heartbeatBeforeSearch => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        for (const w of [a, b]) {
+          w.makeItem('old', { saved_id: 's_old', scrollY: 1600 })
+          w.makeItem('z', { saved_id: 's_z', scrollY: 1700 })
+          w.makeItem('new', { saved_id: 's_new', scrollY: 1800 })
+        }
+        const zA = a.items.get('z')
+        const wA = a.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'z', pageY: 580 }, { id: 'new', pageY: 1400 }] })
+        const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        a.setBox('#todo')
+        b.setBox('#old')
+        a.env._send_press()
+        bus.flush()
+        b.env._on_search('#old')
+        bus.flush()
+        // B's ordinary 30s heartbeat fires at t = +30,000ms:
+        // - heartbeatBeforeSearch: start click at +29,987ms -> apply #new at +29,997ms -> heartbeat at +30,000ms -> _on_search at +30,002ms -> deliver click at +30,007ms
+        // - heartbeatAfterSearch:  start click at +29,982ms -> apply #new at +29,992ms -> _on_search at +29,997ms -> heartbeat at +30,000ms -> deliver click at +30,002ms
+        advanceAll(bus, [a, b], heartbeatBeforeSearch ? 29_987 : 29_982)
+        b.win._todoer_windows.channel.paused = true
+        a.env._select_item(zA)
+        bus.flush()
+        advanceAll(bus, [a, b], 10)
+        b.setBox('#new')
+        b.win._mindboxDebounced = false
+        advanceAll(bus, [a, b], 5)
+        b.env._on_search('#new')
+        bus.flush()
+        advanceAll(bus, [a, b], 5)
+        b.win._todoer_windows.channel.unpause()
+        advanceAll(bus, [a, b], 3500)
+        return [b.getBox(), markedA(), a.getBox(), a.getScrollTop() > 500]
+      }
+      check(
+        'windows presence vs selection (heartbeat before search hook): ordinary heartbeat before deferred _on_search does not suppress selection stamp, so older click cannot overwrite #new',
+        runHeartbeatOrder(true),
+        ['#new', ['new'], '#todo', true]
+      )
+      check(
+        'windows presence vs selection (heartbeat after search hook): ordinary heartbeat after deferred _on_search preserves #new and marks new in list window',
+        runHeartbeatOrder(false),
+        ['#new', ['new'], '#todo', true]
       )
     }
   })())

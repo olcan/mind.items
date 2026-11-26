@@ -233,7 +233,10 @@
     border-radius: 4px;
   }
   /* a row whose text comes before the todo tag truncates on the left inside .rtl-text while
-     prepended marks (age, time-left, bell) stay at the left edge */
+     prepended marks (age, time-left, bell) stay at the left edge; on a narrow delegated row,
+     width goes first to the bell (whole), then to .rtl-text (keeping the trailing tag and a
+     little preceding text), and the delegated age mark takes what is left with a trailing
+     ellipsis down to its leading age (the short snoozed time-left mark stays uncut) */
   #widget .list-item.rtl {
     display: flex;
     align-items: baseline;
@@ -243,8 +246,15 @@
     flex: none;
     line-height: normal;
   }
+  #widget:has(> .bin.owner) .list-item.rtl > mark.age {
+    flex: 0 1 auto;
+    min-width: 4ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   #widget .list-item.rtl > .rtl-text {
-    min-width: 0;
+    flex: 1 0 13ch;
+    min-width: 13ch;
     overflow: hidden;
     text-overflow: ellipsis;
   }

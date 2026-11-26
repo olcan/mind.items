@@ -71,7 +71,7 @@ const asked = []
 const dialog = { answer: true }
 page.getElementById = id => open.fields[id] ?? null
 const win = Object.assign(new FakeNode('window'), {
-  innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }),
+  innerWidth: 390, innerHeight: 800, visualViewport: viewport, location: { origin: 'https://olcan.com', reload: () => reloads.push('page') }, matchMedia: query => (query == '(pointer: coarse)' ? pointer : { matches: false }),
   _items: () => open.items,
   _reload: () => { reloads.push('page'); return Promise.resolve(true) },
   _modal: text => { asked.push(text); return typeof dialog.answer == 'function' ? dialog.answer() : Promise.resolve(dialog.answer) },
