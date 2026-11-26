@@ -59,7 +59,12 @@ const _todoer = _item('$id')
 // - A non-todo item an agent wrote with the item tool (past this kind's baseline in the account,
 //   within the stamp map's latest hundred items) shows in the main list with an `item` bell, its
 //   name and its first line until cleared (`b`, the bell, or the done bin), edited, or evicted by
-//   newer stamped items; a chat that waits both ways keeps its `reply` row.
+//   newer stamped items; a chat that waits both ways keeps its `reply` row. On a waiting reply's
+//   row, where it shows the reply's first line as written (cut at most at its end), wiki links
+//   outside inline code open as links (clicking one opens the file without selecting the row)
+//   while tags, markdown links, addresses, and markup stay plain text (wiki links skip inline code
+//   on todo rows too, decided before clipping and left opaque to later passes); an `item` row's
+//   line stays plain text.
 // - A todo that came up for you carries a bell with its kind (its reason in the main list, or
 //   `checkin` on a delegated todo whose agent checked in while going on working). The bell stays
 //   even after a check-in's marker returns to working; click the bell to clear it while keeping the
@@ -161,26 +166,69 @@ function _mark_tags(text) {
   return text.replace(/(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)/g, '$1<mark>$2</mark>')
 }
 
-// the markdown links of a row's escaped snippet as anchors
+// the markdown links of a row's escaped snippet as anchors. A label ends at its OWN closing
+// bracket, so a completed `[marker]` or `[note]` earlier in the row is no part of a later link's
+// label. Inside a label, a complete code span and a backslash escape are text whatever they hold
+// (a bracket in code, an escaped bracket), and a bracket of the label's own must be one of a
+// matched pair, one level deep. A backtick or a backslash is never ordinary text, so a code span
+// or an escape cannot be taken apart on a second try (no false link out of a span's inside, and
+// one way only to read a label); a backtick with no partner after it is text by its own branch
 function _link_markdown_links(text) {
-  return text.replace(/\[\s*(.*?)\s*\]\(\s*(.*?)\s*\)/g, (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`)
+  const piece = /`[^`]*`|`(?![^`]*`)|\\.|[^\[\]`\\]/.source
+  const label = new RegExp(`\\[\\s*((?:${piece}|\\[(?:${piece})*\\])*?)\\s*\\]\\(\\s*(.*?)\\s*\\)`, 'g')
+  return text.replace(label, (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`)
 }
 
-// the wiki links of a row's escaped snippet (the app's grammar and builder; the vault's design
-// notes/design/wiki_links.md 2.3): a `[[path]]` or `[[path|text]]` reference, unescaped back to
-// the owner's text, becomes the app's anchor with its text and title as character references,
-// so the tag, markdown-link and url passes that follow find nothing inside it; a reference the
-// app has no setting for or refuses stays as written. Runs first over the escaped snippet
-function _link_wiki(text) {
+// tests whether an offset in an escaped line lies inside inline code: backticks pair from the
+// left, an odd count in `head` opens code from the start, and an unpaired last backtick closes
+// at the end only when `tail` holds a backtick or `more` is set (else it opens nothing)
+function _inline_code_test(text, cut) {
+  const { head = '', tail = '', more = false } = cut ?? {}
+  const open = (head.match(/`/g)?.length ?? 0) % 2 == 1
+  if (!open && !text.includes('`')) return () => false
+  const ticks = open ? [-1] : []
+  for (let i = 0; i < text.length; i++) if (text[i] == '`') ticks.push(i)
+  if ((more || tail.includes('`')) && ticks.length % 2 == 1) ticks.push(text.length)
+  const spans = []
+  for (let i = 0; i + 1 < ticks.length; i += 2) spans.push([ticks[i], ticks[i + 1]])
+  return offset => spans.some(([start, end]) => offset > start && offset < end)
+}
+
+// the wiki links of an escaped row stretch (the app's grammar and builder; the vault's design
+// notes/design/wiki_links.md 2.3): a `[[path]]` or `[[path|text]]` reference outside inline code
+// becomes the app's anchor under the refs carrier; one that begins inside inline code leaves as
+// decimal character references (non-alphanumeric, non-space) so later passes cannot read it, and
+// a refused reference stays as written. Shared by todo rows and waiting reply rows
+function _link_wiki(text, in_code) {
   const regexp = window._wiki_link_regexp?.()
   const build = window._wiki_link_html
-  if (!regexp || !build) return text
-  return text.replace(regexp, (m, embed, target, alias) => build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
+  if (!regexp || !build || !text.includes('[[')) return text
+  const test = in_code ?? _inline_code_test(text)
+  const refs = s => [...s].map(c => (/[A-Za-z0-9 ]/.test(c) ? c : `&#${c.codePointAt(0)};`)).join('')
+  return text.replace(regexp, (m, embed, target, alias, offset) =>
+    test(offset)
+      ? refs(_.unescape(m))
+      : (build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
+  )
 }
 
-// the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url passes
-function _row_html(shown) {
-  return _link_urls(_link_markdown_links(_mark_tags(_link_wiki(_.escape(shown)))))
+// wiki links for a waiting reply row's line: links references outside inline code only where the
+// row shows the reply's first line as written (`raw`, trimmed, cut at most at its end); inline
+// code is paired on that whole trimmed line so clipping past 120 chars cannot expose a code span
+function _link_waiting_wiki(line, raw) {
+  const escaped = _.escape(line ?? '')
+  if (raw == null || !escaped.includes('[[')) return escaped
+  const written = String(raw).trim()
+  if (!written.startsWith(String(line).replace(/…$/, ''))) return escaped
+  return _link_wiki(escaped, _inline_code_test(_.escape(written)))
+}
+
+// the row's html: an escaped stretch through the wiki-link, tag, markdown-link and url passes
+function _row_html(shown, cut) {
+  const escaped = _.escape(shown)
+  // (the code spans are worked out only for a row that holds a wiki opener)
+  const in_code = escaped.includes('[[') ? _inline_code_test(escaped, cut) : null
+  return _link_urls(_link_markdown_links(_mark_tags(_link_wiki(escaped, in_code))))
 }
 
 // the anchors of a rendered row (`div`): a wiki link's anchor (data only, the app's builder) gets
@@ -325,16 +373,18 @@ function __render(widget, widget_item) {
       if (item.id == selected) container.classList.add('selected')
       const div = document.createElement('div')
       div.className = 'list-item'
-      const [name, line] = _waiting_parts(item, waits)
+      const [name, line, raw] = _waiting_parts(item, waits)
       // what this row shows (the reply or the write stamp), kept on the row: a clear made from it
       // (the bell, a bin) is of THIS one, also when a newer one has arrived while held or dragged
       const key = _wait_key_of(item, waits)
       container.setAttribute('data-wait-key', key)
       container.title = `${waits}: waits on you; click the bell or drop it on done to clear it\n${[name, line].join(' ').trim()}`
-      // the name as a tag, then the line as TEXT: neither a chat reply nor a write preview
-      // becomes a link here (a click on it selects the item, as elsewhere)
-      div.innerHTML = `<mark class="waits">${waits}</mark> ` + (name ? _mark_tags(_.escape(name)) + ' ' : '')
-      div.append(line)
+      // the name as a tag, then the escaped line (with wiki links alone on a reply row showing the
+      // reply's first line as written, cut at most at its end; an item row stays text)
+      div.innerHTML =
+        `<mark class="waits">${waits}</mark> ` +
+        (name ? _mark_tags(_.escape(name)) + ' ' : '') +
+        _link_waiting_wiki(line, raw)
       // the bell's own click clears the row (as its drop on the done bin does), not the row's
       const bell = div.querySelector?.('mark.waits')
       if (bell)
@@ -343,6 +393,7 @@ function __render(widget, widget_item) {
           e.preventDefault()
           if (_clear_waiting(item, key)) _rerender_todoer_widgets()
         }
+      _wire_row_links(div)
       div.onclick = e => {
         e.stopPropagation() // do not propagate click to item
         e.preventDefault()
@@ -427,19 +478,24 @@ function __render(widget, widget_item) {
     const first_lines =
       (snoozed ? new Date(item._global_store._todoer.snoozed).toLocaleString() + '\n' : '') +
       (parent ? `child of ${parent}\n` : '')
+    const snippet_shown = _visible(text).replace(/\s+/g, ' ')
     const asked = question ? _visible(question.raw) + (question.more ? ' …' : '') : ''
+    const asked_shown = asked.replace(/\s+/g, ' ').trimStart()
     container.title = first_lines + _row_title(text, cut) + (asked ? '\n' + asked : '')
-    const shown = (_visible(text) + (asked ? ' ' + asked : '')).replace(/\s+/g, ' ')
+    const shown = asked_shown ? snippet_shown.trimEnd() + ' ' + asked_shown : snippet_shown
     container._log_text = (first_lines + shown).replace(/\s+/g, ' ')
     // a projection change this tab has not notified yet (the hook notifies first; a render
     // catches a delivery the hook did not see, see _notify_change)
     _notify_change(item, { state, list: task_list, parent })
 
-    // the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url
-    // passes (_row_html), then a task's marker linked to its worktree's review (design 2.4:
-    // presentation only, the text keeps its one bracketed word; the #vault item's builder,
-    // resolved once per render) and a NAMED item's label first (_row_label)
-    let html = _row_html(shown)
+    // the row's html: the escaped snippet (and a chat-todo's question, paired separately against
+    // its own clip) through the wiki-link, tag, markdown-link and url passes (_row_html), then a
+    // task's marker linked to its worktree's review (design 2.4: presentation only, the text keeps
+    // its one bracketed word; the vault item's builder, resolved once per render) and a NAMED
+    // item's label first (_row_label)
+    let html = asked_shown
+      ? _row_html(snippet_shown.trimEnd(), cut) + ' ' + _row_html(asked_shown, { more: question.more })
+      : _row_html(snippet_shown, cut)
     if (state?.worktree && review_anchor === undefined) review_anchor = _review_anchor_builder()
     html = _decorate_row(html, text, state, review_anchor, parent, _row_label(item, shown))
 
@@ -3042,20 +3098,25 @@ function _vault_replies(view) {
   return { replies, last, footer }
 }
 
-// the first text line of the last inert region in a chat's raw text (the bridge's reply body in
-// its canonical frame; the escaping of lib/mindpage_inert.py keeps a body line from closing the
-// frame early), shortened; '' without one. The ordinary case, not a guarantee: an opener line
-// quoted inside a body is not escaped and would start the preview after it, and an inline
+// the first text line of the last inert region in a chat's raw text, as written (the bridge's
+// reply body in its canonical frame; the escaping of lib/mindpage_inert.py keeps a body line
+// from closing the frame early); '' without one. The ordinary case, not a guarantee: an opener
+// line quoted inside a body is not escaped and would start the preview after it, and an inline
 // opener followed by a newline gives no preview (a framing-aware extraction is a backfill)
-function _reply_line(text) {
+function _reply_raw(text) {
   const raw = String(text ?? '')
   const open = raw.lastIndexOf('<!--inert-->\n')
   if (open < 0 || (open > 0 && raw[open - 1] != '\n')) return ''
   const start = open + '<!--inert-->\n'.length
   const close = raw.indexOf('\n<!--/inert-->', start)
   const body = raw.slice(start, close < 0 ? raw.length : close)
-  const line = body.split('\n').find(l => l.trim()) ?? ''
-  const clean = line.replace(/\s+/g, ' ').trim()
+  return body.split('\n').find(l => l.trim()) ?? ''
+}
+
+// the first text line of the last inert region (_reply_raw), shortened; '' without one
+// (`raw`, when already extracted, avoids reading the item's text a second time)
+function _reply_line(text, raw = _reply_raw(text)) {
+  const clean = raw.replace(/\s+/g, ' ').trim()
   return clean.length > 120 ? clean.slice(0, 119).trimEnd() + '…' : clean
 }
 
@@ -3214,18 +3275,20 @@ function _cleared(item) {
   return [...replies, ...items]
 }
 
-// the two parts of such an item's row: its name when it has one, and its first line (for `reply`,
-// the reply's first line, or the item's own first line when unnamed without one; for `item`, the
-// name and clipped body for a uniquely named item, or the desktop notification's shaped 80-char
-// line via `_notify_line` for an unnamed item)
+// the parts of such an item's row: `[name, line, raw]` — its name when it has one, its first line
+// (for `reply`, the reply's first line, or the item's own first line when unnamed without one; for
+// `item`, the name and clipped body for a uniquely named item, or the desktop notification's shaped
+// 80-char line via `_notify_line` for an unnamed item), and for `reply` the raw first line read
+// once via `_reply_raw` (`null` for `item`)
 function _waiting_parts(item, kind = 'reply') {
   if (kind == 'item') {
     const { shown, body } = _item_preview(item)
     const named = typeof item.name == 'string' && item.name.startsWith('#') && item.name.toLowerCase() != '#todo'
-    return named ? [shown, body] : ['', _notify_line(shown)]
+    return named ? [shown, body, null] : ['', _notify_line(shown), null]
   }
-  const line = _reply_line(item.text)
-  return item.label ? [item.label, line] : ['', line || _visible(String(item.text ?? '').split('\n')[0] ?? '')]
+  const raw = _reply_raw(item.text)
+  const line = _reply_line(item.text, raw)
+  return item.label ? [item.label, line, raw] : ['', line || _visible(String(item.text ?? '').split('\n')[0] ?? ''), raw]
 }
 
 // clears such an item's row (the bell's click, a drop on the done bin): what the row SHOWED

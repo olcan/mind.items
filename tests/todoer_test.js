@@ -87,7 +87,9 @@ const picked =
     '_link_urls',
     '_mark_tags',
     '_link_markdown_links',
+    '_inline_code_test',
     '_link_wiki',
+    '_link_waiting_wiki',
     '_row_html',
     '_wire_row_links',
     '_extract_todo_snippet',
@@ -138,6 +140,7 @@ const picked =
     '_notify_setting',
     '_notify_gate',
     '_vault_replies',
+    '_reply_raw',
     '_reply_line',
     '_notify_reply',
     '_item_stamp',
@@ -1811,6 +1814,151 @@ const { replaceTags, parseTags, hash_64_fnv1a } = (() => {
     check('row: the anchor carries no target, rel or handler', /target=|rel=|\son\w+=/.test(html), false)
     check('row: a reference without an alias shows its target, an apostrophe and a quote reach the builder unescaped', _row_html("[[docs/x]] [[a'b|c\"d]]"),
       '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;a&#39;b" title="a&#39;b" data-wiki-link>c&#34;d</a>') // encodeURIComponent keeps an apostrophe; the carrier references it
+    // inline code in a todo row: references beginning inside a single-backtick span stay text,
+    // while references outside (or after an unpaired backtick, or with backticks in their own text)
+    // still link, and the tag/markdown-link/url passes stay unchanged
+    const decodeRowHtml = s =>
+      String(s ?? '').replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(amp|lt|gt|quot|apos));/g, (_, dec, hex, name) =>
+        dec
+          ? String.fromCodePoint(Number(dec))
+          : hex
+            ? String.fromCodePoint(parseInt(hex, 16))
+            : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]
+      )
+    const rowPaths = s =>
+      [...String(s ?? '').matchAll(/<a\b[^>]*href="([^"]*)"[^>]*data-wiki-link[^>]*>/g)].map(m => new URL(decodeRowHtml(m[1])).searchParams.get('path'))
+    const rowAnchors = s =>
+      [...String(s ?? '').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map(([, attrs, inner]) => ({
+        href: decodeRowHtml(attrs.match(/\bhref="([^"]*)"/)?.[1] ?? ''),
+        wiki: /\bdata-wiki-link\b/.test(attrs),
+        text: decodeRowHtml(inner),
+      }))
+    const rowText = s => decodeRowHtml(String(s ?? '').replace(/<[^>]+>/g, ''))
+    check(
+      'row (inline code): linkify with wiki reference in backticks stays text with no anchor',
+      _row_html('linkify `[[wiki]]` in todoer rows'),
+      'linkify `&#91;&#91;wiki&#93;&#93;` in todoer rows'
+    )
+    const mixedCode = _row_html('See `[[docs/code]]` and [[docs/Plan A]]')
+    check(
+      'row (inline code): one reference in backticks and one outside links only the outside one with decoded path',
+      [mixedCode, rowPaths(mixedCode)],
+      [
+        'See `&#91;&#91;docs&#47;code&#93;&#93;` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FPlan&#37;20A" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a>',
+        ['docs/Plan A'],
+      ]
+    )
+    check(
+      'row (inline code): single unpaired backtick before reference still links',
+      [_row_html('See `[[docs/x]]'), _row_html('See ` [[docs/x]]')],
+      [
+        'See `<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+        'See ` <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+      ]
+    )
+    check(
+      'row (inline code): reference starting outside with backtick in alias still links; reference starting inside stays text',
+      [_row_html('See [[docs/x|run `cmd`]] and [[docs/y|a`b]]'), _row_html('See `a [[docs/x|b` c]]')],
+      [
+        'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>run &#96;cmd&#96;</a> and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>a&#96;b</a>',
+        'See `a &#91;&#91;docs&#47;x&#124;b&#96; c&#93;&#93;',
+      ]
+    )
+    check(
+      'row (inline code): reference in backticks beside a space-separated tag keeps reference text and marks the tag',
+      _row_html('See `[[docs/x]] #tag`'),
+      'See `&#91;&#91;docs&#47;x&#93;&#93; <mark>#tag</mark>`'
+    )
+    const mdAfterCode = _row_html('#todo Show `[[docs/example]]` then [manual](https://example.test/guide)')
+    const mdAfterCodeWithLink = _row_html('#todo Show [[docs/ok]] and `[[docs/A&B]]` then [manual](https://example.test/guide)')
+    check(
+      'row (inline code): skipped wiki reference before a markdown link stays whole decoded text outside any anchor, markdown link keeps exact label and href, and outside wiki reference still links',
+      [
+        mdAfterCode,
+        rowText(mdAfterCode),
+        rowAnchors(mdAfterCode),
+        mdAfterCodeWithLink,
+        rowText(mdAfterCodeWithLink),
+        rowAnchors(mdAfterCodeWithLink),
+        rowPaths(mdAfterCodeWithLink),
+      ],
+      [
+        '<mark>#todo</mark> Show `&#91;&#91;docs&#47;example&#93;&#93;` then <a href="https://example.test/guide">manual</a>',
+        '#todo Show `[[docs/example]]` then manual',
+        [{ href: 'https://example.test/guide', wiki: false, text: 'manual' }],
+        '<mark>#todo</mark> Show <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `&#91;&#91;docs&#47;A&#38;B&#93;&#93;` then <a href="https://example.test/guide">manual</a>',
+        '#todo Show docs/ok and `[[docs/A&B]]` then manual',
+        [
+          { href: 'x://h/f?path=docs%2Fok', wiki: true, text: 'docs/ok' },
+          { href: 'https://example.test/guide', wiki: false, text: 'manual' },
+        ],
+        ['docs/ok'],
+      ]
+    )
+    // a completed bracketed word earlier in the row (a task's marker, a note) is no part of a later
+    // markdown link's label: the skipped example between them stays outside the anchor
+    const marked = ['[working]', '[draft]'].map(word => _row_html(`#todo ${word} Show \`[[docs/example]]\` then [manual](https://example.test/guide)`))
+    check(
+      'row (markdown link after a bracketed word): the marker and the skipped wiki example stay literal outside the anchor, whose label is exactly manual',
+      marked.map(html => [html, rowText(html), rowAnchors(html)]),
+      ['[working]', '[draft]'].map(word => [
+        `<mark>#todo</mark> ${word} Show \`&#91;&#91;docs&#47;example&#93;&#93;\` then <a href="https://example.test/guide">manual</a>`,
+        `#todo ${word} Show \`[[docs/example]]\` then manual`,
+        [{ href: 'https://example.test/guide', wiki: false, text: 'manual' }],
+      ])
+    )
+    const labels = ['[see `x` here](https://example.test/a)', '[a [b] c](https://example.test/b)', '[one](https://example.test/1) and [two](https://example.test/2)'].map(text => rowAnchors(_row_html(text)))
+    check(
+      'row (markdown link labels): inline code in a label, a matched pair of brackets in a label, and two links in one row keep their labels and addresses',
+      labels,
+      [
+        [{ href: 'https://example.test/a', wiki: false, text: 'see `x` here' }],
+        [{ href: 'https://example.test/b', wiki: false, text: 'a [b] c' }],
+        [
+          { href: 'https://example.test/1', wiki: false, text: 'one' },
+          { href: 'https://example.test/2', wiki: false, text: 'two' },
+        ],
+      ]
+    )
+    // a bracket inside a label's code span, and a backslash-escaped bracket, are the label's text
+    const bracketed = [
+      '#todo [Press `[` to jump](https://example.test/guide)',
+      '#todo [Use the `]` key](https://example.test/manual)',
+      '#todo [see `rows[keys[i]]` here](https://example.test/nested)',
+      '#todo [a \\] b](https://example.test/escaped)',
+    ].map(text => _row_html(text))
+    check(
+      'row (markdown link labels with literal brackets): an opening bracket in code, a closing bracket in code, a nested expression in code, and an escaped bracket keep the whole label and its address',
+      bracketed.map(html => [rowText(html), rowAnchors(html)]),
+      [
+        ['#todo Press `[` to jump', [{ href: 'https://example.test/guide', wiki: false, text: 'Press `[` to jump' }]],
+        ['#todo Use the `]` key', [{ href: 'https://example.test/manual', wiki: false, text: 'Use the `]` key' }]],
+        ['#todo see `rows[keys[i]]` here', [{ href: 'https://example.test/nested', wiki: false, text: 'see `rows[keys[i]]` here' }]],
+        ['#todo a \\] b', [{ href: 'https://example.test/escaped', wiki: false, text: 'a \\] b' }]],
+      ]
+    )
+    // a code span or an escape is never taken apart to end a label inside it: the only link of
+    // these rows is the authored one, and the wiki example inside the span opens nothing
+    const guarded = [
+      '#todo [Example `](preview)`] then [manual](https://example.test/manual)',
+      '#todo [Example `[[docs/example]](preview)`] then [manual](https://example.test/manual)',
+      '#todo [draft\\](preview) then [manual](https://example.test/manual)',
+    ].map(text => _row_html(text))
+    check(
+      'row (markdown link labels never end inside a code span or at an escaped bracket): the one anchor is the authored link, the rest of the row stays text',
+      guarded.map(html => [rowText(html), rowAnchors(html)]),
+      [
+        ['#todo [Example `](preview)`] then manual', [{ href: 'https://example.test/manual', wiki: false, text: 'manual' }]],
+        ['#todo [Example `[[docs/example]](preview)`] then manual', [{ href: 'https://example.test/manual', wiki: false, text: 'manual' }]],
+        ['#todo [draft\\](preview) then manual', [{ href: 'https://example.test/manual', wiki: false, text: 'manual' }]],
+      ]
+    )
+    // a backtick with no partner after it is ordinary text of a label
+    const lone = _row_html('#todo [it`s here](https://example.test/tick)')
+    check('row (markdown link label with a lone backtick): the link stands with its whole label', [rowText(lone), rowAnchors(lone)], [
+      '#todo it`s here',
+      [{ href: 'https://example.test/tick', wiki: false, text: 'it`s here' }],
+    ])
     context._replace_tags = stub
     delete context.window._wiki_link_regexp
     delete context.window._wiki_link_html
@@ -2965,6 +3113,102 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     // (the editor's text holds zero-width spaces in long runs: the core's mapping moves both ends past the one before the stretch)
     const ZWSP = String.fromCharCode(0x200b)
     check('place: in an open editor the stretch is selected where the editor holds it (past a zero-width space of its own), and not at all in a draft that holds other text there', [open_editor(CHAT + '\na line typed since'), open_editor(CHAT.slice(0, 10) + ZWSP + CHAT.slice(10)), open_editor('a line typed since\n' + CHAT)], [[['focus'], ['selection', 44, 82]], [['focus'], ['selection', 45, 83]], []])
+  }
+  // ---- clipped todo rows and chat-todo questions: inline code decided before clipping ---------
+  {
+    const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
+    const cfg = { url: 'x://h/f' }
+    const decodeHtml = s =>
+      String(s ?? '').replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(amp|lt|gt|quot|apos));/g, (_, dec, hex, name) =>
+        dec
+          ? String.fromCodePoint(Number(dec))
+          : hex
+            ? String.fromCodePoint(parseInt(hex, 16))
+            : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]
+      )
+    const wikiPaths = s =>
+      [...String(s ?? '').matchAll(/<a\b[^>]*href="([^"]*)"[^>]*data-wiki-link[^>]*>/g)].map(m => new URL(decodeHtml(m[1])).searchParams.get('path'))
+    const renderTodoRow = (id, spec) => {
+      const w = world({ extra: { [id]: spec } })
+      w.ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
+      w.ctx.window._wiki_link_html = (target, alias, options) => wiki.wikiLinkHtml(cfg, target, alias, options)
+      w.render()
+      return w.rows().find(r => r.getAttribute('data-id') == id).children[0].innerHTML
+    }
+    const rightCutHtml = renderTodoRow('right_cut', {
+      text: '#todo See [[docs/ok]] and `code [[docs/code]] ' + 'word '.repeat(35) + 'end`',
+      label: '#todo',
+    })
+    check(
+      'row (inline code, cut right): closing backtick in cut.tail keeps code reference text and links prose reference',
+      [rightCutHtml, wikiPaths(rightCutHtml)],
+      [
+        '<mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code &#91;&#91;docs&#47;code&#93;&#93; ' + 'word '.repeat(30) + 'word …',
+        ['docs/ok'],
+      ]
+    )
+    const leftCutHtml = renderTodoRow('left_cut', {
+      text: 'Start `code ' + 'word '.repeat(40) + '[[docs/code]]` then [[docs/ok]] #todo',
+      label: '',
+    })
+    const leftCutEvenHtml = renderTodoRow('left_cut_even', {
+      text: 'Start `ok` ' + 'word '.repeat(40) + '[[docs/ok]] and `[[docs/code]]` end #todo',
+      label: '',
+    })
+    check(
+      'row (inline code, cut left): opening backtick in cut.head keeps reference before closing backtick text and links prose reference after it',
+      [
+        [leftCutHtml, wikiPaths(leftCutHtml)],
+        [leftCutEvenHtml, wikiPaths(leftCutEvenHtml)],
+      ],
+      [
+        [
+          '&lrm;… ' + 'word '.repeat(33) + '&#91;&#91;docs&#47;code&#93;&#93;` then <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> <mark>#todo</mark>',
+          ['docs/ok'],
+        ],
+        [
+          '&lrm;… ' + 'word '.repeat(32) + '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `&#91;&#91;docs&#47;code&#93;&#93;` end <mark>#todo</mark>',
+          ['docs/ok'],
+        ],
+      ]
+    )
+    const rightUnpairedHtml = renderTodoRow('right_open', {
+      text: '#todo See [[docs/ok]] and `open [[docs/open]] ' + 'word '.repeat(35) + 'end',
+      label: '#todo',
+    })
+    check(
+      'row (inline code, cut right unpaired): unpartnered backtick with none in cut.tail opens nothing and links both references',
+      [rightUnpairedHtml, wikiPaths(rightUnpairedHtml)],
+      [
+        '<mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `open <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fopen" title="docs&#47;open" data-wiki-link>docs&#47;open</a> ' + 'word '.repeat(30) + 'word …',
+        ['docs/ok', 'docs/open'],
+      ]
+    )
+    const chatCutHtml = renderTodoRow('chat_cut', {
+      text: '#chat/vault/33 #todo #_agent/vault\n<<user>> See [[docs/ok]] and `code [[docs/code]] ' + 'word '.repeat(35) + 'end\n',
+      label: '#chat/vault/33',
+    })
+    const chatOpenHtml = renderTodoRow('chat_open', {
+      text: '#chat/vault/34 #todo #_agent/vault\n<<user>> See [[docs/ok]] and `code [[docs/code]] end\n',
+      label: '#chat/vault/34',
+    })
+    check(
+      'row (inline code, chat-todo question): clipped question keeps reference after unpartnered backtick text while prose links; unclipped question links both',
+      [
+        [chatCutHtml, wikiPaths(chatCutHtml)],
+        [chatOpenHtml, wikiPaths(chatOpenHtml)],
+      ],
+      [
+        [
+          '<mark>#chat/vault/33</mark> <mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code &#91;&#91;docs&#47;code&#93;&#93; ' + 'word '.repeat(32) + 'word …',
+          ['docs/ok'],
+        ],
+        [
+          '<mark>#chat/vault/34</mark> <mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fcode" title="docs&#47;code" data-wiki-link>docs&#47;code</a> end',
+          ['docs/ok', 'docs/code'],
+        ],
+      ]
+    )
   }
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
@@ -4194,21 +4438,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ],
         ],
         [
-          [['#notes/a', 'First line'], '<mark class="waits">item</mark> <mark>#notes/a</mark> First line'],
-          [['#notes/a', 'inline summary'], '<mark class="waits">item</mark> <mark>#notes/a</mark> inline summary'],
-          [['#notes/a', 'Visible line'], '<mark class="waits">item</mark> <mark>#notes/a</mark> Visible line'],
-          [['#notes/a', ''], '<mark class="waits">item</mark> <mark>#notes/a</mark> '],
-          [['', 'Title line'], '<mark class="waits">item</mark> Title line'],
-          [['', '#dup first line'], '<mark class="waits">item</mark> #dup first line'],
-          [['#notes/a', 'z'.repeat(119) + '…'], '<mark class="waits">item</mark> <mark>#notes/a</mark> ' + 'z'.repeat(119) + '…'],
+          [['#notes/a', 'First line', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> First line'],
+          [['#notes/a', 'inline summary', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> inline summary'],
+          [['#notes/a', 'Visible line', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> Visible line'],
+          [['#notes/a', '', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> '],
+          [['', 'Title line', null], '<mark class="waits">item</mark> Title line'],
+          [['', '#dup first line', null], '<mark class="waits">item</mark> #dup first line'],
+          [['#notes/a', 'z'.repeat(119) + '…', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> ' + 'z'.repeat(119) + '…'],
           [
-            ['', '[x] Drafted summary'],
+            ['', '[x] Drafted summary', null],
             '[x] Drafted summary',
             '<mark class="waits">item</mark> [x] Drafted summary',
             'item: waits on you; click the bell or drop it on done to clear it\n[x] Drafted summary',
           ],
           [
-            ['', 'q'.repeat(79) + '…'],
+            ['', 'q'.repeat(79) + '…', null],
             'q'.repeat(79) + '…',
             '<mark class="waits">item</mark> ' + 'q'.repeat(79) + '…',
             'item: waits on you; click the bell or drop it on done to clear it\n' + 'q'.repeat(79) + '…',
@@ -4466,6 +4710,567 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             [3, ALL],
           ]
         )
+      }
+
+      // 14. wiki links in waiting rows: only a waiting `reply` row showing the reply's first line
+      //     as written (cut at most at its end) links its wiki references via the app's builder;
+      //     every other waiting row (any `item` row, a shaped reply line, or a fallback reply line)
+      //     stays escaped text; hostile inputs never become markup or live links; absent builder
+      //     keeps rows as before; _wire_row_links stops anchor clicks so clicking a wiki link does
+      //     not select the row
+      {
+        const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
+        const config = { url: 'x://h/f' }
+        const packed = { url: 'vscode-insiders://olcan.auto-open-obsidian/link/{link}', root: '/vault' }
+        const parseAnchors = html => {
+          const out = []
+          for (const m of String(html ?? '').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)) {
+            const attrs = {}
+            for (const a of m[1].matchAll(/([a-zA-Z0-9_-]+)(?:="([^"]*)")?/g)) attrs[a[1]] = a[2] ?? ''
+            out.push({
+              attrs,
+              href: attrs.href ?? '',
+              title: attrs.title ?? '',
+              innerText: m[2],
+              target: undefined,
+              onclick: null,
+              hasAttribute(name) { return name in this.attrs },
+              getAttribute(name) { return this.attrs[name] ?? null },
+            })
+          }
+          return out
+        }
+        const withAnchors = w => {
+          const origCreate = w.ctx.document.createElement.bind(w.ctx.document)
+          w.ctx.document.createElement = tag => {
+            const el = origCreate(tag)
+            const origQsa = el.querySelectorAll.bind(el)
+            el.querySelectorAll = sel => {
+              if (sel == 'a') {
+                if (el._anchorsHtml !== el.innerHTML) {
+                  el._anchorsHtml = el.innerHTML
+                  el._anchors = parseAnchors(el.innerHTML)
+                }
+                return el._anchors
+              }
+              return origQsa(sel)
+            }
+            return el
+          }
+          return w
+        }
+        const setWiki = (w, cfg) => {
+          if (cfg === false) {
+            delete w.ctx.window._wiki_link_regexp
+            delete w.ctx.window._wiki_link_html
+          } else if (cfg === 'no-builder') {
+            w.ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
+            delete w.ctx.window._wiki_link_html
+          } else {
+            w.ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
+            w.ctx.window._wiki_link_html = (target, alias, options) => wiki.wikiLinkHtml(cfg, target, alias, options)
+          }
+          w.render()
+          return w
+        }
+        const chatRow = (text, cfg = config, opts = {}) => {
+          const w = setWiki(withAnchors(chatting({ text, ...opts })), cfg)
+          return { w, row: w.rows().find(r => r.getAttribute('data-id') == 'chat') }
+        }
+        const replyRow = (line, cfg = config) => chatRow(REPLY.replace('Two parts: alpha and beta.', line), cfg)
+        const itemRow = (text, cfg = config, opts = {}) => {
+          const w = setWiki(withAnchors(writing({ text, render: false, ...opts })), cfg)
+          return { w, row: w.rows().find(r => r.getAttribute('data-id') == 'note') }
+        }
+        const chatHtml = (text, cfg = config, opts = {}) => chatRow(text, cfg, opts).row.children[0].innerHTML
+        const replyHtml = (line, cfg = config) => replyRow(line, cfg).row.children[0].innerHTML
+        const itemHtml = (text, cfg = config, opts = {}) => itemRow(text, cfg, opts).row.children[0].innerHTML
+        const RPFX = '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> '
+        const IPFX = '<mark class="waits">item</mark> <mark>#notes/a</mark> '
+        // single-pass character-reference decode so a literal entity like &lt; never decodes twice
+        const decodeHtml = s =>
+          String(s ?? '').replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(amp|lt|gt|quot|apos));/g, (_, dec, hex, name) =>
+            dec
+              ? String.fromCodePoint(Number(dec))
+              : hex
+                ? String.fromCodePoint(parseInt(hex, 16))
+                : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]
+          )
+        const decodedLinks = html =>
+          parseAnchors(html).map(a => {
+            const href = decodeHtml(a.href)
+            let targetPath = null
+            let view = null
+            if (href.includes('/link/')) {
+              const payload = JSON.parse(Buffer.from(href.split('/link/')[1], 'base64url').toString('utf8'))
+              targetPath = payload.path
+              view = payload.view ?? null
+            } else if (href) {
+              try {
+                targetPath = new URL(href).searchParams.get('path')
+              } catch {}
+            }
+            return { path: targetPath, view, title: decodeHtml(a.title), text: decodeHtml(a.innerText) }
+          })
+
+        // reply row: wiki link + markdown script link + url + tag + raw html in one line (under 120 chars)
+        const mixedReply = replyHtml('See [[docs/x]] and [the plan](javascript:alert(1)) and https://example.com/x and #tag and <b>hi</b>')
+        const aliasedReply = replyHtml('See [[notes/A&B|see #topic [x](y)]] and #tag and https://example.com/x')
+        check(
+          'waits wiki (reply): wiki links become app anchors; markdown script link, url, tag, and markup stay text',
+          [mixedReply, decodedLinks(mixedReply), aliasedReply, decodedLinks(aliasedReply), /target=|rel=|\son\w+=/.test(mixedReply + aliasedReply)],
+          [
+            RPFX +
+              'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> ' +
+              'and [the plan](javascript:alert(1)) and https://example.com/x and #tag and &lt;b&gt;hi&lt;/b&gt;',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
+            RPFX +
+              'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;notes&#37;2FA&#37;26B" title="notes&#47;A&#38;B" data-wiki-link>see &#35;topic &#91;x&#93;&#40;y&#41;</a> ' +
+              'and #tag and https://example.com/x',
+            [{ path: 'notes/A&B', view: null, title: 'notes/A&B', text: 'see #topic [x](y)' }],
+            false,
+          ]
+        )
+        const packedReply = replyHtml('Review [[docs/x#diff|the diff]]', packed)
+        check(
+          'waits wiki (reply): packed config with #diff builds packed anchor with diff title',
+          [packedReply, decodedLinks(packedReply)],
+          [
+            RPFX + 'Review <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>',
+            [{ path: 'docs/x', view: 'diff', title: 'diff of docs/x', text: 'the diff' }],
+          ]
+        )
+
+        // hostile cases (all on unchanged reply rows: exact HTML and decoded paths)
+        const hostileQuoteRefused = replyHtml('Path [[docs/a" onclick="alert(1)]] stays')
+        const hostileQuoteEncoded = replyHtml("Open [[docs/a'b|say \"hi\" & 'bye']] now")
+        check(
+          'waits wiki hostile (quotes): double-quote path refused and escaped; single-quote path and quoted alias encoded',
+          [hostileQuoteRefused, hostileQuoteEncoded, decodedLinks(hostileQuoteEncoded)],
+          [
+            RPFX + 'Path [[docs/a&quot; onclick=&quot;alert(1)]] stays',
+            RPFX + 'Open <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fa&#39;b" title="docs&#47;a&#39;b" data-wiki-link>say &#34;hi&#34; &#38; &#39;bye&#39;</a> now',
+            [{ path: "docs/a'b", view: null, title: "docs/a'b", text: 'say "hi" & \'bye\'' }],
+          ]
+        )
+        const hostileAngleRefused = replyHtml('Bad [[docs/<script>alert(1)</script>]] here')
+        const hostileAngleAlias = replyHtml('See [[docs/x|</a><img src=x onerror=alert(1)>]] here')
+        const hostileAngleFrag = replyHtml('See [[docs/x#<img src=x>]] here')
+        const hostileAngleWrap = replyHtml('<img src=x onerror=alert(1)> [[docs/x]]')
+        check(
+          'waits wiki hostile (angle brackets): path refused, alias and fragment encoded, surrounding html escaped',
+          [
+            hostileAngleRefused,
+            hostileAngleAlias,
+            decodedLinks(hostileAngleAlias),
+            hostileAngleFrag,
+            decodedLinks(hostileAngleFrag),
+            hostileAngleWrap,
+            decodedLinks(hostileAngleWrap),
+          ],
+          [
+            RPFX + 'Bad [[docs/&lt;script&gt;alert(1)&lt;/script&gt;]] here',
+            RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>&#60;&#47;a&#62;&#60;img src&#61;x onerror&#61;alert&#40;1&#41;&#62;</a> here',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: '</a><img src=x onerror=alert(1)>' }],
+            RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x&#35;&#60;img src&#61;x&#62;</a> here',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x#<img src=x>' }],
+            RPFX + '&lt;img src=x onerror=alert(1)&gt; <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
+          ]
+        )
+        const hostileNestedPath = replyHtml('Try [[docs/a[[docs/b]]]] end')
+        const hostileNestedAlias = replyHtml('Try [[docs/x|a [[docs/y]] b]] end')
+        const hostileAliasBracket = replyHtml('Try [[docs/x|see [bad](javascript:alert(1))]] end')
+        check(
+          'waits wiki hostile (second pair of brackets): nested brackets in path or alias keep outer text literal; single brackets in alias stay encoded',
+          [
+            hostileNestedPath,
+            decodedLinks(hostileNestedPath),
+            hostileNestedAlias,
+            decodedLinks(hostileNestedAlias),
+            hostileAliasBracket,
+            decodedLinks(hostileAliasBracket),
+          ],
+          [
+            RPFX + 'Try [[docs/a<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fb" title="docs&#47;b" data-wiki-link>docs&#47;b</a>]] end',
+            [{ path: 'docs/b', view: null, title: 'docs/b', text: 'docs/b' }],
+            RPFX + 'Try [[docs/x|a <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>docs&#47;y</a> b]] end',
+            [{ path: 'docs/y', view: null, title: 'docs/y', text: 'docs/y' }],
+            RPFX + 'Try <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>see &#91;bad&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;</a> end',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'see [bad](javascript:alert(1))' }],
+          ]
+        )
+        const hostileScriptRefused = replyHtml('No [[javascript:alert(1)]] or [[javascript:alert(1)|click]]')
+        const hostileScriptMixed = replyHtml('See [[docs/x]] and [the plan](javascript:alert(1))')
+        check(
+          'waits wiki hostile (script address): javascript target refused; wiki link plus markdown script link in one line links only the first',
+          [hostileScriptRefused, hostileScriptMixed, decodedLinks(hostileScriptMixed)],
+          [
+            RPFX + 'No [[javascript:alert(1)]] or [[javascript:alert(1)|click]]',
+            RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> and [the plan](javascript:alert(1))',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
+          ]
+        )
+        const hostileCharRefAlias = replyHtml('Ref [[docs/x|&lt;script&gt; &#60;b&#62; &quot;q&quot;]] end')
+        const hostileCharRefPath = replyHtml('Ref [[docs/&lt;x]] and [[javascript&#58;alert(1)]] and [[../&lt;x]]')
+        check(
+          'waits wiki hostile (character references): named and numeric refs stay literal and never decode into tags or schemes',
+          [hostileCharRefAlias, decodedLinks(hostileCharRefAlias), hostileCharRefPath, decodedLinks(hostileCharRefPath)],
+          [
+            RPFX + 'Ref <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>&#38;lt&#59;script&#38;gt&#59; &#38;&#35;60&#59;b&#38;&#35;62&#59; &#38;quot&#59;q&#38;quot&#59;</a> end',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: '&lt;script&gt; &#60;b&#62; &quot;q&quot;' }],
+            RPFX + 'Ref <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2F&#37;26lt&#37;3Bx" title="docs&#47;&#38;lt&#59;x" data-wiki-link>docs&#47;&#38;lt&#59;x</a> and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;javascript&#37;26" title="javascript&#38;" data-wiki-link>javascript&#38;&#35;58&#59;alert&#40;1&#41;</a> and [[../&amp;lt;x]]',
+            [
+              { path: 'docs/&lt;x', view: null, title: 'docs/&lt;x', text: 'docs/&lt;x' },
+              { path: 'javascript&', view: null, title: 'javascript&', text: 'javascript&#58;alert(1)' },
+            ],
+          ]
+        )
+        check(
+          'waits wiki hostile (refused paths): traversal, absolute, and backslash targets stay as written',
+          replyHtml('No [[../secret]] [[/etc/passwd]] [[a\\b]]'),
+          RPFX + 'No [[../secret]] [[/etc/passwd]] [[a\\b]]'
+        )
+
+        // no builder / setting off: row stays as today
+        check(
+          'waits wiki (no builder or off): reply and item rows keep wiki links literal and escaped',
+          [
+            replyHtml('See [[docs/x]] and <b>hi</b>', false),
+            replyHtml('See [[docs/x]] and <b>hi</b>', 'no-builder'),
+            replyHtml('See [[docs/x]] and <b>hi</b>', null),
+            itemHtml('#notes/a\nSee [[docs/x]] and <b>hi</b>', false),
+            itemHtml('#notes/a\nSee [[docs/x]] and <b>hi</b>', 'no-builder'),
+            itemHtml('#notes/a\nSee [[docs/x]] and <b>hi</b>', null),
+          ],
+          [
+            RPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            RPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            RPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            IPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            IPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+            IPFX + 'See [[docs/x]] and &lt;b&gt;hi&lt;/b&gt;',
+          ]
+        )
+
+        // click wiring on waiting rows: clicking the wiki anchor stops propagation (does not select
+        // the row) and keeps default (no target); clicking the row still selects the item
+        const clickProbe = ({ w, row }) => {
+          const div = row.children[0]
+          const anchors = div.querySelectorAll('a')
+          const ev = { stopped: 0, prevented: 0, stopPropagation() { this.stopped++ }, preventDefault() { this.prevented++ } }
+          anchors[0]?.onclick?.(ev)
+          if (!ev.stopped) div.onclick?.(ev)
+          const afterLink = [...w.called]
+          const rowEv = { stopped: 0, prevented: 0, stopPropagation() { this.stopped++ }, preventDefault() { this.prevented++ } }
+          div.onclick?.(rowEv)
+          const afterRow = [...w.called]
+          return {
+            count: anchors.length,
+            target: anchors[0]?.target,
+            stopped: ev.stopped,
+            prevented: ev.prevented,
+            afterLink,
+            afterRow,
+          }
+        }
+        const itemClickRow = itemRow('#notes/a\nSee [[docs/x]] here')
+        const itemRowEv = { stopped: 0, prevented: 0, stopPropagation() { this.stopped++ }, preventDefault() { this.prevented++ } }
+        itemClickRow.row.children[0].onclick?.(itemRowEv)
+        check(
+          'waits wiki (click wiring): clicking a wiki link in a reply row keeps default, has no target, and does not select the row; clicking the row selects it; item row has no link',
+          [
+            clickProbe(replyRow('See [[docs/x]] here')),
+            { count: itemClickRow.row.children[0].querySelectorAll('a').length, called: [...itemClickRow.w.called] },
+          ],
+          [
+            { count: 1, target: undefined, stopped: 1, prevented: 0, afterLink: [], afterRow: ['select'] },
+            { count: 0, called: [['select', 'note']] },
+          ]
+        )
+
+        // written-reply-line rule: ONLY a waiting `reply` row showing the reply's first line as
+        // written (cut at most at its end) links its wiki references; every other waiting row's
+        // line (`item` row always, altered reply line, or fallback reply line) stays escaped text
+
+        // reviewer's first example: altered reply line with matching reference on the same line
+        check(
+          'waits wiki (collision, reply): two-space reference beside one-space reference and [[docs/ok]] renders whole line literal',
+          [
+            replyHtml('Compare [[docs/Plan  A]] with [[docs/Plan A]] and [[docs/ok]]'),
+            replyHtml('Compare [[docs/Plan  A]] with [[docs/Plan A]] and [[docs/ok]]', packed),
+          ],
+          [
+            RPFX + 'Compare [[docs/Plan A]] with [[docs/Plan A]] and [[docs/ok]]',
+            RPFX + 'Compare [[docs/Plan A]] with [[docs/Plan A]] and [[docs/ok]]',
+          ]
+        )
+
+        // reviewer's second example: unnamed `item` row with bracketed ref on line 1 and plain ref on line 2
+        check(
+          'waits wiki (collision, item unnamed): bracketed reference on line one with plain reference on line two renders whole line literal',
+          [
+            itemHtml('Read [[docs/Plan [draft] A]] and [[docs/ok]].\nFinal [[docs/Plan A]].', config, { label: '', name: 'id:note' }),
+            itemHtml('Read [[docs/Plan [draft] A]] and [[docs/ok]].\nFinal [[docs/Plan A]].', packed, { label: '', name: 'id:note' }),
+          ],
+          [
+            '<mark class="waits">item</mark> Read [[docs/Plan A]] and [[docs/ok]].',
+            '<mark class="waits">item</mark> Read [[docs/Plan A]] and [[docs/ok]].',
+          ]
+        )
+
+        // whole-line collision from an earlier turn (distinguishes written-reply-line rule from
+        // whole-item `indexOf` search): earlier turn holds collapsed line verbatim; latest reply's
+        // first line has two spaces -> whole row stays literal
+        const wholeLineUser = `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> see [[docs/Plan A]] now\n${FOOTER}\n${inert('\nsee [[docs/Plan  A]] now\nmore')}`
+        const wholeLineEarlierReply = `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> hi\n${FOOTER}\n${inert('\nsee [[docs/Plan A]] now')}\n<<user>> again\n${FOOTER2}\n${inert('\nsee [[docs/Plan  A]] now')}`
+        check(
+          'waits wiki (collision, whole line from earlier turn): earlier turn holds collapsed line verbatim while reply first line has two spaces; renders whole line literal',
+          [
+            chatHtml(wholeLineUser),
+            chatHtml(wholeLineUser, packed),
+            chatHtml(wholeLineEarlierReply),
+          ],
+          [
+            RPFX + 'see [[docs/Plan A]] now',
+            RPFX + 'see [[docs/Plan A]] now',
+            RPFX + 'see [[docs/Plan A]] now',
+          ]
+        )
+
+        // links: unchanged reply line with two references (one aliased, including literal &lt; entity
+        // to exercise single-pass decodeHtml), same line with outer spaces only (trimmed), packed
+        // two-reference diff line, embed, and clipped reply line (complete ref before cut links;
+        // ref through cut stays text) — exact HTML and decoded paths for every link
+        const twoRefHtml = replyHtml('Compare [[docs/Plan A]] and [[docs/ok|&lt;ok&gt;]]')
+        const trimmedTwoRefHtml = replyHtml('   Compare [[docs/Plan A]] and [[docs/ok|&lt;ok&gt;]]   ')
+        const packedTwoRefHtml = replyHtml('Review [[docs/Plan A]] and [[docs/Meeting notes#diff|the diff]]', packed)
+        const embedReplyHtml = replyHtml('Embed ![[docs/Meeting notes]]')
+        const TWO_REF_EXPECTED_HTML =
+          RPFX +
+          'Compare <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FPlan&#37;20A" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a> ' +
+          'and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>&#38;lt&#59;ok&#38;gt&#59;</a>'
+        const TWO_REF_EXPECTED_LINKS = [
+          { path: 'docs/Plan A', view: null, title: 'docs/Plan A', text: 'docs/Plan A' },
+          { path: 'docs/ok', view: null, title: 'docs/ok', text: '&lt;ok&gt;' },
+        ]
+        check(
+          'waits wiki (reply, links): unchanged line with two references (one aliased), trimmed-only line with outer spaces, packed diff, and embed link with exact HTML and decoded paths',
+          [
+            [twoRefHtml, decodedLinks(twoRefHtml)],
+            [trimmedTwoRefHtml, decodedLinks(trimmedTwoRefHtml)],
+            [packedTwoRefHtml, decodedLinks(packedTwoRefHtml)],
+            [embedReplyHtml, decodedLinks(embedReplyHtml)],
+          ],
+          [
+            [TWO_REF_EXPECTED_HTML, TWO_REF_EXPECTED_LINKS],
+            [TWO_REF_EXPECTED_HTML, TWO_REF_EXPECTED_LINKS],
+            [
+              RPFX +
+                'Review <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy9QbGFuIEEiLCJyb290IjoiL3ZhdWx0In0" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a> ' +
+                'and <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy9NZWV0aW5nIG5vdGVzIiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;Meeting notes" data-wiki-link>the diff</a>',
+              [
+                { path: 'docs/Plan A', view: null, title: 'docs/Plan A', text: 'docs/Plan A' },
+                { path: 'docs/Meeting notes', view: 'diff', title: 'diff of docs/Meeting notes', text: 'the diff' },
+              ],
+            ],
+            [
+              RPFX + 'Embed <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FMeeting&#37;20notes" title="docs&#47;Meeting notes" data-wiki-link>docs&#47;Meeting notes</a>',
+              [{ path: 'docs/Meeting notes', view: null, title: 'docs/Meeting notes', text: 'docs/Meeting notes' }],
+            ],
+          ]
+        )
+
+        const cutReplyHtml = replyHtml('See [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]]!')
+        const cutReplyTrimmedHtml = replyHtml('  See [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]]!  ')
+        const CUT_REPLY_EXPECTED_HTML =
+          RPFX +
+          'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> ' +
+          'x'.repeat(92) +
+          '[[docs/cut]…'
+        check(
+          'waits wiki (clipped through closing brackets): complete reference before cut links on reply row; reference through cut stays literal',
+          [
+            [cutReplyHtml, decodedLinks(cutReplyHtml)],
+            [cutReplyTrimmedHtml, decodedLinks(cutReplyTrimmedHtml)],
+          ],
+          [
+            [CUT_REPLY_EXPECTED_HTML, [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }]],
+            [CUT_REPLY_EXPECTED_HTML, [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }]],
+          ]
+        )
+
+        // no links: named and unnamed `item` rows ALWAYS stay escaped text (unchanged, clipped,
+        // altered, and even when item.text also holds an inert region matching the displayed line)
+        check(
+          'waits wiki (item, named): unchanged and clipped named item rows stay escaped text with no links',
+          [
+            itemHtml('#notes/a\nSee [[docs/x|guide]] and [bad](javascript:alert(1)) and https://example.com/x and #tag'),
+            itemHtml('#notes/a See [[docs/Plan A]] and [[docs/ok]]'),
+            itemHtml('#notes/a\nSee [[notes/A&B|A & B]]', packed),
+            itemHtml('#notes/a\nSee [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]]!'),
+          ],
+          [
+            IPFX + 'See [[docs/x|guide]] and [bad](javascript:alert(1)) and https://example.com/x and #tag',
+            IPFX + 'See [[docs/Plan A]] and [[docs/ok]]',
+            IPFX + 'See [[notes/A&amp;B|A &amp; B]]',
+            IPFX + 'See [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]…',
+          ]
+        )
+        check(
+          'waits wiki (item, unnamed): unchanged and clipped unnamed item rows stay escaped text with no links',
+          [
+            itemHtml('See [[docs/x]] and [bad](javascript:alert(1))\nSecond line', config, { label: '', name: 'id:note' }),
+            itemHtml('[proposal] See [[docs/Meeting [draft] notes]]\nSecond line', config, { label: '', name: 'id:note' }),
+            itemHtml('See [[docs/ok]] ' + 'x'.repeat(52) + '[[docs/cut]]!\nSecond', config, { label: '', name: 'id:note' }),
+          ],
+          [
+            '<mark class="waits">item</mark> See [[docs/x]] and [bad](javascript:alert(1))',
+            '<mark class="waits">item</mark> See [[docs/Meeting [draft] notes]]',
+            '<mark class="waits">item</mark> See [[docs/ok]] ' + 'x'.repeat(52) + '[[docs/cut]…',
+          ]
+        )
+        check(
+          'waits wiki (item, inert region in text): item row whose text also contains a matching inert region still stays escaped text',
+          [
+            itemHtml('#notes/a\nSee [[docs/Plan A]]\n<!--inert-->\nSee [[docs/Plan A]]\n<!--/inert-->'),
+            itemHtml('Read [[docs/Plan [draft] A]]\n<!--inert-->\nRead [[docs/Plan A]]\n<!--/inert-->', config, { label: '', name: 'id:note' }),
+          ],
+          [
+            IPFX + 'See [[docs/Plan A]]',
+            '<mark class="waits">item</mark> Read [[docs/Plan A]]',
+          ]
+        )
+
+        // no links: chat without a reply inert region (fallback line) stays escaped text even when
+        // its first line is unchanged
+        check(
+          'waits wiki (fallback reply line): chat without a reply region stays escaped text even when first line is unchanged',
+          [
+            chatHtml('See [[docs/x]] and [[docs/ok|guide]]', config, { label: '' }),
+            chatHtml('Review [[docs/x#diff|the diff]]', packed, { label: '' }),
+            chatHtml('See [[docs/ok]] and [[docs/a⟦|⟧b]]', config, { label: '' }),
+          ],
+          [
+            '<mark class="waits">reply</mark> See [[docs/x]] and [[docs/ok|guide]]',
+            '<mark class="waits">reply</mark> Review [[docs/x#diff|the diff]]',
+            '<mark class="waits">reply</mark> See [[docs/ok]] and [[docs/ab]]',
+          ]
+        )
+
+        // no links: altered reply lines (collapsed whitespace) and altered item lines
+        check(
+          'waits wiki (changed line, reply): collapsed whitespace renders whole reply line literal',
+          [
+            replyHtml('See [[docs/ok]] and [[docs/Meeting  notes]]'),
+            replyHtml('See [[docs/ok]] and [[docs/Meeting  notes]]', packed),
+            replyHtml('See [[docs/ok]] and [[docs/a\tb]]'),
+          ],
+          [
+            RPFX + 'See [[docs/ok]] and [[docs/Meeting notes]]',
+            RPFX + 'See [[docs/ok]] and [[docs/Meeting notes]]',
+            RPFX + 'See [[docs/ok]] and [[docs/a b]]',
+          ]
+        )
+        check(
+          'waits wiki (changed line, item named): collapsed whitespace and stripped comment or hidden tag render whole named item line literal',
+          [
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/Meeting  notes]]'),
+            itemHtml('#notes/a\nSee [[docs/ok#diff|the diff]] and [[docs/Meeting  notes#diff|other]]', packed),
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/a<!--c-->b]]'),
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/a<!--\n-->b]]'),
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/a #_h#diff]]', packed),
+          ],
+          [
+            IPFX + 'See [[docs/ok]] and [[docs/Meeting notes]]',
+            IPFX + 'See [[docs/ok#diff|the diff]] and [[docs/Meeting notes#diff|other]]',
+            IPFX + 'See [[docs/ok]] and [[docs/ab]]',
+            IPFX + 'See [[docs/ok]] and [[docs/ab]]',
+            IPFX + 'See [[docs/ok]] and [[docs/a #diff]]',
+          ]
+        )
+        check(
+          'waits wiki (changed line, item unnamed): bracketed lowercase word stripped by _notify_line renders whole unnamed item line literal',
+          [
+            itemHtml('See [[docs/ok]] and [[docs/Meeting [draft] notes]]\nSecond line', config, { label: '', name: 'id:note' }),
+            itemHtml('See [[docs/ok]] and [[docs/Meeting [draft] notes]]\nSecond line', packed, { label: '', name: 'id:note' }),
+          ],
+          [
+            '<mark class="waits">item</mark> See [[docs/ok]] and [[docs/Meeting notes]]',
+            '<mark class="waits">item</mark> See [[docs/ok]] and [[docs/Meeting notes]]',
+          ]
+        )
+
+        // inline code on an unchanged waiting reply row: reference inside backticks stays text,
+        // reference outside links, unpaired backtick and backtick in alias still link
+        const replyInline = replyHtml('See `[[docs/code]]` and [[docs/x]]')
+        const replyInlinePacked = replyHtml('See `[[docs/code#diff]]` and [[docs/x#diff|the diff]]', packed)
+        const replyUnpaired = replyHtml('See `[[docs/x]]')
+        const replyAliasTick = replyHtml('See [[docs/y|run `cmd`]]')
+        check(
+          'waits wiki (reply, inline code): reference in backticks stays text, reference outside links, unpaired backtick and backtick in alias still link',
+          [
+            [replyInline, decodedLinks(replyInline)],
+            [replyInlinePacked, decodedLinks(replyInlinePacked)],
+            [replyUnpaired, decodedLinks(replyUnpaired)],
+            [replyAliasTick, decodedLinks(replyAliasTick)],
+          ],
+          [
+            [
+              RPFX + 'See `&#91;&#91;docs&#47;code&#93;&#93;` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+              [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
+            ],
+            [
+              RPFX + 'See `&#91;&#91;docs&#47;code&#35;diff&#93;&#93;` and <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>',
+              [{ path: 'docs/x', view: 'diff', title: 'diff of docs/x', text: 'the diff' }],
+            ],
+            [
+              RPFX + 'See `<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+              [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
+            ],
+            [
+              RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>run &#96;cmd&#96;</a>',
+              [{ path: 'docs/y', view: null, title: 'docs/y', text: 'run `cmd`' }],
+            ],
+          ]
+        )
+        const replyClippedCode = replyHtml('See [[docs/ok]] and `code [[docs/code]] ' + 'word '.repeat(20) + 'end`')
+        const replyClippedOpen = replyHtml('See [[docs/ok]] and `open [[docs/open]] ' + 'word '.repeat(20) + 'end')
+        const replyEntityShift = replyHtml('A & B & C & D & E `[[docs/code]]` [[docs/ok]]')
+        check(
+          'waits wiki (reply, inline code clipped): closing backtick past cut keeps code reference text while prose links; unpaired backtick past cut still links both',
+          [
+            [replyClippedCode, decodedLinks(replyClippedCode)],
+            [replyClippedOpen, decodedLinks(replyClippedOpen)],
+            [replyEntityShift, decodedLinks(replyEntityShift)],
+          ],
+          [
+            [
+              RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code &#91;&#91;docs&#47;code&#93;&#93; ' + 'word '.repeat(15) + 'word…',
+              [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }],
+            ],
+            [
+              RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `open <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fopen" title="docs&#47;open" data-wiki-link>docs&#47;open</a> ' + 'word '.repeat(15) + 'word…',
+              [
+                { path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' },
+                { path: 'docs/open', view: null, title: 'docs/open', text: 'docs/open' },
+              ],
+            ],
+            [
+              RPFX + 'A &amp; B &amp; C &amp; D &amp; E `&#91;&#91;docs&#47;code&#93;&#93;` <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a>',
+              [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }],
+            ],
+          ]
+        )
+        // _reply_raw extracted once per waiting reply row (handed on by _waiting_parts)
+        {
+          const w = setWiki(withAnchors(chatting({ text: REPLY.replace('Two parts: alpha and beta.', 'See [[docs/ok]] and `[[docs/code]]`') })), config)
+          let rawReads = 0
+          const origRaw = w.ctx._reply_raw
+          w.ctx._reply_raw = t => (rawReads++, origRaw(t))
+          w.render()
+          check('waits wiki (reply, single extract): _reply_raw runs once per rendered waiting reply row', rawReads, 1)
+        }
       }
     }
     context.__now = null
@@ -8701,7 +9506,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               '_notify_change', '_notify_children', '_notify_unsnooze', '_unsnooze_step', '_notify_step',
               '_notify_setting', '_notify_gate', '_state_key', '_checked_in', '_notify_todo', '_notify_show',
               '_notify_show_page', '_notify_result', '_notification_of', '_notify_reply', '_vault_replies',
-              '_reply_line', '_item_writes', '_notify_items', '_notify_item', '_item_stamp', '_notify_line',
+              '_reply_raw', '_reply_line', '_item_writes', '_notify_items', '_notify_item', '_item_stamp', '_notify_line',
             ]).join('\n')
           const root = new DomNode('html')
           const head = root.appendChild(new DomNode('head'))
