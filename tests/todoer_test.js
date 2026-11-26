@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -216,7 +216,7 @@ const picked =
     '_select_next',
     '_send_on',
     '_send_since',
-    '_send_shown',
+    '_send_partner',
     '_send_link',
     '_send_same_link',
     '_send_cancel',
@@ -226,6 +226,7 @@ const picked =
     '_row_view_foot',
     '_row_strip_top',
     '_send_toggle',
+    '_send_ask',
     '_send_selected',
     '_send_when_saved',
     '_send_take',
@@ -5466,7 +5467,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
-      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const binCode =
       binConsts +
@@ -5521,7 +5522,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_notify_fixed_view',
         '_send_on',
         '_send_since',
-        '_send_shown',
+        '_send_partner',
         '_send_link',
         '_send_same_link',
         '_send_cancel',
@@ -5529,6 +5530,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_send_press',
         '_send_peer',
         '_send_toggle',
+        '_send_ask',
         '_send_selected',
         '_send_when_saved',
         '_send_take',
@@ -7673,8 +7675,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               'x:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
               'b:a row or todo with a bell is selected',
               'u:a delegated todo is selected, with no unsaved edit in it',
-              'w:another window of the app is open, and the two are not linked: this one then keeps the list',
-              'w:the two windows are linked, in either of them',
+              'w:another window of the app is open, and this window is not linked',
+              'w:this window is linked with the other window',
             ])
         }
 
@@ -9125,7 +9127,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
-      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const winCode =
       winConsts +
@@ -9140,7 +9142,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_notify_fixed_view',
         '_send_on',
         '_send_since',
-        '_send_shown',
+        '_send_partner',
         '_send_link',
         '_send_same_link',
         '_send_cancel',
@@ -9148,6 +9150,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_send_press',
         '_send_peer',
         '_send_toggle',
+        '_send_ask',
         '_send_selected',
         '_send_when_saved',
         '_send_take',
@@ -9904,21 +9907,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env.sessionStorage.getItem = () => { throw new Error('blocked') }
       const brokenOn = a.env._send_on()
       a.env.sessionStorage.getItem = origGet
+      const OUTLINE = 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z'
       check(
-        'windows button: hidden alone and off, shown with peer (off title/dim) and alone while on (on title/cyan), click toggles and asks who on / hello off',
+        'windows button: hidden alone and off, shown with peer (off title/dim) and alone while on (on title/cyan whole icon), click toggles and asks who on / hello off',
         [
           aloneOff,
-          [withPeerOff.name, withPeerOff.title, withPeerOff.color, withPeerOff.icon.includes('M2.3 4.3v7.4'), withPeerOff.icon.includes('M9.8 4.3v7.4')],
-          [afterOn[0], afterOn[1], afterOn[2], afterOn[3].title, afterOn[3].color, afterOn[3].icon.includes('M2.3 4.3v7.4M3.1 4.3v7.4M3.9 4.3v7.4M4.7 4.3v7.4M5.5 4.3v7.4M6.2 4.3v7.4')],
-          [aloneOn[0], aloneOn[1].title, aloneOn[1].color, aloneOn[1].icon.includes('M2.3 4.3v7.4M3.1 4.3v7.4M3.9 4.3v7.4M4.7 4.3v7.4M5.5 4.3v7.4M6.2 4.3v7.4')],
+          [withPeerOff.name, withPeerOff.title, withPeerOff.color, withPeerOff.icon],
+          [afterOn[0], afterOn[1], afterOn[2], afterOn[3].title, afterOn[3].color, afterOn[3].icon],
+          [aloneOn[0], aloneOn[1].title, aloneOn[1].color, aloneOn[1].icon],
           afterOff,
           brokenOn,
         ],
         [
           null,
-          ['window', 'Link the selection with the other window: this one keeps the list (w)', 'rgba(255, 255, 255, 0.25)', false, false],
-          [true, JSON.stringify({ uid: 'u1', since: a.clock.now }), ['who'], 'Linked: this window keeps the list, the other one shows the item. Unlink (w)', 'rgb(102, 255, 255)', true],
-          [null, 'Linked: this window keeps the list, the other one shows the item. Unlink (w)', 'rgb(102, 255, 255)', true],
+          ['window', 'Link with the other window (w)', 'rgba(255, 255, 255, 0.25)', OUTLINE],
+          [true, JSON.stringify({ uid: 'u1', since: a.clock.now }), ['who'], 'Linked with the other window. Unlink (w)', 'rgb(102, 255, 255)', OUTLINE],
+          [null, 'Linked with the other window. Unlink (w)', 'rgb(102, 255, 255)', OUTLINE],
           [false, null, ['hello'], null],
           false,
         ]
@@ -10018,38 +10022,48 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 8. _send_selected: once per item via _on_search, forced sends again, non-item search clears last, switch off sends unaddressed, switch on alone sends who & returns false
+    // 8. _send_selected: unlinked sends nothing; linked tells once per item via _on_search (no n), forced sends again, non-item search clears last; ask while alone and on sends who and returns false
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A' })
+      const b = makeWindow(bus, { id: 'B' })
       a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
       const t1 = a.makeItem('t1', { saved_id: 's1' })
       a.makeWidget({ rows: [{ id: 't1' }] })
-      // switch off: sends unaddressed selected, dedups second unforced call, forced sends again
+      // unlinked: sends nothing
+      bus.sent.length = 0
+      const unlinkedRes = [a.env._send_selected(t1), a.env._send_selected(t1, true, null, true), bus.sent.length]
+      // link A with B: non-row _send_selected tells B (no n), dedups second unforced call, forced sends again
+      a.env._send_toggle(true)
+      bus.flush()
       bus.sent.length = 0
       const r1 = a.env._send_selected(t1)
       const r2 = a.env._send_selected(t1)
       const r3 = a.env._send_selected(t1, true)
-      const offMsgs = bus.sent.map(m => [m.data.type, m.data.item, m.data.to, 'n' in m.data])
+      const tellMsgs = bus.sent.map(m => [m.data.type, m.data.item, m.data.to, 'n' in m.data])
       // non-item search clears windows.last so next unforced _on_search sends again
       bus.sent.length = 0
       a.env._on_search('plain search words')
       const afterClear = [a.win._todoer_windows.last, bus.sent.length]
       a.env._on_search('#t1')
-      const afterReselect = bus.sent.map(m => [m.data.type, m.data.item])
-      // switch on with no peer: sends who (without item) and returns false
-      a.env._send_toggle(true)
+      const afterReselect = bus.sent.map(m => [m.data.type, m.data.item, 'n' in m.data])
+      // on with no peer: ask sends who (without item) and returns false
+      b.fireWin('pagehide')
+      bus.flush()
       bus.sent.length = 0
-      const rAloneOn = a.env._send_selected(t1, true)
+      const rAloneOn = a.env._send_selected(t1, true, null, true)
       const aloneMsgs = bus.sent.map(m => [m.data.type, 'item' in m.data])
       check(
-        'windows _send_selected: once per item via _on_search, forced sends again, non-item search clears last, switch off sends unaddressed, switch on alone sends who and returns false',
-        [[r1, r2, r3], offMsgs, afterClear, afterReselect, rAloneOn, aloneMsgs],
+        'windows _send_selected: unlinked sends nothing, linked tells once per item via _on_search, forced sends again, non-item search clears last, ask alone sends who and returns false',
+        [unlinkedRes, [r1, r2, r3], tellMsgs, afterClear, afterReselect, rAloneOn, aloneMsgs],
         [
+          [false, false, 0],
           [false, false, false],
-          [['selected', 's1', null, false], ['selected', 's1', null, false]],
+          [['selected', 's1', 'B', false], ['selected', 's1', 'B', false]],
           [null, 0],
-          [['selected', 's1']],
+          [['selected', 's1', false]],
           false,
           [['who', false]],
         ]
@@ -10099,7 +10113,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       c.win._todoer_windows.channel.muted = true
       a.scrollToTargetCalls.length = 0
       a.setBox('#t1')
-      const askedC = a.env._send_selected(t1, true)
+      const askedC = a.env._send_selected(t1, true, null, true)
       bus.flush()
       a.setBox('#t2') // box moved on
       a.advance(3000)
@@ -10132,7 +10146,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const u1 = a.makeItem('u1', { saved_id: null, name: '#u1' })
       a.setBox('#u1')
       bus.sent.length = 0
-      const retUnsaved = a.env._send_selected(u1)
+      const retUnsaved = a.env._send_selected(u1, false, null, true)
       a.advance(500) // still unsaved
       const sentBeforeSave = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length
       u1.saved_id = 'saved_u1'
@@ -10213,7 +10227,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // never arrives (past 2s receive / 3s ack) -> B stops polling without sending `took`, A forgets B at 3s!
       const ghost = a.makeItem('ghost', { saved_id: 's_ghost', name: '#ghost' })
       b.selects.length = 0
-      a.env._send_selected(ghost, true)
+      a.env._send_selected(ghost, true, null, true)
       bus.flush()
       advanceAll(bus, [a, b], 3500)
       const peerKeptOnGhost = a.win._todoer_windows.peers.has('B')
@@ -10229,9 +10243,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m2 = a.makeItem('m2', { saved_id: 's_m2', name: '#m2' })
       b.makeItem('m2', { saved_id: 's_m2', name: '#m2' })
       b.selects.length = 0
-      a.env._send_selected(m1, true)
+      a.env._send_selected(m1, true, null, true)
       advanceAll(bus, [a, b], 200)
-      a.env._send_selected(m2, true)
+      a.env._send_selected(m2, true, null, true)
       bus.flush()
       b.makeItem('m1', { saved_id: 's_m1', name: '#m1' })
       advanceAll(bus, [a, b], 500)
@@ -10240,7 +10254,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.marks.length = 0
       const plain = a.makeItem('plain', { saved_id: 's_plain', name: '#plain', text: 'just a note', tags: [], tags_visible: [] })
       b.makeItem('plain', { saved_id: 's_plain', name: '#plain', text: 'just a note', tags: [], tags_visible: [] })
-      a.env._send_selected(plain, true)
+      a.env._send_selected(plain, true, null, true)
       bus.flush()
       const plainMarks = b.marks.length
       bus.sent.length = 0
@@ -10253,7 +10267,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 12a. echo guard (once-per-item): A asks B, B's _on_search after select sends nothing back (no ping-pong echo)
+    // 12a. echo guard (once-per-item): A asks B and B asks A, partner _on_search after select sends nothing back (no ping-pong echo)
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', autoSearch: true })
@@ -10264,16 +10278,23 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._send_toggle(true)
       bus.flush()
       const itA = a.makeItem('e1', { saved_id: 's_e1', name: '#e1' })
-      a.makeWidget({ rows: [{ id: 'e1' }] })
+      a.makeItem('e2', { saved_id: 's_e2', name: '#e2' })
+      a.makeWidget({ rows: [{ id: 'e1' }, { id: 'e2' }] })
       b.makeItem('e1', { saved_id: 's_e1', name: '#e1' })
+      const itB = b.makeItem('e2', { saved_id: 's_e2', name: '#e2' })
+      b.makeWidget({ rows: [{ id: 'e1' }, { id: 'e2' }] })
       bus.sent.length = 0
       a.env._select_item(itA)
       bus.flush()
-      const selectedMsgs = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null])
+      const msgsAB = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null])
+      bus.sent.length = 0
+      b.env._select_item(itB)
+      bus.flush()
+      const msgsBA = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null])
       check(
-        'windows echo guard (once-per-item): A asks B, B _on_search after select sends nothing back (no ping-pong echo)',
-        [selectedMsgs, bus.overflows, a.selects.length, b.selects.length],
-        [[['A', 's_e1', 'B']], 0, 1, 1]
+        'windows echo guard (once-per-item): A asks B and B asks A, partner _on_search after select sends nothing back (no ping-pong echo)',
+        [msgsAB, msgsBA, bus.overflows, a.selects.length, b.selects.length],
+        [[['A', 's_e1', 'B']], [['B', 's_e2', 'A']], 0, 2, 2]
       )
     }
 
@@ -10343,14 +10364,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       c.env._send_selected(c.items.get('k3'), true)
       bus.flush()
       const afterCNowPeer = a.getBox()
-      // addressed message from A to C is taken by C even though C's switch is OFF
-      a.env._send_selected(a.items.get('k4'), true)
+      // asked message from A to C is taken by C (and B stays untouched), and row selection from C is taken by A
+      c.makeWidget({ rows: [{ id: 'k4' }, { id: 'k1' }] })
+      a.env._send_selected(a.items.get('k4'), true, null, true)
       bus.flush()
       const afterAddressed = [c.getBox(), b.getBox()]
+      c.env._send_selected(c.items.get('k1'), true, null, true)
+      bus.flush()
+      const afterCAskedA = [a.getBox(), b.getBox()]
       check(
-        'windows routing (3 windows): addressed always taken; unaddressed taken only by switch-on window from its _send_peer, not another window, and never when switch is off',
-        [offBoxes, afterB, afterCWhilePeerB, peerNow, afterCNowPeer, afterAddressed],
-        [['', ''], ['#k2', ''], '#k2', 'C', '#k3', ['#k4', '']]
+        'windows routing (3 windows): only the linked pair exchange selections (both directions, asked and unasked), partner shifts to window used last, unlinked third window ignored',
+        [offBoxes, afterB, afterCWhilePeerB, peerNow, afterCNowPeer, afterAddressed, afterCAskedA],
+        [['', ''], ['#k2', ''], '#k2', 'C', '#k3', ['#k4', ''], ['#k1', '']]
       )
     }
 
@@ -10553,7 +10578,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 16b. _select_item received: switch-on holds scroll for a selection taken from peer (staying in middle when in view, moving to home when above upper edge), while switch-off scrolls freely
+    // 16b. _select_item received: unasked item-itself selection stays where it is when mounted row is in view and moves when out of view (both directions), while asked row selection goes to item even with own row (both directions)
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
@@ -10568,46 +10593,54 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const itA2 = a.makeItem('rc2', { saved_id: 's_rc2', scrollY: 2100 })
       const itB2 = b.makeItem('rc2', { saved_id: 's_rc2', scrollY: 2100 })
       a.makeItem('rcTop', { saved_id: 's_rcTop', scrollY: 2300 })
-      const itBTop = b.makeItem('rcTop', { saved_id: 's_rcTop', scrollY: 2300 })
-      a.makeWidget({
-        rows: [
-          { id: 'rcTop', pageY: 530, height: 32 },
-          { id: 'rc1', pageY: 600, height: 32 },
-          { id: 'rc2', pageY: 632, height: 32 },
-        ],
-      })
-      // B (switch off) selects rc1 -> A (switch on) takes it and holds scroll at 500
-      b.env._select_item(itB)
+      b.makeItem('rcTop', { saved_id: 's_rcTop', scrollY: 2300 })
+      const rows = [
+        { id: 'rcTop', pageY: 530, height: 32 },
+        { id: 'rc1', pageY: 600, height: 32 },
+        { id: 'rc2', pageY: 632, height: 32 },
+      ]
+      a.makeWidget({ rows })
+      b.makeWidget({ rows })
+      // unasked item-itself selection in B (_on_search) -> A stays at 500
+      b.setScrollTop(1900)
+      b.env._on_search('#rc1')
       bus.flush()
       await Promise.resolve()
-      const aTookOn = [a.getBox(), a.getScrollTop(), b.getScrollTop()]
-      // A scrolled to 560: B selects rc2 (632..664, in view at 560) -> A stays at 560 with same hold
+      const aTookUnasked = [a.getBox(), a.getScrollTop(), b.getScrollTop()]
+      // A scrolled to 560: unasked rc2 from B (632..664, in view at 560) -> A stays at 560 with same hold
       a.fireWin('wheel')
       a.setScrollTop(560)
-      b.env._select_item(itB2)
+      b.env._on_search('#rc2')
       bus.flush()
       const holdRecv = a.win._todoer_windows.hold
       await Promise.resolve()
       const aTookMid = [a.getBox(), a.getScrollTop(), a.win._todoer_windows.hold === holdRecv]
-      // A still at 560: B selects rcTop (530 < 568, above window's upper edge, fits from home) -> A moves to 500
-      b.env._select_item(itBTop)
+      // A still at 560: unasked rcTop from B (530 < 568, above upper edge, fits from home) -> A moves to 500
+      b.env._on_search('#rcTop')
       bus.flush()
       await Promise.resolve()
       const aTookAbove = [a.getBox(), a.getScrollTop()]
-      // A (switch on) selects rc2 -> B (switch off) takes it and scrolls freely to 2100
+      // asked row selection in A -> B goes to 2100 even with its own row; asked row selection in B -> A goes to 1900 even with its own row
+      b.fireWin('wheel')
       b.setScrollTop(500)
       a.env._select_item(itA2)
       bus.flush()
       await Promise.resolve()
-      const bTookOff = [b.getBox(), b.getScrollTop(), a.getScrollTop(), itA.id]
+      const bTookAsked = [b.getBox(), b.getScrollTop(), a.getScrollTop(), itA.id]
+      b.fireWin('wheel')
+      b.setScrollTop(500)
+      b.env._select_item(itB)
+      bus.flush()
+      await Promise.resolve()
+      const aTookAsked = [a.getBox(), a.getScrollTop(), b.getScrollTop(), itB2.id]
       check(
-        'windows _select_item received: switch-on stays where it is when received row is in view and moves when out of view, while switch-off scrolls freely',
-        [aTookOn, aTookMid, aTookAbove, bTookOff],
-        [['#rc1', 500, 1900], ['#rc2', 560, true], ['#rcTop', 500], ['#rc2', 2100, 500, 'rc1']]
+        'windows _select_item received: unasked selection stays in view or moves to row, while asked selection goes to item even with own row (both directions)',
+        [aTookUnasked, aTookMid, aTookAbove, bTookAsked, aTookAsked],
+        [['#rc1', 500, 1900], ['#rc2', 560, true], ['#rcTop', 500], ['#rc2', 2100, 500, 'rc1'], ['#rc1', 1900, 500, 'rc2']]
       )
     }
 
-    // 17. second click on the selected row (__render): opens editor without _send_ready and re-selects to peer without editing when _send_ready
+    // 17. second click on the selected row (__render): opens editor without _send_ready and re-selects to partner without editing when _send_ready (both windows)
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
@@ -10617,40 +10650,54 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       const item = a.makeItem('sc1', { saved_id: 's_sc1', name: '#sc1', text: '#todo click twice', scrollY: 1700 })
       b.makeItem('sc1', { saved_id: 's_sc1', name: '#sc1', text: '#todo click twice', scrollY: 1700 })
-      const widget = a.body.appendChild(new WinDomNode('div', { id: 'w_sc', className: 'todoer-widget' }))
+      const widgetA = a.body.appendChild(new WinDomNode('div', { id: 'w_sc', className: 'todoer-widget' }))
+      const widgetB = b.body.appendChild(new WinDomNode('div', { id: 'w_sc', className: 'todoer-widget' }))
       const widgetItem = { store: { w_sc: { options: {} } }, _global_store: {} }
       a.setBox('#sc1')
       a.setTargetItem('sc1')
-      a.env.__render(widget, widgetItem)
-      const rowDiv = widget.querySelector('.list-item')
+      b.setBox('#sc1')
+      b.setTargetItem('sc1')
+      a.env.__render(widgetA, widgetItem)
+      b.env.__render(widgetB, widgetItem)
+      const rowDivA = widgetA.querySelector('.list-item')
+      const rowDivB = widgetB.querySelector('.list-item')
       const clickEv = { stopPropagation: () => {}, preventDefault: () => {} }
-      // (a) switch off (_send_ready() == false): second click opens editor
-      rowDiv.onclick(clickEv)
+      // (a) unlinked (_send_ready() == false): second click opens editor
+      rowDivA.onclick(clickEv)
       bus.flush()
       const offClick = [a.edits.length, a.selects.length, b.selects.length]
-      // (b) switch on + peer (_send_ready() == true): second click re-selects to B and opens NO editor
+      // (b) linked (_send_ready() == true in BOTH A and B): second click in A shows in B, second click in B shows in A, neither opens editor
       a.edits.length = 0
       a.selects.length = 0
       a.setScrollTop(500)
       a.env._send_toggle(true)
       bus.flush()
       b.selects.length = 0 // linking already told the currently selected listed item (#sc1) to B
-      rowDiv.onclick(clickEv)
+      rowDivA.onclick(clickEv)
       bus.flush()
-      const onWithPeerClick = [a.edits.length, a.selects.length, b.selects.map(s => s.id), a.getScrollTop()]
-      // (c) switch on but peer gone (_send_ready() == false): second click opens editor again
+      const aLinkedClick = [a.edits.length, a.selects.length, b.selects.map(s => s.id), a.getScrollTop()]
+      b.edits.length = 0
+      b.selects.length = 0
+      a.selects.length = 0
+      b.fireWin('wheel')
+      b.setScrollTop(500)
+      rowDivB.onclick(clickEv)
+      bus.flush()
+      const bLinkedClick = [b.edits.length, b.selects.length, a.selects.map(s => s.id), b.getScrollTop()]
+      // (c) peer gone (_send_ready() == false): second click opens editor again
       b.fireWin('pagehide')
       bus.flush()
       a.edits.length = 0
       a.selects.length = 0
-      rowDiv.onclick(clickEv)
+      rowDivA.onclick(clickEv)
       bus.flush()
       const onAloneClick = [a.edits.length, a.selects.length, item.id]
       check(
-        'windows second click (__render): clicking the already-selected row opens editor without _send_ready and re-selects to peer without editing when _send_ready',
-        [offClick, onWithPeerClick, onAloneClick],
+        'windows second click (__render): clicking the already-selected row opens editor without _send_ready and re-selects to partner without editing in both windows when _send_ready',
+        [offClick, aLinkedClick, bLinkedClick, onAloneClick],
         [
           [1, 1, 0], // _edit_item calls item.select() then MindBox.edit_target()
+          [0, 1, ['sc1'], 500],
           [0, 1, ['sc1'], 500],
           [1, 1, 'sc1'],
         ]
@@ -10673,7 +10720,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._send_toggle(true) // who (on: true, since: T, to: 'B')
       bus.flush()
       const tOn = a.clock.now
-      a.env._send_selected(itA, true) // selected + took
+      a.env._send_selected(itA, true, null, true) // asked selected + took
       bus.flush()
       b.env._send_press() // unlink (to: 'A') -> A hello (on: false, since: 0, to: null)
       bus.flush()
@@ -10708,33 +10755,36 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 19. _send_shown: none, list window naming this one, list window naming another, stale list window (boundary live)
+    // 19. _send_partner: none, peer naming this window, peer naming another, tie by used when multiple, stale boundary, and own switch using _send_peer
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
-      const beforeStart = a.env._send_shown(a.clock.now)
+      const beforeStart = a.env._send_partner(a.clock.now)
       a.env._start_windows()
       const t0 = a.clock.now
-      const empty = a.env._send_shown(t0)
+      const empty = a.env._send_partner(t0)
       a.win._todoer_windows.peers.set('pOff', { used: 10, seen: t0, on: false, to: 'A', since: 0 })
-      const peerOff = a.env._send_shown(t0)
+      const peerOff = a.env._send_partner(t0)
       a.win._todoer_windows.peers.set('pOther', { used: 20, seen: t0, on: true, to: 'Z', since: t0 })
-      const toOther = a.env._send_shown(t0)
+      const toOther = a.env._send_partner(t0)
       a.win._todoer_windows.peers.set('pMe', { used: 30, seen: t0 - 120_000, on: true, to: 'A', since: t0 })
-      const atBoundary = a.env._send_shown(t0)
-      const pastStale = a.env._send_shown(t0 + 1)
+      const atBoundary = a.env._send_partner(t0)
+      const pastStale = a.env._send_partner(t0 + 1)
+      a.win._todoer_windows.peers.set('pNewer', { used: 50, seen: t0, on: true, to: 'A', since: t0 })
+      const newestNaming = a.env._send_partner(t0)
+      a.env._send_toggle(true)
+      const ownOnUsesPeer = a.env._send_partner(t0)
       check(
-        'windows _send_shown: none, list window naming this one, list window naming another, stale list window (boundary live)',
-        [beforeStart, empty, peerOff, toOther, atBoundary, pastStale],
-        [null, null, null, null, 'pMe', null]
+        'windows _send_partner: none, peer naming me, naming another, stale boundary, newest when multiple, and own switch using _send_peer',
+        [beforeStart, empty, peerOff, toOther, atBoundary, pastStale, newestNaming, ownOnUsesPeer],
+        [null, null, null, null, 'pMe', null, 'pNewer', 'pNewer']
       )
     }
 
-    // 20. three looks of _window_button in two windows and three (which other window shows as _send_peer changes, and the hello that tells it)
+    // 20. two looks of _window_button in two windows and three (plain dim vs whole-lit cyan, following _send_peer changes via hello)
     {
-      const LEFT_FILL = 'M2.3 4.3v7.4M3.1 4.3v7.4M3.9 4.3v7.4M4.7 4.3v7.4M5.5 4.3v7.4M6.2 4.3v7.4'
-      const RIGHT_FILL = 'M9.8 4.3v7.4M10.6 4.3v7.4M11.4 4.3v7.4M12.2 4.3v7.4M13 4.3v7.4M13.7 4.3v7.4'
-      const paneOf = btn => (!btn ? null : [btn.title, btn.color, btn.icon.includes(LEFT_FILL) ? 'left' : btn.icon.includes(RIGHT_FILL) ? 'right' : 'plain'])
+      const OUTLINE = 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z'
+      const lookOf = btn => (!btn ? null : [btn.title, btn.color, btn.icon == OUTLINE ? (btn.color == 'rgb(102, 255, 255)' ? 'lit' : 'plain') : 'bad'])
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
       const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
@@ -10742,40 +10792,40 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._start_windows()
       b.env._start_windows()
       bus.flush()
-      const unlinked2 = [paneOf(a.env._window_button()), paneOf(b.env._window_button())]
-      // B used more recently -> A links -> A left-lit, B right-lit
+      const unlinked2 = [lookOf(a.env._window_button()), lookOf(b.env._window_button())]
+      // B used more recently -> A links -> BOTH A and B whole-lit cyan with identical wording
       advanceAll(bus, [a, b, c], 2000)
       b.fireWin('focus')
       bus.flush()
       a.env._send_press()
       bus.flush()
-      const linked2 = [paneOf(a.env._window_button()), paneOf(b.env._window_button())]
-      // C joins (unfocused, used=0 < B's used): A left-lit, B STILL right-lit, C plain!
+      const linked2 = [lookOf(a.env._window_button()), lookOf(b.env._window_button())]
+      // C joins (unfocused, used=0 < B's used): A lit, B STILL lit, C plain!
       c.env._start_windows()
       bus.flush()
-      const withThird = [paneOf(a.env._window_button())[2], paneOf(b.env._window_button())[2], paneOf(c.env._window_button())[2]]
-      // C is focused -> A sees _send_peer change B -> C and sends hello with to:'C' -> B becomes plain, C becomes right-lit!
+      const withThird = [lookOf(a.env._window_button())[2], lookOf(b.env._window_button())[2], lookOf(c.env._window_button())[2]]
+      // C is focused -> A sees _send_peer change B -> C and sends hello with to:'C' -> B becomes plain, C becomes lit!
       bus.sent.length = 0
       advanceAll(bus, [a, b, c], 2000)
       c.fireWin('focus')
       bus.flush()
       const helloFromA = bus.sent.filter(m => m.from == 'A' && m.data.type == 'hello').map(m => m.data.to)
-      const afterCFocus = [paneOf(a.env._window_button())[2], paneOf(b.env._window_button())[2], paneOf(c.env._window_button())[2]]
+      const afterCFocus = [lookOf(a.env._window_button())[2], lookOf(b.env._window_button())[2], lookOf(c.env._window_button())[2]]
       check(
-        'windows three looks (2 and 3 windows): plain, left-lit, right-lit follow _send_peer changes via hello',
+        'windows button looks (2 and 3 windows): plain dim and identical whole-lit cyan follow _send_peer changes via hello',
         [unlinked2, linked2, withThird, helloFromA, afterCFocus],
         [
           [
-            ['Link the selection with the other window: this one keeps the list (w)', 'rgba(255, 255, 255, 0.25)', 'plain'],
-            ['Link the selection with the other window: this one keeps the list (w)', 'rgba(255, 255, 255, 0.25)', 'plain'],
+            ['Link with the other window (w)', 'rgba(255, 255, 255, 0.25)', 'plain'],
+            ['Link with the other window (w)', 'rgba(255, 255, 255, 0.25)', 'plain'],
           ],
           [
-            ['Linked: this window keeps the list, the other one shows the item. Unlink (w)', 'rgb(102, 255, 255)', 'left'],
-            ['Linked: this window shows the item, the other one keeps the list. Unlink (w)', 'rgb(102, 255, 255)', 'right'],
+            ['Linked with the other window. Unlink (w)', 'rgb(102, 255, 255)', 'lit'],
+            ['Linked with the other window. Unlink (w)', 'rgb(102, 255, 255)', 'lit'],
           ],
-          ['left', 'right', 'plain'],
+          ['lit', 'lit', 'plain'],
           ['C'],
-          ['left', 'plain', 'right'],
+          ['lit', 'plain', 'lit'],
         ]
       )
     }
@@ -10834,7 +10884,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 22. _send_press and w in all three roles (unlinked, list window, showing window), third window takeover, and alone
+    // 22. _send_press and w: links from either side, unlinks from either side without turning other on, ignores alone & off
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000 })
@@ -10847,36 +10897,35 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       advanceAll(bus, [a, b, c], 2000)
       b.fireWin('focus')
       bus.flush()
-      // (a) unlinked A presses w -> A becomes list window, B shows
+      // (a) unlinked A presses w -> A and B linked (C unlinked)
       const pAOn = pressW(a)
-      const afterAOn = [a.env._send_on(), b.env._send_on(), b.env._send_shown(), c.env._send_shown()]
-      // (b) showing B presses w -> sends unlink to A, does NOT turn B on; link ends in both!
+      const afterAOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner(), c.env._send_partner()]
+      // (b) linked B presses w -> sends unlink to A, does NOT turn B on; link ends in both!
       bus.sent.length = 0
       const pBOff = pressW(b)
       const bSentTypes = bus.sent.filter(m => m.from == 'B').map(m => [m.data.type, m.data.to])
-      const afterBOff = [a.env._send_on(), b.env._send_on(), b.env._send_shown()]
-      // (c) A turns on again, then third (plain) window C presses w -> C becomes sole list window, A gives way!
-      advanceAll(bus, [a, b, c], 100)
-      pressW(a)
-      advanceAll(bus, [a, b, c], 100)
-      const pCTake = pressW(c)
-      const afterCTake = [a.env._send_on(), b.env._send_on(), c.env._send_on()]
-      // (d) list window C presses w -> turns C off
-      const pCOff = pressW(c)
-      const afterCOff = [a.env._send_on(), b.env._send_on(), c.env._send_on()]
+      const afterBOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner()]
+      // (c) unlinked B presses w (with A used last) -> B and A linked; A presses w -> unlinks both
+      advanceAll(bus, [a, b, c], 2000)
+      a.fireWin('focus')
+      bus.flush()
+      const pBOn = pressW(b)
+      const afterBOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_partner(), b.env._send_partner()]
+      const pAOff = pressW(a)
+      const afterAOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_on(), b.env._send_on()]
       check(
-        'windows _send_press & w in all roles: unlinked turns on, list window turns off, showing window sends unlink without turning own switch on, third window takes over',
-        [pAOn, afterAOn, pBOff, bSentTypes, afterBOff, pCTake, afterCTake, pCOff, afterCOff],
+        'windows _send_press & w: links from either side and unlinks from either side without turning the other on',
+        [pAOn, afterAOn, pBOff, bSentTypes, afterBOff, pBOn, afterBOn, pAOff, afterAOff],
         [
           true,
-          [true, false, 'A', null],
+          [true, true, 'A', null],
           true,
           [['unlink', 'A']],
           [false, false, null],
           true,
-          [false, false, true],
+          [true, true, 'B', 'A'],
           true,
-          [false, false, false],
+          [false, false, false, false],
         ]
       )
     }
@@ -10911,55 +10960,28 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 24. only one list window: later since stays and earlier gives way (both announcement directions), same since broken by greater id, no message storm
+    // 24. no conflict resolution: two windows both holding stored `on` do not yield or storm, stay linked to each other, and pressing w in either unlinks both
     {
-      // (a) A on earlier (t=1000), B turns on later (t=2000) -> A gives way, B stays, <= 4 messages
-      const bus1 = makeBus()
-      const a1 = makeWindow(bus1, { id: 'A', now: 1_700_000_001_000 })
-      const b1 = makeWindow(bus1, { id: 'B', now: 1_700_000_001_000 })
-      a1.env._start_windows()
-      b1.env._start_windows()
-      bus1.flush()
-      a1.env._send_toggle(true)
-      bus1.flush()
-      advanceAll(bus1, [a1, b1], 1000)
-      bus1.sent.length = 0
-      b1.env._send_toggle(true)
-      bus1.flush()
-      const caseLaterAnnounces = [a1.env._send_on(), b1.env._send_on(), a1.env._send_shown(), bus1.sent.length <= 4, bus1.overflows]
-
-      // (b) B on later (t=2000), earlier A (t=1000, restored from storage) sends who -> B stays, replies hello, A gives way, <= 4 messages
-      const bus2 = makeBus()
-      const sA2 = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_001_000 })]])
-      const sB2 = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_002_000 })]])
-      const b2 = makeWindow(bus2, { id: 'B', now: 1_700_000_002_500, storage: sB2 })
-      b2.env._start_windows()
-      bus2.flush()
-      bus2.sent.length = 0
-      const a2 = makeWindow(bus2, { id: 'A', now: 1_700_000_002_500, storage: sA2 })
-      a2.env._start_windows()
-      bus2.flush()
-      const caseEarlierAnnounces = [a2.env._send_on(), b2.env._send_on(), a2.env._send_shown(), bus2.sent.length <= 4, bus2.overflows]
-
-      // (c) exact same since (tie): greater id ('Z' > 'A') stays, smaller id gives way, <= 4 messages
-      const bus3 = makeBus()
-      const tie = JSON.stringify({ uid: 'u1', since: 1_700_000_005_000 })
-      const a3 = makeWindow(bus3, { id: 'A', now: 1_700_000_005_000, storage: new Map([['mindpage_todoer_send', tie]]) })
-      const z3 = makeWindow(bus3, { id: 'Z', now: 1_700_000_005_000, storage: new Map([['mindpage_todoer_send', tie]]) })
-      z3.env._start_windows()
-      bus3.flush()
-      bus3.sent.length = 0
-      a3.env._start_windows()
-      bus3.flush()
-      const caseTie = [a3.env._send_on(), z3.env._send_on(), a3.env._send_shown(), bus3.sent.length <= 4, bus3.overflows]
-
+      const bus = makeBus()
+      const sA = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_001_000 })]])
+      const sB = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_002_000 })]])
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_002_500, storage: sB })
+      b.env._start_windows()
+      bus.flush()
+      bus.sent.length = 0
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_002_500, storage: sA })
+      a.env._start_windows()
+      bus.flush()
+      const bothStay = [a.env._send_on(), b.env._send_on(), a.env._send_partner(), b.env._send_partner(), bus.sent.length <= 4, bus.overflows]
+      a.env._send_press()
+      bus.flush()
+      const afterUnlink = [a.env._send_on(), b.env._send_on(), a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
       check(
-        'windows one list window: later since stays and earlier gives way (both announcement orders), same since broken by greater id, no message storm',
-        [caseLaterAnnounces, caseEarlierAnnounces, caseTie],
+        'windows no conflict resolution: two stored-on windows both stay linked without message storm, and w in either unlinks both',
+        [bothStay, afterUnlink],
         [
-          [false, true, 'B', true, 0],
-          [false, true, 'B', true, 0],
-          [false, true, 'Z', true, 0],
+          [true, true, 'B', 'A', true, 0],
+          [false, false, false, false],
         ]
       )
     }
@@ -10983,7 +11005,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const a2 = makeWindow(bus, { id: 'A2', now: 1_700_000_012_000, storage: sharedStore })
       a2.env._start_windows()
       bus.flush()
-      const afterReload = [a2.env._send_since(), a2.env._send_on(), b.env._send_shown()]
+      const afterReload = [a2.env._send_since(), a2.env._send_on(), b.env._send_partner()]
       // unowned legacy '1' (no uid) is forgotten and cleared so another account never inherits it
       const legStore = new Map([['mindpage_todoer_send', '1']])
       const leg = makeWindow(bus, { id: 'LEG', now: 1_700_000_012_000, storage: legStore })
@@ -11076,6 +11098,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.makeWidget({ rows: [{ id: 'os1' }, { id: 'os2' }] })
       b.makeItem('os1', { saved_id: 's_os1', scrollY: 1600 })
       b.makeItem('os2', { saved_id: 's_os2', scrollY: 1800 })
+      b.makeWidget({ rows: [{ id: 'os1' }, { id: 'os2' }] })
       a.env._send_toggle(true)
       bus.flush()
       // (a) non-todoer search (e.g. typed name in MindBox): B follows, A starts NO hold
@@ -11111,7 +11134,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._send_toggle(true)
       bus.flush()
       bus.sent.length = 0
-      a.env._send_selected(it, true) // alone & on -> who without item
+      a.env._send_selected(it, true, null, true) // alone & on -> who without item
       bus.flush()
       const whoMsg = bus.sent.find(m => m.from == 'A' && m.data.type == 'who')?.data
       // now leave account -> nothing said on toggle, select, focus, pagehide, or heartbeat interval!
@@ -11131,11 +11154,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 30. solid-box icon paths: each lit look holds the plain outline and all six strokes of its own pane, none of the other pane, with unchanged titles and colours
+    // 30. button icon: plain dim outline unlinked, identical whole-lit cyan outline (no half strokes) in both linked windows with role-agnostic titles
     {
       const OUTLINE = 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z'
-      const LEFT_STROKES = ['M2.3 4.3v7.4', 'M3.1 4.3v7.4', 'M3.9 4.3v7.4', 'M4.7 4.3v7.4', 'M5.5 4.3v7.4', 'M6.2 4.3v7.4']
-      const RIGHT_STROKES = ['M9.8 4.3v7.4', 'M10.6 4.3v7.4', 'M11.4 4.3v7.4', 'M12.2 4.3v7.4', 'M13 4.3v7.4', 'M13.7 4.3v7.4']
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A' })
       const b = makeWindow(bus, { id: 'B' })
@@ -11145,49 +11166,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const plain = a.env._window_button()
       a.env._send_press()
       bus.flush()
-      const left = a.env._window_button()
-      const right = b.env._window_button()
-      const inspect = btn => ({
-        title: btn.title,
-        color: btn.color,
-        hasOutline: btn.icon.startsWith(OUTLINE),
-        leftCount: LEFT_STROKES.filter(s => btn.icon.includes(s)).length,
-        rightCount: RIGHT_STROKES.filter(s => btn.icon.includes(s)).length,
-        exact: btn.icon,
-      })
+      const litA = a.env._window_button()
+      const litB = b.env._window_button()
+      const inspect = btn => ({ title: btn.title, color: btn.color, exact: btn.icon })
       check(
-        'windows solid-box icons: each lit look holds the plain outline and all six strokes of its own pane, none of the other pane, with unchanged titles and colours',
-        [inspect(plain), inspect(left), inspect(right)],
+        'windows button icon: plain dim outline unlinked and identical whole-lit cyan outline in both linked windows with role-agnostic titles',
+        [inspect(plain), inspect(litA), inspect(litB)],
         [
-          {
-            title: 'Link the selection with the other window: this one keeps the list (w)',
-            color: 'rgba(255, 255, 255, 0.25)',
-            hasOutline: true,
-            leftCount: 0,
-            rightCount: 0,
-            exact: OUTLINE,
-          },
-          {
-            title: 'Linked: this window keeps the list, the other one shows the item. Unlink (w)',
-            color: 'rgb(102, 255, 255)',
-            hasOutline: true,
-            leftCount: 6,
-            rightCount: 0,
-            exact: OUTLINE + LEFT_STROKES.join(''),
-          },
-          {
-            title: 'Linked: this window shows the item, the other one keeps the list. Unlink (w)',
-            color: 'rgb(102, 255, 255)',
-            hasOutline: true,
-            leftCount: 0,
-            rightCount: 6,
-            exact: OUTLINE + RIGHT_STROKES.join(''),
-          },
+          { title: 'Link with the other window (w)', color: 'rgba(255, 255, 255, 0.25)', exact: OUTLINE },
+          { title: 'Linked with the other window. Unlink (w)', color: 'rgb(102, 255, 255)', exact: OUTLINE },
+          { title: 'Linked with the other window. Unlink (w)', color: 'rgb(102, 255, 255)', exact: OUTLINE },
         ]
       )
     }
 
-    // 31. listed-only telling: list window skips unlisted items (including parked and unsaved), clears windows.last, starts no wait or hold; other window tells listed and unlisted alike
+    // 31. asked vs unasked telling: asked (row selection) skips unlisted/parked/unsaved-unlisted items, clears windows.last, starts no wait or hold; unasked (item-itself) tells partner in both windows (no n) while receiver skips unlisted
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
@@ -11209,55 +11202,55 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeWidget({ rows: [{ id: 'bl1' }] })
       a.env._send_toggle(true)
       bus.flush()
-      // (a) list window A selects listed item -> sent to B, windows.last set, scroll held
+      // (a) row selection of listed item in A -> asked to B, windows.last set, scroll held
       bus.sent.length = 0
       a.env._select_item(listed)
       bus.flush()
-      const afterListed = [bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => m.data.item), a.win._todoer_windows.last, b.getBox(), a.getScrollTop()]
+      const afterListed = [bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => [m.data.item, !!m.data.n]), a.win._todoer_windows.last, b.getBox(), a.getScrollTop()]
       a.win._todoer_windows.hold?.() // release hold before testing unlisted selection
-      // (b) list window A selects saved unlisted item -> returns false, posts nothing, clears windows.last, starts NO hold (scrolls to 1700), leaves B on #lt1
+      // (b) asked _send_selected / _select_item on saved unlisted item -> returns false, posts nothing, clears windows.last, starts NO hold (scrolls to 1700), leaves B on #lt1
       bus.sent.length = 0
-      const retUnlisted = a.env._send_selected(unlisted)
+      const retUnlisted = a.env._send_selected(unlisted, false, null, true)
       bus.flush()
       const afterUnlisted = [retUnlisted, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, a.win._todoer_windows.last, b.getBox()]
       a.setScrollTop(500)
       a.env._select_item(unlisted)
       bus.flush()
       const unlistedSelectScroll = [a.getScrollTop(), !!a.win._todoer_windows.hold, b.getBox()]
-      // (c) because windows.last was cleared, unforced _on_search('#lt1') sends #lt1 again!
+      // (c) because windows.last was cleared, unforced _on_search('#lt1') tells #lt1 again (unasked, no n)!
       bus.sent.length = 0
       a.env._on_search('#lt1')
       bus.flush()
-      const resentAfterClear = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => m.data.item)
-      // (d) item whose row is only in a parked #cache-div widget is NOT listed -> not told
+      const resentAfterClear = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => [m.data.item, !!m.data.n])
+      // (d) item whose row is only in a parked #cache-div widget is NOT listed -> not asked
       bus.sent.length = 0
-      const retParked = a.env._send_selected(parked, true)
+      const retParked = a.env._send_selected(parked, true, null, true)
       bus.flush()
       const afterParked = [retParked, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, a.win._todoer_windows.last]
-      // (e) unsaved item with no row in list window A -> returns false and starts NO _send_when_saved timer (even when saved_id arrives 250ms later!)
+      // (e) unsaved item with no row on asked call -> returns false and starts NO _send_when_saved timer
       bus.sent.length = 0
       a.setBox('#uu1')
-      const retUnsavedUnlisted = a.env._send_selected(unsavedUnlisted)
+      const retUnsavedUnlisted = a.env._send_selected(unsavedUnlisted, false, null, true)
       unsavedUnlisted.saved_id = 's_uu1'
       a.items.set('s_uu1', unsavedUnlisted)
       a.advance(500)
       const sentUnsavedUnlisted = bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length
-      // (f) non-list window B tells BOTH listed and unlisted items as before
+      // (f) unasked selection in B tells partner A for both listed and unlisted (no n)
       bus.sent.length = 0
       b.env._send_selected(bUnlisted, true)
       b.env._send_selected(bListed, true)
-      const bSent = bus.sent.filter(m => m.from == 'B' && m.data.type == 'selected').map(m => [m.data.item, m.data.to])
+      const bSent = bus.sent.filter(m => m.from == 'B' && m.data.type == 'selected').map(m => [m.data.item, m.data.to, !!m.data.n])
       check(
-        'windows listed-only telling: list window skips unlisted items (including parked and unsaved), clears windows.last, starts no wait or hold; other window tells listed and unlisted alike',
+        'windows asked vs unasked telling: asked skips unlisted/parked/unsaved-unlisted, clears last and holds nothing; unasked tells partner without n',
         [afterListed, afterUnlisted, unlistedSelectScroll, resentAfterClear, afterParked, [retUnsavedUnlisted, sentUnsavedUnlisted], bSent],
         [
-          [['s_lt1'], 's_lt1', '#lt1', 500],
+          [[['s_lt1', true]], 's_lt1', '#lt1', 500],
           [false, 0, null, '#lt1'],
           [1700, false, '#lt1'],
-          ['s_lt1'],
+          [['s_lt1', false]],
           [false, 0, null],
           [false, 0],
-          [['s_bu1', null], ['s_bl1', null]],
+          [['s_bu1', 'A', false], ['s_bl1', 'A', false]],
         ]
       )
     }
@@ -11459,7 +11452,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.sent.length = 0
       const showingPrev = pressW(b)
       const showingUnlinked = [a.env._send_on(), b.env._send_on(), bus.sent.filter(m => m.from == 'B').map(m => [m.data.type, m.data.to])]
-      // re-link A -> B, then third window C joins -> in C, entry 1 (link) active alone; pressing w in C makes C list window and A gives way
+      // re-link A -> B, then third window C joins (unfocused) -> in C, entry 1 (link) active alone while A and B list unlink
       advanceAll(bus, [a, b], 100)
       pressW(a)
       const c = makeWindow(bus, { id: 'C', now: a.clock.now })
@@ -11467,13 +11460,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       c.env._row_keys()
       bus.flush()
       const thirdMenu = [wState(a), wState(b), wState(c)]
-      advanceAll(bus, [a, b, c], 100)
-      const thirdPrev = pressW(c)
-      const thirdAfter = [a.env._send_on(), b.env._send_on(), c.env._send_on(), wState(c)]
-      // (5) list window C presses w -> turns off
-      const listOffPrev = pressW(c)
-      const listOffAfter = [c.env._send_on(), wState(c)]
-      // (6) list window A after peers leave -> entry 2 (unlink) stays active alone; pressing w turns off and hides both
+      // unlink from A -> all three list link active alone
+      const aOffPrev = pressW(a)
+      const aOffAfter = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), wState(a)]
+      // (6) A linked, then peers leave -> entry 2 (unlink) stays active alone; pressing w turns off and hides both
       advanceAll(bus, [a, b, c], 100)
       pressW(a)
       b.fireWin('pagehide')
@@ -11482,28 +11472,24 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const aloneOnMenu = wState(a)
       const aloneOnPrev = pressW(a)
       const aloneOnAfter = [a.env._send_on(), wState(a)]
-      const LINK = 'link the selection with the other window'
-      const UNLINK = 'unlink the two windows'
+      const LINK = 'link with the other window'
+      const UNLINK = 'unlink from the other window'
       check(
-        'windows _ROW_SHORTCUTS w entries: exact agreement with _on_row_key and _send_press in every role (alone, unlinked with peer, list window, showing window, third window while linked, list window after peer left)',
+        'windows _ROW_SHORTCUTS w entries: exact agreement with _on_row_key and _send_press in every state (alone, unlinked with peer, both linked, third window, alone while stored on)',
         [
           [aloneMenu, alonePrev, aloneAfter],
           [unlinkedMenu, linkPrev],
           [linkedMenu, showingPrev, showingUnlinked],
-          [thirdMenu, thirdPrev, thirdAfter],
-          [listOffPrev, listOffAfter],
+          thirdMenu,
+          [aOffPrev, aOffAfter],
           [aloneOnMenu, aloneOnPrev, aloneOnAfter],
         ],
         [
           [[[LINK, false], [UNLINK, false]], false, [false, 1]],
           [[[[LINK, true], [UNLINK, false]], [[LINK, true], [UNLINK, false]]], true],
           [[[[LINK, false], [UNLINK, true]], [[LINK, false], [UNLINK, true]]], true, [false, false, [['unlink', 'A']]]],
-          [
-            [[[LINK, false], [UNLINK, true]], [[LINK, false], [UNLINK, true]], [[LINK, true], [UNLINK, false]]],
-            true,
-            [false, false, true, [[LINK, false], [UNLINK, true]]],
-          ],
-          [true, [false, [[LINK, true], [UNLINK, false]]]],
+          [[[LINK, false], [UNLINK, true]], [[LINK, false], [UNLINK, true]], [[LINK, true], [UNLINK, false]]],
+          [true, [false, false, [[LINK, true], [UNLINK, false]]]],
           [[[LINK, false], [UNLINK, true]], true, [false, [[LINK, false], [UNLINK, false]]]],
         ]
       )
@@ -11831,7 +11817,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const u1aReload = makeWindow(bus2, { id: 'U1A2', uid: 'u1', now: 1_700_000_012_000, storage: tabStore })
       u1aReload.env._start_windows()
       bus2.flush()
-      const sameAcctReload = [u1aReload.env._send_on(), u1b.env._send_shown()]
+      const sameAcctReload = [u1aReload.env._send_on(), u1b.env._send_partner()]
       u1aReload.fireWin('pagehide')
       u1aReload.win._todoer_windows.channel.close()
       bus2.flush()
@@ -11846,17 +11832,54 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const diffAcctReset = [
         u2tab.env._send_on(),
         tabStore.get('mindpage_todoer_send') ?? null,
-        u2peer.env._send_shown(),
+        u2peer.env._send_partner(),
         bus2.sent.filter(m => m.from == 'U2A').every(m => !m.data.on),
       ]
+      // (g) second window B asks A, then A closes (bye) -> B's pending ask still falls back and scrolls B;
+      //     if instead A explicitly unlinks (hello on:false), B retires pending ask and does NOT scroll
+      const bus3 = makeBus()
+      const fa = makeWindow(bus3, { id: 'FA', scrollTop: 500 })
+      const fb = makeWindow(bus3, { id: 'FB', scrollTop: 500 })
+      fa.env._start_windows()
+      fb.env._start_windows()
+      bus3.flush()
+      fa.env._send_toggle(true)
+      bus3.flush()
+      const fb1 = fb.makeItem('fb_unlk', { saved_id: 's_fb_unlk', scrollY: 1900 })
+      const fb2 = fb.makeItem('fb_bye', { saved_id: 's_fb_bye', scrollY: 1950 })
+      fb.makeWidget({ rows: [{ id: 'fb_unlk' }, { id: 'fb_bye' }] })
+      fa.win._todoer_windows.channel.muted = true
+      fb.env._select_item(fb1)
+      bus3.flush()
+      fa.win._todoer_windows.channel.muted = false
+      fa.env._send_toggle(false) // A explicitly unlinks -> B retires without fallback!
+      bus3.flush()
+      fb.advance(3500)
+      await Promise.resolve()
+      const bAfterAUnlink = [fb.scrollToTargetCalls.length, fb.getScrollTop()]
+      fa.env._send_toggle(true)
+      bus3.flush()
+      fa.win._todoer_windows.channel.muted = true
+      fb.setScrollTop(500)
+      fb.env._select_item(fb2)
+      bus3.flush()
+      fa.win._todoer_windows.channel.muted = false
+      fa.fireWin('pagehide') // A closes -> B keeps ask fallback and scrolls to 1950!
+      fa.win._todoer_windows.channel.close()
+      bus3.flush()
+      fb.advance(3500)
+      await Promise.resolve()
+      const bAfterABye = [fb.scrollToTargetCalls.length, fb.getScrollTop()]
       check(
-        'windows retire & switch owner: unlink/bye/account-left drop stale work while peer-bye keeps sender fallback, and another account forgets stored switch',
-        [afterUnlinkTakeB, afterByeTakeA, afterUnlinkNoFallback, afterPeerByeFallback, afterAccountLeftTake, afterAccountLeftSave, sameAcctReload, diffAcctReset, leftA.id, bLeftA.id],
+        'windows retire & switch owner: unlink/bye/account-left drop stale work while peer-bye keeps sender fallback (both directions), and another account forgets stored switch',
+        [afterUnlinkTakeB, afterByeTakeA, afterUnlinkNoFallback, afterPeerByeFallback, bAfterAUnlink, bAfterABye, afterAccountLeftTake, afterAccountLeftSave, sameAcctReload, diffAcctReset, leftA.id, bLeftA.id],
         [
           ['', 0],
           ['#f4_missB', 0],
           [[true, true, true], 0, 500],
           [1, 1800],
+          [0, 500],
+          [1, 1950],
           ['#f4_byeA', 0],
           [0, 'keep_last'],
           [true, 'U1A2'],
@@ -11881,6 +11904,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         a.makeWidget({ rows: [{ id: 'one' }, { id: 'two' }] })
         b.makeItem('one', { saved_id: 's_one', name: '#one', scrollY: 1600 })
         const bTwo = b.makeItem('two', { saved_id: 's_two', name: '#two', scrollY: 1700 })
+        b.makeWidget({ rows: [{ id: 'one' }, { id: 'two' }] })
         a.env._send_toggle(true)
         bus.flush()
         a.clock.now = tA
@@ -12154,17 +12178,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const afterPeerUnlink = hasShadow(a)
       a.env._send_toggle(true)
       bus.flush()
-      a.env._swallow_scroll(swItem)
-      const c = makeWindow(bus, { id: 'C', now: a.clock.now + 5000 })
-      c.env._start_windows()
+      const swItemB = b.makeItem('sw1', { saved_id: 's_sw1', scrollY: 1600 })
+      b.env._swallow_scroll(swItemB)
+      a.env._send_toggle(false) // A unlinks -> B's swallow shadow drops too!
       bus.flush()
-      c.env._send_toggle(true) // later list window forces A to give way
-      bus.flush()
-      const afterTakeover = hasShadow(a)
-      c.env._send_toggle(false)
-      c.fireWin('pagehide')
-      c.win._todoer_windows.channel.close()
-      bus.flush()
+      const afterTakeover = hasShadow(b)
       // (e) account left removes shadow on step/heartbeat
       const d = makeWindow(bus, { id: 'D', scrollTop: 500, headerTop: 500 })
       d.env._start_windows()
@@ -12881,10 +12899,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       await Promise.resolve()
       const localMid = [a.getScrollTop(), a.win._todoer_windows.hold === h1, scrollEvents, b.getBox()]
-      // (2) received selection from B while A is at 620, row in view -> stays at 620, first hold stands, zero scroll events
+      // (2) received unasked item-itself selection from B while A is at 620, row in view -> stays at 620, first hold stands, zero scroll events
       a.fireWin('wheel')
       a.setScrollTop(620)
-      b.env._select_item(bItems.rs_in2)
+      b.env._on_search('#rs_in2')
       bus.flush()
       const h2 = a.win._todoer_windows.hold
       await Promise.resolve()
@@ -12968,6 +12986,302 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [500, 500, 500, 500, 500, 652, 652, 652, 652],
           [true, true, true, true, true, false, true, true, true],
           ['#jw_0', '#jw_1', '#jw_2', '#jw_3', '#jw_4', '#jw_5', '#jw_6', '#jw_7', '#jw_8'],
+        ]
+      )
+    }
+
+    // 49a. Fluid link: linking from either side lights both windows whole with identical role-agnostic
+    //      button & shortcuts, unlinking from either side ends the link for both, toggle() alone does nothing,
+    //      and reload of either tab preserves the link
+    {
+      const OUTLINE = 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z'
+      const bus = makeBus()
+      const storeA = new Map()
+      const storeB = new Map()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, storage: storeA })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, storage: storeB })
+      a.env._start_windows()
+      a.env._row_keys()
+      const linkedOf = w => (typeof w.win._todoer_windows?.linked == 'function' ? w.win._todoer_windows.linked() : null)
+      const toggleOf = w => (typeof w.win._todoer_windows?.toggle == 'function' ? w.win._todoer_windows.toggle() : null)
+      const btnInfo = w => {
+        const btn = w.env._window_button()
+        return btn ? [btn.title, btn.color, btn.icon] : null
+      }
+      const wShort = w => w.win._shortcuts.todoer.filter(e => e.keys == 'w').map(e => [e.does, e.when, e.active()])
+      // alone and unlinked: toggle() does nothing and returns false
+      const aloneToggle = [toggleOf(a), linkedOf(a)]
+      b.env._start_windows()
+      b.env._row_keys()
+      bus.flush()
+      const unlinkedBtns = [btnInfo(a), btnInfo(b)]
+      // link from A -> both linked, whole-lit identical button and shortcuts
+      toggleOf(a)
+      bus.flush()
+      const linkedFromA = [linkedOf(a), linkedOf(b), btnInfo(a), btnInfo(b), wShort(a), wShort(b)]
+      // unlink from B -> both unlinked
+      toggleOf(b)
+      bus.flush()
+      const unlinkedFromB = [linkedOf(a), linkedOf(b), a.env._send_on(), b.env._send_on()]
+      // link from B -> both linked, whole-lit identical button
+      toggleOf(b)
+      bus.flush()
+      const linkedFromB = [linkedOf(a), linkedOf(b), btnInfo(a), btnInfo(b)]
+      // reload A (the tab that did not press w) while B stays open -> both still linked
+      a.fireWin('pagehide')
+      a.win._todoer_windows.channel.close()
+      bus.flush()
+      const a2 = makeWindow(bus, { id: 'A2', now: 1_700_000_001_000, storage: storeA })
+      a2.env._start_windows()
+      bus.flush()
+      const afterReloadOther = [linkedOf(a2), linkedOf(b)]
+      // reload B (the tab that pressed w) while A2 stays open -> both still linked
+      b.fireWin('pagehide')
+      b.win._todoer_windows.channel.close()
+      bus.flush()
+      const b2 = makeWindow(bus, { id: 'B2', now: 1_700_000_002_000, storage: storeB })
+      b2.env._start_windows()
+      bus.flush()
+      const afterReloadHolder = [linkedOf(a2), linkedOf(b2)]
+      // unlink from A2 -> both unlinked
+      toggleOf(a2)
+      bus.flush()
+      const unlinkedFromA2 = [linkedOf(a2), linkedOf(b2), a2.env._send_on(), b2.env._send_on()]
+      const LIT_BTN = ['Linked with the other window. Unlink (w)', 'rgb(102, 255, 255)', OUTLINE]
+      const DIM_BTN = ['Link with the other window (w)', 'rgba(255, 255, 255, 0.25)', OUTLINE]
+      const W_LINKED = [
+        ['link with the other window', 'another window of the app is open, and this window is not linked', false],
+        ['unlink from the other window', 'this window is linked with the other window', true],
+      ]
+      check(
+        'windows fluid link: both linked from either side, whole-lit identical button and shortcuts, unlink from either, reload either tab',
+        [aloneToggle, unlinkedBtns, linkedFromA, unlinkedFromB, linkedFromB, afterReloadOther, afterReloadHolder, unlinkedFromA2],
+        [
+          [false, false],
+          [DIM_BTN, DIM_BTN],
+          [true, true, LIT_BTN, LIT_BTN, W_LINKED, W_LINKED],
+          [false, false, false, false],
+          [true, true, LIT_BTN, LIT_BTN],
+          [true, true],
+          [true, true],
+          [false, false, false, false],
+        ]
+      )
+    }
+
+    // 49b. Fluid row selection: row in A shown in B then row in B shown in A without unlinking;
+    //      asked window goes to item even when it has its own row (and even over an active hold);
+    //      second window stays put (in view and out of view) and falls back after SEND_ACK_MS on silent peer
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const defs = [
+        ['fr1', 600, 1900],
+        ['fr2', 640, 2100],
+        ['fr3', 1200, 2800], // bottom 1232 > 1136 -> moves to 672; scrollY 2800 outside 2100's scroll band
+        ['fr4', 680, 2500],
+      ]
+      const aIt = {}
+      const bIt = {}
+      for (const [id, , sy] of defs) {
+        aIt[id] = a.makeItem(id, { saved_id: 's_' + id, scrollY: sy })
+        bIt[id] = b.makeItem(id, { saved_id: 's_' + id, scrollY: sy })
+      }
+      const rows = defs.map(([id, pageY]) => ({ id, pageY, height: 32 }))
+      a.makeWidget({ rows })
+      b.makeWidget({ rows })
+      // link from A
+      a.env._send_press()
+      bus.flush()
+      // (1) row in A -> A stays at 500, B goes to 1900 even though B has a row of fr1
+      a.env._select_item(aIt.fr1)
+      bus.flush()
+      await Promise.resolve()
+      const afterAtoB = [a.getBox(), a.getScrollTop(), b.getBox(), b.getScrollTop()]
+      // (2) without unlinking: scroll B back to list (500) and select row fr2 in B WHILE A's hold is still active!
+      //     B stays at 500 with its hold active, A goes to 2100 even though A has a row of fr2
+      b.fireWin('wheel')
+      b.setScrollTop(500)
+      b.env._select_item(bIt.fr2)
+      bus.flush()
+      await Promise.resolve()
+      const afterBtoA = [b.getBox(), b.getScrollTop(), !!b.win._todoer_windows.hold, a.getBox(), a.getScrollTop()]
+      // (3) out-of-view row fr3 in B -> B moves to 672 (80% depth), A goes to 2800
+      b.env._select_item(bIt.fr3)
+      bus.flush()
+      await Promise.resolve()
+      const afterBOutOfView = [b.getScrollTop(), a.getBox(), a.getScrollTop()]
+      // (4) silent peer A when B selects row fr4 -> B stays at 500 until 2999ms, falls back to 2500 at 3000ms
+      a.win._todoer_windows.channel.muted = true
+      b.fireWin('wheel')
+      b.setScrollTop(500)
+      b.scrollToTargetCalls.length = 0
+      b.env._select_item(bIt.fr4)
+      bus.flush()
+      b.advance(2999)
+      await Promise.resolve()
+      const bBeforeFallback = [b.getScrollTop(), b.scrollToTargetCalls.length]
+      b.advance(1)
+      await Promise.resolve()
+      const bAfterFallback = [b.getScrollTop(), b.scrollToTargetCalls.length, b.win._todoer_windows.peers.has('A')]
+      check(
+        'windows fluid row selection: A->B then B->A without unlinking, asked goes to item with own row, second window stays put and falls back on silent peer',
+        [afterAtoB, afterBtoA, afterBOutOfView, bBeforeFallback, bAfterFallback],
+        [
+          ['#fr1', 500, '#fr1', 1900],
+          ['#fr2', 500, true, '#fr2', 2100],
+          [672, '#fr3', 2800],
+          [500, 0],
+          [2500, 1, false],
+        ]
+      )
+    }
+
+    // 49c. Fluid item-itself selection: non-row selection (_on_search) in either linked window tells the other,
+    //      which selects its mounted row without moving and ignores unlisted items
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      for (const w of [a, b]) {
+        w.makeItem('im1', { saved_id: 's_im1', scrollY: 1900 })
+        w.makeItem('im2', { saved_id: 's_im2', scrollY: 2100 })
+        w.makeItem('imu', { saved_id: 's_imu', scrollY: 2200, tags: [], tags_visible: [] })
+        w.makeWidget({ rows: [{ id: 'im1', pageY: 600, height: 32 }, { id: 'im2', pageY: 640, height: 32 }] })
+      }
+      a.env._send_press()
+      bus.flush()
+      // (1) item-itself selection in A -> B selects row without moving (no took), unlisted ignored by B
+      bus.sent.length = 0
+      a.setScrollTop(1900)
+      a.env._on_search('#im1')
+      bus.flush()
+      await Promise.resolve()
+      const bTookItem = [b.getBox(), b.getScrollTop(), bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      a.env._on_search('#imu')
+      advanceAll(bus, [a, b], 2500)
+      const bIgnoredUnlisted = [b.getBox(), b.getScrollTop()]
+      // (2) item-itself selection in B -> A selects row without moving (no took), unlisted ignored by A
+      a.fireWin('wheel')
+      a.setScrollTop(500)
+      bus.sent.length = 0
+      b.setScrollTop(2100)
+      b.env._on_search('#im2')
+      bus.flush()
+      await Promise.resolve()
+      const aTookItem = [a.getBox(), a.getScrollTop(), bus.sent.filter(m => m.from == 'A' && m.data.type == 'took').length]
+      b.env._on_search('#imu')
+      advanceAll(bus, [a, b], 2500)
+      const aIgnoredUnlisted = [a.getBox(), a.getScrollTop()]
+      check(
+        'windows fluid item-itself selection: non-row selection in either window selects mounted row in other without moving and ignores unlisted',
+        [bTookItem, bIgnoredUnlisted, aTookItem, aIgnoredUnlisted],
+        [
+          ['#im1', 500, 0],
+          ['#im1', 500],
+          ['#im2', 500, 0],
+          ['#im2', 500],
+        ]
+      )
+    }
+
+    // 49d. window._todoer_windows.show(item): false at once sending nothing when unlinked; true when linked & taken
+    //      from either side (unlisted item or item with row in partner) without moving or selecting caller;
+    //      false after SEND_ACK_MS when partner is silent; false at once when unlinked mid-wait, unsaved, or alone
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const showOf = (w, it) => (typeof w.win._todoer_windows?.show == 'function' ? w.win._todoer_windows.show(it) : Promise.resolve(null))
+      const gA = a.makeItem('gr1', { saved_id: 's_gr1', scrollY: 2400, tags: [], tags_visible: [] })
+      b.makeItem('gr1', { saved_id: 's_gr1', scrollY: 2400, tags: [], tags_visible: [] })
+      a.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      b.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      const missA = a.makeItem('gmiss', { saved_id: 's_gmiss', scrollY: 2600 })
+      const unsavedA = a.makeItem('gus', { saved_id: null, scrollY: 2700 })
+      a.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }] })
+      b.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }] })
+      a.setBox('#keep_a')
+      b.setBox('#keep_b')
+      // (a) unlinked: resolves false at once, nothing sent, neither window moves
+      bus.sent.length = 0
+      let unlinkedRes = 'pending'
+      showOf(a, gA).then(v => (unlinkedRes = v))
+      await Promise.resolve()
+      const afterUnlinked = [unlinkedRes, bus.sent.length, a.getBox(), b.getBox()]
+      // (b) link from A; A calls show(unlisted gA) -> B goes to 2400, resolves true, A stays on #keep_a at 500
+      a.env._send_press()
+      bus.flush()
+      let aShowRes = 'pending'
+      showOf(a, gA).then(v => (aShowRes = v))
+      bus.flush()
+      await Promise.resolve()
+      const afterAShow = [aShowRes, a.getBox(), a.getScrollTop(), b.getBox(), b.getScrollTop()]
+      // (c) B calls show('#gt1') by string ref -> A goes to 2000 even with own row, resolves true, B stays on #gr1 at 2400
+      let bShowRes = 'pending'
+      showOf(b, '#gt1').then(v => (bShowRes = v))
+      bus.flush()
+      await Promise.resolve()
+      const afterBShow = [bShowRes, b.getBox(), b.getScrollTop(), a.getBox(), a.getScrollTop()]
+      // (d) silent partner B -> stays pending at 2999ms, resolves false at 3000ms without moving or changing A
+      a.setBox('#stay_a')
+      a.setScrollTop(500)
+      b.win._todoer_windows.channel.muted = true
+      let silentRes = 'pending'
+      showOf(a, gA).then(v => (silentRes = v))
+      bus.flush()
+      a.advance(2999)
+      await Promise.resolve()
+      const silentAt2999 = silentRes
+      a.advance(1)
+      await Promise.resolve()
+      const silentAt3000 = [silentRes, a.getBox(), a.getScrollTop()]
+      // (e) reconnect B, start show(missing) then unlink -> resolves false immediately; unsaved -> false at once; alone -> false at once
+      b.win._todoer_windows.channel.muted = false
+      b.advance(2000)
+      b.fireWin('focus')
+      bus.flush()
+      let unlinkWaitRes = 'pending'
+      showOf(a, missA).then(v => (unlinkWaitRes = v))
+      bus.flush()
+      a.env._send_press()
+      bus.flush()
+      await Promise.resolve()
+      // relink and check unsaved and alone
+      a.env._send_press()
+      bus.flush()
+      bus.sent.length = 0
+      let unsavedRes = 'pending'
+      showOf(a, unsavedA).then(v => (unsavedRes = v))
+      await Promise.resolve()
+      const unsavedSent = bus.sent.length
+      b.fireWin('pagehide')
+      bus.flush()
+      let aloneRes = 'pending'
+      showOf(a, gA).then(v => (aloneRes = v))
+      await Promise.resolve()
+      check(
+        'windows show(item): unlinked false at once sending nothing, linked true from either side without moving caller, silent false at SEND_ACK_MS, cancel/unsaved/alone false',
+        [afterUnlinked, afterAShow, afterBShow, silentAt2999, silentAt3000, unlinkWaitRes, [unsavedRes, unsavedSent], aloneRes],
+        [
+          [false, 0, '#keep_a', '#keep_b'],
+          [true, '#keep_a', 500, '#gr1', 2400],
+          [true, '#gr1', 2400, '#gt1', 2000],
+          'pending',
+          [false, '#stay_a', 500],
+          false,
+          [false, 0],
+          false,
         ]
       )
     }
