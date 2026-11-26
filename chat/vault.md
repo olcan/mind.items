@@ -39,10 +39,16 @@ const _on_command_vault = msg => {
   return {
     text: [name + ' #_agent/vault', `\<<user>> ` + msg].join('\n'),
     edit: window['_mindbox_event']?.shiftKey, // edit if shift held
+    mindbox_text: name, // apply the new chat's query in the same step as creation (avoids MindBox.set debounce)
     init: item => {
       if (!item) return // (a creation that was refused: the app has said so, and there is no item to name)
-      MindBox.set(item.name, { scroll: true })
       if (item.editing) _caret_to_end(item) // (only the edit this creation opened: a later edit of the item keeps its own caret)
+      if (MindBox.get().trim().toLowerCase() == item.name.toLowerCase() || window['__item']?.(item.id)?.target) {
+        MindBox.elem.blur() // leave the box unfocused as MindBox.set did (avoids debouncing later changes)
+        MindBox.scroll_to_target() // creation runs with layout scrolling disabled, so scroll explicitly once rendered
+      } else {
+        MindBox.set(item.name, { scroll: true }) // command ran without the box (e.g. a clicked link): navigate as before
+      }
     },
   }
 }
