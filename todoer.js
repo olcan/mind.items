@@ -68,13 +68,15 @@ const _todoer = _item('$id')
 // - Selecting a listed item — or any todo whose list is not on the page — shows buttons for its
 //   list's bins (and its bell, where it carries one; a reply's row shows only **up**, **down**, and
 //   its **bell**, with none of the bins' buttons, telling a notification from a todo — dropping it
-//   on the done or cancel bin still works as before) on the key buttons item's bar (or on a second
-//   row above the bar's left end in a narrow window and on a phone; without that item, at the page's
-//   lower left). A press does what a drag to that bin does, except that the delete button always
-//   asks first (refused while text typed in the item's open editor is not saved); after any action
-//   that takes a row out of its list, by drag or by button, the next row is selected (or the one
-//   before it after the last row; with no row on the page, the todo stays selected and its buttons
-//   update for its list now).
+//   on the done or cancel bin still works as before; a row of an item an agent wrote also shows a
+//   **history** button right after its bell where the pusher is on with a destination and the item
+//   is saved, opening the pusher's commit-history address without clearing or selecting anything)
+//   on the key buttons item's bar (or on a second row above the bar's left end in a narrow window
+//   and on a phone; without that item, at the page's lower left). A press does what a drag to that
+//   bin does, except that the delete button always asks first (refused while text typed in the
+//   item's open editor is not saved); after any action that takes a row out of its list, by drag or
+//   by button, the next row is selected (or the one before it after the last row; with no row on
+//   the page, the todo stays selected and its buttons update for its list now).
 // - **Up** and **down** buttons stand first among a selected item's buttons, and plain **`k`** and
 //   **`j`** do the same when no field has the focus: they cycle in page order through every row
 //   carrying a bell (in any mounted list) together with every row of the main list, passing over
@@ -85,9 +87,10 @@ const _todoer = _item('$id')
 //   a listed row or any todo selected and no field focused, plain keys press the buttons it has
 //   (shown in their tooltips, once per press while held): **`a`** delegates to the agent, **`d`**
 //   marks a todo done, **`s`** snoozes (or unsnoozes when snoozed), **`x`** deletes after asking,
-//   **`b`** clears its bell, and **`u`** takes it back from the agent. Because a reply's row has no
-//   bin buttons, none of the bin keys (`a`, `d`, `s`, `x`, `u`) act on it and **`b`** clears it; any
-//   key it does not take goes on to any prior key hook.
+//   **`b`** clears its bell, **`h`** opens the item's history on a row of an item an agent wrote
+//   (where the pusher has a destination), and **`u`** takes it back from the agent. Because a
+//   waiting row has no bin buttons, none of the bin keys (`a`, `d`, `s`, `x`, `u`) act on it and
+//   **`b`** clears it; any key it does not take goes on to any prior key hook.
 
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
@@ -1616,6 +1619,8 @@ const _BIN_BUTTONS = [
   { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
   { name: 'bell', title: 'Clear the notification (b)', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
+  // the pusher's commit-history address for a row of an item an agent wrote (a clock with an arrow turning back)
+  { name: 'history', title: 'Open item history (h)', color: '#ccc', icon: 'M2.8 9.4a5.4 5.4 0 1 0 1.2-5.1L2.7 5.5M2.7 2.8v2.7h2.7M8 5v3.2l2.1 1.3' },
   { name: 'agent', title: 'Delegate to the agent (a)', color: '#6af', fill: true, icon: 'M8 0.5l1.9 5.6 5.6 1.9-5.6 1.9L8 15.5l-1.9-5.6L0.5 8l5.6-1.9z' }, // the vault item's sparkle
   { name: 'done', title: 'Done (d)', color: '#6f6', icon: 'M3 8.5l3.5 3.5L13 4.5' }, // the key buttons' tick
   { name: 'snooze', title: 'Snooze (s)', color: '#fa4', icon: 'M8 2.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0-10.8M8 5v3.2l2.1 1.3' },
@@ -1789,18 +1794,49 @@ const _ROW_STEP = { up: -1, down: 1 }
 
 // the keys of a row's other buttons, by the key's code: the first letter of what each button
 // says, x for the delete button (the owner, 2026-11-25, of this suggestion: "i want them")
-const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel', KeyB: 'bell', KeyU: 'owner' }
+const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel', KeyB: 'bell', KeyH: 'history', KeyU: 'owner' }
+
+// the github history address the pusher opens for an item (pusher.js, _on_command_history),
+// read from its own store without saving or prompting; null where the pusher item is absent or
+// its commands are off, where it has no destination of two path-safe names, or where the item is
+// not saved yet (a destination is enough: the pusher's own history command asks for no token)
+function _history_url(item) {
+  if (!item?.saved_id) return null
+  const pusher = _item('#pusher', { silent: true })
+  if (!pusher) return null
+  if (Array.isArray(pusher.tags_raw) && (pusher.tags_raw.includes('#_debug') || !pusher.tags_raw.includes('#_listen'))) return null
+  const dest = pusher._global_store?.dest
+  if (typeof dest != 'string') return null
+  // two path-safe name parts alone: a query, a fragment or a dot segment in the destination would
+  // change which page the address opens (the pusher's own prompt takes any two nonempty parts)
+  const parts = dest.trim().split('/')
+  if (parts.length != 2 || !parts.every(part => /^[A-Za-z0-9._-]+$/.test(part) && part != '.' && part != '..')) return null
+  const [owner, repo] = parts
+  return `https://github.com/${owner}/${repo}/commits/master/items/${item.saved_id}.md`
+}
 
 // the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
-// the two row buttons, its bell where it has one, then its list's bins. A row that is not a
-// todo's (a reply's) has none of the bins' buttons: its bell clears it, and a row with the bell
-// alone is seen to be a notification and no todo (the owner, 2026-11-25: "let's try removing
+// the two row buttons, its bell where it has one, history right after the bell on a row of an item
+// an agent wrote where the pusher has a destination and the item is saved, then its list's bins.
+// A row that is not a todo's has none of the bins' buttons: its bell clears it, and a row with no
+// bin buttons is seen to be a notification and no todo (the owner, 2026-11-25: "let's try removing
 // both the button and its shortcut, and let's remove the delete button (and shortcut) also",
 // "i need some way to tell when i'm looking at a notification and not a todo item"). A drop of
 // such a row on the done or the delete bin does what it did
 function _row_buttons(found) {
-  const reply = !!found.row.getAttribute('data-waits')
-  return _BIN_BUTTONS.filter(b => (b.name == 'window' ? false : b.name in _ROW_STEP ? true : b.name == 'bell' ? !!found.row.querySelector('mark.waits') : !reply && !!found.widget.querySelector('.bin.' + b.name)))
+  const waits = found.row.getAttribute('data-waits')
+  const history_item = waits == 'item' ? _item(found.row.getAttribute('data-id'), { silent: true }) : null
+  return _BIN_BUTTONS.filter(b =>
+    b.name == 'window'
+      ? false
+      : b.name in _ROW_STEP
+        ? true
+        : b.name == 'bell'
+          ? !!found.row.querySelector('mark.waits')
+          : b.name == 'history'
+            ? !!_history_url(history_item)
+            : !waits && !!found.widget.querySelector('.bin.' + b.name)
+  )
 }
 
 // which list a todo belongs to by its own state ('main', 'snoozed', or 'delegated'), or null for
@@ -2009,6 +2045,7 @@ const _ROW_SHORTCUTS = [
   { keys: 's', does: 'unsnooze', when: 'a snoozed todo is selected', active: () => _row_can('snooze') && _row_now().snoozed },
   { keys: 'x', does: 'delete, after a question', when: 'a todo of the main or the snoozed list is selected' + _ROW_SAVED, active: () => _row_can('cancel') },
   { keys: 'b', does: 'clear the bell', when: 'a row or todo with a bell is selected', active: () => _row_can('bell') },
+  { keys: 'h', does: 'open item history', when: 'a row of an item an agent wrote is selected, and the pusher has a destination', active: () => _row_can('history') },
   { keys: 'u', does: 'take back from the agent', when: 'a delegated todo is selected' + _ROW_SAVED, active: () => _row_can('owner') },
   // (the window's key, as _on_row_key and _send_press decide it: no row need be selected)
   { keys: 'w', does: 'link with the other window', when: 'another window of the app is open, and this window is not linked', active: () => !_send_linked() && !!_send_peer() },
@@ -2098,7 +2135,7 @@ function _bin_press(name, id, bell_count) {
   // where it is, selected; a delegation asked again from the delegated list leaves its row in
   // that list (the review, 2026-11-24); and with no row on the page there is nothing to follow
   const rows = found ? [...(found.row.parentElement?.children ?? [])] : []
-  const stays = !found || (name == 'bell' && !found.row.getAttribute('data-waits')) || (name == 'agent' && !!found.widget._delegated)
+  const stays = !found || name == 'history' || (name == 'bell' && !found.row.getAttribute('data-waits')) || (name == 'agent' && !!found.widget._delegated)
   const next = stays ? null : _next_listed({ children: rows.filter(row => row != found.row) }, rows.indexOf(found.row))
   if (name == 'bell' && bell_count == null && typeof _shown_bell == 'function') bell_count = _shown_bell(item.id)
   let acted
@@ -2107,7 +2144,7 @@ function _bin_press(name, id, bell_count) {
   } finally {
     acted = _select_next(next, acted).then(() => {
       window._todoer_bin_busy = false
-      if (!found || name == 'bell') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+      if (!found || name == 'bell' || name == 'history') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
     })
   }
   return acted // settles when the press's work is done: the button that took it stays lit until then
@@ -2143,6 +2180,13 @@ function _bin_act(name, item, row, snoozed, bell_count) {
     if (!_bell(item, state)) return false
     if (!_clear_bell(item, Math.min(bell_count, state.surfaced))) return false
     _rerender_todoer_widgets()
+    return true
+  }
+  if (name == 'history') {
+    if (row?.getAttribute('data-waits') != 'item') return false
+    const url = _history_url(item)
+    if (!url) return false
+    window.open(url)
     return true
   }
   if (row?.getAttribute('data-waits')) {
