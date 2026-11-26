@@ -9439,6 +9439,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         const hdr = body.appendChild(new WinDomNode('div', { className: 'header' }))
         hdr.offsetTop = headerTop
       }
+      const colPad = body.appendChild(new WinDomNode('div', { className: 'column-padding' }))
+      colPad.offsetHeight = 0.85 * innerHeight
+      colPad.style.height = 0.85 * innerHeight + 'px' // (the route writes it inline; on iOS it writes none and CSS gives the height)
       const targetContainer = body.appendChild(new WinDomNode('div', { className: 'container target' }))
       const winListeners = new Map()
       const docListeners = new Map()
@@ -9454,9 +9457,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         map.set(type, map.get(type).filter(e => !(e.fn === fn && e.cap === cap)))
       }
       const fireL = (map, type, ev = {}) => {
-        const all = [...(map.get(type) ?? [])]
-        for (const e of all.filter(x => x.cap)) e.fn(ev)
-        for (const e of all.filter(x => !x.cap)) e.fn(ev)
+        const prev = win.event
+        win.event = ev && ev.type ? ev : { type, ...ev }
+        try {
+          const all = [...(map.get(type) ?? [])]
+          for (const e of all.filter(x => x.cap)) e.fn(ev)
+          for (const e of all.filter(x => !x.cap)) e.fn(ev)
+        } finally {
+          win.event = prev
+        }
       }
       const simScroll = y => {
         body.scrollTop = y
@@ -9483,15 +9492,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         return null
       }
       const superNodes = new Map()
+      const inScrollBand = el => {
+        const vh = env.visualViewport?.height ?? env.innerHeight
+        return el.offsetTop >= body.scrollTop && el.offsetTop <= body.scrollTop + vh - 200
+      }
       const scrollToTargetPos = (it = null) => {
         const el = it ? superNodes.get(it.id) : body.querySelector('.super-container.target')
         const home = body.querySelector('.header')?.offsetTop ?? 0
         const vh = env.visualViewport?.height ?? env.innerHeight
-        return el ? Math.max(home, el.offsetTop - vh / 4) : it?.scrollY ?? null
+        return el ? (inScrollBand(el) ? null : Math.max(home, el.offsetTop - vh / 4)) : it?.scrollY ?? null
       }
-      const makeItem = (itemId, { saved_id = 's_' + itemId, name = '#' + itemId, text = '#todo ' + itemId, tags = ['#todo'], tags_visible = ['#todo'], scrollY = 1600, refuseSelect = false } = {}) => {
+      const makeItem = (itemId, { saved_id = 's_' + itemId, name = '#' + itemId, text = '#todo ' + itemId, tags = ['#todo'], tags_visible = ['#todo'], scrollY = 1600, offsetTop = null, refuseSelect = false } = {}) => {
         const sup = body.appendChild(new WinDomNode('div', { id: 'super-container-' + itemId, className: 'super-container' }))
-        sup.offsetTop = scrollY + innerHeight / 4
+        sup.offsetTop = offsetTop ?? scrollY + innerHeight / 4
         superNodes.set(itemId, sup)
         const it = {
           id: itemId,
@@ -9626,7 +9639,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             scrollToTargetCalls.push(boxText)
             const run = () => {
               const it = lookupItem(boxText.trim())
-              if (it) body.scrollTo(0, scrollToTargetPos(it))
+              const y = it ? scrollToTargetPos(it) : null
+              if (y != null) body.scrollTo(0, y)
             }
             if (deferSelect) env._update_dom().then(run)
             else run()
@@ -10484,9 +10498,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._send_toggle(true)
       bus.flush()
       const rIn = a.makeItem('si1', { saved_id: 's_si1', scrollY: 2000 })
-      const rBelow = a.makeItem('si2', { saved_id: 's_si2', scrollY: 2200 })
-      const rAbove = a.makeItem('si3', { saved_id: 's_si3', scrollY: 2400 })
-      for (const [id, y] of [['si1', 2000], ['si2', 2200], ['si3', 2400]]) b.makeItem(id, { saved_id: 's_' + id, scrollY: y })
+      const rBelow = a.makeItem('si2', { saved_id: 's_si2', scrollY: 2600 })
+      const rAbove = a.makeItem('si3', { saved_id: 's_si3', scrollY: 3200 })
+      for (const [id, y] of [['si1', 2000], ['si2', 2600], ['si3', 3200]]) b.makeItem(id, { saved_id: 's_' + id, scrollY: y })
       a.makeWidget({
         rows: [
           { id: 'si1', pageY: 600, height: 32 },
@@ -10528,9 +10542,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [
           [500, 2000, '#si1', true],
           [560, 2000, '#si1', true],
-          [672, 2200, '#si2', false],
+          [672, 2600, '#si2', false],
           [500, 2000, '#si1'],
-          [392, 2400, '#si3'],
+          [392, 3200, '#si3'],
         ]
       )
     }
@@ -12002,9 +12016,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 42. Sitting 5 + 6: targeted _swallow_scroll lifecycle — swallows ONLY item's target scroll (zero scroll events,
-    // drains at 0 ms when unheld), passes other scrollTo through to prototype, drops on popstate/resize/visualViewport.resize
-    // in capture before bubble, unlink/takeover/account-left, expiry, and 3s fallback, and stays safe across sequential/overlapping calls
+    // 42. Sitting 5 + 6 + 8 + 9: targeted _swallow_scroll lifecycle — swallows ONLY item's target scroll
+    // (zero scroll events, drains at 0 ms when unheld), passes non-matching scrollTo, synchronous scrollTo
+    // inside a keydown (window.event), and scrollTo after .column-padding height changes (updating its
+    // baseline while staying armed), drops on popstate in capture before bubble, unlink/takeover/account-left,
+    // expiry, and 3s fallback, keeps swallow across pointer/wheel/touch/keydown/resize/visualViewport.resize,
+    // and stays safe across sequential/overlapping calls
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
@@ -12030,8 +12047,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.advance(1500)
       const afterExpiry = [hasShadow(a), (a.body.scrollTo(0, 1100), a.getScrollTop())]
       // (c) pointer/wheel/touch inputs end hold while keeping targeted swallow armed (non-matching passes, target swallowed & drained at 0ms);
-      //     popstate and keydown drop BOTH hold and swallow in capture BEFORE bubble listeners run;
-      //     window resize and visualViewport resize end hold while keeping targeted swallow armed
+      //     popstate drops BOTH hold and swallow in capture BEFORE bubble listeners run;
+      //     keydown ends hold, keeps swallow standing, passes synchronous scrollTo inside keydown via window.event,
+      //     and still swallows a non-keydown target scroll afterwards;
+      //     window resize and visualViewport resize end hold while keeping swallow armed (padding change passes even target coordinate and re-arms baseline)
       const inputOrder = []
       for (const input of ['wheel', 'touchstart', 'pointerdown']) {
         a.setScrollTop(500)
@@ -12046,32 +12065,66 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         inputOrder.push([input, !!a.win._todoer_windows.hold, nonMatchTop, afterTargetTop, hasShadow(a)])
       }
       const navOrder = []
-      // (a key drops the swallow only once the app's own scroll to the item is behind it: `keydown+`)
-      for (const [ev, matchedFirst] of [['popstate', false], ['keydown', false], ['keydown', true]]) {
+      for (const ev of ['popstate', 'keydown']) {
         a.setScrollTop(500)
         a.env._swallow_scroll(swItem)
         a.env._hold_scroll(500)
-        if (matchedFirst) a.body.scrollTo(0, 1600) // the app's own scroll, swallowed under the hold
         let bubbleSawShadow = null
         const appBubble = () => {
           bubbleSawShadow = hasShadow(a)
-          a.body.scrollTo(0, 1600) // even target position goes through once capture dropped swallow!
+          a.body.scrollTo(0, 1600) // popstate dropped swallow; keydown passes via window.event
         }
         a.win.addEventListener(ev, appBubble, false)
         a.fireWin(ev, { type: ev })
         a.win.removeEventListener(ev, appBubble, false)
-        navOrder.push([ev + (matchedFirst ? '+' : ''), bubbleSawShadow, hasShadow(a), !!a.win._todoer_windows.hold, a.getScrollTop()])
+        const duringTop = a.getScrollTop()
+        const afterEvShadow = hasShadow(a)
+        let postKeySwallow = null
+        if (ev == 'keydown') {
+          a.setScrollTop(500)
+          a.body.scrollTo(0, 1600) // outside keydown: still swallowed and drained at 0ms
+          a.advance(0)
+          postKeySwallow = [a.getScrollTop(), hasShadow(a)]
+        }
+        navOrder.push([ev, bubbleSawShadow, afterEvShadow, !!a.win._todoer_windows.hold, duringTop, postKeySwallow])
       }
+      const colPad = a.body.querySelector('.column-padding')
+      colPad.offsetHeight = 595
+      colPad.style.height = '595px'
       a.setScrollTop(500)
       a.env._swallow_scroll(swItem)
       a.env._hold_scroll(500)
       a.fireWin('resize', { type: 'resize' })
       const afterWinResize = [hasShadow(a), !!a.win._todoer_windows.hold]
-      a.body.scrollTo(0, 560)
-      const afterWinResizePad = a.getScrollTop()
-      a.body.scrollTo(0, 1600)
+      colPad.offsetHeight = 510
+      colPad.style.height = '510px'
+      a.body.scrollTo(0, 1600) // the route wrote a new inline height -> passes even exact target coordinate, updating baseline
+      const afterWinResizePad = [a.getScrollTop(), hasShadow(a)]
+      a.setScrollTop(560)
+      a.body.scrollTo(0, 1600) // padding unchanged -> target scroll still swallowed and drained at 0ms
       a.advance(0)
       const afterWinResizeTarget = [a.getScrollTop(), hasShadow(a)]
+      // the signal is the inline height the route writes: a height that CSS alone changes (as on iOS, where the route
+      // writes none) gives no pass, nor does a cleared inline value, which the remembered value follows (so the same
+      // height written again afterwards is a change, and passes)
+      a.setScrollTop(560)
+      a.env._swallow_scroll(swItem)
+      a.env._hold_scroll(560)
+      a.fireWin('resize', { type: 'resize' }) // (a change of the window's height ends the hold, which would else put a passed scroll back)
+      colPad.offsetHeight = 425
+      a.body.scrollTo(0, 1600)
+      const afterCssOnly = a.getScrollTop()
+      colPad.style.height = ''
+      a.body.scrollTo(0, 1600)
+      const afterCleared = a.getScrollTop()
+      colPad.style.height = '510px'
+      a.body.scrollTo(0, 1600)
+      const afterRewritten = [a.getScrollTop(), hasShadow(a)]
+      a.win._todoer_windows.hold?.()
+      a.win._todoer_windows.swallow?.()
+      check('windows _swallow_scroll padding signal: CSS-only height change and a cleared inline height give no pass, a rewritten one passes', [afterCssOnly, afterCleared, afterRewritten], [560, 560, [1600, true]])
+      colPad.offsetHeight = 595
+      colPad.style.height = '595px'
       a.setScrollTop(500)
       a.env._swallow_scroll(swItem)
       a.env._hold_scroll(500)
@@ -12163,7 +12216,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       const afterStallFallback = [hasShadow(fb), fb.getScrollTop()]
       check(
-        'windows _swallow_scroll lifecycle: swallows target scroll only, drains unheld, passes other scrollTo, drops on popstate/a keydown after its match/unlink/takeover/account-left/fallback, keeps swallow across resize and a keydown before its match, safe across overlaps',
+        'windows _swallow_scroll lifecycle: swallows target scroll only, drains unheld, passes non-matching/keydown/padding-change scrollTo, drops on popstate/unlink/takeover/account-left/fallback, keeps swallow across keydown/resize, safe across overlaps',
         [
           beforeSwallow,
           duringShadow,
@@ -12191,11 +12244,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['pointerdown', false, 1300, 1300, false],
           ],
           [
-            ['popstate', false, false, false, 1600],
-            ['keydown', true, true, false, 500],
-            ['keydown+', false, false, false, 1600],
+            ['popstate', false, false, false, 1600, null],
+            ['keydown', true, true, false, 1600, [500, false]],
           ],
-          [[true, false], 560, [560, false]],
+          [[true, false], [1600, true], [560, false]],
           [true, false],
           [true, false, false, false],
           [true, false],
@@ -12302,9 +12354,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 44. Sitting 6 Case 2 + Sitting 8 Case 2: history restore (popstate) ends hold + swallow before app handler;
-    //     viewport resize (700 -> 600, padding 595 -> 510) ends hold while keeping targeted swallow armed so queued
-    //     selection callbacks are STILL swallowed and padding adjustment lands at 510 (never 1715), both before and after frames
+    // 44. Sitting 6 Case 2 + Sitting 8 Case 2 + Sitting 9 Case 2: history restore (popstate) ends hold + swallow
+    //     before app handler; viewport resize (700 -> 600, padding 595 -> 510) ends hold while keeping targeted
+    //     swallow armed so queued selection callbacks are STILL swallowed and padding adjustment lands at 510
+    //     for both far items (never 1715) and near-header items whose clamped target coordinate equals 510
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 595, headerTop: 595, deferDom: true, deferSelect: true })
@@ -12322,18 +12375,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         await Promise.resolve()
       }
       const hdr = a.body.querySelector('.header')
+      const colPad = a.body.querySelector('.column-padding')
       const r1 = a.makeItem('h6_1', { saved_id: 's_h6_1', scrollY: 1775 }) // sup.offsetTop = 1950 at vh=700
       const r1Sup = a.body.querySelector('#super-container-h6_1')
+      const rNear = a.makeItem('h6_near', { saved_id: 's_h6_near', offsetTop: 655 }) // in-band near header; shifts 655 -> 570 on shrink, target clamped to 510
+      const rNearSup = a.body.querySelector('#super-container-h6_near')
       b.makeItem('h6_1', { saved_id: 's_h6_1', scrollY: 1775 })
-      a.makeWidget({ rows: [{ id: 'h6_1', pageY: 660, height: 32 }] })
+      b.makeItem('h6_near', { saved_id: 's_h6_near', offsetTop: 655 })
+      a.makeWidget({ rows: [{ id: 'h6_1', pageY: 660, height: 32 }, { id: 'h6_near', pageY: 700, height: 32 }] })
       a.env._send_toggle(true)
       bus.flush()
       let pad = 0.85 * 700 // 595
       const resetGeom = () => {
         a.setInnerHeight(700)
         pad = 0.85 * 700
+        colPad.offsetHeight = pad
+        colPad.style.height = pad + 'px'
         hdr.offsetTop = pad
         r1Sup.offsetTop = 1950
+        rNearSup.offsetTop = 655
         a.setScrollTop(pad)
         a.domQueue.length = 0
         a.win._todoer_windows.hold?.()
@@ -12343,9 +12403,23 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         const nextPad = 0.85 * a.env.visualViewport.height
         const delta = nextPad - pad
         pad = nextPad
+        colPad.offsetHeight = nextPad
+        colPad.style.height = nextPad + 'px'
         hdr.offsetTop += delta
         r1Sup.offsetTop += delta
+        rNearSup.offsetTop += delta
         a.body.scrollTo(0, a.getScrollTop() + delta)
+      }
+      // as on iOS: the route's padding function returns at once (no inline height, no adjustment call), and the height
+      // that CSS gives the padding (85vh) follows the layout viewport on its own
+      const applyCssPadding = () => {
+        const nextPad = 0.85 * a.env.visualViewport.height
+        const delta = nextPad - pad
+        pad = nextPad
+        colPad.offsetHeight = nextPad
+        hdr.offsetTop += delta
+        r1Sup.offsetTop += delta
+        rNearSup.offsetTop += delta
       }
       const resizeTo = h => {
         a.setInnerHeight(h)
@@ -12373,7 +12447,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.advance(2000)
       const afterPopExpired = [a.getBox(), a.getScrollTop()]
       a.win.removeEventListener('popstate', onPopState, false)
-      // (b1) resize (700 -> 600) AFTER selection frames finished -> padding adjustment moves 595 -> 510
+      // (b1) far item: resize (700 -> 600) AFTER selection frames finished -> padding adjustment moves 595 -> 510
       resetGeom()
       a.env._select_item(r1)
       bus.flush()
@@ -12382,7 +12456,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       applyPadding()
       a.advance(0)
       const afterResizeAfterFrames = [a.getScrollTop(), !!a.win._todoer_windows.hold]
-      // (b2) resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), padding before flush ->
+      // (b2) far item: resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), padding before flush ->
       //      padding moves 595 -> 510, queued scrollToTarget(1715) is swallowed -> eventual position stays 510!
       resetGeom()
       a.env._select_item(r1)
@@ -12392,7 +12466,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await flushDom(a)
       a.advance(0)
       const afterResizeBeforeFramesPadFirst = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
-      // (b3) resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), delayed checkLayout padding AFTER flush ->
+      // (b3) far item: resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), delayed checkLayout padding AFTER flush ->
       //      queued scrollToTarget(1800) is swallowed, then padding moves 595 -> 510 -> eventual position stays 510!
       resetGeom()
       a.env._select_item(r1)
@@ -12402,6 +12476,41 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.advance(0)
       applyPadding()
       const afterResizeBeforeFramesPadLater = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      // (b3-ios) far item, no inline height (iOS): resize (700 -> 600) BEFORE selection frames run, the CSS height follows,
+      //      no adjustment is asked for -> the queued scrollToTarget(1715) is still swallowed, the list stays at 595 past expiry!
+      resetGeom()
+      colPad.style.height = ''
+      a.env._select_item(r1)
+      bus.flush()
+      resizeTo(600)
+      applyCssPadding()
+      await flushDom(a)
+      a.advance(0)
+      const iosAfterImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const iosAfterExp = [a.getScrollTop(), hasShadow(a)]
+      check('windows resize where CSS alone changes the padding (no inline height, as on iOS): the queued selection scroll stays swallowed and the list stays put', [iosAfterImmed, iosAfterExp], [[595, false], [595, false]])
+      // (b4) near-header item (offsetTop 655 at 595, shifts to 570 at 510 -> clamped target == 510!):
+      //      resize (700 -> 600) AFTER selection frames finish -> padding change passes 510, stays 510 past expiry!
+      resetGeom()
+      a.env._select_item(rNear)
+      bus.flush()
+      await flushDom(a)
+      resizeTo(600)
+      applyPadding()
+      const nearAfterImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const nearAfterExp = [a.getScrollTop(), hasShadow(a)]
+      // (b5) near-header item: resize (700 -> 600) BEFORE selection frames, padding before flush -> lands at 510, stays 510 past expiry!
+      resetGeom()
+      a.env._select_item(rNear)
+      bus.flush()
+      resizeTo(600)
+      applyPadding()
+      await flushDom(a)
+      const nearBeforeImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const nearBeforeExp = [a.getScrollTop(), hasShadow(a)]
       // (c) non-matching scrollTo (e.g. 240) passes through while swallow for 1775 is armed, and 1775 is still swallowed
       resetGeom()
       a.env._select_item(r1)
@@ -12414,9 +12523,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.advance(0)
       const afterTargetSwallowed = [a.getScrollTop(), hasShadow(a)]
       check(
-        'windows history restore & resize during hold: popstate restores box and scroll position, resize keeps swallow so queued callbacks stay suppressed before/after frames (landing at 510, not 1715), and non-matching scrollTo passes',
-        [afterPopImmediate, afterPopExpired, afterResizeAfterFrames, afterResizeBeforeFramesPadFirst, afterResizeBeforeFramesPadLater, afterOtherScroll, afterTargetSwallowed],
-        [['#prev_history', 240, false, false, false], ['#prev_history', 240], [510, false], [510, false, false], [510, false, false], 240, [240, false]]
+        'windows history restore & resize during hold: popstate restores box and scroll position, resize keeps swallow so queued callbacks stay suppressed before/after frames and padding lands at 510 for both far and near-header items, and non-matching scrollTo passes',
+        [afterPopImmediate, afterPopExpired, afterResizeAfterFrames, afterResizeBeforeFramesPadFirst, afterResizeBeforeFramesPadLater, [nearAfterImmed, nearAfterExp], [nearBeforeImmed, nearBeforeExp], afterOtherScroll, afterTargetSwallowed],
+        [['#prev_history', 240, false, false, false], ['#prev_history', 240], [510, false], [510, false, false], [510, false, false], [[510, false], [510, false]], [[510, false], [510, false]], 240, [240, false]]
       )
     }
 
@@ -12593,9 +12702,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 47. Sitting 8 Case 1: keydown ends targeted swallow in capture so explicit route keys (0 and Ctrl+Alt+Down)
-    //     scroll visibly and record matching history entries within the hold; quick j before layout replaces the
-    //     swallow cleanly and catches both the older selection's queued scroll (computed for the new target) and the new one
+    // 47. Sitting 8 Case 1 + Sitting 9 Case 1: synchronous scrollTo inside keydown passes _swallow_scroll
+    //     via window.event without dropping the swallow — explicit route keys (0 and Ctrl+Alt+Down) scroll
+    //     visibly and record matching history entries for BOTH far items and in-band items (where layout skipped
+    //     automatic scrolling), and even before layout runs, while quick j and an ordinary key before layout
+    //     still keep the delayed selection scroll suppressed
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500, deferDom: true, deferSelect: true })
@@ -12614,9 +12725,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       const k1 = a.makeItem('k8_1', { saved_id: 's_k8_1', scrollY: 1775 })
       const k2 = a.makeItem('k8_2', { saved_id: 's_k8_2', scrollY: 1900 })
+      const kIn = a.makeItem('k8_in', { saved_id: 's_k8_in', offsetTop: 900 }) // in-band at 500 (500 <= 900 <= 1000); targetY = 725
       b.makeItem('k8_1', { saved_id: 's_k8_1', scrollY: 1775 })
       b.makeItem('k8_2', { saved_id: 's_k8_2', scrollY: 1900 })
-      a.makeWidget({ rows: [{ id: 'k8_1', pageY: 560, height: 32 }, { id: 'k8_2', pageY: 600, height: 32 }] })
+      b.makeItem('k8_in', { saved_id: 's_k8_in', offsetTop: 900 })
+      a.makeWidget({ rows: [{ id: 'k8_1', pageY: 560, height: 32 }, { id: 'k8_2', pageY: 600, height: 32 }, { id: 'k8_in', pageY: 640, height: 32 }] })
       a.env._send_toggle(true)
       bus.flush()
       // Replay index.svelte's actual keydown handler (lines 12071-12108 + scrollToTargetWithHistory lines 2190-2212)
@@ -12641,23 +12754,59 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         a.env._on_row_key(key, e)
       }
       a.win.addEventListener('keydown', appKeyDown, false)
-      // (a) select k8_1, let layout finish, then press `0` within hold -> scrolls visibly to 1775!
+      // (a) far item k8_1, let layout finish, press `0` within hold -> scrolls visibly to 1775 and stays past expiry
       a.setScrollTop(500)
       a.env._select_item(k1)
       bus.flush()
       await flushDom(a)
       history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
       a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
-      const afterDigit0 = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
-      // (b) select k8_1, let layout finish, then press Ctrl+Alt+Down within hold -> visible 1775 AND history entry 1775!
+      const digit0Imm = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const afterDigit0 = [...digit0Imm, a.getScrollTop(), hasShadow(a)]
+      // (b) far item k8_1, let layout finish, press Ctrl+Alt+Down within hold -> visible 1775 AND history entry 1775 past expiry
       a.setScrollTop(500)
       a.env._select_item(k1)
       bus.flush()
       await flushDom(a)
       history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
       a.fireWin('keydown', { type: 'keydown', code: 'ArrowDown', key: 'ArrowDown', ctrlKey: true, altKey: true })
-      const afterCtrlAltDown = [a.getScrollTop(), history.length, history[history.length - 1].scrollPosition, !!a.win._todoer_windows.hold, hasShadow(a)]
-      // (c) quick `j` after selection BEFORE first layout runs: drops old swallow, selects k8_2 with its own swallow,
+      const cadImm = [a.getScrollTop(), history.length, history[history.length - 1].scrollPosition, !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const afterCtrlAltDown = [...cadImm, a.getScrollTop(), hasShadow(a)]
+      // (c) in-band item k8_in (offsetTop 900 at 500, vh 700 -> layout skips scrollTo!), press `0` -> moves to 725 and stays past expiry!
+      a.setScrollTop(500)
+      a.body._scrollToCalls.length = 0
+      a.env._select_item(kIn)
+      bus.flush()
+      await flushDom(a)
+      const inBandAutoCalls = a.body._scrollToCalls.length
+      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
+      const inBand0Imm = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      a.advance(2000)
+      const afterInBand0 = [inBandAutoCalls, ...inBand0Imm, a.getScrollTop(), hasShadow(a)]
+      // (d) in-band item k8_in, let layout finish, wheel to 950, press Ctrl+Alt+Down -> moves to 725 AND history records 725 past expiry!
+      a.setScrollTop(500)
+      a.env._select_item(kIn)
+      bus.flush()
+      await flushDom(a)
+      a.fireWin('wheel')
+      a.setScrollTop(950)
+      history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
+      a.fireWin('keydown', { type: 'keydown', code: 'ArrowDown', key: 'ArrowDown', ctrlKey: true, altKey: true })
+      const inBandCadImm = [a.getScrollTop(), history.length, history[history.length - 1].scrollPosition]
+      a.advance(2000)
+      const afterInBandCad = [...inBandCadImm, a.getScrollTop(), history[history.length - 1].scrollPosition, hasShadow(a)]
+      // (e) early `0` BEFORE layout runs on far item k8_1 -> scrolls to 1775 immediately while swallow stands, stays 1775 past expiry
+      a.setScrollTop(500)
+      a.env._select_item(k1)
+      bus.flush()
+      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
+      const early0Imm = [a.getScrollTop(), hasShadow(a)]
+      await flushDom(a)
+      a.advance(2000)
+      const afterEarly0 = [...early0Imm, a.getScrollTop(), hasShadow(a)]
+      // (f) quick `j` after selection BEFORE first layout runs: drops old swallow, selects k8_2 with its own swallow,
       //     and older queued scroll (computed for live target k8_2 = 1900) plus k8_2's scroll are both swallowed -> stays at 500!
       a.setScrollTop(500)
       a.env._select_item(k1)
@@ -12666,7 +12815,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       await flushDom(a)
       const afterQuickJ = [a.getBox(), b.getBox(), a.getScrollTop(), !!a.win._todoer_windows.hold]
-      // (d) a key that selects nothing (Shift) BEFORE the layout runs: the hold ends, the swallow stands, and the
+      // (g) a key that selects nothing (Shift) BEFORE the layout runs: the hold ends, the swallow stands, and the
       //     selection's queued scroll is still swallowed -> stays at 500; `0` after that goes to the item
       a.setScrollTop(500)
       a.env._select_item(k1)
@@ -12680,9 +12829,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       earlyKey.push(a.getScrollTop())
       a.win.removeEventListener('keydown', appKeyDown, false)
       check(
-        'windows explicit key navigation passes swallow: 0 and Ctrl+Alt+Down scroll to target (with matching history entry) within hold, while quick j before layout stays put, and a key that selects nothing before layout leaves the list in place',
-        [afterDigit0, afterCtrlAltDown, afterQuickJ, k2.id, earlyKey],
-        [[1775, false, false], [1775, 2, 1775, false, false], ['#k8_2', '#k8_2', 500, true], 'k8_2', [false, true, 500, false, 1775]]
+        'windows explicit key navigation passes swallow: 0 and Ctrl+Alt+Down scroll to target (with matching history entry) for far, in-band, and pre-layout selections, while quick j and an ordinary key before layout keep the list in place',
+        [afterDigit0, afterCtrlAltDown, afterInBand0, afterInBandCad, afterEarly0, afterQuickJ, k2.id, earlyKey],
+        [[1775, false, 1775, false], [1775, 2, 1775, false, 1775, false], [0, 725, false, 725, false], [725, 2, 725, 725, 725, false], [1775, true, 1775, false], ['#k8_2', '#k8_2', 500, true], 'k8_2', [false, true, 500, false, 1775]]
       )
     }
 

@@ -4154,12 +4154,14 @@ function _target_scroll_y(item) {
   return Math.max(home, el.offsetTop - vh / 4)
 }
 
-// swallows ONLY the app's automatic scroll to `item` (letting history restores, resize padding,
-// and user scrolls through to the prototype). Drops itself after matching once the hold is gone
-// (0 ms drain catches paired updateItemLayout + selectItem calls in one frame), on popstate in
-// capture phase, on a keydown in capture phase once it has matched (the app's own scroll is then
-// behind it, and the key's scroll is the owner's; a key before that leaves it standing, as a
-// wheel does), on replacement, unlink, account exit, or after SEND_HOLD_MS steps
+// swallows ONLY the app's automatic scroll to `item` (passing non-matching calls, any scroll
+// requested during a keydown via window.event, and the first scroll after the app wrote a new
+// inline height on .column-padding, which is its own adjustment to a changed window height; the
+// remembered value follows every change, a cleared one included, and a height that CSS alone
+// changes, as on iOS where the app writes none, gives no pass; the swallow stays, so late
+// selection scrolls are still caught). Drops itself after matching once the hold is gone (0 ms
+// drain catches paired updateItemLayout + selectItem calls in one frame), on popstate in capture
+// phase, on replacement, unlink, account exit, or after SEND_HOLD_MS steps
 function _swallow_scroll(item) {
   const windows = window._todoer_windows
   windows?.swallow?.()
@@ -4167,30 +4169,32 @@ function _swallow_scroll(item) {
   const orig = Object.getPrototypeOf(body)?.scrollTo
   const uid = _send_account()
   const vv = typeof visualViewport != 'undefined' ? visualViewport : null
+  const pad_h = () => document.querySelector('.column-padding')?.style?.height ?? ''
+  let pad = pad_h()
   let drain = null
-  let matched = false
   const drop = () => {
     clearTimeout(drain)
     stop()
     if (body.scrollTo === guard) delete body.scrollTo
     window.removeEventListener('popstate', drop, true)
-    window.removeEventListener('keydown', key, true)
     if (windows?.swallow === drop) windows.swallow = null
-  }
-  const key = () => {
-    if (matched) drop()
   }
   const guard = function (x, top) {
     if (_notify_account_left() || _send_account() !== uid) {
       drop()
       return orig?.apply(this, arguments)
     }
+    const next_pad = pad_h()
+    if (next_pad !== pad) {
+      pad = next_pad
+      if (next_pad) return orig?.apply(this, arguments)
+    }
+    if (window.event?.type == 'keydown') return orig?.apply(this, arguments)
     const y = typeof x == 'object' && x ? Number(x.top) : Number(top)
     const want = _target_scroll_y(item)
     const scale = vv?.scale ?? 1
     const delta = typeof body.offsetHeight == 'number' ? innerHeight * scale - body.offsetHeight : 0
     if (want != null && Math.abs(y - (want + delta)) <= 2) {
-      matched = true
       if (!windows?.hold && drain == null) drain = setTimeout(drop, 0)
       return
     }
@@ -4199,7 +4203,6 @@ function _swallow_scroll(item) {
   const stop = _send_steps(uid, drop)
   body.scrollTo = guard
   window.addEventListener('popstate', drop, { capture: true, passive: true })
-  window.addEventListener('keydown', key, { capture: true, passive: true })
   if (windows) windows.swallow = drop
   return drop
 }
