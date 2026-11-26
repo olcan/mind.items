@@ -3739,9 +3739,10 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 // this over every selection shared: _send_selected). For a selection made by its rows (their
 // clicks, keys and buttons, the row selected after an action) and for one taken from the other
 // window, the list's window does not go to the item: it keeps the app from scrolling to the item
-// and takes the place that shows the selected ROW — the top of the box wherever the row is in
-// view from there, else its lower edge at 80% of the window's height or clear of the buttons'
-// strip (_stay_put, from _select_item). A selection made in the list's window in any other way
+// and stays where it is while the selected ROW is in view, else takes the top of the box wherever
+// the row is in view from there, else puts its lower edge at 80% of the window's height or clear
+// of the buttons' strip (_stay_put, from _select_item). A selection made in the list's window in
+// any other way
 // is its owner's act on that window and scrolls it as ever: a click on an item's number or tag
 // there, a name typed into its box. An item created there has no row at that moment and is that
 // window's alone, until a later selection of it finds its row. Only an item's selection is
@@ -4256,22 +4257,31 @@ function _stay_put(item, acted = window._todoer_windows?.acted) {
 // the scroll position the list's window takes for the selected row of `item` (the owner,
 // 2026-11-25: "it should probably prefer to scroll to top and only scroll down if the row would
 // be out of view, and in that case try to scroll it well inside the viewport, maybe 20% or so to
-// leave some margin for additional rows below", and "by top of page i mean top of mindbox, not
-// the padding above it"): the app's top position, where the box stands at the window's upper
-// edge, wherever the row is in view from there (clear of the visible strip of buttons overlapping
-// the row's width: key_buttons pieces or todoer's own buttons, falling back to SEND_ROW_FOOT);
-// else the position that puts the row's lower edge at SEND_ROW_DEPTH of the window's height or
-// SEND_ROW_EDGE above that strip, whichever is higher up the window, so that the next rows show
-// below it without falling behind a two-floor strip on a low narrow window. `top` (where the
-// window stands) for an item without a row. (Until then the window stayed where it was and moved
-// by the least that showed the row: the owner, of walking a long list with the keys, "ok yes we
-// should do that, the list is already getting long")
+// leave some margin for additional rows below", "by top of page i mean top of mindbox, not the
+// padding above it", and later: "the list window (in linked windows) should not always
+// scroll-to-top on selection; only when the selected row is not visible. i know i asked for the
+// scroll-to-top behavior but i thought it was implicit that we would not scroll unnecessarily"):
+// `top` (where the window stands) whenever the row is wholly in view there (below the window's
+// upper edge and above the visible strip of buttons that overlaps the row's width, key_buttons
+// pieces or todoer's own buttons, or above the window's lower edge where no strip overlaps; a
+// row that touches an edge counts as in view), or for an item without a row; else, for a row
+// that is clipped or out of view, the app's top position (where the box stands at the window's
+// upper edge) wherever the row shows from there clear of that strip with SEND_ROW_EDGE above it
+// (SEND_ROW_FOOT where none overlaps); else the position that puts the row's lower edge at
+// SEND_ROW_DEPTH of the window's height or SEND_ROW_EDGE above that strip, whichever is higher up
+// the window, so that the next
+// rows show below it without falling behind a two-floor strip on a low narrow window. (Until
+// then the window stayed where it was and moved by the least that showed the row: the owner, of
+// walking a long list with the keys, "ok yes we should do that, the list is already getting
+// long")
 const SEND_ROW_EDGE = 8 // px kept between the row and the window's top edge (and above the buttons' strip)
 const SEND_ROW_FOOT = 64 // fallback px kept free at the window's lower edge where no overlapping strip is visible
 const SEND_ROW_DEPTH = 0.8 // a row out of view from the top: its lower edge at this part of the window's height
 const _ROW_STRIP_SEL = '.key-buttons-bg-pane,.key-buttons-bg-floor,.key-buttons-guests,.key-buttons-nav,.key-buttons-reload,.key-buttons,.todoer-bin-buttons'
-function _row_view_foot(box) {
-  if (typeof document == 'undefined' || !box) return SEND_ROW_FOOT
+// the top, in the window, of the visible strip of buttons that overlaps the row's width (null where
+// none does): one scan for both questions below, whether a row is in view and where a row lands
+function _row_strip_top(box) {
+  if (typeof document == 'undefined' || !box) return null
   const left = box.left ?? 0
   const right = box.right ?? left + (box.width ?? 0)
   let top = Infinity
@@ -4282,16 +4292,26 @@ function _row_view_foot(box) {
     if (right > left && (r.right <= left || r.left >= right)) continue
     if (r.top < top) top = r.top
   }
-  return top < Infinity ? Math.max(0, innerHeight - top + SEND_ROW_EDGE) : SEND_ROW_FOOT
+  return top < Infinity ? top : null
+}
+// what a row that has to be placed is kept clear of at the window's lower edge: the strip with
+// SEND_ROW_EDGE above it, or SEND_ROW_FOOT where no strip overlaps the row
+function _row_view_foot(box, strip = _row_strip_top(box)) {
+  return strip != null ? Math.max(0, innerHeight - strip + SEND_ROW_EDGE) : SEND_ROW_FOOT
 }
 
 function _row_view_top(item, top) {
   const box = _bin_row(item)?.row?.getBoundingClientRect?.()
   if (!box || !box.height) return top
   const y = box.top + document.body.scrollTop // the row's place in the page, whatever the position now
+  const strip = _row_strip_top(box)
+  // wholly readable where the window stands: no move. The window's own upper edge, and the actual
+  // top of the strip (the window's lower edge where none overlaps): the margins are for a row
+  // that has to be placed, not for deciding whether to move
+  if (y >= top && y + box.height <= top + (strip ?? innerHeight)) return top
+  const foot = _row_view_foot(box, strip)
   const home = document.querySelector('.header')?.offsetTop ?? 0 // the app's top position
   if (y < home + SEND_ROW_EDGE) return Math.max(0, y - SEND_ROW_EDGE) // (a row above the box: no list stands there)
-  const foot = _row_view_foot(box)
   if (y + box.height <= home + innerHeight - foot) return home
   const low = Math.min(SEND_ROW_DEPTH * innerHeight, innerHeight - foot)
   return Math.max(home, Math.round(y + box.height - low))
