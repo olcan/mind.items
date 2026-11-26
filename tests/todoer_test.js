@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -42,7 +42,7 @@ const context = {
   warn: () => {},
   debug: () => {},
   fatal: msg => { throw new Error(msg) },
-  _todoer: { id: 'todoer', store: {} },
+  _todoer: { id: 'todoer', store: {}, dependents: [] },
   // the sweep callback's world (the callback tests below): a fake clock, the stubs it reads
   _this: { dispatch_task: (name, fn) => (context.__captured[name] = fn) },
   __captured: {},
@@ -139,6 +139,7 @@ const picked =
     '_vault_replies',
     '_reply_line',
     '_notify_reply',
+    '_item_stamp',
     '_waits',
     '_key_mark',
     '_rows_now',
@@ -150,6 +151,7 @@ const picked =
     '_clear_waiting',
     '_rows_start',
     '_bells_now',
+    '_items_now',
     '_bell',
     '_clear_bell',
     '_snooze_dialog',
@@ -171,6 +173,7 @@ const picked =
     '_notify_result',
     '_notify_registration',
     '_ensure_notify_listener',
+    '_notify_line',
     '_notification_of',
     '_notify_show_page',
     '_notify_account_left',
@@ -1305,7 +1308,7 @@ const window_of = (tab, items) => {
     console, debug: () => {}, warn: () => {}, error: () => {}, fatal: msg => { throw new Error(msg) },
     _replace_tags: context._replace_tags, each: (xs, f) => xs.forEach(f), values: o => Object.values(o ?? {}), merge: (a, b) => Object.assign(a, b),
     Date: ClockDate, localStorage: context.localStorage, _command_id: () => tab,
-    _todoer: { id: 'todoer', store: {}, _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }, dispatch_task: (name, fn) => (listeners[name] = fn) },
+    _todoer: { id: 'todoer', store: {}, dependents: [], _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget'] } }, dispatch_task: (name, fn) => (listeners[name] = fn) },
     _items: () => items, _item: ref => items.find(i => i.id == ref) ?? null,
     Notification: class { static permission = 'granted'; constructor(title, options) { shown.push({ title, tag: options.tag }) } },
     MindBox: { set: () => {} },
@@ -1482,7 +1485,7 @@ delete context.__todos.p
 // (the wiki rows), the done bin's rewrite, and the tags the app indexes of a completed todo; the
 // context's stub above rewrites nothing
 const app = path.join(__dirname, '..', '..', 'mind.page')
-const { replaceTags, parseTags } = (() => {
+const { replaceTags, parseTags, hash_64_fnv1a } = (() => {
   const util = fs.readFileSync(path.join(app, 'src', 'util.js'), 'utf8')
   // the pieces by their boundaries: an exclusion array to its join, another constant's line, a function to its
   // closing brace; found by the exact name (tagRegex is also the start of four other names)
@@ -1492,14 +1495,24 @@ const { replaceTags, parseTags } = (() => {
     const stop = kind === 'function' ? util.indexOf('\n}\n', start) + 3 : name.startsWith('tagRegexExclusions') ? util.indexOf("].join('|')", start) + "].join('|')".length : util.indexOf('\n', start) + 1
     return util.slice(start, stop).replace('export ', '')
   }
+  const hlStart = util.indexOf('let hl = new Array(256)')
+  const hlStop = util.indexOf('\nexport function hash_64_fnv1a', hlStart)
+  if (hlStart < 0 || hlStop < 0) throw new Error('hl table for hash_64_fnv1a not found in util.js')
   const utilCtx = vm.createContext({ _: { ...context._, uniq: xs => [...new Set(xs)] } }) // lodash, as far as the pieces use it
   vm.runInContext(
-    [['tagRegex', 'const'], ['tagRegexExclusions', 'const'], ['tagRegexExclusionsEscaped', 'const'], ['tagRegexDelimiter', 'const'], ['tagRegexDelimiterEscaped', 'const'], ['skipExclusions', 'function'], ['replaceTags', 'function'], ['parseTags', 'function']]
-      .map(([name, kind]) => piece(name, kind))
-      .join('\n'),
+    [
+      ...[['tagRegex', 'const'], ['tagRegexExclusions', 'const'], ['tagRegexExclusionsEscaped', 'const'], ['tagRegexDelimiter', 'const'], ['tagRegexDelimiterEscaped', 'const'], ['skipExclusions', 'function'], ['replaceTags', 'function'], ['parseTags', 'function']]
+        .map(([name, kind]) => piece(name, kind)),
+      util.slice(hlStart, hlStop),
+      piece('hash_64_fnv1a', 'function'),
+    ].join('\n'),
     utilCtx
   )
-  return { replaceTags: vm.runInContext('replaceTags', utilCtx), parseTags: vm.runInContext('parseTags', utilCtx) }
+  return {
+    replaceTags: vm.runInContext('replaceTags', utilCtx),
+    parseTags: vm.runInContext('parseTags', utilCtx),
+    hash_64_fnv1a: vm.runInContext('hash_64_fnv1a', utilCtx),
+  }
 })()
 
 ;(async () => {
@@ -2461,7 +2474,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       sort_by: (xs, f) => xs.sort((a, b) => f(a) - f(b)), // the snoozed list's order
       // what _unsnooze reads, and a listener of it: a completion that went through it would show as a marked store and a listener call
       merge: Object.assign, each: (xs, f) => xs.forEach(f), values: Object.values,
-      _todoer: { store: { on_unsnooze: { probe: item => calls.push(['listener', item.id]) } } },
+      _todoer: { store: { on_unsnooze: { probe: item => calls.push(['listener', item.id]) } }, dependents: [] },
       _items: () => items, _item: ref => items.find(item => item.id == ref) ?? null, _exists: ref => logger && ref == '#logger',
       window: { _grammar: { version, edit } }, Event: class { constructor(type) { this.type = type } },
       document: { createElement: () => new Elem(), querySelector: selector => (selector == '.container.target' && (target || selected) ? container(target ?? selected) : null) },
@@ -3140,7 +3153,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     context.__now = 5000
     check('start: an unconfirmed corpus writes nothing', [starting.ctx._rows_start(), todoer._global_store], [false, {}])
     starting.ctx.window._server_confirmed = true
-    check('start: a confirmed corpus writes the baselines once: the time, a mark of every unanswered reply, every todo\'s count', [starting.ctx._rows_start(), todoer._global_store, (context.__now = 9000, starting.ctx._rows_start()), todoer._global_store.rows_since], [true, { rows_base: { 's-chat': MARK }, rows_since: 5000, bells_base: {} }, true, 5000])
+    check('start: a confirmed corpus writes the baselines once: the time, a mark of every unanswered reply, every todo\'s count, every write stamp', [starting.ctx._rows_start(), todoer._global_store, (context.__now = 9000, starting.ctx._rows_start()), todoer._global_store.rows_since], [true, { rows_base: { 's-chat': MARK }, rows_since: 5000, bells_base: {}, items_base: {} }, true, 5000])
     starting.render()
     check('start: what stood at the start has no row', starting.ids(), ALL)
     // an account that ran the list's first versions: a time and no baseline of replies
@@ -3153,7 +3166,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       return [w.ctx._rows_start(), kept._global_store, (w.render(), w.ids().includes('chat'))]
     }
     check('start: an account of the first versions keeps what waited (a chat changed after its time, not cleared) and takes the rest for the baseline', [preview({ time: 2000 }), preview({ time: 999 }), preview({ time: 2000, store: { _todoer: { cleared: KEY } } })],
-      [[true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: {} }, true], [true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: { 's-chat': MARK } }, false], [true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: { 's-chat': MARK } }, false]])
+      [[true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: {}, items_base: {} }, true], [true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: { 's-chat': MARK }, items_base: {} }, false], [true, { rows_since: 1000, bells_base: { 's-short': 4 }, rows_base: { 's-chat': MARK }, items_base: {} }, false]])
     // ---- the bell on a todo's own row: it stays until its click, whatever the marker shows ------
     {
       const ringing = ({ base = {}, state = null, store = {}, started = true } = {}) => {
@@ -3236,7 +3249,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       Object.defineProperty(store, 'global_store', { get: () => store._global_store })
       late.ctx.window._server_confirmed = true
       late.ctx._todoer._global_store = { rows_since: 1000 }
-      check('bell: an account whose list had started gets the baselines at the next start, its first stamp kept', [late.ctx._rows_start(), store._global_store], [true, { rows_since: 1000, rows_base: {}, bells_base: { 's-short': 4 } }])
+      check('bell: an account whose list had started gets the baselines at the next start, its first stamp kept', [late.ctx._rows_start(), store._global_store], [true, { rows_since: 1000, rows_base: {}, bells_base: { 's-short': 4 }, items_base: {} }])
       // the reason `checkin`: an agent's todo, in the delegated list, whose count went up
       const went = (prev, state, list = 'delegated') => base.ctx._checked_in(prev, state, list)
       check('checkin: the count going up on an agent\'s todo in the delegated list is one; the same count, the owner\'s todo, the main list or no record is none',
@@ -3245,6 +3258,858 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('checkin: a todo this tab held no projection of (a tab started from its cache): its first one, with a count from before, is none', [went('|main', agent(3)), went('|delegated', agent(3))], [false, false])
       const step = (reasons, checkin) => base.ctx._notify_step({ setting: { reasons }, prev: 'a', key: 'b', list: 'delegated', reason: 'delegated', permission: 'granted', checkin })
       check('checkin: it notifies only where the setting names it, and a delegated todo\'s other changes stay silent', [step(['done', 'checkin'], true), step(['done'], true), step(['done', 'checkin'], false)], ['notify', 'reason checkin', 'not in the main list'])
+    }
+    // ---- AGENT-WRITTEN ITEM ROWS (2026-11-25, `_waits` kind `'item'`, `items_base`) ----
+    {
+      const keyCode =
+        [
+          src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
+          src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
+          src.match(/\nconst _BIN_KEYS = [^\n]*\n/)[0],
+          src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
+          src.match(/\nconst _row_has = [^\n]*\n/)[0],
+          src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
+        ].join('\n') +
+        pick([
+          '_mounted_lists',
+          '_bin_row',
+          '_row_buttons',
+          '_row_beside',
+          '_row_step',
+          '_on_row_key',
+          '_row_now',
+          '_row_can',
+          '_row_goes',
+          '_row_keys',
+          '_pressed_item',
+          '_bin_press',
+        ]).join('\n')
+      const NOTE_TEXT = '#notes/a\nAgent drafted this.\nSecond line.'
+      const NOTE_HASH = '0123456789abcdef'
+      const STAMP_AT = 2_000
+      const STAMP = { by: 'claude', at: STAMP_AT, hash: NOTE_HASH }
+      const STAMP_KEY = `item|${STAMP_AT}|${NOTE_HASH}`
+      // world + real bell element wiring on waiting rows + real key/button helpers from todoer.js
+      const writing = ({
+        wrote = { 's-note': STAMP },
+        items_base = {},
+        rows_base = {},
+        bells_base = {},
+        hash = NOTE_HASH,
+        text = NOTE_TEXT,
+        label = '#notes/a',
+        name = label || 'id:note',
+        store = {},
+        seen = null,
+        snooze = null,
+        options = null,
+        deletes = true,
+        editing = false,
+        typed = true,
+        render = true,
+      } = {}) => {
+        const w = world({ snooze })
+        const called = []
+        // wire a real bell element on waiting rows so __render attaches bell.onclick and KeyB clicks it
+        const origCreate = w.ctx.document.createElement.bind(w.ctx.document)
+        w.ctx.document.createElement = tag => {
+          const el = origCreate(tag)
+          el.querySelector = sel => {
+            if (sel == 'mark.waits') {
+              if (!el._bell && typeof el.innerHTML == 'string' && el.innerHTML.includes('<mark class="waits">')) {
+                el._bell = {
+                  className: 'waits',
+                  onclick: null,
+                  click() {
+                    this.onclick?.({ stopPropagation() {}, preventDefault() {} })
+                  },
+                }
+              }
+              if (el._bell) return el._bell
+              const direct = el.children.find(c => c.className == 'waits')
+              if (direct) return direct
+              for (const c of el.children) {
+                const found = c.querySelector?.(sel)
+                if (found) return found
+              }
+              return null
+            }
+            if (sel.startsWith('.bin.')) {
+              const cls = sel.slice('.bin.'.length)
+              return el.children.find(c => c.className == `${cls} bin`) ?? null
+            }
+            return null
+          }
+          const origQsa = el.querySelectorAll.bind(el)
+          el.querySelectorAll = sel => {
+            if (sel == '.list-item-container') {
+              const list = el.children.find(c => c.className == 'list')
+              return list ? [...list.children] : []
+            }
+            if (sel == '.list .list-item-container[data-id]') {
+              const list = el.children.find(c => c.className == 'list')
+              return list ? list.children.filter(c => c.getAttribute('data-id')) : []
+            }
+            return origQsa(sel)
+          }
+          el.closest = () => null
+          Object.defineProperty(el, 'nextElementSibling', {
+            get: () => {
+              const sibs = el.parentElement?.children
+              const i = sibs ? sibs.indexOf(el) : -1
+              return i >= 0 ? sibs[i + 1] ?? null : null
+            },
+          })
+          Object.defineProperty(el, 'previousElementSibling', {
+            get: () => {
+              const sibs = el.parentElement?.children
+              const i = sibs ? sibs.indexOf(el) : -1
+              return i > 0 ? sibs[i - 1] : null
+            },
+          })
+          return el
+        }
+        w.widget.querySelector = sel => {
+          if (sel == '.list .list-item-container[data-id]') {
+            const list = w.widget.children.find(c => c.className == 'list')
+            return list?.children.find(c => c.getAttribute('data-id')) ?? null
+          }
+          if (sel.startsWith('.bin.')) {
+            const cls = sel.slice('.bin.'.length)
+            return w.widget.children.find(c => c.className == `${cls} bin`) ?? null
+          }
+          return null
+        }
+        const origWidgetQsa = w.widget.querySelectorAll.bind(w.widget)
+        w.widget.querySelectorAll = sel => {
+          if (sel == '.list-item-container' || sel == '.list .list-item-container[data-id]') {
+            const list = w.widget.children.find(c => c.className == 'list')
+            return list ? list.children.filter(c => c.getAttribute('data-id')) : []
+          }
+          return origWidgetQsa(sel)
+        }
+        w.widget.closest = () => null
+        w.ctx.document.querySelectorAll = sel => (sel == '.todoer-widget' ? [w.widget] : [])
+        w.ctx.document.activeElement = null
+        w.ctx.Date = ClockDate
+        if (options) w.pinned.store.w.options = options
+        const note = {
+          id: 'note',
+          saved_id: 's-note',
+          name,
+          label,
+          text,
+          hash,
+          time: 2000,
+          _global_store: store,
+          ...(editing ? { editing: true, ...(typed ? { draft: text + '\na line typed since' } : {}) } : {}),
+        }
+        Object.defineProperty(note, 'tags', { get: () => parsed(note.text).all })
+        Object.defineProperty(note, 'tags_visible', { get: () => parsed(note.text).visible })
+        Object.defineProperty(note, 'global_store', { get: () => (called.push(['store', note.id]), note._global_store) })
+        Object.defineProperty(note, 'elem', {
+          get: () => ({
+            querySelector: sel => (sel == 'textarea' && note.editing ? { value: note.draft ?? note.text } : null),
+          }),
+        })
+        note.read = app_read(text)
+        note.write = t => (called.push('write'), (note.text = t), true)
+        note.delete = confirm => (called.push(['delete', confirm]), deletes)
+        note.select = () => (called.push(['select', note.id]), true)
+        w.ctx._items().push(note)
+        const origItem = w.ctx._item
+        w.ctx._item = ref => {
+          if (ref == 'pinned') return w.pinned
+          if (ref == 'note' || ref == 's-note' || (note.name && ref == note.name)) return note
+          const byName = w.ctx._items().find(it => it.name == ref || it.saved_id == ref || it.id == ref)
+          return byName ?? origItem(ref)
+        }
+        w.ctx._exists = ref => ref == 'note' || ref == '#logger'
+        w.ctx.is_number = x => typeof x == 'number'
+        w.ctx._todoer.id = 'todoer'
+        w.ctx._todoer._global_store = {
+          ...(rows_base == null ? {} : { rows_since: 1000, rows_base }),
+          ...(bells_base == null ? {} : { bells_base }),
+          ...(items_base == null ? {} : { items_base }),
+          ...(wrote == null ? {} : { _agent: { wrote } }),
+        }
+        w.ctx._todoer.store.reply_seen = seen ? { note: seen } : {}
+        w.ctx._todoer.dependents = ['pinned']
+        w.ctx._this = { dependents: ['pinned'] }
+        w.ctx.window.Sortable = w.ctx.Sortable
+        w.pinned.elem = { querySelectorAll: sel => (sel == '.todoer-widget' ? [w.widget] : []) }
+        w.pinned.tags = []
+        vm.runInContext(keyCode, w.ctx)
+        if (render) w.render()
+        return Object.assign(w, { note, called })
+      }
+
+      // 1. no stamp & malformed stamps
+      check('item waits: no stamp has no row', [writing({ wrote: {} }).ids(), writing({ wrote: null }).ids()], [ALL, ALL])
+      check(
+        'item waits: malformed stamps do not wait',
+        [
+          writing({ wrote: { 's-note': { by: 'claude' } } }).ids(),
+          writing({ wrote: { 's-note': { by: 'claude', at: NaN, hash: NOTE_HASH } } }).ids(),
+          writing({ wrote: { 's-note': { by: 'claude', at: Infinity, hash: NOTE_HASH } } }).ids(),
+          writing({ wrote: { 's-note': { by: 'claude', at: '2000', hash: NOTE_HASH } } }).ids(),
+          writing({ wrote: { 's-note': { by: 'claude', at: 2000, hash: '' } } }).ids(),
+          writing({ wrote: { 's-note': null } }).ids(),
+          writing({ wrote: { 's-note': [2000, NOTE_HASH] } }).ids(),
+        ],
+        Array(7).fill(ALL)
+      )
+
+      // 2. stamp at item hash waits, shows bell/name/first line as text (no links)
+      const shown = writing()
+      const noteRow = shown.rows().find(r => r.getAttribute('data-id') == 'note')
+      check(
+        'item waits: stamp at item hash waits in main list with item bell, name, and preview line',
+        [shown.ids(), shown.ctx._waits(shown.note), noteRow.getAttribute('data-waits'), noteRow.getAttribute('data-wait-key'), noteRow.children[0].innerHTML, noteRow.title],
+        [
+          [...ALL, 'note'],
+          'item',
+          'item',
+          STAMP_KEY,
+          '<mark class="waits">item</mark> <mark>#notes/a</mark> Agent drafted this.',
+          'item: waits on you; click the bell or drop it on done to clear it\n#notes/a Agent drafted this.',
+        ]
+      )
+      const linkedItem = writing({ text: '#notes/a\nSee [plan](javascript:alert(1)) and https://example.com/x.' })
+      check(
+        'item waits: preview line stays plain text with no links',
+        linkedItem.rows().find(r => r.getAttribute('data-id') == 'note').children[0].innerHTML,
+        '<mark class="waits">item</mark> <mark>#notes/a</mark> See [plan](javascript:alert(1)) and https://example.com/x.'
+      )
+
+      // 3. item edited since (hash mismatch) or missing hash does not wait
+      check(
+        'item waits: item edited since (hash mismatch or missing hash) does not wait',
+        [writing({ hash: 'fedcba9876543210' }).ids(), writing({ hash: null }).ids()],
+        [ALL, ALL]
+      )
+
+      // 4. cleared stamp does not wait (in `cleared_items` or legacy preview `cleared`); a newer stamp waits again
+      check(
+        'item waits: cleared stamp does not wait, and a newer stamp waits again',
+        [
+          writing({ store: { _todoer: { cleared_items: [STAMP_KEY] } } }).ids(),
+          writing({ store: { _todoer: { cleared: [STAMP_KEY] } } }).ids(),
+          writing({ store: { _todoer: { cleared_items: [STAMP_KEY] } }, wrote: { 's-note': { by: 'claude', at: 3000, hash: 'h2' } }, hash: 'h2' }).ids(),
+          writing({ store: { _todoer: { cleared_items: [STAMP_KEY] } }, wrote: { 's-note': { by: 'claude', at: 3000, hash: NOTE_HASH } }, hash: NOTE_HASH }).ids(),
+        ],
+        [ALL, ALL, [...ALL, 'note'], [...ALL, 'note']]
+      )
+
+      // 5. key says its kind so a reply clear cannot clear a stamp
+      const REPLY_COLLIDE = "1|'vault/default · run ab12cd34 · 1s'"
+      const kindGuard = writing({
+        wrote: { 's-note': { by: 'claude', at: 1, hash: "'vault/default · run ab12cd34 · 1s'" } },
+        hash: "'vault/default · run ab12cd34 · 1s'",
+        store: { _todoer: { cleared: [REPLY_COLLIDE] } },
+      })
+      check(
+        'item waits: key carries its kind so a reply clear does not clear an item stamp',
+        [kindGuard.ctx._waits(kindGuard.note), kindGuard.ids(), kindGuard.rows().find(r => r.getAttribute('data-id') == 'note')?.getAttribute('data-wait-key') ?? null],
+        ['item', [...ALL, 'note'], `item|${REPLY_COLLIDE}`]
+      )
+
+      // 6. baseline: missing items_base or stamp at/before baseline does not wait; newer stamp waits
+      check(
+        'item waits: before items_base exists or at/before the baseline does not wait; a newer stamp for the same item waits',
+        [
+          writing({ items_base: null }).ids(),
+          writing({ items_base: { 's-note': STAMP_AT } }).ids(),
+          writing({ items_base: { 's-note': STAMP_AT + 500 } }).ids(),
+          writing({ items_base: { 's-note': STAMP_AT - 1 } }).ids(),
+        ],
+        [ALL, ALL, ALL, [...ALL, 'note']]
+      )
+
+      // 7. no age limit: a stamp a day old still waits
+      context.__now = 1_700_000_000_000
+      const dayOld = writing({ wrote: { 's-note': { by: 'claude', at: context.__now - 86_400_000, hash: NOTE_HASH } } })
+      check('item waits: no age limit — a stamp a day old still waits', [dayOld.ctx._waits(dayOld.note), dayOld.ids()], ['item', [...ALL, 'note']])
+      context.__now = null
+
+      // 8. todo with a stamp gets no second mark and no waiting row; hidden #_todo is not a todo
+      const stampedTodo = writing({
+        wrote: { 's-short': { by: 'claude', at: 2000, hash: 'h-short' } },
+      })
+      stampedTodo.item('short').hash = 'h-short'
+      stampedTodo.render()
+      const shortRow = stampedTodo.rows().find(r => r.getAttribute('data-id') == 'short')
+      const shortBell = shortRow.children[0].children.find(c => c.className == 'waits')?.innerText ?? null
+      stampedTodo.item('short')._global_store = { _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 1 } } }
+      stampedTodo.render()
+      const shortBellsWithOwn = stampedTodo.rows().find(r => r.getAttribute('data-id') == 'short').children[0].children.filter(c => c.className == 'waits').map(c => c.innerText)
+      const hiddenTodo = writing({ text: '#notes/a #_todo\nHidden dep note.' })
+      // a chat-todo with a bridge reply keeps master's reply path in _waits, while its stamp stays suppressed
+      const chatTodo = writing({ text: REPLY.replace('#e2e_chatty/0 ', '#e2e_chatty/0 #todo '), label: '#e2e_chatty/0', name: '#e2e_chatty/0', seen: SEEN })
+      const chatTodoBefore = chatTodo.ctx._waits(chatTodo.note)
+      chatTodo.note._global_store = { _todoer: { cleared: [KEY] } }
+      const chatTodoAfter = chatTodo.ctx._waits(chatTodo.note)
+      check(
+        'item waits: a todo with a stamp gets no item mark or second row; hidden #_todo is not a todo; chat-todo reply path unchanged',
+        [
+          stampedTodo.ctx._waits(stampedTodo.item('short')),
+          stampedTodo.ids().filter(id => id == 'short').length,
+          shortRow.getAttribute('data-waits'),
+          shortBell,
+          shortBellsWithOwn,
+          hiddenTodo.ctx._waits(hiddenTodo.note),
+          hiddenTodo.ids().includes('note'),
+          chatTodoBefore,
+          chatTodoAfter,
+          chatTodo.rows().find(r => r.getAttribute('data-id') == 'note')?.getAttribute('data-waits') ?? null,
+        ],
+        [null, 1, null, null, ['question'], 'item', true, 'reply', null, null]
+      )
+
+      // 9. chat waiting both ways has one row, the reply's; clearing the reply reveals the stamp
+      const bothWays = writing({ text: REPLY, label: '#e2e_chatty/0', name: '#e2e_chatty/0', seen: SEEN })
+      const bothRow = bothWays.rows().find(r => r.getAttribute('data-id') == 'note')
+      bothWays.note._global_store = { _todoer: { cleared: [KEY] } }
+      bothWays.render()
+      const afterReplyClear = bothWays.rows().find(r => r.getAttribute('data-id') == 'note')
+      check(
+        'item waits: a chat waiting both ways shows one reply row, and clearing the reply leaves the stamp waiting',
+        [
+          bothWays.ids().filter(id => id == 'note').length,
+          bothRow.getAttribute('data-waits'),
+          bothRow.getAttribute('data-wait-key'),
+          bothRow.children[0].innerHTML,
+          afterReplyClear.getAttribute('data-waits'),
+          afterReplyClear.getAttribute('data-wait-key'),
+        ],
+        [
+          1,
+          'reply',
+          KEY,
+          '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> Two parts: alpha and beta.',
+          'item',
+          STAMP_KEY,
+        ]
+      )
+
+      // 9b. clear-bucket independence (review 0 finding 1): clearing four item bells on a chat never
+      // evicts its cleared reply; four reply clears never evict a cleared item stamp; legacy string
+      // clears and mixed arrays written by the preview remain readable and preserved
+      {
+        const initText = REPLY
+        const initSeen = _vault_replies(view(initText))
+        const seq = writing({
+          text: initText,
+          hash: hash_64_fnv1a(initText),
+          label: '#e2e_chatty/0',
+          name: '#e2e_chatty/0',
+          wrote: {},
+          seen: initSeen,
+        })
+        const waitKeyOf = vm.runInContext('_wait_key_of', seq.ctx)
+        const initKey = waitKeyOf(seq.note, 'reply')
+        seq.ctx._clear_waiting(seq.note, initKey)
+        const afterReply = seq.ctx._waits(seq.note)
+        const beforeClears = []
+        const afterClears = []
+        const sameReply = []
+        for (let i = 1; i <= 4; i++) {
+          const edited = REPLY.replace('what now?', `what now? (edit ${i})`)
+          const parsedSeen = _vault_replies(view(edited))
+          const h = hash_64_fnv1a(edited)
+          seq.note.text = edited
+          seq.note.hash = h
+          seq.note.read = app_read(edited)
+          seq.ctx._todoer.store.reply_seen.note = parsedSeen
+          seq.ctx._todoer._global_store._agent.wrote['s-note'] = { by: 'claude', at: 2000 + i * 1000, hash: h }
+          sameReply.push(parsedSeen.replies == initSeen.replies && parsedSeen.footer == initSeen.footer && parsedSeen.last)
+          beforeClears.push(seq.ctx._waits(seq.note))
+          seq.ctx._clear_waiting(seq.note, waitKeyOf(seq.note, 'item'))
+          afterClears.push(seq.ctx._waits(seq.note))
+        }
+        seq.render()
+        check(
+          'item waits: four item clears on a chat do not resurrect a cleared reply',
+          [afterReply, sameReply, beforeClears, afterClears, seq.ids().includes('note')],
+          [null, [true, true, true, true], ['item', 'item', 'item', 'item'], [null, null, null, null], false]
+        )
+
+        // the other way round: five reply clears keep only the last four replies and never evict a cleared item stamp
+        const rev = writing()
+        rev.ctx._clear_waiting(rev.note, STAMP_KEY)
+        for (let i = 1; i <= 5; i++) rev.ctx._clear_waiting(rev.note, `${i}|'vault/default · run r${i}'`)
+        rev.render()
+        // legacy string (first version's single key): survives four item clears, and a legacy string item key survives four reply clears
+        const legReply = writing({ text: REPLY, hash: NOTE_HASH, label: '#e2e_chatty/0', name: '#e2e_chatty/0', wrote: {}, seen: SEEN, store: { _todoer: { cleared: KEY } } })
+        for (let i = 1; i <= 4; i++) legReply.ctx._clear_waiting(legReply.note, `item|${3000 + i}|h${i}`)
+        const legItem = writing({ store: { _todoer: { cleared: STAMP_KEY } } })
+        for (let i = 1; i <= 4; i++) legItem.ctx._clear_waiting(legItem.note, `${i}|'vault/default · run leg${i}'`)
+        // mixed list written by the preview: one clear migrates stamps out of `cleared` into
+        // `cleared_items` while preserving every earlier clear, and caps item keys at four
+        const mixed = writing({
+          text: REPLY,
+          hash: 'h5',
+          label: '#e2e_chatty/0',
+          name: '#e2e_chatty/0',
+          seen: SEEN,
+          wrote: { 's-note': { by: 'claude', at: 5000, hash: 'h5' } },
+          store: { _todoer: { cleared: [KEY, 'item|1000|h1', 'item|2000|h2', 'item|3000|h3'] } },
+        })
+        mixed.ctx._clear_waiting(mixed.note, 'item|4000|h4')
+        const mixedAfter4 = JSON.parse(JSON.stringify(mixed.note._global_store._todoer))
+        mixed.ctx._clear_waiting(mixed.note, 'item|5000|h5')
+        mixed.render()
+        // stamps-only preview list in `cleared`: one clear drops `cleared` and leaves `cleared_items`
+        const stampsOnly = writing({ store: { _todoer: { cleared: ['item|1000|h1'] } } })
+        stampsOnly.ctx._clear_waiting(stampsOnly.note, 'item|2000|h2')
+        const storeFields = s => Object.fromEntries(Object.keys(s ?? {}).sort().map(k => [k, s[k]]))
+        check(
+          'item waits: reply and item clear slots are independent (reverse direction, legacy string, and preview mixed list)',
+          [
+            rev.ctx._waits(rev.note),
+            rev.ids().includes('note'),
+            storeFields(rev.note._global_store._todoer),
+            legReply.ctx._waits(legReply.note),
+            storeFields(legReply.note._global_store._todoer),
+            legItem.ctx._waits(legItem.note),
+            storeFields(legItem.note._global_store._todoer),
+            storeFields(mixedAfter4),
+            storeFields(mixed.note._global_store._todoer),
+            mixed.ctx._waits(mixed.note),
+            mixed.ids().includes('note'),
+            storeFields(stampsOnly.note._global_store._todoer),
+          ],
+          [
+            null,
+            false,
+            {
+              cleared: ["2|'vault/default · run r2'", "3|'vault/default · run r3'", "4|'vault/default · run r4'", "5|'vault/default · run r5'"],
+              cleared_items: [STAMP_KEY],
+            },
+            null,
+            { cleared: [KEY], cleared_items: ['item|3001|h1', 'item|3002|h2', 'item|3003|h3', 'item|3004|h4'] },
+            null,
+            {
+              cleared: ["1|'vault/default · run leg1'", "2|'vault/default · run leg2'", "3|'vault/default · run leg3'", "4|'vault/default · run leg4'"],
+              cleared_items: [STAMP_KEY],
+            },
+            { cleared: [KEY], cleared_items: ['item|1000|h1', 'item|2000|h2', 'item|3000|h3', 'item|4000|h4'] },
+            { cleared: [KEY], cleared_items: ['item|2000|h2', 'item|3000|h3', 'item|4000|h4', 'item|5000|h5'] },
+            null,
+            false,
+            { cleared_items: ['item|1000|h1', 'item|2000|h2'] },
+          ]
+        )
+
+        // review 1 blocking sequence: a tab still running master (9755868) receives this tab's
+        // store after three item clears (S1..S3) and a newer reply clear (R2), then clears its
+        // still-displayed R1; master appends to `cleared` and truncates to four, so keeping
+        // stamps in sibling `cleared_items` preserves R2 and every cleared stamp
+        const masterClear = (item, key) => {
+          const raw = item?._global_store?._todoer?.cleared
+          const kept = Array.isArray(raw) ? raw : raw ? [raw] : []
+          if (!kept.includes(key)) (item.global_store._todoer ??= {}).cleared = [...kept, key].slice(-4)
+        }
+        const R1 = "1|'vault/default · run r1'"
+        const R2 = "2|'vault/default · run r2'"
+        const S1 = 'item|1000|h1'
+        const S2 = 'item|2000|h2'
+        const S3 = 'item|3000|h3'
+        const runCompat = startStore => {
+          const w = writing({
+            text: REPLY,
+            hash: 'h3',
+            label: '#e2e_chatty/0',
+            name: '#e2e_chatty/0',
+            wrote: { 's-note': { by: 'claude', at: 3000, hash: 'h3' } },
+            seen: { replies: 2, footer: "'vault/default · run r2'", last: true },
+            store: startStore,
+          })
+          if (!startStore._todoer) {
+            for (const s of [S1, S2, S3]) w.ctx._clear_waiting(w.note, s)
+          }
+          w.ctx._clear_waiting(w.note, R2)
+          const afterR2 = w.ctx._waits(w.note)
+          masterClear(w.note, R1)
+          w.render()
+          return [afterR2, w.ctx._waits(w.note), w.ids().includes('note'), storeFields(w.note._global_store._todoer)]
+        }
+        check(
+          'item waits: older master tab clearing R1 after updated tab clears R2 with three item clears keeps R2 and stamps cleared',
+          [runCompat({}), runCompat({ _todoer: { cleared: [S1, S2, S3] } })],
+          [
+            [null, null, false, { cleared: [R2, R1], cleared_items: [S1, S2, S3] }],
+            [null, null, false, { cleared: [R2, R1], cleared_items: [S1, S2, S3] }],
+          ]
+        )
+      }
+
+      // 9c. stamp eviction (review 0 finding 2): once 100 newer stamped items push an untouched
+      // waiting item out of `_agent.wrote`, its row goes away cleanly with no error
+      {
+        const evicted = writing()
+        const beforeEvict = [evicted.ctx._waits(evicted.note), evicted.ids().includes('note')]
+        const newerWrote = {}
+        for (let i = 1; i <= 100; i++) newerWrote[`s-other-${i}`] = { by: 'claude', at: STAMP_AT + i, hash: `h-${i}` }
+        evicted.ctx._todoer._global_store._agent.wrote = newerWrote
+        evicted.render()
+        check(
+          'item waits: stamp evicted by 100 newer stamped items removes the waiting row cleanly',
+          [beforeEvict, evicted.ctx._waits(evicted.note), evicted.ids().includes('note')],
+          [['item', true], null, false]
+        )
+      }
+
+      // 9d. lazy store reads (review 0 performance): rendering the main list does not read
+      // `_global_store` on ordinary unstamped items, baselined stamps, or edited/mismatched stamps
+      {
+        const lazy = writing({
+          wrote: {
+            's-base': { by: 'claude', at: 1000, hash: 'h-base' },
+            's-edited': { by: 'claude', at: 3000, hash: 'h-old' },
+          },
+          items_base: { 's-base': 1000 },
+          render: false,
+        })
+        let storeReads = 0
+        const addPlain = (id, saved_id, hash) => {
+          const it = {
+            id,
+            saved_id,
+            name: `#plain/${id}`,
+            label: `#plain/${id}`,
+            text: `#plain/${id}\nOrdinary note.`,
+            hash,
+            time: 1000,
+            tags: [],
+            tags_visible: [],
+            read: app_read(`#plain/${id}\nOrdinary note.`),
+          }
+          Object.defineProperty(it, '_global_store', { get: () => (storeReads++, {}) })
+          lazy.ctx._items().push(it)
+        }
+        for (let i = 0; i < 25; i++) addPlain(`ord${i}`, `s-ord${i}`, `h-ord${i}`)
+        addPlain('base', 's-base', 'h-base')
+        addPlain('edited', 's-edited', 'h-new')
+        lazy.render()
+        check(
+          'item waits: main-list render reads no item store for ordinary, baselined, or edited items',
+          [storeReads, lazy.ids()],
+          [0, ALL]
+        )
+      }
+
+      // 10. row parts across item shapes, and non-main widgets stay free of item rows
+      const partsOf = (text, opts = {}) => {
+        const w = writing({ text, ...opts })
+        const r = w.rows().find(row => row.getAttribute('data-id') == 'note')
+        return [w.ctx._waiting_parts(w.note, 'item'), r?.children[0].innerHTML ?? null]
+      }
+      const unnamedMarked = writing({ text: '[proposal] [x]   Drafted summary\nSecond line', label: '', name: 'id:note' })
+      const unnamedMarkedRow = unnamedMarked.rows().find(row => row.getAttribute('data-id') == 'note')
+      const unnamedLong = writing({ text: '[question] ' + 'q'.repeat(120) + '\nSecond line', label: '', name: 'id:note' })
+      const unnamedLongRow = unnamedLong.rows().find(row => row.getAttribute('data-id') == 'note')
+      const desktopTitleOf = w => {
+        const { shown, body } = w.ctx._item_preview(w.note)
+        return w.ctx._notification_of({ reason: 'item', shown, label: null, parent: null, id: 'x', body }).title.replace(/^\[item\] /, '')
+      }
+      check(
+        'item waits: row parts match desktop notification shaping (unique label, inline, comments/hidden stripped, unlabeled marker strip & 80-char clip in text and tooltip, duplicate label, long body clipped)',
+        [
+          partsOf('#notes/a\n\nFirst line\nSecond'),
+          partsOf('#notes/a inline summary\nSecond'),
+          partsOf('#notes/a #_hidden\n<!-- c -->\n<!--hidden-->\nSecret\n<!--/hidden-->\n<!--removed-->\nGone\n<!--/removed-->\nVisible line'),
+          partsOf('#notes/a'),
+          partsOf('Title line\nSecond line', { label: '', name: 'id:note' }),
+          partsOf('#dup first line\nSecond line', { label: '#dup', name: 'id:note' }),
+          partsOf('#notes/a\n' + 'z'.repeat(140)),
+          [
+            unnamedMarked.ctx._waiting_parts(unnamedMarked.note, 'item'),
+            desktopTitleOf(unnamedMarked),
+            unnamedMarkedRow.children[0].innerHTML,
+            unnamedMarkedRow.title,
+          ],
+          [
+            unnamedLong.ctx._waiting_parts(unnamedLong.note, 'item'),
+            desktopTitleOf(unnamedLong),
+            unnamedLongRow.children[0].innerHTML,
+            unnamedLongRow.title,
+          ],
+        ],
+        [
+          [['#notes/a', 'First line'], '<mark class="waits">item</mark> <mark>#notes/a</mark> First line'],
+          [['#notes/a', 'inline summary'], '<mark class="waits">item</mark> <mark>#notes/a</mark> inline summary'],
+          [['#notes/a', 'Visible line'], '<mark class="waits">item</mark> <mark>#notes/a</mark> Visible line'],
+          [['#notes/a', ''], '<mark class="waits">item</mark> <mark>#notes/a</mark> '],
+          [['', 'Title line'], '<mark class="waits">item</mark> Title line'],
+          [['', '#dup first line'], '<mark class="waits">item</mark> #dup first line'],
+          [['#notes/a', 'z'.repeat(119) + '…'], '<mark class="waits">item</mark> <mark>#notes/a</mark> ' + 'z'.repeat(119) + '…'],
+          [
+            ['', '[x] Drafted summary'],
+            '[x] Drafted summary',
+            '<mark class="waits">item</mark> [x] Drafted summary',
+            'item: waits on you; click the bell or drop it on done to clear it\n[x] Drafted summary',
+          ],
+          [
+            ['', 'q'.repeat(79) + '…'],
+            'q'.repeat(79) + '…',
+            '<mark class="waits">item</mark> ' + 'q'.repeat(79) + '…',
+            'item: waits on you; click the bell or drop it on done to clear it\n' + 'q'.repeat(79) + '…',
+          ],
+        ]
+      )
+      check(
+        'item waits: snoozed, delegated, and tagged widgets show no item row',
+        [
+          writing({ snooze: { snoozed: 1_800_000_000_000 } }).ids().includes('note'),
+          writing({ options: { delegated: true } }).ids().includes('note'),
+          writing({ options: { tags: ['#work'] } }).ids().includes('note'),
+        ],
+        [false, false, false]
+      )
+
+      // 11. clearing through bell click, key b, and done bin drop; row click; snooze/agent bounce
+      // (a) bell click runs real bell.onclick from __render
+      const byBell = writing()
+      byBell.rows().find(r => r.getAttribute('data-id') == 'note').querySelector('mark.waits').click()
+      check(
+        'item waits clear (bell click): clears stamp in item store, keeps text, removes row',
+        [byBell.note.text == NOTE_TEXT, byBell.note._global_store._todoer, byBell.ids(), byBell.called.filter(c => c == 'write')],
+        [true, { cleared_items: [STAMP_KEY] }, ALL, []]
+      )
+      // race on bell click: newer stamp arrives after render, old bell click clears only old stamp
+      const bellRaced = writing()
+      const oldBell = bellRaced.rows().find(r => r.getAttribute('data-id') == 'note').querySelector('mark.waits')
+      bellRaced.ctx._todoer._global_store._agent.wrote['s-note'] = { by: 'claude', at: 3000, hash: 'h2' }
+      bellRaced.note.hash = 'h2'
+      oldBell.click()
+      check(
+        'item waits clear (bell click race): old bell clears only its stamp; newer stamp still waits',
+        [bellRaced.note._global_store._todoer, bellRaced.ids()],
+        [{ cleared_items: [STAMP_KEY] }, [...ALL, 'note']]
+      )
+
+      // (b) key b via real _on_row_key -> _bin_press -> _bin_act -> bell.click() + select-next; a/d/s/x/u forwarded
+      async_rows.push((async () => {
+        const settle = () => new Promise(r => setImmediate(r))
+        const byKey = writing()
+        const priorCalls = []
+        byKey.ctx.window._on_key = k => (priorCalls.push(k), 'prior:' + k)
+        byKey.ctx._row_keys()
+        byKey.ctx.MindBox.get = () => '#notes/a'
+        const found = byKey.ctx._bin_row(byKey.note)
+        const drawn = byKey.ctx._row_buttons(found).map(b => b.name)
+        const send = k => {
+          let prevented = false
+          const res = byKey.ctx.window._on_key(k, { preventDefault: () => { prevented = true } })
+          return { prevented, res: res ?? null }
+        }
+        const activeOnLast = byKey.ctx.window._shortcuts.todoer.filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+        const nonBell = ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU'].map(send)
+        const bRes = send('KeyB')
+        await settle()
+        check(
+          'item waits clear (key b): only up/down/bell offered, a/d/s/x/u forward untouched, b clears stamp without writing item and advances selection',
+          [drawn, activeOnLast, nonBell, priorCalls, bRes, byKey.note.text == NOTE_TEXT, byKey.note._global_store._todoer, byKey.ids(), byKey.calls.filter(c => c[0] == 'select').map(c => c[1])],
+          [
+            ['up', 'down', 'bell'],
+            ['k:the previous row', 'b:clear the bell'],
+            ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU'].map(k => ({ prevented: false, res: 'prior:' + k })),
+            ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU'],
+            { prevented: true, res: null },
+            true,
+            { cleared_items: [STAMP_KEY] },
+            ALL,
+            ['named'],
+          ]
+        )
+
+        // _ROW_SHORTCUTS for a selected `item` row: middle (j, k, b alone), first (j, b), with unsaved draft (b stays), and while busy (j, k only)
+        const menuActive = (w, box = '#notes/a') => {
+          w.ctx._row_keys()
+          w.ctx.MindBox.get = () => box
+          return w.ctx.window._shortcuts.todoer.filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+        }
+        const mid = writing()
+        const midList = mid.widget.children.find(c => c.className == 'list')
+        const midNoteRow = midList.children.find(r => r.getAttribute('data-id') == 'note')
+        midList.insertBefore(midNoteRow, midList.children[1]) // [short, note, task, long, named]
+        const midActive = menuActive(mid)
+        midList.insertBefore(midNoteRow, midList.children[0]) // [note, short, ...]
+        const firstActive = menuActive(mid)
+        midList.insertBefore(midNoteRow, midList.children[2]) // back in middle
+        mid.ctx.window._todoer_bin_busy = true
+        const busyActive = menuActive(mid)
+        mid.ctx.window._todoer_bin_busy = false
+        const draftMenu = writing({ editing: true, typed: true })
+        const draftList = draftMenu.widget.children.find(c => c.className == 'list')
+        draftList.insertBefore(draftList.children.find(r => r.getAttribute('data-id') == 'note'), draftList.children[1])
+        const draftActive = menuActive(draftMenu)
+        check(
+          'item waits shortcuts menu: middle item row activates j, k, b alone (none of a/d/s/x/u); first activates j, b; draft keeps b; busy hides b',
+          [midActive, firstActive, draftActive, busyActive],
+          [
+            ['j:the next row', 'k:the previous row', 'b:clear the bell'],
+            ['j:the next row', 'b:clear the bell'],
+            ['j:the next row', 'k:the previous row', 'b:clear the bell'],
+            ['j:the next row', 'k:the previous row'],
+          ]
+        )
+
+        // (c) done bin drop clears stamp, keeps text, advances selection
+        const byDone = writing()
+        const doneRes = byDone.drop('note', 'done')
+        await settle()
+        byDone.render()
+        check(
+          'item waits clear (done bin drop): clears stamp in item store, keeps text, removes row, advances selection',
+          [doneRes.text == NOTE_TEXT, doneRes.rows, doneRes.left, doneRes.store, byDone.ids(), byDone.called.filter(c => c == 'write'), byDone.calls.filter(c => c[0] == 'select').map(c => c[1])],
+          [true, ALL, 0, { cleared_items: [STAMP_KEY] }, ALL, [], ['named']]
+        )
+
+        // (d) delete bin drop deletes with confirmation and advances; decline and unsaved draft put row back
+        const byDel = writing()
+        const delRes = byDel.drop('note', 'cancel')
+        await settle()
+        const byDecline = writing({ deletes: false })
+        const decRes = byDecline.drop('note', 'cancel')
+        await settle()
+        const byDraft = writing({ editing: true, typed: true })
+        const draftRes = byDraft.drop('note', 'cancel')
+        await settle()
+        check(
+          'item waits delete bin: deletes asking first and advances; declined or unsaved draft puts row back without deleting',
+          [
+            [delRes.rows, delRes.left, byDel.called, byDel.calls.filter(c => c[0] == 'select').map(c => c[1])],
+            [decRes.rows, byDecline.called, byDecline.calls.filter(c => c[0] == 'select').map(c => c[1])],
+            [draftRes.rows, byDraft.called, byDraft.calls.filter(c => c[0] == 'alert').map(c => c[1])],
+          ],
+          [
+            [ALL, 0, [['delete', true]], ['named']],
+            [[...ALL, 'note'], [['delete', true]], []],
+            [[...ALL, 'note'], [], ['can not delete #notes/a with unsaved changes: save or cancel your edit first']],
+          ]
+        )
+      })())
+
+      // row click selects the item; snooze and agent bins bounce back with alert
+      const clickItem = writing()
+      clickItem.click('note')
+      const bounceItem = bin => {
+        const w = writing()
+        const r = w.drop('note', bin)
+        return [r.rows, r.left, r.store, w.calls.filter(c => c[0] == 'alert').map(c => c[1])]
+      }
+      check(
+        'item waits: row click selects item; snooze and agent bins put row back with alert',
+        [clickItem.called, bounceItem('snooze'), bounceItem('agent')],
+        [
+          [['select', 'note']],
+          [[...ALL, 'note'], 0, undefined, ['cannot snooze #notes/a: not a #todo item']],
+          [[...ALL, 'note'], 0, undefined, ['cannot delegate #notes/a: not a #todo item']],
+        ]
+      )
+
+      // 12. baseline taken once and only from a confirmed corpus, and added to an account with rows_base + bells_base
+      {
+        const w = writing({
+          items_base: null,
+          rows_base: null,
+          bells_base: null,
+          wrote: { 's-note': STAMP, bad: { by: 'claude' } },
+          render: false,
+        })
+        let saves = 0
+        const t = w.ctx._todoer
+        Object.defineProperty(t, 'global_store', { get: () => (saves++, t._global_store) })
+        context.__now = 5000
+        const unconfirmed = [w.ctx._rows_start(), saves, t._global_store.items_base ?? null]
+        w.ctx.window._server_confirmed = true
+        w.ctx._todoer.store.hold_until = 9000 // held corpus
+        const heldRes = [w.ctx._rows_start(), saves, t._global_store.items_base ?? null]
+        w.ctx._todoer.store.hold_until = 0
+        const first = [w.ctx._rows_start(), saves, { ...t._global_store.items_base }]
+        t._global_store._agent.wrote['s-later'] = { by: 'claude', at: 6000, hash: 'h-later' }
+        const second = [w.ctx._rows_start(), saves, { ...t._global_store.items_base }]
+        w.render()
+        check(
+          'item baseline: taken once and only from a confirmed unheld corpus; baseline stamp stays hidden',
+          [unconfirmed, heldRes, first, second, w.ids()],
+          [
+            [false, 0, null],
+            [false, 0, null],
+            [true, 1, { 's-note': STAMP_AT }],
+            [true, 1, { 's-note': STAMP_AT }],
+            ALL,
+          ]
+        )
+
+        // upgrade path: account that already has rows_base and bells_base takes items_base in one save
+        const upg = writing({
+          items_base: null,
+          rows_base: { 's-oldchat': '1234abcd' },
+          bells_base: { 's-short': 3 },
+          wrote: { 's-note': STAMP },
+          render: false,
+        })
+        let upgSaves = 0
+        const ut = upg.ctx._todoer
+        Object.defineProperty(ut, 'global_store', { get: () => (upgSaves++, ut._global_store) })
+        upg.ctx.window._server_confirmed = true
+        check(
+          'item baseline: account with rows_base and bells_base adds items_base in one save, keeping existing baselines',
+          [upg.ctx._rows_start(), upgSaves, ut._global_store.rows_base, ut._global_store.bells_base, ut._global_store.items_base, (upg.render(), upg.ids())],
+          [true, 1, { 's-oldchat': '1234abcd' }, { 's-short': 3 }, { 's-note': STAMP_AT }, ALL]
+        )
+        context.__now = null
+      }
+
+      // 13. re-renders: remote clear removes row, item arriving after stamp shows row, edit removes row
+      //     (remote `#todoer` store deliveries already re-render dependents via the app's `storePublisher.deliver`)
+      {
+        const live = writing({ wrote: { 's-note': STAMP }, render: true })
+        let renders = 0
+        const origRender = live.ctx.__render
+        live.ctx.__render = (...a) => (renders++, origRender(...a))
+        const initial = live.ids()
+        // remote clear on the item's own store -> re-renders and removes row
+        live.note._global_store._todoer = { cleared_items: [STAMP_KEY] }
+        live.ctx._on_global_store_change('note', true)
+        const afterRemoteClear = [renders, live.ids()]
+        // order B: stamp for note2 is already in the todoer store before note2 arrives, then note2 arrives
+        live.ctx._todoer._global_store._agent.wrote['s-note2'] = { by: 'claude', at: 4000, hash: 'h-note2' }
+        const note2 = {
+          id: 'note2',
+          saved_id: 's-note2',
+          name: '#notes/b',
+          label: '#notes/b',
+          text: '#notes/b\nArrived after stamp.',
+          hash: 'h-note2',
+          time: 4000,
+          _global_store: {},
+          read: app_read('#notes/b\nArrived after stamp.'),
+        }
+        Object.defineProperty(note2, 'tags', { get: () => parsed(note2.text).all })
+        Object.defineProperty(note2, 'tags_visible', { get: () => parsed(note2.text).visible })
+        live.ctx._items().push(note2)
+        live.ctx._on_item_change('note2', '#notes/b', '', false, true, false)
+        const afterArrival = [renders, live.ids()]
+        // owner edits note2 -> hash changes -> _on_item_change removes row
+        note2.text = '#notes/b\nOwner edited it.'
+        note2.hash = 'h-note2-edited'
+        live.ctx._on_item_change('note2', '#notes/b', '#notes/b', false, false, false)
+        const afterEdit = [renders, live.ids()]
+        check(
+          'item waits re-render: remote clear removes row, item arriving after stamp shows row, edit removes row',
+          [initial, afterRemoteClear, afterArrival, afterEdit],
+          [
+            [...ALL, 'note'],
+            [1, ALL],
+            [2, [...ALL, 'note2']],
+            [3, ALL],
+          ]
+        )
+      }
     }
     context.__now = null
   }
@@ -3368,7 +4233,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         _todoer: {
           id: 'todoer',
           store: sharedStore ?? {},
-          _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item', 'checkin'] }, rows_base: {}, bells_base: {} },
+          _global_store: { notify: { reasons: ['question', 'blocked', 'proposal', 'budget', 'done', 'reply', 'item', 'checkin'] }, rows_base: {}, bells_base: {}, items_base: {} },
           dependents: [],
           save_global_store: () => {},
           dispatch_task: (name, fn, delay = 0, repeat = -1) => tasks.set(name, { fn, delay, repeat }),
