@@ -9,6 +9,9 @@ const fs = require('fs')
 const path = require('path')
 const vm = require('vm')
 
+const chatSrc = fs.readFileSync(path.join(__dirname, '..', 'chat.js'), 'utf8')
+const initMatch = chatSrc.match(/\nfunction _chat_command_init\([^\n]*\) \{[\s\S]*?\n\}\n/)
+if (!initMatch) throw new Error('chat.js lacks _chat_command_init')
 const src = fs.readFileSync(path.join(__dirname, '..', 'chat', 'vault.md'), 'utf8')
 const block = src.match(/```js:js_removed\n([\s\S]*?)\n```/)
 if (!block) throw new Error('chat/vault.md lacks js:js_removed block')
@@ -24,8 +27,9 @@ const check = (name, actual, expected) => {
 // item-text hygiene: no unescaped macro opener inside the JS block
 check('js block holds no unescaped macro opener', (js.match(/(?<!\\)<</g) ?? []).length, 0)
 
-// mimic the app's eval preprocessing: strip backslash before << as the item macro pass does
-const runnable = js.replace(/\\<</g, '<<')
+// mimic the app's eval preprocessing: prepend #chat's shared _chat_command_init dependency and
+// strip backslash before << as the item macro pass does
+const runnable = (initMatch[0] + '\n' + js).replace(/\\<</g, '<<')
 
 function makeEnv({ existing = [], shiftKey = undefined, boxText = '', targets = {} } = {}) {
   const existingSet = new Set(existing)
@@ -68,7 +72,7 @@ function makeEnv({ existing = [], shiftKey = undefined, boxText = '', targets = 
     queueMicrotask,
   }
   vm.createContext(ctx)
-  vm.runInContext(runnable + '\nthis._on_command_vault = _on_command_vault\nthis._caret_to_end = _caret_to_end', ctx)
+  vm.runInContext(runnable + '\nthis._on_command_vault = _on_command_vault', ctx)
   return { ctx, calls, listeners, resolveDom }
 }
 
