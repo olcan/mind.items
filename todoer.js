@@ -3719,9 +3719,11 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 // window links this window with the other window (the one used last), lighting the whole button
 // in both; pressing w or the button in either window ends the link for both (_send_press). The
 // window that turned the link on stores an account-owned record in sessionStorage so a reload of
-// either tab keeps the link standing while the other tab is open; at most one window of an
-// account holds that record (later `since` wins, ties go to the greater id; giving it up is not
-// unlinking, so the window stays linked wherever the remaining holder names it).
+// either tab keeps the link standing while the other tab is open; once the windows' messages
+// have settled, one window of an account holds that record (the later `since` keeps it, ties go
+// to the greater id; giving it up is not unlinking: the window stays linked wherever the
+// remaining holder names it, and a request it had sent can still be answered; a selection that
+// was on its way at that moment can be dropped, see the handler in _start_windows).
 // While the link is on, either window behaves alike from one selection to the next:
 // - A selection made by a list's row (click, j/k, row buttons, select-next after an action) in
 //   EITHER linked window asks the other window to show the item (`n` set) and keeps this window
@@ -3736,9 +3738,11 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 //   even when it has a row of that item itself, and answers `took` only after _select_item succeeds.
 // - Other items reach the link through window._todoer_windows: `show(item)` asks the other window
 //   to show an item without selecting or moving this window (resolving true when taken within
-//   SEND_ACK_MS, else false — no partner, no saved id, no answer in time, or superseded by a newer
-//   request of this window, where the other window may still have shown it; a timeout leaves the
-//   link intact), `linked()` reports whether the link is on, and `toggle()` runs the same action as w.
+//   SEND_ACK_MS, else false — no partner, no saved id, no answer in time, or settled early by a
+//   cancel from either side (a newer request of this window, a newer selection that came in, an
+//   unlink, the partner replaced), where the other window may still have shown it; a timeout
+//   leaves the link intact), `linked()` reports whether the link is on, and `toggle()` runs the
+//   same action as w.
 // Crossing selections converge by sender clock time (ties go to the greater window id). An item
 // is told by its saved id. A third window changes the partner only when used last (a link stays
 // between two).
@@ -3864,7 +3868,8 @@ function _send_toggle(on = !_send_on()) {
 
 // asks the linked other window to show `item` without selecting or moving this window; resolves
 // true when the other window answers `took` within SEND_ACK_MS, else false (no partner, no saved
-// id, no answer in time, or superseded by a newer request of this window — the other window may
+// id, no answer in time, or settled early by a cancel from either side: a newer request of this
+// window, a newer selection that came in, an unlink, the partner replaced — the other window may
 // still have shown it). A plain `show` (no `fallback`) that times out changes nothing else; with
 // `fallback` (a row's selection in this window), a timeout forgets the peer, asks `who` so a live
 // partner is back at once, and scrolls this window to `item` if nothing else intervened
@@ -4081,8 +4086,11 @@ function _start_windows() {
     const shows = _send_on() ? _send_peer() : null
     if (message.type == 'bye') windows.peers.delete(message.id)
     else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now(), on: !!message.on, to: message.to ?? null, since: Number(message.since) || 0 })
-    // ONE stored record per account: of two windows holding it, the later `since` stays (ties:
-    // greater id); giving it up is not unlinking (keeps pending work wherever still named)
+    // ONE stored record per account once the messages have settled: of two windows holding it,
+    // the later `since` stays (ties: greater id). Giving it up is not unlinking: an ask this
+    // window sent can still take its `took`. What does not survive giving it up: a selection
+    // that waits for its saved id (the link's identity changed: retired below), and the fallback
+    // of a row's ask that then times out (it was sent as the holder: no local scroll, no `who`)
     const mine = _send_since()
     let yielded = false
     if (message.type == 'unlink' && message.to == me && mine > 0) _send_toggle(false)
