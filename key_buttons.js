@@ -726,11 +726,45 @@ const key_buttons_busy = (frames, from, to) => {
     s =>
       `${Math.round(s.duration)} ms ${[s.invokerType, s.invoker].filter(Boolean).join(' ') || 'script'}` +
       (s.sourceFunctionName ? ` in ${s.sourceFunctionName}` : '') +
-      (file(s.sourceURL) ? ` (${file(s.sourceURL)}${s.sourceCharPosition >= 0 ? ':' + s.sourceCharPosition : ''})` : '') +
+      (file(s.sourceURL) ? ` (${file(s.sourceURL)}${typeof s.sourceCharPosition == 'number' && s.sourceCharPosition >= 0 ? ':' + s.sourceCharPosition : ''})` : '') +
       (s.forcedStyleAndLayoutDuration >= 50 ? `, ${Math.round(s.forcedStyleAndLayoutDuration)} ms of it layout` : '')
   )
   const render = hit.reduce((sum, f) => sum + (f.styleAndLayoutStart ? Math.max(0, f.startTime + f.duration - f.styleAndLayoutStart) : 0), 0)
   return `; the browser names ${hit.length} long frame${hit.length > 1 ? 's' : ''}: ${said.join('; ') || 'no script'}` + (render >= 50 ? `; ${Math.round(render)} ms of style and layout at their ends` : '')
+}
+// what the browser's slow input events (Event Timing: Safari from 26.2, Firefox) say of a stretch of
+// time (`from` to `to`, on the page's clock) where long animation frames are not supported: the events
+// that overlap it, their three longest (ranked by wait + handling time, then whole duration, then
+// interactionId so a slow handler is not crowded out by 0 ms hover/pointer events sharing the same
+// delayed paint; whole time, event name, target tag with id or first class, wait before handling,
+// and handling time); '' where no event overlaps. Target descriptions use only the element's tag,
+// id, or first class (never its text or value)
+const key_buttons_busy_events = (events, from, to) => {
+  const hit = (events ?? []).filter(e => e.startTime < to && e.startTime + e.duration > from)
+  if (!hit.length) return ''
+  const on = el => {
+    const tag = typeof el?.tagName == 'string' ? el.tagName.trim() : ''
+    if (!tag) return ''
+    const id = typeof el.id == 'string' ? el.id.trim() : ''
+    if (id) return tag + '#' + id
+    const cls =
+      (typeof el.classList?.[0] == 'string' && el.classList[0].trim()) ||
+      (typeof el.className == 'string' ? el.className : typeof el.className?.baseVal == 'string' ? el.className.baseVal : '')
+        .trim()
+        .split(/\s+/)[0] ||
+      ''
+    return cls ? `${tag}.${cls}` : tag
+  }
+  const rank = e => (typeof e.processingEnd == 'number' && typeof e.startTime == 'number' ? Math.max(0, e.processingEnd - e.startTime) : e.duration ?? 0)
+  const top = [...hit].sort((a, b) => rank(b) - rank(a) || b.duration - a.duration || (b.interactionId > 0 ? 1 : 0) - (a.interactionId > 0 ? 1 : 0)).slice(0, 3)
+  const said = top.map(e => {
+    const place = on(e.target)
+    const waited = typeof e.processingStart == 'number' && typeof e.startTime == 'number' ? Math.max(0, Math.round(e.processingStart - e.startTime)) : null
+    const handled = typeof e.processingEnd == 'number' && typeof e.processingStart == 'number' ? Math.max(0, Math.round(e.processingEnd - e.processingStart)) : null
+    const times = [waited == null ? '' : `waited ${waited} ms`, handled == null ? '' : `handled for ${handled} ms`].filter(Boolean)
+    return `${Math.round(e.duration)} ms ${e.name || 'event'}${place ? ` on ${place}` : ''}${times.length ? ` (${times.join(', ')})` : ''}`
+  })
+  return `; the browser names ${hit.length} slow event${hit.length > 1 ? 's' : ''}: ${said.join('; ')}`
 }
 // the line for a press that waited, or whose work took long; null where neither did. `down` is the wait
 // since the finger came down (where a touch was seen), `waited` since the tap's click, `work` the time
@@ -1320,24 +1354,31 @@ function key_buttons_create() {
   const tick_reset = () => void ((tick_at = key_buttons_now()), (tick_front = false)) // the page hidden or shown: no measure across it
   document.addEventListener?.('visibilitychange', tick_reset)
   window.addEventListener?.('pageshow', tick_reset)
-  // what the page was busy with, where the browser says (long animation frames: Chromium 123 and later):
-  // the last frames are kept, and a late tick's line names what they held (key_buttons_busy). The frames
-  // of a wait are handed over a moment after it ends, so the line is then written 300 ms later; without
-  // such frames it is written at once, as before (the owner, 2026-11-25, of a wait of 1681 ms at a click on
-  // a name tag: "i believe i've seen the same warning for delays around 2-3s before but don't recall which
-  // event caused them")
-  const frames = []
-  let frame_watch = null
+  // what the page was busy with, where the browser says: long animation frames (Chromium 123 and later)
+  // where supported, else slow input events (Event Timing: Safari from 26.2, Firefox). The last 60
+  // entries (for events, 100 ms or more) are kept, and a late tick's line names what they held
+  // (key_buttons_busy or key_buttons_busy_events). Entries for a wait are handed over a moment after it
+  // ends, so the line is then written 300 ms later; without either observer it is written at once, as
+  // before (the owner, 2026-11-25, of a wait of 1681 ms at a click on a name tag: "i believe i've seen
+  // the same warning for delays around 2-3s before but don't recall which event caused them")
+  const busy = []
+  let busy_watch = null
+  let busy_kind = null
   try {
-    if (typeof PerformanceObserver == 'function' && PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame')) {
-      frame_watch = new PerformanceObserver(list => {
-        frames.push(...list.getEntries())
-        if (frames.length > 60) frames.splice(0, frames.length - 60)
+    const types = typeof PerformanceObserver == 'function' ? PerformanceObserver.supportedEntryTypes : null
+    const kind = types?.includes('long-animation-frame') ? 'long-animation-frame' : types?.includes('event') ? 'event' : null
+    if (kind) {
+      const watch = new PerformanceObserver(list => {
+        for (const entry of list.getEntries()) if (kind != 'event' || entry.duration >= 100) busy.push(entry)
+        if (busy.length > 60) busy.splice(0, busy.length - 60)
       })
-      frame_watch.observe({ type: 'long-animation-frame', buffered: false })
+      watch.observe(kind == 'event' ? { type: 'event', buffered: false, durationThreshold: 104 } : { type: 'long-animation-frame', buffered: false })
+      busy_watch = watch
+      busy_kind = kind
     }
   } catch (e) {
-    frame_watch = null
+    busy_watch = null
+    busy_kind = null
   }
   const ticker = typeof setInterval != 'function' ? null : setInterval(() => {
     const now = key_buttons_now()
@@ -1345,8 +1386,13 @@ function key_buttons_create() {
     if (tick_front && in_front() && late >= KEY_BUTTONS_SLOW.stuck) {
       const line = `key buttons: the page did not respond for ${Math.round(late)} ms, until ${new Date().toLocaleTimeString()}`
       const from = tick_at
-      if (frame_watch) setTimeout(() => console.warn(line + key_buttons_busy(frames, from, now)), 300)
-      else console.warn(line)
+      if (busy_watch) {
+        const explain = busy_kind == 'event' ? key_buttons_busy_events : key_buttons_busy
+        const timer = setTimeout(() => { if (!self.disposed) console.warn(line + explain(busy, from, now)) }, 300)
+        timer?.unref?.()
+      } else {
+        console.warn(line)
+      }
     }
     tick_at = now
     tick_front = in_front()
@@ -1357,7 +1403,7 @@ function key_buttons_create() {
     if (self.disposed) return
     self.disposed = true
     if (ticker != null) clearInterval(ticker)
-    frame_watch?.disconnect?.()
+    busy_watch?.disconnect?.()
     document.removeEventListener?.('visibilitychange', tick_reset)
     window.removeEventListener?.('pageshow', tick_reset)
     viewport?.removeEventListener('resize', look)
