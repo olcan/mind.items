@@ -10224,20 +10224,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.env._send_selected(unasked, true)
       bus.flush()
       const tookWhenUnasked = bus.sent.filter(m => m.from == 'A' && m.data.type == 'took').length
-      // never arrives (past 2s receive / 3s ack) -> B stops polling without sending `took`, A forgets B at 3s!
+      // never arrives (past 2s receive / 3s ack) -> B stops polling without sending `took`; A falls back at 3s and rediscovers live B via `who`
       const ghost = a.makeItem('ghost', { saved_id: 's_ghost', name: '#ghost' })
       b.selects.length = 0
       a.env._send_selected(ghost, true, null, true)
       bus.flush()
       advanceAll(bus, [a, b], 3500)
-      const peerKeptOnGhost = a.win._todoer_windows.peers.has('B')
+      const peerRediscoveredOnGhost = a.win._todoer_windows.peers.has('B')
       b.makeItem('ghost', { saved_id: 's_ghost', name: '#ghost' })
       advanceAll(bus, [a, b], 500)
       const afterGhost = b.selects.length
-      // reconnect B via focus before testing newer message and non-todo
-      b.advance(2000)
-      b.fireWin('focus')
-      bus.flush()
       // newer message cancels waiting one (m1 missing, m2 arrives -> only m2 selected even if m1 appears later)
       const m1 = a.makeItem('m1', { saved_id: 's_m1', name: '#m1' })
       const m2 = a.makeItem('m2', { saved_id: 's_m2', name: '#m2' })
@@ -10262,8 +10258,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const tookBad = bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length
       check(
         'windows _send_take: took sent only after select succeeds when asked (never before lookup or unasked), late item selected within 2s with no line marked, missing item stops at 2s and sender falls back at 3s, newer message cancels waiting one',
-        [tookImmediate, at500, at750, tookWhenUnasked, peerKeptOnGhost, afterGhost, afterNewer, plainMarks, badItem, tookBad],
-        [0, [true, 0, 0], ['#late', 0, 1], 0, false, 0, ['m2'], 0, false, 0]
+        [tookImmediate, at500, at750, tookWhenUnasked, peerRediscoveredOnGhost, afterGhost, afterNewer, plainMarks, badItem, tookBad],
+        [0, [true, 0, 0], ['#late', 0, 1], 0, true, 0, ['m2'], 0, false, 0]
       )
     }
 
@@ -10960,7 +10956,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 24. no conflict resolution: two windows both holding stored `on` do not yield or storm, stay linked to each other, and pressing w in either unlinks both
+    // 24. one stored switch: when two windows both hold the stored record, the earlier yields its record
+    //     without unlinking (both stay linked to each other, no message storm), w in either unlinks both,
+    //     and a later heartbeat lights neither again
     {
       const bus = makeBus()
       const sA = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_001_000 })]])
@@ -10972,15 +10970,32 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const a = makeWindow(bus, { id: 'A', now: 1_700_000_002_500, storage: sA })
       a.env._start_windows()
       bus.flush()
-      const bothStay = [a.env._send_on(), b.env._send_on(), a.env._send_partner(), b.env._send_partner(), bus.sent.length <= 4, bus.overflows]
+      const afterTieBreak = [a.env._send_on(), b.env._send_on(), a.env._send_partner(), b.env._send_partner(), bus.sent.length <= 4, bus.overflows]
       a.env._send_press()
       bus.flush()
-      const afterUnlink = [a.env._send_on(), b.env._send_on(), a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      const afterUnlinkA = [a.env._send_on(), b.env._send_on(), a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      advanceAll(bus, [a, b], 35_000)
+      const afterHeartbeatA = [a.env._send_on(), b.env._send_on(), a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      // and w from the remaining holder (B) unlinks both as well, with no heartbeat relighting
+      const bus2 = makeBus()
+      const sA2 = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_001_000 })]])
+      const sB2 = new Map([['mindpage_todoer_send', JSON.stringify({ uid: 'u1', since: 1_700_000_002_000 })]])
+      const b2 = makeWindow(bus2, { id: 'B', now: 1_700_000_002_500, storage: sB2 })
+      const a2 = makeWindow(bus2, { id: 'A', now: 1_700_000_002_500, storage: sA2 })
+      b2.env._start_windows()
+      a2.env._start_windows()
+      bus2.flush()
+      b2.env._send_press()
+      bus2.flush()
+      advanceAll(bus2, [a2, b2], 35_000)
+      const afterUnlinkB = [a2.env._send_on(), b2.env._send_on(), a2.win._todoer_windows.linked(), b2.win._todoer_windows.linked()]
       check(
-        'windows no conflict resolution: two stored-on windows both stay linked without message storm, and w in either unlinks both',
-        [bothStay, afterUnlink],
+        'windows one stored switch: earlier holder yields record without unlinking, w in either unlinks both, and later heartbeat lights neither',
+        [afterTieBreak, afterUnlinkA, afterHeartbeatA, afterUnlinkB],
         [
-          [true, true, 'B', 'A', true, 0],
+          [false, true, 'B', 'A', true, 0],
+          [false, false, false, false],
+          [false, false, false, false],
           [false, false, false, false],
         ]
       )
@@ -11661,7 +11676,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [
           0,
           [0, 0],
-          [false, 1, 1700],
+          [true, 1, 1700],
           [0, 'prev_last'],
           [1, 1750],
           0,
@@ -13142,7 +13157,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     }
 
     // 49c. Fluid item-itself selection: non-row selection (_on_search) in either linked window tells the other,
-    //      which selects its mounted row without moving and ignores unlisted items
+    //      which selects its mounted row by the row-stay rule (staying where readable, else moving to show the row)
+    //      and ignores unlisted items
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
@@ -13158,7 +13174,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       a.env._send_press()
       bus.flush()
-      // (1) item-itself selection in A -> B selects row without moving (no took), unlisted ignored by B
+      // (1) item-itself selection in A -> B selects readable row staying put (no took), unlisted ignored by B
       bus.sent.length = 0
       a.setScrollTop(1900)
       a.env._on_search('#im1')
@@ -13168,7 +13184,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._on_search('#imu')
       advanceAll(bus, [a, b], 2500)
       const bIgnoredUnlisted = [b.getBox(), b.getScrollTop()]
-      // (2) item-itself selection in B -> A selects row without moving (no took), unlisted ignored by A
+      // (2) item-itself selection in B -> A selects readable row staying put (no took), unlisted ignored by A
       a.fireWin('wheel')
       a.setScrollTop(500)
       bus.sent.length = 0
@@ -13181,7 +13197,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       advanceAll(bus, [a, b], 2500)
       const aIgnoredUnlisted = [a.getBox(), a.getScrollTop()]
       check(
-        'windows fluid item-itself selection: non-row selection in either window selects mounted row in other without moving and ignores unlisted',
+        'windows fluid item-itself selection: non-row selection in either window selects mounted row in other by row-stay rule and ignores unlisted',
         [bTookItem, bIgnoredUnlisted, aTookItem, aIgnoredUnlisted],
         [
           ['#im1', 500, 0],
@@ -13282,6 +13298,314 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           false,
           [false, 0],
           false,
+        ]
+      )
+    }
+
+    // 49e. Review 0 point 1a: plain show() timeout on a missing item resolves false and leaves peer, button, and linked() untouched;
+    //      immediate next show() of a known item resolves true in BOTH directions (holder and non-holder)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const missA = a.makeItem('smA', { saved_id: 's_smA', scrollY: 1900, tags: [], tags_visible: [] })
+      const hitA = a.makeItem('shA', { saved_id: 's_shA', scrollY: 2000, tags: [], tags_visible: [] })
+      b.makeItem('shA', { saved_id: 's_shA', scrollY: 2000, tags: [], tags_visible: [] })
+      const missB = b.makeItem('smB', { saved_id: 's_smB', scrollY: 2100, tags: [], tags_visible: [] })
+      const hitB = b.makeItem('shB', { saved_id: 's_shB', scrollY: 2200, tags: [], tags_visible: [] })
+      a.makeItem('shB', { saved_id: 's_shB', scrollY: 2200, tags: [], tags_visible: [] })
+      a.env._send_press()
+      bus.flush()
+      // (a) A (holder) calls show(missA) -> false at SEND_ACK_MS, B kept, no button redraw, linked() true in both, immediate show(hitA) -> true
+      a.binCalls.length = 0
+      let rMissA = 'pending'
+      a.win._todoer_windows.show(missA).then(v => (rMissA = v))
+      bus.flush()
+      advanceAll(bus, [a, b], 3000)
+      await Promise.resolve()
+      const afterMissA = [rMissA, a.win._todoer_windows.peers.has('B'), a.binCalls.length, a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      let rHitA = 'pending'
+      a.win._todoer_windows.show(hitA).then(v => (rHitA = v))
+      bus.flush()
+      await Promise.resolve()
+      const afterHitA = [rHitA, b.getBox(), b.getScrollTop()]
+      // (b) B (non-holder) calls show(missB) -> false at SEND_ACK_MS, A kept, no button redraw, linked() true in both, immediate show(hitB) -> true
+      b.binCalls.length = 0
+      let rMissB = 'pending'
+      b.win._todoer_windows.show(missB).then(v => (rMissB = v))
+      bus.flush()
+      advanceAll(bus, [a, b], 3000)
+      await Promise.resolve()
+      const afterMissB = [rMissB, b.win._todoer_windows.peers.has('A'), b.binCalls.length, a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      let rHitB = 'pending'
+      b.win._todoer_windows.show(hitB).then(v => (rHitB = v))
+      bus.flush()
+      await Promise.resolve()
+      const afterHitB = [rHitB, a.getBox(), a.getScrollTop()]
+      check(
+        'windows show miss then hit: unanswered show leaves partner and linked() intact in both directions, next show succeeds at once',
+        [afterMissA, afterHitA, afterMissB, afterHitB],
+        [
+          [false, true, 0, true, true],
+          [true, '#shA', 2000],
+          [false, true, 0, true, true],
+          [true, '#shB', 2200],
+        ]
+      )
+    }
+
+    // 49f. Review 0 point 1b: row ask timeout keeps local fallback & peer eviction, then sends `who` so a live
+    //      partner answers `hello` and returns at once in BOTH directions (holder and non-holder), taking the next row
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const rmA = a.makeItem('rmA', { saved_id: 's_rmA', scrollY: 1900 })
+      const rhA = a.makeItem('rhA', { saved_id: 's_rhA', scrollY: 2100 })
+      b.makeItem('rhA', { saved_id: 's_rhA', scrollY: 2100 })
+      const rmB = b.makeItem('rmB', { saved_id: 's_rmB', scrollY: 2000 })
+      const rhB = b.makeItem('rhB', { saved_id: 's_rhB', scrollY: 2200 })
+      a.makeItem('rhB', { saved_id: 's_rhB', scrollY: 2200 })
+      a.makeWidget({ rows: [{ id: 'rmA', pageY: 560, height: 32 }, { id: 'rhA', pageY: 600, height: 32 }, { id: 'rhB', pageY: 640, height: 32 }] })
+      b.makeWidget({ rows: [{ id: 'rmB', pageY: 560, height: 32 }, { id: 'rhB', pageY: 600, height: 32 }, { id: 'rhA', pageY: 640, height: 32 }] })
+      a.env._send_press()
+      bus.flush()
+      // (a) A (holder) row ask misses -> fallback scrolls A, forgets B, sends who; B answers hello and returns; next row reaches B
+      a.scrollToTargetCalls.length = 0
+      a.env._select_item(rmA)
+      bus.flush()
+      advanceAll(bus, [a, b], 2500)
+      b.win._todoer_windows.channel.paused = true
+      bus.sent.length = 0
+      a.advance(500)
+      await Promise.resolve()
+      const aAtTimeout = [
+        a.win._todoer_windows.peers.has('B'),
+        a.scrollToTargetCalls.length,
+        a.getScrollTop(),
+        bus.sent.filter(m => m.from == 'A' && m.data.type == 'who').length,
+      ]
+      b.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const aAfterHello = [a.win._todoer_windows.peers.has('B'), a.env._send_partner(), b.env._send_partner(), b.win._todoer_windows.linked()]
+      a.fireWin('wheel')
+      a.setScrollTop(500)
+      a.env._select_item(rhA)
+      bus.flush()
+      await Promise.resolve()
+      const aNextRow = [b.getBox(), b.getScrollTop(), a.getScrollTop()]
+      // (b) B (non-holder) row ask misses -> fallback scrolls B, forgets A, sends who; A answers hello and returns; next row reaches A
+      b.fireWin('wheel')
+      b.setScrollTop(500)
+      b.scrollToTargetCalls.length = 0
+      b.env._select_item(rmB)
+      bus.flush()
+      advanceAll(bus, [a, b], 2500)
+      a.win._todoer_windows.channel.paused = true
+      bus.sent.length = 0
+      b.advance(500)
+      await Promise.resolve()
+      const bAtTimeout = [
+        b.win._todoer_windows.peers.has('A'),
+        b.win._todoer_windows.linked(),
+        b.scrollToTargetCalls.length,
+        b.getScrollTop(),
+        bus.sent.filter(m => m.from == 'B' && m.data.type == 'who').length,
+      ]
+      a.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const bAfterHello = [b.win._todoer_windows.peers.has('A'), b.env._send_partner(), b.win._todoer_windows.linked()]
+      b.fireWin('wheel')
+      b.setScrollTop(500)
+      b.env._select_item(rhB)
+      bus.flush()
+      await Promise.resolve()
+      const bNextRow = [a.getBox(), a.getScrollTop(), b.getScrollTop()]
+      check(
+        'windows row ask timeout rediscovery: fallback scrolls locally, forgets peer and says who, live partner returns via hello and takes next row in both directions',
+        [aAtTimeout, aAfterHello, aNextRow, bAtTimeout, bAfterHello, bNextRow],
+        [
+          [false, 1, 1900, 1],
+          [true, 'B', 'A', true],
+          ['#rhA', 2100, 500],
+          [false, false, 1, 2000, 1],
+          [true, 'A', true],
+          ['#rhB', 2200, 500],
+        ]
+      )
+    }
+
+    // 49g. Review 0 point 2a: duplicated tab copies A's stored record with a fresh id; tie-break leaves exactly one
+    //      holder, the holder and the window it names are linked and take each other's show, and the third is unlinked
+    {
+      const runDup = async dupId => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        a.env._send_press()
+        bus.flush()
+        advanceAll(bus, [a, b], 2000)
+        b.fireWin('focus')
+        bus.flush()
+        const sC = new Map(a.storage)
+        const c = makeWindow(bus, { id: dupId, now: a.clock.now, innerHeight: 700, scrollTop: 500, headerTop: 500, storage: sC })
+        for (const w of [a, b, c]) {
+          w.makeItem('dp1', { saved_id: 's_dp1', scrollY: 1900, tags: [], tags_visible: [] })
+          w.makeItem('dp2', { saved_id: 's_dp2', scrollY: 2100, tags: [], tags_visible: [] })
+        }
+        c.env._start_windows()
+        bus.flush()
+        advanceAll(bus, [a, b, c], 2000)
+        b.fireWin('focus')
+        bus.flush()
+        const all = [a, b, c]
+        const holders = all.filter(w => w.env._send_on()).map(w => w.id)
+        const holder = all.find(w => w.env._send_on())
+        const partner = all.find(w => w.id === holder?.env._send_partner())
+        const third = all.find(w => w !== holder && w !== partner)
+        const linkedFlags = all.map(w => w.win._todoer_windows.linked())
+        const partners = all.map(w => w.env._send_partner())
+        let r1 = 'pending'
+        let r2 = 'pending'
+        let r3 = 'pending'
+        holder?.win._todoer_windows.show('#dp1').then(v => (r1 = v))
+        bus.flush()
+        await Promise.resolve()
+        partner?.win._todoer_windows.show('#dp2').then(v => (r2 = v))
+        bus.flush()
+        await Promise.resolve()
+        third?.win._todoer_windows.show('#dp1').then(v => (r3 = v))
+        bus.flush()
+        await Promise.resolve()
+        return [holders, linkedFlags, partners, [r1, r2, r3], [partner?.getBox(), holder?.getBox()]]
+      }
+      const dupHigher = await runDup('C') // C > A: C holds record, B + C linked, A unlinked
+      const dupLower = await runDup('0') // 0 < A: A keeps record, A + B linked, 0 unlinked
+      check(
+        "windows duplicated tab: C copying A's stored record leaves one holder, linked pair takes each other's show, third window is unlinked",
+        [dupHigher, dupLower],
+        [
+          [['C'], [false, true, true], [null, 'C', 'B'], [true, true, false], ['#dp1', '#dp2']],
+          [['A'], [true, true, false], ['B', 'A', null], [true, true, false], ['#dp1', '#dp2']],
+        ]
+      )
+    }
+
+    // 49h. Review 0 point 2b: two toggles pressed before message delivery leave one stored record while both stay
+    //      linked (keeping pending work on yield); unlink from either turns both off, and later heartbeat lights neither
+    {
+      // (a) A and B both press toggle before delivery (with A also sending a show before B's toggle flushes);
+      //     A yields record without unlinking so A's pending show still resolves true; unlink from A turns both off + heartbeat lights neither
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.makeItem('tt1', { saved_id: 's_tt1', scrollY: 1900, tags: [], tags_visible: [] })
+      b.makeItem('tt1', { saved_id: 's_tt1', scrollY: 1900, tags: [], tags_visible: [] })
+      a.env._send_press()
+      let pendingShow = 'pending'
+      a.win._todoer_windows.show('#tt1').then(v => (pendingShow = v))
+      b.clock.now += 1
+      b.env._send_press()
+      bus.flush()
+      await Promise.resolve()
+      const afterBothToggle = [a.env._send_on(), b.env._send_on(), a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), pendingShow, b.getBox()]
+      a.env._send_press()
+      bus.flush()
+      const afterUnlinkA = [a.env._send_on(), b.env._send_on(), a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      advanceAll(bus, [a, b], 35_000)
+      const afterHeartbeatA = [a.env._send_on(), b.env._send_on(), a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      // (b) same-ms tie-break by id ('B' > 'A'), then unlink from remaining holder B + heartbeat lights neither
+      const bus2 = makeBus()
+      const a2 = makeWindow(bus2, { id: 'A', now: 1_700_000_010_000 })
+      const b2 = makeWindow(bus2, { id: 'B', now: 1_700_000_010_000 })
+      a2.env._start_windows()
+      b2.env._start_windows()
+      bus2.flush()
+      a2.env._send_press()
+      b2.env._send_press()
+      bus2.flush()
+      const afterSameMs = [a2.env._send_on(), b2.env._send_on(), a2.win._todoer_windows.linked(), b2.win._todoer_windows.linked()]
+      b2.env._send_press()
+      bus2.flush()
+      advanceAll(bus2, [a2, b2], 35_000)
+      const afterUnlinkB = [a2.env._send_on(), b2.env._send_on(), a2.win._todoer_windows.linked(), b2.win._todoer_windows.linked()]
+      check(
+        'windows two toggles before delivery: one record remains while both stay linked (keeping pending work on yield), unlink from either turns both off, and later heartbeat lights neither',
+        [afterBothToggle, afterUnlinkA, afterHeartbeatA, afterSameMs, afterUnlinkB],
+        [
+          [false, true, true, true, true, '#tt1'],
+          [false, false, false, false],
+          [false, false, false, false],
+          [false, true, true, true],
+          [false, false, false, false],
+        ]
+      )
+    }
+
+    // 49i. Review 0 point 3: direct selection made while unlinked must not be remembered as told across a relink
+    //      (through the ordinary _on_search and _send_press paths)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      for (const w of [a, b]) {
+        w.makeItem('rx', { saved_id: 's_rx', scrollY: 1900 })
+        w.makeItem('ry', { saved_id: 's_ry', scrollY: 2100, tags: [], tags_visible: [] })
+      }
+      a.makeWidget({ rows: [{ id: 'rx', pageY: 600, height: 32 }] })
+      b.makeWidget({ rows: [{ id: 'rx', pageY: 600, height: 32 }] })
+      // link from A and both select X
+      a.env._send_press()
+      bus.flush()
+      a.setBox('#rx')
+      a.env._on_search('#rx')
+      bus.flush()
+      await Promise.resolve()
+      const bothOnX = [a.getBox(), b.getBox()]
+      // unlink via _send_press
+      a.env._send_press()
+      bus.flush()
+      const afterUnlink = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
+      // each opens Y directly (no row of Y) while unlinked
+      a.setBox('#ry')
+      a.env._on_search('#ry')
+      b.setBox('#ry')
+      b.env._on_search('#ry')
+      bus.flush()
+      // B links again from Y (no row of Y)
+      b.env._send_press()
+      bus.flush()
+      const afterRelink = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.getBox()]
+      // A opens X directly -> B selects X's row
+      bus.sent.length = 0
+      a.setBox('#rx')
+      a.env._on_search('#rx')
+      bus.flush()
+      await Promise.resolve()
+      const afterReselectX = [bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, b.getBox()]
+      check(
+        'windows relink selection: direct selection while unlinked clears dedup so reselecting same item after relink reaches partner',
+        [bothOnX, afterUnlink, afterRelink, afterReselectX],
+        [
+          ['#rx', '#rx'],
+          [false, false],
+          [true, true, '#ry'],
+          [1, '#rx'],
         ]
       )
     }
