@@ -1049,10 +1049,39 @@ Date.prototype.toInputValue = function () {
   return local.toJSON().slice(0, 16)
 }
 
+// pure movement over the snooze dialog's rows of horizontal middles: nothing lit starts at the
+// first button on any arrow; left and right stop at each row's ends; up and down take the stop
+// nearest by horizontal middle in the adjacent row
+function _snooze_move(rows, pos, dir) {
+  if (!rows.length || !rows[0]?.length) return null
+  if (!pos) return dir == 'ArrowLeft' || dir == 'ArrowRight' || dir == 'ArrowUp' || dir == 'ArrowDown' ? [0, 0] : null
+  const [r, c] = pos
+  if (dir == 'ArrowLeft') return [r, Math.max(0, c - 1)]
+  if (dir == 'ArrowRight') return [r, Math.min(rows[r].length - 1, c + 1)]
+  const nr = dir == 'ArrowUp' ? r - 1 : dir == 'ArrowDown' ? r + 1 : -1
+  if (nr < 0 || nr >= rows.length) return [r, c]
+  const x = rows[r][c]
+  let best = 0
+  for (let i = 1; i < rows[nr].length; i++) if (Math.abs(rows[nr][i] - x) < Math.abs(rows[nr][best] - x)) best = i
+  return [nr, best]
+}
+
+// the snooze dialog's stops grouped by row, in order: the two rows of time buttons, the date
+// field with its snooze button, and the notify box
+function _snooze_rows() {
+  const root = document.querySelector('.snooze-modal')
+  if (!root) return []
+  const rows = [...root.querySelectorAll('.row')].map(r => [...r.querySelectorAll('.button')])
+  const custom = [root.querySelector('.custom input'), root.querySelector('.custom .button.snooze')].filter(Boolean)
+  const notify = [root.querySelector('.notify input')].filter(Boolean)
+  return [...rows, custom, notify].filter(r => r.length)
+}
+
 // the snooze dialog, opened for a row dropped on the snooze bin: resolves to the answer, the time
 // and the dialog's box ({time, notify}, see _snooze_close), or to nothing when it is dismissed
 function _snooze_dialog() {
-  _todoer.store._snooze_modal = _modal(
+  _todoer.store._snooze_cleanup?.()
+  const modal = (_todoer.store._snooze_modal = _modal(
     _todoer
       .read('html_snooze_modal')
       .replaceAll('__onclick__', `_item('#todoer').eval('_on_snooze(event)')`)
@@ -1062,8 +1091,118 @@ function _snooze_dialog() {
       canConfirm: () => false, // toggled in _on_snooze_input_change
       onConfirm: () => _snooze_close(_snooze_input()),
     }
-  )
+  ))
+  let pos = null
+  let lit_el = null
+  let shown = false
+  let closed = false
+  const clear_lit = () => {
+    lit_el?.classList.remove('lit')
+    lit_el = null
+    document.querySelectorAll?.('.snooze-modal .lit')?.forEach(el => el.classList.remove('lit'))
+  }
+  clear_lit()
+  const stop = e => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation?.()
+  }
+  const cleanup = () => {
+    if (closed) return
+    closed = true
+    window.removeEventListener('keydown', on_key, true)
+    clear_lit()
+    if (_todoer.store._snooze_cleanup === cleanup) delete _todoer.store._snooze_cleanup
+  }
+  // capture-phase handler on window for the dialog's lifetime: runs before Modal.svelte's bubble
+  // listener so Enter on a lit stop never confirms twice and Escape from a focused date field
+  // returns keys to the dialog without closing it
+  const on_key = e => {
+    if (!_modal_visible(modal)) {
+      if (shown) cleanup()
+      return
+    }
+    shown = true
+    if (e.ctrlKey || e.altKey || e.metaKey) return
+    const key = e.key
+    const root = document.querySelector('.snooze-modal')
+    if (!root) return
+    const date = root.querySelector('.custom input')
+    const rows = _snooze_rows()
+    const lit = pos ? rows[pos[0]]?.[pos[1]] ?? null : null
+    if (date && document.activeElement === date) {
+      if (lit !== date) return
+      if (key == 'Escape' && !e.shiftKey) {
+        stop(e)
+        date.blur()
+        return
+      }
+      if (key == 'Enter' && !e.shiftKey) {
+        stop(e)
+        if (!e.repeat) {
+          const time = _snooze_input()
+          if (time >= Date.now()) _snooze_close(time)
+        }
+        return
+      }
+      if (key == 'Tab') {
+        setTimeout(() => {
+          if (!closed && _modal_visible(modal) && document.activeElement && document.activeElement !== date) document.activeElement.blur?.()
+        })
+      }
+      return
+    }
+    if (e.shiftKey) return
+    if (key == 'ArrowLeft' || key == 'ArrowRight' || key == 'ArrowUp' || key == 'ArrowDown') {
+      stop(e)
+      const middles = rows.map(r =>
+        r.map(el => {
+          const b = el.getBoundingClientRect()
+          return (b.left + b.right) / 2
+        })
+      )
+      pos = _snooze_move(middles, pos, key)
+      const next = pos ? rows[pos[0]]?.[pos[1]] ?? null : null
+      if (next !== lit) {
+        lit?.classList.remove('lit')
+        next?.classList.add('lit')
+        lit_el = next
+        if (next && next === date) next.focus()
+        else if (document.activeElement && root.contains?.(document.activeElement)) document.activeElement.blur?.()
+      }
+      return
+    }
+    if (!lit) return
+    if (key == 'Enter') {
+      stop(e)
+      if (e.repeat) return
+      const notify = root.querySelector('.notify input')
+      if (lit === notify) return
+      const snooze = root.querySelector('.custom .button.snooze')
+      if (lit === date || lit === snooze) {
+        const time = _snooze_input()
+        if (time >= Date.now()) _snooze_close(time)
+        return
+      }
+      _on_snooze({ target: lit })
+      return
+    }
+    if (key == ' ') {
+      stop(e)
+      if (e.repeat) return
+      const notify = root.querySelector('.notify input')
+      if (lit === notify) {
+        notify.checked = !notify.checked
+        _on_snooze_notify({ target: notify })
+      }
+    }
+  }
+  window.addEventListener('keydown', on_key, true)
+  _todoer.store._snooze_cleanup = cleanup
+  modal?.then?.(cleanup, cleanup)
   _update_dom().then(() => {
+    if (closed || !_modal_visible(modal)) return
+    shown = true
     document.querySelector('.snooze-modal .custom input').value = new Date().toInputValue()
     const notify_box = document.querySelector('.snooze-modal .notify input')
     if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
@@ -1079,7 +1218,7 @@ function _snooze_dialog() {
       1000
     )
   })
-  return _todoer.store._snooze_modal
+  return modal
 }
 
 function _snooze_time(label) {
@@ -1133,6 +1272,7 @@ function _on_snooze_input_change() {
 // unsnooze"), {time, notify}, which the drop's handler writes on the todo (_snooze)
 function _snooze_close(time) {
   const notify = !!document.querySelector('.snooze-modal .notify input')?.checked
+  _todoer.store._snooze_cleanup?.()
   _modal_close(_todoer.store._snooze_modal, { time, notify })
 }
 
