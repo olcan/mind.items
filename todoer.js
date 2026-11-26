@@ -93,6 +93,13 @@ const _todoer = _item('$id')
 //   (where the pusher has a destination), and **`u`** takes it back from the agent. Because a
 //   waiting row has no bin buttons, none of the bin keys (`a`, `d`, `s`, `x`, `u`) act on it and
 //   **`b`** clears it; any key it does not take goes on to any prior key hook.
+// - With a second window of the app open, **`w`** (or the two-panes button) links them: a window
+//   without a target stays the list, keeping its query and scroll while marking the row of the item
+//   the other window shows and acting on it through its buttons and keys; a window with a target
+//   keeps its own target (if the other window has none, a row selection here opens here and moves
+//   the other's mark); if both windows have targets, selecting a row gives this window's target up
+//   to the default list query and shows the item in the other; if neither has a target, the window
+//   selected in stays the list. **`w`** in either window ends the link.
 
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
@@ -299,9 +306,9 @@ function __render(widget, widget_item) {
   widget_item.store._todoer.items ??= {}
   const members = (widget_item.store._todoer.items[widget.id] = new Set())
 
-  // the item the box targets by NAME (the unique label or the id reference the rows' clicks set;
-  // an ambiguous label or any other text targets nothing): its row is marked selected
-  const selected = _item(MindBox.get().trim(), { silent: true })?.id
+  // the selected item of this window (its own target where it has one, else the item the linked
+  // other window shows): its row is marked selected
+  const selected = _selected_item(undefined, { mounted: false })?.id
   // insert all todo items into list
   let have_unsnoozed = false
   let review_anchor // the #vault item's review-anchor builder, resolved at the first task row that needs it
@@ -813,8 +820,8 @@ function __render(widget, widget_item) {
   // leaves them
   if (widget._orderAfterDrag && !snoozed) list.sortable.sort(widget._orderAfterDrag)
 
-  // the bin buttons follow the list as drawn: a row that came or went while the box names its item
-  if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+  // the bin buttons follow the list as drawn: a row that came or went for the selected item
+  if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
 
   // NOTE: this is no longer needed w/ 'dragging' class moved to onStart instead of onChoose, preventing the list item div from being shrunk under the cursor prematurely, sending clicks to the widget instead
   // widget.onclick = e => {
@@ -1528,7 +1535,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   // reconcile the strip on every item change (a remote rename leaving the box naming nobody,
   // another item taking the selected label and making it ambiguous, or an off-list todo's edit):
   // __bin_buttons compares `drawn` and writes nothing when the displayed buttons did not change
-  if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+  if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
 }
 
 // whether any widget of a pinned item lists the todo (membership is tracked per widget)
@@ -1551,7 +1558,7 @@ function _on_global_store_change(id, remote) {
     // a row that is not a todo follows its item's store: a clear made here or on another device;
     // any other store change still reconciles the strip (a no-op when `drawn` is unchanged)
     if (item && (_waits(item) || (_todoer.dependents ?? []).some(dep => _listed(_item(dep), id)))) _rerender_todoer_widgets()
-    else if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    else if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
     return
   }
   _unsnooze_for_bell(item)
@@ -1577,28 +1584,61 @@ function _listing_changed(item) {
   return true
 }
 
-// detect changes to search query, specifically for a todo's name (its unique label or its id
-// reference, `id:<todo_item_id>`), as the rows' clicks set it
+// this window's query target (index.svelte: first term naming a unique label other than the log
+// tag, or any id: term; a / command targets nothing). Reads MindBox.get() directly (live during
+// the 500 ms typing debounce; case-sensitive id: lookup per _item)
+function _window_target(text = typeof MindBox != 'undefined' ? MindBox.get?.() : '') {
+  if (typeof text != 'string' || text.startsWith('/')) return null
+  const terms = text.trim().split(/\s+/).filter(Boolean)
+  const listed = terms[0]?.startsWith('#') && terms[0].toLowerCase() != '#log' ? _item(terms[0], { silent: true }) : null
+  if (listed) return listed
+  for (const t of terms) if (t.toLowerCase().startsWith('id:')) { const it = _item('id:' + t.slice(3), { silent: true }); if (it) return it }
+  return null
+}
+
+// this window's selected item: own target where it has one, else the item the linked window shows
+// (where this window has a mounted row for it, unless `mounted` is false)
+function _selected_item(text = typeof MindBox != 'undefined' ? MindBox.get?.() : '', { mounted = true } = {}) {
+  const own = _window_target(text)
+  if (own) return own
+  const windows = typeof window != 'undefined' ? window._todoer_windows : null
+  if (!windows?.shown || (typeof _send_partner == 'function' && !_send_partner() && !(windows.pending?.kind == 'ask' && windows.pending.fallback))) return null
+  const item = _item(windows.shown, { silent: true })
+  return item && (!mounted || (typeof _bin_row == 'function' && _bin_row(item))) ? item : null
+}
+
+// moves .selected across mounted widgets without rebuilding lists; hidden/cached widgets hold none
+function _sync_marks(item = _selected_item(undefined, { mounted: false })) {
+  const id = item?.id ?? null
+  const mounted = typeof _mounted_lists == 'function' ? new Set(_mounted_lists()) : null
+  document.querySelectorAll('.todoer-widget').forEach(w => {
+    const on = !mounted || mounted.has(w)
+    w.querySelectorAll('.list-item-container').forEach(r => {
+      const hit = !!(on && id && r.getAttribute('data-id') == id)
+      r.classList?.toggle ? r.classList.toggle('selected', hit) : r.classList?.[hit ? 'add' : 'remove']?.('selected')
+    })
+  })
+}
+
+// detect query changes: update buttons, announce target (or none) to partner, and re-render marks
 function _on_search(text) {
-  const target_item = _item(text.trim(), { silent: true }) // null if text does not match item
-  if (typeof _bin_buttons == 'function') _bin_buttons(target_item) // (a table loads this function alone)
-  // (the other window keeps the same selection. This window is not held in place for it here: the
-  // app reports a search after it has begun to show the item, and a report that comes late, under
-  // quick selections, would hold the window wherever it is by then; seen in a browser, where five
-  // quick presses of j let the list slip down the page)
+  const target_item = _window_target(text)
+  const windows = typeof window != 'undefined' ? window._todoer_windows : null
+  if (windows) {
+    if (target_item) windows.shown = null
+    else if (!windows.pending) {
+      const pt = typeof _send_partner == 'function' ? windows.peers.get(_send_partner())?.target : null
+      windows.shown = typeof pt == 'string' ? pt : null
+    }
+  }
+  const selected = _selected_item(text, { mounted: false })
+  if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item(text)) // (a table loads this function alone)
   if (typeof _send_selected == 'function') _send_selected(target_item)
-  // a named item renders the widgets that list it, so its row is marked: a todo's row, and the
-  // row of an item that waits on the owner without being a todo (a reply's). Until 2026-11-24
-  // only a todo's name went on from here, and a reply's row stayed unmarked until something
-  // else rendered the list. A text that names no item only has a marked row to unmark
-  if (!target_item && !document.querySelector('.todoer-widget .list-item-container.selected')) return
+  if (!selected && !document.querySelector('.todoer-widget .list-item-container.selected')) return
   each(_this.dependents, dep => {
     const item = _item(dep)
-    if (_listed(item, target_item?.id) || item.elem?.querySelector('.list-item-container.selected')) {
-      item.elem?.querySelectorAll('.todoer-widget').forEach(widget => {
-        _render_todoer_widget(widget, item)
-      })
-    }
+    if (_listed(item, selected?.id) || item.elem?.querySelector('.list-item-container.selected'))
+      item.elem?.querySelectorAll('.todoer-widget').forEach(widget => _render_todoer_widget(widget, item))
   })
 }
 
@@ -1744,7 +1784,8 @@ function _watch_list_visibility(widget) {
   if (!host || host.closest?.('#cache-div, .column.hidden')) return
   if (window._todoer_vis_refresh?._fn !== _bin_buttons) {
     const refresh = () => {
-      if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+      if (typeof _sync_marks == 'function') _sync_marks()
+      if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
     }
     refresh._fn = _bin_buttons
     window._todoer_vis_refresh = refresh
@@ -1978,7 +2019,7 @@ function _on_row_key(key, e) {
     if (!e?.repeat) _send_press()
     return true
   }
-  const named = _item(MindBox.get().trim(), { silent: true })
+  const named = _selected_item()
   const found = named ? _bin_row(named) : null
   const next = _row_beside(found?.row ?? null, by)
   if (!next) return !!found // (with a row selected, nothing to go to is still the rows'; with none, it goes on)
@@ -1986,14 +2027,15 @@ function _on_row_key(key, e) {
   return true
 }
 
-// what the rows' keys act on at this moment, as _on_row_key reads it: the item the box names
-// (`named`), its row in the first mounted list that holds it (`found`: { widget, row }, or null),
+// what the rows' keys act on at this moment, as _on_row_key reads it: the selected item
+// (`named`: this window's own target, else the item the linked window shows where listed here),
+// its row in the first mounted list that holds it (`found`: { widget, row }, or null),
 // the buttons it has (`shown`: its row's, or those of a todo whose list is not on the page — with
 // its bell included only when drawn for this item on the strip, so a silent arrival stays ringing
 // until shown), and whether it is a snoozed todo (by its row's list, or by its own state where it
 // has no row)
 function _row_now() {
-  const named = _item(MindBox.get().trim(), { silent: true })
+  const named = _selected_item()
   const found = named ? _bin_row(named) : null
   const list = named && !found ? _todo_list(named) : null
   const drawn_bell = typeof _shown_bell == 'function' && _shown_bell(named?.id) > 0
@@ -2005,16 +2047,16 @@ function _row_now() {
 // todo whose list is not on the page has it
 const _row_has = name => _row_now().shown.some(b => b.name == name)
 
-// whether a press of the named button would be CARRIED OUT now, for the row of the item the box
-// names: it has the button (_row_has: the key is the rows' then), no earlier press is still
-// being carried out (_bin_press takes one at a time, and says so in the console), and the press's
-// own action would not refuse it out of hand (_BIN_REFUSAL: an unsaved edit in the item's open
-// editor for the four presses of _BIN_DRAFT; for a delegation also a todo that is not saved yet
-// and a take-back not yet acknowledged). It reads and changes nothing: the shortcuts' menu asks
-// it, and a press refuses by these same functions
+// whether a press of the named button would be CARRIED OUT now, for the selected item: it has
+// the button (_row_has: the key is the rows' then), no earlier press is still being carried out
+// (_bin_press takes one at a time, and says so in the console), and the press's own action would
+// not refuse it out of hand (_BIN_REFUSAL: an unsaved edit in the item's open editor for the
+// four presses of _BIN_DRAFT; for a delegation also a todo that is not saved yet and a take-back
+// not yet acknowledged). It reads and changes nothing: the shortcuts' menu asks it, and a press
+// refuses by these same functions
 function _row_can(name) {
   if (!_row_has(name) || window._todoer_bin_busy) return false
-  return !(Object.hasOwn(_BIN_REFUSAL, name) && _BIN_REFUSAL[name](_item(MindBox.get().trim(), { silent: true })))
+  return !(Object.hasOwn(_BIN_REFUSAL, name) && _BIN_REFUSAL[name](_selected_item()))
 }
 
 // whether j (`by` 1) or k (-1) would select another row now, as _on_row_key decides it
@@ -2095,22 +2137,24 @@ function _select_next(next, outcome) {
   const carried = typeof window._carry_input == 'function' ? window._carry_input(select) : select
   const waited = typeof outcome?.then == 'function'
   const said = waited ? MindBox.get() : null
+  const sel = waited ? _selected_item(undefined, { mounted: false })?.id ?? null : null
   return Promise.resolve(outcome)
     .catch(() => false)
     .then(ok => {
-      const item = ok === true && next && (!waited || MindBox.get() === said) ? _item(next.id, { silent: true }) : null
+      const same = !waited || (MindBox.get() === said && (_selected_item(undefined, { mounted: false })?.id ?? null) === sel)
+      const item = ok === true && next && same ? _item(next.id, { silent: true }) : null
       if (item) carried(item)
       return ok
     })
 }
 
-// the item a button was drawn for, where the box still names it at the press. The buttons are
-// drawn when the app reports a search, which for a name typed into the box is half a second
-// after the typing: until then the buttons on the page are those of the item the box named
-// before, and a press on them is not taken, and says so (the review, 2026-11-24: Done completed
-// the earlier item). Null where the box names another item or none
+// the item a button was drawn for, where it is still the selected item at the press (own target
+// or linked-window selection). The buttons are drawn when the app reports a search, which for a
+// name typed into the box is half a second after the typing: until then the buttons on the page
+// are those of the item selected before, and a press on them is not taken, and says so (the
+// review, 2026-11-24: Done completed the earlier item). Null where another item or none is selected
 function _pressed_item(name, id) {
-  const named = _item(MindBox.get().trim(), { silent: true })
+  const named = _selected_item()
   if (named?.id === id) return named
   console.warn(`todoer: the press on "${name}" was not taken: the box ${named ? 'names another item now' : 'no longer names its item'}`)
   return null
@@ -2145,7 +2189,7 @@ function _bin_press(name, id, bell_count) {
   } finally {
     acted = _select_next(next, acted).then(() => {
       window._todoer_bin_busy = false
-      if (!found || name == 'bell' || name == 'history') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+      if (!found || name == 'bell' || name == 'history') _bin_buttons(_selected_item())
     })
   }
   return acted // settles when the press's work is done: the button that took it stays lit until then
@@ -2280,7 +2324,7 @@ function _on_welcome() {
   }
   _start_notifier()
   if (typeof _watch_list_visibility == 'function') document.querySelectorAll('.todoer-widget').forEach(_watch_list_visibility)
-  if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+  if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
 }
 
 // the sweep's task, dispatched now: the app's dispatch_task replaces a pending tick of the same
@@ -2610,7 +2654,7 @@ function _rerender_todoer_widgets() {
     const item = _item(dep)
     item.elem?.querySelectorAll('.todoer-widget').forEach(widget => _render_todoer_widget(widget, item))
   })
-  if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+  if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
 }
 
 // enqueue a command document through the app's narrow operation (design 2.2, 3.1): the overlay
@@ -3750,49 +3794,40 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
   })()
 }
 
-// TWO WINDOWS, ONE SELECTION (the owner, 2026-11-25: "is it possible to somehow have the todoer
-// widget send its item selection commands to another window?", and of the window one selects in:
-// "block its own scroll to the selected item since that's the main goal here: to keep the list in
-// view and avoid jumping back and forth in the same window").
-// ONE LINK between two windows, with NO fixed roles. At first the window that w was pressed in
-// kept the list for as long as the link stood (a half of the button lit on each side); the owner,
-// the same day, once another item (the graph) was to use the link too: "make the window roles
-// (e.g the list window) fluid, as in the if i select an item from the todoer list, that window
-// becomes the list window ... i think it might fit well with the generic feature and e.g.
-// role-agnostic button tooltips". Other items reach the link through window._todoer_windows.
-// Pressing w or the two-panes button in either
-// window links this window with the other window (the one used last), lighting the whole button
-// in both; pressing w or the button in either window ends the link for both (_send_press). The
-// window that turned the link on stores an account-owned record in sessionStorage so a reload of
-// either tab keeps the link standing while the other tab is open; once the windows' messages
-// have settled, one window of an account holds that record (the later `since` keeps it, ties go
-// to the greater id; giving it up is not unlinking: the window stays linked wherever the
-// remaining holder names it, and a request it had sent can still be answered; a selection that
-// was on its way at that moment can be dropped, see the handler in _start_windows).
-// While the link is on, either window behaves alike from one selection to the next:
-// - A selection made by a list's row (click, j/k, row buttons, select-next after an action) in
-//   EITHER linked window asks the other window to show the item (`n` set) and keeps this window
-//   in place (staying where it is while the row is in view, else moving to show the row; automatic
-//   scroll swallowed, stepped hold, and a SEND_ACK_MS fallback if the other window does not answer
-//   `took` and the owner has not acted meanwhile, plus `who` to rediscover a live partner).
-// - A selection made in an item itself (clicking its number or a tag, typing its name in the box,
-//   creating a new item) in EITHER linked window scrolls this window as ever and tells the other
-//   window unasked (no `n`), which selects the item's row where it has one mounted by the row-stay
-//   rule (keeping a readable row in place, else moving to show the row) and ignores unlisted items.
-// - A window asked to show an item selects it and goes to it (releasing any active scroll hold),
-//   even when it has a row of that item itself, and answers `took` only after _select_item succeeds.
-// - Other items reach the link through window._todoer_windows: `show(item)` asks the other window
-//   to show an item without selecting or moving this window (resolving true when taken within
-//   SEND_ACK_MS, else false — no partner, no saved id, no answer in time, or settled early by a
-//   cancel from either side (a newer request of this window, a newer selection that came in, an
-//   unlink, the partner replaced), where the other window may still have shown it; a timeout
-//   leaves the link intact), `linked()` reports whether the link is on, and `toggle()` runs the
-//   same action as w.
-// Crossing selections converge by sender clock time (ties go to the greater window id). An item
-// is told by its saved id. A third window changes the partner only when used last (a link stays
-// between two).
+// TWO WINDOWS, ONE SELECTION (the owner, 2026-11-25 and 2026-11-26): while two windows are
+// linked, after a row's selection one window shows the item as its target, and the other has no
+// target and marks the row (keeping its own query and place, so lists that stand on the page
+// under that query stay, and its buttons and keys act on the item the other window shows where
+// this window has a row for it). Other items reach the link through window._todoer_windows.
+// Pressing w or the two-panes button in either window links this window with the other window
+// (the one used last), lighting the whole button in both; pressing w or the button in either ends
+// the link for both (_send_press). One window of an account holds the account-owned sessionStorage
+// record once messages have settled (later `since` wins, ties go to greater id; yielding is not
+// unlinking). Every message carries `target` (the window's own target saved_id, `true` when
+// unsaved, or `null` when the query has no target).
+// While the link is on, the distinction is the EXISTENCE of a target (_window_target), never a
+// specific query:
+// - Where exactly one of the two windows has no target, it stays the list and the other shows the
+//   item, whichever window the selection is made in (a selection in the window with a target opens
+//   there and tells the no-target window unasked so its mark moves).
+// - Where neither has a target, the selecting window stays the list (keeping its query and place)
+//   and asks the other window to show the item (`n` set).
+// - Where both have targets, the selecting window gives its target up (setting SEND_LIST_QUERY as
+//   a history step, with a short _hold_scroll against the app's no-target scroll-up), marks the
+//   row, and asks the other window to show the item.
+// - A window with a target shows buttons and takes keys for its own target and ignores unasked
+//   selections told by the other window. A window without a target marks the row of what the other
+//   window shows (moving scroll only when the row is not wholly readable, _row_view_top) and
+//   clears its mark when told none (item: null).
+// - A window asked to show an item (`n` set) opens it (releasing any hold) and answers `took`
+//   after opening succeeds; if silent for SEND_ACK_MS, the selecting window forgets the peer,
+//   sends `who`, and opens the item locally if nothing intervened.
+// - Other items reach the link through window._todoer_windows: `show(item)` asks the partner to
+//   show an item without selecting or moving the caller (resolving true on `took`, else false,
+//   leaving the link intact on timeout), `linked()`, and `toggle()`.
 const SEND_KEY = 'mindpage_todoer_send'
 const SEND_CHANNEL = 'mindpage_todoer_windows'
+const SEND_LIST_QUERY = '#todo' // the one query written when a window with a target becomes the list
 const SEND_ACK_MS = 3000 // (a window that is busy with its own update answers late: a large account's selection can hold its page for more than a second)
 const SEND_TAKE_MS = 2000 // receiver lookup deadline by the clock (< SEND_ACK_MS so the two waits do not cross)
 const SEND_SAVE_MS = 10 * 1000 // unsaved-item wait deadline by the clock
@@ -3803,6 +3838,9 @@ const _send_account = () => (typeof window != 'undefined' ? (window._user?.uid ?
 
 // whether selection stamp `a` ({ at, id }) beats `b`: later clock wins, ties go to the greater id
 const _send_beats = (a, b) => !b || a.at > b.at || (a.at == b.at && a.id > b.id)
+
+// this window's own target carried on channel messages: saved_id, true while unsaved, else null
+const _send_target_id = (item = _window_target()) => (item ? item.saved_id || true : null)
 
 function _send_on() {
   return _send_since() > 0
@@ -3870,12 +3908,28 @@ function _send_cancel(windows, match = null, took = false) {
   p.resolve?.(took)
 }
 
-// drops all deferred link work (pending handoff, targeted scroll swallow, and scroll hold)
+function _set_shown(windows, id) {
+  if (!windows || windows.shown === id) return false
+  windows.shown = id
+  _sync_marks()
+  return true
+}
+
+// drops all deferred link work (pending handoff, scroll hold, linked mark, and dedup state)
 function _send_retire(windows) {
   if (!windows) return
   _send_cancel(windows)
-  windows.swallow?.()
   windows.hold?.()
+  windows.last = null
+  _set_shown(windows, null)
+}
+
+// aligns a no-target window's mark with the linked partner's known target (on link-up, reload, or
+// partner switch) without overwriting an active pending handoff
+function _send_sync_shown(windows, partner = _send_partner()) {
+  if (!windows || _window_target() || windows.pending) return
+  const pt = partner ? windows.peers.get(partner)?.target : null
+  _set_shown(windows, typeof pt == 'string' ? pt : null)
 }
 
 // the button's press, the w key, and window._todoer_windows.toggle(): links with the other window
@@ -3893,9 +3947,9 @@ function _send_press() {
   return false
 }
 
-// turns this window's stored switch on or off; redraws buttons and announces the change (telling
-// any currently selected listed item to the other window when turning on, or retiring deferred
-// work when turning off)
+// turns this window's stored switch on or off; redraws buttons and announces the change (syncing
+// this window's mark with the partner's target when turning on without a target, or retiring
+// deferred work and the linked mark when turning off)
 function _send_toggle(on = !_send_on()) {
   if (_notify_fixed_view()) return false
   const windows = window._todoer_windows
@@ -3905,9 +3959,8 @@ function _send_toggle(on = !_send_on()) {
   } catch (e) {}
   if (!on && windows) _send_retire(windows)
   windows?.say(on ? 'who' : 'hello') // (every message says what this window is now: _start_windows)
-  const named = _item(MindBox.get().trim(), { silent: true })
-  _bin_buttons(named)
-  if (on && named && _bin_row(named) && _send_peer()) _send_selected(named, true, null, true)
+  if (on && windows) _send_sync_shown(windows)
+  _bin_buttons(_selected_item())
   return _send_on()
 }
 
@@ -3917,8 +3970,8 @@ function _send_toggle(on = !_send_on()) {
 // window, a newer selection that came in, an unlink, the partner replaced — the other window may
 // still have shown it). A plain `show` (no `fallback`) that times out changes nothing else; with
 // `fallback` (a row's selection in this window), a timeout forgets the peer, asks `who` so a live
-// partner is back at once, and scrolls this window to `item` if nothing else intervened
-function _send_ask(item, { fallback = false, acted_at = null } = {}) {
+// partner is back at once, and opens `item` locally if nothing else intervened
+function _send_ask(item, { fallback = false, acted_at = null, selection = null, checked = false } = {}) {
   const windows = window._todoer_windows
   const target = typeof item == 'string' ? _item(item, { silent: true }) : item
   if (!windows || !target || _notify_fixed_view() || _notify_account_left()) return Promise.resolve(false)
@@ -3930,46 +3983,40 @@ function _send_ask(item, { fallback = false, acted_at = null } = {}) {
   windows.seen_at = Math.max(windows.seen_at ?? 0, at)
   windows.sel = stamp
   const id = target.saved_id
-  if (fallback) windows.last = id
+  if (fallback) { windows.last = ''; windows.shown = id }
   const n = `${_notifier_id()}:${++windows.n}`
   const uid = _send_account()
   const acted = windows.acted
   const was_on = _send_on()
-  const until = Date.now() + SEND_TAKE_MS
-  windows.say('selected', { item: id, to, n, at, until })
+  const open_raw = live => _open_here(live, selection, checked)
+  const open = fallback ? (typeof window._carry_input == 'function' ? window._carry_input(open_raw) : open_raw) : null
+  windows.say('selected', { item: id, to, n, at, until: Date.now() + SEND_TAKE_MS })
   return new Promise(resolve => {
     const req = {
-      kind: 'ask',
-      n,
-      to,
-      uid,
-      stamp,
-      resolve,
+      kind: 'ask', fallback, n, to, uid, stamp, resolve,
       timer: setTimeout(() => {
         if (windows.pending !== req) return
         windows.pending = null
         resolve(false)
-        if (!fallback) return
-        if (_notify_account_left() || _send_account() !== uid || (was_on && !_send_on())) return
+        if (!fallback || _notify_account_left() || _send_account() !== uid || (was_on && !_send_on())) return
         const cur = _send_partner()
         if (cur && cur !== to) return
+        const ready = windows.shown === id
         windows.peers.delete(to)
         const after = _send_partner()
-        _bin_buttons(_item(MindBox.get().trim(), { silent: true })) // (the link's button follows)
         windows.say('who')
-        if (windows.acted !== acted || windows.sel !== stamp || _item(MindBox.get().trim(), { silent: true })?.id !== target.id) return
+        const clear = () => { if (!_send_partner() && windows.shown === id) _set_shown(windows, null); _bin_buttons(_selected_item()) }
+        const ok = () => ready && windows.acted === acted && windows.sel === stamp && !_window_target()
+        if (!ok()) return clear()
+        _bin_buttons(_selected_item())
         _update_dom().then(() => {
-          if (windows.acted !== acted || windows.sel !== stamp || _notify_account_left() || _send_account() !== uid || (was_on && !_send_on())) return
-          if (_item(MindBox.get().trim(), { silent: true })?.id !== target.id) return
+          if (!ok() || _notify_account_left() || _send_account() !== uid || (was_on && !_send_on())) return clear()
           const now = _send_partner()
           if (now && now !== to && now !== after) return
-          windows.swallow?.()
           windows.hold?.()
-          const el = document.getElementById('super-container-' + target.id)
-          const vh = typeof visualViewport != 'undefined' ? visualViewport.height : innerHeight
-          if (!el || (el.offsetTop >= document.body.scrollTop && el.offsetTop <= document.body.scrollTop + vh - 200)) return
-          const y = _target_scroll_y(target)
-          if (y != null) typeof _scroll_to == 'function' ? _scroll_to(y) : document.body.scrollTo(0, y)
+          windows.shown = null
+          const live = _item(target.id, { silent: true })
+          if (!live || !open(live)) { _sync_marks(); _bin_buttons(_selected_item()) }
         })
       }, SEND_ACK_MS),
     }
@@ -3977,24 +4024,18 @@ function _send_ask(item, { fallback = false, acted_at = null } = {}) {
   })
 }
 
-// tells the linked other window that this window selected `item` (null: empty box or non-item
-// search), once per item (`forced`: again, e.g. a second click on the selected row). With `ask`
-// (a selection made by a list's row), asks the other window to show it via _send_ask (returning
-// true so the caller keeps this window in place); without `ask` (a selection made in an item
-// itself), tells the other window unasked so it selects its mounted row by the row-stay rule
-// (keeping a readable row in place, else moving to show the row)
+// tells the linked other window this window's own target (item: saved_id, or null for "none" when
+// the query has no target), once per target (`forced`: again). With `ask` (a row's selection in
+// the list window), asks the partner to show `item` via _send_ask (returning true)
 function _send_selected(item, forced = false, acted_at = null, ask = false) {
   const windows = window._todoer_windows
   if (!windows || _notify_fixed_view() || _notify_account_left()) return false
-  if (!forced && item?.saved_id && (!ask || _bin_row(item)) && windows.last === item.saved_id) return false
-  if (!forced && item && windows.pending?.kind == 'save' && windows.pending.item?.id === item.id) return false
+  const next_last = item ? item.saved_id ?? null : ''
+  if (!ask && !forced && next_last !== null && windows.last === next_last) return false
+  if (!forced && item && !item.saved_id && windows.pending?.kind == 'save' && windows.pending.item?.id === item.id) return false
   // a newer selection supersedes any pending handoff (save, ask, or take)
   _send_cancel(windows)
-  if (!item) return (windows.last = null), false
-  // a row's selection shares the items of this page's lists alone (the owner, 2026-11-25, of every
-  // selection shared: "i'm not sure about this ... can you compare that to an 'only sync selection
-  // of visible todoer listed items' behavior?", then "ok let's do it")
-  if (ask && !_bin_row(item)) return (windows.last = null), false
+  if (ask && (!item || !_bin_row(item))) return false
   const to = _send_partner()
   if (!to) {
     windows.last = null
@@ -4007,17 +4048,20 @@ function _send_selected(item, forced = false, acted_at = null, ask = false) {
   windows.seen_at = Math.max(windows.seen_at ?? 0, at)
   windows.sel = stamp
   // an unsaved item carries its selection's ordering while waiting for its saved id (within
-  // SEND_SAVE_MS by the clock, while the box still names it and the same link stands)
-  if (!item.saved_id) return _send_when_saved(item, Date.now() + SEND_SAVE_MS, at, ask), false
-  const id = item.saved_id
-  windows.last = id
-  windows.say('selected', { item: id, to, at, until: Date.now() + SEND_TAKE_MS })
+  // SEND_SAVE_MS by the clock, while it remains selected and the same link stands)
+  if (item && !item.saved_id) {
+    if (!ask) windows.say('hello', { target: true })
+    _send_when_saved(item, Date.now() + SEND_SAVE_MS, at, ask)
+    return false
+  }
+  windows.last = next_last
+  windows.say('selected', { item: item ? item.saved_id : null, target: _send_target_id(item), to, at, until: Date.now() + SEND_TAKE_MS })
   return false
 }
 
 // tells the linked other window of a selected item that has no saved id yet, once it has one:
-// looked at four times a second until `until` (SEND_SAVE_MS by the clock), and given up where the
-// box names something else, the link ends or changes, or the account is left
+// looked at four times a second until `until` (SEND_SAVE_MS by the clock), and given up where
+// another item is selected, the link ends or changes, or the account is left
 function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Date.now(), ask = false) {
   const windows = window._todoer_windows
   const link = _send_link(windows)
@@ -4032,7 +4076,7 @@ function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Da
       windows.pending = null
       return
     }
-    const named = _item(MindBox.get().trim(), { silent: true })
+    const named = _selected_item(undefined, { mounted: false })
     if (named?.id !== item.id) {
       windows.pending = null
       return
@@ -4051,12 +4095,12 @@ function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Da
   else windows.pending = null
 }
 
-// makes the other window's selection this window's too, without coming forward and without saying
-// it back. No line of a todo is marked for it. `asked`: asked to show the item (goes to it even
-// if this window has a row of it, and answers `took` ONLY after _select_item succeeds); unasked:
-// selects the item's mounted row here by the row-stay rule (keeping a readable row in place, else
-// moving to show the row) and ignores unlisted items. Looked for until `until` (send-time
-// SEND_TAKE_MS deadline; late deliveries already past `until` are dropped)
+// applies the other window's selection here without coming forward and without saying it back.
+// `asked`: asked to show the item (opens it via _open_here, releasing any hold, and answers
+// `took` ONLY after opening succeeds); unasked (only in a window without a target): moves the
+// row mark to `message.item` where this window has a mounted row for it, moving scroll only when
+// the row is not wholly readable (_row_view_top) and leaving the box untouched. Looked for until
+// `until` (send-time SEND_TAKE_MS deadline; late deliveries already past `until` are dropped)
 function _send_take(message, asked, until = null) {
   const windows = window._todoer_windows
   if (!windows || typeof message.item != 'string' || _notify_fixed_view() || _notify_account_left()) return false
@@ -4069,40 +4113,44 @@ function _send_take(message, asked, until = null) {
   const acted = windows.acted
   const req = { kind: 'take', id: message.id, asked, uid, until: end, stamp, timer: null }
   windows.pending = req
+  if (!asked) windows.shown = message.item
   const still_linked = () =>
     windows.pending === req && !_notify_fixed_view() && !_notify_account_left() && _send_account() === uid && _send_partner() === message.id
-  const attempt = () => {
-    if (!still_linked() || Date.now() > end || !_send_beats(stamp, windows.sel)) {
+  const attempt = first => {
+    if (!still_linked() || Date.now() > end || !_send_beats(stamp, windows.sel) || (!asked && _window_target())) {
       if (windows.pending === req) windows.pending = null
       return false
     }
     const item = _item(message.item, { silent: true })
-    // (an unasked selection selects a mounted row alone: a todo made in the other window has its
+    // (an unasked selection marks a mounted row alone: a todo made in the other window has its
     // row here a little after its save, so the row is looked for as the item is)
     if (!item || (!asked && !_bin_row(item))) {
+      if (!asked && first) { _sync_marks(null); _bin_buttons(_selected_item()) }
       const left = end - Date.now()
-      if (left > 0) req.timer = setTimeout(attempt, Math.min(250, left))
+      if (left > 0) req.timer = setTimeout(() => attempt(false), Math.min(250, left))
       else if (windows.pending === req) windows.pending = null
       return false
     }
     windows.pending = null
-    const prevLast = windows.last
-    const prevSel = windows.sel
-    const prevSeenAt = windows.seen_at
+    if (!asked) {
+      windows.sel = stamp
+      windows.seen_at = Math.max(windows.seen_at ?? 0, stamp.at)
+      _sync_marks(item)
+      _bin_buttons(_selected_item())
+      if (windows.acted === acted) _move_to_row(item)
+      return true
+    }
+    const prev = [windows.last, windows.sel, windows.seen_at, windows.shown]
+    windows.hold?.()
+    windows.shown = null
     windows.last = item.saved_id ?? item.id
     windows.sel = stamp
     windows.seen_at = Math.max(windows.seen_at ?? 0, stamp.at)
-    const ok = _select_item(item, null, false, asked ? 'show' : 'stay', acted)
-    if (!ok) {
-      windows.last = prevLast
-      windows.sel = prevSel
-      windows.seen_at = prevSeenAt
-      return false
-    }
-    if (asked) windows.say('took', { n: message.n })
+    if (!_open_here(item, null, false)) { [windows.last, windows.sel, windows.seen_at, windows.shown] = prev; return false }
+    windows.say('took', { n: message.n, target: _send_target_id(item) })
     return true
   }
-  return attempt()
+  return attempt(true)
 }
 
 // the windows' channel, once per page (skipped on fixed shared views): each window says it is
@@ -4113,12 +4161,12 @@ function _start_windows() {
   const api = { show: item => _send_ask(item), linked: _send_linked, toggle: _send_press }
   if (window._todoer_windows) return void Object.assign(window._todoer_windows, api)
   const me = _notifier_id()
-  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, swallow: null, n: 0, last: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
+  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, n: 0, last: null, shown: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
   windows.say = (type, more = {}) => {
     if (_notify_account_left() || _notify_fixed_view()) return
     try {
       const since = _send_since()
-      windows.channel.postMessage({ type, id: me, uid: _send_account(), used: windows.used, on: since > 0, since, to: since > 0 ? _send_peer() : null, ...more })
+      windows.channel.postMessage({ type, id: me, uid: _send_account(), used: windows.used, on: since > 0, since, to: since > 0 ? _send_peer() : null, target: _send_target_id(), ...more })
     } catch (e) {}
   }
   const look = () => `${!!_send_peer()}|${_send_linked()}`
@@ -4128,14 +4176,16 @@ function _start_windows() {
     if ((message.uid ?? null) !== _send_account() || _notify_account_left() || _notify_fixed_view()) return
     const before = look()
     const wasLinked = _send_linked()
+    const prevPartner = _send_partner()
+    const prevShown = windows.shown
     const shows = _send_on() ? _send_peer() : null
     if (message.type == 'bye') windows.peers.delete(message.id)
-    else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now(), on: !!message.on, to: message.to ?? null, since: Number(message.since) || 0 })
+    else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now(), on: !!message.on, to: message.to ?? null, since: Number(message.since) || 0, target: message.target ?? null })
     // ONE stored record per account once the messages have settled: of two windows holding it,
     // the later `since` stays (ties: greater id). Giving it up is not unlinking: an ask this
     // window sent can still take its `took`. What does not survive giving it up: a selection
     // that waits for its saved id (the link's identity changed: retired below), and the fallback
-    // of a row's ask that then times out (it was sent as the holder: no local scroll, no `who`)
+    // of a row's ask that then times out (it was sent as the holder: no local open, no `who`)
     const mine = _send_since()
     let yielded = false
     if (message.type == 'unlink' && message.to == me && mine > 0) _send_toggle(false)
@@ -4151,38 +4201,41 @@ function _start_windows() {
     }
     else if (_send_on() && _send_peer() != shows && message.type != 'who') windows.say('hello')
     // retire deferred work if the link ended/changed or the partner was replaced (keeping a
-    // pending ask when the sole partner left via bye so its local fallback can show the item)
+    // pending row ask when the sole partner left via bye so its local fallback can open the item)
+    const partner = _send_partner()
     if (wasLinked && !_send_linked()) {
-      if (!(message.type == 'bye' && windows.pending?.kind == 'ask' && windows.pending.to == message.id)) _send_retire(windows)
+      if (!(message.type == 'bye' && windows.pending?.kind == 'ask' && windows.pending.fallback && windows.pending.to == message.id)) _send_retire(windows)
     } else {
       _send_cancel(windows, p => {
         if (p.kind == 'save') return !_send_same_link(p.link, _send_link(windows))
-        if (p.kind == 'take') return _send_partner() !== p.id
-        if (p.kind == 'ask') {
-          const cur = _send_partner()
-          return !!cur && cur !== p.to
-        }
+        if (p.kind == 'take') return partner !== p.id
+        if (p.kind == 'ask') return !!partner && partner !== p.to
         return false
       })
+      if (partner !== prevPartner) {
+        if (partner) _send_sync_shown(windows, partner)
+        else if (!(windows.pending?.kind == 'ask' && windows.pending.fallback)) _set_shown(windows, null)
+      }
     }
-    if (yielded || look() != before) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    if (yielded || look() != before || windows.shown !== prevShown) _bin_buttons(_selected_item())
     if (message.type == 'bye' || message.type == 'unlink') return
     if (message.type == 'who') windows.say('hello')
-    else if (message.type == 'selected' && message.to == me && message.id == _send_partner()) {
+    else if (message.type == 'selected' && message.to == me && message.id == partner) {
       const end = message.until != null && Number.isFinite(Number(message.until)) ? Number(message.until) : Date.now() + SEND_TAKE_MS
       if (Date.now() > end) return
       const stamp = { at: Number(message.at) || 0, id: message.id }
-      const cur = windows.pending?.kind == 'take' && _send_beats(windows.pending.stamp, windows.sel) ? windows.pending.stamp : windows.sel
+      const asked = !!message.n
       windows.seen_at = Math.max(windows.seen_at ?? 0, stamp.at)
+      if (!asked && _window_target()) return // a window with a target ignores unasked selections told by the partner
+      const cur = windows.pending?.kind == 'take' && _send_beats(windows.pending.stamp, windows.sel) ? windows.pending.stamp : windows.sel
       if (!_send_beats(stamp, cur)) return
       _send_cancel(windows)
-      _send_take(message, !!message.n, end)
+      if (!asked && !message.item) { windows.sel = stamp; _set_shown(windows, null); _bin_buttons(_selected_item()); return }
+      _send_take(message, asked, end)
     }
     else if (message.type == 'took' && windows.pending?.kind == 'ask' && windows.pending.n == message.n && windows.pending.to == message.id) _send_cancel(windows, null, true)
   }
-  const acted = () => {
-    windows.acted++
-  }
+  const acted = () => { windows.acted++ }
   for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown', 'popstate', 'resize']) window.addEventListener(type, acted, { capture: true, passive: true })
   if (typeof visualViewport != 'undefined') visualViewport?.addEventListener?.('resize', acted)
   const used = () => {
@@ -4199,7 +4252,10 @@ function _start_windows() {
   setInterval(() => {
     if (_notify_account_left()) return _send_retire(windows)
     windows.say('hello')
-    if (look() != drawn) _bin_buttons(_item(MindBox.get().trim(), { silent: true }))
+    if (look() != drawn) {
+      if (!_send_partner() && !(windows.pending?.kind == 'ask' && windows.pending.fallback)) _set_shown(windows, null)
+      _bin_buttons(_selected_item())
+    }
     drawn = look()
   }, SEND_HELLO_MS)
   windows.say('who')
@@ -4221,68 +4277,9 @@ function _send_steps(uid, done) {
   return () => clearTimeout(timer)
 }
 
-// the scroll position the app computes for `item` (index.svelte targetScrollPosition), or null
-function _target_scroll_y(item) {
-  const el = item && document.getElementById('super-container-' + item.id)
-  if (!el) return null
-  const home = document.querySelector('.header')?.offsetTop ?? 0
-  const vh = typeof visualViewport != 'undefined' ? visualViewport.height : innerHeight
-  return Math.max(home, el.offsetTop - vh / 4)
-}
-
-// swallows ONLY the app's automatic scroll to `item` (passing non-matching calls, any scroll
-// requested during a keydown via window.event, and the first scroll after the app wrote a new
-// inline height on .column-padding, which is its own adjustment to a changed window height; the
-// remembered value follows every change, a cleared one included, and a height that CSS alone
-// changes, as on iOS where the app writes none, gives no pass; the swallow stays, so late
-// selection scrolls are still caught). Drops itself after matching once the hold is gone (0 ms
-// drain catches paired updateItemLayout + selectItem calls in one frame), on popstate in capture
-// phase, on replacement, unlink, account exit, or after SEND_HOLD_MS steps
-function _swallow_scroll(item) {
-  const windows = window._todoer_windows
-  windows?.swallow?.()
-  const body = document.body
-  const orig = Object.getPrototypeOf(body)?.scrollTo
-  const uid = _send_account()
-  const vv = typeof visualViewport != 'undefined' ? visualViewport : null
-  const pad_h = () => document.querySelector('.column-padding')?.style?.height ?? ''
-  let pad = pad_h()
-  let drain = null
-  const drop = () => {
-    clearTimeout(drain)
-    stop()
-    if (body.scrollTo === guard) delete body.scrollTo
-    window.removeEventListener('popstate', drop, true)
-    if (windows?.swallow === drop) windows.swallow = null
-  }
-  const guard = function (x, top) {
-    if (_notify_account_left() || _send_account() !== uid) {
-      drop()
-      return orig?.apply(this, arguments)
-    }
-    const next_pad = pad_h()
-    if (next_pad !== pad) {
-      pad = next_pad
-      if (next_pad) return orig?.apply(this, arguments)
-    }
-    if (window.event?.type == 'keydown') return orig?.apply(this, arguments)
-    const y = typeof x == 'object' && x ? Number(x.top) : Number(top)
-    const want = _target_scroll_y(item)
-    const scale = vv?.scale ?? 1
-    const delta = typeof body.offsetHeight == 'number' ? innerHeight * scale - body.offsetHeight : 0
-    if (want != null && Math.abs(y - (want + delta)) <= 2) {
-      if (!windows?.hold && drain == null) drain = setTimeout(drop, 0)
-      return
-    }
-    return orig?.apply(this, arguments)
-  }
-  const stop = _send_steps(uid, drop)
-  body.scrollTo = guard
-  window.addEventListener('popstate', drop, { capture: true, passive: true })
-  if (windows) windows.swallow = drop
-  return drop
-}
-
+// holds this window's scroll position against the app's no-target scroll-up when giving up a
+// target (both-targets row click -> SEND_LIST_QUERY); ends immediately on any owner input,
+// history step, resize, or after SEND_HOLD_MS steps
 function _hold_scroll(top) {
   const windows = window._todoer_windows
   windows?.hold?.()
@@ -4308,25 +4305,6 @@ function _hold_scroll(top) {
   if (windows) windows.hold = end
   put()
   return end
-}
-
-// keeps this window on its list instead of jumping to the item: its automatic scroll to the item
-// is swallowed (_swallow_scroll), its position is held while the app would move it (_hold_scroll),
-// and once the page updates it moves to show the selected ROW (_row_view_top) — only while that
-// hold still stands and no owner input arrived since the selection started (a received row
-// mounting after input swallows alone and leaves the owner's place untouched)
-function _stay_put(item, acted = window._todoer_windows?.acted) {
-  const windows = window._todoer_windows
-  _swallow_scroll(item)
-  if (!windows || windows.acted !== acted) return
-  const uid = _send_account()
-  const top = document.body.scrollTop
-  const hold = _hold_scroll(top)
-  _update_dom().then(() => {
-    if (windows.hold !== hold || windows.acted !== acted || _notify_account_left() || _send_account() !== uid) return
-    const to = _row_view_top(item, top)
-    if (to != top) _hold_scroll(to)
-  })
 }
 
 // the scroll position a linked window takes for the selected row of `item` (the owner,
@@ -4392,42 +4370,63 @@ function _row_view_top(item, top) {
   return Math.max(home, Math.round(y + box.height - low))
 }
 
-// selects an item, as a click on its number in the app does while the number is not green: the
-// app's own select (_Item.select: the query becomes the item's unique label, else its id
-// reference by its saved id, in a history entry of its own, so Back returns to the view the click
-// was made in; the page scrolls to the item and the box gives up the focus), then `selection` (a
-// todo's line) marked in the item for the edit that may follow. Only where the app selected: a
-// refused select (a shared page, an item gone meanwhile) leaves the page's target as it was, and
-// the mark would go to that one. On an app without the method the box is set as before (a typed
-// query's entry, which the next row's click replaced)
-// `checked` (a chat-todo's question: a stretch by its offsets, or none where its place was not
-// found) marks it by _select_range, on this item alone, which also takes back a mark that an
-// earlier click left there
-function _select_item(item, selection, checked = false, received = null, acted = window._todoer_windows?.acted) {
-  const ranged = Array.isArray(selection) // a stretch by its offsets in the item's text
+function _move_to_row(item) {
+  const top = document.body.scrollTop
+  const to = _row_view_top(item, top)
+  if (to == top) return
+  window._todoer_windows?.hold?.()
+  typeof _scroll_to == 'function' ? _scroll_to(to) : document.body.scrollTo(0, to)
+}
+
+// opens `item` as this window's target and marks `selection` (or `_select_range` when `checked`)
+function _open_here(item, selection, checked = false) {
+  const ranged = Array.isArray(selection)
   if (typeof item.select != 'function') {
     const select = ranged ? item.text.slice(...selection) : selection
     MindBox.set(item.name, select ? { scroll: true, select } : { scroll: true })
     return true
   }
-  // a row's selection stays put while the other window shows it, and an unasked selection from
-  // the other window selects its row here by the row-stay rule (keeping a readable row in place,
-  // else moving to show the row); an asked selection goes to the item
-  const stay = received ? received == 'stay' : _send_selected(item, true, null, true)
-  if (stay) _stay_put(item, acted)
-  else {
-    window._todoer_windows?.swallow?.()
-    window._todoer_windows?.hold?.()
-  }
-  if (!item.select()) {
-    if (stay) {
-      window._todoer_windows?.swallow?.()
-      window._todoer_windows?.hold?.()
-    }
-    return false
-  }
+  if (!item.select()) return false
   if (checked) _select_range(item, ranged ? selection : null)
   else if (selection) MindBox.select_in_target(selection)
+  return true
+}
+
+// selects a row's item: if linked with a live partner and listed with a saved id, keeps/becomes
+// the list window when this window has no target or both have targets (giving our target up to
+// SEND_LIST_QUERY with a short hold against no-target scroll-up) and asks the partner to show it;
+// otherwise opens locally (and tells a no-target partner unasked, or asks `who` when alone & on)
+function _select_item(item, selection, checked = false) {
+  const windows = typeof window != 'undefined' ? window._todoer_windows : null
+  const to = windows && typeof _send_partner == 'function' && !_notify_fixed_view() && !_notify_account_left() ? _send_partner() : null
+  const listed = !!item && typeof _bin_row == 'function' && !!_bin_row(item)
+  const mine = typeof _window_target == 'function' && !!_window_target()
+  if (to && listed && item.saved_id && (!mine || windows.peers.get(to)?.target)) {
+    const acted = windows.acted
+    const top = document.body.scrollTop
+    const uid = _send_account()
+    const hold = mine ? _hold_scroll(top) : null
+    if (mine) { MindBox.elem?.blur?.(); MindBox.set(SEND_LIST_QUERY) }
+    _send_ask(item, { fallback: true, selection, checked })
+    _sync_marks(item)
+    _bin_buttons(_selected_item())
+    if (mine)
+      _update_dom().then(() => {
+        if (windows.hold !== hold || windows.shown !== item.saved_id || windows.acted !== acted || _notify_account_left() || _send_account() !== uid) return
+        const to_y = _row_view_top(item, top)
+        if (to_y != top) _hold_scroll(to_y)
+      })
+    else _move_to_row(item)
+    return true
+  }
+  if (windows && !to && listed && typeof _send_on == 'function' && _send_on() && !_notify_fixed_view() && !_notify_account_left()) {
+    windows.last = null
+    windows.say('who')
+  }
+  windows?.hold?.()
+  if (windows) windows.shown = null
+  if (!_open_here(item, selection, checked)) return false
+  if (to && typeof _send_selected == 'function') _send_selected(item)
   return true
 }
 
