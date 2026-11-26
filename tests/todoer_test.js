@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -103,6 +103,7 @@ const picked =
     '_sweep_delay',
     '_on_welcome',
     '_start_sweep',
+    '_unsnooze_for_bell',
     '_sweep',
     '_unsnooze',
     '_snooze_close',
@@ -203,7 +204,10 @@ const picked =
     '_listed',
     '_render_todoer_widget',
     '_on_search',
+    '_log_done',
     '_complete_todo',
+    '_todo_list',
+    '_todo_log_text',
     '_bin_act',
     '_draft',
     '_draft_word',
@@ -214,7 +218,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _item_writes, _item_visible, _item_preview, _item_notify_step, _notify_item, _notify_items, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _notify_test, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _unsnooze_for_bell, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _item_writes, _item_visible, _item_preview, _item_notify_step, _notify_item, _notify_items, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _notify_test, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -1379,6 +1383,44 @@ delete context.__todos.p
   check('confirm: a checked box writes the flag beside the snooze time', snoozable.global_store, { _todoer: { snoozed: 5000, notify: true } })
   _snooze(snoozable, { time: 9000, notify: false })
   check('confirm: an unchecked box writes the time alone, removing an earlier flag', snoozable.global_store, { _todoer: { snoozed: 9000 } })
+  // _snooze clears any surfaced bell count in the SAME save of the todo's store (never lowering a higher clear)
+  {
+    const mk = (state, todoerStore = {}) => {
+      let saves = 0
+      const raw = { _todoer: { ...todoerStore }, ...(state ? { _agent: { state } } : {}) }
+      return {
+        id: 'snz-bell',
+        saved_id: 's-snz-bell',
+        tags: ['#todo'],
+        tags_visible: ['#todo'],
+        _global_store: raw,
+        get global_store() { saves++; return raw },
+        saves: () => saves,
+      }
+    }
+    const prevBase = context._todoer._global_store
+    context._todoer._global_store = { bells_base: {} }
+    const a = mk({ held: 'owner', reason: 'question', surfaced: 3 })
+    const bellBefore = context._bell(a)
+    _snooze(a, { time: 5000, notify: true })
+    const bellAfter = context._bell(a)
+    const b = mk({ held: 'owner', reason: 'question', surfaced: 2 }, { bell: 5, notify: true })
+    _snooze(b, { time: 6000, notify: false })
+    const c = mk({ held: 'owner', reason: 'question', surfaced: 0 })
+    _snooze(c, { time: 7000, notify: false })
+    context._todoer._global_store = prevBase
+    check('_snooze: writes the surfaced count on bell in the same single store save, silences _bell, never lowers a higher bell, and leaves bell unset at surfaced 0',
+      [
+        [bellBefore, bellAfter, a.saves(), a._global_store._todoer],
+        [b.saves(), b._global_store._todoer],
+        [c.saves(), c._global_store._todoer],
+      ],
+      [
+        ['question', null, 1, { snoozed: 5000, notify: true, bell: 3 }],
+        [1, { bell: 5, snoozed: 6000 }],
+        [1, { snoozed: 7000 }],
+      ])
+  }
   // the drop's handler and the dialog's markup (the render, which the table cannot run): pinned by the sources
   const modal_html = fs.readFileSync(path.join(__dirname, '..', 'todoer-snooze-modal.html'), 'utf8')
   check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {14}_snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
@@ -2166,6 +2208,291 @@ check('held: past the new hold, observed every minute meanwhile', _held(), false
 context.__now = null // the clock runs live again for the rows below
 console.info = info
 
+// ---- bell-triggered unsnooze (_unsnooze_for_bell via _on_global_store_change and _sweep) (2026-11-25) ----
+{
+  const makeBellSweepEnv = ({ primary = true, confirmed = true, current = true, online = true, hold_until = 0, last_tick = null, notifyReasons = ['question', 'blocked', 'proposal'] } = {}) => {
+    const T_NOW = 1_700_000_000_000
+    const T_SNOOZE = T_NOW + 3_600_000 // 1 hour ahead (well past UNSNOOZE_SKEW_MS)
+    let clock = T_NOW
+    class FakeDate extends RealDate {
+      static now() { return clock }
+    }
+    const itemsMap = new Map()
+    const notifiedCards = []
+    const unsnoozeEvents = []
+    const rerenders = []
+    const dispatched = []
+    const storeMap = new Map()
+    const env = {
+      console: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+      Date: FakeDate,
+      _primary: primary,
+      navigator: { onLine: online },
+      window: { _server_confirmed: confirmed, _server_current: current },
+      document: { visibilityState: 'visible', hasFocus: () => true },
+      localStorage: { getItem: k => storeMap.get(k) ?? null, setItem: (k, v) => void storeMap.set(k, v), removeItem: k => void storeMap.delete(k) },
+      Notification: Object.assign(
+        function (title, options) { notifiedCards.push({ title, options }); this.close = () => {} },
+        { permission: 'granted' }
+      ),
+      _todoer: {
+        id: 'todoer',
+        store: {
+          notify_seen: {},
+          snooze_seen: {},
+          reply_seen: {},
+          item_seen: {},
+          last_tick: last_tick ?? T_NOW - 10_000,
+          hold_until,
+          on_unsnooze: { rec: it => unsnoozeEvents.push(it.id) },
+        },
+        _global_store: { bells_base: {}, notify: { reasons: notifyReasons } },
+        dependents: [],
+        dispatch_task: (name, fn, delay, repeat) => dispatched.push({ name, fn, delay, repeat }),
+      },
+      _this: { dependents: [], dispatch_task: () => {} },
+      _items: () => [...itemsMap.values()],
+      _item: ref => itemsMap.get(ref) ?? null,
+      merge: (a, b) => Object.assign(a, b),
+      each: (xs, f) => xs.forEach(f),
+      values: o => Object.values(o ?? {}),
+      _replace_tags: context._replace_tags,
+      error: () => {},
+      warn: () => {},
+      debug: () => {},
+      fatal: msg => { throw new Error(msg) },
+      _: context._,
+      _command_id: () => 'tab-me',
+      crypto: { getRandomValues: a => a.fill(7) },
+    }
+    vm.createContext(env)
+    vm.runInContext(picked, env)
+    env._on_item_change = id => rerenders.push(id)
+    const addTodo = (id, { snoozed = T_SNOOZE, notify = true, bell = 0, state = null, tags = ['#todo'], tags_visible = ['#todo'], text = '#todo ' + id } = {}) => {
+      let saves = 0
+      const raw = {
+        _todoer: { ...(snoozed ? { snoozed } : {}), ...(notify ? { notify: true } : {}), ...(bell ? { bell } : {}) },
+        ...(state ? { _agent: { state } } : {}),
+      }
+      const it = {
+        id,
+        saved_id: 's-' + id,
+        name: '#' + id,
+        label: '#' + id,
+        text,
+        tags: [...tags],
+        tags_visible: [...tags_visible],
+        read: () => it.text,
+        _global_store: raw,
+        get global_store() { saves++; return raw },
+        saves: () => saves,
+      }
+      itemsMap.set(id, it)
+      itemsMap.set(it.saved_id, it)
+      itemsMap.set(it.name, it)
+      if (snoozed) env._todoer.store.snooze_seen[id] = snoozed
+      return it
+    }
+    return { env, T_NOW, T_SNOOZE, addTodo, notifiedCards, unsnoozeEvents, rerenders, dispatched, advance: ms => (clock += ms) }
+  }
+
+  // Guards: non-primary, unconfirmed (_server_confirmed false / _server_current false), offline, held (explicit hold_until and sleep gap > 90s)
+  const guardCase = opts => {
+    const e = makeBellSweepEnv(opts)
+    const t = e.addTodo('t1', { state: { held: 'owner', reason: 'question', epoch: 1, rev: 2, surfaced: 1 } })
+    e.env._on_global_store_change('t1', true)
+    const afterHook = [t._global_store._todoer.snoozed, e.unsnoozeEvents.length]
+    e.env._sweep()
+    const afterSweep = [t._global_store._todoer.snoozed, e.unsnoozeEvents.length]
+    return [afterHook, afterSweep]
+  }
+  const T_FUTURE = makeBellSweepEnv().T_SNOOZE
+  check('bell unsnooze guards: never unsnoozes on non-primary tab, unconfirmed or stale corpus, offline, or under a resume hold (hook and sweep)',
+    [
+      guardCase({ primary: false }),
+      guardCase({ confirmed: false }),
+      guardCase({ current: false }),
+      guardCase({ online: false }),
+      guardCase({ hold_until: 1_700_000_060_000 }),
+      guardCase({ last_tick: 1_700_000_000_000 - 120_000 }),
+    ],
+    Array(6).fill([[T_FUTURE, 0], [T_FUTURE, 0]]))
+
+  // No-ring cases: taken (no bell), already cleared bell, surfaced 0, hidden-only #_todo (not visible todo)
+  {
+    const e = makeBellSweepEnv()
+    const taken = e.addTodo('taken', { state: { held: 'owner', reason: 'taken', epoch: 1, rev: 2, surfaced: 2 } })
+    const cleared = e.addTodo('cleared', { bell: 2, state: { held: 'owner', reason: 'question', epoch: 1, rev: 2, surfaced: 2 } })
+    const zero = e.addTodo('zero', { state: { held: 'owner', reason: 'question', epoch: 1, rev: 2, surfaced: 0 } })
+    const hidden = e.addTodo('hidden', { tags: ['#todo'], tags_visible: [], state: { held: 'owner', reason: 'question', epoch: 1, rev: 2, surfaced: 2 } })
+    for (const id of ['taken', 'cleared', 'zero', 'hidden']) e.env._on_global_store_change(id, true)
+    e.env._sweep()
+    check('bell unsnooze: stays snoozed when no bell rings (taken, cleared, surfaced 0) or item has no visible todo tag',
+      [[taken, cleared, zero, hidden].map(it => it._global_store._todoer.snoozed), e.unsnoozeEvents],
+      [Array(4).fill(e.T_SNOOZE), []])
+  }
+
+  // State change (_on_global_store_change): primary, confirmed, online, unheld -> unsnoozes once, keeps notify flag, keeps bell, no [unsnoozed] reminder, not repeated on follow-up hook or sweep
+  {
+    const e = makeBellSweepEnv()
+    const t = e.addTodo('t1', { notify: true, state: { held: 'owner', reason: 'question', epoch: 1, rev: 2, surfaced: 1 } })
+    e.env._todoer.store.notify_seen.t1 = 'agent:delegated:1:0|delegated'
+    e.env._on_global_store_change('t1', true)
+    const firstSnap = {
+      snoozed: t._global_store._todoer.snoozed,
+      notify: t._global_store._todoer.notify,
+      unsnoozedAt: t._global_store._todoer.unsnoozed,
+      bell: e.env._bell(t),
+      unsnoozes: e.unsnoozeEvents.length,
+      saves: t.saves(),
+      titles: e.notifiedCards.map(c => c.title),
+    }
+    e.advance(5_000)
+    // local save echo, second remote delivery, and sweep pass while bell is STILL ringing: must NOT unsnooze again
+    e.env._on_global_store_change('t1', false)
+    e.env._on_global_store_change('t1', true)
+    e.env._sweep()
+    const repeatSnap = {
+      unsnoozedAt: t._global_store._todoer.unsnoozed,
+      unsnoozes: e.unsnoozeEvents.length,
+      saves: t.saves(),
+      titles: e.notifiedCards.map(c => c.title),
+      bell: e.env._bell(t),
+    }
+    check('bell unsnooze (hook): unsnoozes once on state change, clears notify flag in the same single store save, keeps bell, emits reason notification only (no [unsnoozed]), and never repeats on later hooks or sweeps',
+      [firstSnap, repeatSnap],
+      [
+        { snoozed: 0, notify: undefined, unsnoozedAt: e.T_NOW, bell: 'question', unsnoozes: 1, saves: 1, titles: ['[question] t1'] },
+        { unsnoozedAt: e.T_NOW, unsnoozes: 1, saves: 1, titles: ['[question] t1'], bell: 'question' },
+      ])
+  }
+
+  // Sweep pass (_sweep): snoozed todo that already stands with a ringing bell (already baselined) -> unsnoozes once, clears notify flag in same save, keeps bell, no reminder, not repeated at next sweep pass
+  {
+    const e = makeBellSweepEnv()
+    const t = e.addTodo('stand', { notify: true, state: { held: 'owner', reason: 'blocked', epoch: 1, rev: 2, surfaced: 1 } })
+    e.env._todoer.store.notify_seen.stand = 'owner:blocked:1:1|main'
+    const delay1 = e.env._sweep()
+    const nextMin = (Math.floor(e.T_NOW / SWEEP_PERIOD_MS) + 1) * SWEEP_PERIOD_MS - e.T_NOW
+    const afterFirst = {
+      snoozed: t._global_store._todoer.snoozed,
+      notify: t._global_store._todoer.notify,
+      unsnoozedAt: t._global_store._todoer.unsnoozed,
+      bell: e.env._bell(t),
+      unsnoozes: e.unsnoozeEvents.length,
+      saves: t.saves(),
+      cards: e.notifiedCards.length,
+      delayNextMin: delay1 === nextMin,
+    }
+    e.advance(60_000)
+    e.env._sweep()
+    const afterSecond = {
+      unsnoozedAt: t._global_store._todoer.unsnoozed,
+      unsnoozes: e.unsnoozeEvents.length,
+      saves: t.saves(),
+      cards: e.notifiedCards.length,
+      bell: e.env._bell(t),
+    }
+    check('bell unsnooze (sweep): already-standing snoozed todo with ringing bell is unsnoozed once on sweep pass, clears notify flag in same save, keeps bell, emits no reminder, and does not repeat on next pass',
+      [afterFirst, afterSecond],
+      [
+        { snoozed: 0, notify: undefined, unsnoozedAt: e.T_NOW, bell: 'blocked', unsnoozes: 1, saves: 1, cards: 0, delayNextMin: true },
+        { unsnoozedAt: e.T_NOW, unsnoozes: 1, saves: 1, cards: 0, bell: 'blocked' },
+      ])
+  }
+
+  // Remote snapshot delivery while window._server_current is temporarily false (index.svelte drops
+  // _server_current during remote application and raises it in lease.done.then): hook kicks _start_sweep()
+  // at delay 0; stays snoozed if still false (cache receipt), unsnoozes once as soon as it rises
+  {
+    const e = makeBellSweepEnv({ current: false })
+    const t = e.addTodo('snap', { notify: true, state: { held: 'owner', reason: 'blocked', epoch: 1, rev: 2, surfaced: 1 } })
+    e.env._todoer.store.notify_seen.snap = 'agent:delegated:1:0|delegated'
+    e.env._on_global_store_change('snap', true)
+    const kicked = e.dispatched.map(d => [d.name, d.delay])
+    const duringApply = [t._global_store._todoer.snoozed, e.unsnoozeEvents.length]
+    // Cache snapshot: _server_current stays false when the dispatched sweep runs -> still snoozed
+    e.dispatched.at(-1).fn()
+    const afterCache = [t._global_store._todoer.snoozed, e.unsnoozeEvents.length]
+    // Server snapshot: lease seals and raises _server_current = true -> dispatched sweep unsnoozes once, clears notify, no [unsnoozed] card
+    e.env.window._server_current = true
+    e.dispatched.at(-1).fn()
+    const afterSeal = [t._global_store._todoer.snoozed, t._global_store._todoer.notify, e.env._bell(t), e.unsnoozeEvents.length, t.saves(), e.notifiedCards.map(c => c.title)]
+    check('bell unsnooze (remote snapshot): hook kicks _start_sweep when _server_current is dropped mid-apply; cache stays snoozed, sealed server snapshot unsnoozes once, clears notify in same save, with no [unsnoozed] reminder',
+      [kicked, duringApply, afterCache, afterSeal],
+      [[['unsnooze', 0]], [e.T_SNOOZE, 0], [e.T_SNOOZE, 0], [0, undefined, 'blocked', 1, 1, ['[blocked] snap']]])
+  }
+
+  // Remote snapshot & seal within UNSNOOZE_SKEW_MS (deadline 30 s away, notify: true):
+  // bell-triggered unsnooze clears notify in the SAME store save so [question] stands and no
+  // [unsnoozed] reminder replaces it on the same OS tag; ordinary deadline end keeps its reminder
+  {
+    const e = makeBellSweepEnv({ current: false })
+    const near = e.addTodo('near', { snoozed: e.T_NOW + 30_000, notify: true, state: { held: 'owner', reason: 'question', epoch: 1, rev: 2, surfaced: 1 } })
+    const due = e.addTodo('due', { snoozed: e.T_NOW + 30_000, notify: true })
+    e.env._todoer.store.notify_seen.near = 'agent:delegated:1:0|delegated'
+    e.env._on_global_store_change('near', true) // mid-apply: emits [question], kicks sweep
+    const afterHook = e.notifiedCards.map(c => [c.title, c.options?.tag])
+    e.env.window._server_current = true // lease seals
+    e.dispatched.at(-1).fn() // sweep unsnoozes `near` early by its bell -> must clear notify, no [unsnoozed]
+    const afterSeal = {
+      nearSnoozed: near._global_store._todoer.snoozed,
+      nearNotify: near._global_store._todoer.notify,
+      nearSaves: near.saves(),
+      dueSnoozed: due._global_store._todoer.snoozed,
+      cards: e.notifiedCards.map(c => [c.title, c.options?.tag]),
+    }
+    // Advance past the 30 s deadline: `due` ends by its deadline and DOES emit [unsnoozed]; `near` stays quiet
+    e.advance(35_000)
+    e.env._sweep()
+    const afterDeadline = {
+      dueSnoozed: due._global_store._todoer.snoozed,
+      dueNotify: due._global_store._todoer.notify,
+      cards: e.notifiedCards.map(c => [c.title, c.options?.tag]),
+    }
+    check('bell unsnooze (< 60s before deadline): snapshot/seal clears notify in the same save so [question] stands without [unsnoozed] replacing it, while an ordinary deadline end still emits [unsnoozed]',
+      [afterHook, afterSeal, afterDeadline],
+      [
+        [['[question] near', 'todoer:s-near']],
+        { nearSnoozed: 0, nearNotify: undefined, nearSaves: 1, dueSnoozed: e.T_NOW + 30_000, cards: [['[question] near', 'todoer:s-near']] },
+        { dueSnoozed: 0, dueNotify: true, cards: [['[question] near', 'todoer:s-near'], ['[unsnoozed] due', 'todoer:s-due']] },
+      ])
+  }
+
+  // Bound child via _notify_children: parent standing_land off puts snoozed child's proposal in main with ringing bell -> unsnoozes once
+  {
+    const e = makeBellSweepEnv()
+    const proj = e.addTodo('proj', { snoozed: 0, notify: false, state: { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: true } })
+    const child = e.addTodo('child', { notify: true, state: { held: 'owner', reason: 'proposal', epoch: 1, surfaced: 1, parent: 's-proj' } })
+    e.env._todoer.store.notify_seen.child = 'owner:proposal:1:1|delegated'
+    e.env._on_global_store_change('proj', true)
+    const whileStanding = [child._global_store._todoer.snoozed, e.unsnoozeEvents.length]
+    proj._global_store._agent.state = { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: false }
+    e.env._on_global_store_change('proj', true)
+    const afterOff = [child._global_store._todoer.snoozed, child._global_store._todoer.notify, e.env._bell(child), e.unsnoozeEvents.length, child.saves()]
+    check('bell unsnooze (bound child): stays snoozed under standing /land and unsnoozes once (clearing notify in same save) when project release puts proposal in main',
+      [whileStanding, afterOff],
+      [[e.T_SNOOZE, 0], [0, undefined, 'proposal', 1, 1]])
+  }
+
+  // Early return for unsnoozed items: neither _unsnooze_for_bell nor _sweep reads tags or calls _bell
+  {
+    const e = makeBellSweepEnv()
+    let tagReads = 0
+    let bellCalls = 0
+    const origBell = e.env._bell
+    e.env._bell = (...args) => (bellCalls++, origBell(...args))
+    const plain = e.addTodo('plain', { snoozed: 0, notify: false })
+    Object.defineProperty(plain, 'tags_visible', { get() { tagReads++; return ['#todo'] } })
+    Object.defineProperty(plain, 'tags', { get() { tagReads++; return ['#todo'] } })
+    const directRes = e.env._unsnooze_for_bell(plain)
+    e.env._sweep()
+    check('bell unsnooze early return: unsnoozed items skip tags and _bell in both _unsnooze_for_bell and _sweep',
+      [directRes, tagReads, bellCalls],
+      [false, 0, 0])
+  }
+}
+
 // the context menu on the list is prevented after a touch press and kept for every other
 // origin (2026-09-12): the event's own pointer type decides where the browser provides it
 // (Chromium), else the last press's origin, recorded by pointerdown or touchstart and cleared
@@ -2475,12 +2802,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // what _unsnooze reads, and a listener of it: a completion that went through it would show as a marked store and a listener call
       merge: Object.assign, each: (xs, f) => xs.forEach(f), values: Object.values,
       _todoer: { store: { on_unsnooze: { probe: item => calls.push(['listener', item.id]) } }, dependents: [] },
-      _items: () => items, _item: ref => items.find(item => item.id == ref) ?? null, _exists: ref => logger && ref == '#logger',
+      _items: () => items,
+      _item: ref => (ref == '#logger' ? (logger ? { eval: code => vm.runInNewContext(code, { _on_command_log: text => void calls.push(['log', text]) }) } : null) : items.find(item => item.id == ref) ?? null),
+      _exists: ref => logger && ref == '#logger',
       window: { _grammar: { version, edit } }, Event: class { constructor(type) { this.type = type } },
       document: { createElement: () => new Elem(), querySelector: selector => (selector == '.container.target' && (target || selected) ? container(target ?? selected) : null) },
       _update_dom: () => ({ then: f => void f() }), _zwsp_offset, clearTimeout: () => {},
       Sortable: { dragged: null, create: (elem, options) => ({ options, save() {}, sort() {}, destroy() {} }) },
-      MindBox: { get: () => '', create: text => calls.push(['log', text]), set: (...args) => calls.push(['set', ...args]), select_in_target: text => calls.push(['mark', text]), edit_target: text => calls.push(['edit', text]) },
+      MindBox: { get: () => '', create: text => calls.push(['mindbox_create', text]), set: (...args) => calls.push(['set', ...args]), select_in_target: text => calls.push(['mark', text]), edit_target: text => calls.push(['edit', text]) },
       alert: message => calls.push(['alert', message]), confirm: message => calls.push(['asked', message]), _modal: message => calls.push(['asked', message]),
       navigator: { userAgent: '' }, // read for a row styled right to left
     }
@@ -2616,7 +2945,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
   check('done: the rows are the render\'s own, the named one led by its label', [ids(), rows()[3].children[0].innerHTML.split(' ship it')[0]], [ALL, '<mark>#todo-list</mark> <mark>#todo</mark>'])
-  check('done: a short todo becomes #done by one whole-text write, then the log line; nothing deleted, nothing asked, no store saved', world().drop('short'), { text: '#done fix the cache', calls: [['write', 'short', ''], ['log', '/log done #todo fix the cache']], rows: ['task', 'long', 'named'], left: 0 })
+  check('done: a short todo becomes #done by one whole-text write, then the log line; nothing deleted, nothing asked, no store saved', world().drop('short'), { text: '#done fix the cache', calls: [['write', 'short', ''], ['log', 'done #todo fix the cache']], rows: ['task', 'long', 'named'], left: 0 })
   const kinds = ({ calls, ...rest }) => ({ ...rest, calls: calls.map(([kind]) => kind) })
   check('done: a task short by its owner\'s words keeps its tree and log (the tree\'s own #todo as written)', kinds(world().drop('task')), { text: TASK.replace('#todo', '#done'), rows: ['short', 'long', 'named'], left: 0, calls: ['write', 'log'] })
   check('done: a long todo, every tag of it', kinds(world().drop('long')), { text: LONG.replaceAll('#todo', '#done'), rows: ['short', 'task', 'named'], left: 0, calls: ['write', 'log'] })
@@ -2686,7 +3015,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     const [pressed, dropped] = both(make, id)
     check(`press: done on ${what} is its drop on the done bin`, pressed, dropped)
   }
-  check('press: done completes the todo (the first case in full: one whole-text write, then the log line)', moved(world().press('short')), { text: '#done fix the cache', calls: [['write', 'short', ''], ['log', '/log done #todo fix the cache']], store: undefined, draft: undefined })
+  check('press: done completes the todo (the first case in full: one whole-text write, then the log line)', moved(world().press('short')), { text: '#done fix the cache', calls: [['write', 'short', ''], ['log', 'done #todo fix the cache']], store: undefined, draft: undefined })
   check('press: a refusal says its word and writes nothing more (the editor\'s case in full)', moved(world({ editing: 'task' }).press('task')), { text: TASK, calls: [['alert', UNSAVED('complete id:task')]], store: undefined, draft: TASK + '\na line typed since' })
   check(
     'press: delete button on a todo asks for confirmation (item.delete(true)), while a drop on the cancel bin does not (item.delete())',
@@ -2768,7 +3097,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     // was while the tooltip was that text: it keeps the truncation's mark, and the spaces that
     // the line breaks were
     const logged = (...args) => (row(...args), tips.drop('short').calls.pop())
-    check('tooltip: the done bin logs what it logged: the bridge\'s todo with the truncation\'s mark, a child under its parent, a snoozed todo under its time', [logged(BRIDGED), logged(CHILD, BOUND), sleeping.drop('short').calls.pop()], [['log', `/log done ${LINE} …`], ['log', `/log done child of ${PARENT} #todo [proposal] the child `], ['log', `/log done ${`${TIME}\n#todo fix the cache`.replace(/\s+/g, ' ')}`]])
+    check('tooltip: the done bin logs what it logged: the bridge\'s todo with the truncation\'s mark, a child under its parent, a snoozed todo under its time', [logged(BRIDGED), logged(CHILD, BOUND), sleeping.drop('short').calls.pop()], [['log', `done ${LINE} …`], ['log', `done child of ${PARENT} #todo [proposal] the child `], ['log', `done ${`${TIME}\n#todo fix the cache`.replace(/\s+/g, ' ')}`]])
   }
   // A MARKER ALREADY ON THE PAGE PICKS UP A LATER LISTING (review 0 of the bridge's row for an agent's
   // own worktree, 2026-11-18): the bridge publishes a todo's text and projection first and its listing
@@ -3274,6 +3603,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           '_mounted_lists',
           '_bin_row',
           '_row_buttons',
+          '_row_sequence',
           '_row_beside',
           '_row_step',
           '_on_row_key',
@@ -3439,6 +3769,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         w.ctx.window.Sortable = w.ctx.Sortable
         w.pinned.elem = { querySelectorAll: sel => (sel == '.todoer-widget' ? [w.widget] : []) }
         w.pinned.tags = []
+        // (the strip of buttons is no part of these cases: its redraw, which a bell's press asks for, is a stub)
+        w.ctx._bin_buttons = () => {}
         vm.runInContext(keyCode, w.ctx)
         if (render) w.render()
         return Object.assign(w, { note, called })
@@ -3913,7 +4245,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [drawn, activeOnLast, nonBell, priorCalls, bRes, byKey.note.text == NOTE_TEXT, byKey.note._global_store._todoer, byKey.ids(), byKey.calls.filter(c => c[0] == 'select').map(c => c[1])],
           [
             ['up', 'down', 'bell'],
-            ['k:the previous row', 'b:clear the bell'],
+            ['j:the next row', 'k:the previous row', 'b:clear the bell'], // (the walk goes round: on the last row j is active too)
             ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU'].map(k => ({ prevented: false, res: 'prior:' + k })),
             ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU'],
             { prevented: true, res: null },
@@ -3924,7 +4256,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ]
         )
 
-        // _ROW_SHORTCUTS for a selected `item` row: middle (j, k, b alone), first (j, b), with unsaved draft (b stays), and while busy (j, k only)
+        // _ROW_SHORTCUTS for a selected `item` row: middle (j, k, b alone), first (j, k, b too: the walk goes round), with unsaved draft (b stays), and while busy (j, k only)
         const menuActive = (w, box = '#notes/a') => {
           w.ctx._row_keys()
           w.ctx.MindBox.get = () => box
@@ -3946,11 +4278,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         draftList.insertBefore(draftList.children.find(r => r.getAttribute('data-id') == 'note'), draftList.children[1])
         const draftActive = menuActive(draftMenu)
         check(
-          'item waits shortcuts menu: middle item row activates j, k, b alone (none of a/d/s/x/u); first activates j, b; draft keeps b; busy hides b',
+          'item waits shortcuts menu: middle item row activates j, k, b alone (none of a/d/s/x/u); first activates them too (the walk goes round); draft keeps b; busy hides b',
           [midActive, firstActive, draftActive, busyActive],
           [
             ['j:the next row', 'k:the previous row', 'b:clear the bell'],
-            ['j:the next row', 'b:clear the bell'],
+            ['j:the next row', 'k:the previous row', 'b:clear the bell'],
             ['j:the next row', 'k:the previous row', 'b:clear the bell'],
             ['j:the next row', 'k:the previous row'],
           ]
@@ -5096,15 +5428,17 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   })())
   // ---- bin buttons, next-row selection, up/down stepping, and j/k row keys (2026-11-24) --------
   // Evaluated in a dedicated DOM-capable VM context so we can drive _bin_buttons, _bin_press,
-  // _next_listed, _select_next, _row_beside, _row_step, _on_row_key, _row_keys, and _bin_buttons_room
-  // directly from todoer.js without disturbing the lightweight mock used by earlier rows.
+  // _next_listed, _select_next, _row_sequence, _row_beside, _row_step, _on_row_key, _row_keys, and
+  // _bin_buttons_room directly from todoer.js without disturbing the lightweight mock used by earlier rows.
   async_rows.push((async () => {
     const binConsts = [
-      src.match(/\nconst _pending_commands = [^\n]*\n/)[0],
+      src.match(/\nconst _LIST_BINS = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
       src.match(/\nconst _BIN_BUTTONS_CSS = `[\s\S]*?\n`\n/)[0],
       src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_KEYS = [^\n]*\n/)[0],
+      src.match(/\nconst _pending_commands = [^\n]*\n/)[0],
+      src.match(/\nconst CHAT_DELIMITER = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_DRAFT = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_REFUSAL = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
@@ -5114,17 +5448,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     const binCode =
       binConsts +
       pick([
-        '_task_state',
         '_task_refusal',
         '_delegate_refusal',
         '_takeback_refusal',
         '_complete_refusal',
         '_delete_refusal',
+        '_shown_bell',
         '_bin_buttons',
         '__bin_buttons',
+        '_watch_list_visibility',
         '_mounted_lists',
         '_bin_row',
         '_row_buttons',
+        '_todo_list',
+        '_todo_buttons',
+        '_todo_log_text',
+        '_row_sequence',
         '_row_beside',
         '_row_step',
         '_on_row_key',
@@ -5142,6 +5481,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_delete_listed',
         '_bin_buttons_room',
         '_select_item',
+        '_task_state',
+        '_task_list',
+        '_list_of',
+        '_bell',
+        '_clear_bell',
+        '_parent_of',
+        '_visible',
+        '_without_log',
+        '_snippet_uses_suffix',
+        '_todo_offset',
+        '_extract_todo_snippet',
+        '_row_question',
       ]).join('\n')
 
     class DomNode {
@@ -5254,29 +5605,39 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const alerts = []
       const actions = []
       let boxText = ''
-      const makeItem = (id, { name = '#' + id, text = '#todo ' + id, tags = ['#todo'], saved_id = 'saved-' + id, editing = false, draft = null, deletes = true } = {}) => {
+      const makeItem = (id, { name = '#' + id, label = name, saved_id = 's-' + id, text = '#todo ' + id, tags = null, tags_visible = [], store = {}, editing = false, draft = null, deletes = true } = {}) => {
         const it = {
           id,
           saved_id,
           name,
+          label,
           text,
-          tags,
+          tags: tags ?? (tags_visible.length ? [...tags_visible] : ['#todo']),
+          tags_visible: [...tags_visible],
           editing,
-          _global_store: {},
+          _global_store: store,
           get global_store() { return this._global_store },
+          read: () => it.text,
           elem: { querySelector: s => (s == 'textarea' && it.editing ? { value: draft ?? it.text } : null) },
           select: () => (selected.push(id), (boxText = it.name), true),
           delete: sure => (actions.push(['delete', id, !!sure]), deletes),
         }
         items.set(id, it)
+        items.set(saved_id, it)
         items.set(name, it)
         return it
       }
-      const makeWidget = ({ snoozed = false, delegated = false, parked = false, rows = [] } = {}) => {
+      const makeWidget = ({ snoozed = false, delegated = false, parked = false, folded = false, measure = false, rows = [] } = {}) => {
         let host = body
         if (parked) {
           const cache = body.children.find(c => c.id == 'cache-div') ?? body.appendChild(new DomNode('div', { id: 'cache-div' }))
           host = cache.appendChild(new DomNode('div', { className: 'super-container' }))
+        } else if (measure) {
+          const col = body.appendChild(new DomNode('div', { className: 'column hidden' }))
+          host = col.appendChild(new DomNode('div', { className: 'super-container' }))
+        } else if (folded) {
+          const col = body.appendChild(new DomNode('div', { className: 'column' }))
+          host = col.appendChild(new DomNode('div', { className: 'super-container hidden' }))
         }
         const w = host.appendChild(new DomNode('div', { className: 'todoer-widget' }))
         w._snoozed = snoozed
@@ -5290,10 +5651,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           const li = row.appendChild(new DomNode('div', { className: 'list-item' }))
           if (r.bell) {
             const mark = li.appendChild(new DomNode('mark', { className: 'waits' }))
-            mark.click = () => actions.push(['bell-click', r.id])
+            if (r.bellCount != null) mark._came_up = r.bellCount
+            mark.click = r.onBellClick ?? (() => actions.push(['bell-click', r.id]))
           }
         }
-        return { widget: w, list }
+        return { widget: w, list, host }
       }
       const doc = {
         head,
@@ -5312,7 +5674,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         console: { warn: m => warns.push(m), error: m => errors.push(m) },
         alert: m => alerts.push(m),
         is_number: x => typeof x == 'number',
-        _todoer: { deephash, store: {} },
+        _todoer: { deephash, store: {}, _global_store: { bells_base: {} } },
+        _replace_tags: context._replace_tags,
+        error: () => {},
+        warn: () => {},
         _item: ref => items.get(ref) ?? null,
         MindBox: { get: () => boxText, set: t => ((boxText = t), selected.push('set:' + t)) },
         _complete_todo: (it, log) => (actions.push(['complete', it.id, log]), true),
@@ -5420,41 +5785,45 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ])
     }
 
-    // 3. _row_beside and _row_step: forward/backward within the row's own list, ends, non-row sibling, missing/unlisted items
+    // 3. _row_beside and _row_step: cycling across main list, wrapping at ends, non-row sibling ignored,
+    //    outside rows jumping to nearest sequence row, no-row picking ends, deleted neighbor skipped
     {
       const s = makeStage()
       s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
       s.makeItem('d1'); s.makeItem('d2'); s.makeItem('u1')
       const main = s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
-      const del = s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+      s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
       main.list.appendChild(new s.DomNode('div')) // trailing non-row without data-id
       const [r1, r2, r3] = main.list.children
-      check('_row_beside: steps to adjacent sibling with data-id, returns null at ends, before non-row sibling, or for null',
+      check('_row_beside: cycles main list (ignoring non-row sibling) and picks first/last for null',
         [
-          s.env._row_beside(r1, -1),
-          s.env._row_beside(r1, 1)?.getAttribute('data-id'),
-          s.env._row_beside(r2, -1)?.getAttribute('data-id'),
-          s.env._row_beside(r2, 1)?.getAttribute('data-id'),
-          s.env._row_beside(r3, 1),
-          s.env._row_beside(null, 1),
+          s.env._row_beside(r1, -1)?.id ?? null,
+          s.env._row_beside(r1, 1)?.id ?? null,
+          s.env._row_beside(r2, -1)?.id ?? null,
+          s.env._row_beside(r2, 1)?.id ?? null,
+          s.env._row_beside(r3, 1)?.id ?? null,
+          s.env._row_beside(null, 1)?.id ?? null,
+          s.env._row_beside(null, -1)?.id ?? null,
         ],
-        [null, 'm2', 'm1', 'm3', null, null])
+        ['m3', 'm2', 'm1', 'm3', 'm1', 'm1', 'm3'])
       const stepRes = [
         s.env._row_step('m1', 1),
         s.env._row_step('m1', -1),
         s.env._row_step('m3', 1),
         s.env._row_step('m3', -1),
         s.env._row_step('d1', 1),
-        s.env._row_step('d2', 1),
+        s.env._row_step('d1', -1),
         s.env._row_step('u1', 1),
         s.env._row_step('nope', 1),
       ]
-      // deleted neighbor in DOM
-      del.list.children[1].setAttribute('data-id', 'deleted')
-      stepRes.push(s.env._row_step('d1', 1))
-      check('_row_step: selects beside row in main or delegated list, returns false at ends, for unlisted/unknown items, or deleted neighbor',
+      // deleted neighbor in DOM is skipped cleanly; sole live row returns false
+      main.list.children[1].setAttribute('data-id', 'deleted')
+      stepRes.push(s.env._row_step('m1', 1))
+      main.list.children[2].setAttribute('data-id', 'deleted2')
+      stepRes.push(s.env._row_step('m1', 1))
+      check('_row_step: cycles sequence from mounted/outside/no-row items, skips deleted DOM rows, and returns false for unknown item or sole live row',
         [stepRes, s.selected],
-        [[true, false, false, true, true, false, false, false, false], ['m2', 'm2', 'd2']])
+        [[true, true, true, true, true, true, true, false, true, false], ['m2', 'm3', 'm1', 'm2', 'm1', 'm3', 'm1', 'm3']])
     }
 
     // 4. _bin_buttons: per-list button sets, reply row filter, bell, Snooze vs Unsnooze title, dim state on up/down,
@@ -5489,11 +5858,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const delegBtns = snap(dlg)
       const noneUnlisted = snap(unlisted)
       const noneNull = snap(null)
-      check('bin buttons: main list first row has up dimmed, down lit, orange snooze, no bell; dedups unchanged renders and redraws on deephash change',
+      check('bin buttons: main list first row has both up/down lit (cycles), orange snooze, no bell; dedups unchanged renders and redraws on deephash change',
         [mainFirst, callsAfterFirst, callsAfterDup, callsAfterHash],
         [
           [
-            ['up', 'Previous row (k)', DIM, false, 16],
+            ['up', 'Previous row (k)', '#fff', false, 16],
             ['down', 'Next row (j)', '#fff', false, 16],
             ['agent', 'Delegate to the agent (a)', '#6af', true, 16],
             ['done', 'Done (d)', '#6f6', false, 16],
@@ -5502,7 +5871,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ],
           1, 1, 2,
         ])
-      check('bin buttons: middle row with bell has both up/down lit and yellow bell (box 24) before bins; reply row has up/down/bell only',
+      check('bin buttons: middle row with bell has both up/down lit and yellow bell (box 24) before bins; reply row has up/down/bell only with down lit (cycles)',
         [mainBell.map(x => x.slice(0, 3)), mainBell[2], replyBtns.map(x => [x[0], x[1]]), replyBtns[1][2]],
         [
           [
@@ -5520,9 +5889,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['down', 'Next row (j)'],
             ['bell', 'Clear the notification (b)'],
           ],
-          DIM, // rep is last in main list so down is dim
+          '#fff',
         ])
-      check('bin buttons: snoozed sole row dims both up/down and titles snooze as Unsnooze; delegated row with bell gets up/down/bell/agent/owner; unlisted and null hand over none',
+      check('bin buttons: snoozed row titles snooze as Unsnooze and lights up/down when sequence is non-empty; delegated row with bell gets up/down/bell/agent/owner lit; unlisted and null hand over none',
         [
           snoozeBtns.map(x => [x[0], x[1], x[2]]),
           delegBtns.map(x => [x[0], x[1], x[2]]),
@@ -5531,16 +5900,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ],
         [
           [
-            ['up', 'Previous row (k)', DIM],
-            ['down', 'Next row (j)', DIM],
+            ['up', 'Previous row (k)', '#fff'],
+            ['down', 'Next row (j)', '#fff'],
             ['agent', 'Delegate to the agent (a)', '#6af'],
             ['done', 'Done (d)', '#6f6'],
             ['snooze', 'Unsnooze (s)', '#fa4'],
             ['cancel', 'Delete (x)', '#f66'],
           ],
           [
-            ['up', 'Previous row (k)', DIM],
-            ['down', 'Next row (j)', DIM],
+            ['up', 'Previous row (k)', '#fff'],
+            ['down', 'Next row (j)', '#fff'],
             ['bell', 'Clear the notification (b)', '#ff6'],
             ['agent', 'Delegate to the agent (a)', '#6af'],
             ['owner', 'Take back from the agent (u)', '#ccc'],
@@ -5646,7 +6015,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const parkedRow = s.env._bin_row(pkOnly)?.row?.getAttribute?.('data-id') ?? null
       s.env._bin_buttons(pkOnly)
       const parkedBtns = (s.win._key_buttons_guests?.buttons ?? []).map(b => b.name)
+      // pkOnly is only in a parked widget: treated as having no row on page -> jumps to mounted sequence ends (never pkPeer)
       const parkedStep = [s.env._row_step('pkOnly', 1), s.env._row_step('pkOnly', -1)]
+      const parkedSelected = s.selected.splice(0)
       s.setBox('#pkOnly')
       await s.env._bin_press('done', 'pkOnly')
       const parkedWarn = [...s.warns]
@@ -5654,11 +6025,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       s.env._bin_buttons(both)
       const bothSnoozeTitle = (s.win._key_buttons_guests?.buttons ?? []).find(b => b.name == 'snooze')?.title ?? null
       const steppedBoth = s.env._row_step('both', 1)
-      check('parked lists (_bin_row): parked-only item gets no row/buttons/step and refuses press; parked widget ahead of mounted one holding same item is passed over',
+      // parked-only stage with no mounted lists: _row_step returns false
+      const sPO = makeStage()
+      sPO.makeItem('a'); sPO.makeItem('b')
+      sPO.makeWidget({ parked: true, rows: [{ id: 'a' }, { id: 'b' }] })
+      const parkedOnlyStep = [sPO.env._row_step('a', 1), sPO.env._row_step('a', -1)]
+      check('parked lists (_bin_row): parked-only item gets no row/buttons, never walks parked peers, and refuses press; parked widget ahead of mounted one holding same item is passed over',
         [
           parkedRow,
           parkedBtns,
           parkedStep,
+          parkedSelected,
+          parkedOnlyStep,
           parkedWarn,
           foundBoth?.widget === mounted.widget,
           bothSnoozeTitle,
@@ -5668,6 +6046,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [
           null,
           [],
+          [true, true],
+          ['both', 'liveNext'],
           [false, false],
           ['todoer: the press on "done" was not taken: its item is in no list'],
           true,
@@ -5771,8 +6151,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('_ROW_SHORTCUTS busy: hides button keys while a press is pending, keeps j/k navigation, and restores button keys once settled',
         [keysBeforeBusy, keysWhileBusyP1, keysWhileBusyP2, keysAfterBusyP2],
         [
-          ['j:the next row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
-          ['j:the next row'],
+          ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
+          ['j:the next row', 'k:the previous row'],
           ['j:the next row', 'k:the previous row'],
           ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
         ])
@@ -5958,39 +6338,43 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const boxAfterDown = s.getBox()
       const stepUp = s.env._on_row_key('KeyK', {})
       const boxAfterUp = s.getBox()
-      // at top of list: k still returns true (claims the key) without changing selection
+      // at top of sequence: k wraps round to last of sequence (#m3)
       const atTop = s.env._on_row_key('KeyK', {})
       const boxAtTop = s.getBox()
-      // unlisted item in box -> treated as no row selected: k selects last of main list (m3)
+      // unlisted item in box -> treated as no row selected: k selects last of sequence (m3)
       s.setBox('#note')
       const globalK = s.env._on_row_key('KeyK', {})
       const boxAfterK = s.getBox()
-      // at end of list: j still returns true without changing selection
+      // at end of sequence: j wraps round to first of sequence (#m1)
       const atEnd = s.env._on_row_key('KeyJ', {})
       const boxAtEnd = s.getBox()
-      // selected row in delegated list: j at end claims key without jumping to main
+      // selected unbelled row in delegated list above main: j goes to nearest sequence row after it (#m1)
       s.setBox('#dl1')
-      const delEnd = s.env._on_row_key('KeyJ', {})
-      const boxDelEnd = s.getBox()
-      // empty main list (only delegated widget) with no selection -> returns false
+      const delNext = s.env._on_row_key('KeyJ', {})
+      const boxDelNext = s.getBox()
+      // empty sequence (only unbelled delegated widget) with no selection -> returns false; with #d1 selected -> true, stays
       const sEmpty = makeStage()
       sEmpty.makeItem('d1')
       sEmpty.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
       sEmpty.makeWidget({ rows: [] })
       const emptyRes = [sEmpty.env._on_row_key('KeyJ', {}), sEmpty.env._on_row_key('KeyK', {})]
-      check('_on_row_key: ignores other keys, modifiers, and focused fields; steps a selected row and claims ends; selects main-list first/last when no row is selected; false when main empty',
+      sEmpty.setBox('#d1')
+      const emptySelectedRes = [sEmpty.env._on_row_key('KeyJ', {}), sEmpty.getBox(), sEmpty.env._on_row_key('KeyK', {}), sEmpty.getBox()]
+      check('_on_row_key: ignores other keys, modifiers, and focused fields; cycles sequence at both ends; outside row steps to nearest after; selects sequence ends when no row selected; empty sequence forwards when unselected and claims when selected',
         [
           rejected, fieldBlocked,
           [globalJ, boxAfterJ, stepDown, boxAfterDown, stepUp, boxAfterUp, atTop, boxAtTop],
-          [globalK, boxAfterK, atEnd, boxAtEnd, delEnd, boxDelEnd],
+          [globalK, boxAfterK, atEnd, boxAtEnd, delNext, boxDelNext],
           emptyRes,
+          emptySelectedRes,
         ],
         [
           [false, false, false, false, false, false, false],
           [false, false, false, false],
-          [true, '#m1', true, '#m2', true, '#m1', true, '#m1'],
-          [true, '#m3', true, '#m3', true, '#dl1'],
+          [true, '#m1', true, '#m2', true, '#m1', true, '#m3'],
+          [true, '#m3', true, '#m1', true, '#m1'],
           [false, false],
+          [true, '#d1', true, '#d1'],
         ])
 
       // parked main list ahead of a mounted main list is passed over by global j/k; parked-only main list yields false
@@ -6234,506 +6618,2445 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
     }
 
-    // 9. _ROW_SHORTCUTS, _row_now, _row_has, _row_goes, and window._shortcuts.todoer registration (2026-11-25)
+    // 9. No-row todo buttons, keys, presses, single _LIST_BINS source, page-row precedence,
+    //    and busy / draft / box refusals without a row (2026-11-25)
     {
-      const s = makeStage()
-      const rowShortcuts = s.eval('_ROW_SHORTCUTS')
-      const binKeysObj = s.eval('_BIN_KEYS')
-      const binKeyLetters = Object.keys(binKeysObj).map(k => k.replace(/^Key/, '').toLowerCase())
-      const expectedKeys = [...new Set(['j', 'k', ...binKeyLetters])].sort()
-      const listedKeys = [...new Set(rowShortcuts.map(e => e.keys))].sort()
-      const shapesOk = rowShortcuts.every(e =>
-        typeof e.keys == 'string' && e.keys.length > 0 &&
-        typeof e.does == 'string' && e.does.length > 0 &&
-        typeof e.when == 'string' && e.when.length > 0 &&
-        typeof e.active == 'function' &&
-        e.context === undefined,
-      )
-      check('_ROW_SHORTCUTS: 11 entries cover every key of _BIN_KEYS plus j and k, with no extra keys, and valid shapes',
-        [rowShortcuts.length, listedKeys, shapesOk],
-        [11, expectedKeys, true])
+      const DIM = 'rgba(255, 255, 255, 0.25)'
+      const LIST_BINS = vm.runInContext('_LIST_BINS', context)
 
-      // Build widgets covering every row state:
-      // main: m1 (start, plain), m2 (middle, bell), repMid (reply with bell, middle), m3 (end, plain), repEnd (reply without bell, end)
-      // snoozed: sn1 (start, plain), sn2 (middle, bell), sn3 (end, plain)
-      // delegated: dl1 (start, plain), dl2 (end, bell)
-      // unlisted: note
-      for (const id of ['m1', 'm2', 'repMid', 'm3', 'repEnd', 'sn1', 'sn2', 'sn3', 'dl1', 'dl2', 'note']) s.makeItem(id)
-      s.makeWidget({
-        rows: [
-          { id: 'm1' },
-          { id: 'm2', bell: true },
-          { id: 'repMid', waits: 'reply', bell: true },
-          { id: 'm3' },
-          { id: 'repEnd', waits: 'reply' },
-        ],
-      })
-      s.makeWidget({
-        snoozed: true,
-        rows: [{ id: 'sn1' }, { id: 'sn2', bell: true }, { id: 'sn3' }],
-      })
-      s.makeWidget({
-        delegated: true,
-        rows: [{ id: 'dl1' }, { id: 'dl2', bell: true }],
-      })
-
-      const activeEntries = box => {
-        s.setBox(box)
-        return rowShortcuts.filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
-      }
-      const rowHas = name => s.eval(`_row_has(${JSON.stringify(name)})`)
-
-      // _row_now, _row_has, _row_goes directly
-      s.setBox('')
-      const nowEmpty = [s.env._row_now(), rowHas('done'), s.env._row_goes(1, true), s.env._row_goes(1, false), s.env._row_goes(-1, true), s.env._row_goes(-1, false)]
-      s.setBox('  #m2  ')
-      const nowTrimmed = [s.env._row_now()?.row?.getAttribute('data-id'), rowHas('done'), rowHas('bell'), rowHas('owner'), s.env._row_goes(1, true), s.env._row_goes(1, false)]
-      s.setBox('#note')
-      const nowUnlisted = [s.env._row_now(), rowHas('done'), s.env._row_goes(1, true), s.env._row_goes(1, false)]
-      check('_row_now, _row_has, _row_goes: empty/unlisted have no row and allow global j/k; trimmed label resolves row and buttons',
-        [nowEmpty, nowTrimmed, nowUnlisted],
-        [
-          [null, false, false, true, false, true],
-          ['m2', true, true, false, true, false],
-          [null, false, false, true],
-        ])
-
-      // Every row state across all 11 entries
-      check('_ROW_SHORTCUTS active: no row (empty or unlisted) activates main-list j and k alone; empty or parked-only main list activates none',
-        [
-          activeEntries(''),
-          activeEntries('#note'),
-          (() => {
-            const se = makeStage()
-            se.makeItem('pk')
-            se.makeItem('snOnly')
-            se.makeItem('dlOnly')
-            se.makeWidget({ parked: true, rows: [{ id: 'pk' }] })
-            se.makeWidget({ rows: [] })
-            se.makeWidget({ snoozed: true, rows: [{ id: 'snOnly' }] })
-            se.makeWidget({ delegated: true, rows: [{ id: 'dlOnly' }] })
-            se.setBox('')
-            return se.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
-          })(),
-        ],
-        [
-          ["j:the main list's first row", "k:the main list's last row"],
-          ["j:the main list's first row", "k:the main list's last row"],
-          [],
-        ])
-
-      check('_ROW_SHORTCUTS active: main-list todo at start, middle (with bell), end (without bell), and sole row',
-        [
-          activeEntries('#m1'),
-          activeEntries('#m2'),
-          (() => {
-            // dedicated 3-todo main list to test todo at end without reply after it, plus 1-todo sole list
-            const sm = makeStage()
-            sm.makeItem('a1'); sm.makeItem('a2'); sm.makeItem('a3')
-            sm.makeWidget({ rows: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }] })
-            sm.setBox('#a3')
-            const endTodo = sm.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
-            const sole = makeStage()
-            sole.makeItem('only')
-            sole.makeWidget({ rows: [{ id: 'only' }] })
-            sole.setBox('#only')
-            const soleTodo = sole.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
-            return [endTodo, soleTodo]
-          })(),
-        ],
-        [
-          ['j:the next row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
-          ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
-          [
-            ['k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
-            ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
-          ],
-        ])
-
-      check('_ROW_SHORTCUTS active: reply row in middle with bell has j, k, b alone; reply row at end without bell has k alone',
-        [activeEntries('#repMid'), activeEntries('#repEnd')],
-        [
-          ['j:the next row', 'k:the previous row', 'b:clear the bell'],
-          ['k:the previous row'],
-        ])
-
-      check('_ROW_SHORTCUTS active: snoozed todo activates unsnooze (not snooze) with list position and bell',
-        [activeEntries('#sn1'), activeEntries('#sn2'), activeEntries('#sn3')],
-        [
-          ['j:the next row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question'],
-          ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question', 'b:clear the bell'],
-          ['k:the previous row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question'],
-        ])
-
-      check('_ROW_SHORTCUTS active: delegated todo activates agent and take-back (plus list position and bell), never done/snooze/delete',
-        [activeEntries('#dl1'), activeEntries('#dl2')],
-        [
-          ['j:the next row', 'a:delegate to the agent', 'u:take back from the agent'],
-          ['k:the previous row', 'a:delegate to the agent', 'b:clear the bell', 'u:take back from the agent'],
-        ])
-
-      // _row_can over every button name: no row, missing button, busy, dirty draft, clean open editor (incl ZWSP), unreadable editor
+      // 9a. Single source (_LIST_BINS): __render's actual widget bins match _LIST_BINS for main, snoozed, and delegated
       {
-        const names = ['agent', 'done', 'snooze', 'cancel', 'bell', 'owner']
-        const canAll = st => names.map(n => st.env._row_can(n))
-        const sc = makeStage()
-        const cleanMain = sc.makeItem('cm', { text: '#todo clean main' })
-        const dirtyMain = sc.makeItem('dm', { text: '#todo dirty main', editing: true, draft: '#todo dirty main edited' })
-        const untouchedMain = sc.makeItem('um', { text: '#todo untouched', editing: true, draft: '\u200b#todo untouched\u200b' })
-        const unreadMain = sc.makeItem('urm', { text: '#todo unreadable', editing: true })
-        unreadMain.elem = null // editor textarea cannot be read -> counts as holding a draft
-        const dirtySnz = sc.makeItem('ds', { text: '#todo dirty snoozed', editing: true, draft: '#todo dirty snoozed!' })
-        const dirtyDel = sc.makeItem('dd', { text: '#todo dirty delegated', editing: true, draft: '#todo dirty delegated!' })
-        const rep = sc.makeItem('rp')
-        sc.makeItem('unlisted')
-        sc.makeWidget({
+        const renderBins = opts => {
+          const w = world(opts)
+          if (opts.delegated) {
+            w.pinned.store[w.widget.id].options = { delegated: true }
+            w.render()
+          }
+          return w.widget.children
+            .filter(c => /\bbin$/.test(c.className))
+            .map(c => c.className.replace(/ bin$/, ''))
+        }
+        const wMain = world({})
+        const wSnz = world({ snooze: { snoozed: 9999 } })
+        const rowLog = (w, id) => w.rows().find(r => r.getAttribute('data-id') == id)._log_text
+        check('_LIST_BINS single source: __render draws the exact bins in _LIST_BINS for main, snoozed, and delegated widgets, and _todo_log_text matches row._log_text',
+          [
+            renderBins({}),
+            renderBins({ snooze: { snoozed: 9999 } }),
+            renderBins({ delegated: true }),
+            wMain.ctx._todo_log_text(wMain.item('short'), false) === rowLog(wMain, 'short'),
+            wSnz.ctx._todo_log_text(wSnz.item('short'), true) === rowLog(wSnz, 'short'),
+          ],
+          [LIST_BINS.main, LIST_BINS.snoozed, LIST_BINS.delegated, true, true])
+      }
+
+      // 9b. No-row buttons and keys for every list (main, snoozed, delegated), with and without a bell,
+      //     plus pending command overlay and bound-child parent projection, plus non-todo items
+      {
+        const priorCalls = []
+        const sharedWin = { innerWidth: 1000, _on_key: (key, e) => (priorCalls.push(key), 'prior:' + key) }
+        const s = makeStage({ sharedWin })
+        sharedWin._key_buttons = { guest: () => {} }
+        const mPlain = s.makeItem('mPlain', { tags_visible: ['#todo'] })
+        const mBell = s.makeItem('mBell', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 2 } } } })
+        const snPlain = s.makeItem('snPlain', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        const snBell = s.makeItem('snBell', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'owner', reason: 'blocked', epoch: 1, surfaced: 3 } } } })
+        // delegated ignores a stale snooze
+        const dlPlain = s.makeItem('dlPlain', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 0 } } } })
+        const dlBell = s.makeItem('dlBell', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 1 } } } })
+        const pendDel = s.makeItem('pendDel', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        s.env._todoer.store.pending = { pendDel: { id: 'c1', kind: 'delegate' } }
+        const proj = s.makeItem('proj', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: true } } } })
+        const child = s.makeItem('child', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'owner', reason: 'proposal', epoch: 1, surfaced: 1, parent: proj.saved_id } } } })
+        const note = s.makeItem('note', { tags_visible: [] })
+        const hiddenTodo = s.makeItem('hiddenTodo', { tags: ['#todo'], tags_visible: [] })
+        const menuTodo = s.makeItem('menuTodo', { tags: ['#todo', '#menu'], tags_visible: ['#todo'] })
+
+        const snapNoRow = it => {
+          s.env._bin_buttons(it)
+          return (sharedWin._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title, b.color])
+        }
+        const mPlainBtns = snapNoRow(mPlain)
+        const mBellBtns = snapNoRow(mBell)
+        const snPlainBtns = snapNoRow(snPlain)
+        const snBellBtns = snapNoRow(snBell)
+        const dlPlainBtns = snapNoRow(dlPlain)
+        const dlBellBtns = snapNoRow(dlBell)
+        const pendDelNames = snapNoRow(pendDel).map(x => x[0])
+        const childStandingNames = snapNoRow(child).map(x => x[0])
+        proj._global_store._agent.state.standing_land = false
+        const childOpenNames = snapNoRow(child).map(x => x[0])
+        const nonTodoBtns = [note, hiddenTodo, menuTodo].map(it => snapNoRow(it))
+
+        check('no-row buttons: main, snoozed (Unsnooze), and delegated (ignoring snooze), with and without bell, all dim up/down; pending & bound-child state respected; non-todos get none',
+          [
+            mPlainBtns,
+            mBellBtns.map(x => x[0]),
+            snPlainBtns,
+            snBellBtns.map(x => [x[0], x[1]]),
+            dlPlainBtns,
+            dlBellBtns.map(x => x[0]),
+            pendDelNames,
+            childStandingNames,
+            childOpenNames,
+            nonTodoBtns,
+          ],
+          [
+            [
+              ['up', 'Previous row (k)', DIM],
+              ['down', 'Next row (j)', DIM],
+              ['agent', 'Delegate to the agent (a)', '#6af'],
+              ['done', 'Done (d)', '#6f6'],
+              ['snooze', 'Snooze (s)', '#fa4'],
+              ['cancel', 'Delete (x)', '#f66'],
+            ],
+            ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'],
+            [
+              ['up', 'Previous row (k)', DIM],
+              ['down', 'Next row (j)', DIM],
+              ['agent', 'Delegate to the agent (a)', '#6af'],
+              ['done', 'Done (d)', '#6f6'],
+              ['snooze', 'Unsnooze (s)', '#fa4'],
+              ['cancel', 'Delete (x)', '#f66'],
+            ],
+            [
+              ['up', 'Previous row (k)'],
+              ['down', 'Next row (j)'],
+              ['bell', 'Clear the notification (b)'],
+              ['agent', 'Delegate to the agent (a)'],
+              ['done', 'Done (d)'],
+              ['snooze', 'Unsnooze (s)'],
+              ['cancel', 'Delete (x)'],
+            ],
+            [
+              ['up', 'Previous row (k)', DIM],
+              ['down', 'Next row (j)', DIM],
+              ['agent', 'Delegate to the agent (a)', '#6af'],
+              ['owner', 'Take back from the agent (u)', '#ccc'],
+            ],
+            ['up', 'down', 'bell', 'agent', 'owner'],
+            ['up', 'down', 'agent', 'owner'],
+            ['up', 'down', 'agent', 'owner'],
+            ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'],
+            [[], [], []],
+          ])
+
+        // No-row keys: each list takes its own keys and forwards the rest; non-todos forward all bin keys;
+        // j/k still select first/last row of mounted main list; dimmed up/down buttons do nothing
+        s.makeItem('main1', { tags_visible: ['#todo'] })
+        s.makeItem('main2', { tags_visible: ['#todo'] })
+        s.makeWidget({ rows: [{ id: 'main1' }, { id: 'main2' }] })
+        s.env._row_keys()
+        const send = (key, extra = {}) => {
+          let prevented = false
+          const res = sharedWin._on_key(key, { ...extra, preventDefault: () => { prevented = true } })
+          return { prevented, res: res ?? null }
+        }
+        const keyMatrix = async (box, keysList) => {
+          const out = []
+          for (const k of keysList) {
+            priorCalls.length = 0
+            s.actions.length = 0
+            s.setBox(box)
+            const r = send(k)
+            await tick()
+            out.push([k, r.prevented, priorCalls.length, s.actions.map(a => a[0])])
+          }
+          return out
+        }
+        const allBinKeys = ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyB', 'KeyU']
+        const snPlainKeys = await keyMatrix('#snPlain', allBinKeys)
+        const dlPlainKeys = await keyMatrix('#dlPlain', allBinKeys)
+        const noteKeys = await keyMatrix('#note', allBinKeys)
+        const hiddenKeys = await keyMatrix('#hiddenTodo', allBinKeys)
+        // j / k and lit up/down buttons on a no-row snoozed todo jump to the mounted sequence's first / last row
+        s.selected.length = 0
+        s.setBox('#snPlain')
+        s.env._bin_buttons(snPlain)
+        const snNavColors = sharedWin._key_buttons_guests.buttons.slice(0, 2).map(b => b.color)
+        sharedWin._key_buttons_guests.buttons.find(b => b.name == 'up').press()
+        s.setBox('#snPlain')
+        sharedWin._key_buttons_guests.buttons.find(b => b.name == 'down').press()
+        const afterNavStep = [...s.selected]
+        s.setBox('#snPlain')
+        const jRes = send('KeyJ')
+        const afterJ = s.getBox()
+        s.setBox('#snPlain')
+        const kRes = send('KeyK')
+        const afterK = s.getBox()
+        check('no-row keys: snoozed/delegated take only their list keys, non-todos forward all bin keys, j/k and lit up/down select mounted sequence first/last row',
+          [snPlainKeys, dlPlainKeys, noteKeys, hiddenKeys, snNavColors, afterNavStep, [jRes.prevented, afterJ, kRes.prevented, afterK]],
+          [
+            [
+              ['KeyA', true, 0, ['delegate']],
+              ['KeyD', true, 0, ['complete']],
+              ['KeyS', true, 0, ['unsnooze']],
+              ['KeyX', true, 0, ['delete']],
+              ['KeyB', false, 1, []],
+              ['KeyU', false, 1, []],
+            ],
+            [
+              ['KeyA', true, 0, ['delegate']],
+              ['KeyD', false, 1, []],
+              ['KeyS', false, 1, []],
+              ['KeyX', false, 1, []],
+              ['KeyB', false, 1, []],
+              ['KeyU', true, 0, ['takeback']],
+            ],
+            allBinKeys.map(k => [k, false, 1, []]),
+            allBinKeys.map(k => [k, false, 1, []]),
+            ['#fff', '#fff'],
+            ['main2', 'main1'],
+            [true, '#main1', true, '#main2'],
+          ])
+      }
+
+      // 9c. Page's row WINS over the todo's state when a mounted list holds its row
+      {
+        const s = makeStage()
+        s.win._key_buttons = { guest: () => {} }
+        // t1 is a real todo whose in-memory store says snoozed, AND has a bell by _bell,
+        // yet the mounted MAIN widget currently holds its row (without a bell mark) beside t2:
+        // the mounted row MUST win (down lit, no bell button, title 'Snooze (s)', press advances to t2)
+        const t1 = s.makeItem('t1', {
+          tags_visible: ['#todo'],
+          store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 2 } } },
+        })
+        s.makeItem('t2', { tags_visible: ['#todo'] })
+        s.makeWidget({ rows: [{ id: 't1', log: 'row log text' }, { id: 't2' }] })
+        s.setBox('#t1')
+        s.env._bin_buttons(t1)
+        const btns = s.win._key_buttons_guests.buttons.map(b => [b.name, b.title, b.color])
+        await s.env._bin_press('done', 't1')
+        check('page row wins: mounted main row overrides live todo state (up/down lit, no bell, Snooze title, row log text, selects next row)',
+          [btns, s.actions, s.selected],
+          [
+            [
+              ['up', 'Previous row (k)', '#fff'],
+              ['down', 'Next row (j)', '#fff'],
+              ['agent', 'Delegate to the agent (a)', '#6af'],
+              ['done', 'Done (d)', '#6f6'],
+              ['snooze', 'Snooze (s)', '#fa4'],
+              ['cancel', 'Delete (x)', '#f66'],
+            ],
+            [['complete', 't1', 'row log text']],
+            ['t2'],
+          ])
+      }
+
+      // 9d. Each press without a row: what it writes/calls, log text computed from item, bell clears
+      //     the count it showed (even if surfaced rose after draw), nothing selected after press,
+      //     and buttons redraw for the item's new list
+      {
+        const s = makeStage()
+        s.win._key_buttons = { guest: () => {} }
+        const SNZ_TIME = 1_700_000_000_000
+        const parentItem = s.makeItem('parent', { name: '#proj', label: '#proj', tags_visible: ['#todo'], text: '#proj #todo build it' })
+        const snz = s.makeItem('snz', {
+          name: '#snz',
+          label: '#snz',
+          tags_visible: ['#todo'],
+          text: '#snz #todo fix cache',
+          store: { _todoer: { snoozed: SNZ_TIME }, _agent: { state: { held: 'owner', reason: 'proposal', epoch: 1, surfaced: 2, parent: parentItem.saved_id } } },
+        })
+        const chatTodo = s.makeItem('chatT', {
+          name: '#chat/x',
+          label: '#chat/x',
+          tags_visible: ['#todo'],
+          text: '#chat/x #todo\n<<user>> how does it work?\n',
+        })
+        const capTodo = s.makeItem('capT', {
+          name: '#capT',
+          label: '#capT',
+          tags_visible: ['#todo'],
+          text: '#capT #ToDo uppercase tag',
+        })
+        const mainItem = s.makeItem('mItem', {
+          name: '#mItem',
+          label: '#mItem',
+          tags_visible: ['#todo'],
+          text: '#mItem #todo do work',
+        })
+        const delItem = s.makeItem('dItem', {
+          name: '#dItem',
+          label: '#dItem',
+          tags_visible: ['#todo'],
+          text: '#dItem #todo delegated work',
+          store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 0 } } },
+        })
+        // Wire real store updates on snooze/unsnooze stubs so we can verify buttons redraw for the new list
+        s.env._unsnooze = (it, manual) => {
+          s.actions.push(['unsnooze', it.id, manual])
+          it.global_store._todoer.snoozed = 0
+        }
+        s.env._snooze = (it, ans) => {
+          s.actions.push(['snooze', it.id, ans.time])
+          ;(it.global_store._todoer ??= {}).snoozed = ans.time
+        }
+        // Bell press: drawn at surfaced=2, then surfaced bumps to 3 BEFORE click -> clears 2 (leaves 3 ringing!),
+        // redraws with came_up=3, then second click clears 3 and removes bell button
+        s.setBox('#snz')
+        s.env._bin_buttons(snz)
+        const bellBtn1 = s.win._key_buttons_guests.buttons.find(b => b.name == 'bell')
+        snz._global_store._agent.state.surfaced = 3
+        await bellBtn1.press()
+        const afterBell1 = [
+          snz._global_store._todoer.bell,
+          s.win._key_buttons_guests.buttons.some(b => b.name == 'bell'),
+          s.selected.length,
+          s.actions.slice(),
+        ]
+        s.actions.length = 0
+        const bellBtn2 = s.win._key_buttons_guests.buttons.find(b => b.name == 'bell')
+        if (bellBtn2) await bellBtn2.press()
+        const afterBell2 = [
+          snz._global_store._todoer.bell,
+          s.win._key_buttons_guests.buttons.some(b => b.name == 'bell'),
+          s.selected.length,
+        ]
+        // Unsnooze press on snoozed todo without row -> calls _unsnooze(item, true), selects nothing, redraws as main ('Snooze (s)')
+        s.actions.length = 0
+        await s.env._bin_press('snooze', 'snz')
+        const afterUnsnooze = [
+          s.actions.slice(),
+          s.selected.length,
+          s.win._key_buttons_guests.buttons.find(b => b.name == 'snooze')?.title,
+        ]
+        // Snooze press on main todo without row -> opens dialog, calls _snooze, selects nothing, redraws as snoozed ('Unsnooze (s)')
+        s.actions.length = 0
+        s.setBox('#mItem')
+        s.env._bin_buttons(mainItem)
+        await s.env._bin_press('snooze', 'mItem')
+        const afterSnooze = [
+          s.actions.slice(),
+          s.selected.length,
+          s.win._key_buttons_guests.buttons.find(b => b.name == 'snooze')?.title,
+        ]
+        // Done press without row: passes _todo_log_text (snoozed date + parent prefix, chat question) and selects nothing.
+        // An item whose todo tag yields no snippet (written in capitals) has a row in no list: its press is not taken
+        snz._global_store._todoer.snoozed = SNZ_TIME
+        s.actions.length = 0
+        s.setBox('#snz')
+        await s.env._bin_press('done', 'snz')
+        s.setBox('#chat/x')
+        await s.env._bin_press('done', 'chatT')
+        s.setBox('#capT')
+        await s.env._bin_press('done', 'capT')
+        const doneActions = s.actions.slice()
+        const capitals = [s.env._todo_list(capTodo), s.env._todo_buttons(capTodo).map(b => b.name)]
+        const expectedSnzLog = `${new Date(SNZ_TIME).toLocaleString()} child of #todo build it #todo fix cache`.replace(/\s+/g, ' ')
+        // Delete, delegate, and takeback without row
+        s.actions.length = 0
+        s.setBox('#mItem')
+        await s.env._bin_press('cancel', 'mItem')
+        await s.env._bin_press('agent', 'mItem')
+        s.setBox('#dItem')
+        await s.env._bin_press('owner', 'dItem')
+        const otherActions = s.actions.slice()
+        // Stale wrong-list press refused with warning
+        s.warns.length = 0
+        s.actions.length = 0
+        s.setBox('#dItem')
+        const wrongBin = s.env._bin_press('done', 'dItem')
+        const wrongWarn = s.warns.slice()
+
+        check('no-row presses: bell clears count shown, unsnooze/snooze redraw for new list, done passes computed log text, delete/delegate/takeback act, nothing selected, wrong-list press refused',
+          [afterBell1, afterBell2, afterUnsnooze, afterSnooze, doneActions, otherActions, [wrongBin, wrongWarn, s.actions.length], s.selected, capitals],
+          [
+            [2, true, 0, [['rerender']]],
+            [3, false, 0],
+            [[['unsnooze', 'snz', true]], 0, 'Snooze (s)'],
+            [[['snooze', 'mItem', 9999]], 0, 'Unsnooze (s)'],
+            [
+              ['complete', 'snz', expectedSnzLog],
+              ['complete', 'chatT', '#chat/x #todo how does it work?'],
+            ],
+            [
+              ['delete', 'mItem', true],
+              ['delegate', 'mItem'],
+              ['takeback', 'dItem'],
+            ],
+            [undefined, ['todoer: the press on "done" was not taken: its list has no "done" button now'], 0],
+            [],
+            [null, []],
+          ])
+      }
+
+      // 9e. Refusals without a row: window._todoer_bin_busy, _pressed_item, and _draft_word (real delete, complete, delegate, takeback)
+      {
+        const s = makeStage()
+        s.win._key_buttons = { guest: () => {} }
+        const t = s.makeItem('busyT', { tags_visible: ['#todo'] })
+        let release
+        s.env._delegate = it => { s.actions.push(['delegate', it.id]); return new Promise(r => (release = r)) }
+        s.setBox('#busyT')
+        const p1 = s.env._bin_press('agent', 'busyT')
+        const busyMid = !!s.win._todoer_bin_busy
+        const p2 = s.env._bin_press('done', 'busyT')
+        const busyWarns = s.warns.slice()
+        release(true)
+        await p1
+        const busyAfter = !!s.win._todoer_bin_busy
+        // _pressed_item refusal without a row
+        s.warns.length = 0
+        s.actions.length = 0
+        s.env._bin_buttons(t)
+        const drawnDone = s.win._key_buttons_guests.buttons.find(b => b.name == 'done')
+        s.setBox('')
+        drawnDone.press()
+        const boxWarn = s.warns.slice()
+        check('no-row busy & box refusals: overlapping press refused under _todoer_bin_busy, clears on settle, and stale box press refused by _pressed_item',
+          [busyMid, p2, busyWarns, busyAfter, s.actions, boxWarn],
+          [
+            true,
+            undefined,
+            ['todoer: the press on "done" was not taken: an earlier press is still being carried out'],
+            false,
+            [],
+            ['todoer: the press on "done" was not taken: the box no longer names its item'],
+          ])
+
+        // _draft_word refusals without a row across ALL FOUR real text-writing actions (cancel, done, agent, owner)
+        const wDraft = world({ editing: 'short', typed: true })
+        const shortItem = wDraft.item('short')
+        shortItem._global_store = {}
+        const alertsDraft = []
+        wDraft.ctx.alert = m => alertsDraft.push(m)
+        const delNoRow = wDraft.ctx._bin_act('cancel', shortItem, null, false)
+        const doneNoRow = wDraft.ctx._bin_act('done', shortItem, null, false)
+        const agentNoRow = await wDraft.ctx._bin_act('agent', shortItem, null, false)
+        const ownerNoRow = await wDraft.ctx._bin_act('owner', shortItem, null, false)
+        // And via _bin_press (cancel uses real _delete_listed inside makeStage)
+        const sd = makeStage()
+        sd.makeItem('ed', { tags_visible: ['#todo'], editing: true, draft: '#todo ed unsaved edit' })
+        sd.setBox('#ed')
+        await sd.env._bin_press('cancel', 'ed')
+        check('no-row draft refusals: cancel, done, agent, and owner all refuse with _draft_word and write/delete nothing when open editor has unsaved changes',
+          [
+            [delNoRow, doneNoRow, agentNoRow, ownerNoRow],
+            alertsDraft,
+            shortItem.text,
+            wDraft.calls,
+            [sd.alerts, sd.actions],
+          ],
+          [
+            [false, false, false, false],
+            [
+              'can not delete id:short with unsaved changes: save or cancel your edit first',
+              'can not complete id:short with unsaved changes: save or cancel your edit first',
+              'can not delegate id:short with unsaved changes: save or cancel your edit first',
+              'can not take back id:short with unsaved changes: save or cancel your edit first',
+            ],
+            '#todo fix the cache',
+            [],
+            [['can not delete #ed with unsaved changes: save or cancel your edit first'], []],
+          ])
+      }
+
+      // 10. Cycling walk across the union of belled rows (any list) and main list in page order (2026-11-25)
+      // 10a. _row_sequence across layouts: main alone, delegated above (with/without bells), snoozed below,
+      //      reply row, no list, empty sequence, one row, duplicate id across widgets, parked & deleted rows
+      {
+        const seqIds = setup => {
+          const s = makeStage()
+          setup(s)
+          return s.env._row_sequence().seq.map(e => e.id)
+        }
+        const mainAlone = seqIds(s => {
+          s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
+          s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
+        })
+        const delAboveBells = seqIds(s => {
+          for (const id of ['d1', 'd2', 'd3', 'd4', 'm1', 'm2']) s.makeItem(id)
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2', bell: true }, { id: 'd3' }, { id: 'd4', bell: true }] })
+          s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2', bell: true }] })
+        })
+        const delAboveNoBells = seqIds(s => {
+          for (const id of ['d1', 'd2', 'm1', 'm2']) s.makeItem(id)
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+          s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+        })
+        const snzBelowWithAndWithout = [
+          seqIds(s => {
+            for (const id of ['m1', 'm2', 's1', 's2', 's3']) s.makeItem(id)
+            s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+            s.makeWidget({ snoozed: true, rows: [{ id: 's1' }, { id: 's2', bell: true }, { id: 's3' }] })
+          }),
+          seqIds(s => {
+            for (const id of ['m1', 'm2', 's1', 's2']) s.makeItem(id)
+            s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+            s.makeWidget({ snoozed: true, rows: [{ id: 's1' }, { id: 's2' }] })
+          }),
+        ]
+        const replyRows = seqIds(s => {
+          for (const id of ['dRep', 'm1', 'rep', 'm2']) s.makeItem(id)
+          s.makeWidget({ delegated: true, rows: [{ id: 'dRep', waits: 'reply', bell: true }] })
+          s.makeWidget({ rows: [{ id: 'm1' }, { id: 'rep', waits: 'reply', bell: true }, { id: 'm2' }] })
+        })
+        const noList = seqIds(() => {})
+        const emptySeq = seqIds(s => {
+          s.makeItem('d1'); s.makeItem('s1')
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+          s.makeWidget({ rows: [] })
+          s.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
+        })
+        const oneRowMain = seqIds(s => {
+          s.makeItem('m1')
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+        })
+        const oneRowDelBell = seqIds(s => {
+          s.makeItem('d0'); s.makeItem('d1')
+          s.makeWidget({ delegated: true, rows: [{ id: 'd0' }, { id: 'd1', bell: true }] })
+        })
+        const dupAndParkedAndDeleted = seqIds(s => {
+          s.makeItem('pk'); s.makeItem('x'); s.makeItem('m1')
+          s.makeWidget({ parked: true, rows: [{ id: 'pk', bell: true }, { id: 'x', bell: true }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'x', bell: true }] })
+          s.makeWidget({ rows: [{ id: 'x' }, { id: 'gone' }, { id: 'm1' }] })
+        })
+        check('walk sequence: union of belled rows (any mounted list) and main list in page order, each once, across all layouts',
+          [mainAlone, delAboveBells, delAboveNoBells, snzBelowWithAndWithout, replyRows, noList, emptySeq, oneRowMain, oneRowDelBell, dupAndParkedAndDeleted],
+          [
+            ['m1', 'm2', 'm3'],
+            ['d2', 'd4', 'm1', 'm2'],
+            ['m1', 'm2'],
+            [['m1', 'm2', 's2'], ['m1', 'm2']],
+            ['dRep', 'm1', 'rep', 'm2'],
+            [],
+            [],
+            ['m1'],
+            ['d1'],
+            ['x', 'm1'],
+          ])
+      }
+
+      // 10b. Points 1-4 both ways (j/k keys AND up/down buttons): delegated above main, snoozed below,
+      //      reply row inside main; full wrap in both directions; unbelled rows skipped; outside rows
+      //      at every position (before start, between sequence rows, after end) go to nearest or wrap
+      {
+        const priorCalls = []
+        const sharedWin = { innerWidth: 1000, _on_key: key => (priorCalls.push(key), 'prior') }
+        sharedWin._key_buttons = { guest: () => {} }
+        const s = makeStage({ sharedWin })
+        for (const id of ['d0', 'd1', 'd2', 'm1', 'rep', 'm2', 's0', 's1', 's2']) s.makeItem(id, { tags_visible: id == 'rep' ? [] : ['#todo'] })
+        s.makeWidget({ delegated: true, rows: [{ id: 'd0' }, { id: 'd1', bell: true }, { id: 'd2' }] })
+        s.makeWidget({ rows: [{ id: 'm1' }, { id: 'rep', waits: 'reply', bell: true }, { id: 'm2' }] })
+        s.makeWidget({ snoozed: true, rows: [{ id: 's0' }, { id: 's1', bell: true }, { id: 's2' }] })
+        s.env._row_keys()
+        const keyStep = key => {
+          let prevented = false
+          sharedWin._on_key(key, { preventDefault: () => { prevented = true } })
+          return [prevented, s.getBox()]
+        }
+        const btnStep = (id, name) => {
+          s.setBox('#' + id)
+          s.env._bin_buttons(s.items.get(id))
+          const b = sharedWin._key_buttons_guests.buttons.find(x => x.name == name)
+          b.press()
+          return [b.color === '#fff', s.getBox()]
+        }
+        // Full forward cycle via j from empty box (6 presses: lands on d1, walks to s1, wraps to d1)
+        s.setBox('')
+        const fwdKeys = Array.from({ length: 6 }, () => keyStep('KeyJ'))
+        // Full backward cycle via k from empty box (6 presses: lands on s1, walks to d1, wraps to s1)
+        s.setBox('')
+        const bwdKeys = Array.from({ length: 6 }, () => keyStep('KeyK'))
+        // Full cycle via down and up buttons from each sequence row
+        const seqOrder = ['d1', 'm1', 'rep', 'm2', 's1']
+        const fwdBtns = seqOrder.map(id => btnStep(id, 'down'))
+        const bwdBtns = seqOrder.map(id => btnStep(id, 'up'))
+        // Outside rows at EVERY position relative to sequence: before first (d0), between d1&m1 (d2),
+        // between m2&s1 (s0), after last (s2), tested both with j/k and down/up buttons
+        const outside = ['d0', 'd2', 's0', 's2'].map(id => {
+          s.setBox('#' + id)
+          const j = keyStep('KeyJ')
+          s.setBox('#' + id)
+          const k = keyStep('KeyK')
+          const dn = btnStep(id, 'down')
+          const up = btnStep(id, 'up')
+          return [id, j, k, dn, up]
+        })
+        check('walk cycle & outside rows: j/k and up/down cycle page-order union both ways, skip unbelled rows, and jump to nearest after/before (wrapping past ends) from every outside position',
+          [fwdKeys, bwdKeys, fwdBtns, bwdBtns, outside, priorCalls],
+          [
+            [[true, '#d1'], [true, '#m1'], [true, '#rep'], [true, '#m2'], [true, '#s1'], [true, '#d1']],
+            [[true, '#s1'], [true, '#m2'], [true, '#rep'], [true, '#m1'], [true, '#d1'], [true, '#s1']],
+            [[true, '#m1'], [true, '#rep'], [true, '#m2'], [true, '#s1'], [true, '#d1']],
+            [[true, '#s1'], [true, '#d1'], [true, '#m1'], [true, '#rep'], [true, '#m2']],
+            [
+              ['d0', [true, '#d1'], [true, '#s1'], [true, '#d1'], [true, '#s1']],
+              ['d2', [true, '#m1'], [true, '#d1'], [true, '#m1'], [true, '#d1']],
+              ['s0', [true, '#s1'], [true, '#m2'], [true, '#s1'], [true, '#m2']],
+              ['s2', [true, '#d1'], [true, '#s1'], [true, '#d1'], [true, '#s1']],
+            ],
+            [],
+          ])
+      }
+
+      // 10c. Point 5 & Point 7: no row on the page (empty box, unlisted non-todo, off-list snoozed todo);
+      //      stale-box button press refusal (_pressed_item); modifiers & focused fields unchanged
+      {
+        const priorCalls = []
+        const sharedWin = { innerWidth: 1000, _on_key: key => priorCalls.push(key) }
+        sharedWin._key_buttons = { guest: () => {} }
+        const s = makeStage({ sharedWin })
+        s.makeItem('d1', { tags_visible: ['#todo'] })
+        s.makeItem('m1', { tags_visible: ['#todo'] })
+        s.makeItem('m2', { tags_visible: ['#todo'] })
+        s.makeItem('note', { tags_visible: [] })
+        const offSnz = s.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        s.makeWidget({ delegated: true, rows: [{ id: 'd1', bell: true }] })
+        s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+        s.env._row_keys()
+        const noRowJ = []
+        const noRowK = []
+        for (const box of ['', '#note', '#offSnz']) {
+          s.setBox(box)
+          noRowJ.push([s.env._on_row_key('KeyJ', {}), s.getBox()])
+          s.setBox(box)
+          noRowK.push([s.env._on_row_key('KeyK', {}), s.getBox()])
+        }
+        // Off-list snoozed todo up/down buttons are lit and select last/first of sequence; stale box refuses press
+        s.setBox('#offSnz')
+        s.env._bin_buttons(offSnz)
+        const offUp = sharedWin._key_buttons_guests.buttons.find(b => b.name == 'up')
+        const offDown = sharedWin._key_buttons_guests.buttons.find(b => b.name == 'down')
+        const offColors = [offUp.color, offDown.color]
+        offDown.press()
+        const afterOffDown = s.getBox()
+        s.setBox('#offSnz')
+        offUp.press()
+        const afterOffUp = s.getBox()
+        // Stale box: change box to #note before pressing cached down button -> refused with warning
+        s.selected.length = 0
+        s.warns.length = 0
+        s.setBox('#note')
+        offDown.press()
+        const staleBox = [s.getBox(), s.selected.slice(), s.warns.slice()]
+        // Modifiers and focused fields never trigger the walk
+        s.setBox('#offSnz')
+        const modBlocked = [
+          s.env._on_row_key('KeyJ', { shiftKey: true }),
+          s.env._on_row_key('KeyK', { metaKey: true }),
+          s.env._on_row_key('KeyJ', { ctrlKey: true }),
+          s.env._on_row_key('KeyK', { altKey: true }),
+        ]
+        s.doc.activeElement = { tagName: 'TEXTAREA' }
+        const focusBlocked = [s.env._on_row_key('KeyJ', {}), s.env._on_row_key('KeyK', {})]
+        check('walk no-row & guards: empty box, non-todo, and off-list todo jump to sequence first/last (keys and lit buttons); stale box refuses; modifiers and focus still block',
+          [noRowJ, noRowK, offColors, [afterOffDown, afterOffUp], staleBox, modBlocked, focusBlocked, priorCalls],
+          [
+            [[true, '#d1'], [true, '#d1'], [true, '#d1']],
+            [[true, '#m2'], [true, '#m2'], [true, '#m2']],
+            ['#fff', '#fff'],
+            ['#d1', '#m2'],
+            ['#note', [], ['todoer: the press on "down" was not taken: the box names another item now']],
+            [false, false, false, false],
+            [false, false],
+            [],
+          ])
+      }
+
+      // 10d. Point 6: nothing to go to, button dimness EXACTLY matching what press selects, and
+      //      _on_row_key return value (claimed vs forwarded to prior hook) across every edge case
+      {
+        const probe = (setup, { box, targetId = null }) => {
+          const priorCalls = []
+          const sharedWin = { innerWidth: 1000, _on_key: key => priorCalls.push(key) }
+          sharedWin._key_buttons = { guest: () => {} }
+          const s = makeStage({ sharedWin })
+          setup(s)
+          s.env._row_keys()
+          const target = targetId ? s.items.get(targetId) : null
+          let btnSummary = null
+          if (target) {
+            s.setBox(box)
+            s.env._bin_buttons(target)
+            const btns = sharedWin._key_buttons_guests?.buttons ?? []
+            const up = btns.find(b => b.name == 'up')
+            const down = btns.find(b => b.name == 'down')
+            if (up && down) {
+              s.selected.length = 0
+              s.setBox(box)
+              up.press()
+              const upDest = s.selected[0] ?? null
+              s.selected.length = 0
+              s.setBox(box)
+              down.press()
+              const downDest = s.selected[0] ?? null
+              btnSummary = {
+                upLit: up.color === '#fff',
+                downLit: down.color === '#fff',
+                upDest,
+                downDest,
+                dimMatchesPress: (up.color === '#fff') === !!upDest && (down.color === '#fff') === !!downDest,
+              }
+            }
+          }
+          priorCalls.length = 0
+          s.setBox(box)
+          let jPrev = false
+          sharedWin._on_key('KeyJ', { preventDefault: () => { jPrev = true } })
+          const jBox = s.getBox()
+          const jPrior = priorCalls.length
+          priorCalls.length = 0
+          s.setBox(box)
+          let kPrev = false
+          sharedWin._on_key('KeyK', { preventDefault: () => { kPrev = true } })
+          const kBox = s.getBox()
+          const kPrior = priorCalls.length
+          return { btnSummary, j: [jPrev, jPrior, jBox], k: [kPrev, kPrior, kBox] }
+        }
+        const emptyWidgetsSetup = s => {
+          s.makeItem('note', { tags_visible: [] })
+          s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        }
+        const unbelledOnlySetup = s => {
+          s.makeItem('d1', { tags_visible: ['#todo'] })
+          s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+          s.makeWidget({ rows: [] })
+        }
+        const oneMainSetup = s => {
+          s.makeItem('d1', { tags_visible: ['#todo'] })
+          s.makeItem('m1', { tags_visible: ['#todo'] })
+          s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+        }
+        const oneDelBellSetup = s => {
+          s.makeItem('d1', { tags_visible: ['#todo'] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1', bell: true }] })
+          s.makeWidget({ rows: [] })
+        }
+        const twoSeqSetup = s => {
+          s.makeItem('d1', { tags_visible: ['#todo'] })
+          s.makeItem('m1', { tags_visible: ['#todo'] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1', bell: true }] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+        }
+        const oneLiveOneDeletedSetup = s => {
+          s.makeItem('m1', { tags_visible: ['#todo'] })
+          s.makeWidget({ rows: [{ id: 'm1' }, { id: 'gone' }] })
+        }
+        const dupSoleSetup = s => {
+          s.makeItem('m1', { tags_visible: ['#todo'] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+        }
+        const cases = [
+          ['no-widgets/empty-box', probe(emptyWidgetsSetup, { box: '' })],
+          ['no-widgets/non-todo', probe(emptyWidgetsSetup, { box: '#note', targetId: 'note' })],
+          ['no-widgets/off-list-todo', probe(emptyWidgetsSetup, { box: '#off', targetId: 'off' })],
+          ['unbelled-only/empty-box', probe(unbelledOnlySetup, { box: '' })],
+          ['unbelled-only/selected-row', probe(unbelledOnlySetup, { box: '#d1', targetId: 'd1' })],
+          ['unbelled-only/off-list-todo', probe(unbelledOnlySetup, { box: '#off', targetId: 'off' })],
+          ['one-main/selected-sole', probe(oneMainSetup, { box: '#m1', targetId: 'm1' })],
+          ['one-main/outside-row', probe(oneMainSetup, { box: '#d1', targetId: 'd1' })],
+          ['one-main/off-list-todo', probe(oneMainSetup, { box: '#off', targetId: 'off' })],
+          ['one-main/empty-box', probe(oneMainSetup, { box: '' })],
+          ['one-del-bell/selected-sole', probe(oneDelBellSetup, { box: '#d1', targetId: 'd1' })],
+          ['one-del-bell/empty-box', probe(oneDelBellSetup, { box: '' })],
+          ['two-seq/del-bell', probe(twoSeqSetup, { box: '#d1', targetId: 'd1' })],
+          ['two-seq/main', probe(twoSeqSetup, { box: '#m1', targetId: 'm1' })],
+          ['one-live-one-deleted/sole', probe(oneLiveOneDeletedSetup, { box: '#m1', targetId: 'm1' })],
+          ['dup-sole/sole', probe(dupSoleSetup, { box: '#m1', targetId: 'm1' })],
+        ]
+        check('walk dimness & key claim: buttons dim iff press selects nothing; j/k claim when a row is selected or moves, and forward to prior hook only when unselected with empty sequence',
+          cases,
+          [
+            ['no-widgets/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
+            ['no-widgets/non-todo', { btnSummary: null, j: [false, 1, '#note'], k: [false, 1, '#note'] }],
+            ['no-widgets/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
+            ['unbelled-only/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
+            ['unbelled-only/selected-row', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['unbelled-only/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
+            ['one-main/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['one-main/outside-row', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['one-main/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['one-main/empty-box', { btnSummary: null, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['one-del-bell/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['one-del-bell/empty-box', { btnSummary: null, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['two-seq/del-bell', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['two-seq/main', { btnSummary: { upLit: true, downLit: true, upDest: 'd1', downDest: 'd1', dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['one-live-one-deleted/sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['dup-sole/sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+          ])
+      }
+
+      // 11. _ROW_SHORTCUTS, _row_now, _row_has, _row_can, _row_goes, _BIN_DRAFT, _BIN_REFUSAL, and
+      //     window._shortcuts.todoer registration (merged from master 9755868 + adapted to off-list
+      //     todo buttons and cycling walk, 2026-11-25)
+      {
+        const s = makeStage()
+        const rowShortcuts = s.eval('_ROW_SHORTCUTS')
+        const binKeysObj = s.eval('_BIN_KEYS')
+        const binKeyLetters = Object.keys(binKeysObj).map(k => k.replace(/^Key/, '').toLowerCase())
+        const expectedKeys = [...new Set(['j', 'k', ...binKeyLetters])].sort()
+        const listedKeys = [...new Set(rowShortcuts.map(e => e.keys))].sort()
+        const shapesOk = rowShortcuts.every(e =>
+          typeof e.keys == 'string' && e.keys.length > 0 &&
+          typeof e.does == 'string' && e.does.length > 0 &&
+          typeof e.when == 'string' && e.when.length > 0 &&
+          typeof e.active == 'function' &&
+          e.context === undefined,
+        )
+        check('_ROW_SHORTCUTS: 11 entries cover every key of _BIN_KEYS plus j and k, with no extra keys, and valid shapes',
+          [rowShortcuts.length, listedKeys, shapesOk],
+          [11, expectedKeys, true])
+
+        // Build widgets covering every mounted row state:
+        // main: m1 (start, plain), m2 (middle, bell), repMid (reply with bell, middle), m3 (end, plain), repEnd (reply without bell, end)
+        // snoozed: sn1 (start, plain), sn2 (middle, bell), sn3 (end, plain)
+        // delegated: dl1 (start, plain), dl2 (end, bell)
+        // unlisted: note (non-todo, tags_visible: [])
+        for (const id of ['m1', 'm2', 'repMid', 'm3', 'repEnd', 'sn1', 'sn2', 'sn3', 'dl1', 'dl2', 'note']) s.makeItem(id)
+        s.makeWidget({
           rows: [
-            { id: 'cm', bell: true },
-            { id: 'dm', bell: true },
-            { id: 'um', bell: true },
-            { id: 'urm', bell: true },
-            { id: 'rp', waits: 'reply', bell: true },
+            { id: 'm1' },
+            { id: 'm2', bell: true },
+            { id: 'repMid', waits: 'reply', bell: true },
+            { id: 'm3' },
+            { id: 'repEnd', waits: 'reply' },
           ],
         })
-        sc.makeWidget({ snoozed: true, rows: [{ id: 'ds', bell: true }] })
-        sc.makeWidget({ delegated: true, rows: [{ id: 'dd', bell: true }] })
+        s.makeWidget({
+          snoozed: true,
+          rows: [{ id: 'sn1' }, { id: 'sn2', bell: true }, { id: 'sn3' }],
+        })
+        s.makeWidget({
+          delegated: true,
+          rows: [{ id: 'dl1' }, { id: 'dl2', bell: true }],
+        })
 
-        sc.setBox('')
-        const onEmpty = canAll(sc)
-        sc.setBox('#unlisted')
-        const onUnlisted = canAll(sc)
-        sc.setBox('#cm')
-        const onCleanMain = canAll(sc)
-        sc.win._todoer_bin_busy = true
-        const onBusyMain = canAll(sc)
-        sc.win._todoer_bin_busy = false
-        sc.setBox('#dm')
-        const onDirtyMain = canAll(sc)
-        sc.setBox('#um')
-        const onUntouchedMain = canAll(sc)
-        sc.setBox('#urm')
-        const onUnreadMain = canAll(sc)
-        sc.setBox('#rp')
-        const onReply = canAll(sc)
-        sc.setBox('#ds')
-        const onDirtySnz = canAll(sc)
-        sc.setBox('#dd')
-        const onDirtyDel = canAll(sc)
-        check('_row_can: checks row buttons, pending busy mark, and _BIN_DRAFT (dirty, clean/ZWSP open editor, unreadable editor) for every button name',
-          [onEmpty, onUnlisted, onCleanMain, onBusyMain, onDirtyMain, onUntouchedMain, onUnreadMain, onReply, onDirtySnz, onDirtyDel],
+        const activeEntries = box => {
+          s.setBox(box)
+          return rowShortcuts.filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+        }
+        const rowHas = name => s.eval(`_row_has(${JSON.stringify(name)})`)
+
+        // _row_now, _row_has, _row_goes directly (adapted: _row_now returns { named, found, shown, snoozed })
+        s.setBox('')
+        const rnEmpty = s.env._row_now()
+        const nowEmpty = [rnEmpty.named, rnEmpty.found, rnEmpty.shown, rnEmpty.snoozed, rowHas('done'), s.env._row_goes(1, true), s.env._row_goes(1, false), s.env._row_goes(-1, true), s.env._row_goes(-1, false)]
+        s.setBox('  #m2  ')
+        const rnTrim = s.env._row_now()
+        const nowTrimmed = [rnTrim.named?.id ?? null, rnTrim.found?.row?.getAttribute('data-id') ?? null, rnTrim.shown.map(b => b.name), rnTrim.snoozed, rowHas('done'), rowHas('bell'), rowHas('owner'), s.env._row_goes(1, true), s.env._row_goes(1, false)]
+        s.setBox('#note')
+        const rnNote = s.env._row_now()
+        const nowUnlisted = [rnNote.named?.id ?? null, rnNote.found, rnNote.shown, rnNote.snoozed, rowHas('done'), s.env._row_goes(1, true), s.env._row_goes(1, false)]
+        check('_row_now, _row_has, _row_goes: empty/unlisted have no row and allow global j/k; trimmed label resolves row, shown buttons, and snoozed state',
+          [nowEmpty, nowTrimmed, nowUnlisted],
           [
-            [false, false, false, false, false, false], // empty box
-            [false, false, false, false, false, false], // unlisted
-            [true, true, true, true, true, false], // clean main todo with bell (no owner)
-            [false, false, false, false, false, false], // busy
-            [false, false, true, false, true, false], // dirty main: snooze & bell stay; agent/done/cancel refuse
-            [true, true, true, true, true, false], // open editor with ZWSP-only diff: no draft
-            [false, false, true, false, true, false], // unreadable editor counts as draft
-            [false, false, false, false, true, false], // reply with bell
-            [false, false, true, false, true, false], // dirty snoozed: unsnooze (snooze) & bell stay
-            [false, false, false, false, true, false], // dirty delegated: bell stays; agent & owner refuse
+            [null, null, [], false, false, false, true, false, true],
+            ['m2', 'm2', ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], false, true, true, false, true, false],
+            ['note', null, [], false, false, false, true],
           ])
 
-        // _ROW_SHORTCUTS with a dirty unfocused editor (main, snoozed, delegated) and after discarding draft
-        sc.doc.activeElement = null
-        const listOf = box => {
-          sc.setBox(box)
-          return sc.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
-        }
-        const dirtyMainList = listOf('#dm')
-        const dirtySnzList = listOf('#ds')
-        const dirtyDelList = listOf('#dd')
-        dirtyMain.editing = false
-        const cleanAgainList = listOf('#dm')
-        check('_ROW_SHORTCUTS dirty unfocused editor: hides draft-refused keys (a, d, x, u), keeps j/k/s/b, and restores after draft ends',
-          [dirtyMainList, dirtySnzList, dirtyDelList, cleanAgainList],
+        // Every row state across all 11 entries (adapted: no-row says first/last row; cycling enables both j/k when >= 2 seq rows)
+        check('_ROW_SHORTCUTS active: no row (empty or unlisted) activates walk first/last j and k alone; empty or parked/unbelled-only walk activates none',
           [
-            ['j:the next row', 'k:the previous row', 's:snooze', 'b:clear the bell'],
-            ['s:unsnooze', 'b:clear the bell'],
-            ['b:clear the bell'],
+            activeEntries(''),
+            activeEntries('#note'),
+            (() => {
+              const se = makeStage()
+              se.makeItem('pk')
+              se.makeItem('snOnly')
+              se.makeItem('dlOnly')
+              se.makeWidget({ parked: true, rows: [{ id: 'pk' }] })
+              se.makeWidget({ rows: [] })
+              se.makeWidget({ snoozed: true, rows: [{ id: 'snOnly' }] })
+              se.makeWidget({ delegated: true, rows: [{ id: 'dlOnly' }] })
+              se.setBox('')
+              return se.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+            })(),
+          ],
+          [
+            ['j:the first row', 'k:the last row'],
+            ['j:the first row', 'k:the last row'],
+            [],
+          ])
+
+        check('_ROW_SHORTCUTS active: main-list todo at start, middle (with bell), end (cycling), and sole row (no j/k)',
+          [
+            activeEntries('#m1'),
+            activeEntries('#m2'),
+            (() => {
+              // dedicated 3-todo main list to test todo at end cycling round, plus 1-todo sole list (no j/k)
+              const sm = makeStage()
+              sm.makeItem('a1'); sm.makeItem('a2'); sm.makeItem('a3')
+              sm.makeWidget({ rows: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }] })
+              sm.setBox('#a3')
+              const endTodo = sm.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+              const sole = makeStage()
+              sole.makeItem('only')
+              sole.makeWidget({ rows: [{ id: 'only' }] })
+              sole.setBox('#only')
+              const soleTodo = sole.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+              return [endTodo, soleTodo]
+            })(),
+          ],
+          [
+            ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
             ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
-          ])
-        // Sanity check corrected `when` descriptions
-        const whenByKey = sc.eval('_ROW_SHORTCUTS').map(e => `${e.keys}:${e.when}`)
-        check('_ROW_SHORTCUTS when: every entry names its row, the list that has its button, the list ends, and the unsaved-edit rule on the four draft-refused presses',
-          whenByKey,
-          [
-            'j:a row is selected that is not the last of its list',
-            'j:no row is selected, and the main list has a row',
-            'k:a row is selected that is not the first of its list',
-            'k:no row is selected, and the main list has a row',
-            'a:a todo is selected, with no unsaved edit in it',
-            'd:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
-            's:a todo of the main list is selected',
-            's:a snoozed todo is selected',
-            'x:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
-            'b:a row with a bell is selected',
-            'u:a delegated todo is selected, with no unsaved edit in it',
-          ])
-      }
-
-      // Agreement: for every button name, real _bin_act over a dirty draft refuses iff _BIN_DRAFT has the name
-      // (agreeing with _row_can), and the alert's word comes directly from _BIN_DRAFT; plus _BIN_REFUSAL
-      // agreement for pending take-back, unsaved items (a and u), and every refusal word of all four actions
-      {
-        const agCode =
-          binConsts +
-          pick([
-            '_task_state',
-            '_task_refusal',
-            '_delegate_refusal',
-            '_takeback_refusal',
-            '_complete_refusal',
-            '_delete_refusal',
-            '_mounted_lists',
-            '_bin_row',
-            '_row_buttons',
-            '_row_now',
-            '_row_can',
-            '_row_goes',
-            '_bin_act',
-            '_draft',
-            '_draft_word',
-            '_delete_listed',
-            '_task_target',
-            '_complete_todo',
-            '_delegate',
-            '_takeback',
-          ]).join('\n')
-        const root = new DomNode('html')
-        const body = root.appendChild(new DomNode('body'))
-        const itemsMap = new Map()
-        const alerts = []
-        const actions = []
-        let boxText = ''
-        const mkItem = (id, { saved_id = 'saved-' + id, tags = ['#todo'], editing = false, draft = null } = {}) => {
-          const it = {
-            id,
-            saved_id,
-            name: '#' + id,
-            text: '#todo ' + id,
-            tags,
-            editing,
-            _global_store: {},
-            get global_store() { return this._global_store },
-            elem: { querySelector: s => (s == 'textarea' && it.editing ? { value: draft ?? it.text } : null) },
-            delete: () => (actions.push(['delete', id]), true),
-            write: () => (actions.push(['write', id]), true),
-          }
-          itemsMap.set(id, it)
-          itemsMap.set(it.name, it)
-          return it
-        }
-        const mkDirty = id => mkItem(id, { editing: true, draft: '#todo ' + id + ' unsaved draft' })
-        const addRow = (list, id) => {
-          const row = list.appendChild(new DomNode('div', { className: 'list-item-container', 'data-id': id }))
-          row._log_text = '#todo ' + id
-          const li = row.appendChild(new DomNode('div', { className: 'list-item' }))
-          const bell = li.appendChild(new DomNode('mark', { className: 'waits' }))
-          bell.click = () => actions.push(['bell-click', id])
-          return row
-        }
-        const mkW = (opts, id) => {
-          const w = body.appendChild(new DomNode('div', { className: 'todoer-widget' }))
-          w._snoozed = !!opts.snoozed
-          w._delegated = !!opts.delegated
-          const list = w.appendChild(new DomNode('div', { className: 'list' }))
-          const bins = opts.delegated ? ['agent', 'owner'] : ['agent', 'done', 'snooze', 'cancel']
-          for (const b of bins) w.appendChild(new DomNode('div', { className: `${b} bin` }))
-          const row = addRow(list, id)
-          return { widget: w, list, row }
-        }
-        const dMain = mkDirty('agMain')
-        const dSnz = mkDirty('agSnz')
-        const dDel = mkDirty('agDel')
-        const wMain = mkW({}, 'agMain')
-        const wSnz = mkW({ snoozed: true }, 'agSnz')
-        const wDel = mkW({ delegated: true }, 'agDel')
-        const agTb = mkItem('agTb')
-        const agNew = mkItem('agNew', { saved_id: null })
-        const agDelNew = mkItem('agDelNew', { saved_id: null })
-        addRow(wMain.list, 'agTb')
-        addRow(wMain.list, 'agNew')
-        addRow(wDel.list, 'agDelNew')
-        const doc = {
-          body,
-          querySelector: sel => root.querySelector(sel),
-          querySelectorAll: sel => root.querySelectorAll(sel),
-        }
-        const grammarV2 = { version: 2, edit: (t, fn) => fn(t) }
-        const env = {
-          window: { _grammar: grammarV2 },
-          document: doc,
-          console: { warn: () => {}, error: () => {} },
-          alert: m => alerts.push(m),
-          is_number: x => typeof x == 'number',
-          _todoer: { store: {} },
-          _item: ref => itemsMap.get(ref) ?? null,
-          _exists: () => false,
-          _command_id: () => 'cmd-ag',
-          _clear_bell: () => {},
-          _delegated_view: v => v,
-          _replace_tags: (text, pattern, fn) => {
-            const re = new RegExp(pattern, 'g')
-            let m
-            while ((m = re.exec(text))) fn(m[0], m[1], m.index)
-            return text
-          },
-          MindBox: { get: () => boxText },
-          _carried_write: () => () => true,
-          _enqueue_command: () => Promise.resolve(true),
-          _snooze_dialog: () => Promise.resolve({ time: 9999, notify: false }),
-          _snooze: it => actions.push(['snooze', it.id]),
-          _unsnooze: it => actions.push(['unsnooze', it.id]),
-          _rerender_todoer_widgets: () => {},
-        }
-        vm.createContext(env)
-        vm.runInContext(agCode, env)
-        const binDraft = vm.runInContext('_BIN_DRAFT', env)
-        const binRefusal = vm.runInContext('_BIN_REFUSAL', env)
-        const agShortcuts = vm.runInContext('_ROW_SHORTCUTS', env)
-        const cases = [
-          ['agent', dMain, wMain.row, false],
-          ['done', dMain, wMain.row, false],
-          ['cancel', dMain, wMain.row, false],
-          ['snooze', dMain, wMain.row, false],
-          ['snooze', dSnz, wSnz.row, true],
-          ['bell', dMain, wMain.row, false],
-          ['owner', dDel, wDel.row, false],
-        ]
-        const results = []
-        for (const [name, item, row, snoozed] of cases) {
-          boxText = item.name
-          alerts.length = 0
-          const can = env._row_can(name)
-          const inTable = Object.hasOwn(binDraft, name)
-          const res = await env._bin_act(name, item, row, snoozed)
-          const refused = res === false
-          const msg = alerts[0] ?? null
-          const expectedMsg = inTable ? `can not ${binDraft[name]} ${item.name} with unsaved changes: save or cancel your edit first` : null
-          results.push([name, snoozed, inTable, can, refused, msg === expectedMsg && !String(msg).includes('undefined')])
-        }
-        check('_BIN_DRAFT agreement: real _bin_act over a draft refuses iff _BIN_DRAFT has the button name (matching !_row_can) with the table word',
-          results,
-          [
-            ['agent', false, true, false, true, true],
-            ['done', false, true, false, true, true],
-            ['cancel', false, true, false, true, true],
-            ['snooze', false, false, true, false, true],
-            ['snooze', true, false, true, false, true],
-            ['bell', false, false, true, false, true],
-            ['owner', false, true, false, true, true],
-          ])
-
-        // _ROW_SHORTCUTS + _row_can + real actions agreement for pending take-back and unsaved todos (a and u)
-        const keyListed = k => agShortcuts.some(e => e.keys == k && e.active())
-        const probeAction = async (item, key, btn, fn) => {
-          boxText = item.name
-          alerts.length = 0
-          const listed = keyListed(key)
-          const can = env._row_can(btn)
-          const ok = await fn(item)
-          return [listed, can, ok, alerts[0] ?? null]
-        }
-        env._todoer.store.pending = { agTb: { id: 'tb1', kind: 'takeback' } }
-        const tbPending = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
-        agTb._global_store._agent = { state: { acked: { other: 'ok' } } }
-        const tbOtherAcked = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
-        agTb._global_store._agent = { state: { acked: { tb1: 'ok' } } }
-        const tbAcked = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
-        const unsavedDelg = await probeAction(agNew, 'a', 'agent', it => env._delegate(it))
-        agNew.saved_id = 'saved-agNew'
-        const savedDelg = await probeAction(agNew, 'a', 'agent', it => env._delegate(it))
-        const unsavedTakeback = await probeAction(agDelNew, 'u', 'owner', it => env._takeback(it))
-        const unsavedDelgAlsoOff = [keyListed('a'), env._row_can('agent')]
-        agDelNew.saved_id = 'saved-agDelNew'
-        const savedTakeback = await probeAction(agDelNew, 'u', 'owner', it => env._takeback(it))
-        check('_BIN_REFUSAL row agreement: a (pending take-back and unsaved) and u (unsaved) align _ROW_SHORTCUTS, _row_can, and real _delegate/_takeback',
-          [tbPending, tbOtherAcked, tbAcked, unsavedDelg, savedDelg, unsavedTakeback, unsavedDelgAlsoOff, savedTakeback],
-          [
-            [false, false, false, 'take-back of #agTb pending; delegate again after it is acknowledged'],
-            [false, false, false, 'take-back of #agTb pending; delegate again after it is acknowledged'],
-            [true, true, true, null],
-            [false, false, false, 'cannot delegate #agNew: item not saved yet'],
-            [true, true, true, null],
-            [false, false, false, 'cannot take back #agDelNew: item not saved yet'],
-            [false, false],
-            [true, true, true, null],
-          ])
-
-        // Every refusal word of every function in _BIN_REFUSAL, paired with its real action alerting that exact word
-        const runRefusal = async (btn, item, action, { grammar = grammarV2, pending = null } = {}) => {
-          env.window._grammar = grammar
-          env._todoer.store.pending = pending ? { [item.id]: pending } : {}
-          alerts.length = 0
-          const word = binRefusal[btn](item)
-          const ok = await action(item)
-          return [word, ok, alerts.length, alerts[0] ?? null]
-        }
-        const refRows = [
-          // agent (_delegate_refusal + _delegate): 5 refusal words + clean ok
-          await runRefusal('agent', mkItem('refAgNoTag', { tags: [] }), it => env._delegate(it)),
-          await runRefusal('agent', mkItem('refAgUnsaved', { saved_id: null }), it => env._delegate(it)),
-          await runRefusal('agent', mkDirty('refAgDraft'), it => env._delegate(it)),
-          await runRefusal('agent', mkItem('refAgTb'), it => env._delegate(it), { pending: { id: 'tb2', kind: 'takeback' } }),
-          await runRefusal('agent', mkItem('refAgNoGram'), it => env._delegate(it), { grammar: { version: 1, edit: (t, fn) => fn(t) } }),
-          await runRefusal('agent', mkItem('refAgOk'), it => env._delegate(it)),
-          // owner (_takeback_refusal + _takeback): 3 refusal words + clean ok
-          await runRefusal('owner', mkItem('refOwNoTag', { tags: [] }), it => env._takeback(it)),
-          await runRefusal('owner', mkItem('refOwUnsaved', { saved_id: null }), it => env._takeback(it)),
-          await runRefusal('owner', mkDirty('refOwDraft'), it => env._takeback(it)),
-          await runRefusal('owner', mkItem('refOwOk'), it => env._takeback(it)),
-          // done (_complete_refusal + _complete_todo): 2 refusal words + clean ok
-          await runRefusal('done', mkItem('refDnNoGram'), it => env._complete_todo(it, it.text), { grammar: { version: 1, edit: (t, fn) => fn(t) } }),
-          await runRefusal('done', mkDirty('refDnDraft'), it => env._complete_todo(it, it.text)),
-          await runRefusal('done', mkItem('refDnOk'), it => env._complete_todo(it, it.text)),
-          // cancel (_delete_refusal + _delete_listed): 1 refusal word + clean ok
-          await runRefusal('cancel', mkDirty('refCnDraft'), it => env._delete_listed(it, true)),
-          await runRefusal('cancel', mkItem('refCnOk'), it => env._delete_listed(it, true)),
-        ]
-        env.window._grammar = grammarV2
-        env._todoer.store.pending = {}
-        check('_BIN_REFUSAL words: all four refusal functions cover every refusal word (and null) and their real actions alert that exact word',
-          [Object.keys(binRefusal), refRows],
-          [
-            ['agent', 'done', 'cancel', 'owner'],
             [
-              ['cannot delegate #refAgNoTag: not a #todo item', false, 1, 'cannot delegate #refAgNoTag: not a #todo item'],
-              ['cannot delegate #refAgUnsaved: item not saved yet', false, 1, 'cannot delegate #refAgUnsaved: item not saved yet'],
-              ['can not delegate #refAgDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not delegate #refAgDraft with unsaved changes: save or cancel your edit first'],
-              ['take-back of #refAgTb pending; delegate again after it is acknowledged', false, 1, 'take-back of #refAgTb pending; delegate again after it is acknowledged'],
-              ['please reload to delegate todos (app update required)', false, 1, 'please reload to delegate todos (app update required)'],
-              [null, true, 0, null],
-              ['cannot take back #refOwNoTag: not a #todo item', false, 1, 'cannot take back #refOwNoTag: not a #todo item'],
-              ['cannot take back #refOwUnsaved: item not saved yet', false, 1, 'cannot take back #refOwUnsaved: item not saved yet'],
-              ['can not take back #refOwDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not take back #refOwDraft with unsaved changes: save or cancel your edit first'],
-              [null, true, 0, null],
-              ['please reload to complete todos (app update required)', false, 1, 'please reload to complete todos (app update required)'],
-              ['can not complete #refDnDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not complete #refDnDraft with unsaved changes: save or cancel your edit first'],
-              [null, true, 0, null],
-              ['can not delete #refCnDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not delete #refCnDraft with unsaved changes: save or cancel your edit first'],
-              [null, true, 0, null],
+              ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
+              ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
             ],
           ])
+
+        check('_ROW_SHORTCUTS active: reply row in middle with bell has j, k, b alone; reply row at end without bell has j and k (cycling)',
+          [activeEntries('#repMid'), activeEntries('#repEnd')],
+          [
+            ['j:the next row', 'k:the previous row', 'b:clear the bell'],
+            ['j:the next row', 'k:the previous row'],
+          ])
+
+        check('_ROW_SHORTCUTS active: snoozed todo activates unsnooze (not snooze) with walk j/k and bell',
+          [activeEntries('#sn1'), activeEntries('#sn2'), activeEntries('#sn3')],
+          [
+            ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question'],
+            ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question', 'b:clear the bell'],
+            ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question'],
+          ])
+
+        check('_ROW_SHORTCUTS active: delegated todo activates agent and take-back (plus walk j/k and bell), never done/snooze/delete',
+          [activeEntries('#dl1'), activeEntries('#dl2')],
+          [
+            ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'u:take back from the agent'],
+            ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'b:clear the bell', 'u:take back from the agent'],
+          ])
+
+        // _row_can over every button name: no row, missing button, busy, dirty draft, clean open editor (incl ZWSP), unreadable editor
+        {
+          const names = ['agent', 'done', 'snooze', 'cancel', 'bell', 'owner']
+          const canAll = st => names.map(n => st.env._row_can(n))
+          const sc = makeStage()
+          sc.makeItem('cm', { text: '#todo clean main' })
+          const dirtyMain = sc.makeItem('dm', { text: '#todo dirty main', editing: true, draft: '#todo dirty main edited' })
+          sc.makeItem('um', { text: '#todo untouched', editing: true, draft: '\u200b#todo untouched\u200b' })
+          const unreadMain = sc.makeItem('urm', { text: '#todo unreadable', editing: true })
+          unreadMain.elem = null // editor textarea cannot be read -> counts as holding a draft
+          sc.makeItem('ds', { text: '#todo dirty snoozed', editing: true, draft: '#todo dirty snoozed!' })
+          sc.makeItem('dd', { text: '#todo dirty delegated', editing: true, draft: '#todo dirty delegated!' })
+          sc.makeItem('rp')
+          sc.makeItem('unlisted')
+          sc.makeWidget({
+            rows: [
+              { id: 'cm', bell: true },
+              { id: 'dm', bell: true },
+              { id: 'um', bell: true },
+              { id: 'urm', bell: true },
+              { id: 'rp', waits: 'reply', bell: true },
+            ],
+          })
+          sc.makeWidget({ snoozed: true, rows: [{ id: 'ds', bell: true }] })
+          sc.makeWidget({ delegated: true, rows: [{ id: 'dd', bell: true }] })
+
+          sc.setBox('')
+          const onEmpty = canAll(sc)
+          sc.setBox('#unlisted')
+          const onUnlisted = canAll(sc)
+          sc.setBox('#cm')
+          const onCleanMain = canAll(sc)
+          sc.win._todoer_bin_busy = true
+          const onBusyMain = canAll(sc)
+          sc.win._todoer_bin_busy = false
+          sc.setBox('#dm')
+          const onDirtyMain = canAll(sc)
+          sc.setBox('#um')
+          const onUntouchedMain = canAll(sc)
+          sc.setBox('#urm')
+          const onUnreadMain = canAll(sc)
+          sc.setBox('#rp')
+          const onReply = canAll(sc)
+          sc.setBox('#ds')
+          const onDirtySnz = canAll(sc)
+          sc.setBox('#dd')
+          const onDirtyDel = canAll(sc)
+          check('_row_can: checks row buttons, pending busy mark, and _BIN_DRAFT (dirty, clean/ZWSP open editor, unreadable editor) for every button name',
+            [onEmpty, onUnlisted, onCleanMain, onBusyMain, onDirtyMain, onUntouchedMain, onUnreadMain, onReply, onDirtySnz, onDirtyDel],
+            [
+              [false, false, false, false, false, false], // empty box
+              [false, false, false, false, false, false], // unlisted non-todo
+              [true, true, true, true, true, false], // clean main todo with bell (no owner)
+              [false, false, false, false, false, false], // busy
+              [false, false, true, false, true, false], // dirty main: snooze & bell stay; agent/done/cancel refuse
+              [true, true, true, true, true, false], // open editor with ZWSP-only diff: no draft
+              [false, false, true, false, true, false], // unreadable editor counts as draft
+              [false, false, false, false, true, false], // reply with bell
+              [false, false, true, false, true, false], // dirty snoozed: unsnooze (snooze) & bell stay
+              [false, false, false, false, true, false], // dirty delegated: bell stays; agent & owner refuse
+            ])
+
+          // _ROW_SHORTCUTS with a dirty unfocused editor (main, snoozed, delegated) and after discarding draft
+          // (adapted: ds and dd carry bells in the multi-row walk, so both keep j and k)
+          sc.doc.activeElement = null
+          const listOf = box => {
+            sc.setBox(box)
+            return sc.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+          }
+          const dirtyMainList = listOf('#dm')
+          const dirtySnzList = listOf('#ds')
+          const dirtyDelList = listOf('#dd')
+          dirtyMain.editing = false
+          const cleanAgainList = listOf('#dm')
+          check('_ROW_SHORTCUTS dirty unfocused editor: hides draft-refused keys (a, d, x, u), keeps j/k/s/b, and restores after draft ends',
+            [dirtyMainList, dirtySnzList, dirtyDelList, cleanAgainList],
+            [
+              ['j:the next row', 'k:the previous row', 's:snooze', 'b:clear the bell'],
+              ['j:the next row', 'k:the previous row', 's:unsnooze', 'b:clear the bell'],
+              ['j:the next row', 'k:the previous row', 'b:clear the bell'],
+              ['j:the next row', 'k:the previous row', 'a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell'],
+            ])
+          // Sanity check adapted `when` descriptions
+          const whenByKey = sc.eval('_ROW_SHORTCUTS').map(e => `${e.keys}:${e.when}`)
+          check('_ROW_SHORTCUTS when: every entry names its row, the walk, the list that has its button, and the unsaved-edit rule on the four draft-refused presses',
+            whenByKey,
+            [
+              'j:a row is selected: through the rows with a bell and the main list, round and round',
+              'j:no row is selected: of the rows with a bell and the main list',
+              'k:a row is selected: through the rows with a bell and the main list, round and round',
+              'k:no row is selected: of the rows with a bell and the main list',
+              'a:a todo is selected, with no unsaved edit in it',
+              'd:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
+              's:a todo of the main list is selected',
+              's:a snoozed todo is selected',
+              'x:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
+              'b:a row or todo with a bell is selected',
+              'u:a delegated todo is selected, with no unsaved edit in it',
+            ])
+        }
+
+        // Agreement: for every button name, real _bin_act over a dirty draft refuses iff _BIN_DRAFT has the name
+        // (agreeing with _row_can), and the alert's word comes directly from _BIN_DRAFT; plus _BIN_REFUSAL
+        // agreement for pending take-back, unsaved items (a and u), and every refusal word of all four actions
+        {
+          const agCode =
+            binConsts +
+            pick([
+              '_task_state',
+              '_task_list',
+              '_list_of',
+              '_bell',
+              '_parent_of',
+              '_visible',
+              '_without_log',
+              '_snippet_uses_suffix',
+              '_todo_offset',
+              '_extract_todo_snippet',
+              '_row_question',
+              '_task_refusal',
+              '_delegate_refusal',
+              '_takeback_refusal',
+              '_complete_refusal',
+              '_delete_refusal',
+              '_shown_bell',
+              '_mounted_lists',
+              '_bin_row',
+              '_row_buttons',
+              '_todo_list',
+              '_todo_buttons',
+              '_todo_log_text',
+              '_row_sequence',
+              '_row_beside',
+              '_row_now',
+              '_row_can',
+              '_row_goes',
+              '_bin_act',
+              '_draft',
+              '_draft_word',
+              '_delete_listed',
+              '_task_target',
+              '_log_done',
+              '_complete_todo',
+              '_delegate',
+              '_takeback',
+            ]).join('\n')
+          const root = new DomNode('html')
+          const body = root.appendChild(new DomNode('body'))
+          const itemsMap = new Map()
+          const alerts = []
+          const actions = []
+          let boxText = ''
+          const mkItem = (id, { saved_id = 'saved-' + id, tags = ['#todo'], tags_visible = tags, editing = false, draft = null } = {}) => {
+            const it = {
+              id,
+              saved_id,
+              name: '#' + id,
+              text: '#todo ' + id,
+              tags,
+              tags_visible,
+              editing,
+              _global_store: {},
+              get global_store() { return this._global_store },
+              read: () => it.text,
+              elem: { querySelector: s => (s == 'textarea' && it.editing ? { value: draft ?? it.text } : null) },
+              delete: () => (actions.push(['delete', id]), true),
+              write: () => (actions.push(['write', id]), true),
+            }
+            itemsMap.set(id, it)
+            itemsMap.set(it.name, it)
+            return it
+          }
+          const mkDirty = id => mkItem(id, { editing: true, draft: '#todo ' + id + ' unsaved draft' })
+          const addRow = (list, id) => {
+            const row = list.appendChild(new DomNode('div', { className: 'list-item-container', 'data-id': id }))
+            row._log_text = '#todo ' + id
+            const li = row.appendChild(new DomNode('div', { className: 'list-item' }))
+            const bell = li.appendChild(new DomNode('mark', { className: 'waits' }))
+            bell.click = () => actions.push(['bell-click', id])
+            return row
+          }
+          const mkW = (opts, id) => {
+            const w = body.appendChild(new DomNode('div', { className: 'todoer-widget' }))
+            w._snoozed = !!opts.snoozed
+            w._delegated = !!opts.delegated
+            const list = w.appendChild(new DomNode('div', { className: 'list' }))
+            const bins = opts.delegated ? ['agent', 'owner'] : ['agent', 'done', 'snooze', 'cancel']
+            for (const b of bins) w.appendChild(new DomNode('div', { className: `${b} bin` }))
+            const row = addRow(list, id)
+            return { widget: w, list, row }
+          }
+          const dMain = mkDirty('agMain')
+          const dSnz = mkDirty('agSnz')
+          const dDel = mkDirty('agDel')
+          const wMain = mkW({}, 'agMain')
+          const wSnz = mkW({ snoozed: true }, 'agSnz')
+          const wDel = mkW({ delegated: true }, 'agDel')
+          const agTb = mkItem('agTb')
+          const agNew = mkItem('agNew', { saved_id: null })
+          const agDelNew = mkItem('agDelNew', { saved_id: null })
+          addRow(wMain.list, 'agTb')
+          addRow(wMain.list, 'agNew')
+          addRow(wDel.list, 'agDelNew')
+          const doc = {
+            body,
+            querySelector: sel => root.querySelector(sel),
+            querySelectorAll: sel => root.querySelectorAll(sel),
+          }
+          const grammarV2 = { version: 2, edit: (t, fn) => fn(t) }
+          const env = {
+            window: { _grammar: grammarV2 },
+            document: doc,
+            console: { warn: () => {}, error: () => {} },
+            alert: m => alerts.push(m),
+            is_number: x => typeof x == 'number',
+            _todoer: { store: {}, _global_store: { bells_base: {} } },
+            _item: ref => itemsMap.get(ref) ?? null,
+            _exists: () => false,
+            _command_id: () => 'cmd-ag',
+            _clear_bell: () => true,
+            _delegated_view: v => v,
+            _replace_tags: (text, pattern, fn) => {
+              const re = new RegExp(pattern, 'g')
+              let m
+              while ((m = re.exec(text))) fn(m[0], m[1], m.index)
+              return text
+            },
+            MindBox: { get: () => boxText },
+            _carried_write: () => () => true,
+            _enqueue_command: () => Promise.resolve(true),
+            _snooze_dialog: () => Promise.resolve({ time: 9999, notify: false }),
+            _snooze: it => actions.push(['snooze', it.id]),
+            _unsnooze: it => actions.push(['unsnooze', it.id]),
+            _rerender_todoer_widgets: () => {},
+          }
+          vm.createContext(env)
+          vm.runInContext(agCode, env)
+          const binDraft = vm.runInContext('_BIN_DRAFT', env)
+          const binRefusal = vm.runInContext('_BIN_REFUSAL', env)
+          const agShortcuts = vm.runInContext('_ROW_SHORTCUTS', env)
+          const cases = [
+            ['agent', dMain, wMain.row, false],
+            ['done', dMain, wMain.row, false],
+            ['cancel', dMain, wMain.row, false],
+            ['snooze', dMain, wMain.row, false],
+            ['snooze', dSnz, wSnz.row, true],
+            ['bell', dMain, wMain.row, false],
+            ['owner', dDel, wDel.row, false],
+          ]
+          const results = []
+          for (const [name, item, row, snoozed] of cases) {
+            boxText = item.name
+            alerts.length = 0
+            const can = env._row_can(name)
+            const inTable = Object.hasOwn(binDraft, name)
+            const res = await env._bin_act(name, item, row, snoozed)
+            const refused = res === false
+            const msg = alerts[0] ?? null
+            const expectedMsg = inTable ? `can not ${binDraft[name]} ${item.name} with unsaved changes: save or cancel your edit first` : null
+            results.push([name, snoozed, inTable, can, refused, msg === expectedMsg && !String(msg).includes('undefined')])
+          }
+          check('_BIN_DRAFT agreement: real _bin_act over a draft refuses iff _BIN_DRAFT has the button name (matching !_row_can) with the table word',
+            results,
+            [
+              ['agent', false, true, false, true, true],
+              ['done', false, true, false, true, true],
+              ['cancel', false, true, false, true, true],
+              ['snooze', false, false, true, false, true],
+              ['snooze', true, false, true, false, true],
+              ['bell', false, false, true, false, true],
+              ['owner', false, true, false, true, true],
+            ])
+
+          // _ROW_SHORTCUTS + _row_can + real actions agreement for pending take-back and unsaved todos (a and u)
+          const keyListed = k => agShortcuts.some(e => e.keys == k && e.active())
+          const probeAction = async (item, key, btn, fn) => {
+            boxText = item.name
+            alerts.length = 0
+            const listed = keyListed(key)
+            const can = env._row_can(btn)
+            const ok = await fn(item)
+            return [listed, can, ok, alerts[0] ?? null]
+          }
+          env._todoer.store.pending = { agTb: { id: 'tb1', kind: 'takeback' } }
+          const tbPending = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
+          agTb._global_store._agent = { state: { acked: { other: 'ok' } } }
+          const tbOtherAcked = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
+          agTb._global_store._agent = { state: { acked: { tb1: 'ok' } } }
+          const tbAcked = await probeAction(agTb, 'a', 'agent', it => env._delegate(it))
+          const unsavedDelg = await probeAction(agNew, 'a', 'agent', it => env._delegate(it))
+          agNew.saved_id = 'saved-agNew'
+          const savedDelg = await probeAction(agNew, 'a', 'agent', it => env._delegate(it))
+          const unsavedTakeback = await probeAction(agDelNew, 'u', 'owner', it => env._takeback(it))
+          const unsavedDelgAlsoOff = [keyListed('a'), env._row_can('agent')]
+          agDelNew.saved_id = 'saved-agDelNew'
+          const savedTakeback = await probeAction(agDelNew, 'u', 'owner', it => env._takeback(it))
+          check('_BIN_REFUSAL row agreement: a (pending take-back and unsaved) and u (unsaved) align _ROW_SHORTCUTS, _row_can, and real _delegate/_takeback',
+            [tbPending, tbOtherAcked, tbAcked, unsavedDelg, savedDelg, unsavedTakeback, unsavedDelgAlsoOff, savedTakeback],
+            [
+              [false, false, false, 'take-back of #agTb pending; delegate again after it is acknowledged'],
+              [false, false, false, 'take-back of #agTb pending; delegate again after it is acknowledged'],
+              [true, true, true, null],
+              [false, false, false, 'cannot delegate #agNew: item not saved yet'],
+              [true, true, true, null],
+              [false, false, false, 'cannot take back #agDelNew: item not saved yet'],
+              [false, false],
+              [true, true, true, null],
+            ])
+
+          // Every refusal word of every function in _BIN_REFUSAL, paired with its real action alerting that exact word
+          const runRefusal = async (btn, item, action, { grammar = grammarV2, pending = null } = {}) => {
+            env.window._grammar = grammar
+            env._todoer.store.pending = pending ? { [item.id]: pending } : {}
+            alerts.length = 0
+            const word = binRefusal[btn](item)
+            const ok = await action(item)
+            return [word, ok, alerts.length, alerts[0] ?? null]
+          }
+          const refRows = [
+            // agent (_delegate_refusal + _delegate): 5 refusal words + clean ok
+            await runRefusal('agent', mkItem('refAgNoTag', { tags: [] }), it => env._delegate(it)),
+            await runRefusal('agent', mkItem('refAgUnsaved', { saved_id: null }), it => env._delegate(it)),
+            await runRefusal('agent', mkDirty('refAgDraft'), it => env._delegate(it)),
+            await runRefusal('agent', mkItem('refAgTb'), it => env._delegate(it), { pending: { id: 'tb2', kind: 'takeback' } }),
+            await runRefusal('agent', mkItem('refAgNoGram'), it => env._delegate(it), { grammar: { version: 1, edit: (t, fn) => fn(t) } }),
+            await runRefusal('agent', mkItem('refAgOk'), it => env._delegate(it)),
+            // owner (_takeback_refusal + _takeback): 3 refusal words + clean ok
+            await runRefusal('owner', mkItem('refOwNoTag', { tags: [] }), it => env._takeback(it)),
+            await runRefusal('owner', mkItem('refOwUnsaved', { saved_id: null }), it => env._takeback(it)),
+            await runRefusal('owner', mkDirty('refOwDraft'), it => env._takeback(it)),
+            await runRefusal('owner', mkItem('refOwOk'), it => env._takeback(it)),
+            // done (_complete_refusal + _complete_todo): 2 refusal words + clean ok
+            await runRefusal('done', mkItem('refDnNoGram'), it => env._complete_todo(it, it.text), { grammar: { version: 1, edit: (t, fn) => fn(t) } }),
+            await runRefusal('done', mkDirty('refDnDraft'), it => env._complete_todo(it, it.text)),
+            await runRefusal('done', mkItem('refDnOk'), it => env._complete_todo(it, it.text)),
+            // cancel (_delete_refusal + _delete_listed): 1 refusal word + clean ok
+            await runRefusal('cancel', mkDirty('refCnDraft'), it => env._delete_listed(it, true)),
+            await runRefusal('cancel', mkItem('refCnOk'), it => env._delete_listed(it, true)),
+          ]
+          env.window._grammar = grammarV2
+          env._todoer.store.pending = {}
+          check('_BIN_REFUSAL words: all four refusal functions cover every refusal word (and null) and their real actions alert that exact word',
+            [Object.keys(binRefusal), refRows],
+            [
+              ['agent', 'done', 'cancel', 'owner'],
+              [
+                ['cannot delegate #refAgNoTag: not a #todo item', false, 1, 'cannot delegate #refAgNoTag: not a #todo item'],
+                ['cannot delegate #refAgUnsaved: item not saved yet', false, 1, 'cannot delegate #refAgUnsaved: item not saved yet'],
+                ['can not delegate #refAgDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not delegate #refAgDraft with unsaved changes: save or cancel your edit first'],
+                ['take-back of #refAgTb pending; delegate again after it is acknowledged', false, 1, 'take-back of #refAgTb pending; delegate again after it is acknowledged'],
+                ['please reload to delegate todos (app update required)', false, 1, 'please reload to delegate todos (app update required)'],
+                [null, true, 0, null],
+                ['cannot take back #refOwNoTag: not a #todo item', false, 1, 'cannot take back #refOwNoTag: not a #todo item'],
+                ['cannot take back #refOwUnsaved: item not saved yet', false, 1, 'cannot take back #refOwUnsaved: item not saved yet'],
+                ['can not take back #refOwDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not take back #refOwDraft with unsaved changes: save or cancel your edit first'],
+                [null, true, 0, null],
+                ['please reload to complete todos (app update required)', false, 1, 'please reload to complete todos (app update required)'],
+                ['can not complete #refDnDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not complete #refDnDraft with unsaved changes: save or cancel your edit first'],
+                [null, true, 0, null],
+                ['can not delete #refCnDraft with unsaved changes: save or cancel your edit first', false, 1, 'can not delete #refCnDraft with unsaved changes: save or cancel your edit first'],
+                [null, true, 0, null],
+              ],
+            ])
+        }
+
+        // _row_keys registers window._shortcuts.todoer, keeps sibling sections, and re-writes even when hook is already taken
+        {
+          const sharedWin = { innerWidth: 1000, _shortcuts: { other: [{ keys: 'z', does: 'keep me' }] } }
+          const sr = makeStage({ sharedWin })
+          const list = sr.eval('_ROW_SHORTCUTS')
+          sr.env._row_keys()
+          const firstHook = sharedWin._on_key
+          const afterFirst = [sharedWin._shortcuts.todoer === list, sharedWin._shortcuts.other.length]
+          delete sharedWin._shortcuts.todoer
+          sr.env._row_keys() // hook already taken: must still write window._shortcuts.todoer
+          const afterDeletedProp = [sharedWin._shortcuts.todoer === list, sharedWin._on_key === firstHook]
+          delete sharedWin._shortcuts
+          sr.env._row_keys() // whole registry wiped while hook taken: must recreate and write
+          const afterWipedReg = [sharedWin._shortcuts?.todoer === list, sharedWin._on_key === firstHook]
+          check('_row_keys: writes _ROW_SHORTCUTS to window._shortcuts.todoer while keeping other sections, also when the key hook was taken before',
+            [afterFirst, afterDeletedProp, afterWipedReg],
+            [[true, 1], [true, true], [true, true]])
+        }
       }
 
-      // _row_keys registers window._shortcuts.todoer, keeps sibling sections, and re-writes even when hook is already taken
+      // 11b. Adaptation rows (2026-11-25): _row_now across every listed/off-list/non-todo state,
+      //      _row_has/_row_can and every refusal for off-list todos, _row_goes vs _on_row_key side by
+      //      side over every walk layout, and the two s entries with and without a row
       {
-        const sharedWin = { innerWidth: 1000, _shortcuts: { other: [{ keys: 'z', does: 'keep me' }] } }
-        const sr = makeStage({ sharedWin })
-        const list = sr.eval('_ROW_SHORTCUTS')
-        sr.env._row_keys()
-        const firstHook = sharedWin._on_key
-        const afterFirst = [sharedWin._shortcuts.todoer === list, sharedWin._shortcuts.other.length]
-        delete sharedWin._shortcuts.todoer
-        sr.env._row_keys() // hook already taken: must still write window._shortcuts.todoer
-        const afterDeletedProp = [sharedWin._shortcuts.todoer === list, sharedWin._on_key === firstHook]
-        delete sharedWin._shortcuts
-        sr.env._row_keys() // whole registry wiped while hook taken: must recreate and write
-        const afterWipedReg = [sharedWin._shortcuts?.todoer === list, sharedWin._on_key === firstHook]
-        check('_row_keys: writes _ROW_SHORTCUTS to window._shortcuts.todoer while keeping other sections, also when the key hook was taken before',
-          [afterFirst, afterDeletedProp, afterWipedReg],
-          [[true, 1], [true, true], [true, true]])
+        // 11b-1. _row_now: empty box, non-todo (and non-snippet/menu/hidden todo), listed row of each
+        //        list, and off-list todo of each list (with and without bell)
+        const s = makeStage()
+        s.makeItem('note', { tags: [], tags_visible: [] })
+        s.makeItem('capTodo', { text: '#capTodo #ToDo uppercase', tags_visible: ['#todo'] })
+        s.makeItem('menuTodo', { tags: ['#todo', '#menu'], tags_visible: ['#todo'] })
+        s.makeItem('hiddenTodo', { tags: ['#todo'], tags_visible: [] })
+        // Listed rows in each list
+        s.makeItem('lMain', { tags_visible: ['#todo'] })
+        s.makeItem('lRep', { tags: [], tags_visible: [] })
+        s.makeItem('lSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        s.makeItem('lDel', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 1 } } } })
+        s.makeWidget({ rows: [{ id: 'lMain' }, { id: 'lRep', waits: 'reply', bell: true }] })
+        s.makeWidget({ snoozed: true, rows: [{ id: 'lSnz' }] })
+        s.makeWidget({ delegated: true, rows: [{ id: 'lDel', bell: true }] })
+        // Off-list todos of each list (with and without bell)
+        s.makeItem('oMain', { tags_visible: ['#todo'] })
+        s.makeItem('oMainBell', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 2 } } } })
+        s.makeItem('oSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        s.makeItem('oSnzBell', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'owner', reason: 'blocked', epoch: 1, surfaced: 2 } } } })
+        s.makeItem('oDel', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 0 } } } })
+        s.makeItem('oDelBell', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 1 } } } })
+
+        const snapNow = box => {
+          s.setBox(box)
+          s.env._bin_buttons(s.env._item(box))
+          const rn = s.env._row_now()
+          const expectTodo = rn.named && !rn.found ? s.env._todo_buttons(rn.named).map(b => b.name) : null
+          const shownNames = rn.shown.map(b => b.name)
+          return [
+            rn.named?.id ?? null,
+            rn.found?.row?.getAttribute('data-id') ?? null,
+            shownNames,
+            rn.snoozed,
+            expectTodo === null ? true : JSON.stringify(shownNames) === JSON.stringify(expectTodo),
+          ]
+        }
+        check('_row_now adaptation: empty box, non-todos, listed rows of every list, and off-list todos of every list (shown matches _todo_buttons, snoozed follows row or state)',
+          [
+            snapNow(''),
+            snapNow('#note'),
+            snapNow('#capTodo'),
+            snapNow('#menuTodo'),
+            snapNow('#hiddenTodo'),
+            snapNow('#lMain'),
+            snapNow('#lRep'),
+            snapNow('#lSnz'),
+            snapNow('#lDel'),
+            snapNow('#oMain'),
+            snapNow('#oMainBell'),
+            snapNow('#oSnz'),
+            snapNow('#oSnzBell'),
+            snapNow('#oDel'),
+            snapNow('#oDelBell'),
+          ],
+          [
+            [null, null, [], false, true],
+            ['note', null, [], false, true],
+            ['capTodo', null, [], false, true],
+            ['menuTodo', null, [], false, true],
+            ['hiddenTodo', null, [], false, true],
+            ['lMain', 'lMain', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], false, true],
+            ['lRep', 'lRep', ['up', 'down', 'bell'], false, true],
+            ['lSnz', 'lSnz', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true, true],
+            ['lDel', 'lDel', ['up', 'down', 'bell', 'agent', 'owner'], false, true],
+            ['oMain', null, ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], false, true],
+            ['oMainBell', null, ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], false, true],
+            ['oSnz', null, ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true, true],
+            ['oSnzBell', null, ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], true, true],
+            ['oDel', null, ['up', 'down', 'agent', 'owner'], false, true],
+            ['oDelBell', null, ['up', 'down', 'bell', 'agent', 'owner'], false, true],
+          ])
+
+        // 11b-2. _row_has, _row_can, and _ROW_SHORTCUTS for off-list todos (zero mounted widgets AND
+        //        with mounted main list), plus every refusal path through _row_can on an off-list todo
+        const offStage = makeStage()
+        const oNames = ['agent', 'done', 'snooze', 'cancel', 'bell', 'owner']
+        const om = offStage.makeItem('om', { tags_visible: ['#todo'] })
+        const os = offStage.makeItem('os', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 1 } } } })
+        const od = offStage.makeItem('od', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 1 } } } })
+        const drawBox = box => { offStage.setBox(box); offStage.env._bin_buttons(offStage.env._item(box)) }
+        const hasAll = box => { drawBox(box); return oNames.map(n => offStage.eval(`_row_has(${JSON.stringify(n)})`)) }
+        const canAll = box => { drawBox(box); return oNames.map(n => offStage.env._row_can(n)) }
+        const activeAll = box => { drawBox(box); return offStage.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`) }
+
+        // No mounted widgets -> no j/k, button keys still active for off-list todos
+        const noWidgetsActive = [activeAll('#om'), activeAll('#os'), activeAll('#od')]
+        const offHas = [hasAll('#om'), hasAll('#os'), hasAll('#od')]
+        const offCanClean = [canAll('#om'), canAll('#os'), canAll('#od')]
+        // Refusal 1: busy
+        offStage.win._todoer_bin_busy = true
+        const offCanBusy = canAll('#os')
+        offStage.win._todoer_bin_busy = false
+        // Refusal 2: dirty open editor (snooze/unsnooze & bell stay true; agent/done/cancel/owner false)
+        const osDirty = offStage.makeItem('osDirty', { tags_visible: ['#todo'], editing: true, draft: '#todo osDirty edited', store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 1 } } } })
+        const odDirty = offStage.makeItem('odDirty', { tags_visible: ['#todo'], editing: true, draft: '#todo odDirty edited', store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 1 } } } })
+        const offCanDirty = [canAll('#osDirty'), canAll('#odDirty'), activeAll('#osDirty'), activeAll('#odDirty')]
+        // Refusal 3: unreadable open editor vs clean ZWSP-only open editor
+        const osUnread = offStage.makeItem('osUnread', { tags_visible: ['#todo'], editing: true, store: { _todoer: { snoozed: 9999 } } })
+        osUnread.elem = null
+        offStage.makeItem('osZwsp', { tags_visible: ['#todo'], editing: true, draft: '\u200b#todo osZwsp\u200b', store: { _todoer: { snoozed: 9999 } } })
+        const offCanEd = [canAll('#osUnread'), canAll('#osZwsp')]
+        // Refusal 4: unsaved off-list todo (saved_id: null) -> agent & owner false, done/snooze/cancel stay true
+        offStage.makeItem('osNew', { tags_visible: ['#todo'], saved_id: null, store: { _todoer: { snoozed: 9999 } } })
+        offStage.makeItem('odNew', { tags_visible: ['#todo'], saved_id: null, store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 0 } } } })
+        const offCanUnsaved = [canAll('#osNew'), canAll('#odNew')]
+        // Refusal 5: pending unacked take-back on off-list todo -> agent false until acked
+        offStage.env._todoer.store.pending = { om: { id: 'tb-off', kind: 'takeback' } }
+        const offCanPendingTb = canAll('#om')
+        om._global_store._agent = { state: { held: 'owner', reason: 'taken', epoch: 1, acked: { 'tb-off': 'ok' } } }
+        const offCanAckedTb = canAll('#om')
+        delete offStage.env._todoer.store.pending.om
+        // Refusal 6: old app grammar (< 2) -> agent & done false, snooze/cancel/bell/owner stay true
+        offStage.win._grammar = { version: 1 }
+        const offCanOldGrammar = [canAll('#os'), canAll('#od')]
+        offStage.win._grammar = { version: 2 }
+        // With a mounted main list while #os/#od stay off-list: j/k appear as first/last row alongside button keys
+        offStage.makeItem('mounted1', { tags_visible: ['#todo'] })
+        offStage.makeWidget({ rows: [{ id: 'mounted1' }] })
+        const withMainActive = [activeAll('#os'), activeAll('#od')]
+        void (os && od && osDirty && odDirty)
+        check('off-list _row_has, _row_can, and _ROW_SHORTCUTS: every list button, bell, and every refusal path (busy, dirty, unreadable, ZWSP, unsaved, pending take-back, old grammar)',
+          [noWidgetsActive, offHas, offCanClean, offCanBusy, offCanDirty, offCanEd, offCanUnsaved, offCanPendingTb, offCanAckedTb, offCanOldGrammar, withMainActive],
+          [
+            [
+              ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question'],
+              ['a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question', 'b:clear the bell'],
+              ['a:delegate to the agent', 'b:clear the bell', 'u:take back from the agent'],
+            ],
+            [
+              [true, true, true, true, false, false],
+              [true, true, true, true, true, false],
+              [true, false, false, false, true, true],
+            ],
+            [
+              [true, true, true, true, false, false],
+              [true, true, true, true, true, false],
+              [true, false, false, false, true, true],
+            ],
+            [false, false, false, false, false, false],
+            [
+              [false, false, true, false, true, false],
+              [false, false, false, false, true, false],
+              ['s:unsnooze', 'b:clear the bell'],
+              ['b:clear the bell'],
+            ],
+            [
+              [false, false, true, false, false, false],
+              [true, true, true, true, false, false],
+            ],
+            [
+              [false, true, true, true, false, false],
+              [false, false, false, false, false, false],
+            ],
+            [false, true, true, true, false, false],
+            [true, true, true, true, false, false],
+            [
+              [false, false, true, true, true, false],
+              [false, false, false, false, true, true],
+            ],
+            [
+              ['j:the first row', 'k:the last row', 'a:delegate to the agent', 'd:done', 's:unsnooze', 'x:delete, after a question', 'b:clear the bell'],
+              ['j:the first row', 'k:the last row', 'a:delegate to the agent', 'b:clear the bell', 'u:take back from the agent'],
+            ],
+          ])
+
+        // 11b-3. _row_goes vs _on_row_key side by side over every walk layout:
+        //        active iff pressing j/k selects another row, never both selected/unselected active at once
+        const verifyWalk = (label, setup, boxes) => {
+          const st = makeStage()
+          setup(st)
+          const mismatches = []
+          const summary = []
+          for (const box of boxes) {
+            for (const [key, by] of [['KeyJ', 1], ['KeyK', -1]]) {
+              st.setBox(box)
+              const found = st.env._row_now().found
+              const gSel = st.env._row_goes(by, true)
+              const gNone = st.env._row_goes(by, false)
+              const before = st.getBox()
+              st.env._on_row_key(key, {})
+              const after = st.getBox()
+              const moved = after !== before && !!after
+              const both = gSel && gNone
+              const active = gSel || gNone
+              if (both || active !== moved || gSel !== (!!found && moved) || gNone !== (!found && moved)) {
+                mismatches.push({ label, box, key, found: !!found, gSel, gNone, before, after, moved })
+              }
+              summary.push([box, key, gSel, gNone, after])
+            }
+          }
+          return { label, mismatches, summary }
+        }
+        const walkChecks = [
+          verifyWalk('main-alone', st => {
+            for (const id of ['m1', 'm2', 'm3', 'note']) st.makeItem(id)
+            st.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
+          }, ['', '#note', '#m1', '#m2', '#m3']),
+          verifyWalk('delegated-above-main', st => {
+            for (const id of ['d0', 'd1', 'd2', 'm1', 'm2']) st.makeItem(id, { tags_visible: ['#todo'] })
+            st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+            st.makeWidget({ delegated: true, rows: [{ id: 'd0' }, { id: 'd1', bell: true }, { id: 'd2' }] })
+            st.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+          }, ['', '#offSnz', '#d0', '#d1', '#d2', '#m1', '#m2']),
+          verifyWalk('snoozed-below-main', st => {
+            for (const id of ['m1', 's0', 's1', 's2']) st.makeItem(id, { tags_visible: ['#todo'] })
+            st.makeWidget({ rows: [{ id: 'm1' }] })
+            st.makeWidget({ snoozed: true, rows: [{ id: 's0' }, { id: 's1', bell: true }, { id: 's2' }] })
+          }, ['', '#m1', '#s0', '#s1', '#s2']),
+          verifyWalk('sole-main-with-outside-and-offlist', st => {
+            st.makeItem('d1', { tags_visible: ['#todo'] })
+            st.makeItem('m1', { tags_visible: ['#todo'] })
+            st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+            st.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+            st.makeWidget({ rows: [{ id: 'm1' }] })
+          }, ['', '#offSnz', '#d1', '#m1']),
+          verifyWalk('sole-del-bell', st => {
+            st.makeItem('d1', { tags_visible: ['#todo'] })
+            st.makeWidget({ delegated: true, rows: [{ id: 'd1', bell: true }] })
+            st.makeWidget({ rows: [] })
+          }, ['', '#d1']),
+          verifyWalk('empty-walk-no-widgets', st => {
+            st.makeItem('note', { tags: [], tags_visible: [] })
+            st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+          }, ['', '#note', '#offSnz']),
+          verifyWalk('empty-walk-unbelled-only', st => {
+            st.makeItem('d1', { tags_visible: ['#todo'] })
+            st.makeItem('s1', { tags_visible: ['#todo'] })
+            st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+            st.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+            st.makeWidget({ rows: [] })
+            st.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
+          }, ['', '#offSnz', '#d1', '#s1']),
+        ]
+        check('_row_goes vs _on_row_key: active iff j/k selects another row across every walk layout (sole row, outside row, off-list todo, empty walk), and never both entries at once',
+          walkChecks.map(w => [w.label, w.mismatches]),
+          walkChecks.map(w => [w.label, []]))
+
+        // Explicit spot check of the key tricky cases from verifyWalk above (sole row, outside row, off-list todo, empty walk)
+        const soleSummary = walkChecks.find(w => w.label == 'sole-main-with-outside-and-offlist').summary
+        const emptyUnbelledSummary = walkChecks.find(w => w.label == 'empty-walk-unbelled-only').summary
+        check('_row_goes tricky cases: sole row inactive, outside/off-list active into sole row, empty unbelled walk all inactive',
+          [soleSummary, emptyUnbelledSummary],
+          [
+            [
+              ['', 'KeyJ', false, true, '#m1'],
+              ['', 'KeyK', false, true, '#m1'],
+              ['#offSnz', 'KeyJ', false, true, '#m1'],
+              ['#offSnz', 'KeyK', false, true, '#m1'],
+              ['#d1', 'KeyJ', true, false, '#m1'],
+              ['#d1', 'KeyK', true, false, '#m1'],
+              ['#m1', 'KeyJ', false, false, '#m1'],
+              ['#m1', 'KeyK', false, false, '#m1'],
+            ],
+            [
+              ['', 'KeyJ', false, false, ''],
+              ['', 'KeyK', false, false, ''],
+              ['#offSnz', 'KeyJ', false, false, '#offSnz'],
+              ['#offSnz', 'KeyK', false, false, '#offSnz'],
+              ['#d1', 'KeyJ', false, false, '#d1'],
+              ['#d1', 'KeyK', false, false, '#d1'],
+              ['#s1', 'KeyJ', false, false, '#s1'],
+              ['#s1', 'KeyK', false, false, '#s1'],
+            ],
+          ])
+
+        // 11b-4. The two `s` entries for snoozed/main/delegated/reply with and without a row (and page row wins)
+        const sStage = makeStage()
+        sStage.makeItem('mRow', { tags_visible: ['#todo'] })
+        sStage.makeItem('mRowStaleSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        sStage.makeItem('snRow', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        sStage.makeItem('dlRow', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1 } } } })
+        sStage.makeItem('repRow', { tags: [], tags_visible: [] })
+        sStage.makeItem('mOff', { tags_visible: ['#todo'] })
+        sStage.makeItem('snOff', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+        sStage.makeItem('dlOff', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1 } } } })
+        sStage.makeWidget({ rows: [{ id: 'mRow' }, { id: 'mRowStaleSnz' }, { id: 'repRow', waits: 'reply', bell: true }] })
+        sStage.makeWidget({ snoozed: true, rows: [{ id: 'snRow' }] })
+        sStage.makeWidget({ delegated: true, rows: [{ id: 'dlRow' }] })
+        const sEntries = box => {
+          sStage.setBox(box)
+          return sStage.eval('_ROW_SHORTCUTS').filter(e => e.keys == 's' && e.active()).map(e => e.does)
+        }
+        check('s entries adaptation: snoozed todo offers unsnooze (never snooze) both with and without a row; main offers snooze (and mounted main row wins); delegated and reply offer neither',
+          ['#mRow', '#mRowStaleSnz', '#snRow', '#dlRow', '#repRow', '#mOff', '#snOff', '#dlOff'].map(b => [b, sEntries(b)]),
+          [
+            ['#mRow', ['snooze']],
+            ['#mRowStaleSnz', ['snooze']],
+            ['#snRow', ['unsnooze']],
+            ['#dlRow', []],
+            ['#repRow', []],
+            ['#mOff', ['snooze']],
+            ['#snOff', ['unsnooze']],
+            ['#dlOff', []],
+          ])
+      }
+
+      // 12. Review 0 blockers (2026-11-25): bell count for b key & mount transitions, app-hidden
+      //     lists & targeted fold/unfold observer, zero-widget hook reconciliation + 100-row no-op
+      //     strip cost, and Done keeping selection across async #logger settlement
+      {
+        const DIM = 'rgba(255, 255, 255, 0.25)'
+
+        // 12a. Fix 1: b key and click read ONE drawn bell source; newer arrival stays ringing across
+        //      no-row 2->3, no-row -> mounted row (count 3), mounted row -> unmounted, and target change
+        const runBell23 = async ({ mode, trigger }) => {
+          const s = makeStage()
+          s.win._key_buttons = { guest: () => {} }
+          const it = s.makeItem('b23', {
+            tags_visible: ['#todo'],
+            store: { _todoer: { snoozed: 9999 }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 2 } } },
+          })
+          let hostWidget = null
+          if (mode == 'row-unmounts') {
+            hostWidget = s.makeWidget({
+              rows: [{
+                id: 'b23',
+                bell: true,
+                bellCount: 2,
+                onBellClick: () => s.env._clear_bell(it, 2),
+              }],
+            }).widget
+          }
+          s.setBox('#b23')
+          s.env._bin_buttons(it) // drawn at surfaced=2 (window._todoer_bin_bell = { id: 'b23', count: 2 })
+          const firstBtn = s.win._key_buttons_guests.buttons.find(b => b.name == 'bell')
+          // Count advances to 3 while a save is pending (no store hook -> strip NOT redrawn yet)
+          it._global_store._agent.state.surfaced = 3
+          if (mode == 'row-mounts') {
+            // Row mounts at count 3 between draw (2) and press
+            const mounted = s.makeWidget({
+              rows: [{
+                id: 'b23',
+                bell: true,
+                bellCount: 3,
+                onBellClick: () => {
+                  if (s.env._clear_bell(it, 3)) mounted.widget.querySelector('mark.waits')?.remove()
+                },
+              }],
+            })
+          } else if (mode == 'row-unmounts') {
+            // Row disappears between draw (2) and press
+            hostWidget.remove()
+          }
+          if (trigger == 'click') await firstBtn.press()
+          else {
+            s.env._on_row_key('KeyB', {})
+            await new Promise(r => setTimeout(r, 0))
+          }
+          const after1 = [it._global_store._todoer.bell, s.env._bell(it), s.win._todoer_bin_bell?.count ?? 0]
+          // Second press clears count 3 and removes the bell button
+          const secondBtn = s.win._key_buttons_guests.buttons.find(b => b.name == 'bell')
+          if (trigger == 'click') {
+            if (secondBtn) await secondBtn.press()
+          } else {
+            s.env._on_row_key('KeyB', {})
+            await new Promise(r => setTimeout(r, 0))
+          }
+          const after2 = [it._global_store._todoer.bell, s.env._bell(it), s.win._key_buttons_guests.buttons.some(b => b.name == 'bell')]
+          return [after1, after2]
+        }
+        const bellModes = [
+          ['no-row', 'click'],
+          ['no-row', 'key'],
+          ['row-mounts', 'click'],
+          ['row-mounts', 'key'],
+          ['row-unmounts', 'click'],
+          ['row-unmounts', 'key'],
+        ]
+        const bellResults = []
+        for (const [mode, trigger] of bellModes) bellResults.push([mode, trigger, await runBell23({ mode, trigger })])
+        // Revalidation when box changes to another item without redrawing: stale click refused;
+        // undrawn itB omits b from menu, first KeyB forwards without clearing and refreshes strip
+        // so count 3 shows, then second KeyB clears 3; direct _bin_act without count clears nothing
+        const sReval = makeStage()
+        sReval.win._key_buttons = { guest: () => {} }
+        const itA = sReval.makeItem('itA', { tags_visible: ['#todo'], store: { _todoer: {}, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 2 } } } })
+        const itB = sReval.makeItem('itB', { tags_visible: ['#todo'], store: { _todoer: {}, _agent: { state: { held: 'owner', reason: 'blocked', epoch: 1, surfaced: 3 } } } })
+        const itC = sReval.makeItem('itC', { tags_visible: ['#todo'], store: { _todoer: {}, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 4 } } } })
+        sReval.setBox('#itA')
+        sReval.env._bin_buttons(itA)
+        const staleBtnA = sReval.win._key_buttons_guests.buttons.find(b => b.name == 'bell')
+        sReval.setBox('#itB')
+        staleBtnA.press()
+        const afterStaleClick = [itA._global_store._todoer.bell ?? null, itB._global_store._todoer.bell ?? null, sReval.warns.length]
+        const menuOnUndrawnB = sReval.eval('_ROW_SHORTCUTS').some(e => e.keys == 'b' && e.active())
+        const keyTakenOnUndrawnB = sReval.env._on_row_key('KeyB', {})
+        await new Promise(r => setTimeout(r, 0))
+        const afterFirstKeyOnB = [
+          menuOnUndrawnB,
+          keyTakenOnUndrawnB,
+          itA._global_store._todoer.bell ?? null,
+          itB._global_store._todoer.bell ?? null,
+          sReval.env._bell(itB),
+          sReval.win._todoer_bin_bell?.count ?? 0,
+          sReval.eval('_ROW_SHORTCUTS').some(e => e.keys == 'b' && e.active()),
+        ]
+        const keyTakenAfterDrawB = sReval.env._on_row_key('KeyB', {})
+        await new Promise(r => setTimeout(r, 0))
+        const afterSecondKeyB = [keyTakenAfterDrawB, itB._global_store._todoer.bell ?? null, sReval.env._bell(itB)]
+        const directActUndrawnC = [sReval.env._bin_act('bell', itC, null, false, 0), itC._global_store._todoer.bell ?? null, sReval.env._bell(itC)]
+        check('bell shown source: both click and b clear drawn count 2 (leaving 3 ringing) across no-row, row-mounting, and row-unmounting transitions, and require a drawn bell on target change',
+          [bellResults, afterStaleClick, afterFirstKeyOnB, afterSecondKeyB, directActUndrawnC],
+          [
+            bellModes.map(([m, t]) => [m, t, [[2, 'question', 3], [3, null, false]]]),
+            [null, null, 1],
+            [false, false, null, null, 'blocked', 3, true],
+            [true, 3, null],
+            [false, null, 'question'],
+          ])
+
+        // Review 2 Fix: silent arrival (2 -> 3 without store hook) with no bell drawn, for BOTH
+        // a rowless todo and a mounted todo row without a bell mark, driven purely through the
+        // registered key hook with NO helper call between presses: first KeyB forwards, leaves
+        // ack at 2, and refreshes what the owner sees (strip / mounted row mark + menu offers b);
+        // second distinct KeyB clears 3; reply (data-waits) row and direct _bin_act guard stay intact
+        {
+          // 1. Rowless todo (no lists on page), through registered window._on_key
+          const prior = []
+          const sharedWin = { innerWidth: 1000, _on_key: k => (prior.push(k), 'prior:' + k), _key_buttons: { guest: () => {} } }
+          const s = makeStage({ sharedWin })
+          s.env._row_keys()
+          const sil = s.makeItem('sil', {
+            tags_visible: ['#todo'],
+            store: { _todoer: { snoozed: 9999, bell: 2 }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 2 } } },
+          })
+          const undrawn = s.makeItem('undr', {
+            tags_visible: ['#todo'],
+            store: { _todoer: { snoozed: 9999, bell: 2 }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 3 } } },
+          })
+          s.setBox('#sil')
+          s.env._bin_buttons(sil) // drawn with NO bell (_shown_bell('sil') === 0)
+          const drawnWithoutBell = [sharedWin._key_buttons_guests.buttons.some(b => b.name == 'bell'), sharedWin._todoer_bin_bell]
+          // Silent update while save pending: surfaced becomes 3, strip NOT redrawn
+          sil._global_store._agent.state.surfaced = 3
+          const menuHidden = [s.eval('_ROW_SHORTCUTS').some(e => e.keys == 'b' && e.active()), s.eval('_row_has("bell")'), s.env._row_can('bell')]
+          // Press 1 through registered key hook (NO helper call after): forwards, ack stays 2, strip & menu now show bell at 3
+          let prev1 = false
+          const keyRes1 = sharedWin._on_key('KeyB', { preventDefault: () => { prev1 = true } })
+          await new Promise(r => setTimeout(r, 0))
+          const afterFirstKey = [
+            keyRes1,
+            prev1,
+            prior.slice(),
+            sil._global_store._todoer.bell,
+            s.env._bell(sil),
+            sharedWin._todoer_bin_bell?.count ?? 0,
+            sharedWin._key_buttons_guests.buttons.some(b => b.name == 'bell'),
+            s.eval('_ROW_SHORTCUTS').some(e => e.keys == 'b' && e.active()),
+          ]
+          // Press 2 through registered key hook: taken, clears 3, removes bell
+          prior.length = 0
+          let prev2 = false
+          sharedWin._on_key('KeyB', { preventDefault: () => { prev2 = true } })
+          await new Promise(r => setTimeout(r, 0))
+          const afterSecondKey = [
+            prev2,
+            prior.length,
+            sil._global_store._todoer.bell,
+            s.env._bell(sil),
+            sharedWin._key_buttons_guests.buttons.some(b => b.name == 'bell'),
+          ]
+
+          // 2. Mounted todo row without a bell mark, using REAL _rerender_todoer_widgets, through registered window._on_key
+          const mPrior = []
+          const mWin = { innerWidth: 1000, _on_key: k => (mPrior.push(k), 'prior:' + k), _key_buttons: { guest: () => {} } }
+          const ms = makeStage({ sharedWin: mWin })
+          ms.env.each = (xs, f) => xs.forEach(f)
+          vm.runInContext(pick(['_rerender_todoer_widgets'])[0], ms.env)
+          ms.env._row_keys()
+          const mTodo = ms.makeItem('mt', {
+            tags_visible: ['#todo'],
+            store: { _todoer: { bell: 2 }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced: 2 } } },
+          })
+          const pinnedHost = ms.body.appendChild(new ms.DomNode('div', { className: 'super-container' }))
+          const mWidget = pinnedHost.appendChild(new ms.DomNode('div', { className: 'todoer-widget' }))
+          mWidget._snoozed = false
+          mWidget._delegated = false
+          const renderMounted = widget => {
+            widget.replaceChildren()
+            const list = widget.appendChild(new ms.DomNode('div', { className: 'list' }))
+            for (const b of ['agent', 'done', 'snooze', 'cancel']) widget.appendChild(new ms.DomNode('div', { className: `${b} bin` }))
+            const row = list.appendChild(new ms.DomNode('div', { className: 'list-item-container', 'data-id': mTodo.id }))
+            row._log_text = '#todo mt'
+            const li = row.appendChild(new ms.DomNode('div', { className: 'list-item' }))
+            const st = ms.env._task_state(mTodo)
+            const rings = ms.env._bell(mTodo, st, 'main')
+            if (rings) {
+              const mark = li.appendChild(new ms.DomNode('mark', { className: 'waits' }))
+              const cameUp = st.surfaced
+              mark._came_up = cameUp
+              mark.textContent = rings
+              mark.click = () => { if (ms.env._clear_bell(mTodo, cameUp)) ms.env._rerender_todoer_widgets() }
+            }
+          }
+          const pinnedItem = ms.makeItem('pinned', { tags: ['#pin'], tags_visible: ['#pin'] })
+          pinnedItem.elem = pinnedHost
+          ms.env._todoer.dependents = ['pinned']
+          ms.env._render_todoer_widget = widget => renderMounted(widget)
+          renderMounted(mWidget)
+          ms.setBox('#mt')
+          ms.env._bin_buttons(mTodo)
+          const mBeforeSilent = [!!mWidget.querySelector('mark.waits'), mWin._key_buttons_guests.buttons.some(b => b.name == 'bell')]
+          // Silent update raises surfaced to 3 while row still has NO bell mark
+          mTodo._global_store._agent.state.surfaced = 3
+          const mMenuBefore = ms.eval('_ROW_SHORTCUTS').some(e => e.keys == 'b' && e.active())
+          // Press 1 through registered key hook (NO helper call): forwards, ack still 2, row gains count-3 mark & strip/menu show bell
+          let mPrev1 = false
+          const mRes1 = mWin._on_key('KeyB', { preventDefault: () => { mPrev1 = true } })
+          await new Promise(r => setTimeout(r, 0))
+          const mMarkAfter1 = mWidget.querySelector('mark.waits')
+          const mAfter1 = [
+            mRes1,
+            mPrev1,
+            mPrior.slice(),
+            mTodo._global_store._todoer.bell,
+            ms.env._bell(mTodo),
+            mMarkAfter1?._came_up ?? null,
+            mWin._key_buttons_guests.buttons.some(b => b.name == 'bell'),
+            ms.eval('_ROW_SHORTCUTS').some(e => e.keys == 'b' && e.active()),
+          ]
+          // Press 2 through registered key hook: taken, clears 3, removes row mark & strip bell
+          mPrior.length = 0
+          let mPrev2 = false
+          mWin._on_key('KeyB', { preventDefault: () => { mPrev2 = true } })
+          await new Promise(r => setTimeout(r, 0))
+          const mAfter2 = [
+            mPrev2,
+            mPrior.length,
+            mTodo._global_store._todoer.bell,
+            ms.env._bell(mTodo),
+            !!mWidget.querySelector('mark.waits'),
+            mWin._key_buttons_guests.buttons.some(b => b.name == 'bell'),
+          ]
+
+          // 3. Reply row (data-waits) unchanged, and direct _bin_act without drawn count still refuses
+          const rStage = makeStage()
+          rStage.env._row_keys()
+          rStage.makeItem('rep', { tags: [], tags_visible: [] })
+          rStage.makeWidget({ rows: [{ id: 'rep', waits: 'reply', bell: true }] })
+          rStage.setBox('#rep')
+          const repMenu = rStage.eval('_ROW_SHORTCUTS').some(e => e.keys == 'b' && e.active())
+          let repPrev = false
+          rStage.win._on_key('KeyB', { preventDefault: () => { repPrev = true } })
+          await new Promise(r => setTimeout(r, 0))
+          const repAfter = [repMenu, repPrev, rStage.actions.slice()]
+          const actGuard = [s.env._bin_act('bell', undrawn, null, true, 0), undrawn._global_store._todoer.bell, s.env._bell(undrawn)]
+
+          check('bell drawn gate: silent arrival with no bell drawn hides menu b, first KeyB forwards and refreshes strip/mounted row so bell shows at 3 while ack stays 2, second KeyB clears 3; data-waits row unchanged',
+            [drawnWithoutBell, menuHidden, afterFirstKey, afterSecondKey, mBeforeSilent, mMenuBefore, mAfter1, mAfter2, repAfter, actGuard],
+            [
+              [false, null],
+              [false, false, false],
+              ['prior:KeyB', false, ['KeyB'], 2, 'question', 3, true, true],
+              [true, 0, 3, null, false],
+              [false, false],
+              false,
+              ['prior:KeyB', false, ['KeyB'], 2, 'question', 3, true, true],
+              [true, 0, 3, null, false, false],
+              [true, true, [['bell-click', 'rep']]],
+              [false, 2, 'question'],
+            ])
+        }
+
+        // Review 2 guard: b with no live bell, b on a held repeat, menu open with a live undrawn bell,
+        // and b with the bell already drawn perform zero unnecessary refreshes
+        {
+          const countStage = ({ withWidget = false, bellOnRow = false, surfaced = 2, ack = 2, stripDrawn = true } = {}) => {
+            const sharedWin = { innerWidth: 1000, _on_key: () => 'prior', _key_buttons: { guest: () => {} } }
+            const s = makeStage({ sharedWin })
+            s.env._row_keys()
+            const it = s.makeItem('t', {
+              tags_visible: ['#todo'],
+              store: { _todoer: { snoozed: withWidget ? 0 : 9999, bell: ack }, _agent: { state: { held: 'owner', reason: 'question', epoch: 1, surfaced } } },
+            })
+            s.makeItem('note', { tags: [], tags_visible: [] })
+            if (withWidget) s.makeWidget({ rows: [{ id: 't', bell: bellOnRow, bellCount: bellOnRow ? surfaced : undefined }] })
+            s.setBox('#t')
+            if (stripDrawn) s.env._bin_buttons(it)
+            let rerenders = 0
+            let stripDraws = 0
+            const origRerender = s.env._rerender_todoer_widgets
+            const origBin = s.env._bin_buttons
+            s.env._rerender_todoer_widgets = (...a) => (rerenders++, origRerender(...a))
+            s.env._bin_buttons = (...a) => (stripDraws++, origBin(...a))
+            return { s, sharedWin, it, counts: () => [rerenders, stripDraws], reset: () => ((rerenders = 0), (stripDraws = 0)) }
+          }
+
+          // No live bell: rowless acked 2/2, non-todo, empty box, and mounted row without live bell
+          const cNoLiveRowless = countStage({ withWidget: false, surfaced: 2, ack: 2 })
+          cNoLiveRowless.sharedWin._on_key('KeyB', {})
+          const n1 = cNoLiveRowless.counts()
+          cNoLiveRowless.s.setBox('#note')
+          cNoLiveRowless.sharedWin._on_key('KeyB', {})
+          cNoLiveRowless.s.setBox('')
+          cNoLiveRowless.sharedWin._on_key('KeyB', {})
+          const n1Rest = cNoLiveRowless.counts()
+
+          const cNoLiveMounted = countStage({ withWidget: true, bellOnRow: false, surfaced: 2, ack: 2 })
+          cNoLiveMounted.sharedWin._on_key('KeyB', {})
+          const n2 = cNoLiveMounted.counts()
+
+          // Live undrawn bell: menu predicates and held repeat (e.repeat = true) refresh nothing
+          const cUndrawnRowless = countStage({ withWidget: false, surfaced: 2, ack: 2 })
+          cUndrawnRowless.it._global_store._agent.state.surfaced = 3
+          cUndrawnRowless.s.eval('_ROW_SHORTCUTS').map(e => e.active())
+          cUndrawnRowless.sharedWin._on_key('KeyB', { repeat: true })
+          const nUndrawnRowless = cUndrawnRowless.counts()
+
+          const cUndrawnMounted = countStage({ withWidget: true, bellOnRow: false, surfaced: 2, ack: 2 })
+          cUndrawnMounted.it._global_store._agent.state.surfaced = 3
+          cUndrawnMounted.s.eval('_ROW_SHORTCUTS').map(e => e.active())
+          cUndrawnMounted.sharedWin._on_key('KeyB', { repeat: true })
+          const nUndrawnMounted = cUndrawnMounted.counts()
+
+          // Bell ALREADY drawn (rowless & mounted): _on_row_key triggers zero refresh calls (both repeat and plain press dispatch to _bin_press directly)
+          const cDrawnRowless = countStage({ withWidget: false, surfaced: 3, ack: 2 })
+          const pressedCalls = []
+          cDrawnRowless.s.env._bin_press = (...a) => pressedCalls.push(['rowless', ...a])
+          cDrawnRowless.sharedWin._on_key('KeyB', { repeat: true })
+          cDrawnRowless.sharedWin._on_key('KeyB', { preventDefault: () => {} })
+          const nDrawnRowless = [cDrawnRowless.counts(), pressedCalls.slice()]
+
+          const cDrawnMounted = countStage({ withWidget: true, bellOnRow: true, surfaced: 3, ack: 2 })
+          const mPressedCalls = []
+          cDrawnMounted.s.env._bin_press = (...a) => mPressedCalls.push(['mounted', ...a])
+          cDrawnMounted.sharedWin._on_key('KeyB', { repeat: true })
+          cDrawnMounted.sharedWin._on_key('KeyB', { preventDefault: () => {} })
+          const nDrawnMounted = [cDrawnMounted.counts(), mPressedCalls.slice()]
+
+          check('bell refresh scope: b with no live bell, menu open or repeat on undrawn bell, and b with bell already drawn refresh nothing',
+            [n1, n1Rest, n2, nUndrawnRowless, nUndrawnMounted, nDrawnRowless, nDrawnMounted],
+            [
+              [0, 0],
+              [0, 0],
+              [0, 0],
+              [0, 0],
+              [0, 0],
+              [[0, 0], [['rowless', 'bell', 't']]],
+              [[0, 0], [['mounted', 'bell', 't']]],
+            ])
+        }
+
+        // 12b. Fix 2: _mounted_lists excludes #cache-div, .column.hidden, and .super-container.hidden,
+        //      keeps visible scrolled-out-of-viewport lists, and _watch_list_visibility observes ONLY
+        //      each widget's .super-container class attribute (not document.body / subtree) across fold/unfold
+        {
+          const observed = []
+          let moInstances = 0
+          class MockMO {
+            constructor(cb) { this.cb = cb; moInstances++ }
+            observe(target, opts) { observed.push({ target, opts, cb: this.cb }) }
+          }
+          const sharedWin = { innerWidth: 1000, _key_buttons: { guest: () => {} } }
+          const s = makeStage({ sharedWin })
+          s.env.MutationObserver = MockMO
+          s.makeItem('pk', { tags_visible: ['#todo'] })
+          s.makeItem('meas', { tags_visible: ['#todo'] })
+          const f1 = s.makeItem('f1', { tags_visible: ['#todo'] })
+          s.makeItem('f2', { tags_visible: ['#todo'] })
+          s.makeItem('vis', { tags_visible: ['#todo'] })
+          s.makeWidget({ parked: true, rows: [{ id: 'pk' }] })
+          s.makeWidget({ measure: true, rows: [{ id: 'meas' }] })
+          const foldedW = s.makeWidget({ folded: true, rows: [{ id: 'f1' }, { id: 'f2' }] })
+          // Initially only parked, measurement, and folded widgets exist -> 0 mounted lists, walk empty
+          const hiddenOnly = [s.env._mounted_lists().length, s.env._row_sequence().seq.length, s.env._row_goes(1, false)]
+          s.setBox('')
+          const jOnHidden = [s.env._on_row_key('KeyJ', {}), s.selected.length]
+          // Select f1 while folded: off-list buttons with dimmed arrows
+          s.setBox('#f1')
+          s.env._bin_buttons(f1)
+          const arrows = () => sharedWin._key_buttons_guests.buttons.filter(b => b.name == 'up' || b.name == 'down').map(b => b.color)
+          const whileFolded = arrows()
+          // Observer attached ONLY to foldedW.host (.super-container) with { attributes: true, attributeFilter: ['class'] }
+          const obsMeta = [moInstances, observed.length, observed[0]?.target === foldedW.host, observed[0]?.opts]
+          // Unfold (.super-container loses .hidden) and deliver MutationObserver callback -> arrows light up!
+          foldedW.host.className = 'super-container'
+          observed[0].cb()
+          const afterUnfold = [s.env._mounted_lists().length, s.env._row_sequence().seq.map(e => e.id), arrows()]
+          // Fold again (.super-container regains .hidden) -> arrows dim again!
+          foldedW.host.className = 'super-container hidden'
+          observed[0].cb()
+          const afterRefold = [s.env._mounted_lists().length, arrows()]
+          // Visible list scrolled out of viewport (negative rect top) stays eligible
+          const offscreenCol = s.body.appendChild(new s.DomNode('div', { className: 'column' }))
+          const offscreenSC = offscreenCol.appendChild(new s.DomNode('div', { className: 'super-container' }))
+          const visW = offscreenSC.appendChild(new s.DomNode('div', { className: 'todoer-widget' }))
+          visW._snoozed = false; visW._delegated = false; visW._rect = { top: -2500, width: 300 }
+          const visList = visW.appendChild(new s.DomNode('div', { className: 'list' }))
+          visList.appendChild(new s.DomNode('div', { className: 'list-item-container', 'data-id': 'vis' }))
+          const withScrolledVisible = [s.env._mounted_lists().length, s.env._row_sequence().seq.map(e => e.id)]
+          // Re-evaluating todoer updates window._todoer_vis_refresh without creating another MutationObserver
+          const s2 = makeStage({ sharedWin })
+          s2.env.MutationObserver = MockMO
+          s2.env._watch_list_visibility(foldedW.widget)
+          check('app-hidden lists and targeted fold observer: cache-div, .column.hidden, and .super-container.hidden excluded; scrolled visible kept; fold/unfold refreshes arrows via single per-host class observer',
+            [hiddenOnly, jOnHidden, whileFolded, obsMeta, afterUnfold, afterRefold, withScrolledVisible, moInstances],
+            [
+              [0, 0, false],
+              [false, 0],
+              [DIM, DIM],
+              [1, 1, true, { attributes: true, attributeFilter: ['class'] }],
+              [1, ['f1', 'f2'], ['#fff', '#fff']],
+              [0, [DIM, DIM]],
+              [1, ['vis']],
+              1,
+            ])
+        }
+
+        // 12c. Fix 3: zero-widget hook reconciliation (bound child parent dropping standing_land,
+        //      non-todo parent store change, remote rename leaving box naming nobody, second item
+        //      making selected label ambiguous) + 100-row no-op strip redraw check
+        {
+          const hookCode =
+            binCode +
+            '\n' +
+            ['SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', 'UNSNOOZE_SKEW_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS',
+              '_snooze_record', '_notify_tag', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', '_notify_text',
+              '_notify_permission', '_seen_record', '_wait_key', '_item_wait_key', 'REPLY_FOOTER', 'NOTIFY_SW_WAIT_MS',
+              'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED',
+            ].map(n => src.match(new RegExp(`\\nconst ${n} = [^\\n]*\\n`))[0]).join('') +
+            pick([
+              '_on_item_change', '_on_global_store_change', '_listing_changed', '_listed', '_waits',
+              '_unsnooze', '_unsnooze_for_bell', '_sweep_step', '_corpus_current', '_held', '_resume_hold',
+              '_notify_change', '_notify_children', '_notify_unsnooze', '_unsnooze_step', '_notify_step',
+              '_notify_setting', '_notify_gate', '_state_key', '_checked_in', '_notify_todo', '_notify_show',
+              '_notify_show_page', '_notify_result', '_notification_of', '_notify_reply', '_vault_replies',
+              '_reply_line', '_item_writes', '_notify_items', '_notify_item', '_item_stamp', '_notify_line',
+            ]).join('\n')
+          const root = new DomNode('html')
+          const head = root.appendChild(new DomNode('head'))
+          const body = root.appendChild(new DomNode('body'))
+          const items = new Map()
+          let boxText = ''
+          let guestCalls = 0
+          const win = {
+            innerWidth: 1000,
+            _grammar: { version: 2, edit: (t, fn) => fn(t) },
+            _server_confirmed: true,
+            _server_current: true,
+            _key_buttons: { guest: () => { guestCalls++ } },
+          }
+          const resolve = ref => {
+            if (!ref) return null
+            if (ref.startsWith('#')) {
+              const low = ref.toLowerCase()
+              const matches = [...items.values()].filter(it => it.label?.toLowerCase() == low)
+              return matches.length == 1 ? matches[0] : null
+            }
+            for (const it of items.values()) if (it.id == ref || it.saved_id == ref) return it
+            return null
+          }
+          const hEnv = {
+            window: win,
+            document: {
+              head, body, activeElement: null, visibilityState: 'visible', hasFocus: () => true,
+              createElement: t => new DomNode(t),
+              getElementById: id => root._walk().find(n => n.id == id) ?? null,
+              querySelector: s => root.querySelector(s),
+              querySelectorAll: s => root.querySelectorAll(s),
+            },
+            navigator: { onLine: true },
+            Notification: Object.assign(function () {}, { permission: 'denied' }),
+            console: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+            is_number: x => typeof x == 'number',
+            each: (xs, f) => xs.forEach(f),
+            values: o => Object.values(o ?? {}),
+            merge: (a, b) => Object.assign(a, b),
+            _primary: true,
+            _this: { dependents: [] },
+            _todoer: {
+              id: 'todoer', deephash: 1, dependents: [],
+              store: { notify_seen: {}, snooze_seen: {}, reply_seen: {}, item_seen: {}, last_tick: Date.now() - 10_000, hold_until: 0 },
+              _global_store: { bells_base: {}, notify: { reasons: [] } },
+            },
+            _notifier_elected: () => false,
+            _notify_account_left: () => false,
+            _notify_sw_active: () => null,
+            _notify_click: () => {},
+            _start_sweep: () => {},
+            _replace_tags: context._replace_tags,
+            error: () => {}, warn: () => {}, debug: () => {},
+            _items: () => [...items.values()],
+            _item: resolve,
+            MindBox: { get: () => boxText, set: t => { boxText = t } },
+            _rerender_todoer_widgets: () => {},
+            _render_todoer_widget: () => {},
+          }
+          vm.createContext(hEnv)
+          vm.runInContext(hookCode, hEnv)
+          const mk = (id, { label = '#' + id, tags = ['#todo'], tags_visible = tags, store = {} } = {}) => {
+            const it = {
+              id, saved_id: 's-' + id, name: label, label, text: `${label} #todo ${id}`,
+              tags: [...tags], tags_visible: [...tags_visible],
+              _global_store: store, get global_store() { return this._global_store }, read: () => it.text,
+            }
+            items.set(id, it)
+            return it
+          }
+          const stripNames = () => (win._key_buttons_guests?.buttons ?? []).map(b => b.name)
+          const menuKeys = () => vm.runInContext('_ROW_SHORTCUTS', hEnv).filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+
+          // Case 1: bound child under parent with standing_land: true -> parent drops standing_land via store hook
+          const proj = mk('proj', { store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, project: true, standing_land: true } } } })
+          const child = mk('child', { store: { _agent: { state: { held: 'owner', reason: 'proposal', epoch: 1, surfaced: 1, parent: proj.saved_id } } } })
+          boxText = '#child'
+          hEnv._bin_buttons(child)
+          const pBefore = [stripNames(), menuKeys()]
+          proj._global_store._agent.state.standing_land = false
+          hEnv._on_global_store_change('proj', true)
+          const pAfter = [stripNames(), menuKeys()]
+          // Also when parent is no longer tagged #todo and toggles standing_land back on
+          proj.tags = ['#done']; proj.tags_visible = ['#done']
+          proj._global_store._agent.state.standing_land = true
+          hEnv._on_global_store_change('proj', true)
+          const pNonTodoAfter = [stripNames(), menuKeys()]
+
+          // Case 2: remote rename leaving box naming nobody
+          const ren = mk('ren', { label: '#ren' })
+          boxText = '#ren'
+          hEnv._bin_buttons(ren)
+          const rBefore = [stripNames(), menuKeys()]
+          ren.label = '#ren_new'; ren.name = '#ren_new'
+          hEnv._on_item_change('ren', '#ren_new', '#ren', false, true, false)
+          const rAfter = [stripNames(), menuKeys()]
+
+          // Case 3: another item acquires the selected label making it ambiguous
+          const amb1 = mk('amb1', { label: '#amb' })
+          boxText = '#amb'
+          hEnv._bin_buttons(amb1)
+          const aBefore = [stripNames(), menuKeys()]
+          mk('amb2', { label: '#amb' })
+          hEnv._on_item_change('amb2', '#amb', '', false, true, false)
+          const aAfter = [stripNames(), menuKeys()]
+
+          check('zero-widget strip reconciliation: parent standing_land drop (todo and non-todo), remote rename, and ambiguous label all update displayed buttons to match menu',
+            [pBefore, pAfter, pNonTodoAfter, rBefore, rAfter, aBefore, aAfter],
+            [
+              [['up', 'down', 'agent', 'owner'], ['a:delegate to the agent', 'u:take back from the agent']],
+              [['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell']],
+              [['up', 'down', 'agent', 'owner'], ['a:delegate to the agent', 'u:take back from the agent']],
+              [['up', 'down', 'agent', 'done', 'snooze', 'cancel'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question']],
+              [[], []],
+              [['up', 'down', 'agent', 'done', 'snooze', 'cancel'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question']],
+              [[], []],
+            ])
+
+          // 100-row no-op strip redraw check: zero extra guest() writes
+          const sb = makeStage()
+          let benchGuests = 0
+          sb.win._key_buttons = { guest: () => { benchGuests++ } }
+          const rows100 = []
+          for (let i = 0; i < 100; i++) {
+            sb.makeItem('r' + i, { tags_visible: ['#todo'] })
+            rows100.push({ id: 'r' + i })
+          }
+          sb.makeWidget({ rows: rows100 })
+          const target50 = sb.items.get('r50')
+          sb.setBox('#r50')
+          sb.env._bin_buttons(target50)
+          benchGuests = 0
+          for (let i = 0; i < 100; i++) sb.env._bin_buttons(target50)
+          check('no-op strip redraw over 100 rows: writes nothing when buttons are unchanged', benchGuests, 0)
+        }
+
+        // 12d. Review 1 Fix 2: real _log_done + _complete_todo + _bin_press + _select_next + real
+        //      logger.js _on_command_log (no MindBox command dispatch): appends to existing day log,
+        //      creates first-of-day log via programmatic window._create + init keeping box text,
+        //      preserves follow-up selection / typed query / intentional clear in FINAL box, selects
+        //      next row on mounted Done, and catches logger errors without failing completion
+        {
+          const loggerSrc = fs.readFileSync(path.join(__dirname, '..', 'logger.js'), 'utf8')
+          const loggerFnCode = loggerSrc.match(/function _on_command_log[\s\S]*?\n\}\n/)[0]
+          const doneCode = binCode + '\n' + pick(['_log_done', '_complete_todo', '_on_search']).join('\n')
+          const pad2 = n => String(n).padStart(2, '0')
+          const makeDoneEnv = ({ preExistingDayLog = true, loggerThrows = null } = {}) => {
+            const root = new DomNode('html')
+            const head = root.appendChild(new DomNode('head'))
+            const body = root.appendChild(new DomNode('body'))
+            const items = new Map()
+            let boxText = ''
+            let seqId = 0
+            const selected = []
+            const consoleErrors = []
+            const mindboxCreateCalls = []
+            const pendingCommands = []
+            const createdCalls = []
+
+            const resolve = ref => {
+              if (!ref) return null
+              if (ref.startsWith('#')) {
+                const low = ref.toLowerCase()
+                const m = [...items.values()].filter(it => it.label?.toLowerCase() == low)
+                return m.length == 1 ? m[0] : null
+              }
+              for (const it of items.values()) if (it.id == ref || it.saved_id == ref) return it
+              return null
+            }
+
+            const mk = (id, { label = '#' + id, text = `${label}\n#todo ${id} task`, tags = ['#todo'], tags_visible = tags } = {}) => {
+              const blocks = {}
+              const it = {
+                id, saved_id: 's-' + id, name: label, label, text,
+                tags: [...tags], tags_visible: [...tags_visible],
+                _global_store: {}, get global_store() { return this._global_store },
+                touched: 0,
+                read: block => (block ? blocks[block] ?? '' : it.text),
+                write: (t, block = '') => {
+                  if (block) { blocks[block] = t; return true }
+                  it.text = t
+                  it.tags = t.includes('#todo') ? ['#todo'] : ['#done']
+                  it.tags_visible = [...it.tags]
+                  return true
+                },
+                remove: block => { delete blocks[block] },
+                touch: () => { it.touched++ },
+                select: () => { selected.push(id); boxText = it.name; return true },
+                delete: () => { items.delete(id); boxText = ''; return true },
+              }
+              items.set(id, it)
+              return it
+            }
+
+            const loggerCtx = {
+              Date,
+              date_string: d => `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`,
+              time_string: d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`,
+              _02d: n => pad2(Number(n)),
+              parse_time: l => {
+                const m = l.match(/^(\d\d):(\d\d)/)
+                return m ? Number(m[1]) * 60 + Number(m[2]) : 0
+              },
+              sort_by: (xs, f) => xs.sort((a, b) => f(a) - f(b)),
+              _exists: ref => !!resolve(ref),
+              _item: resolve,
+            }
+            vm.createContext(loggerCtx)
+            vm.runInContext(loggerFnCode, loggerCtx)
+            const todayName = '#' + loggerCtx.date_string(new Date())
+
+            const loggerItem = mk('logger', { label: '#logger', text: '#logger', tags: [], tags_visible: [] })
+            loggerItem.eval = expr => {
+              if (loggerThrows == 'eval') throw new Error('logger eval boom')
+              if (loggerThrows == 'call') return () => { throw new Error('logger call boom') }
+              return vm.runInContext(expr, loggerCtx)
+            }
+            if (preExistingDayLog) {
+              mk('today', { label: todayName, text: `${todayName} #_log #_logger`, tags: ['#log'], tags_visible: [] })
+            }
+
+            // Models app's programmatic window._create (index.svelte:173-227): keeps boxText when emulate_button is false
+            const appCreate = (text, opts = {}) => {
+              createdCalls.push({ text, opts })
+              const kept = opts.emulate_button ? null : (opts.mindbox_text ?? boxText)
+              const label = text.match(/^(#\S+)/)?.[1] ?? ''
+              const it = mk('day-' + ++seqId, { label, text, tags: ['#log'], tags_visible: [] })
+              if (kept !== null) boxText = kept
+              return it
+            }
+
+            const win = {
+              innerWidth: 1000,
+              _grammar: { version: 2, edit: (t, fn) => fn(t) },
+              _key_buttons: { guest: () => {} },
+              _create: appCreate,
+            }
+
+            const dEnv = {
+              window: win,
+              document: {
+                head, body, activeElement: null,
+                createElement: t => new DomNode(t),
+                getElementById: id => root._walk().find(n => n.id == id) ?? null,
+                querySelector: s => root.querySelector(s),
+                querySelectorAll: s => root.querySelectorAll(s),
+              },
+              console: { warn: () => {}, error: m => consoleErrors.push(m) },
+              alert: () => {},
+              is_number: x => typeof x == 'number',
+              each: (xs, f) => xs.forEach(f),
+              _this: { dependents: [] },
+              _todoer: { deephash: 1, store: {}, _global_store: { bells_base: {} } },
+              _replace_tags: replaceTags,
+              error: () => {}, warn: () => {},
+              _item: resolve,
+              _exists: ref => !!resolve(ref),
+              MindBox: {
+                get: () => boxText,
+                set: t => { boxText = t },
+                // Real app command path clears boxText = '' asynchronously on settlement:
+                // if anything mistakenly dispatches through MindBox.create, settleAll() reproduces the clear!
+                create: cmd => {
+                  mindboxCreateCalls.push(cmd)
+                  const arg = cmd.replace(/^\/log\s+/, '')
+                  const ret = loggerCtx._on_command_log(arg)
+                  return new Promise(r => {
+                    pendingCommands.push(() => {
+                      if (ret && typeof ret.text == 'string') {
+                        const day = appCreate(ret.text, { edit: !!ret.edit, mindbox_text: '' })
+                        ret.init?.(day)
+                      }
+                      boxText = ''
+                      r(undefined)
+                    })
+                  })
+                },
+              },
+              _rerender_todoer_widgets: () => {},
+              _render_todoer_widget: () => {},
+            }
+            vm.createContext(dEnv)
+            vm.runInContext(doneCode, dEnv)
+            const addMainWidget = ids => {
+              const w = body.appendChild(new DomNode('div', { className: 'todoer-widget' }))
+              w._snoozed = false; w._delegated = false
+              const list = w.appendChild(new DomNode('div', { className: 'list' }))
+              for (const b of ['agent', 'done', 'snooze', 'cancel']) w.appendChild(new DomNode('div', { className: `${b} bin` }))
+              for (const id of ids) {
+                const row = list.appendChild(new DomNode('div', { className: 'list-item-container', 'data-id': id }))
+                row._log_text = `#todo ${id} task`
+              }
+              return w
+            }
+            const settleAll = async () => {
+              while (pendingCommands.length) pendingCommands.shift()()
+              await new Promise(r => setTimeout(r, 0))
+            }
+            return {
+              dEnv, win, mk, addMainWidget, todayName, resolve,
+              setBox: t => (boxText = t), getBox: () => boxText,
+              selected, consoleErrors, mindboxCreateCalls, createdCalls, settleAll,
+            }
+          }
+
+          // 1. No-row Done with existing daily log: appends line, touches day log, keeps #solo1, never calls MindBox.create
+          const e1 = makeDoneEnv({ preExistingDayLog: true })
+          const solo1 = e1.mk('solo1')
+          e1.setBox('#solo1')
+          e1.dEnv._bin_buttons(solo1)
+          const p1 = e1.dEnv._bin_press('done', 'solo1')
+          await e1.settleAll()
+          await p1
+          const day1 = e1.resolve(e1.todayName)
+          const res1 = [
+            solo1.text,
+            e1.getBox(),
+            /^\d\d:\d\d done #todo solo1 task$/.test(day1.read('log')),
+            day1.touched,
+            e1.mindboxCreateCalls.length,
+            (e1.win._key_buttons_guests?.buttons ?? []).length,
+          ]
+
+          // 2. No-row Done on first entry of day: creates daily log via programmatic window._create({edit:false}) + init, keeps #first1
+          const e2 = makeDoneEnv({ preExistingDayLog: false })
+          const first1 = e2.mk('first1')
+          e2.setBox('#first1')
+          e2.dEnv._bin_buttons(first1)
+          const p2 = e2.dEnv._bin_press('done', 'first1')
+          await e2.settleAll()
+          await p2
+          const day2 = e2.resolve(e2.todayName)
+          const res2 = [
+            first1.text,
+            e2.getBox(),
+            !!day2 && /^\d\d:\d\d done #todo first1 task$/.test(day2.read('log')),
+            e2.createdCalls.length === 1 && e2.createdCalls[0].opts.edit === false && !e2.createdCalls[0].opts.emulate_button,
+            e2.mindboxCreateCalls.length,
+          ]
+
+          // 3. Selection of #other, typed query, and intentional clear made right after Done -> each stands in FINAL box after settling
+          const eSel = makeDoneEnv({ preExistingDayLog: true })
+          eSel.mk('soloSel'); const oth = eSel.mk('other')
+          eSel.setBox('#soloSel')
+          const pSel = eSel.dEnv._bin_press('done', 'soloSel')
+          eSel.dEnv._select_item(oth)
+          await eSel.settleAll()
+          await pSel
+
+          const eTyp = makeDoneEnv({ preExistingDayLog: true })
+          eTyp.mk('soloTyp')
+          eTyp.setBox('#soloTyp')
+          const pTyp = eTyp.dEnv._bin_press('done', 'soloTyp')
+          eTyp.setBox('my typed query')
+          await eTyp.settleAll()
+          await pTyp
+
+          const eClr = makeDoneEnv({ preExistingDayLog: true })
+          eClr.mk('soloClr')
+          eClr.setBox('#soloClr')
+          const pClr = eClr.dEnv._bin_press('done', 'soloClr')
+          eClr.setBox('')
+          await eClr.settleAll()
+          await pClr
+          const resFollowUps = [eSel.getBox(), eTyp.getBox(), eClr.getBox()]
+
+          // 4. Mounted row Done: logs line and selects next row immediately, still selected at end
+          const eRow = makeDoneEnv({ preExistingDayLog: false })
+          eRow.mk('t1'); eRow.mk('t2')
+          eRow.addMainWidget(['t1', 't2'])
+          eRow.setBox('#t1')
+          const pRow = eRow.dEnv._bin_press('done', 't1')
+          await eRow.settleAll()
+          await pRow
+          const resRow = [
+            eRow.getBox(),
+            eRow.selected,
+            /^\d\d:\d\d done #todo t1 task$/.test(eRow.resolve(eRow.todayName)?.read('log') ?? ''),
+            eRow.mindboxCreateCalls.length,
+          ]
+
+          // 5. Logger throws (eval or _on_command_log): error logged, todo still completed, box intact / next row selected
+          const eErr1 = makeDoneEnv({ loggerThrows: 'call' })
+          const errSolo = eErr1.mk('errSolo')
+          eErr1.setBox('#errSolo')
+          await eErr1.dEnv._bin_press('done', 'errSolo')
+          await eErr1.settleAll()
+          const eErr2 = makeDoneEnv({ loggerThrows: 'eval' })
+          const errT1 = eErr2.mk('errT1'); eErr2.mk('errT2')
+          eErr2.addMainWidget(['errT1', 'errT2'])
+          eErr2.setBox('#errT1')
+          await eErr2.dEnv._bin_press('done', 'errT1')
+          await eErr2.settleAll()
+          const resErrors = [
+            errSolo.text.includes('#done'),
+            eErr1.getBox(),
+            eErr1.consoleErrors.length === 1 && eErr1.consoleErrors[0].includes('logger call boom'),
+            errT1.text.includes('#done'),
+            eErr2.getBox(),
+            eErr2.consoleErrors.length === 1 && eErr2.consoleErrors[0].includes('logger eval boom'),
+          ]
+
+          check('Done direct logger: logs existing and first-of-day entries without MindBox command dispatch, keeps final box for solo/select/typed/clear, selects next row, and survives logger errors',
+            [res1, res2, resFollowUps, resRow, resErrors],
+            [
+              ['#solo1\n#done solo1 task', '#solo1', true, 1, 0, 0],
+              ['#first1\n#done first1 task', '#first1', true, true, 0],
+              ['#other', 'my typed query', ''],
+              ['#t2', ['t2'], true, 0],
+              [true, '#errSolo', true, true, '#errT2', true],
+            ])
+        }
       }
     }
   })())
