@@ -214,7 +214,8 @@ function _shortcuts_create() {
     take(e)
     if (box) box.scrollTop = Math.max(0, Math.min(box.scrollHeight, box.scrollTop + moves[e.key]))
   }
-  // the menu's key, taken before the app and its editors see it (a capturing listener): it
+  // the menu's key, taken before the app and its editors see it (a capturing listener on
+  // document, so a full-window view capturing on window goes first): it
   // opens the menu on what the keys do now, in the context it was pressed in, and closes an
   // open one. The items' tests of what is active run here, at the press that opens. In a field
   // the plain key is a character to type, so there it counts only with Ctrl, Alt or Cmd. Another
@@ -248,13 +249,13 @@ function _shortcuts_create() {
     if (!e.repeat) self.show('now', context)
   }
   const up = e => void (self.held && pressed(e) == self.held && (self.held = null))
-  window.addEventListener('keydown', key, true)
-  window.addEventListener('keyup', up, true)
+  document.addEventListener('keydown', key, true)
+  document.addEventListener('keyup', up, true)
   self.dispose = () => {
     if (self.disposed) return
     self.disposed = true
-    window.removeEventListener('keydown', key, true)
-    window.removeEventListener('keyup', up, true)
+    document.removeEventListener('keydown', key, true)
+    document.removeEventListener('keyup', up, true)
     self.close()
     style.remove()
     if (window._shortcuts_menu === self) delete window._shortcuts_menu

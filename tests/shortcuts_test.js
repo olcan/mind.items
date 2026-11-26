@@ -30,10 +30,30 @@ function makePage({ noDoc = false } = {}) {
   const log = []
   const headChildren = []
   let menuBox = null
+  const winListeners = [] // { target, type, fn, capture }
+  const docListeners = [] // { target, type, fn, capture }
+  const captureOf = opt => (typeof opt == 'object' && opt !== null ? !!opt.capture : !!opt)
+  const targetMethods = (target, list) => ({
+    addEventListener(type, fn, capture = false) {
+      const cap = captureOf(capture)
+      list.push({ target, type, fn, capture: cap })
+      log.push(`+listen:${target}:${type}:${cap}`)
+    },
+    removeEventListener(type, fn, capture = false) {
+      const cap = captureOf(capture)
+      const i = list.findIndex(l => l.type === type && l.fn === fn && l.capture === cap)
+      if (i >= 0) {
+        list.splice(i, 1)
+        log.push(`-listen:${target}:${type}:${cap}`)
+      }
+    },
+  })
+
   const doc = noDoc
     ? undefined
     : {
         activeElement: null,
+        ...targetMethods('document', docListeners),
         head: {
           children: headChildren,
           appendChild(node) {
@@ -64,23 +84,12 @@ function makePage({ noDoc = false } = {}) {
         },
       }
 
-  const listeners = [] // { type, fn, capture }
   let modalSeq = 0
   let visibleModal = null
   let savedActive = null
   const modalLog = []
   const win = {
-    addEventListener(type, fn, capture = false) {
-      listeners.push({ type, fn, capture: !!capture })
-      log.push(`+listen:${type}:${!!capture}`)
-    },
-    removeEventListener(type, fn, capture = false) {
-      const i = listeners.findIndex(l => l.type === type && l.fn === fn && l.capture === !!capture)
-      if (i >= 0) {
-        listeners.splice(i, 1)
-        log.push(`-listen:${type}:${!!capture}`)
-      }
-    },
+    ...targetMethods('window', winListeners),
     _modal(content) {
       const handle = { id: ++modalSeq }
       visibleModal = handle
@@ -109,50 +118,48 @@ function makePage({ noDoc = false } = {}) {
     },
   }
 
-  const fireKey = (init = {}) => {
-    const ev = {
-      key: '',
-      code: '',
-      shiftKey: false,
-      ctrlKey: false,
-      altKey: false,
-      metaKey: false,
-      repeat: false,
-      prevented: 0,
-      stoppedImmediate: 0,
-      stopped: 0,
-      preventDefault() {
-        this.prevented++
-      },
-      stopImmediatePropagation() {
-        this.stoppedImmediate++
-      },
-      stopPropagation() {
-        this.stopped++
-      },
-      ...init,
-    }
-    for (const l of [...listeners]) {
-      if (l.type === 'keydown') l.fn(ev)
-    }
-    return ev
-  }
-
-  const fireKeyUp = (init = {}) => {
-    const ev = {
-      key: '',
-      code: '',
-      shiftKey: false,
-      ctrlKey: false,
-      altKey: false,
-      metaKey: false,
-      ...init,
-    }
-    for (const l of [...listeners]) {
-      if (l.type === 'keyup') l.fn(ev)
+  // Dispatch in browser order: window capture -> document capture -> document bubble -> window bubble.
+  // stopImmediatePropagation ends dispatch at once; stopPropagation finishes the current target's phase.
+  const makeEvent = (init = {}) => ({
+    key: '',
+    code: '',
+    shiftKey: false,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    repeat: false,
+    prevented: 0,
+    stoppedImmediate: 0,
+    stopped: 0,
+    preventDefault() {
+      this.prevented++
+    },
+    stopImmediatePropagation() {
+      this.stoppedImmediate++
+    },
+    stopPropagation() {
+      this.stopped++
+    },
+    ...init,
+  })
+  const dispatch = (type, ev) => {
+    const phases = [
+      winListeners.filter(l => l.type === type && l.capture),
+      docListeners.filter(l => l.type === type && l.capture),
+      docListeners.filter(l => l.type === type && !l.capture),
+      winListeners.filter(l => l.type === type && !l.capture),
+    ]
+    for (const group of phases) {
+      for (const l of [...group]) {
+        l.fn(ev)
+        if (ev.stoppedImmediate) return ev
+      }
+      if (ev.stopped) return ev
     }
     return ev
   }
+  const fireKey = (init = {}) => dispatch('keydown', makeEvent(init))
+  const fireKeyUp = (init = {}) => dispatch('keyup', makeEvent(init))
 
   const items = { '#shortcuts': { id: 'sc-1' } }
   // Models index.svelte's dispatch_task (lines 1855-1909):
@@ -228,7 +235,11 @@ function makePage({ noDoc = false } = {}) {
     doc,
     win,
     headChildren,
-    listeners,
+    winListeners,
+    docListeners,
+    get listeners() {
+      return [...winListeners, ...docListeners]
+    },
     modalLog,
     log,
     items,
@@ -628,7 +639,7 @@ check('hygiene: shortcuts.js comments hold no word starting with hash sign',
     p.headChildren.length,
     p.headChildren[0]?.dataset.shortcuts,
     p.listeners.length,
-    p.listeners.map(l => [l.type, l.capture]),
+    p.listeners.map(l => [l.target, l.type, l.capture]),
   ]
 
   // another item with different id cannot hijack or dispose sc-1's controller
@@ -656,7 +667,7 @@ check('hygiene: shortcuts.js comments hold no word starting with hash sign',
     [afterMissing, afterCreate, afterOther, afterSame, afterReplace, afterLostName],
     [
       [null, 0, 0],
-      [true, 'sc-1', 'h1', 1, 'style', 2, [['keydown', true], ['keyup', true]]],
+      [true, 'sc-1', 'h1', 1, 'style', 2, [['document', 'keydown', true], ['document', 'keyup', true]]],
       [true, false],
       [true, 1, 2],
       [true, true, 'h2', 1, 2],
@@ -1093,7 +1104,7 @@ check('hygiene: shortcuts.js comments hold no word starting with hash sign',
   const p = makePage()
   p.evaluate({ id: 'sc-1', deephash: 'h1' })('_on_welcome()')
   const ctrl = p.win._shortcuts_menu
-  const listenersBeforeDispose = p.listeners.map(l => [l.type, l.capture])
+  const listenersBeforeDispose = p.listeners.map(l => [l.target, l.type, l.capture])
   p.fireKey({ key: '?', code: 'Slash', shiftKey: true })
   const openBeforeDispose = ctrl.open()
   ctrl.dispose()
@@ -1113,7 +1124,7 @@ check('hygiene: shortcuts.js comments hold no word starting with hash sign',
   firstCtrl.dispose()
   const keptForeign = pSwap.win._shortcuts_menu === foreignCtrl
 
-  check('dispose: closes open dialog, removes keydown and keyup listeners and style, clears own window ref only, and is idempotent',
+  check('dispose: closes open dialog, removes document keydown and keyup listeners and style, clears own window ref only, and is idempotent',
     [
       listenersBeforeDispose,
       openBeforeDispose,
@@ -1129,7 +1140,7 @@ check('hygiene: shortcuts.js comments hold no word starting with hash sign',
       keptForeign,
     ],
     [
-      [['keydown', true], ['keyup', true]],
+      [['document', 'keydown', true], ['document', 'keyup', true]],
       true,
       true,
       false,
@@ -1137,7 +1148,7 @@ check('hygiene: shortcuts.js comments hold no word starting with hash sign',
       1,
       0,
       0,
-      ['-listen:keydown:true', '-listen:keyup:true'],
+      ['-listen:document:keydown:true', '-listen:document:keyup:true'],
       null,
       0,
       true,
@@ -1226,6 +1237,74 @@ check('hygiene: shortcuts.js comments hold no word starting with hash sign',
       [null, true, 0],
       [true, true, 2],
       [true, null, 0, 0],
+    ])
+}
+
+// 8i. document capture: menu listens on document (not window), yields to a capturing window
+//     listener added after it, opens and steers when no such listener is present, and removes
+//     both listeners from document at dispose
+{
+  const p = makePage()
+  const scrollBox = { scrollTop: 0, clientHeight: 200, scrollHeight: 1000 }
+  p.setMenuBox(scrollBox)
+  p.win._shortcuts = { demo: [{ keys: 'g', does: 'go', active: () => true }] }
+  p.evaluate({ id: 'sc-1', deephash: 'h1' })('_on_welcome()')
+  const ctrl = p.win._shortcuts_menu
+
+  const registered = [
+    p.winListeners.length,
+    p.docListeners.map(l => [l.type, l.capture]),
+  ]
+
+  // A capturing window listener added AFTER the menu (as a full-window view overlay does) runs first
+  let overlayCount = 0
+  const overlay = e => {
+    e.stopImmediatePropagation()
+    if (e.key === '?' || (e.code === 'Slash' && e.shiftKey)) overlayCount++
+  }
+  p.win.addEventListener('keydown', overlay, true)
+  const evBlocked = p.fireKey({ key: '?', code: 'Slash', shiftKey: true })
+  const whileOverlayUp = [overlayCount, evBlocked.stoppedImmediate, evBlocked.prevented, ctrl.open(), p.modalLog.length]
+
+  // Removing the window capturing listener lets ? open the menu and its own keys work as before
+  p.win.removeEventListener('keydown', overlay, true)
+  const evOpened = p.fireKey({ key: '?', code: 'Slash', shiftKey: true })
+  const viewOf = () => (p.modalLog.at(-1)?.[2] ?? '').match(/data-view="([^"]+)"/)?.[1] ?? null
+  const afterOpen = [overlayCount, evOpened.prevented, evOpened.stoppedImmediate, ctrl.open(), viewOf()]
+
+  const evRight = p.fireKey({ key: 'ArrowRight' })
+  const viewAfterRight = viewOf()
+  const evDown = p.fireKey({ key: 'ArrowDown' })
+  const evClosed = p.fireKey({ key: '?', code: 'Slash', shiftKey: true })
+  const afterSteerAndClose = [
+    evRight.prevented,
+    evRight.stoppedImmediate,
+    viewAfterRight,
+    evDown.prevented,
+    evDown.stoppedImmediate,
+    scrollBox.scrollTop,
+    evClosed.prevented,
+    ctrl.open(),
+  ]
+
+  ctrl.dispose()
+  const evAfterDispose = p.fireKey({ key: '?', code: 'Slash', shiftKey: true })
+  const afterDispose = [
+    p.docListeners.length,
+    p.winListeners.length,
+    p.log.filter(x => x.startsWith('-listen:document:')),
+    evAfterDispose.prevented,
+    ctrl.open(),
+  ]
+
+  check('document capture: listens on document (not window), yields to later window capture listener, steers without it, and disposes from document',
+    [registered, whileOverlayUp, afterOpen, afterSteerAndClose, afterDispose],
+    [
+      [0, [['keydown', true], ['keyup', true]]],
+      [1, 1, 0, false, 0],
+      [1, 1, 1, true, 'now'],
+      [1, 1, 'window', 1, 1, 40, 1, false],
+      [0, 0, ['-listen:document:keydown:true', '-listen:document:keyup:true'], 0, false],
     ])
 }
 
