@@ -495,21 +495,25 @@ function __render(widget, widget_item) {
       if (!question && !text.startsWith('#todo')) fatal('missing #todo prefix') // sanity check
       div.innerHTML = html
     } else {
-      // use direction=rtl to truncate (and add ellipsis) on the left
-      div.style.direction = 'rtl'
-      div.style.textAlign = 'left'
-      // div.style.marginLeft = '60px'
+      // use direction=rtl on an inner span to truncate (and add ellipsis) on the left while
+      // keeping marks prepended to .list-item (age, time-left, bell) visible at the left edge
+      div.classList.add('rtl')
+      const span = document.createElement('span')
+      span.className = 'rtl-text'
+      span.style.direction = 'rtl'
+      span.style.textAlign = 'left'
       // set title on container to avoid &lrm in title text
 
       // clip on Safari since text-overflow:ellipsis truncates wrong end for rtl
       // it only ~works if original whitespace is maintained (by dropping lines)
       // see webkit bug at https://bugs.webkit.org/show_bug.cgi?id=164999
       if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent))
-        div.style.textOverflow = 'clip'
+        span.style.textOverflow = 'clip'
 
       // use &lrm; to avoid non-alphanumeric prefixes being treated as ltr
       // see https://stackoverflow.com/a/27961022
-      div.innerHTML = '&lrm;' + html
+      span.innerHTML = '&lrm;' + html
+      div.appendChild(span)
     }
 
     // the bell of a todo that came up since the owner last cleared it (_bell): its kind, and a

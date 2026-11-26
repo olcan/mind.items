@@ -2761,6 +2761,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       this.tag = String(tag).toLowerCase()
       this.children = []
       this.prefix = []
+      this.suffix = []
       this.attributes = {}
       this.className = ''
       this.title = ''
@@ -2783,6 +2784,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     appendChild(child) {
       child.remove()
       this.children.push(child)
+      this.suffix.push(child)
       child.parentElement = this
       return child
     }
@@ -2810,16 +2812,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       return []
     }
     addEventListener() {}
+    serializedElement() {
+      const cls = this.className ? ` class="${escAttr(this.className)}"` : ''
+      const title = this.title ? ` title="${escAttr(this.title)}"` : ''
+      const css = Object.entries(this.style)
+        .filter(([, v]) => v != null && v !== '')
+        .map(([k, v]) => `${k.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}: ${v}`)
+        .join('; ')
+      const style = css ? ` style="${escAttr(css)}"` : ''
+      const body = this.serializedHTML() || escText(this.innerText)
+      return `<${this.tag}${cls}${title}${style}>${body}</${this.tag}>`
+    }
     serializedHTML() {
-      const head = this.prefix
-        .map(node => {
-          if (typeof node == 'string') return escText(node)
-          const cls = node.className ? ` class="${escAttr(node.className)}"` : ''
-          const title = node.title ? ` title="${escAttr(node.title)}"` : ''
-          return `<${node.tag}${cls}${title}>${escText(node.innerText)}</${node.tag}>`
-        })
-        .join('')
-      return head + this.innerHTML
+      const head = this.prefix.map(node => (typeof node == 'string' ? escText(node) : node.serializedElement())).join('')
+      const tail = this.suffix.map(node => node.serializedElement()).join('')
+      return head + this.innerHTML + tail
     }
   }
   const storeSaves = []
@@ -2853,7 +2860,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, updated: FIXED_NOW - 5 * 60_000, stats: { workers: 2, cost: 1.5, since: FIXED_NOW - 3_600_000 } } },
     }),
   ]
-  const renderList = (options, listItems = items) => {
+  const renderList = (options, listItems = items, { bellsBase = null, userAgent = '' } = {}) => {
     const ctx = {
       console,
       Date: FixedLocaleDate,
@@ -2869,14 +2876,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       uniq: xs => [...new Set(xs)],
       setTimeout: () => 0,
       sort_by: (xs, f) => xs.sort((a, b) => f(a) - f(b)),
-      _todoer: { store: {}, dependents: [], _global_store: {} },
+      _todoer: { store: {}, dependents: [], _global_store: bellsBase ? { bells_base: bellsBase } : {} },
       _items: () => listItems,
       _item: ref => listItems.find(it => it.id == ref) ?? null,
       window: {},
       document: { createElement: tag => new MarkElem(tag), querySelector: () => null },
       Sortable: { dragged: null, create: (el, opts) => ({ options: opts, save() {}, sort() {}, destroy() {} }) },
       MindBox: { get: () => '', set: () => {} },
-      navigator: { userAgent: '' },
+      navigator: { userAgent },
     }
     vm.createContext(ctx)
     vm.runInContext(picked + pick(['__render'])[0], ctx)
@@ -2921,6 +2928,92 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     [['d1'], '<mark class="age" title="11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <mark>#todo</mark> [delegated] agent task', 1]
   )
   check('snoozed render: reading snooze time does not save global_store', storeSaves, [])
+
+  // LEFT-TRUNCATED (RTL) ROWS WITH PREPENDED MARKS (2026-11-26): when text precedes #todo,
+  // .list-item carries class `rtl` and wraps `&lrm;` + html inside `<span class="rtl-text">`
+  // (holding direction: rtl, text-align: left, and Safari's text-overflow: clip) so snoozed,
+  // delegated, and bell marks stay outside the rtl box at the row's left edge; LTR rows do not
+  const rtlItems = [
+    makeTodo('rs_3h', 'snoozed prefix #todo', { _todoer: { snoozed: FIXED_NOW + 3 * 3_600_000 } }),
+    makeTodo('rd_age', 'delegated prefix #todo', {
+      _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, updated: FIXED_NOW - 5 * 60_000, stats: { workers: 2, cost: 1.5, since: FIXED_NOW - 3_600_000 } } },
+    }),
+    makeTodo('rd_bell', 'delegated bell prefix #todo', {
+      _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, surfaced: 1, updated: FIXED_NOW - 5 * 60_000, stats: { workers: 2, cost: 1.5, since: FIXED_NOW - 3_600_000 } } },
+    }),
+    makeTodo('rb_rtl', 'bell prefix #todo', { _agent: { state: { held: 'owner', reason: 'question', surfaced: 1, epoch: 1 } } }),
+    makeTodo('rb_ltr', '#todo bell suffix', { _agent: { state: { held: 'owner', reason: 'question', surfaced: 1, epoch: 1 } } }),
+    makeTodo('rp_rtl', 'plain prefix #todo', {}),
+  ]
+  const rtlSnoozed = byId(renderList({ snoozed: true }, [...items, ...rtlItems]))
+  check(
+    'rtl snoozed row html: class rtl and .rtl-text keep time-left mark outside rtl box',
+    [rtlSnoozed.rs_3h.div.className, rtlSnoozed.rs_3h.div.style.direction ?? null, rtlSnoozed.rs_3h.html, rtlSnoozed.s_3h.div.className, rtlSnoozed.s_3h.div.style.direction ?? null],
+    [
+      'list-item rtl',
+      null,
+      '<mark class="age" title="11/26/2026, 11:00:00 PM">3h</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;snoozed prefix <mark>#todo</mark></span>',
+      'list-item',
+      null,
+    ]
+  )
+  const rtlDelegated = byId(renderList({ delegated: true }, [...items, ...rtlItems], { bellsBase: {} }))
+  check(
+    'rtl delegated row html: class rtl and .rtl-text keep age and bell marks outside rtl box',
+    [rtlDelegated.rd_age.div.className, rtlDelegated.rd_age.html, rtlDelegated.rd_bell.div.className, rtlDelegated.rd_bell.html, rtlDelegated.d1.div.className],
+    [
+      'list-item rtl',
+      '<mark class="age" title="11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;delegated prefix <mark>#todo</mark></span>',
+      'list-item rtl',
+      '<mark class="age" title="11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <mark class="waits" title="checkin: came up for you; click the bell to clear it">checkin</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;delegated bell prefix <mark>#todo</mark></span>',
+      'list-item',
+    ]
+  )
+  const rtlMain = byId(renderList({}, [...items, ...rtlItems], { bellsBase: {} }))
+  check(
+    'rtl bell row html: class rtl and .rtl-text keep bell mark outside rtl box',
+    [
+      rtlMain.rb_rtl.div.className,
+      rtlMain.rb_rtl.div.style.direction ?? null,
+      rtlMain.rb_rtl.html,
+      typeof rtlMain.rb_rtl.marks[0].onclick,
+      rtlMain.rb_ltr.div.className,
+      rtlMain.rb_ltr.html,
+    ],
+    [
+      'list-item rtl',
+      null,
+      '<mark class="waits" title="question: came up for you; click the bell to clear it">question</mark> <span class="rtl-text" style="direction: rtl; text-align: left">&lrm;bell prefix <mark>#todo</mark></span>',
+      'function',
+      'list-item',
+      '<mark class="waits" title="question: came up for you; click the bell to clear it">question</mark> <mark>#todo</mark> bell suffix',
+    ]
+  )
+  check(
+    'rtl plain row html: class rtl and .rtl-text without marks; ltr row unchanged',
+    [rtlMain.rp_rtl.div.className, rtlMain.rp_rtl.html, rtlMain.m1.div.className, rtlMain.m1.html],
+    [
+      'list-item rtl',
+      '<span class="rtl-text" style="direction: rtl; text-align: left">&lrm;plain prefix <mark>#todo</mark></span>',
+      'list-item',
+      '<mark>#todo</mark> main task',
+    ]
+  )
+  const safariSnoozed = byId(
+    renderList({ snoozed: true }, [rtlItems[0], items[0]], {
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+    })
+  )
+  check(
+    'rtl safari clip: text-overflow clip stays on .rtl-text',
+    [safariSnoozed.rs_3h.div.style.textOverflow ?? null, safariSnoozed.rs_3h.html, safariSnoozed.s_3h.div.className, safariSnoozed.s_3h.div.style.textOverflow ?? null],
+    [
+      null,
+      '<mark class="age" title="11/26/2026, 11:00:00 PM">3h</mark> <span class="rtl-text" style="direction: rtl; text-align: left; text-overflow: clip">&lrm;snoozed prefix <mark>#todo</mark></span>',
+      'list-item',
+      null,
+    ]
+  )
 }
 
 // THE DONE BIN (the owner, 2026-11-17: "done" never deletes, it always converts the todo to

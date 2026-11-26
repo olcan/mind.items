@@ -232,6 +232,22 @@
     border: 1px dashed transparent;
     border-radius: 4px;
   }
+  /* a row whose text comes before the todo tag truncates on the left inside .rtl-text while
+     prepended marks (age, time-left, bell) stay at the left edge */
+  #widget .list-item.rtl {
+    display: flex;
+    align-items: baseline;
+    gap: 1ch;
+  }
+  #widget .list-item.rtl > :is(mark.age, mark.waits) {
+    flex: none;
+    line-height: normal;
+  }
+  #widget .list-item.rtl > .rtl-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   #widget.dragging .list-item {
     cursor: grabbing;
   }
