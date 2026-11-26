@@ -71,6 +71,7 @@ const picked =
     '_task_state',
     '_task_list',
     '_age',
+    '_snooze_left',
     '_cost_text',
     '_stats_suffix',
     '_age_title',
@@ -249,7 +250,7 @@ const picked =
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
 vm.runInContext(picked, context)
-const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _unsnooze_for_bell, _task_list, _age, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _item_writes, _item_visible, _item_preview, _item_notify_step, _notify_item, _notify_items, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _notify_test, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
+const { _run_deferred_renders, _order_save_step, _sweep_step, _corpus_current, _resume_hold, _held, _sweep_delay, _on_welcome, _unsnooze_for_bell, _task_list, _age, _snooze_left, _cost_text, _stats_suffix, _age_title, _wake_suffix, _set_marker, _marker_of, _link_marker, _decorate_row, _row_label, _review_anchor_builder, _extract_todo_snippet, _todo_line, _delegated_view, _enqueue_command, _merged_order, _order_blocked, _suppress_touch_context_menu, _sideways, _grab_on_sideways_touch, _on_command_delegate, _on_command_takeback, _delegate_created, _wait_for_save, _link_urls, _on_command_notify, _parse_notify, _notify_setting, _notify_gate, _vault_replies, _reply_line, _notify_reply, _item_writes, _item_visible, _item_preview, _item_notify_step, _notify_item, _notify_items, _on_item_change, _state_key, _notify_step, _notify_change, _unsnooze_step, _notify_unsnooze, _notify_test, _unsnooze, _snooze_close, _snooze, _on_snooze_notify, _snooze_hint, _notification_of, _select_item, _edit_item, _notifier_parse, _notifier_step, _claim_notifier, _notifier_elected, _release_notifier, _start_notifier, _notify_children, _scan_notify, _on_global_store_change } = context
 const TODOER_VERSION = vm.runInContext('TODOER_VERSION', context) // a const is not a context property
 const HGRAB_RADIUS = vm.runInContext('HGRAB_RADIUS', context)
 const HGRAB_RATIO = vm.runInContext('HGRAB_RATIO', context)
@@ -300,6 +301,13 @@ check('age: seconds', _age(now - 30_000, now), '<1m')
 check('age: minutes', _age(now - 5 * 60_000, now), '5m')
 check('age: hours', _age(now - 2 * 3_600_000, now), '2h')
 check('age: days', _age(now - 3 * 86_400_000, now), '3d')
+// the snooze time left, rounded up (`<1m`, `1m`..`60m`, `2h`..`24h`, `2d`..), `<1m` once passed
+check('snooze left: absent or invalid', [undefined, null, 0, -1000, NaN, Infinity, '3h', true].map(t => _snooze_left(t, now)), ['', '', '', '', '', '', '', ''])
+check('snooze left: passed', [now - 3_600_000, now - 1, now].map(t => _snooze_left(t, now)), ['<1m', '<1m', '<1m'])
+check('snooze left: under a minute', [now + 1, now + 30_000, now + 59_999].map(t => _snooze_left(t, now)), ['<1m', '<1m', '<1m'])
+check('snooze left: minute edges', [now + 60_000, now + 60_001, now + 5 * 60_000, now + 59 * 60_000, now + 59 * 60_000 + 1, now + 60 * 60_000].map(t => _snooze_left(t, now)), ['1m', '2m', '5m', '59m', '60m', '60m'])
+check('snooze left: hour edges', [now + 60 * 60_000 + 1, now + 61 * 60_000, now + 2 * 3_600_000, now + 3 * 3_600_000 - 1, now + 23 * 3_600_000 + 1, now + 24 * 3_600_000].map(t => _snooze_left(t, now)), ['2h', '2h', '2h', '3h', '24h', '24h'])
+check('snooze left: day edges', [now + 24 * 3_600_000 + 1, now + 25 * 3_600_000, now + 2 * 86_400_000, now + 2 * 86_400_000 + 1, now + 3 * 86_400_000, now + 28 * 86_400_000].map(t => _snooze_left(t, now)), ['2d', '2d', '2d', '3d', '3d', '28d'])
 // the stats suffix (design 9.6): workers started and the summed cost, when the projection carries them
 check('stats: none', _stats_suffix(undefined), '')
 check('stats: zero', _stats_suffix({ turns: 1, workers: 0, active: 0, cost: 0, since: 0 }), '')
@@ -2731,6 +2739,188 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   _grab_on_sideways_touch({ addEventListener: (type, fn) => (legacy[type] = fn) })
   context.PointerEvent = PointerEvent
   check('grab: without pointer events nothing is installed (the delayed drag only)', Object.keys(legacy), [])
+}
+
+// SNOOZED LIST TIME-LEFT MARK (__render, 2026-11-26): each snoozed row starts with mark.age
+// holding _snooze_left(until, now) and title new Date(until).toLocaleString(), read via
+// _global_store (no save); main rows carry no mark, delegated rows keep their age mark unchanged
+{
+  const FIXED_NOW = RealDate.UTC(2026, 10, 26, 20, 0, 0) // 2026-11-26 20:00:00 UTC
+  class FixedLocaleDate extends RealDate {
+    static now() {
+      return FIXED_NOW
+    }
+    toLocaleString(locale, opts) {
+      return super.toLocaleString(locale ?? 'en-US', opts ?? { timeZone: 'UTC' })
+    }
+  }
+  const escText = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const escAttr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+  class MarkElem {
+    constructor(tag = 'div') {
+      this.tag = String(tag).toLowerCase()
+      this.children = []
+      this.prefix = []
+      this.attributes = {}
+      this.className = ''
+      this.title = ''
+      this.innerText = ''
+      this.innerHTML = ''
+      this.onclick = null
+      this.style = {}
+      this.parentElement = null
+      this.classList = {
+        contains: name => this.className.split(' ').includes(name),
+        add: name => void (this.classList.contains(name) || (this.className = (this.className + ' ' + name).trim())),
+      }
+    }
+    setAttribute(name, value) {
+      this.attributes[name] = String(value)
+    }
+    getAttribute(name) {
+      return this.attributes[name] ?? null
+    }
+    appendChild(child) {
+      child.remove()
+      this.children.push(child)
+      child.parentElement = this
+      return child
+    }
+    prepend(...nodes) {
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const node = nodes[i]
+        this.prefix.unshift(node)
+        if (typeof node != 'string') {
+          node.remove()
+          this.children.unshift(node)
+          node.parentElement = this
+        }
+      }
+    }
+    remove() {
+      const siblings = this.parentElement?.children
+      if (siblings) siblings.splice(siblings.indexOf(this), 1)
+      this.parentElement = null
+    }
+    querySelectorAll(selector) {
+      if (selector == ':is(.list,.bin)') return this.children.filter(c => /\b(list|bin)$/.test(c.className))
+      if (selector == 'mark:not(.age):not(.waits)') {
+        return this.children.filter(c => c.tag == 'mark' && !c.classList.contains('age') && !c.classList.contains('waits'))
+      }
+      return []
+    }
+    addEventListener() {}
+    serializedHTML() {
+      const head = this.prefix
+        .map(node => {
+          if (typeof node == 'string') return escText(node)
+          const cls = node.className ? ` class="${escAttr(node.className)}"` : ''
+          const title = node.title ? ` title="${escAttr(node.title)}"` : ''
+          return `<${node.tag}${cls}${title}>${escText(node.innerText)}</${node.tag}>`
+        })
+        .join('')
+      return head + this.innerHTML
+    }
+  }
+  const storeSaves = []
+  const makeTodo = (id, text, store) => {
+    const it = {
+      id,
+      saved_id: 's-' + id,
+      text,
+      label: '#todo',
+      name: 'id:' + id,
+      tags: ['#todo'],
+      tags_visible: ['#todo'],
+      _global_store: store,
+      read: () => it.text,
+    }
+    Object.defineProperty(it, 'global_store', {
+      get() {
+        storeSaves.push(id)
+        return it._global_store
+      },
+    })
+    return it
+  }
+  const items = [
+    makeTodo('s_3h', '#todo snoozed three hours', { _todoer: { snoozed: FIXED_NOW + 3 * 3_600_000 } }),
+    makeTodo('s_past', '#todo snoozed past', { _todoer: { snoozed: FIXED_NOW - 5_000 } }),
+    makeTodo('s_2d', '#todo snoozed two days', { _todoer: { snoozed: FIXED_NOW + 24 * 3_600_000 + 1 } }),
+    makeTodo('m1', '#todo main task', {}),
+    makeTodo('d1', '#todo [delegated] agent task', {
+      _todoer: { snoozed: FIXED_NOW + 3 * 3_600_000 },
+      _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1, updated: FIXED_NOW - 5 * 60_000, stats: { workers: 2, cost: 1.5, since: FIXED_NOW - 3_600_000 } } },
+    }),
+  ]
+  const renderList = (options, listItems = items) => {
+    const ctx = {
+      console,
+      Date: FixedLocaleDate,
+      debug: () => {},
+      warn: () => {},
+      error: () => {},
+      fatal: msg => {
+        throw new Error(msg)
+      },
+      _replace_tags: replaceTags,
+      _: context._,
+      is_string: x => typeof x == 'string',
+      uniq: xs => [...new Set(xs)],
+      setTimeout: () => 0,
+      sort_by: (xs, f) => xs.sort((a, b) => f(a) - f(b)),
+      _todoer: { store: {}, dependents: [], _global_store: {} },
+      _items: () => listItems,
+      _item: ref => listItems.find(it => it.id == ref) ?? null,
+      window: {},
+      document: { createElement: tag => new MarkElem(tag), querySelector: () => null },
+      Sortable: { dragged: null, create: (el, opts) => ({ options: opts, save() {}, sort() {}, destroy() {} }) },
+      MindBox: { get: () => '', set: () => {} },
+      navigator: { userAgent: '' },
+    }
+    vm.createContext(ctx)
+    vm.runInContext(picked + pick(['__render'])[0], ctx)
+    const widget = Object.assign(new MarkElem('div'), { id: 'w' })
+    const pinned = { store: { w: { options } }, _global_store: {} }
+    ctx.__render(widget, pinned)
+    const list = widget.children.find(c => c.className == 'list')
+    return list.children.map(row => ({
+      id: row.getAttribute('data-id'),
+      div: row.children[0],
+      html: row.children[0].serializedHTML(),
+      marks: row.children[0].children.filter(c => c.tag == 'mark'),
+    }))
+  }
+  const snoozedRows = renderList({ snoozed: true })
+  const byId = rows => Object.fromEntries(rows.map(r => [r.id, r]))
+  const sMap = byId(snoozedRows)
+  check(
+    'snoozed row html: mark and locale tooltip for future snooze',
+    [sMap.s_3h.html, sMap.s_3h.marks.length, sMap.s_3h.marks[0].onclick],
+    ['<mark class="age" title="11/26/2026, 11:00:00 PM">3h</mark> <mark>#todo</mark> snoozed three hours', 1, null]
+  )
+  check(
+    'snoozed row html: passed snooze shows <1m and locale tooltip',
+    sMap.s_past.html,
+    '<mark class="age" title="11/26/2026, 7:59:55 PM">&lt;1m</mark> <mark>#todo</mark> snoozed past'
+  )
+  check(
+    'snoozed row html: multi-day snooze rounds up',
+    sMap.s_2d.html,
+    '<mark class="age" title="11/27/2026, 8:00:00 PM">2d</mark> <mark>#todo</mark> snoozed two days'
+  )
+  check('snoozed row order: ascending by snooze time unchanged', snoozedRows.map(r => r.id), ['s_past', 's_3h', 's_2d'])
+  const badSnoozed = renderList({ snoozed: true }, [makeTodo('s_bad', '#todo snoozed invalid', { _todoer: { snoozed: true } })])
+  check('snoozed row html: non-numeric snooze time omits mark', [badSnoozed[0].html, badSnoozed[0].marks.length], ['<mark>#todo</mark> snoozed invalid', 0])
+  const mainRows = renderList({})
+  check('main list row html: no snooze or age mark', [mainRows.map(r => r.id), mainRows[0].html, mainRows[0].marks.length], [['m1'], '<mark>#todo</mark> main task', 0])
+  const delegatedRows = renderList({ delegated: true })
+  check(
+    'delegated list row html: age mark unchanged, no snooze mark even with snoozed store',
+    [delegatedRows.map(r => r.id), delegatedRows[0].html, delegatedRows[0].marks.length],
+    [['d1'], '<mark class="age" title="11/26/2026, 7:55:00 PM\ndelegated 11/26/2026, 7:00:00 PM">5m · 2w · $1.50</mark> <mark>#todo</mark> [delegated] agent task', 1]
+  )
+  check('snoozed render: reading snooze time does not save global_store', storeSaves, [])
 }
 
 // THE DONE BIN (the owner, 2026-11-17: "done" never deletes, it always converts the todo to

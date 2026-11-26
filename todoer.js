@@ -10,8 +10,9 @@ const _todoer = _item('$id')
 // - A pinned item created before the delegated list exists shows only the main widget: add
 //   `todoer_widget({delegated: true})` below it (new pins carry both).
 // - Snooze a todo by dropping it on the widget's snooze bin and picking a time; a snoozed list
-//   (`todoer_widget({snoozed: true})`) shows them until their time, and a drop on its snooze bin
-//   brings one back now. A snoozed todo comes back at its time: within about a second while the
+//   (`todoer_widget({snoozed: true})`) shows them until their time, each row starting with a
+//   coarse mark of the time left (rounded up, tooltip giving the end time), and a drop on its
+//   snooze bin brings one back now. A snoozed todo comes back at its time: within about a second while the
 //   account's most recently used tab (the one that brings todos back) is visible, within about a
 //   minute while that tab is hidden (Chrome wakes a hidden tab about once a minute; Safari wakes it
 //   less often the longer it stays hidden, not measured), and two minutes after the device wakes
@@ -538,6 +539,16 @@ function __render(widget, widget_item) {
       age.innerText = _age(updated, Date.now()) + _stats_suffix(state?.stats) + _wake_suffix(state?.wake, Date.now())
       age.title = _age_title(updated, state?.stats, state?.wake)
       div.prepend(age, ' ')
+    } else if (snoozed) {
+      const until = item._global_store?._todoer?.snoozed
+      const left = _snooze_left(until, Date.now())
+      if (left) {
+        const age = document.createElement('mark')
+        age.className = 'age'
+        age.innerText = left
+        age.title = new Date(until).toLocaleString()
+        div.prepend(age, ' ')
+      }
     }
 
     // handle clicks and modify styling for non-todo tags (the age mark is not a tag; a named
@@ -2521,6 +2532,17 @@ function _age(updated, now) {
   if (s < 3600) return Math.floor(s / 60) + 'm'
   if (s < 86400) return Math.floor(s / 3600) + 'h'
   return Math.floor(s / 86400) + 'd'
+}
+
+// coarse time left until a snooze ends, rounded up (`<1m`, `1m`..`60m`, `2h`..`24h`, `2d`..),
+// `<1m` once passed, or '' without a snooze time
+function _snooze_left(until, now) {
+  if (!(typeof until == 'number' && Number.isFinite(until) && until > 0)) return ''
+  const ms = until - now
+  if (ms < 60_000) return '<1m'
+  if (ms <= 3_600_000) return Math.ceil(ms / 60_000) + 'm'
+  if (ms <= 86_400_000) return Math.ceil(ms / 3_600_000) + 'h'
+  return Math.ceil(ms / 86_400_000) + 'd'
 }
 
 // the rendered cost (the twin of the vault's format_money, design 9.6): the known sum, `+?`
