@@ -710,59 +710,151 @@ const key_buttons_waited = (e, now = key_buttons_now()) => {
   const waited = stamp > 1e12 ? Date.now() - stamp : now - stamp // an older browser stamps with the date
   return waited >= 0 ? Math.round(waited) : null
 }
+// fixed browser vocabularies for page-stall diagnostics: lines carry only numbers, browser words
+// from these lists, and standard HTML or SVG element tags (never ids, classes, custom element names,
+// attributes, text, values, or raw invoker strings). A script's function, file and place are never
+// said: an item's code can label itself with any address, so they are not the app's to vouch for
+const KEY_BUTTONS_TAGS = new Set(
+  (
+    'HTML BODY HEAD MAIN HEADER FOOTER NAV SECTION ARTICLE ASIDE DIV SPAN DIALOG DETAILS SUMMARY FIGURE FIGCAPTION ' +
+    'H1 H2 H3 H4 H5 H6 P A PRE CODE BLOCKQUOTE HR BR STRONG EM B I U S SMALL MARK SUB SUP DEL INS KBD SAMP VAR TIME ABBR Q CITE ' +
+    'UL OL LI DL DT DD TABLE THEAD TBODY TFOOT TR TH TD CAPTION COLGROUP COL ' +
+    'FORM BUTTON INPUT TEXTAREA SELECT OPTION OPTGROUP LABEL FIELDSET LEGEND OUTPUT PROGRESS METER DATALIST ' +
+    'IMG PICTURE SOURCE AUDIO VIDEO TRACK CANVAS IFRAME OBJECT EMBED MAP AREA SCRIPT LINK STYLE ' +
+    'SVG G PATH CIRCLE ELLIPSE RECT LINE POLYLINE POLYGON TEXT TSPAN USE DEFS SYMBOL IMAGE FOREIGNOBJECT'
+  ).split(' ')
+)
+const KEY_BUTTONS_TARGETS = new Map([
+  ['Window', 'Window'],
+  ['DOMWindow', 'Window'],
+  ['Document', 'Document'],
+  ['HTMLDocument', 'Document'],
+  ['#document', 'Document'], // Chromium's name for a listener on the document (its node name)
+  ['VisualViewport', 'VisualViewport'],
+  ['MediaQueryList', 'MediaQueryList'],
+  ['MessagePort', 'MessagePort'],
+  ['BroadcastChannel', 'BroadcastChannel'],
+  ['Worker', 'Worker'],
+  ['ServiceWorkerContainer', 'ServiceWorkerContainer'],
+  ['XMLHttpRequest', 'XMLHttpRequest'],
+  ['WebSocket', 'WebSocket'],
+  ['EventSource', 'EventSource'],
+  ['FileReader', 'FileReader'],
+  ['IDBRequest', 'IDBRequest'],
+  ['IDBOpenDBRequest', 'IDBOpenDBRequest'],
+  ['IDBTransaction', 'IDBTransaction'],
+  ['AbortSignal', 'AbortSignal'],
+])
+const KEY_BUTTONS_EVENTS = new Set(
+  (
+    'auxclick click contextmenu dblclick mousedown mouseenter mouseleave mousemove mouseout mouseover mouseup ' +
+    'pointerover pointerenter pointerdown pointermove pointerup pointercancel pointerout pointerleave gotpointercapture lostpointercapture ' +
+    'touchstart touchend touchmove touchcancel ' +
+    'keydown keypress keyup beforeinput input compositionstart compositionupdate compositionend ' +
+    'drag dragstart dragend dragenter dragleave dragover drop ' +
+    'change submit reset invalid focus blur focusin focusout select selectionchange copy cut paste ' +
+    'scroll scrollend resize wheel ' +
+    'load unload beforeunload pagehide pageshow readystatechange visibilitychange hashchange popstate storage online offline ' +
+    'error abort open close message messageerror loadstart loadend progress timeout success complete upgradeneeded blocked DOMContentLoaded ' +
+    'animationstart animationend animationiteration animationcancel transitionstart transitionrun transitionend transitioncancel ' +
+    'play pause ended timeupdate loadeddata loadedmetadata canplay canplaythrough seeking seeked volumechange fullscreenchange toggle cancel beforetoggle'
+  ).split(' ')
+)
+const KEY_BUTTONS_INVOKER_TYPES = new Set([
+  'event-listener',
+  'user-callback',
+  'resolve-promise',
+  'reject-promise',
+  'classic-script',
+  'module-script',
+])
+const KEY_BUTTONS_CALLBACKS = new Set([
+  'TimerHandler:setTimeout',
+  'TimerHandler:setInterval',
+  'FrameRequestCallback',
+  'IdleRequestCallback',
+  'MutationCallback',
+  'ResizeObserverCallback',
+  'IntersectionObserverCallback',
+  'PerformanceObserverCallback',
+  'ReportingObserverCallback',
+  'VoidFunction:queueMicrotask',
+  'VoidFunction',
+  'SchedulerPostTaskCallback',
+  'PositionCallback',
+  'PositionErrorCallback',
+  'MediaQueryListListener',
+  'MessagePort.onmessage',
+  'Window.onmessage',
+  'BroadcastChannel.onmessage',
+  'Worker.onmessage',
+  'ServiceWorkerContainer.onmessage',
+  'WebSocket.onmessage',
+  'EventSource.onmessage',
+  'setTimeout',
+  'setInterval',
+  'requestAnimationFrame',
+  'requestIdleCallback',
+  'queueMicrotask',
+])
+const key_buttons_safe_tag = raw => {
+  const tag = typeof raw == 'string' ? raw.trim().toUpperCase() : ''
+  return !tag ? '' : KEY_BUTTONS_TAGS.has(tag) ? tag : 'element'
+}
+const key_buttons_safe_invoker = (kind, raw) => {
+  if (typeof raw != 'string' || !raw) return ''
+  if (kind == 'user-callback') return KEY_BUTTONS_CALLBACKS.has(raw) ? raw : ''
+  if (kind != 'event-listener') return ''
+  const ev = raw.match(/\.on([A-Za-z]{1,32})$/)
+  if (!ev || !KEY_BUTTONS_EVENTS.has(ev[1])) return ''
+  const head = raw.slice(0, raw.length - ev[0].length)
+  if (!head) return ''
+  const target = KEY_BUTTONS_TARGETS.get(head)
+  if (target) return `${target}.on${ev[1]}`
+  const tag = head.match(/^([A-Za-z][A-Za-z0-9-]*)(?:[#.\[]|$)/)
+  return tag ? `${key_buttons_safe_tag(tag[1])}.on${ev[1]}` : ''
+}
 // what the browser's long animation frames say of a stretch of time (`from` to `to`, on the page's clock):
-// the frames that overlap it, their four longest scripts (how each was called, its function and its file with
-// the place in it where the browser names them, its time, and its share of forced layout where that is 50 ms
-// or more), and the
-// frames' time in style and layout at their ends; '' where no frame overlaps (a browser without such
-// frames, or a wait that was no frame's). A script is one call from outside (an event's handler, a timer, a
-// promise's step): what it called inside is not told apart
+// the frames that overlap it, their four longest scripts (fixed kind and safe invoker word, time, and forced
+// style/layout where 50 ms or more), and the frames' summed time from style/layout start to frame end where
+// 50 ms or more; '' where no frame overlaps (a browser without such frames, or a wait that was no frame's).
+// A script is one call from outside (an event's handler, a timer, a promise's step): what it called inside is
+// not told apart
 const key_buttons_busy = (frames, from, to) => {
   const hit = (frames ?? []).filter(f => f.startTime < to && f.startTime + f.duration > from)
   if (!hit.length) return ''
-  const file = url => String(url ?? '').split(/[?#]/)[0].split('/').pop()
   const scripts = hit.flatMap(f => [...(f.scripts ?? [])]).sort((a, b) => b.duration - a.duration).slice(0, 4)
-  const said = scripts.map(
-    s =>
-      `${Math.round(s.duration)} ms ${[s.invokerType, s.invoker].filter(Boolean).join(' ') || 'script'}` +
-      (s.sourceFunctionName ? ` in ${s.sourceFunctionName}` : '') +
-      (file(s.sourceURL) ? ` (${file(s.sourceURL)}${typeof s.sourceCharPosition == 'number' && s.sourceCharPosition >= 0 ? ':' + s.sourceCharPosition : ''})` : '') +
-      (s.forcedStyleAndLayoutDuration >= 50 ? `, ${Math.round(s.forcedStyleAndLayoutDuration)} ms of it layout` : '')
-  )
+  const said = scripts.map(s => {
+    const kind = KEY_BUTTONS_INVOKER_TYPES.has(s.invokerType) ? s.invokerType : 'script'
+    const inv = key_buttons_safe_invoker(kind, s.invoker)
+    const forced = s.forcedStyleAndLayoutDuration >= 50 ? `, ${Math.round(s.forcedStyleAndLayoutDuration)} ms of it forced style/layout` : ''
+    return `${Math.round(s.duration)} ms ${inv ? `${kind} ${inv}` : kind}${forced}`
+  })
   const render = hit.reduce((sum, f) => sum + (f.styleAndLayoutStart ? Math.max(0, f.startTime + f.duration - f.styleAndLayoutStart) : 0), 0)
-  return `; the browser names ${hit.length} long frame${hit.length > 1 ? 's' : ''}: ${said.join('; ') || 'no script'}` + (render >= 50 ? `; ${Math.round(render)} ms of style and layout at their ends` : '')
+  return (
+    `; the browser names ${hit.length} long frame${hit.length > 1 ? 's' : ''}: ${said.join('; ') || 'no script'}` +
+    (render >= 50 ? `; ${Math.round(render)} ms from style/layout start to frame end` : '')
+  )
 }
 // what the browser's slow input events (Event Timing: Safari from 26.2, Firefox) say of a stretch of
 // time (`from` to `to`, on the page's clock) where long animation frames are not supported: the events
 // that overlap it, their three longest (ranked by wait + handling time, then whole duration, then
 // interactionId so a slow handler is not crowded out by 0 ms hover/pointer events sharing the same
-// delayed paint; whole time, event name, target tag with id or first class, wait before handling,
-// and handling time); '' where no event overlaps. Target descriptions use only the element's tag,
-// id, or first class (never its text or value)
+// delayed paint; whole time, fixed event name, standard HTML/SVG target tag alone or `element`, wait
+// before handling, and handling time); '' where no event overlaps. Never prints ids, classes,
+// custom element names, attributes, text, or values
 const key_buttons_busy_events = (events, from, to) => {
   const hit = (events ?? []).filter(e => e.startTime < to && e.startTime + e.duration > from)
   if (!hit.length) return ''
-  const on = el => {
-    const tag = typeof el?.tagName == 'string' ? el.tagName.trim() : ''
-    if (!tag) return ''
-    const id = typeof el.id == 'string' ? el.id.trim() : ''
-    if (id) return tag + '#' + id
-    const cls =
-      (typeof el.classList?.[0] == 'string' && el.classList[0].trim()) ||
-      (typeof el.className == 'string' ? el.className : typeof el.className?.baseVal == 'string' ? el.className.baseVal : '')
-        .trim()
-        .split(/\s+/)[0] ||
-      ''
-    return cls ? `${tag}.${cls}` : tag
-  }
   const rank = e => (typeof e.processingEnd == 'number' && typeof e.startTime == 'number' ? Math.max(0, e.processingEnd - e.startTime) : e.duration ?? 0)
   const top = [...hit].sort((a, b) => rank(b) - rank(a) || b.duration - a.duration || (b.interactionId > 0 ? 1 : 0) - (a.interactionId > 0 ? 1 : 0)).slice(0, 3)
   const said = top.map(e => {
-    const place = on(e.target)
+    const ev = typeof e.name == 'string' && KEY_BUTTONS_EVENTS.has(e.name) ? e.name : 'event'
+    const place = key_buttons_safe_tag(e.target?.tagName)
     const waited = typeof e.processingStart == 'number' && typeof e.startTime == 'number' ? Math.max(0, Math.round(e.processingStart - e.startTime)) : null
     const handled = typeof e.processingEnd == 'number' && typeof e.processingStart == 'number' ? Math.max(0, Math.round(e.processingEnd - e.processingStart)) : null
     const times = [waited == null ? '' : `waited ${waited} ms`, handled == null ? '' : `handled for ${handled} ms`].filter(Boolean)
-    return `${Math.round(e.duration)} ms ${e.name || 'event'}${place ? ` on ${place}` : ''}${times.length ? ` (${times.join(', ')})` : ''}`
+    return `${Math.round(e.duration)} ms ${ev}${place ? ` on ${place}` : ''}${times.length ? ` (${times.join(', ')})` : ''}`
   })
   return `; the browser names ${hit.length} slow event${hit.length > 1 ? 's' : ''}: ${said.join('; ')}`
 }
@@ -1355,8 +1447,9 @@ function key_buttons_create() {
   document.addEventListener?.('visibilitychange', tick_reset)
   window.addEventListener?.('pageshow', tick_reset)
   // what the page was busy with, where the browser says: long animation frames (Chromium 123 and later)
-  // where supported, else slow input events (Event Timing: Safari from 26.2, Firefox). The last 60
-  // entries (for events, 100 ms or more) are kept, and a late tick's line names what they held
+  // where supported, else slow input events (Event Timing: Safari from 26.2, Firefox, with the
+  // observer's 104 ms durationThreshold). The last 60 entries are kept, and a late tick's line names
+  // what overlapped the missed stretch from `tick_at + KEY_BUTTONS_SLOW.tick` to `now`
   // (key_buttons_busy or key_buttons_busy_events). Entries for a wait are handed over a moment after it
   // ends, so the line is then written 300 ms later; without either observer it is written at once, as
   // before (the owner, 2026-11-25, of a wait of 1681 ms at a click on a name tag: "i believe i've seen
@@ -1369,7 +1462,7 @@ function key_buttons_create() {
     const kind = types?.includes('long-animation-frame') ? 'long-animation-frame' : types?.includes('event') ? 'event' : null
     if (kind) {
       const watch = new PerformanceObserver(list => {
-        for (const entry of list.getEntries()) if (kind != 'event' || entry.duration >= 100) busy.push(entry)
+        for (const entry of list.getEntries()) busy.push(entry)
         if (busy.length > 60) busy.splice(0, busy.length - 60)
       })
       watch.observe(kind == 'event' ? { type: 'event', buffered: false, durationThreshold: 104 } : { type: 'long-animation-frame', buffered: false })
@@ -1385,7 +1478,7 @@ function key_buttons_create() {
     const late = now - tick_at - KEY_BUTTONS_SLOW.tick
     if (tick_front && in_front() && late >= KEY_BUTTONS_SLOW.stuck) {
       const line = `key buttons: the page did not respond for ${Math.round(late)} ms, until ${new Date().toLocaleTimeString()}`
-      const from = tick_at
+      const from = tick_at + KEY_BUTTONS_SLOW.tick
       if (busy_watch) {
         const explain = busy_kind == 'event' ? key_buttons_busy_events : key_buttons_busy
         const timer = setTimeout(() => { if (!self.disposed) console.warn(line + explain(busy, from, now)) }, 300)

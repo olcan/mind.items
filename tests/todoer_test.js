@@ -1838,18 +1838,25 @@ const { replaceTags, parseTags, hash_64_fnv1a } = (() => {
             : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]
       )
     const rowPaths = s =>
-      [...String(s ?? '').matchAll(/<a\b[^>]*href="([^"]*)"[^>]*>/g)].map(m => new URL(decodeRowHtml(m[1])).searchParams.get('path'))
+      [...String(s ?? '').matchAll(/<a\b[^>]*href="([^"]*)"[^>]*data-wiki-link[^>]*>/g)].map(m => new URL(decodeRowHtml(m[1])).searchParams.get('path'))
+    const rowAnchors = s =>
+      [...String(s ?? '').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map(([, attrs, inner]) => ({
+        href: decodeRowHtml(attrs.match(/\bhref="([^"]*)"/)?.[1] ?? ''),
+        wiki: /\bdata-wiki-link\b/.test(attrs),
+        text: decodeRowHtml(inner),
+      }))
+    const rowText = s => decodeRowHtml(String(s ?? '').replace(/<[^>]+>/g, ''))
     check(
       'row (inline code): linkify with wiki reference in backticks stays text with no anchor',
       _row_html('linkify `[[wiki]]` in todoer rows'),
-      'linkify `[[wiki]]` in todoer rows'
+      'linkify `&#91;&#91;wiki&#93;&#93;` in todoer rows'
     )
     const mixedCode = _row_html('See `[[docs/code]]` and [[docs/Plan A]]')
     check(
       'row (inline code): one reference in backticks and one outside links only the outside one with decoded path',
       [mixedCode, rowPaths(mixedCode)],
       [
-        'See `[[docs/code]]` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FPlan&#37;20A" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a>',
+        'See `&#91;&#91;docs&#47;code&#93;&#93;` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FPlan&#37;20A" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a>',
         ['docs/Plan A'],
       ]
     )
@@ -1866,14 +1873,104 @@ const { replaceTags, parseTags, hash_64_fnv1a } = (() => {
       [_row_html('See [[docs/x|run `cmd`]] and [[docs/y|a`b]]'), _row_html('See `a [[docs/x|b` c]]')],
       [
         'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>run &#96;cmd&#96;</a> and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>a&#96;b</a>',
-        'See `a [[docs/x|b` c]]',
+        'See `a &#91;&#91;docs&#47;x&#124;b&#96; c&#93;&#93;',
       ]
     )
     check(
       'row (inline code): reference in backticks beside a space-separated tag keeps reference text and marks the tag',
       _row_html('See `[[docs/x]] #tag`'),
-      'See `[[docs/x]] <mark>#tag</mark>`'
+      'See `&#91;&#91;docs&#47;x&#93;&#93; <mark>#tag</mark>`'
     )
+    const mdAfterCode = _row_html('#todo Show `[[docs/example]]` then [manual](https://example.test/guide)')
+    const mdAfterCodeWithLink = _row_html('#todo Show [[docs/ok]] and `[[docs/A&B]]` then [manual](https://example.test/guide)')
+    check(
+      'row (inline code): skipped wiki reference before a markdown link stays whole decoded text outside any anchor, markdown link keeps exact label and href, and outside wiki reference still links',
+      [
+        mdAfterCode,
+        rowText(mdAfterCode),
+        rowAnchors(mdAfterCode),
+        mdAfterCodeWithLink,
+        rowText(mdAfterCodeWithLink),
+        rowAnchors(mdAfterCodeWithLink),
+        rowPaths(mdAfterCodeWithLink),
+      ],
+      [
+        '<mark>#todo</mark> Show `&#91;&#91;docs&#47;example&#93;&#93;` then <a href="https://example.test/guide">manual</a>',
+        '#todo Show `[[docs/example]]` then manual',
+        [{ href: 'https://example.test/guide', wiki: false, text: 'manual' }],
+        '<mark>#todo</mark> Show <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `&#91;&#91;docs&#47;A&#38;B&#93;&#93;` then <a href="https://example.test/guide">manual</a>',
+        '#todo Show docs/ok and `[[docs/A&B]]` then manual',
+        [
+          { href: 'x://h/f?path=docs%2Fok', wiki: true, text: 'docs/ok' },
+          { href: 'https://example.test/guide', wiki: false, text: 'manual' },
+        ],
+        ['docs/ok'],
+      ]
+    )
+    // a completed bracketed word earlier in the row (a task's marker, a note) is no part of a later
+    // markdown link's label: the skipped example between them stays outside the anchor
+    const marked = ['[working]', '[draft]'].map(word => _row_html(`#todo ${word} Show \`[[docs/example]]\` then [manual](https://example.test/guide)`))
+    check(
+      'row (markdown link after a bracketed word): the marker and the skipped wiki example stay literal outside the anchor, whose label is exactly manual',
+      marked.map(html => [html, rowText(html), rowAnchors(html)]),
+      ['[working]', '[draft]'].map(word => [
+        `<mark>#todo</mark> ${word} Show \`&#91;&#91;docs&#47;example&#93;&#93;\` then <a href="https://example.test/guide">manual</a>`,
+        `#todo ${word} Show \`[[docs/example]]\` then manual`,
+        [{ href: 'https://example.test/guide', wiki: false, text: 'manual' }],
+      ])
+    )
+    const labels = ['[see `x` here](https://example.test/a)', '[a [b] c](https://example.test/b)', '[one](https://example.test/1) and [two](https://example.test/2)'].map(text => rowAnchors(_row_html(text)))
+    check(
+      'row (markdown link labels): inline code in a label, a matched pair of brackets in a label, and two links in one row keep their labels and addresses',
+      labels,
+      [
+        [{ href: 'https://example.test/a', wiki: false, text: 'see `x` here' }],
+        [{ href: 'https://example.test/b', wiki: false, text: 'a [b] c' }],
+        [
+          { href: 'https://example.test/1', wiki: false, text: 'one' },
+          { href: 'https://example.test/2', wiki: false, text: 'two' },
+        ],
+      ]
+    )
+    // a bracket inside a label's code span, and a backslash-escaped bracket, are the label's text
+    const bracketed = [
+      '#todo [Press `[` to jump](https://example.test/guide)',
+      '#todo [Use the `]` key](https://example.test/manual)',
+      '#todo [see `rows[keys[i]]` here](https://example.test/nested)',
+      '#todo [a \\] b](https://example.test/escaped)',
+    ].map(text => _row_html(text))
+    check(
+      'row (markdown link labels with literal brackets): an opening bracket in code, a closing bracket in code, a nested expression in code, and an escaped bracket keep the whole label and its address',
+      bracketed.map(html => [rowText(html), rowAnchors(html)]),
+      [
+        ['#todo Press `[` to jump', [{ href: 'https://example.test/guide', wiki: false, text: 'Press `[` to jump' }]],
+        ['#todo Use the `]` key', [{ href: 'https://example.test/manual', wiki: false, text: 'Use the `]` key' }]],
+        ['#todo see `rows[keys[i]]` here', [{ href: 'https://example.test/nested', wiki: false, text: 'see `rows[keys[i]]` here' }]],
+        ['#todo a \\] b', [{ href: 'https://example.test/escaped', wiki: false, text: 'a \\] b' }]],
+      ]
+    )
+    // a code span or an escape is never taken apart to end a label inside it: the only link of
+    // these rows is the authored one, and the wiki example inside the span opens nothing
+    const guarded = [
+      '#todo [Example `](preview)`] then [manual](https://example.test/manual)',
+      '#todo [Example `[[docs/example]](preview)`] then [manual](https://example.test/manual)',
+      '#todo [draft\\](preview) then [manual](https://example.test/manual)',
+    ].map(text => _row_html(text))
+    check(
+      'row (markdown link labels never end inside a code span or at an escaped bracket): the one anchor is the authored link, the rest of the row stays text',
+      guarded.map(html => [rowText(html), rowAnchors(html)]),
+      [
+        ['#todo [Example `](preview)`] then manual', [{ href: 'https://example.test/manual', wiki: false, text: 'manual' }]],
+        ['#todo [Example `[[docs/example]](preview)`] then manual', [{ href: 'https://example.test/manual', wiki: false, text: 'manual' }]],
+        ['#todo [draft\\](preview) then manual', [{ href: 'https://example.test/manual', wiki: false, text: 'manual' }]],
+      ]
+    )
+    // a backtick with no partner after it is ordinary text of a label
+    const lone = _row_html('#todo [it`s here](https://example.test/tick)')
+    check('row (markdown link label with a lone backtick): the link stands with its whole label', [rowText(lone), rowAnchors(lone)], [
+      '#todo it`s here',
+      [{ href: 'https://example.test/tick', wiki: false, text: 'it`s here' }],
+    ])
     context._replace_tags = stub
     delete context.window._wiki_link_regexp
     delete context.window._wiki_link_html
@@ -3306,6 +3403,102 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     const ZWSP = String.fromCharCode(0x200b)
     check('place: in an open editor the stretch is selected where the editor holds it (past a zero-width space of its own), and not at all in a draft that holds other text there', [open_editor(CHAT + '\na line typed since'), open_editor(CHAT.slice(0, 10) + ZWSP + CHAT.slice(10)), open_editor('a line typed since\n' + CHAT)], [[['focus'], ['selection', 44, 82]], [['focus'], ['selection', 45, 83]], []])
   }
+  // ---- clipped todo rows and chat-todo questions: inline code decided before clipping ---------
+  {
+    const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
+    const cfg = { url: 'x://h/f' }
+    const decodeHtml = s =>
+      String(s ?? '').replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(amp|lt|gt|quot|apos));/g, (_, dec, hex, name) =>
+        dec
+          ? String.fromCodePoint(Number(dec))
+          : hex
+            ? String.fromCodePoint(parseInt(hex, 16))
+            : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]
+      )
+    const wikiPaths = s =>
+      [...String(s ?? '').matchAll(/<a\b[^>]*href="([^"]*)"[^>]*data-wiki-link[^>]*>/g)].map(m => new URL(decodeHtml(m[1])).searchParams.get('path'))
+    const renderTodoRow = (id, spec) => {
+      const w = world({ extra: { [id]: spec } })
+      w.ctx.window._wiki_link_regexp = wiki.wikiLinkRegExp
+      w.ctx.window._wiki_link_html = (target, alias, options) => wiki.wikiLinkHtml(cfg, target, alias, options)
+      w.render()
+      return w.rows().find(r => r.getAttribute('data-id') == id).children[0].innerHTML
+    }
+    const rightCutHtml = renderTodoRow('right_cut', {
+      text: '#todo See [[docs/ok]] and `code [[docs/code]] ' + 'word '.repeat(35) + 'end`',
+      label: '#todo',
+    })
+    check(
+      'row (inline code, cut right): closing backtick in cut.tail keeps code reference text and links prose reference',
+      [rightCutHtml, wikiPaths(rightCutHtml)],
+      [
+        '<mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code &#91;&#91;docs&#47;code&#93;&#93; ' + 'word '.repeat(30) + 'word …',
+        ['docs/ok'],
+      ]
+    )
+    const leftCutHtml = renderTodoRow('left_cut', {
+      text: 'Start `code ' + 'word '.repeat(40) + '[[docs/code]]` then [[docs/ok]] #todo',
+      label: '',
+    })
+    const leftCutEvenHtml = renderTodoRow('left_cut_even', {
+      text: 'Start `ok` ' + 'word '.repeat(40) + '[[docs/ok]] and `[[docs/code]]` end #todo',
+      label: '',
+    })
+    check(
+      'row (inline code, cut left): opening backtick in cut.head keeps reference before closing backtick text and links prose reference after it',
+      [
+        [leftCutHtml, wikiPaths(leftCutHtml)],
+        [leftCutEvenHtml, wikiPaths(leftCutEvenHtml)],
+      ],
+      [
+        [
+          '&lrm;… ' + 'word '.repeat(33) + '&#91;&#91;docs&#47;code&#93;&#93;` then <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> <mark>#todo</mark>',
+          ['docs/ok'],
+        ],
+        [
+          '&lrm;… ' + 'word '.repeat(32) + '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `&#91;&#91;docs&#47;code&#93;&#93;` end <mark>#todo</mark>',
+          ['docs/ok'],
+        ],
+      ]
+    )
+    const rightUnpairedHtml = renderTodoRow('right_open', {
+      text: '#todo See [[docs/ok]] and `open [[docs/open]] ' + 'word '.repeat(35) + 'end',
+      label: '#todo',
+    })
+    check(
+      'row (inline code, cut right unpaired): unpartnered backtick with none in cut.tail opens nothing and links both references',
+      [rightUnpairedHtml, wikiPaths(rightUnpairedHtml)],
+      [
+        '<mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `open <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fopen" title="docs&#47;open" data-wiki-link>docs&#47;open</a> ' + 'word '.repeat(30) + 'word …',
+        ['docs/ok', 'docs/open'],
+      ]
+    )
+    const chatCutHtml = renderTodoRow('chat_cut', {
+      text: '#chat/vault/33 #todo #_agent/vault\n<<user>> See [[docs/ok]] and `code [[docs/code]] ' + 'word '.repeat(35) + 'end\n',
+      label: '#chat/vault/33',
+    })
+    const chatOpenHtml = renderTodoRow('chat_open', {
+      text: '#chat/vault/34 #todo #_agent/vault\n<<user>> See [[docs/ok]] and `code [[docs/code]] end\n',
+      label: '#chat/vault/34',
+    })
+    check(
+      'row (inline code, chat-todo question): clipped question keeps reference after unpartnered backtick text while prose links; unclipped question links both',
+      [
+        [chatCutHtml, wikiPaths(chatCutHtml)],
+        [chatOpenHtml, wikiPaths(chatOpenHtml)],
+      ],
+      [
+        [
+          '<mark>#chat/vault/33</mark> <mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code &#91;&#91;docs&#47;code&#93;&#93; ' + 'word '.repeat(32) + 'word …',
+          ['docs/ok'],
+        ],
+        [
+          '<mark>#chat/vault/34</mark> <mark>#todo</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fcode" title="docs&#47;code" data-wiki-link>docs&#47;code</a> end',
+          ['docs/ok', 'docs/code'],
+        ],
+      ]
+    )
+  }
   const ALL = ['short', 'task', 'long', 'named']
   const { rows, ids } = world()
   check('done: the rows are the render\'s own, the named one led by its label', [ids(), rows()[3].children[0].innerHTML.split(' ship it')[0]], [ALL, '<mark>#todo-list</mark> <mark>#todo</mark>'])
@@ -4540,21 +4733,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ],
         ],
         [
-          [['#notes/a', 'First line'], '<mark class="waits">item</mark> <mark>#notes/a</mark> First line'],
-          [['#notes/a', 'inline summary'], '<mark class="waits">item</mark> <mark>#notes/a</mark> inline summary'],
-          [['#notes/a', 'Visible line'], '<mark class="waits">item</mark> <mark>#notes/a</mark> Visible line'],
-          [['#notes/a', ''], '<mark class="waits">item</mark> <mark>#notes/a</mark> '],
-          [['', 'Title line'], '<mark class="waits">item</mark> Title line'],
-          [['', '#dup first line'], '<mark class="waits">item</mark> #dup first line'],
-          [['#notes/a', 'z'.repeat(119) + '…'], '<mark class="waits">item</mark> <mark>#notes/a</mark> ' + 'z'.repeat(119) + '…'],
+          [['#notes/a', 'First line', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> First line'],
+          [['#notes/a', 'inline summary', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> inline summary'],
+          [['#notes/a', 'Visible line', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> Visible line'],
+          [['#notes/a', '', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> '],
+          [['', 'Title line', null], '<mark class="waits">item</mark> Title line'],
+          [['', '#dup first line', null], '<mark class="waits">item</mark> #dup first line'],
+          [['#notes/a', 'z'.repeat(119) + '…', null], '<mark class="waits">item</mark> <mark>#notes/a</mark> ' + 'z'.repeat(119) + '…'],
           [
-            ['', '[x] Drafted summary'],
+            ['', '[x] Drafted summary', null],
             '[x] Drafted summary',
             '<mark class="waits">item</mark> [x] Drafted summary',
             'item: waits on you; click the bell or drop it on done to clear it\n[x] Drafted summary',
           ],
           [
-            ['', 'q'.repeat(79) + '…'],
+            ['', 'q'.repeat(79) + '…', null],
             'q'.repeat(79) + '…',
             '<mark class="waits">item</mark> ' + 'q'.repeat(79) + '…',
             'item: waits on you; click the bell or drop it on done to clear it\n' + 'q'.repeat(79) + '…',
@@ -5319,11 +5512,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ],
           [
             [
-              RPFX + 'See `[[docs/code]]` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+              RPFX + 'See `&#91;&#91;docs&#47;code&#93;&#93;` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
               [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
             ],
             [
-              RPFX + 'See `[[docs/code#diff]]` and <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>',
+              RPFX + 'See `&#91;&#91;docs&#47;code&#35;diff&#93;&#93;` and <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>',
               [{ path: 'docs/x', view: 'diff', title: 'diff of docs/x', text: 'the diff' }],
             ],
             [
@@ -5336,6 +5529,43 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ],
           ]
         )
+        const replyClippedCode = replyHtml('See [[docs/ok]] and `code [[docs/code]] ' + 'word '.repeat(20) + 'end`')
+        const replyClippedOpen = replyHtml('See [[docs/ok]] and `open [[docs/open]] ' + 'word '.repeat(20) + 'end')
+        const replyEntityShift = replyHtml('A & B & C & D & E `[[docs/code]]` [[docs/ok]]')
+        check(
+          'waits wiki (reply, inline code clipped): closing backtick past cut keeps code reference text while prose links; unpaired backtick past cut still links both',
+          [
+            [replyClippedCode, decodedLinks(replyClippedCode)],
+            [replyClippedOpen, decodedLinks(replyClippedOpen)],
+            [replyEntityShift, decodedLinks(replyEntityShift)],
+          ],
+          [
+            [
+              RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `code &#91;&#91;docs&#47;code&#93;&#93; ' + 'word '.repeat(15) + 'word…',
+              [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }],
+            ],
+            [
+              RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> and `open <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fopen" title="docs&#47;open" data-wiki-link>docs&#47;open</a> ' + 'word '.repeat(15) + 'word…',
+              [
+                { path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' },
+                { path: 'docs/open', view: null, title: 'docs/open', text: 'docs/open' },
+              ],
+            ],
+            [
+              RPFX + 'A &amp; B &amp; C &amp; D &amp; E `&#91;&#91;docs&#47;code&#93;&#93;` <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a>',
+              [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }],
+            ],
+          ]
+        )
+        // _reply_raw extracted once per waiting reply row (handed on by _waiting_parts)
+        {
+          const w = setWiki(withAnchors(chatting({ text: REPLY.replace('Two parts: alpha and beta.', 'See [[docs/ok]] and `[[docs/code]]`') })), config)
+          let rawReads = 0
+          const origRaw = w.ctx._reply_raw
+          w.ctx._reply_raw = t => (rawReads++, origRaw(t))
+          w.render()
+          check('waits wiki (reply, single extract): _reply_raw runs once per rendered waiting reply row', rawReads, 1)
+        }
       }
     }
     context.__now = null
@@ -12119,40 +12349,50 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const c = makeWindow(bus, { id: 'C', now: 1_700_000_000_000 })
       for (const w of [a, b, c]) { w.env._start_windows(); w.env._row_keys() }
       bus.flush()
+      a.makeItem('ux', { saved_id: 's_ux' })
+      b.makeItem('ux', { saved_id: 's_ux' })
+      const wA = a.makeWidget({ rows: [{ id: 'ux', pageY: 540 }] })
+      const wB = b.makeWidget({ rows: [{ id: 'ux', pageY: 540 }] })
       const pressW = w => { let p = false; w.win._on_key('KeyW', { preventDefault: () => (p = true) }); bus.flush(); return p }
-      // Focus B so A links to B
+      // Focus B so A links to B; A shows #ux while targetless B marks ux
+      a.setBox('#ux')
+      b.setBox('#todo')
       advanceAll(bus, [a, b, c], 2000)
       b.fireWin('focus')
       bus.flush()
-      // (a) unlinked A presses w -> A and B linked (C unlinked)
+      // (a) unlinked A presses w -> A and B linked (C unlinked), targetless B marks ux
       const pAOn = pressW(a)
-      const afterAOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner(), c.env._send_partner()]
-      // (b) linked B presses w -> sends unlink to A, does NOT turn B on; link ends in both!
+      const afterAOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner(), c.env._send_partner(), wB.rowNodes.get('ux').classList.contains('selected')]
+      // (b) targetless non-holder B presses w -> sends unlink to A, does NOT turn B on; link ends in both AND B's row highlight clears!
       bus.sent.length = 0
       const pBOff = pressW(b)
       const bSentTypes = bus.sent.filter(m => m.from == 'B').map(m => [m.data.type, m.data.to])
-      const afterBOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner()]
-      // (c) unlinked B presses w (with A used last) -> B and A linked; A presses w -> unlinks both
+      const afterBOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner(), b.env._selected_item(), wB.rowNodes.get('ux').classList.contains('selected')]
+      // (c) unlinked B (showing #ux) presses w (with A used last, targetless) -> B and A linked, A marks ux;
+      //     targetless non-holder A presses w -> unlinks both AND clears A's row highlight (while B keeps its own target mark)!
+      a.setBox('#todo')
+      b.setBox('#ux')
+      b.env._sync_marks()
       advanceAll(bus, [a, b, c], 2000)
       a.fireWin('focus')
       bus.flush()
       const pBOn = pressW(b)
-      const afterBOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_partner(), b.env._send_partner()]
+      const afterBOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_partner(), b.env._send_partner(), wA.rowNodes.get('ux').classList.contains('selected')]
       const pAOff = pressW(a)
-      const afterAOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_on(), b.env._send_on()]
+      const afterAOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_on(), b.env._send_on(), a.env._selected_item(), wA.rowNodes.get('ux').classList.contains('selected'), wB.rowNodes.get('ux').classList.contains('selected')]
       check(
         'windows _send_press & w: links from either side and unlinks from either side without turning the other on',
         [pAOn, afterAOn, pBOff, bSentTypes, afterBOff, pBOn, afterBOn, pAOff, afterAOff],
         [
           true,
-          [true, true, 'A', null],
+          [true, true, 'A', null, true],
           true,
           [['unlink', 'A']],
-          [false, false, null],
+          [false, false, null, null, false],
           true,
-          [true, true, 'B', 'A'],
+          [true, true, 'B', 'A', true],
           true,
-          [false, false, false, false],
+          [false, false, false, false, null, false, true],
         ]
       )
     }
@@ -13134,7 +13374,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [0, 500],
           [1, 1950],
           ['#f4_byeA', 0],
-          [0, 'keep_last'],
+          [0, true], // hello({ target: true }) recorded true; account-left kept it without sending s_f4_usLeft
           [true, 'U1A2'],
           [false, null, null, true],
           'f4_leftA',
@@ -15055,17 +15295,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.env._start_windows()
       bus.flush()
       const doneHits = []
+      const doneHitsB = []
       a.env._complete_todo = it => (doneHits.push(it.id), false)
+      b.env._complete_todo = it => (doneHitsB.push(it.id), false)
       const xA = a.makeItem('mpX', { saved_id: 's_mpX', scrollY: 1600 })
+      a.makeItem('mpX2', { saved_id: 's_mpX2', scrollY: 1650 })
       const yA = a.makeItem('mpY', { saved_id: 's_mpY', scrollY: 1700 })
       const zA = a.makeItem('mpZ', { saved_id: 's_mpZ', scrollY: 1800 })
       b.makeItem('mpX', { saved_id: 's_mpX', scrollY: 1600 })
+      b.makeItem('mpX2', { saved_id: 's_mpX2', scrollY: 1650 })
       b.makeItem('mpY', { saved_id: 's_mpY', scrollY: 1700 })
       b.makeItem('mpZ', { saved_id: 's_mpZ', scrollY: 1800 })
-      const wA = a.makeWidget({ rows: [{ id: 'mpX', pageY: 540 }, { id: 'mpY', pageY: 1400 }, { id: 'mpZ', pageY: 580 }] })
+      const wA = a.makeWidget({ rows: [{ id: 'mpX', pageY: 540 }, { id: 'mpX2', pageY: 560 }, { id: 'mpY', pageY: 1400 }, { id: 'mpZ', pageY: 580 }] })
+      const wB = b.makeWidget({ rows: [{ id: 'mpX', pageY: 540 }, { id: 'mpX2', pageY: 560 }, { id: 'mpY', pageY: 1400 }, { id: 'mpZ', pageY: 580 }] })
       const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const markedB = () => [...wB.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
       const doneA = () => a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const doneB = () => b.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
       const pressDone = async (btn = doneA()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
+      const pressDoneB = async (btn = doneB()) => { doneHitsB.length = 0; await btn?.press?.(); return doneHitsB[0] ?? null }
       a.setBox('#todo')
       a.env._send_press()
       bus.flush()
@@ -15128,9 +15376,114 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.win._todoer_windows.channel.unpause()
       bus.flush()
       const afterSettledZ = [markedA(), b.getBox(), await pressDone(), !!yA]
+      // (f) typing intermediate target before editor debounce settles:
+      //     (f1) keydown hello while box briefly holds #mpX2 then Backspace back to #mpX without _on_search:
+      //          hello fires with settled target (never publishes #mpX2), Done on mpX2 rejected, live Done acts on mpX
+      advanceAll(bus, [a, b], 3000) // past (e)'s clock rewind so used() fires hello on each probe
+      a.env._select_item(xA)
+      bus.flush()
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      bus.sent.length = 0
+      b.fireDoc('keydown', { key: 'Backspace' })
+      bus.flush()
+      const keydownHelloTarget = bus.sent.find(m => m.from == 'B' && m.data.type == 'hello')?.data.target ?? 'none'
+      // While the app's _mindboxDebounced flag is set, even a non-keydown focus hello keeps the settled target
+      b.win._mindboxDebounced = true
+      advanceAll(bus, [a, b], 1000)
+      bus.sent.length = 0
+      b.fireWin('focus')
+      bus.flush()
+      const debouncedFocusTarget = bus.sent.find(m => m.from == 'B' && m.data.type == 'hello')?.data.target ?? 'none'
+      b.win._mindboxDebounced = false
+      b.setBox('#mpX')
+      const afterKeydownType = [
+        keydownHelloTarget,
+        debouncedFocusTarget,
+        a.win._todoer_windows.peers.get('B')?.target ?? null,
+        markedA(),
+        a.env._pressed_item('done', 'mpX2'),
+        await pressDone(),
+      ]
+      //     (f2) non-keydown hello (focus) publishes intermediate #mpX2 -> returning to #mpX WITH _on_search corrects partner
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      const midFocusMark = markedA()
+      const doneMpX2 = doneA()
+      b.setBox('#mpX')
+      b.env._on_search('#mpX')
+      bus.flush()
+      const afterFocusWithSearch = [
+        midFocusMark,
+        a.win._todoer_windows.peers.get('B')?.target ?? null,
+        markedA(),
+        await pressDone(doneMpX2),
+        await pressDone(),
+      ]
+      //     (f3) non-keydown hello (focus) publishes intermediate #mpX2 -> returning to #mpX WITHOUT _on_search
+      //          (app skips hook when typing returns to applied query): post-debounce recheck corrects partner!
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      const midNoHookMark = markedA()
+      const doneX2NoHook = doneA()
+      b.setBox('#mpX')
+      advanceAll(bus, [a, b], 500)
+      const afterFocusNoHook = [
+        midNoHookMark,
+        a.win._todoer_windows.peers.get('B')?.target ?? null,
+        markedA(),
+        await pressDone(doneX2NoHook),
+        await pressDone(),
+      ]
+      //     (f4) typing #mpX2 briefly from plain search in B while A has target #mpX -> next click in A opens in A (B keeps plain search)
+      b.setBox('plain search')
+      b.env._on_search('plain search')
+      bus.flush()
+      a.setBox('#mpX')
+      a.env._on_search('#mpX')
+      bus.flush()
+      const doneOnXBefore = doneB()
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      b.setBox('plain search')
+      advanceAll(bus, [a, b], 500)
+      const targetAfterPlainBack = a.win._todoer_windows.peers.get('B')?.target ?? null
+      a.env._select_item(zA)
+      bus.flush()
+      const afterTypedPlainNextClick = [targetAfterPlainBack, a.getBox(), b.getBox(), markedB(), await pressDoneB(doneOnXBefore), await pressDoneB()]
+      // (g) unsaved target in B given up before its save: returning to earlier plain search tells partner `target: null`,
+      //     so targeted A's next click opens in A and keeps B's plain search (Done in B rejects stale and acts on new)
+      const doneZBeforeUns = doneB()
+      const uB2 = b.makeItem('mpUns2', { saved_id: null, name: '#mpUns2' })
+      b.setBox('#mpUns2')
+      b.env._on_search('#mpUns2')
+      bus.flush()
+      const aPeerDuringUns = a.win._todoer_windows.peers.get('B')?.target ?? null
+      b.setBox('plain search')
+      b.env._on_search('plain search')
+      bus.flush()
+      const aPeerAfterUnsReturn = a.win._todoer_windows.peers.get('B')?.target ?? null
+      a.env._select_item(xA)
+      bus.flush()
+      const afterUnsavedReturnNextClick = [
+        aPeerDuringUns,
+        aPeerAfterUnsReturn,
+        a.getBox(),
+        b.getBox(),
+        markedB(),
+        await pressDoneB(doneZBeforeUns),
+        await pressDoneB(),
+        !!uB2,
+      ]
       check(
         'windows mark follows partner target: clears on unsaved or null heartbeat, takes expired navigation without scroll replay, preserves optimistic row during pending ask',
-        [settledX, afterUnsaved, afterNullHello, afterLateNav, afterLateNone, duringOptimistic, afterSettledZ],
+        [settledX, afterUnsaved, afterNullHello, afterLateNav, afterLateNone, duringOptimistic, afterSettledZ, afterKeydownType, afterFocusWithSearch, afterFocusNoHook, afterTypedPlainNextClick, afterUnsavedReturnNextClick],
         [
           [['mpX'], 'mpX'],
           [[], false, null, true],
@@ -15139,6 +15492,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [[], false, null],
           [['mpZ'], 'mpZ'],
           [['mpZ'], '#mpZ', 'mpZ', true],
+          ['s_mpX', 's_mpX', 's_mpX', ['mpX'], null, 'mpX'],
+          [['mpX2'], 's_mpX', ['mpX'], null, 'mpX'],
+          [['mpX2'], 's_mpX', ['mpX'], null, 'mpX'],
+          [null, '#mpZ', 'plain search', ['mpZ'], null, 'mpZ'],
+          [true, null, '#mpX', 'plain search', ['mpX'], null, 'mpX', true],
         ]
       )
     }
@@ -15159,21 +15517,32 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const uY = a.makeItem('usY', { saved_id: null, name: '#usY', scrollY: 1700 })
       const uNever = a.makeItem('usNever', { saved_id: null, name: '#usNever', scrollY: 1750 })
       const uBoth = a.makeItem('usBoth', { saved_id: null, name: '#usBoth', scrollY: 1800 })
+      const uRel = a.makeItem('usRel', { saved_id: null, name: '#usRel', scrollY: 1825 })
       const uSuper = a.makeItem('usSuper', { saved_id: null, name: '#usSuper', scrollY: 1850 })
+      const uSilentActive = a.makeItem('usSilentActive', { saved_id: null, name: '#usSilentActive', scrollY: 1870 })
+      const uSilentIdle = a.makeItem('usSilentIdle', { saved_id: null, name: '#usSilentIdle', scrollY: 1880 })
       const other = a.makeItem('usOther', { saved_id: 's_usOther', scrollY: 1900 })
+      const zA = a.makeItem('usZ', { saved_id: 's_usZ', scrollY: 1950 })
       b.makeItem('usOther', { saved_id: 's_usOther', scrollY: 1900 })
+      const zB = b.makeItem('usZ', { saved_id: 's_usZ', scrollY: 1950 })
       const wA = a.makeWidget({
         rows: [
           { id: 'usX', pageY: 540 },
           { id: 'usY', pageY: 580 },
           { id: 'usNever', pageY: 620 },
           { id: 'usBoth', pageY: 660 },
+          { id: 'usRel', pageY: 680 },
           { id: 'usSuper', pageY: 700 },
+          { id: 'usSilentActive', pageY: 710 },
+          { id: 'usSilentIdle', pageY: 720 },
           { id: 'usOther', pageY: 740 },
+          { id: 'usZ', pageY: 760 },
         ],
       })
+      b.makeWidget({ rows: [{ id: 'usX', pageY: 540 }, { id: 'usZ', pageY: 580 }] })
       const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
-      const pressDone = async () => { doneHits.length = 0; await a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')?.press?.(); return doneHits[0] ?? null }
+      const doneA = () => a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDone = async (btn = doneA()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
       a.setBox('search words')
       b.setBox('#usX')
       a.env._send_press()
@@ -15208,6 +15577,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeItem('usBoth', { saved_id: 's_usBoth', name: '#usBoth', scrollY: 1800 })
       advanceAll(bus, [a, b], 250)
       const afterBothUnsaved = [a.getBox(), b.getBox(), markedA()]
+      // (c2) both targets release for unsaved row tells partner `target: null` at once (before save):
+      //      next click on saved Z in B opens Z in B (keeping A on #todo marking Z), captured Done on uRel rejected,
+      //      live Done in A acts on Z, and uRel saving later does not clobber B
+      a.setBox('#usX')
+      a.env._on_search('#usX')
+      bus.flush()
+      a.env._select_item(uRel)
+      a.env._on_search('#todo')
+      bus.flush()
+      advanceAll(bus, [a, b], 500)
+      const doneRel = doneA()
+      const bKnowsRelease = [a.getBox(), markedA(), b.win._todoer_windows.peers.get('A')?.target ?? null]
+      b.env._select_item(zB)
+      bus.flush()
+      uRel.saved_id = 's_usRel'
+      a.items.set('s_usRel', uRel)
+      b.makeItem('usRel', { saved_id: 's_usRel', name: '#usRel', scrollY: 1825 })
+      advanceAll(bus, [a, b], 500)
+      const afterBClickDuringWait = [a.getBox(), b.getBox(), markedA(), await pressDone(doneRel), await pressDone(), !!zA]
       // (d) clicking another row supersedes pending unsaved row wait
       a.env._select_item(uSuper)
       bus.flush()
@@ -15218,16 +15606,72 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeItem('usSuper', { saved_id: 's_usSuper', name: '#usSuper', scrollY: 1850 })
       advanceAll(bus, [a, b], 500)
       const afterSuperseded = [a.getBox(), b.getBox(), markedA()]
+      // (e) Fault 2: original click's input counter and _carry_input fallback opener are carried through
+      //     the first-save wait: with a silent partner (B lacks the newly saved item), intervening input
+      //     during the save wait preserves the newer plain search (does not open over it), while an idle
+      //     wait falls back locally using the original click's carried user-input intent (history step)
+      let inUserClick = false
+      const carriedRuns = []
+      a.win._carry_input = fn => {
+        const captured = inUserClick
+        return (...args) => {
+          carriedRuns.push(captured)
+          return fn(...args)
+        }
+      }
+      a.setBox('plain one')
+      a.env._on_search('plain one')
+      bus.flush()
+      // (e1) intervening typing during save wait + silent partner (B lacks uSilentActive) -> keeps 'plain two'
+      inUserClick = true
+      a.env._select_item(uSilentActive)
+      inUserClick = false
+      bus.flush()
+      a.fireWin('keydown', { key: 'a' })
+      a.setBox('plain two')
+      a.env._on_search('plain two')
+      bus.flush()
+      uSilentActive.saved_id = 's_usSilentActive'
+      a.items.set('s_usSilentActive', uSilentActive)
+      // B deliberately lacks uSilentActive -> stays silent past SEND_ACK_MS
+      advanceAll(bus, [a, b], 250) // save poll starts _send_ask carrying pre-typing acted
+      advanceAll(bus, [a, b], 3000) // SEND_ACK_MS fallback sees acted changed -> keeps 'plain two'!
+      await Promise.resolve()
+      const afterSilentWithInput = [a.getBox(), carriedRuns.length]
+      // reconnect B via who (sent on fallback) and test (e2): idle during save wait + silent partner ->
+      // opens locally with original click's carried user-input intent (captured === true at the click!)
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      a.setBox('plain three')
+      a.env._on_search('plain three')
+      bus.flush()
+      inUserClick = true
+      a.env._select_item(uSilentIdle)
+      inUserClick = false
+      bus.flush()
+      uSilentIdle.saved_id = 's_usSilentIdle'
+      a.items.set('s_usSilentIdle', uSilentIdle)
+      // B deliberately lacks uSilentIdle -> stays silent past SEND_ACK_MS
+      advanceAll(bus, [a, b], 250) // save poll starts _send_ask while inUserClick is false
+      advanceAll(bus, [a, b], 3000) // SEND_ACK_MS fallback runs opener carried from click!
+      await Promise.resolve()
+      const afterSilentIdle = [a.getBox(), a.getScrollTop(), [...carriedRuns]]
+      delete a.win._carry_input
       check(
         'windows unsaved row selection via _select_item: keeps list query, waits for saved_id, hands off once saved, restores mark on timeout, survives both-targets release, superseded by newer click',
-        [beforeSave, afterSave, duringNever, afterNever, afterBothUnsaved, afterSuperseded],
+        [beforeSave, afterSave, duringNever, afterNever, afterBothUnsaved, bKnowsRelease, afterBClickDuringWait, afterSuperseded, afterSilentWithInput, afterSilentIdle],
         [
           ['search words', '#usX', ['usY'], 0],
           ['search words', '#usY', ['usY'], 'usY'],
           ['search words', ['usNever']],
           ['search words', '#usY', ['usY'], 0],
           ['#todo', '#usBoth', ['usBoth']],
+          ['#todo', ['usRel'], null],
+          ['#todo', '#usZ', ['usZ'], null, 'usZ', true],
           ['#todo', '#usOther', ['usOther']],
+          ['plain two', 0],
+          ['#usSilentIdle', 1880, [true]],
         ]
       )
     }

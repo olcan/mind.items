@@ -64,7 +64,8 @@ const _todoer = _item('$id')
 //   row, where it shows the reply's first line as written (cut at most at its end), wiki links
 //   outside inline code open as links (clicking one opens the file without selecting the row)
 //   while tags, markdown links, addresses, and markup stay plain text (wiki links skip inline code
-//   on todo rows too); an `item` row's line stays plain text.
+//   on todo rows too, decided before clipping and left opaque to later passes); an `item` row's
+//   line stays plain text.
 // - A todo that came up for you carries a bell with its kind (its reason in the main list, or
 //   `checkin` on a delegated todo whose agent checked in while going on working). The bell stays
 //   even after a check-in's marker returns to working; click the bell to clear it while keeping the
@@ -101,10 +102,12 @@ const _todoer = _item('$id')
 //   the other window shows and acting on it through its buttons and keys; a window with a target
 //   keeps its own target (if the other window has none, a row selection here opens here and moves
 //   the other's mark); if both windows have targets, selecting a row gives this window's target up
-//   (to the default list query, or the empty query when that tag names a single item; Back returns
-//   to a finalized target, while a target only typed and never finalized is replaced with no step)
-//   and shows the item in the other; if neither has a target, the window selected in stays the
-//   list. **`w`** in either window ends the link.
+//   (to the default list query, or the empty query when that tag names a single item; for a
+//   nonempty release query Back returns to a finalized target while a typed, unfinalized target is
+//   replaced with no step, and for the empty release query clearing a shown target makes and
+//   finalizes a new step even from a typed, unfinalized target) and shows the item in the other;
+//   if neither has a target, the window selected in stays the list. **`w`** in either window ends
+//   the link.
 
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
@@ -175,55 +178,69 @@ function _mark_tags(text) {
   return text.replace(/(^|\s|\()(#[^#\s<>&\?!,.;:"'`(){}\[\]]+)/g, '$1<mark>$2</mark>')
 }
 
-// the markdown links of a row's escaped snippet as anchors
+// the markdown links of a row's escaped snippet as anchors. A label ends at its OWN closing
+// bracket, so a completed `[marker]` or `[note]` earlier in the row is no part of a later link's
+// label. Inside a label, a complete code span and a backslash escape are text whatever they hold
+// (a bracket in code, an escaped bracket), and a bracket of the label's own must be one of a
+// matched pair, one level deep. A backtick or a backslash is never ordinary text, so a code span
+// or an escape cannot be taken apart on a second try (no false link out of a span's inside, and
+// one way only to read a label); a backtick with no partner after it is text by its own branch
 function _link_markdown_links(text) {
-  return text.replace(/\[\s*(.*?)\s*\]\(\s*(.*?)\s*\)/g, (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`)
+  const piece = /`[^`]*`|`(?![^`]*`)|\\.|[^\[\]`\\]/.source
+  const label = new RegExp(`\\[\\s*((?:${piece}|\\[(?:${piece})*\\])*?)\\s*\\]\\(\\s*(.*?)\\s*\\)`, 'g')
+  return text.replace(label, (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`)
 }
 
-// returns a predicate testing whether an offset in a row's escaped line lies inside inline code
-// (pairs of backticks matched from the left; an unpaired backtick opens nothing)
-function _inline_code_test(text) {
-  if (!text.includes('`')) return () => false
+// tests whether an offset in an escaped line lies inside inline code: backticks pair from the
+// left, an odd count in `head` opens code from the start, and an unpaired last backtick closes
+// at the end only when `tail` holds a backtick or `more` is set (else it opens nothing)
+function _inline_code_test(text, cut) {
+  const { head = '', tail = '', more = false } = cut ?? {}
+  const open = (head.match(/`/g)?.length ?? 0) % 2 == 1
+  if (!open && !text.includes('`')) return () => false
+  const ticks = open ? [-1] : []
+  for (let i = 0; i < text.length; i++) if (text[i] == '`') ticks.push(i)
+  if ((more || tail.includes('`')) && ticks.length % 2 == 1) ticks.push(text.length)
   const spans = []
-  for (const m of text.matchAll(/`[^`]*`/g)) spans.push([m.index, m.index + m[0].length - 1])
+  for (let i = 0; i + 1 < ticks.length; i += 2) spans.push([ticks[i], ticks[i + 1]])
   return offset => spans.some(([start, end]) => offset > start && offset < end)
 }
 
-// the wiki links of a row's escaped snippet (the app's grammar and builder; the vault's design
-// notes/design/wiki_links.md 2.3): a `[[path]]` or `[[path|text]]` reference, unescaped back to
-// the owner's text, becomes the app's anchor with its text and title as character references,
-// so the tag, markdown-link and url passes that follow find nothing inside it; a reference that
-// begins inside inline code, or one the app has no setting for or refuses, stays as written. Runs
-// first over the escaped snippet
-function _link_wiki(text) {
+// the wiki links of an escaped row stretch (the app's grammar and builder; the vault's design
+// notes/design/wiki_links.md 2.3): a `[[path]]` or `[[path|text]]` reference outside inline code
+// becomes the app's anchor under the refs carrier; one that begins inside inline code leaves as
+// decimal character references (non-alphanumeric, non-space) so later passes cannot read it, and
+// a refused reference stays as written. Shared by todo rows and waiting reply rows
+function _link_wiki(text, in_code) {
   const regexp = window._wiki_link_regexp?.()
   const build = window._wiki_link_html
   if (!regexp || !build || !text.includes('[[')) return text
-  const in_code = _inline_code_test(text)
+  const test = in_code ?? _inline_code_test(text)
+  const refs = s => [...s].map(c => (/[A-Za-z0-9 ]/.test(c) ? c : `&#${c.codePointAt(0)};`)).join('')
   return text.replace(regexp, (m, embed, target, alias, offset) =>
-    in_code(offset) ? m : (build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
+    test(offset)
+      ? refs(_.unescape(m))
+      : (build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
   )
 }
 
 // wiki links for a waiting reply row's line: links references outside inline code only where the
-// row shows the reply's first line as written (cut at most at its end); every other waiting row's
-// line stays escaped text
-function _link_waiting_wiki(line, text) {
+// row shows the reply's first line as written (`raw`, trimmed, cut at most at its end); inline
+// code is paired on that whole trimmed line so clipping past 120 chars cannot expose a code span
+function _link_waiting_wiki(line, raw) {
   const escaped = _.escape(line ?? '')
-  const regexp = window._wiki_link_regexp?.()
-  const build = window._wiki_link_html
-  if (text == null || !regexp || !build || !escaped.includes('[[')) return escaped
-  // links only where the row shows the reply's first line as written, cut at most at its end
-  if (!_reply_raw(text).trim().startsWith(String(line).replace(/…$/, ''))) return escaped
-  const in_code = _inline_code_test(escaped)
-  return escaped.replace(regexp, (m, embed, target, alias, offset) =>
-    in_code(offset) ? m : (build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
-  )
+  if (raw == null || !escaped.includes('[[')) return escaped
+  const written = String(raw).trim()
+  if (!written.startsWith(String(line).replace(/…$/, ''))) return escaped
+  return _link_wiki(escaped, _inline_code_test(_.escape(written)))
 }
 
-// the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url passes
-function _row_html(shown) {
-  return _link_urls(_link_markdown_links(_mark_tags(_link_wiki(_.escape(shown)))))
+// the row's html: an escaped stretch through the wiki-link, tag, markdown-link and url passes
+function _row_html(shown, cut) {
+  const escaped = _.escape(shown)
+  // (the code spans are worked out only for a row that holds a wiki opener)
+  const in_code = escaped.includes('[[') ? _inline_code_test(escaped, cut) : null
+  return _link_urls(_link_markdown_links(_mark_tags(_link_wiki(escaped, in_code))))
 }
 
 // the anchors of a rendered row (`div`): a wiki link's anchor (data only, the app's builder) gets
@@ -368,7 +385,7 @@ function __render(widget, widget_item) {
       if (item.id == selected) container.classList.add('selected')
       const div = document.createElement('div')
       div.className = 'list-item'
-      const [name, line] = _waiting_parts(item, waits)
+      const [name, line, raw] = _waiting_parts(item, waits)
       // what this row shows (the reply or the write stamp), kept on the row: a clear made from it
       // (the bell, a bin) is of THIS one, also when a newer one has arrived while held or dragged
       const key = _wait_key_of(item, waits)
@@ -379,7 +396,7 @@ function __render(widget, widget_item) {
       div.innerHTML =
         `<mark class="waits">${waits}</mark> ` +
         (name ? _mark_tags(_.escape(name)) + ' ' : '') +
-        _link_waiting_wiki(line, waits == 'reply' ? item.text : null)
+        _link_waiting_wiki(line, raw)
       // the bell's own click clears the row (as its drop on the done bin does), not the row's
       const bell = div.querySelector?.('mark.waits')
       if (bell)
@@ -473,19 +490,24 @@ function __render(widget, widget_item) {
     const first_lines =
       (snoozed ? new Date(item._global_store._todoer.snoozed).toLocaleString() + '\n' : '') +
       (parent ? `child of ${parent}\n` : '')
+    const snippet_shown = _visible(text).replace(/\s+/g, ' ')
     const asked = question ? _visible(question.raw) + (question.more ? ' …' : '') : ''
+    const asked_shown = asked.replace(/\s+/g, ' ').trimStart()
     container.title = first_lines + _row_title(text, cut) + (asked ? '\n' + asked : '')
-    const shown = (_visible(text) + (asked ? ' ' + asked : '')).replace(/\s+/g, ' ')
+    const shown = asked_shown ? snippet_shown.trimEnd() + ' ' + asked_shown : snippet_shown
     container._log_text = (first_lines + shown).replace(/\s+/g, ' ')
     // a projection change this tab has not notified yet (the hook notifies first; a render
     // catches a delivery the hook did not see, see _notify_change)
     _notify_change(item, { state, list: task_list, parent })
 
-    // the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url
-    // passes (_row_html), then a task's marker linked to its worktree's review (design 2.4:
-    // presentation only, the text keeps its one bracketed word; the #vault item's builder,
-    // resolved once per render) and a NAMED item's label first (_row_label)
-    let html = _row_html(shown)
+    // the row's html: the escaped snippet (and a chat-todo's question, paired separately against
+    // its own clip) through the wiki-link, tag, markdown-link and url passes (_row_html), then a
+    // task's marker linked to its worktree's review (design 2.4: presentation only, the text keeps
+    // its one bracketed word; the vault item's builder, resolved once per render) and a NAMED
+    // item's label first (_row_label)
+    let html = asked_shown
+      ? _row_html(snippet_shown.trimEnd(), cut) + ' ' + _row_html(asked_shown, { more: question.more })
+      : _row_html(snippet_shown, cut)
     if (state?.worktree && review_anchor === undefined) review_anchor = _review_anchor_builder()
     html = _decorate_row(html, text, state, review_anchor, parent, _row_label(item, shown))
 
@@ -867,6 +889,15 @@ function __render(widget, widget_item) {
   // (a row a bin took, a row that arrived meanwhile) stay ahead of it, as Sortable's sort
   // leaves them
   if (widget._orderAfterDrag && !snoozed) list.sortable.sort(widget._orderAfterDrag)
+
+  // reconcile marks, visibility observer, and strip buttons when Item.svelte restores this cached
+  // widget from cache-div after a query change that removed and re-mounted it
+  widget._resize = () => {
+    if (typeof window != 'undefined' && typeof window._todoer_vis_refresh == 'function') return void window._todoer_vis_refresh(widget)
+    if (typeof _watch_list_visibility == 'function') _watch_list_visibility(widget)
+    if (typeof _sync_marks == 'function') _sync_marks()
+    if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
+  }
 
   // the bin buttons follow the list as drawn: a row that came or went for the selected item
   if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
@@ -1836,7 +1867,8 @@ function _watch_list_visibility(widget) {
   const host = widget?.closest?.('.super-container')
   if (!host || host.closest?.('#cache-div, .column.hidden')) return
   if (window._todoer_vis_refresh?._fn !== _bin_buttons) {
-    const refresh = () => {
+    const refresh = w => {
+      if (w && typeof _watch_list_visibility == 'function') _watch_list_visibility(w)
       if (typeof _sync_marks == 'function') _sync_marks()
       if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item())
     }
@@ -3171,8 +3203,9 @@ function _reply_raw(text) {
 }
 
 // the first text line of the last inert region (_reply_raw), shortened; '' without one
-function _reply_line(text) {
-  const clean = _reply_raw(text).replace(/\s+/g, ' ').trim()
+// (`raw`, when already extracted, avoids reading the item's text a second time)
+function _reply_line(text, raw = _reply_raw(text)) {
+  const clean = raw.replace(/\s+/g, ' ').trim()
   return clean.length > 120 ? clean.slice(0, 119).trimEnd() + '…' : clean
 }
 
@@ -3331,18 +3364,20 @@ function _cleared(item) {
   return [...replies, ...items]
 }
 
-// the two parts of such an item's row: its name when it has one, and its first line (for `reply`,
-// the reply's first line, or the item's own first line when unnamed without one; for `item`, the
-// name and clipped body for a uniquely named item, or the desktop notification's shaped 80-char
-// line via `_notify_line` for an unnamed item)
+// the parts of such an item's row: `[name, line, raw]` — its name when it has one, its first line
+// (for `reply`, the reply's first line, or the item's own first line when unnamed without one; for
+// `item`, the name and clipped body for a uniquely named item, or the desktop notification's shaped
+// 80-char line via `_notify_line` for an unnamed item), and for `reply` the raw first line read
+// once via `_reply_raw` (`null` for `item`)
 function _waiting_parts(item, kind = 'reply') {
   if (kind == 'item') {
     const { shown, body } = _item_preview(item)
     const named = typeof item.name == 'string' && item.name.startsWith('#') && item.name.toLowerCase() != '#todo'
-    return named ? [shown, body] : ['', _notify_line(shown)]
+    return named ? [shown, body, null] : ['', _notify_line(shown), null]
   }
-  const line = _reply_line(item.text)
-  return item.label ? [item.label, line] : ['', line || _visible(String(item.text ?? '').split('\n')[0] ?? '')]
+  const raw = _reply_raw(item.text)
+  const line = _reply_line(item.text, raw)
+  return item.label ? [item.label, line, raw] : ['', line || _visible(String(item.text ?? '').split('\n')[0] ?? ''), raw]
 }
 
 // clears such an item's row (the bell's click, a drop on the done bin): what the row SHOWED
@@ -3887,9 +3922,11 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 // - Where both have targets, the selecting window gives its target up (setting SEND_LIST_QUERY, or
 //   the empty query when SEND_LIST_QUERY resolves as a target, with a 15-step _hold_scroll against
 //   the app's no-target scroll-up), marks the row, and asks the other window to show the item.
-//   Where the prior target was finalized in history (a click, select, or finalized entry), giving
-//   it up adds a history step and Back returns to it; where it was only typed and never finalized,
-//   the app replaces that entry with no step.
+//   For a nonempty release query, giving up a finalized target (a click, select, or finalized
+//   entry) adds a history step and Back returns to it, while a target only typed and never
+//   finalized is replaced with no step; for the empty release query (when SEND_LIST_QUERY itself
+//   names a single item), clearing a shown target makes and finalizes a new history entry even
+//   from a typed, unfinalized target.
 // - A window with a target shows buttons and takes keys for its own target and ignores unasked
 //   selections told by the other window. A window without a target marks the row of the current
 //   partner's reported saved target (keeping the optimistic row while a row handoff is pending,
@@ -3996,10 +4033,12 @@ function _set_shown(windows, id) {
 // drops all deferred link work (pending handoff, scroll hold, linked mark, and dedup state)
 function _send_retire(windows) {
   if (!windows) return
+  windows.clear_recheck?.()
   _send_cancel(windows)
   windows.hold?.()
   windows.last = null
-  _set_shown(windows, null)
+  windows.shown = null
+  _sync_marks(_window_target())
 }
 
 // reconciles a no-target window's mark with the current linked partner's reported saved target
@@ -4051,10 +4090,11 @@ function _send_toggle(on = !_send_on()) {
 // still have shown it). A plain `show` (no `fallback`) that times out changes nothing else; with
 // `fallback` (a row's selection in this window), a timeout forgets the peer, asks `who` so a live
 // partner is back at once, and opens `item` locally if nothing else intervened
-function _send_ask(item, { fallback = false, acted_at = null, selection = null, checked = false } = {}) {
+function _send_ask(item, { fallback = false, acted_at = null, selection = null, checked = false, acted = null, open = null } = {}) {
   const windows = window._todoer_windows
   const target = typeof item == 'string' ? _item(item, { silent: true }) : item
   if (!windows || !target || _notify_fixed_view() || _notify_account_left()) return Promise.resolve(false)
+  windows.clear_recheck?.()
   const to = _send_partner()
   if (!to || !target.saved_id) return Promise.resolve(false)
   _send_cancel(windows)
@@ -4063,14 +4103,14 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
   windows.seen_at = Math.max(windows.seen_at ?? 0, at)
   windows.sel = stamp
   const id = target.saved_id
-  if (fallback) { windows.last = ''; windows.shown = id }
+  if (fallback) windows.shown = id
   const n = `${_notifier_id()}:${++windows.n}`
   const uid = _send_account()
-  const acted = windows.acted
+  const base_acted = acted ?? windows.acted
   const was_on = _send_on()
   const open_raw = live => _open_here(live, selection, checked)
-  const open = fallback ? (typeof window._carry_input == 'function' ? window._carry_input(open_raw) : open_raw) : null
-  windows.say('selected', { item: id, to, n, at, until: Date.now() + SEND_TAKE_MS })
+  const opener = fallback ? (open ?? (typeof window._carry_input == 'function' ? window._carry_input(open_raw) : open_raw)) : null
+  windows.say('selected', { item: id, target: _send_target_id(), to, n, at, until: Date.now() + SEND_TAKE_MS })
   return new Promise(resolve => {
     const req = {
       kind: 'ask', fallback, n, to, uid, stamp, resolve,
@@ -4090,7 +4130,7 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
         const after = _send_partner()
         windows.say('who')
         const clear = () => { _send_sync_shown(windows); _bin_buttons(_selected_item()) }
-        const ok = () => ready && windows.acted === acted && windows.sel === stamp && !_window_target()
+        const ok = () => ready && windows.acted === base_acted && windows.sel === stamp && !_window_target()
         if (!ok()) return clear()
         _bin_buttons(_selected_item())
         _update_dom().then(() => {
@@ -4100,7 +4140,7 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
           windows.hold?.()
           windows.shown = null
           const live = _item(target.id, { silent: true })
-          if (!live || !open(live)) { _send_sync_shown(windows); _sync_marks(); _bin_buttons(_selected_item()) }
+          if (!live || !opener(live)) { _send_sync_shown(windows); _sync_marks(); _bin_buttons(_selected_item()) }
         })
       }, SEND_ACK_MS),
     }
@@ -4114,6 +4154,7 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
 function _send_selected(item, forced = false, acted_at = null, ask = false, selection = null, checked = false) {
   const windows = window._todoer_windows
   if (!windows || _notify_fixed_view() || _notify_account_left()) return false
+  windows.clear_recheck?.()
   const next_last = item ? item.saved_id ?? null : ''
   if (!ask && !forced && next_last !== null && windows.last === next_last) {
     if (windows.pending?.kind == 'take' && windows.pending.asked) _send_cancel(windows)
@@ -4137,11 +4178,11 @@ function _send_selected(item, forced = false, acted_at = null, ask = false, sele
   // an unsaved item carries its selection's ordering while waiting for its saved id (within
   // SEND_SAVE_MS by the clock, while it remains selected and the same link stands)
   if (item && !item.saved_id) {
-    if (!ask) windows.say('hello', { target: true })
+    if (!ask) windows.say('hello', { target: true, at })
+    else if (!_window_target() && windows.last !== '') windows.say('hello', { target: null, at })
     _send_when_saved(item, Date.now() + SEND_SAVE_MS, at, ask, selection, checked)
     return false
   }
-  windows.last = next_last
   windows.say('selected', { item: item ? item.saved_id : null, target: _send_target_id(item), to, at, until: Date.now() + SEND_TAKE_MS })
   return false
 }
@@ -4155,9 +4196,12 @@ function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Da
   if (!windows || !link || _notify_fixed_view() || _notify_account_left()) return
   _send_cancel(windows)
   const uid = _send_account()
+  const acted = windows.acted
+  const open_raw = live => _open_here(live, selection, checked)
+  const open = ask ? (typeof window._carry_input == 'function' ? window._carry_input(open_raw) : open_raw) : null
   const req = { kind: 'save', item, uid, link, until, acted_at, ask, timer: null }
   windows.pending = req
-  if (ask) { windows.last = ''; windows.shown = item.id }
+  if (ask) windows.shown = item.id
   const drop = () => {
     windows.pending = null
     if (ask) { _send_sync_shown(windows); _bin_buttons(_selected_item()) }
@@ -4173,7 +4217,7 @@ function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Da
     if (named.saved_id) {
       if (ask && !_send_partner()) return drop()
       windows.pending = null
-      if (ask) _send_ask(named, { fallback: true, acted_at, selection, checked })
+      if (ask) _send_ask(named, { fallback: true, acted_at, selection, checked, acted, open })
       else _send_selected(named, true, acted_at, false)
       return
     }
@@ -4237,6 +4281,7 @@ function _send_take(message, asked, until = null) {
       return true
     }
     const prev = [windows.last, windows.sel, windows.seen_at, windows.shown]
+    windows.clear_recheck?.()
     windows.hold?.()
     windows.shown = null
     windows.last = item.saved_id ?? item.id
@@ -4257,12 +4302,43 @@ function _start_windows() {
   const api = { show: item => _send_ask(item), linked: _send_linked, toggle: _send_press }
   if (window._todoer_windows) return void Object.assign(window._todoer_windows, api)
   const me = _notifier_id()
-  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, n: 0, last: null, shown: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
+  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, recheck: null, n: 0, last: null, shown: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
+  const clear_recheck = () => {
+    if (!windows.recheck) return
+    clearTimeout(windows.recheck)
+    windows.recheck = null
+  }
+  const schedule_recheck = () => {
+    clear_recheck()
+    const uid = _send_account()
+    const check = () => {
+      windows.recheck = null
+      if (_notify_fixed_view() || _notify_account_left() || _send_account() !== uid || !_send_partner()) return
+      if (windows.pending?.kind == 'ask' || windows.pending?.kind == 'save') return
+      if (window._mindboxDebounced) {
+        windows.recheck = setTimeout(check, 100)
+        return
+      }
+      const item = _window_target()
+      const live = _send_target_id(item)
+      if ((live == null ? '' : live) === windows.last) return
+      _send_selected(item)
+    }
+    windows.recheck = setTimeout(check, 500)
+  }
+  windows.clear_recheck = clear_recheck
   windows.say = (type, more = {}) => {
     if (_notify_account_left() || _notify_fixed_view()) return
     try {
       const since = _send_since()
-      windows.channel.postMessage({ type, id: me, uid: _send_account(), used: windows.used, on: since > 0, since, to: since > 0 ? _send_peer() : null, target: _send_target_id(), ...more })
+      const prevLast = windows.last
+      const target = 'target' in more ? more.target : (window._mindboxDebounced && prevLast !== null ? (prevLast || null) : _send_target_id())
+      windows.channel.postMessage({ type, id: me, uid: _send_account(), used: windows.used, on: since > 0, since, to: since > 0 ? _send_peer() : null, ...more, target })
+      if (type != 'bye' && type != 'unlink' && _send_partner()) {
+        const told = target == null ? '' : target
+        windows.last = told
+        if (type == 'hello' && !('target' in more) && prevLast !== null && told !== prevLast) schedule_recheck()
+      }
     } catch (e) {}
   }
   const look = () => `${!!_send_peer()}|${_send_linked()}`
@@ -4318,6 +4394,7 @@ function _start_windows() {
       if (!partner && !((windows.pending?.kind == 'ask' && windows.pending.fallback) || (windows.pending?.kind == 'save' && windows.pending.ask))) _set_shown(windows, null)
     }
     if (message.type != 'bye' && message.type != 'unlink') {
+      if (message.id == partner && message.at != null && Number.isFinite(Number(message.at))) windows.seen_at = Math.max(windows.seen_at ?? 0, Number(message.at))
       if (message.type == 'who') windows.say('hello')
       else if (message.type == 'selected' && message.to == me && message.id == partner) {
         const end = message.until != null && Number.isFinite(Number(message.until)) ? Number(message.until) : Date.now() + SEND_TAKE_MS
@@ -4345,15 +4422,15 @@ function _start_windows() {
   const acted = () => { windows.acted++ }
   for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown', 'popstate', 'resize']) window.addEventListener(type, acted, { capture: true, passive: true })
   if (typeof visualViewport != 'undefined') visualViewport?.addEventListener?.('resize', acted)
-  const used = () => {
+  const used = (typing = false) => {
     windows.used = Date.now()
     if (windows.used - windows.said < 1000) return
     windows.said = windows.used
-    windows.say('hello')
+    windows.say('hello', typing && windows.last !== null ? { target: windows.last || null } : {})
   }
-  window.addEventListener('focus', used)
-  document.addEventListener('pointerdown', used, { capture: true, passive: true })
-  document.addEventListener('keydown', used, true)
+  window.addEventListener('focus', () => used(false))
+  document.addEventListener('pointerdown', () => used(false), { capture: true, passive: true })
+  document.addEventListener('keydown', () => used(true), true)
   window.addEventListener('pagehide', () => windows.say('bye'))
   let drawn = look()
   setInterval(() => {
