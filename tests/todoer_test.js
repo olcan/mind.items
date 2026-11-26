@@ -87,7 +87,9 @@ const picked =
     '_link_urls',
     '_mark_tags',
     '_link_markdown_links',
+    '_inline_code_test',
     '_link_wiki',
+    '_link_waiting_wiki',
     '_row_html',
     '_wire_row_links',
     '_extract_todo_snippet',
@@ -138,6 +140,7 @@ const picked =
     '_notify_setting',
     '_notify_gate',
     '_vault_replies',
+    '_reply_raw',
     '_reply_line',
     '_notify_reply',
     '_item_stamp',
@@ -1815,6 +1818,54 @@ const { replaceTags, parseTags, hash_64_fnv1a } = (() => {
     check('row: the anchor carries no target, rel or handler', /target=|rel=|\son\w+=/.test(html), false)
     check('row: a reference without an alias shows its target, an apostrophe and a quote reach the builder unescaped', _row_html("[[docs/x]] [[a'b|c\"d]]"),
       '<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;a&#39;b" title="a&#39;b" data-wiki-link>c&#34;d</a>') // encodeURIComponent keeps an apostrophe; the carrier references it
+    // inline code in a todo row: references beginning inside a single-backtick span stay text,
+    // while references outside (or after an unpaired backtick, or with backticks in their own text)
+    // still link, and the tag/markdown-link/url passes stay unchanged
+    const decodeRowHtml = s =>
+      String(s ?? '').replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(amp|lt|gt|quot|apos));/g, (_, dec, hex, name) =>
+        dec
+          ? String.fromCodePoint(Number(dec))
+          : hex
+            ? String.fromCodePoint(parseInt(hex, 16))
+            : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]
+      )
+    const rowPaths = s =>
+      [...String(s ?? '').matchAll(/<a\b[^>]*href="([^"]*)"[^>]*>/g)].map(m => new URL(decodeRowHtml(m[1])).searchParams.get('path'))
+    check(
+      'row (inline code): linkify with wiki reference in backticks stays text with no anchor',
+      _row_html('linkify `[[wiki]]` in todoer rows'),
+      'linkify `[[wiki]]` in todoer rows'
+    )
+    const mixedCode = _row_html('See `[[docs/code]]` and [[docs/Plan A]]')
+    check(
+      'row (inline code): one reference in backticks and one outside links only the outside one with decoded path',
+      [mixedCode, rowPaths(mixedCode)],
+      [
+        'See `[[docs/code]]` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FPlan&#37;20A" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a>',
+        ['docs/Plan A'],
+      ]
+    )
+    check(
+      'row (inline code): single unpaired backtick before reference still links',
+      [_row_html('See `[[docs/x]]'), _row_html('See ` [[docs/x]]')],
+      [
+        'See `<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+        'See ` <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+      ]
+    )
+    check(
+      'row (inline code): reference starting outside with backtick in alias still links; reference starting inside stays text',
+      [_row_html('See [[docs/x|run `cmd`]] and [[docs/y|a`b]]'), _row_html('See `a [[docs/x|b` c]]')],
+      [
+        'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>run &#96;cmd&#96;</a> and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>a&#96;b</a>',
+        'See `a [[docs/x|b` c]]',
+      ]
+    )
+    check(
+      'row (inline code): reference in backticks beside a space-separated tag keeps reference text and marks the tag',
+      _row_html('See `[[docs/x]] #tag`'),
+      'See `[[docs/x]] <mark>#tag</mark>`'
+    )
     context._replace_tags = stub
     delete context.window._wiki_link_regexp
     delete context.window._wiki_link_html
@@ -2707,6 +2758,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     classList = {
       contains: name => this.className.split(' ').includes(name),
       add: name => void (this.classList.contains(name) || (this.className = (this.className + ' ' + name).trim())),
+      remove: name => void (this.className = this.className.split(' ').filter(c => c && c != name).join(' ')),
+      toggle: (name, on) => ((on ?? !this.classList.contains(name)) ? this.classList.add(name) : this.classList.remove(name)),
     }
     get firstChild() {
       return this.children[0] ?? null
@@ -3496,12 +3549,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     named.ctx._this = { dependents: ['pinned'] }
     named.ctx.window.Sortable = named.ctx.Sortable
     named.ctx.document.querySelector = selector => (selector == '.todoer-widget .list-item-container.selected' && marked().length ? {} : null)
+    named.ctx.document.querySelectorAll = selector => (selector == '.todoer-widget' ? [named.widget] : [])
+    const origNamedQsa = named.widget.querySelectorAll.bind(named.widget)
+    named.widget.querySelectorAll = selector => (selector == '.list-item-container' ? named.rows() : origNamedQsa(selector))
     named.pinned.elem = { querySelectorAll: selector => (selector == '.todoer-widget' ? (renders++, [named.widget]) : []), querySelector: selector => (selector == '.list-item-container.selected' && marked().length ? {} : null) }
     const name_it = text => (named.ctx._on_search((box = text)), [marked(), renders])
-    check('search: a chat whose reply waits is named, no row marked before: the list is rendered again and its row is marked', name_it('#e2e_chatty/0'), [['chat'], 1])
-    check('search: a todo named next takes the mark', name_it('id:short'), [['short'], 2])
-    check('search: a text that names no item takes the mark away, and with no row marked renders nothing more', [name_it('fix'), name_it('fix the')], [[[], 3], [[], 3]])
-    check('search: an item that no widget lists renders nothing', name_it('pinned'), [[], 3])
+    check('search: a chat whose reply waits is named, no row marked before: its row is marked without rebuilding the list', name_it('#e2e_chatty/0'), [['chat'], 0])
+    check('search: a todo named next takes the mark without rebuilding', name_it('id:short'), [['short'], 0])
+    check('search: a text that names no item takes the mark away, and with no row marked renders nothing', [name_it('fix'), name_it('fix the')], [[[], 0], [[], 0]])
+    check('search: an item that no widget lists renders nothing', name_it('pinned'), [[], 0])
     // the list's start: one stamp, written only from a confirmed corpus that is not held
     const starting = chatting({ base: null })
     const todoer = starting.ctx._todoer
@@ -4475,10 +4531,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         )
       }
 
-      // 14. wiki links in waiting rows (reply and agent-written item): the line is escaped first,
-      //     only the app's own builder writes wiki anchors, everything else stays text, hostile
-      //     inputs never become markup or live links, absent builder keeps rows as before, and
-      //     _wire_row_links stops anchor clicks so clicking a wiki link does not select the row
+      // 14. wiki links in waiting rows: only a waiting `reply` row showing the reply's first line
+      //     as written (cut at most at its end) links its wiki references via the app's builder;
+      //     every other waiting row (any `item` row, a shaped reply line, or a fallback reply line)
+      //     stays escaped text; hostile inputs never become markup or live links; absent builder
+      //     keeps rows as before; _wire_row_links stops anchor clicks so clicking a wiki link does
+      //     not select the row
       {
         const wiki = require(path.join(app, 'src', 'wiki_links.ts'))
         const config = { url: 'x://h/f' }
@@ -4534,113 +4592,157 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           w.render()
           return w
         }
-        const replyRow = (line, cfg = config) => {
-          const w = setWiki(withAnchors(chatting({ text: REPLY.replace('Two parts: alpha and beta.', line) })), cfg)
+        const chatRow = (text, cfg = config, opts = {}) => {
+          const w = setWiki(withAnchors(chatting({ text, ...opts })), cfg)
           return { w, row: w.rows().find(r => r.getAttribute('data-id') == 'chat') }
         }
+        const replyRow = (line, cfg = config) => chatRow(REPLY.replace('Two parts: alpha and beta.', line), cfg)
         const itemRow = (text, cfg = config, opts = {}) => {
           const w = setWiki(withAnchors(writing({ text, render: false, ...opts })), cfg)
           return { w, row: w.rows().find(r => r.getAttribute('data-id') == 'note') }
         }
+        const chatHtml = (text, cfg = config, opts = {}) => chatRow(text, cfg, opts).row.children[0].innerHTML
         const replyHtml = (line, cfg = config) => replyRow(line, cfg).row.children[0].innerHTML
         const itemHtml = (text, cfg = config, opts = {}) => itemRow(text, cfg, opts).row.children[0].innerHTML
         const RPFX = '<mark class="waits">reply</mark> <mark>#e2e_chatty/0</mark> '
         const IPFX = '<mark class="waits">item</mark> <mark>#notes/a</mark> '
+        // single-pass character-reference decode so a literal entity like &lt; never decodes twice
+        const decodeHtml = s =>
+          String(s ?? '').replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(amp|lt|gt|quot|apos));/g, (_, dec, hex, name) =>
+            dec
+              ? String.fromCodePoint(Number(dec))
+              : hex
+                ? String.fromCodePoint(parseInt(hex, 16))
+                : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]
+          )
+        const decodedLinks = html =>
+          parseAnchors(html).map(a => {
+            const href = decodeHtml(a.href)
+            let targetPath = null
+            let view = null
+            if (href.includes('/link/')) {
+              const payload = JSON.parse(Buffer.from(href.split('/link/')[1], 'base64url').toString('utf8'))
+              targetPath = payload.path
+              view = payload.view ?? null
+            } else if (href) {
+              try {
+                targetPath = new URL(href).searchParams.get('path')
+              } catch {}
+            }
+            return { path: targetPath, view, title: decodeHtml(a.title), text: decodeHtml(a.innerText) }
+          })
 
         // reply row: wiki link + markdown script link + url + tag + raw html in one line (under 120 chars)
         const mixedReply = replyHtml('See [[docs/x]] and [the plan](javascript:alert(1)) and https://example.com/x and #tag and <b>hi</b>')
         const aliasedReply = replyHtml('See [[notes/A&B|see #topic [x](y)]] and #tag and https://example.com/x')
         check(
           'waits wiki (reply): wiki links become app anchors; markdown script link, url, tag, and markup stay text',
-          [mixedReply, aliasedReply, /target=|rel=|\son\w+=/.test(mixedReply + aliasedReply)],
+          [mixedReply, decodedLinks(mixedReply), aliasedReply, decodedLinks(aliasedReply), /target=|rel=|\son\w+=/.test(mixedReply + aliasedReply)],
           [
             RPFX +
               'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> ' +
               'and [the plan](javascript:alert(1)) and https://example.com/x and #tag and &lt;b&gt;hi&lt;/b&gt;',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
             RPFX +
               'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;notes&#37;2FA&#37;26B" title="notes&#47;A&#38;B" data-wiki-link>see &#35;topic &#91;x&#93;&#40;y&#41;</a> ' +
               'and #tag and https://example.com/x',
+            [{ path: 'notes/A&B', view: null, title: 'notes/A&B', text: 'see #topic [x](y)' }],
             false,
           ]
         )
+        const packedReply = replyHtml('Review [[docs/x#diff|the diff]]', packed)
         check(
           'waits wiki (reply): packed config with #diff builds packed anchor with diff title',
-          replyHtml('Review [[docs/x#diff|the diff]]', packed),
-          RPFX + 'Review <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>'
+          [packedReply, decodedLinks(packedReply)],
+          [
+            RPFX + 'Review <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>',
+            [{ path: 'docs/x', view: 'diff', title: 'diff of docs/x', text: 'the diff' }],
+          ]
         )
 
-        // agent-written item rows: named and unnamed
-        check(
-          'waits wiki (item, named): wiki link becomes app anchor; markdown script link, url, and tag stay text',
-          itemHtml('#notes/a\nSee [[docs/x|guide]] and [bad](javascript:alert(1)) and https://example.com/x and #tag'),
-          IPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>guide</a> and [bad](javascript:alert(1)) and https://example.com/x and #tag'
-        )
-        check(
-          'waits wiki (item, unnamed): wiki link becomes app anchor; markdown script link stays text',
-          itemHtml('See [[docs/x]] and [bad](javascript:alert(1))\nSecond line', config, { label: '', name: 'id:note' }),
-          '<mark class="waits">item</mark> See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> and [bad](javascript:alert(1))'
-        )
-
-        // hostile cases (exact HTML expected)
+        // hostile cases (all on unchanged reply rows: exact HTML and decoded paths)
+        const hostileQuoteRefused = replyHtml('Path [[docs/a" onclick="alert(1)]] stays')
+        const hostileQuoteEncoded = replyHtml("Open [[docs/a'b|say \"hi\" & 'bye']] now")
         check(
           'waits wiki hostile (quotes): double-quote path refused and escaped; single-quote path and quoted alias encoded',
-          [
-            replyHtml('Path [[docs/a" onclick="alert(1)]] stays'),
-            replyHtml("Open [[docs/a'b|say \"hi\" & 'bye']] now"),
-          ],
+          [hostileQuoteRefused, hostileQuoteEncoded, decodedLinks(hostileQuoteEncoded)],
           [
             RPFX + 'Path [[docs/a&quot; onclick=&quot;alert(1)]] stays',
             RPFX + 'Open <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fa&#39;b" title="docs&#47;a&#39;b" data-wiki-link>say &#34;hi&#34; &#38; &#39;bye&#39;</a> now',
+            [{ path: "docs/a'b", view: null, title: "docs/a'b", text: 'say "hi" & \'bye\'' }],
           ]
         )
+        const hostileAngleRefused = replyHtml('Bad [[docs/<script>alert(1)</script>]] here')
+        const hostileAngleAlias = replyHtml('See [[docs/x|</a><img src=x onerror=alert(1)>]] here')
+        const hostileAngleFrag = replyHtml('See [[docs/x#<img src=x>]] here')
+        const hostileAngleWrap = replyHtml('<img src=x onerror=alert(1)> [[docs/x]]')
         check(
           'waits wiki hostile (angle brackets): path refused, alias and fragment encoded, surrounding html escaped',
           [
-            replyHtml('Bad [[docs/<script>alert(1)</script>]] here'),
-            replyHtml('See [[docs/x|</a><img src=x onerror=alert(1)>]] here'),
-            replyHtml('See [[docs/x#<img src=x>]] here'),
-            replyHtml('<img src=x onerror=alert(1)> [[docs/x]]'),
+            hostileAngleRefused,
+            hostileAngleAlias,
+            decodedLinks(hostileAngleAlias),
+            hostileAngleFrag,
+            decodedLinks(hostileAngleFrag),
+            hostileAngleWrap,
+            decodedLinks(hostileAngleWrap),
           ],
           [
             RPFX + 'Bad [[docs/&lt;script&gt;alert(1)&lt;/script&gt;]] here',
             RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>&#60;&#47;a&#62;&#60;img src&#61;x onerror&#61;alert&#40;1&#41;&#62;</a> here',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: '</a><img src=x onerror=alert(1)>' }],
             RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x&#35;&#60;img src&#61;x&#62;</a> here',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x#<img src=x>' }],
             RPFX + '&lt;img src=x onerror=alert(1)&gt; <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
           ]
         )
+        const hostileNestedPath = replyHtml('Try [[docs/a[[docs/b]]]] end')
+        const hostileNestedAlias = replyHtml('Try [[docs/x|a [[docs/y]] b]] end')
+        const hostileAliasBracket = replyHtml('Try [[docs/x|see [bad](javascript:alert(1))]] end')
         check(
           'waits wiki hostile (second pair of brackets): nested brackets in path or alias keep outer text literal; single brackets in alias stay encoded',
           [
-            replyHtml('Try [[docs/a[[docs/b]]]] end'),
-            replyHtml('Try [[docs/x|a [[docs/y]] b]] end'),
-            replyHtml('Try [[docs/x|see [bad](javascript:alert(1))]] end'),
+            hostileNestedPath,
+            decodedLinks(hostileNestedPath),
+            hostileNestedAlias,
+            decodedLinks(hostileNestedAlias),
+            hostileAliasBracket,
+            decodedLinks(hostileAliasBracket),
           ],
           [
             RPFX + 'Try [[docs/a<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fb" title="docs&#47;b" data-wiki-link>docs&#47;b</a>]] end',
+            [{ path: 'docs/b', view: null, title: 'docs/b', text: 'docs/b' }],
             RPFX + 'Try [[docs/x|a <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>docs&#47;y</a> b]] end',
+            [{ path: 'docs/y', view: null, title: 'docs/y', text: 'docs/y' }],
             RPFX + 'Try <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>see &#91;bad&#93;&#40;javascript&#58;alert&#40;1&#41;&#41;</a> end',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'see [bad](javascript:alert(1))' }],
           ]
         )
+        const hostileScriptRefused = replyHtml('No [[javascript:alert(1)]] or [[javascript:alert(1)|click]]')
+        const hostileScriptMixed = replyHtml('See [[docs/x]] and [the plan](javascript:alert(1))')
         check(
           'waits wiki hostile (script address): javascript target refused; wiki link plus markdown script link in one line links only the first',
-          [
-            replyHtml('No [[javascript:alert(1)]] or [[javascript:alert(1)|click]]'),
-            replyHtml('See [[docs/x]] and [the plan](javascript:alert(1))'),
-          ],
+          [hostileScriptRefused, hostileScriptMixed, decodedLinks(hostileScriptMixed)],
           [
             RPFX + 'No [[javascript:alert(1)]] or [[javascript:alert(1)|click]]',
             RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a> and [the plan](javascript:alert(1))',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
           ]
         )
+        const hostileCharRefAlias = replyHtml('Ref [[docs/x|&lt;script&gt; &#60;b&#62; &quot;q&quot;]] end')
+        const hostileCharRefPath = replyHtml('Ref [[docs/&lt;x]] and [[javascript&#58;alert(1)]] and [[../&lt;x]]')
         check(
           'waits wiki hostile (character references): named and numeric refs stay literal and never decode into tags or schemes',
-          [
-            replyHtml('Ref [[docs/x|&lt;script&gt; &#60;b&#62; &quot;q&quot;]] end'),
-            replyHtml('Ref [[docs/&lt;x]] and [[javascript&#58;alert(1)]] and [[../&lt;x]]'),
-          ],
+          [hostileCharRefAlias, decodedLinks(hostileCharRefAlias), hostileCharRefPath, decodedLinks(hostileCharRefPath)],
           [
             RPFX + 'Ref <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>&#38;lt&#59;script&#38;gt&#59; &#38;&#35;60&#59;b&#38;&#35;62&#59; &#38;quot&#59;q&#38;quot&#59;</a> end',
+            [{ path: 'docs/x', view: null, title: 'docs/x', text: '&lt;script&gt; &#60;b&#62; &quot;q&quot;' }],
             RPFX + 'Ref <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2F&#37;26lt&#37;3Bx" title="docs&#47;&#38;lt&#59;x" data-wiki-link>docs&#47;&#38;lt&#59;x</a> and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;javascript&#37;26" title="javascript&#38;" data-wiki-link>javascript&#38;&#35;58&#59;alert&#40;1&#41;</a> and [[../&amp;lt;x]]',
+            [
+              { path: 'docs/&lt;x', view: null, title: 'docs/&lt;x', text: 'docs/&lt;x' },
+              { path: 'javascript&', view: null, title: 'javascript&', text: 'javascript&#58;alert(1)' },
+            ],
           ]
         )
         check(
@@ -4691,15 +4793,264 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             afterRow,
           }
         }
+        const itemClickRow = itemRow('#notes/a\nSee [[docs/x]] here')
+        const itemRowEv = { stopped: 0, prevented: 0, stopPropagation() { this.stopped++ }, preventDefault() { this.prevented++ } }
+        itemClickRow.row.children[0].onclick?.(itemRowEv)
         check(
-          'waits wiki (click wiring): clicking a wiki link in a reply or item row keeps default, has no target, and does not select the row; clicking the row selects it',
+          'waits wiki (click wiring): clicking a wiki link in a reply row keeps default, has no target, and does not select the row; clicking the row selects it; item row has no link',
           [
             clickProbe(replyRow('See [[docs/x]] here')),
-            clickProbe(itemRow('#notes/a\nSee [[docs/x]] here')),
+            { count: itemClickRow.row.children[0].querySelectorAll('a').length, called: [...itemClickRow.w.called] },
           ],
           [
             { count: 1, target: undefined, stopped: 1, prevented: 0, afterLink: [], afterRow: ['select'] },
-            { count: 1, target: undefined, stopped: 1, prevented: 0, afterLink: [], afterRow: [['select', 'note']] },
+            { count: 0, called: [['select', 'note']] },
+          ]
+        )
+
+        // written-reply-line rule: ONLY a waiting `reply` row showing the reply's first line as
+        // written (cut at most at its end) links its wiki references; every other waiting row's
+        // line (`item` row always, altered reply line, or fallback reply line) stays escaped text
+
+        // reviewer's first example: altered reply line with matching reference on the same line
+        check(
+          'waits wiki (collision, reply): two-space reference beside one-space reference and [[docs/ok]] renders whole line literal',
+          [
+            replyHtml('Compare [[docs/Plan  A]] with [[docs/Plan A]] and [[docs/ok]]'),
+            replyHtml('Compare [[docs/Plan  A]] with [[docs/Plan A]] and [[docs/ok]]', packed),
+          ],
+          [
+            RPFX + 'Compare [[docs/Plan A]] with [[docs/Plan A]] and [[docs/ok]]',
+            RPFX + 'Compare [[docs/Plan A]] with [[docs/Plan A]] and [[docs/ok]]',
+          ]
+        )
+
+        // reviewer's second example: unnamed `item` row with bracketed ref on line 1 and plain ref on line 2
+        check(
+          'waits wiki (collision, item unnamed): bracketed reference on line one with plain reference on line two renders whole line literal',
+          [
+            itemHtml('Read [[docs/Plan [draft] A]] and [[docs/ok]].\nFinal [[docs/Plan A]].', config, { label: '', name: 'id:note' }),
+            itemHtml('Read [[docs/Plan [draft] A]] and [[docs/ok]].\nFinal [[docs/Plan A]].', packed, { label: '', name: 'id:note' }),
+          ],
+          [
+            '<mark class="waits">item</mark> Read [[docs/Plan A]] and [[docs/ok]].',
+            '<mark class="waits">item</mark> Read [[docs/Plan A]] and [[docs/ok]].',
+          ]
+        )
+
+        // whole-line collision from an earlier turn (distinguishes written-reply-line rule from
+        // whole-item `indexOf` search): earlier turn holds collapsed line verbatim; latest reply's
+        // first line has two spaces -> whole row stays literal
+        const wholeLineUser = `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> see [[docs/Plan A]] now\n${FOOTER}\n${inert('\nsee [[docs/Plan  A]] now\nmore')}`
+        const wholeLineEarlierReply = `#e2e_chatty/0 #_chat/vault #_autodep\n<<user>> hi\n${FOOTER}\n${inert('\nsee [[docs/Plan A]] now')}\n<<user>> again\n${FOOTER2}\n${inert('\nsee [[docs/Plan  A]] now')}`
+        check(
+          'waits wiki (collision, whole line from earlier turn): earlier turn holds collapsed line verbatim while reply first line has two spaces; renders whole line literal',
+          [
+            chatHtml(wholeLineUser),
+            chatHtml(wholeLineUser, packed),
+            chatHtml(wholeLineEarlierReply),
+          ],
+          [
+            RPFX + 'see [[docs/Plan A]] now',
+            RPFX + 'see [[docs/Plan A]] now',
+            RPFX + 'see [[docs/Plan A]] now',
+          ]
+        )
+
+        // links: unchanged reply line with two references (one aliased, including literal &lt; entity
+        // to exercise single-pass decodeHtml), same line with outer spaces only (trimmed), packed
+        // two-reference diff line, embed, and clipped reply line (complete ref before cut links;
+        // ref through cut stays text) — exact HTML and decoded paths for every link
+        const twoRefHtml = replyHtml('Compare [[docs/Plan A]] and [[docs/ok|&lt;ok&gt;]]')
+        const trimmedTwoRefHtml = replyHtml('   Compare [[docs/Plan A]] and [[docs/ok|&lt;ok&gt;]]   ')
+        const packedTwoRefHtml = replyHtml('Review [[docs/Plan A]] and [[docs/Meeting notes#diff|the diff]]', packed)
+        const embedReplyHtml = replyHtml('Embed ![[docs/Meeting notes]]')
+        const TWO_REF_EXPECTED_HTML =
+          RPFX +
+          'Compare <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FPlan&#37;20A" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a> ' +
+          'and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>&#38;lt&#59;ok&#38;gt&#59;</a>'
+        const TWO_REF_EXPECTED_LINKS = [
+          { path: 'docs/Plan A', view: null, title: 'docs/Plan A', text: 'docs/Plan A' },
+          { path: 'docs/ok', view: null, title: 'docs/ok', text: '&lt;ok&gt;' },
+        ]
+        check(
+          'waits wiki (reply, links): unchanged line with two references (one aliased), trimmed-only line with outer spaces, packed diff, and embed link with exact HTML and decoded paths',
+          [
+            [twoRefHtml, decodedLinks(twoRefHtml)],
+            [trimmedTwoRefHtml, decodedLinks(trimmedTwoRefHtml)],
+            [packedTwoRefHtml, decodedLinks(packedTwoRefHtml)],
+            [embedReplyHtml, decodedLinks(embedReplyHtml)],
+          ],
+          [
+            [TWO_REF_EXPECTED_HTML, TWO_REF_EXPECTED_LINKS],
+            [TWO_REF_EXPECTED_HTML, TWO_REF_EXPECTED_LINKS],
+            [
+              RPFX +
+                'Review <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy9QbGFuIEEiLCJyb290IjoiL3ZhdWx0In0" title="docs&#47;Plan A" data-wiki-link>docs&#47;Plan A</a> ' +
+                'and <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy9NZWV0aW5nIG5vdGVzIiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;Meeting notes" data-wiki-link>the diff</a>',
+              [
+                { path: 'docs/Plan A', view: null, title: 'docs/Plan A', text: 'docs/Plan A' },
+                { path: 'docs/Meeting notes', view: 'diff', title: 'diff of docs/Meeting notes', text: 'the diff' },
+              ],
+            ],
+            [
+              RPFX + 'Embed <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2FMeeting&#37;20notes" title="docs&#47;Meeting notes" data-wiki-link>docs&#47;Meeting notes</a>',
+              [{ path: 'docs/Meeting notes', view: null, title: 'docs/Meeting notes', text: 'docs/Meeting notes' }],
+            ],
+          ]
+        )
+
+        const cutReplyHtml = replyHtml('See [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]]!')
+        const cutReplyTrimmedHtml = replyHtml('  See [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]]!  ')
+        const CUT_REPLY_EXPECTED_HTML =
+          RPFX +
+          'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fok" title="docs&#47;ok" data-wiki-link>docs&#47;ok</a> ' +
+          'x'.repeat(92) +
+          '[[docs/cut]…'
+        check(
+          'waits wiki (clipped through closing brackets): complete reference before cut links on reply row; reference through cut stays literal',
+          [
+            [cutReplyHtml, decodedLinks(cutReplyHtml)],
+            [cutReplyTrimmedHtml, decodedLinks(cutReplyTrimmedHtml)],
+          ],
+          [
+            [CUT_REPLY_EXPECTED_HTML, [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }]],
+            [CUT_REPLY_EXPECTED_HTML, [{ path: 'docs/ok', view: null, title: 'docs/ok', text: 'docs/ok' }]],
+          ]
+        )
+
+        // no links: named and unnamed `item` rows ALWAYS stay escaped text (unchanged, clipped,
+        // altered, and even when item.text also holds an inert region matching the displayed line)
+        check(
+          'waits wiki (item, named): unchanged and clipped named item rows stay escaped text with no links',
+          [
+            itemHtml('#notes/a\nSee [[docs/x|guide]] and [bad](javascript:alert(1)) and https://example.com/x and #tag'),
+            itemHtml('#notes/a See [[docs/Plan A]] and [[docs/ok]]'),
+            itemHtml('#notes/a\nSee [[notes/A&B|A & B]]', packed),
+            itemHtml('#notes/a\nSee [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]]!'),
+          ],
+          [
+            IPFX + 'See [[docs/x|guide]] and [bad](javascript:alert(1)) and https://example.com/x and #tag',
+            IPFX + 'See [[docs/Plan A]] and [[docs/ok]]',
+            IPFX + 'See [[notes/A&amp;B|A &amp; B]]',
+            IPFX + 'See [[docs/ok]] ' + 'x'.repeat(92) + '[[docs/cut]…',
+          ]
+        )
+        check(
+          'waits wiki (item, unnamed): unchanged and clipped unnamed item rows stay escaped text with no links',
+          [
+            itemHtml('See [[docs/x]] and [bad](javascript:alert(1))\nSecond line', config, { label: '', name: 'id:note' }),
+            itemHtml('[proposal] See [[docs/Meeting [draft] notes]]\nSecond line', config, { label: '', name: 'id:note' }),
+            itemHtml('See [[docs/ok]] ' + 'x'.repeat(52) + '[[docs/cut]]!\nSecond', config, { label: '', name: 'id:note' }),
+          ],
+          [
+            '<mark class="waits">item</mark> See [[docs/x]] and [bad](javascript:alert(1))',
+            '<mark class="waits">item</mark> See [[docs/Meeting [draft] notes]]',
+            '<mark class="waits">item</mark> See [[docs/ok]] ' + 'x'.repeat(52) + '[[docs/cut]…',
+          ]
+        )
+        check(
+          'waits wiki (item, inert region in text): item row whose text also contains a matching inert region still stays escaped text',
+          [
+            itemHtml('#notes/a\nSee [[docs/Plan A]]\n<!--inert-->\nSee [[docs/Plan A]]\n<!--/inert-->'),
+            itemHtml('Read [[docs/Plan [draft] A]]\n<!--inert-->\nRead [[docs/Plan A]]\n<!--/inert-->', config, { label: '', name: 'id:note' }),
+          ],
+          [
+            IPFX + 'See [[docs/Plan A]]',
+            '<mark class="waits">item</mark> Read [[docs/Plan A]]',
+          ]
+        )
+
+        // no links: chat without a reply inert region (fallback line) stays escaped text even when
+        // its first line is unchanged
+        check(
+          'waits wiki (fallback reply line): chat without a reply region stays escaped text even when first line is unchanged',
+          [
+            chatHtml('See [[docs/x]] and [[docs/ok|guide]]', config, { label: '' }),
+            chatHtml('Review [[docs/x#diff|the diff]]', packed, { label: '' }),
+            chatHtml('See [[docs/ok]] and [[docs/a⟦|⟧b]]', config, { label: '' }),
+          ],
+          [
+            '<mark class="waits">reply</mark> See [[docs/x]] and [[docs/ok|guide]]',
+            '<mark class="waits">reply</mark> Review [[docs/x#diff|the diff]]',
+            '<mark class="waits">reply</mark> See [[docs/ok]] and [[docs/ab]]',
+          ]
+        )
+
+        // no links: altered reply lines (collapsed whitespace) and altered item lines
+        check(
+          'waits wiki (changed line, reply): collapsed whitespace renders whole reply line literal',
+          [
+            replyHtml('See [[docs/ok]] and [[docs/Meeting  notes]]'),
+            replyHtml('See [[docs/ok]] and [[docs/Meeting  notes]]', packed),
+            replyHtml('See [[docs/ok]] and [[docs/a\tb]]'),
+          ],
+          [
+            RPFX + 'See [[docs/ok]] and [[docs/Meeting notes]]',
+            RPFX + 'See [[docs/ok]] and [[docs/Meeting notes]]',
+            RPFX + 'See [[docs/ok]] and [[docs/a b]]',
+          ]
+        )
+        check(
+          'waits wiki (changed line, item named): collapsed whitespace and stripped comment or hidden tag render whole named item line literal',
+          [
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/Meeting  notes]]'),
+            itemHtml('#notes/a\nSee [[docs/ok#diff|the diff]] and [[docs/Meeting  notes#diff|other]]', packed),
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/a<!--c-->b]]'),
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/a<!--\n-->b]]'),
+            itemHtml('#notes/a\nSee [[docs/ok]] and [[docs/a #_h#diff]]', packed),
+          ],
+          [
+            IPFX + 'See [[docs/ok]] and [[docs/Meeting notes]]',
+            IPFX + 'See [[docs/ok#diff|the diff]] and [[docs/Meeting notes#diff|other]]',
+            IPFX + 'See [[docs/ok]] and [[docs/ab]]',
+            IPFX + 'See [[docs/ok]] and [[docs/ab]]',
+            IPFX + 'See [[docs/ok]] and [[docs/a #diff]]',
+          ]
+        )
+        check(
+          'waits wiki (changed line, item unnamed): bracketed lowercase word stripped by _notify_line renders whole unnamed item line literal',
+          [
+            itemHtml('See [[docs/ok]] and [[docs/Meeting [draft] notes]]\nSecond line', config, { label: '', name: 'id:note' }),
+            itemHtml('See [[docs/ok]] and [[docs/Meeting [draft] notes]]\nSecond line', packed, { label: '', name: 'id:note' }),
+          ],
+          [
+            '<mark class="waits">item</mark> See [[docs/ok]] and [[docs/Meeting notes]]',
+            '<mark class="waits">item</mark> See [[docs/ok]] and [[docs/Meeting notes]]',
+          ]
+        )
+
+        // inline code on an unchanged waiting reply row: reference inside backticks stays text,
+        // reference outside links, unpaired backtick and backtick in alias still link
+        const replyInline = replyHtml('See `[[docs/code]]` and [[docs/x]]')
+        const replyInlinePacked = replyHtml('See `[[docs/code#diff]]` and [[docs/x#diff|the diff]]', packed)
+        const replyUnpaired = replyHtml('See `[[docs/x]]')
+        const replyAliasTick = replyHtml('See [[docs/y|run `cmd`]]')
+        check(
+          'waits wiki (reply, inline code): reference in backticks stays text, reference outside links, unpaired backtick and backtick in alias still link',
+          [
+            [replyInline, decodedLinks(replyInline)],
+            [replyInlinePacked, decodedLinks(replyInlinePacked)],
+            [replyUnpaired, decodedLinks(replyUnpaired)],
+            [replyAliasTick, decodedLinks(replyAliasTick)],
+          ],
+          [
+            [
+              RPFX + 'See `[[docs/code]]` and <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+              [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
+            ],
+            [
+              RPFX + 'See `[[docs/code#diff]]` and <a href="vscode&#45;insiders&#58;&#47;&#47;olcan&#46;auto&#45;open&#45;obsidian&#47;link&#47;eyJ2IjoxLCJwYXRoIjoiZG9jcy94Iiwicm9vdCI6Ii92YXVsdCIsInZpZXciOiJkaWZmIn0" title="diff of docs&#47;x" data-wiki-link>the diff</a>',
+              [{ path: 'docs/x', view: 'diff', title: 'diff of docs/x', text: 'the diff' }],
+            ],
+            [
+              RPFX + 'See `<a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fx" title="docs&#47;x" data-wiki-link>docs&#47;x</a>',
+              [{ path: 'docs/x', view: null, title: 'docs/x', text: 'docs/x' }],
+            ],
+            [
+              RPFX + 'See <a href="x&#58;&#47;&#47;h&#47;f&#63;path&#61;docs&#37;2Fy" title="docs&#47;y" data-wiki-link>run &#96;cmd&#96;</a>',
+              [{ path: 'docs/y', view: null, title: 'docs/y', text: 'run `cmd`' }],
+            ],
           ]
         )
       }
@@ -8944,7 +9295,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               '_notify_change', '_notify_children', '_notify_unsnooze', '_unsnooze_step', '_notify_step',
               '_notify_setting', '_notify_gate', '_state_key', '_checked_in', '_notify_todo', '_notify_show',
               '_notify_show_page', '_notify_result', '_notification_of', '_notify_reply', '_vault_replies',
-              '_reply_line', '_item_writes', '_notify_items', '_notify_item', '_item_stamp', '_notify_line',
+              '_reply_raw', '_reply_line', '_item_writes', '_notify_items', '_notify_item', '_item_stamp', '_notify_line',
             ]).join('\n')
           const root = new DomNode('html')
           const head = root.appendChild(new DomNode('head'))
@@ -9532,7 +9883,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           const h = makeHistoryStage()
           h.s.setBox('#note')
           const plain = h.sendKey('KeyH')
-          await Promise.resolve()
+          await tick() // the first press finished: a repeat is then refused by the repeat rule alone, not by the busy press
           const rep1 = h.sendKey('KeyH', { repeat: true })
           const rep2 = h.sendKey('KeyH', { repeat: true })
           const mods = ['metaKey', 'ctrlKey', 'altKey', 'shiftKey'].map(m => h.sendKey('KeyH', { [m]: true }))
@@ -9599,6 +9950,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['dest empty repo', { dest: 'owner/' }],
             ['dest extra slash', { dest: 'a/b/c' }],
             ['dest whitespace', { dest: 'owner/my repo' }],
+            ['dest query', { dest: 'acme/notes?tab=readme' }],
+            ['dest fragment', { dest: 'acme/notes#readme' }],
+            ['dest dot segment', { dest: 'acme/..' }],
+            ['dest dot owner', { dest: './notes' }],
             ['item unsaved', { noteSavedId: null }],
           ]
           const got = cases.map(([label, opts]) => {
@@ -9614,6 +9969,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             got,
             cases.map(([label]) => [label, ['up', 'down', 'bell'], { prevented: false, res: 'prior:KeyH' }, 0, false, 0, 0])
           )
+        }
+
+        // (e2) Destinations that stay valid: a name that begins with a dot, a hyphen and an underscore, outer whitespace
+        {
+          const got = ['acme/.github', 'my-org/my_repo.js', '  olcan/vault  '].map(dest => {
+            const h = makeHistoryStage({ dest })
+            h.s.setBox('#note')
+            h.s.env._bin_buttons(h.note)
+            h.sendKey('KeyH')
+            return [...h.opened]
+          })
+          check('history destination: a dot name, a hyphen with an underscore, and outer whitespace keep the button and its address', got, [
+            ['https://github.com/acme/.github/commits/master/items/s-note.md'],
+            ['https://github.com/my-org/my_repo.js/commits/master/items/s-note.md'],
+            ['https://github.com/olcan/vault/commits/master/items/s-note.md'],
+          ])
         }
 
         // (f) Non-item rows (todos, replies, off-list todo, unlisted, none): no history button, forwarded KeyH, inactive shortcut
@@ -11944,8 +12315,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const newTodoB = b.makeItem('ntB', { saved_id: null, name: '#ntB', text: '#todo created in B', scrollY: 1900 })
       b.setBox('#ntB')
       b.env._send_selected(newTodoB)
-      advanceAll(bus, [a, b], 250) // still unsaved in B
-      const beforeTodoSave = [a.getBox(), markedA()]
+      advanceAll(bus, [a, b], 250) // still unsaved in B: partner reports target: true -> A clears stale t0 mark!
+      const beforeTodoSave = [a.getBox(), markedA(), a.env._pressed_item('done', 't0')?.id ?? null]
       newTodoB.saved_id = 's_ntB'
       b.items.set('s_ntB', newTodoB)
       advanceAll(bus, [a, b], 250) // 500ms: B sends selected(s_ntB); A doesn't have item yet
@@ -11968,7 +12339,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check(
         'windows new todo vs child in other window: todo created in B is told once saved and marked in A once its row renders; child under todo clears mark without touching box or scroll',
         [beforeTodoSave, beforeTodoRow, afterTodoRow, afterChild],
-        [['', ['t0']], ['', []], ['', ['ntB'], 500], ['', [], 500, 0]]
+        [['', [], null], ['', []], ['', ['ntB'], 500], ['', [], 500, 0]]
       )
     }
 
@@ -12610,7 +12981,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 41. Link starts with peer's current target: turning link on syncs a no-target window's mark to the partner's target row without touching its box (unlisted leaves no mark)
+    // 41. Link & relink from either side (targetless side included): turning link on syncs a no-target window's
+    //     actual marked row and captured Done action to the partner's live target without touching its box
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
@@ -12618,31 +12990,71 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._start_windows()
       b.env._start_windows()
       bus.flush()
+      const doneHits = []
+      b.env._complete_todo = it => (doneHits.push(it.id), false)
       const t1 = a.makeItem('init1', { saved_id: 's_init1', scrollY: 1600 })
+      const t2 = a.makeItem('init2', { saved_id: 's_init2', scrollY: 1700 })
       const note = a.makeItem('initNote', { saved_id: 's_initNote', tags: [], tags_visible: [] })
-      a.makeWidget({ rows: [{ id: 'init1' }] })
+      a.makeWidget({ rows: [{ id: 'init1' }, { id: 'init2' }] })
       b.makeItem('init1', { saved_id: 's_init1', scrollY: 1600 })
+      b.makeItem('init2', { saved_id: 's_init2', scrollY: 1700 })
       b.makeItem('initNote', { saved_id: 's_initNote', tags: [], tags_visible: [] })
-      const wB = b.makeWidget({ rows: [{ id: 'init1' }] })
-      // A already has target #init1 while unlinked, B has no target -> linking syncs B's mark to init1 while keeping B's box empty!
+      const wB = b.makeWidget({ rows: [{ id: 'init1' }, { id: 'init2' }] })
+      const markedB = () => [...wB.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const doneB = () => b.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDone = async (btn = doneB()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
+      // (a) Fresh link from the TARGETLESS side (B) after A navigated to #init1 while unlinked -> B marks init1 and Done acts on init1!
       a.env._select_item(t1)
       bus.flush()
-      const bBeforeLink = [b.getBox(), wB.rowNodes.get('init1').classList.contains('selected'), b.env._row_now().named?.id ?? null]
+      const bBeforeLink = [b.getBox(), markedB(), await pressDone()]
+      b.env._send_press()
+      bus.flush()
+      const doneForInit1 = doneB()
+      const bAfterFreshTargetless = [b.getBox(), markedB(), await pressDone()]
+      // (b) Unlink, A navigates to #init2 while unlinked, relink from targetless side B -> B marks init2, stale init1 Done rejected, current Done acts on init2!
+      b.env._send_press()
+      bus.flush()
+      a.env._select_item(t2)
+      bus.flush()
+      b.env._send_press()
+      bus.flush()
+      const bAfterRelinkTargetless = [b.getBox(), markedB(), await pressDone(doneForInit1), await pressDone()]
+      // (c) Unlink, A navigates back to #init1 while unlinked, relink from targeted side A -> B marks init1 and Done acts on init1!
       a.env._send_press()
       bus.flush()
-      const bAfterLinkListed = [b.getBox(), wB.rowNodes.get('init1').classList.contains('selected'), b.env._row_now().named?.id ?? null]
-      // Unlink, select unlisted #initNote in A, link again -> B stays empty with no mark (initNote has no row in B)
+      a.env._select_item(t1)
+      bus.flush()
       a.env._send_press()
+      bus.flush()
+      const bAfterRelinkTargeted = [b.getBox(), markedB(), await pressDone()]
+      // (d) Unlink, A selects unlisted #initNote while unlinked, relink from targetless side B -> no mark, no Done button, stale Done rejected!
+      b.env._send_press()
       bus.flush()
       a.env._select_item(note)
       bus.flush()
-      a.env._send_press()
+      b.env._send_press()
       bus.flush()
-      const bAfterLinkUnlisted = [b.getBox(), wB.rowNodes.get('init1').classList.contains('selected'), b.env._row_now().named?.id ?? null]
+      const bAfterLinkUnlisted = [b.getBox(), markedB(), !!doneB(), await pressDone(doneForInit1)]
+      // (e) Unlink, A clears target to '' while unlinked, relink from targetless side B -> no mark, no Done button!
+      b.env._send_press()
+      bus.flush()
+      a.setBox('')
+      a.env._on_search('')
+      bus.flush()
+      b.env._send_press()
+      bus.flush()
+      const bAfterLinkNone = [b.getBox(), markedB(), !!doneB()]
       check(
-        'windows link starts with peer target: turning link on syncs no-target window mark to partner listed target without touching box, unlisted leaves no mark',
-        [bBeforeLink, bAfterLinkListed, bAfterLinkUnlisted],
-        [['', false, null], ['', true, 'init1'], ['', false, null]]
+        'windows link starts with peer target: fresh link and relink from either side sync actual marked row and Done action without touching box; unlisted or none leaves no mark',
+        [bBeforeLink, bAfterFreshTargetless, bAfterRelinkTargetless, bAfterRelinkTargeted, bAfterLinkUnlisted, bAfterLinkNone],
+        [
+          ['', [], null],
+          ['', ['init1'], 'init1'],
+          ['', ['init2'], null, 'init2'],
+          ['', ['init1'], 'init1'],
+          ['', [], false, null],
+          ['', [], false],
+        ]
       )
     }
 
@@ -13525,12 +13937,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const showOf = (w, it) => (typeof w.win._todoer_windows?.show == 'function' ? w.win._todoer_windows.show(it) : Promise.resolve(null))
       const gA = a.makeItem('gr1', { saved_id: 's_gr1', scrollY: 2400, tags: [], tags_visible: [] })
       b.makeItem('gr1', { saved_id: 's_gr1', scrollY: 2400, tags: [], tags_visible: [] })
-      a.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      const doneHits = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      const gt1A = a.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      const gt2A = a.makeItem('gt2', { saved_id: 's_gt2', scrollY: 2100 })
       b.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      b.makeItem('gt2', { saved_id: 's_gt2', scrollY: 2100 })
       const missA = a.makeItem('gmiss', { saved_id: 's_gmiss', scrollY: 2600 })
       const unsavedA = a.makeItem('gus', { saved_id: null, scrollY: 2700 })
-      a.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }] })
-      b.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }] })
+      const wA = a.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }, { id: 'gt2', pageY: 1400, height: 32 }] })
+      b.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }, { id: 'gt2', pageY: 1400, height: 32 }] })
+      const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const doneA = () => a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDoneA = async (btn = doneA()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
       a.setBox('#keep_a')
       b.setBox('#keep_b')
       // (a) unlinked: resolves false at once, nothing sent, neither window moves
@@ -13585,14 +14004,33 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       showOf(a, unsavedA).then(v => (unsavedRes = v))
       await Promise.resolve()
       const unsavedSent = bus.sent.length
+      // (f) public show(Y) from a no-target list window A marking gt1 updates marks and buttons without changing query or scroll
+      a.setBox('#todo')
+      a.env._on_search('#todo')
+      a.setScrollTop(500)
+      bus.flush()
+      a.env._select_item(gt1A)
+      bus.flush()
+      const doneForGt1 = doneA()
+      let showListedRes = 'pending'
+      showOf(a, gt2A).then(v => (showListedRes = v))
+      bus.flush()
+      await Promise.resolve()
+      const doneForGt2 = doneA()
+      const afterShowListed = [showListedRes, a.getBox(), a.getScrollTop(), b.getBox(), markedA(), await pressDoneA(doneForGt1), await pressDoneA()]
+      let showUnlistedRes = 'pending'
+      showOf(a, gA).then(v => (showUnlistedRes = v))
+      bus.flush()
+      await Promise.resolve()
+      const afterShowUnlisted = [showUnlistedRes, a.getBox(), a.getScrollTop(), b.getBox(), markedA(), !!doneA(), await pressDoneA(doneForGt2)]
       b.fireWin('pagehide')
       bus.flush()
       let aloneRes = 'pending'
       showOf(a, gA).then(v => (aloneRes = v))
       await Promise.resolve()
       check(
-        'windows show(item): unlinked false at once sending nothing, linked true from either side without moving caller, silent false at SEND_ACK_MS, cancel/unsaved/alone false',
-        [afterUnlinked, afterAShow, afterBShow, silentAt2999, silentAt3000, unlinkWaitRes, [unsavedRes, unsavedSent], aloneRes],
+        'windows show(item): unlinked false at once sending nothing, linked true from either side without moving caller, silent false at SEND_ACK_MS, cancel/unsaved/alone false, list caller reconciles mark and Done',
+        [afterUnlinked, afterAShow, afterBShow, silentAt2999, silentAt3000, unlinkWaitRes, [unsavedRes, unsavedSent], afterShowListed, afterShowUnlisted, aloneRes],
         [
           [false, 0, '#keep_a', '#keep_b'],
           [true, '#keep_a', 500, '#gr1', 2400],
@@ -13601,6 +14039,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [false, '#stay_a', 500],
           false,
           [false, 0],
+          [true, '#todo', 500, '#gt2', ['gt2'], null, 'gt2'],
+          [true, '#todo', 500, '#gr1', [], false, null],
           false,
         ]
       )
@@ -14085,6 +14525,67 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
+    // 58b. Point 2: both windows have targets while a single item is labeled `#todo` (so `#todo` itself
+    //      resolves as a target): release falls back to empty query `''`, marks clicked row with action
+    //      item = clicked row (not `#todo`), and silent-partner fallback still opens clicked row locally
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 900, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const doneHits = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      a.makeItem('todo', { saved_id: 's_todo', name: '#todo', text: '#todo buy milk', scrollY: 1400 })
+      a.makeItem('btA', { saved_id: 's_btA', scrollY: 1500 })
+      const t2 = a.makeItem('bt2', { saved_id: 's_bt2', scrollY: 1700 })
+      const t3 = a.makeItem('bt3', { saved_id: 's_bt3', scrollY: 1800 })
+      const wA = a.makeWidget({ rows: [{ id: 'todo', pageY: 540 }, { id: 'btA', pageY: 580 }, { id: 'bt2', pageY: 940 }, { id: 'bt3', pageY: 980 }] })
+      b.makeItem('btB', { saved_id: 's_btB', scrollY: 1600 })
+      b.makeItem('bt2', { saved_id: 's_bt2', scrollY: 1700 })
+      a.setBox('#btA')
+      b.setBox('#btB')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(t2)
+      bus.flush()
+      a.simScroll(500)
+      const doneBtn = a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+      await doneBtn?.press?.()
+      const afterRelease = [
+        a.getBox(),
+        a.env._window_target() ?? null,
+        b.getBox(),
+        wA.rowNodes.get('bt2').classList.contains('selected'),
+        wA.rowNodes.get('todo').classList.contains('selected'),
+        a.env._row_now().named?.id ?? null,
+        doneHits[0] ?? null,
+        a.getScrollTop(),
+      ]
+      // Silent-partner fallback in the same state (both targets, single item labeled `#todo`)
+      a.setBox('#btA')
+      a.env._on_search('#btA')
+      bus.flush()
+      b.win._todoer_windows.channel.muted = true
+      a.setScrollTop(900)
+      a.env._select_item(t3)
+      bus.flush()
+      const duringFallbackWait = [a.getBox(), a.env._window_target() ?? null, wA.rowNodes.get('bt3').classList.contains('selected'), a.env._row_now().named?.id ?? null]
+      advanceAll(bus, [a, b], 3000)
+      await Promise.resolve()
+      const afterSilentFallback = [a.getBox(), a.getScrollTop()]
+      check(
+        'windows both targets release when #todo is a target: uses empty query, marks clicked row with clicked action item, and silent-partner fallback opens locally',
+        [afterRelease, duringFallbackWait, afterSilentFallback],
+        [
+          ['', null, '#bt2', true, false, 'bt2', 'bt2', 900],
+          ['', null, true, 'bt3'],
+          ['#bt3', 1800],
+        ]
+      )
+    }
+
     // 59. Neither window has a target: action window keeps its query and becomes list, partner opens item
     {
       const bus = makeBus()
@@ -14257,6 +14758,251 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         'windows unlinked row selection: opens locally in selecting window without touching peer',
         [a.getBox(), a.getScrollTop(), b.getBox(), bus.sent.length],
         ['#ul1', 1850, '', 0]
+      )
+    }
+
+    // 65. Point 1: settled mark follows partner's reported target (clears on unsaved `true` or `null`
+    //     heartbeat, takes late navigation past 2s deadline without replaying scroll, keeps optimistic row
+    //     while a newer row request of this window is outstanding)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const doneHits = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      const xA = a.makeItem('mpX', { saved_id: 's_mpX', scrollY: 1600 })
+      const yA = a.makeItem('mpY', { saved_id: 's_mpY', scrollY: 1700 })
+      const zA = a.makeItem('mpZ', { saved_id: 's_mpZ', scrollY: 1800 })
+      b.makeItem('mpX', { saved_id: 's_mpX', scrollY: 1600 })
+      b.makeItem('mpY', { saved_id: 's_mpY', scrollY: 1700 })
+      b.makeItem('mpZ', { saved_id: 's_mpZ', scrollY: 1800 })
+      const wA = a.makeWidget({ rows: [{ id: 'mpX', pageY: 540 }, { id: 'mpY', pageY: 1400 }, { id: 'mpZ', pageY: 580 }] })
+      const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const doneA = () => a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDone = async (btn = doneA()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
+      a.setBox('#todo')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(xA)
+      bus.flush()
+      const doneX = doneA()
+      const settledX = [markedA(), await pressDone()]
+      // (a) partner reports unsaved target (`true`) -> clears mark and Done
+      const uB = b.makeItem('mpUns', { saved_id: null, name: '#mpUns' })
+      b.setBox('#mpUns')
+      b.env._on_search('#mpUns')
+      bus.flush()
+      const afterUnsaved = [markedA(), !!doneA(), await pressDone(doneX), !!uB]
+      // restore X, then (b) partner target disappears under unchanged query (heartbeat reports `target: null`) -> clears mark and Done
+      advanceAll(bus, [a, b], 50)
+      a.env._select_item(xA)
+      bus.flush()
+      const doneX2 = doneA()
+      b.items.set('#mpX', null) // label becomes ambiguous / unresolvable without _on_search firing
+      advanceAll(bus, [a, b], 2000)
+      b.fireWin('focus') // sends same-partner hello with target: null
+      bus.flush()
+      const afterNullHello = [markedA(), !!doneA(), await pressDone(doneX2)]
+      // restore #mpX, mark X, then (c) partner navigates to off-screen Y delivered AFTER its 2s deadline -> mark & Done update to Y, scroll stays 500!
+      b.items.set('#mpX', b.items.get('mpX'))
+      a.env._select_item(xA)
+      bus.flush()
+      const doneX3 = doneA()
+      a.win._todoer_windows.channel.paused = true
+      b.setBox('#mpY')
+      b.env._on_search('#mpY')
+      bus.flush()
+      a.clock.now += 2500
+      b.clock.now = a.clock.now
+      a.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const doneY = doneA()
+      const afterLateNav = [markedA(), a.getScrollTop(), await pressDone(doneX3), await pressDone()]
+      // (d) partner clears target delivered AFTER its 2s deadline -> mark & Done clear!
+      a.win._todoer_windows.channel.paused = true
+      b.setBox('')
+      b.env._on_search('')
+      bus.flush()
+      a.clock.now += 2500
+      b.clock.now = a.clock.now
+      a.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const afterLateNone = [markedA(), !!doneA(), await pressDone(doneY)]
+      // (e) optimistic row Z preserved during pending row ask even when partner sends stale hello reporting X, then settles on Z when took arrives
+      a.env._select_item(xA)
+      bus.flush()
+      b.win._todoer_windows.channel.paused = true
+      a.env._select_item(zA)
+      bus.flush()
+      b.advance(2000)
+      b.fireWin('focus') // B still shows mpX and sends hello(target: s_mpX) before seeing A's ask for mpZ
+      bus.flush()
+      const duringOptimistic = [markedA(), await pressDone()]
+      b.clock.now = a.clock.now
+      b.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const afterSettledZ = [markedA(), b.getBox(), await pressDone(), !!yA]
+      check(
+        'windows mark follows partner target: clears on unsaved or null heartbeat, takes expired navigation without scroll replay, preserves optimistic row during pending ask',
+        [settledX, afterUnsaved, afterNullHello, afterLateNav, afterLateNone, duringOptimistic, afterSettledZ],
+        [
+          [['mpX'], 'mpX'],
+          [[], false, null, true],
+          [[], false, null],
+          [['mpY'], 500, null, 'mpY'],
+          [[], false, null],
+          [['mpZ'], 'mpZ'],
+          [['mpZ'], '#mpZ', 'mpZ', true],
+        ]
+      )
+    }
+
+    // 66. Point 3: clicking a mounted row whose item awaits its first save (through _select_item itself)
+    //     keeps the list query, marks the row optimistically, and shows it in the partner once saved
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const doneHits = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      a.makeItem('usX', { saved_id: 's_usX', scrollY: 1600 })
+      b.makeItem('usX', { saved_id: 's_usX', scrollY: 1600 })
+      const uY = a.makeItem('usY', { saved_id: null, name: '#usY', scrollY: 1700 })
+      const uNever = a.makeItem('usNever', { saved_id: null, name: '#usNever', scrollY: 1750 })
+      const uBoth = a.makeItem('usBoth', { saved_id: null, name: '#usBoth', scrollY: 1800 })
+      const uSuper = a.makeItem('usSuper', { saved_id: null, name: '#usSuper', scrollY: 1850 })
+      const other = a.makeItem('usOther', { saved_id: 's_usOther', scrollY: 1900 })
+      b.makeItem('usOther', { saved_id: 's_usOther', scrollY: 1900 })
+      const wA = a.makeWidget({
+        rows: [
+          { id: 'usX', pageY: 540 },
+          { id: 'usY', pageY: 580 },
+          { id: 'usNever', pageY: 620 },
+          { id: 'usBoth', pageY: 660 },
+          { id: 'usSuper', pageY: 700 },
+          { id: 'usOther', pageY: 740 },
+        ],
+      })
+      const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const pressDone = async () => { doneHits.length = 0; await a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')?.press?.(); return doneHits[0] ?? null }
+      a.setBox('search words')
+      b.setBox('#usX')
+      a.env._send_press()
+      bus.flush()
+      // (a) A on plain search, B on #usX: click unsaved row uY through _select_item -> A keeps search, B stays #usX until save, then B shows #usY
+      bus.sent.length = 0
+      a.env._select_item(uY)
+      bus.flush()
+      advanceAll(bus, [a, b], 500)
+      const beforeSave = [a.getBox(), b.getBox(), markedA(), bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length]
+      uY.saved_id = 's_usY'
+      a.items.set('s_usY', uY)
+      b.makeItem('usY', { saved_id: 's_usY', name: '#usY', scrollY: 1700 })
+      advanceAll(bus, [a, b], 250)
+      const afterSave = [a.getBox(), b.getBox(), markedA(), await pressDone()]
+      // (b) unsaved row that never saves within SEND_SAVE_MS (10s) -> restores mark to partner's current target (#usY)
+      bus.sent.length = 0
+      a.env._select_item(uNever)
+      bus.flush()
+      const duringNever = [a.getBox(), markedA()]
+      advanceAll(bus, [a, b], 10_250)
+      const afterNever = [a.getBox(), b.getBox(), markedA(), bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length]
+      // (c) both windows have targets, click unsaved row uBoth -> A drops target to #todo, async _on_search('#todo') does not cancel wait, B opens once saved
+      a.setBox('#usX')
+      a.env._on_search('#usX')
+      bus.flush()
+      a.env._select_item(uBoth)
+      a.env._on_search('#todo') // Svelte reactive flush after MindBox.set('#todo')
+      bus.flush()
+      uBoth.saved_id = 's_usBoth'
+      a.items.set('s_usBoth', uBoth)
+      b.makeItem('usBoth', { saved_id: 's_usBoth', name: '#usBoth', scrollY: 1800 })
+      advanceAll(bus, [a, b], 250)
+      const afterBothUnsaved = [a.getBox(), b.getBox(), markedA()]
+      // (d) clicking another row supersedes pending unsaved row wait
+      a.env._select_item(uSuper)
+      bus.flush()
+      a.env._select_item(other)
+      bus.flush()
+      uSuper.saved_id = 's_usSuper'
+      a.items.set('s_usSuper', uSuper)
+      b.makeItem('usSuper', { saved_id: 's_usSuper', name: '#usSuper', scrollY: 1850 })
+      advanceAll(bus, [a, b], 500)
+      const afterSuperseded = [a.getBox(), b.getBox(), markedA()]
+      check(
+        'windows unsaved row selection via _select_item: keeps list query, waits for saved_id, hands off once saved, restores mark on timeout, survives both-targets release, superseded by newer click',
+        [beforeSave, afterSave, duringNever, afterNever, afterBothUnsaved, afterSuperseded],
+        [
+          ['search words', '#usX', ['usY'], 0],
+          ['search words', '#usY', ['usY'], 'usY'],
+          ['search words', ['usNever']],
+          ['search words', '#usY', ['usY'], 0],
+          ['#todo', '#usBoth', ['usBoth']],
+          ['#todo', '#usOther', ['usOther']],
+        ]
+      )
+    }
+
+    // 67. Mark-only _on_search does not rebuild lists (even as a detached mark survives settled plain-search edits)
+    //     and a slow receiver cancels a pending asked take when its owner enters a newer plain search
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      let rebuilds = 0
+      a.env._render_todoer_widget = () => { rebuilds++ }
+      a.env._this.dependents = ['pinned']
+      const wA = a.makeWidget({ rows: [{ id: 'sr1', pageY: 540 }, { id: 'srLate', pageY: 580 }] })
+      a.items.set('pinned', { id: 'pinned', elem: { querySelectorAll: () => [wA.widget], querySelector: () => wA.widget.querySelector('.list-item-container.selected') } })
+      a.env._listed = () => true
+      const sr1 = a.makeItem('sr1', { saved_id: 's_sr1', scrollY: 1600 })
+      const srLate = a.makeItem('srLate', { saved_id: 's_srLate', scrollY: 1700 })
+      b.makeItem('sr1', { saved_id: 's_sr1', scrollY: 1600 })
+      a.setBox('#todo')
+      b.setBox('alpha')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(sr1)
+      bus.flush()
+      // (a) detached mark survives settled edits of a plain search without rebuilding widgets
+      for (const q of ['a', 'ab', 'abc']) {
+        a.setBox(q)
+        a.env._on_search(q)
+      }
+      const afterPlainEdits = [rebuilds, wA.rowNodes.get('sr1').classList.contains('selected'), a.getBox()]
+      // (b) slow receiver: B already announced no target (`windows.last === ''`), A asks B for srLate not yet in B,
+      //     B's owner enters a different plain search `'beta'` while lookup waits -> pending asked take is canceled,
+      //     so srLate arriving later does NOT overwrite B's `'beta'` query!
+      b.setBox('alpha')
+      b.env._on_search('alpha')
+      bus.flush()
+      const bLastBefore = b.win._todoer_windows.last
+      bus.sent.length = 0
+      a.env._select_item(srLate)
+      bus.flush()
+      const bPendingDuring = b.win._todoer_windows.pending?.kind ?? null
+      b.setBox('beta')
+      b.env._on_search('beta')
+      bus.flush()
+      b.makeItem('srLate', { saved_id: 's_srLate', scrollY: 1700 })
+      advanceAll(bus, [a, b], 1000)
+      const afterSlowReceiver = [bLastBefore, bPendingDuring, b.getBox(), bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      check(
+        'windows _on_search mark-only & slow receiver: plain search edits keep detached mark with zero widget rebuilds, and receiver plain search cancels pending asked take',
+        [afterPlainEdits, afterSlowReceiver],
+        [
+          [0, true, 'abc'],
+          ['', 'take', 'beta', 0],
+        ]
       )
     }
   })())

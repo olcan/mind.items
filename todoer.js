@@ -59,9 +59,11 @@ const _todoer = _item('$id')
 // - A non-todo item an agent wrote with the item tool (past this kind's baseline in the account,
 //   within the stamp map's latest hundred items) shows in the main list with an `item` bell, its
 //   name and its first line until cleared (`b`, the bell, or the done bin), edited, or evicted by
-//   newer stamped items; a chat that waits both ways keeps its `reply` row. On either waiting row
-//   (`reply` or `item`), wiki links in the line open as links (clicking one opens the file without
-//   selecting the row) while tags, markdown links, addresses, and markup stay plain text.
+//   newer stamped items; a chat that waits both ways keeps its `reply` row. On a waiting reply's
+//   row, where it shows the reply's first line as written (cut at most at its end), wiki links
+//   outside inline code open as links (clicking one opens the file without selecting the row)
+//   while tags, markdown links, addresses, and markup stay plain text (wiki links skip inline code
+//   on todo rows too); an `item` row's line stays plain text.
 // - A todo that came up for you carries a bell with its kind (its reason in the main list, or
 //   `checkin` on a delegated todo whose agent checked in while going on working). The bell stays
 //   even after a check-in's marker returns to working; click the bell to clear it while keeping the
@@ -98,8 +100,10 @@ const _todoer = _item('$id')
 //   the other window shows and acting on it through its buttons and keys; a window with a target
 //   keeps its own target (if the other window has none, a row selection here opens here and moves
 //   the other's mark); if both windows have targets, selecting a row gives this window's target up
-//   to the default list query and shows the item in the other; if neither has a target, the window
-//   selected in stays the list. **`w`** in either window ends the link.
+//   (to the default list query, or the empty query when that tag names a single item; Back returns
+//   to a finalized target, while a target only typed and never finalized is replaced with no step)
+//   and shows the item in the other; if neither has a target, the window selected in stays the
+//   list. **`w`** in either window ends the link.
 
 function _extract_template_options(options = {}) {
   const props = ['height', 'style', 'styles', 'classes']
@@ -175,16 +179,45 @@ function _link_markdown_links(text) {
   return text.replace(/\[\s*(.*?)\s*\]\(\s*(.*?)\s*\)/g, (m, text, href) => `<a href="${_.escape(href)}">${text}</a>`)
 }
 
+// returns a predicate testing whether an offset in a row's escaped line lies inside inline code
+// (pairs of backticks matched from the left; an unpaired backtick opens nothing)
+function _inline_code_test(text) {
+  if (!text.includes('`')) return () => false
+  const spans = []
+  for (const m of text.matchAll(/`[^`]*`/g)) spans.push([m.index, m.index + m[0].length - 1])
+  return offset => spans.some(([start, end]) => offset > start && offset < end)
+}
+
 // the wiki links of a row's escaped snippet (the app's grammar and builder; the vault's design
 // notes/design/wiki_links.md 2.3): a `[[path]]` or `[[path|text]]` reference, unescaped back to
 // the owner's text, becomes the app's anchor with its text and title as character references,
-// so the tag, markdown-link and url passes that follow find nothing inside it; a reference the
-// app has no setting for or refuses stays as written. Runs first over the escaped snippet
+// so the tag, markdown-link and url passes that follow find nothing inside it; a reference that
+// begins inside inline code, or one the app has no setting for or refuses, stays as written. Runs
+// first over the escaped snippet
 function _link_wiki(text) {
   const regexp = window._wiki_link_regexp?.()
   const build = window._wiki_link_html
-  if (!regexp || !build) return text
-  return text.replace(regexp, (m, embed, target, alias) => build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
+  if (!regexp || !build || !text.includes('[[')) return text
+  const in_code = _inline_code_test(text)
+  return text.replace(regexp, (m, embed, target, alias, offset) =>
+    in_code(offset) ? m : (build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
+  )
+}
+
+// wiki links for a waiting reply row's line: links references outside inline code only where the
+// row shows the reply's first line as written (cut at most at its end); every other waiting row's
+// line stays escaped text
+function _link_waiting_wiki(line, text) {
+  const escaped = _.escape(line ?? '')
+  const regexp = window._wiki_link_regexp?.()
+  const build = window._wiki_link_html
+  if (text == null || !regexp || !build || !escaped.includes('[[')) return escaped
+  // links only where the row shows the reply's first line as written, cut at most at its end
+  if (!_reply_raw(text).trim().startsWith(String(line).replace(/…$/, ''))) return escaped
+  const in_code = _inline_code_test(escaped)
+  return escaped.replace(regexp, (m, embed, target, alias, offset) =>
+    in_code(offset) ? m : (build(_.unescape(target), alias == null ? null : _.unescape(alias), { refs: true }) ?? m)
+  )
 }
 
 // the row's html: the escaped snippet through the wiki-link, tag, markdown-link and url passes
@@ -340,12 +373,12 @@ function __render(widget, widget_item) {
       const key = _wait_key_of(item, waits)
       container.setAttribute('data-wait-key', key)
       container.title = `${waits}: waits on you; click the bell or drop it on done to clear it\n${[name, line].join(' ').trim()}`
-      // the name as a tag, then the escaped line with its wiki links alone (the app's builder):
-      // everything else in a chat reply or write preview stays text
+      // the name as a tag, then the escaped line (with wiki links alone on a reply row showing the
+      // reply's first line as written, cut at most at its end; an item row stays text)
       div.innerHTML =
         `<mark class="waits">${waits}</mark> ` +
         (name ? _mark_tags(_.escape(name)) + ' ' : '') +
-        _link_wiki(_.escape(line))
+        _link_waiting_wiki(line, waits == 'reply' ? item.text : null)
       // the bell's own click clears the row (as its drop on the done bin does), not the row's
       const bell = div.querySelector?.('mark.waits')
       if (bell)
@@ -1586,7 +1619,9 @@ function _listing_changed(item) {
 
 // this window's query target (index.svelte: first term naming a unique label other than the log
 // tag, or any id: term; a / command targets nothing). Reads MindBox.get() directly (live during
-// the 500 ms typing debounce; case-sensitive id: lookup per _item)
+// the 500 ms typing debounce; case-sensitive id: lookup per _item; when a query names several
+// targets at once, picks the listing or the first resolving id:; compound queries also count for
+// marks and keys when unlinked)
 function _window_target(text = typeof MindBox != 'undefined' ? MindBox.get?.() : '') {
   if (typeof text != 'string' || text.startsWith('/')) return null
   const terms = text.trim().split(/\s+/).filter(Boolean)
@@ -1596,14 +1631,21 @@ function _window_target(text = typeof MindBox != 'undefined' ? MindBox.get?.() :
   return null
 }
 
-// this window's selected item: own target where it has one, else the item the linked window shows
+// this window's selected item: own target where it has one, else while linked (or during an
+// active row handoff) the optimistic row or the current linked partner's reported saved target
 // (where this window has a mounted row for it, unless `mounted` is false)
 function _selected_item(text = typeof MindBox != 'undefined' ? MindBox.get?.() : '', { mounted = true } = {}) {
   const own = _window_target(text)
   if (own) return own
   const windows = typeof window != 'undefined' ? window._todoer_windows : null
-  if (!windows?.shown || (typeof _send_partner == 'function' && !_send_partner() && !(windows.pending?.kind == 'ask' && windows.pending.fallback))) return null
-  const item = _item(windows.shown, { silent: true })
+  if (!windows) return null
+  const pending = windows.pending
+  const optimistic = (pending?.kind == 'ask' && pending.fallback) || (pending?.kind == 'save' && pending.ask)
+  const partner = typeof _send_partner == 'function' ? _send_partner() : null
+  const pt = partner ? windows.peers?.get(partner)?.target : null
+  const id = optimistic ? windows.shown : typeof pt == 'string' ? pt : null
+  if (!id) return null
+  const item = _item(id, { silent: true })
   return item && (!mounted || (typeof _bin_row == 'function' && _bin_row(item))) ? item : null
 }
 
@@ -1620,26 +1662,22 @@ function _sync_marks(item = _selected_item(undefined, { mounted: false })) {
   })
 }
 
-// detect query changes: update buttons, announce target (or none) to partner, and re-render marks
+// detect query changes: update buttons, announce target (or none) to partner, and sync marks
 function _on_search(text) {
   const target_item = _window_target(text)
   const windows = typeof window != 'undefined' ? window._todoer_windows : null
+  if (typeof _send_selected == 'function') _send_selected(target_item)
   if (windows) {
     if (target_item) windows.shown = null
-    else if (!windows.pending) {
+    else if (!((windows.pending?.kind == 'ask' && windows.pending.fallback) || (windows.pending?.kind == 'save' && windows.pending.ask))) {
       const pt = typeof _send_partner == 'function' ? windows.peers.get(_send_partner())?.target : null
       windows.shown = typeof pt == 'string' ? pt : null
     }
   }
   const selected = _selected_item(text, { mounted: false })
   if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item(text)) // (a table loads this function alone)
-  if (typeof _send_selected == 'function') _send_selected(target_item)
   if (!selected && !document.querySelector('.todoer-widget .list-item-container.selected')) return
-  each(_this.dependents, dep => {
-    const item = _item(dep)
-    if (_listed(item, selected?.id) || item.elem?.querySelector('.list-item-container.selected'))
-      item.elem?.querySelectorAll('.todoer-widget').forEach(widget => _render_todoer_widget(widget, item))
-  })
+  _sync_marks(selected)
 }
 
 // THE BIN BUTTONS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): one button per
@@ -1843,8 +1881,9 @@ const _ROW_STEP = { up: -1, down: 1 }
 const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel', KeyB: 'bell', KeyH: 'history', KeyU: 'owner' }
 
 // the github history address the pusher opens for an item (pusher.js, _on_command_history),
-// read from its own store without saving or prompting; null where the pusher is absent, off,
-// or has no valid destination, or where the item is not saved yet
+// read from its own store without saving or prompting; null where the pusher item is absent or
+// its commands are off, where it has no destination of two path-safe names, or where the item is
+// not saved yet (a destination is enough: the pusher's own history command asks for no token)
 function _history_url(item) {
   if (!item?.saved_id) return null
   const pusher = _item('#pusher', { silent: true })
@@ -1852,8 +1891,11 @@ function _history_url(item) {
   if (Array.isArray(pusher.tags_raw) && (pusher.tags_raw.includes('#_debug') || !pusher.tags_raw.includes('#_listen'))) return null
   const dest = pusher._global_store?.dest
   if (typeof dest != 'string') return null
-  const [owner, repo, extra] = dest.trim().split('/')
-  if (!owner || !repo || extra !== undefined || /\s/.test(owner) || /\s/.test(repo)) return null
+  // two path-safe name parts alone: a query, a fragment or a dot segment in the destination would
+  // change which page the address opens (the pusher's own prompt takes any two nonempty parts)
+  const parts = dest.trim().split('/')
+  if (parts.length != 2 || !parts.every(part => /^[A-Za-z0-9._-]+$/.test(part) && part != '.' && part != '..')) return null
+  const [owner, repo] = parts
   return `https://github.com/${owner}/${repo}/commits/master/items/${item.saved_id}.md`
 }
 
@@ -3087,20 +3129,24 @@ function _vault_replies(view) {
   return { replies, last, footer }
 }
 
-// the first text line of the last inert region in a chat's raw text (the bridge's reply body in
-// its canonical frame; the escaping of lib/mindpage_inert.py keeps a body line from closing the
-// frame early), shortened; '' without one. The ordinary case, not a guarantee: an opener line
-// quoted inside a body is not escaped and would start the preview after it, and an inline
+// the first text line of the last inert region in a chat's raw text, as written (the bridge's
+// reply body in its canonical frame; the escaping of lib/mindpage_inert.py keeps a body line
+// from closing the frame early); '' without one. The ordinary case, not a guarantee: an opener
+// line quoted inside a body is not escaped and would start the preview after it, and an inline
 // opener followed by a newline gives no preview (a framing-aware extraction is a backfill)
-function _reply_line(text) {
+function _reply_raw(text) {
   const raw = String(text ?? '')
   const open = raw.lastIndexOf('<!--inert-->\n')
   if (open < 0 || (open > 0 && raw[open - 1] != '\n')) return ''
   const start = open + '<!--inert-->\n'.length
   const close = raw.indexOf('\n<!--/inert-->', start)
   const body = raw.slice(start, close < 0 ? raw.length : close)
-  const line = body.split('\n').find(l => l.trim()) ?? ''
-  const clean = line.replace(/\s+/g, ' ').trim()
+  return body.split('\n').find(l => l.trim()) ?? ''
+}
+
+// the first text line of the last inert region (_reply_raw), shortened; '' without one
+function _reply_line(text) {
+  const clean = _reply_raw(text).replace(/\s+/g, ' ').trim()
   return clean.length > 120 ? clean.slice(0, 119).trimEnd() + '…' : clean
 }
 
@@ -3812,19 +3858,25 @@ function _notify_show(facts, onclick, wait = NOTIFY_SW_WAIT_MS) {
 //   there and tells the no-target window unasked so its mark moves).
 // - Where neither has a target, the selecting window stays the list (keeping its query and place)
 //   and asks the other window to show the item (`n` set).
-// - Where both have targets, the selecting window gives its target up (setting SEND_LIST_QUERY as
-//   a history step, with a short _hold_scroll against the app's no-target scroll-up), marks the
-//   row, and asks the other window to show the item.
+// - Where both have targets, the selecting window gives its target up (setting SEND_LIST_QUERY, or
+//   the empty query when SEND_LIST_QUERY resolves as a target, with a 15-step _hold_scroll against
+//   the app's no-target scroll-up), marks the row, and asks the other window to show the item.
+//   Where the prior target was finalized in history (a click, select, or finalized entry), giving
+//   it up adds a history step and Back returns to it; where it was only typed and never finalized,
+//   the app replaces that entry with no step.
 // - A window with a target shows buttons and takes keys for its own target and ignores unasked
-//   selections told by the other window. A window without a target marks the row of what the other
-//   window shows (moving scroll only when the row is not wholly readable, _row_view_top) and
-//   clears its mark when told none (item: null).
+//   selections told by the other window. A window without a target marks the row of the current
+//   partner's reported saved target (keeping the optimistic row while a row handoff is pending,
+//   waiting up to SEND_SAVE_MS for an unsaved mounted row's first save, moving scroll only when
+//   timely and not wholly readable, and clearing its mark when the partner reports none or an
+//   unsaved target).
 // - A window asked to show an item (`n` set) opens it (releasing any hold) and answers `took`
 //   after opening succeeds; if silent for SEND_ACK_MS, the selecting window forgets the peer,
 //   sends `who`, and opens the item locally if nothing intervened.
 // - Other items reach the link through window._todoer_windows: `show(item)` asks the partner to
-//   show an item without selecting or moving the caller (resolving true on `took`, else false,
-//   leaving the link intact on timeout), `linked()`, and `toggle()`.
+//   show an item without changing the caller's query or scroll (updating a list caller's mark and
+//   buttons on `took`, resolving true on `took` else false, leaving the link intact on timeout),
+//   `linked()`, and `toggle()`.
 const SEND_KEY = 'mindpage_todoer_send'
 const SEND_CHANNEL = 'mindpage_todoer_windows'
 const SEND_LIST_QUERY = '#todo' // the one query written when a window with a target becomes the list
@@ -3924,12 +3976,14 @@ function _send_retire(windows) {
   _set_shown(windows, null)
 }
 
-// aligns a no-target window's mark with the linked partner's known target (on link-up, reload, or
-// partner switch) without overwriting an active pending handoff
+// reconciles a no-target window's mark with the current linked partner's reported saved target
+// (null when unlinked, no target, or unsaved), leaving an outstanding row handoff's optimistic mark
 function _send_sync_shown(windows, partner = _send_partner()) {
-  if (!windows || _window_target() || windows.pending) return
+  if (!windows || _window_target()) return false
+  const pending = windows.pending
+  if ((pending?.kind == 'ask' && pending.fallback) || (pending?.kind == 'save' && pending.ask)) return false
   const pt = partner ? windows.peers.get(partner)?.target : null
-  _set_shown(windows, typeof pt == 'string' ? pt : null)
+  return _set_shown(windows, typeof pt == 'string' ? pt : null)
 }
 
 // the button's press, the w key, and window._todoer_windows.toggle(): links with the other window
@@ -3998,14 +4052,18 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
         if (windows.pending !== req) return
         windows.pending = null
         resolve(false)
-        if (!fallback || _notify_account_left() || _send_account() !== uid || (was_on && !_send_on())) return
+        if (!fallback) {
+          if (_send_sync_shown(windows)) _bin_buttons(_selected_item())
+          return
+        }
+        if (_notify_account_left() || _send_account() !== uid || (was_on && !_send_on())) return
         const cur = _send_partner()
         if (cur && cur !== to) return
         const ready = windows.shown === id
         windows.peers.delete(to)
         const after = _send_partner()
         windows.say('who')
-        const clear = () => { if (!_send_partner() && windows.shown === id) _set_shown(windows, null); _bin_buttons(_selected_item()) }
+        const clear = () => { _send_sync_shown(windows); _bin_buttons(_selected_item()) }
         const ok = () => ready && windows.acted === acted && windows.sel === stamp && !_window_target()
         if (!ok()) return clear()
         _bin_buttons(_selected_item())
@@ -4016,7 +4074,7 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
           windows.hold?.()
           windows.shown = null
           const live = _item(target.id, { silent: true })
-          if (!live || !open(live)) { _sync_marks(); _bin_buttons(_selected_item()) }
+          if (!live || !open(live)) { _send_sync_shown(windows); _sync_marks(); _bin_buttons(_selected_item()) }
         })
       }, SEND_ACK_MS),
     }
@@ -4027,12 +4085,15 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
 // tells the linked other window this window's own target (item: saved_id, or null for "none" when
 // the query has no target), once per target (`forced`: again). With `ask` (a row's selection in
 // the list window), asks the partner to show `item` via _send_ask (returning true)
-function _send_selected(item, forced = false, acted_at = null, ask = false) {
+function _send_selected(item, forced = false, acted_at = null, ask = false, selection = null, checked = false) {
   const windows = window._todoer_windows
   if (!windows || _notify_fixed_view() || _notify_account_left()) return false
   const next_last = item ? item.saved_id ?? null : ''
-  if (!ask && !forced && next_last !== null && windows.last === next_last) return false
-  if (!forced && item && !item.saved_id && windows.pending?.kind == 'save' && windows.pending.item?.id === item.id) return false
+  if (!ask && !forced && next_last !== null && windows.last === next_last) {
+    if (windows.pending?.kind == 'take' && windows.pending.asked) _send_cancel(windows)
+    return false
+  }
+  if (!forced && item && !item.saved_id && windows.pending?.kind == 'save' && windows.pending.item?.id === item.id && windows.pending.ask === ask) return false
   // a newer selection supersedes any pending handoff (save, ask, or take)
   _send_cancel(windows)
   if (ask && (!item || !_bin_row(item))) return false
@@ -4042,7 +4103,7 @@ function _send_selected(item, forced = false, acted_at = null, ask = false) {
     if (ask && _send_on()) windows.say('who')
     return false
   }
-  if (ask && item.saved_id) return _send_ask(item, { fallback: true, acted_at }), true
+  if (ask && item.saved_id) return _send_ask(item, { fallback: true, acted_at, selection, checked }), true
   const at = acted_at ?? Math.max(Date.now(), (windows.seen_at ?? 0) + 1)
   const stamp = { at, id: windows.me }
   windows.seen_at = Math.max(windows.seen_at ?? 0, at)
@@ -4051,7 +4112,7 @@ function _send_selected(item, forced = false, acted_at = null, ask = false) {
   // SEND_SAVE_MS by the clock, while it remains selected and the same link stands)
   if (item && !item.saved_id) {
     if (!ask) windows.say('hello', { target: true })
-    _send_when_saved(item, Date.now() + SEND_SAVE_MS, at, ask)
+    _send_when_saved(item, Date.now() + SEND_SAVE_MS, at, ask, selection, checked)
     return false
   }
   windows.last = next_last
@@ -4062,7 +4123,7 @@ function _send_selected(item, forced = false, acted_at = null, ask = false) {
 // tells the linked other window of a selected item that has no saved id yet, once it has one:
 // looked at four times a second until `until` (SEND_SAVE_MS by the clock), and given up where
 // another item is selected, the link ends or changes, or the account is left
-function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Date.now(), ask = false) {
+function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Date.now(), ask = false, selection = null, checked = false) {
   const windows = window._todoer_windows
   const link = _send_link(windows)
   if (!windows || !link || _notify_fixed_view() || _notify_account_left()) return
@@ -4070,29 +4131,33 @@ function _send_when_saved(item, until = Date.now() + SEND_SAVE_MS, acted_at = Da
   const uid = _send_account()
   const req = { kind: 'save', item, uid, link, until, acted_at, ask, timer: null }
   windows.pending = req
+  if (ask) { windows.last = ''; windows.shown = item.id }
+  const drop = () => {
+    windows.pending = null
+    if (ask) { _send_sync_shown(windows); _bin_buttons(_selected_item()) }
+  }
   const look = () => {
     if (windows.pending !== req) return
-    if (_notify_fixed_view() || _notify_account_left() || _send_account() !== uid || !_send_same_link(link, _send_link(windows)) || Date.now() > until) {
-      windows.pending = null
-      return
-    }
-    const named = _selected_item(undefined, { mounted: false })
-    if (named?.id !== item.id) {
-      windows.pending = null
-      return
-    }
+    if (_notify_fixed_view() || _notify_account_left() || _send_account() !== uid || !_send_same_link(link, _send_link(windows)) || Date.now() > until) return drop()
+    const own = _window_target()
+    const named = ask
+      ? (own ? (own.id === item.id ? own : null) : windows.shown === item.id ? _item(item.id, { silent: true }) : null)
+      : own
+    if (named?.id !== item.id || (ask && !_bin_row(named))) return drop()
     if (named.saved_id) {
+      if (ask && !_send_partner()) return drop()
       windows.pending = null
-      _send_selected(named, true, acted_at, ask)
+      if (ask) _send_ask(named, { fallback: true, acted_at, selection, checked })
+      else _send_selected(named, true, acted_at, false)
       return
     }
     const left = until - Date.now()
     if (left > 0) req.timer = setTimeout(look, Math.min(250, left))
-    else windows.pending = null
+    else drop()
   }
   const left = until - Date.now()
   if (left > 0) req.timer = setTimeout(look, Math.min(250, left))
-  else windows.pending = null
+  else drop()
 }
 
 // applies the other window's selection here without coming forward and without saying it back.
@@ -4111,11 +4176,16 @@ function _send_take(message, asked, until = null) {
   if (!_send_beats(stamp, windows.sel)) return false
   _send_cancel(windows)
   const acted = windows.acted
-  const req = { kind: 'take', id: message.id, asked, uid, until: end, stamp, timer: null }
+  const req = { kind: 'take', id: message.id, item: message.item, asked, uid, until: end, stamp, timer: null }
   windows.pending = req
   if (!asked) windows.shown = message.item
   const still_linked = () =>
-    windows.pending === req && !_notify_fixed_view() && !_notify_account_left() && _send_account() === uid && _send_partner() === message.id
+    windows.pending === req &&
+    !_notify_fixed_view() &&
+    !_notify_account_left() &&
+    _send_account() === uid &&
+    _send_partner() === message.id &&
+    (asked || windows.peers.get(message.id)?.target === message.item)
   const attempt = first => {
     if (!still_linked() || Date.now() > end || !_send_beats(stamp, windows.sel) || (!asked && _window_target())) {
       if (windows.pending === req) windows.pending = null
@@ -4179,8 +4249,15 @@ function _start_windows() {
     const prevPartner = _send_partner()
     const prevShown = windows.shown
     const shows = _send_on() ? _send_peer() : null
+    const prevPeer = windows.peers.get(message.id)
+    let nextTarget = message.target ?? null
+    if (message.type == 'selected' && message.to == me && message.id == prevPartner) {
+      const stamp = { at: Number(message.at) || 0, id: message.id }
+      const cur = windows.pending?.kind == 'take' && _send_beats(windows.pending.stamp, windows.sel) ? windows.pending.stamp : windows.sel
+      if (!_send_beats(stamp, cur)) nextTarget = prevPeer?.target ?? null
+    }
     if (message.type == 'bye') windows.peers.delete(message.id)
-    else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now(), on: !!message.on, to: message.to ?? null, since: Number(message.since) || 0, target: message.target ?? null })
+    else windows.peers.set(message.id, { used: Number(message.used) || 0, seen: Date.now(), on: !!message.on, to: message.to ?? null, since: Number(message.since) || 0, target: nextTarget })
     // ONE stored record per account once the messages have settled: of two windows holding it,
     // the later `since` stays (ties: greater id). Giving it up is not unlinking: an ask this
     // window sent can still take its `took`. What does not survive giving it up: a selection
@@ -4207,33 +4284,37 @@ function _start_windows() {
       if (!(message.type == 'bye' && windows.pending?.kind == 'ask' && windows.pending.fallback && windows.pending.to == message.id)) _send_retire(windows)
     } else {
       _send_cancel(windows, p => {
-        if (p.kind == 'save') return !_send_same_link(p.link, _send_link(windows))
-        if (p.kind == 'take') return partner !== p.id
+        if (p.kind == 'save') return !_send_same_link(p.link, _send_link(windows)) || (p.ask && !partner)
+        if (p.kind == 'take') return partner !== p.id || (!p.asked && message.id == partner && nextTarget !== p.item)
         if (p.kind == 'ask') return !!partner && partner !== p.to
         return false
       })
-      if (partner !== prevPartner) {
-        if (partner) _send_sync_shown(windows, partner)
-        else if (!(windows.pending?.kind == 'ask' && windows.pending.fallback)) _set_shown(windows, null)
+      if (!partner && !((windows.pending?.kind == 'ask' && windows.pending.fallback) || (windows.pending?.kind == 'save' && windows.pending.ask))) _set_shown(windows, null)
+    }
+    if (message.type != 'bye' && message.type != 'unlink') {
+      if (message.type == 'who') windows.say('hello')
+      else if (message.type == 'selected' && message.to == me && message.id == partner) {
+        const end = message.until != null && Number.isFinite(Number(message.until)) ? Number(message.until) : Date.now() + SEND_TAKE_MS
+        const stamp = { at: Number(message.at) || 0, id: message.id }
+        const asked = !!message.n
+        windows.seen_at = Math.max(windows.seen_at ?? 0, stamp.at)
+        if (asked || !_window_target()) {
+          const cur = windows.pending?.kind == 'take' && _send_beats(windows.pending.stamp, windows.sel) ? windows.pending.stamp : windows.sel
+          if (_send_beats(stamp, cur)) {
+            if (Date.now() > end) {
+              if (!asked) windows.sel = stamp
+            } else {
+              _send_cancel(windows)
+              if (!asked && !message.item) { windows.sel = stamp; _set_shown(windows, null) }
+              else _send_take(message, asked, end)
+            }
+          }
+        }
       }
+      else if (message.type == 'took' && windows.pending?.kind == 'ask' && windows.pending.n == message.n && windows.pending.to == message.id) _send_cancel(windows, null, true)
     }
+    if (partner) _send_sync_shown(windows, partner)
     if (yielded || look() != before || windows.shown !== prevShown) _bin_buttons(_selected_item())
-    if (message.type == 'bye' || message.type == 'unlink') return
-    if (message.type == 'who') windows.say('hello')
-    else if (message.type == 'selected' && message.to == me && message.id == partner) {
-      const end = message.until != null && Number.isFinite(Number(message.until)) ? Number(message.until) : Date.now() + SEND_TAKE_MS
-      if (Date.now() > end) return
-      const stamp = { at: Number(message.at) || 0, id: message.id }
-      const asked = !!message.n
-      windows.seen_at = Math.max(windows.seen_at ?? 0, stamp.at)
-      if (!asked && _window_target()) return // a window with a target ignores unasked selections told by the partner
-      const cur = windows.pending?.kind == 'take' && _send_beats(windows.pending.stamp, windows.sel) ? windows.pending.stamp : windows.sel
-      if (!_send_beats(stamp, cur)) return
-      _send_cancel(windows)
-      if (!asked && !message.item) { windows.sel = stamp; _set_shown(windows, null); _bin_buttons(_selected_item()); return }
-      _send_take(message, asked, end)
-    }
-    else if (message.type == 'took' && windows.pending?.kind == 'ask' && windows.pending.n == message.n && windows.pending.to == message.id) _send_cancel(windows, null, true)
   }
   const acted = () => { windows.acted++ }
   for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown', 'popstate', 'resize']) window.addEventListener(type, acted, { capture: true, passive: true })
@@ -4253,7 +4334,7 @@ function _start_windows() {
     if (_notify_account_left()) return _send_retire(windows)
     windows.say('hello')
     if (look() != drawn) {
-      if (!_send_partner() && !(windows.pending?.kind == 'ask' && windows.pending.fallback)) _set_shown(windows, null)
+      _send_sync_shown(windows)
       _bin_buttons(_selected_item())
     }
     drawn = look()
@@ -4261,8 +4342,9 @@ function _start_windows() {
   windows.say('who')
 }
 
-// holds this window's scroll position for SEND_HOLD_MS (stepped so a busy page spends one step,
-// not the whole window). Owner inputs, history steps, and viewport resizes end it at once
+// holds this window's scroll position for 15 timer steps (Math.ceil(SEND_HOLD_MS / SEND_HOLD_STEP_MS);
+// stepped so a busy page spends one step rather than the whole budget, which can take longer than
+// 1.5 s). Owner inputs, history steps, and viewport resizes end it at once
 const SEND_HOLD_MS = 1500
 const SEND_HOLD_STEP_MS = 100
 function _send_steps(uid, done) {
@@ -4278,8 +4360,8 @@ function _send_steps(uid, done) {
 }
 
 // holds this window's scroll position against the app's no-target scroll-up when giving up a
-// target (both-targets row click -> SEND_LIST_QUERY); ends immediately on any owner input,
-// history step, resize, or after SEND_HOLD_MS steps
+// target (both-targets row click -> SEND_LIST_QUERY or ''); ends immediately on any owner input,
+// history step, resize, or after the 15 timer steps
 function _hold_scroll(top) {
   const windows = window._todoer_windows
   windows?.hold?.()
@@ -4392,27 +4474,29 @@ function _open_here(item, selection, checked = false) {
   return true
 }
 
-// selects a row's item: if linked with a live partner and listed with a saved id, keeps/becomes
-// the list window when this window has no target or both have targets (giving our target up to
-// SEND_LIST_QUERY with a short hold against no-target scroll-up) and asks the partner to show it;
-// otherwise opens locally (and tells a no-target partner unasked, or asks `who` when alone & on)
+// selects a row's item: if linked with a live partner and listed (waiting for its first save if
+// unsaved), keeps/becomes the list window when this window has no target or both have targets
+// (giving our target up to SEND_LIST_QUERY or '' if it names a target, with a short hold against
+// no-target scroll-up) and asks the partner to show it; otherwise opens locally (and tells a
+// no-target partner unasked, or asks `who` when alone & on)
 function _select_item(item, selection, checked = false) {
   const windows = typeof window != 'undefined' ? window._todoer_windows : null
   const to = windows && typeof _send_partner == 'function' && !_notify_fixed_view() && !_notify_account_left() ? _send_partner() : null
   const listed = !!item && typeof _bin_row == 'function' && !!_bin_row(item)
   const mine = typeof _window_target == 'function' && !!_window_target()
-  if (to && listed && item.saved_id && (!mine || windows.peers.get(to)?.target)) {
+  if (to && listed && (!mine || windows.peers.get(to)?.target)) {
     const acted = windows.acted
     const top = document.body.scrollTop
     const uid = _send_account()
     const hold = mine ? _hold_scroll(top) : null
-    if (mine) { MindBox.elem?.blur?.(); MindBox.set(SEND_LIST_QUERY) }
-    _send_ask(item, { fallback: true, selection, checked })
+    if (mine) { MindBox.elem?.blur?.(); MindBox.set(_window_target(SEND_LIST_QUERY) ? '' : SEND_LIST_QUERY) }
+    if (item.saved_id) _send_ask(item, { fallback: true, selection, checked })
+    else _send_selected(item, false, null, true, selection, checked)
     _sync_marks(item)
     _bin_buttons(_selected_item())
     if (mine)
       _update_dom().then(() => {
-        if (windows.hold !== hold || windows.shown !== item.saved_id || windows.acted !== acted || _notify_account_left() || _send_account() !== uid) return
+        if (windows.hold !== hold || (windows.shown !== item.saved_id && windows.shown !== item.id) || windows.acted !== acted || _notify_account_left() || _send_account() !== uid) return
         const to_y = _row_view_top(item, top)
         if (to_y != top) _hold_scroll(to_y)
       })
