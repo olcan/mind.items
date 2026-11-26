@@ -208,6 +208,7 @@ const picked =
     '_complete_todo',
     '_todo_list',
     '_todo_log_text',
+    '_history_url',
     '_bin_act',
     '_draft',
     '_draft_word',
@@ -3625,6 +3626,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         pick([
           '_mounted_lists',
           '_bin_row',
+          '_history_url',
           '_row_buttons',
           '_row_sequence',
           '_row_beside',
@@ -5484,6 +5486,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_mounted_lists',
         '_bin_row',
         '_window_button',
+        '_history_url',
         '_row_buttons',
         '_todo_list',
         '_todo_buttons',
@@ -5655,7 +5658,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const alerts = []
       const actions = []
       let boxText = ''
-      const makeItem = (id, { name = '#' + id, label = name, saved_id = 's-' + id, text = '#todo ' + id, tags = null, tags_visible = [], store = {}, editing = false, draft = null, deletes = true } = {}) => {
+      const makeItem = (id, { name = '#' + id, label = name, saved_id = 's-' + id, text = '#todo ' + id, tags = null, tags_visible = [], tags_raw = null, store = {}, editing = false, draft = null, deletes = true } = {}) => {
         const it = {
           id,
           saved_id,
@@ -5664,6 +5667,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           text,
           tags: tags ?? (tags_visible.length ? [...tags_visible] : ['#todo']),
           tags_visible: [...tags_visible],
+          ...(tags_raw ? { tags_raw: [...tags_raw] } : {}),
           editing,
           _global_store: store,
           get global_store() { return this._global_store },
@@ -5673,7 +5677,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           delete: sure => (actions.push(['delete', id, !!sure]), deletes),
         }
         items.set(id, it)
-        items.set(saved_id, it)
+        if (saved_id) items.set(saved_id, it)
         items.set(name, it)
         return it
       }
@@ -7451,9 +7455,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           typeof e.active == 'function' &&
           e.context === undefined,
         )
-        check('_ROW_SHORTCUTS: 13 entries cover every key of _BIN_KEYS plus j, k, and w, with no extra keys, and valid shapes',
+        check('_ROW_SHORTCUTS: 14 entries cover every key of _BIN_KEYS plus j, k, and w, with no extra keys, and valid shapes',
           [rowShortcuts.length, listedKeys, shapesOk],
-          [13, expectedKeys, true])
+          [14, expectedKeys, true])
 
         // Build widgets covering every mounted row state:
         // main: m1 (start, plain), m2 (middle, bell), repMid (reply with bell, middle), m3 (end, plain), repEnd (reply without bell, end)
@@ -7674,6 +7678,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               's:a snoozed todo is selected',
               'x:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
               'b:a row or todo with a bell is selected',
+              'h:a row of an item an agent wrote is selected, and the pusher has a destination',
               'u:a delegated todo is selected, with no unsaved edit in it',
               'w:another window of the app is open, and this window is not linked',
               'w:this window is linked with the other window',
@@ -7706,6 +7711,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               '_shown_bell',
               '_mounted_lists',
               '_bin_row',
+              '_history_url',
               '_row_buttons',
               '_todo_list',
               '_todo_buttons',
@@ -9110,6 +9116,321 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ])
         }
       }
+
+      // 13. History button and `h` key on rows of agent-written items (`data-waits="item"`) (2026-11-26)
+      {
+        const makeHistoryStage = ({
+          dest = 'olcan/vault',
+          pusherPresent = true,
+          pusherTags = ['#pusher', '#_welcome', '#_listen'],
+          noteSavedId = 's-note',
+          noteEditing = false,
+          noteDraft = null,
+          keyButtons = false,
+        } = {}) => {
+          const opened = []
+          const prior = []
+          const modals = []
+          let pusherStoreSaves = 0
+          const sharedWin = {
+            innerWidth: 1000,
+            open: url => opened.push(url),
+            _on_key: (k, e) => (prior.push(k), 'prior:' + k),
+            ...(keyButtons ? { _key_buttons: { guest: () => {} } } : {}),
+          }
+          const s = makeStage({ sharedWin })
+          s.env._modal = () => {
+            modals.push('modal')
+            return Promise.resolve(null)
+          }
+          if (pusherPresent) {
+            const pusher = s.makeItem('pusher', {
+              name: '#pusher',
+              tags: ['#pusher'],
+              tags_visible: ['#pusher'],
+              tags_raw: pusherTags,
+              store: dest == null ? {} : { dest },
+            })
+            Object.defineProperty(pusher, 'global_store', {
+              get() {
+                pusherStoreSaves++
+                return this._global_store
+              },
+            })
+          }
+          const t1 = s.makeItem('t1', { tags_visible: ['#todo'] })
+          const t2 = s.makeItem('t2', { tags_visible: ['#todo'] })
+          const rep = s.makeItem('rep', { tags: ['#rep'], tags_visible: [] })
+          const note = s.makeItem('note', {
+            saved_id: noteSavedId,
+            text: '#note\nAgent note',
+            tags: ['#note'],
+            tags_visible: [],
+            editing: noteEditing,
+            draft: noteDraft,
+          })
+          const other = s.makeItem('other', { saved_id: 's-other', text: '#other\nOther note', tags: ['#other'], tags_visible: [] })
+          const unsaved = s.makeItem('unsaved', { saved_id: null, text: '#unsaved\nDraft', tags: ['#unsaved'], tags_visible: [] })
+          s.makeItem('sn1', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9_999_999 } } })
+          s.makeItem('dl1', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', epoch: 1 } } } })
+          s.makeItem('offTodo', { tags_visible: ['#todo'] })
+          s.makeItem('unlisted', { tags: ['#unlisted'], tags_visible: [] })
+          const main = s.makeWidget({
+            rows: [
+              { id: 't1', bell: true, bellCount: 1 },
+              { id: 'rep', waits: 'reply', bell: true },
+              { id: 'note', waits: 'item', bell: true },
+              { id: 't2' },
+            ],
+          })
+          s.makeWidget({ snoozed: true, rows: [{ id: 'sn1' }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'dl1', bell: true, bellCount: 1 }] })
+          s.env._row_keys()
+          const sendKey = (k, extra = {}) => {
+            let prevented = false
+            const res = sharedWin._on_key(k, { ...extra, preventDefault: () => { prevented = true } })
+            return { prevented, res: res ?? null }
+          }
+          const hShortcutActive = () => sharedWin._shortcuts.todoer.some(e => e.keys == 'h' && e.active())
+          return {
+            s, main, t1, t2, rep, note, other, unsaved, opened, prior, modals,
+            get pusherStoreSaves() { return pusherStoreSaves },
+            sendKey, hShortcutActive,
+          }
+        }
+
+        // (a) Strip layout: history right after bell (fallback piece and key_buttons guests), stroke icon, tooltip, read-only store read
+        {
+          const hFallback = makeHistoryStage({ keyButtons: false })
+          hFallback.s.setBox('#note')
+          hFallback.s.env._bin_buttons(hFallback.note)
+          const piece = hFallback.s.doc.querySelector('.todoer-bin-buttons')
+          const btns = piece?.children ?? []
+          const histBtn = btns.find(b => b.className.split(/\s+/).includes('history'))
+          const hGuests = makeHistoryStage({ keyButtons: true })
+          hGuests.s.setBox('#note')
+          hGuests.s.env._bin_buttons(hGuests.note)
+          const guestNames = (hGuests.s.win._key_buttons_guests?.buttons ?? []).map(b => b.name)
+          const guestHist = (hGuests.s.win._key_buttons_guests?.buttons ?? []).find(b => b.name == 'history')
+          check(
+            'history button: selected item row puts history right after bell with stroke icon and tooltip, and reads pusher _global_store without saving',
+            [
+              btns.map(b => b.className.split(/\s+/)[0]),
+              guestNames,
+              histBtn?.className ?? null,
+              histBtn?.title ?? null,
+              histBtn?.getAttribute('aria-label') ?? null,
+              !!histBtn && histBtn.innerHTML.includes('viewBox="0 0 16 16"') && /<path d="[^"]+"\/>/.test(histBtn.innerHTML),
+              guestHist ? [!guestHist.fill, guestHist.box ?? 16, guestHist.title] : null,
+              hFallback.pusherStoreSaves + hGuests.pusherStoreSaves,
+              hFallback.modals.length + hGuests.modals.length,
+            ],
+            [
+              ['up', 'down', 'bell', 'history'],
+              ['up', 'down', 'bell', 'history'],
+              'history',
+              'Open item history (h)',
+              'Open item history (h)',
+              true,
+              [true, 16, 'Open item history (h)'],
+              0,
+              0,
+            ]
+          )
+        }
+
+        // (b) Pressing history button opens exact pusher URL, leaves row/bell/selection/box intact, and refuses stale box
+        {
+          const h = makeHistoryStage()
+          h.s.setBox('#note')
+          h.s.env._bin_buttons(h.note)
+          const histBtn = h.s.doc.querySelector('.todoer-bin-buttons')?.children.find(b => b.className == 'history')
+          await histBtn?.onclick?.()
+          const afterPress = [
+            [...h.opened],
+            [...h.s.actions],
+            [...h.s.selected],
+            h.s.getBox(),
+            h.main.list.children.some(r => r.getAttribute('data-id') == 'note'),
+            !!h.s.win._todoer_bin_busy,
+            h.pusherStoreSaves,
+          ]
+          // Stale press after MindBox moved to another item refuses without opening
+          h.s.setBox('#other')
+          await histBtn?.onclick?.()
+          check(
+            'history button press: opens pusher address for that item, leaves row, bell, selection, and box unchanged, and refuses stale box',
+            [afterPress, h.opened.length, h.s.warns.length],
+            [
+              [['https://github.com/olcan/vault/commits/master/items/s-note.md'], [], [], '#note', true, false, 0],
+              1,
+              1,
+            ]
+          )
+        }
+
+        // (c) Address and eligibility come from the row's item, NOT another item named in MindBox
+        {
+          const h = makeHistoryStage()
+          const noteRow = h.main.list.children.find(r => r.getAttribute('data-id') == 'note')
+          h.s.setBox('#other')
+          const actOk = h.s.env._bin_act('history', h.note, noteRow, false)
+          h.s.setBox('#unsaved')
+          const rbWithUnsavedBox = h.s.env._row_buttons({ widget: h.main.widget, row: noteRow }).map(b => b.name)
+          check(
+            'history button target: builds address and eligibility from the row item, not another item named in MindBox',
+            [actOk, h.opened, rbWithUnsavedBox],
+            [true, ['https://github.com/olcan/vault/commits/master/items/s-note.md'], ['up', 'down', 'bell', 'history']]
+          )
+        }
+
+        // (d) Key `h`: plain press opens once while held, ignores modifiers and focused fields while forwarding
+        {
+          const h = makeHistoryStage()
+          h.s.setBox('#note')
+          const plain = h.sendKey('KeyH')
+          await Promise.resolve()
+          const rep1 = h.sendKey('KeyH', { repeat: true })
+          const rep2 = h.sendKey('KeyH', { repeat: true })
+          const mods = ['metaKey', 'ctrlKey', 'altKey', 'shiftKey'].map(m => h.sendKey('KeyH', { [m]: true }))
+          const fieldResults = []
+          for (const el of [
+            { tagName: 'TEXTAREA', isContentEditable: false },
+            { tagName: 'INPUT', isContentEditable: false },
+            { tagName: 'SELECT', isContentEditable: false },
+            { tagName: 'DIV', isContentEditable: true },
+          ]) {
+            h.s.doc.activeElement = el
+            fieldResults.push(h.sendKey('KeyH'))
+          }
+          h.s.doc.activeElement = null
+          check(
+            'history key h: plain KeyH opens address once while held, ignores modifiers, and ignores focused fields while forwarding',
+            [
+              plain,
+              rep1,
+              rep2,
+              h.opened,
+              h.s.actions,
+              h.s.selected,
+              h.s.getBox(),
+              mods,
+              fieldResults,
+              h.prior.length,
+            ],
+            [
+              { prevented: true, res: null },
+              { prevented: true, res: null },
+              { prevented: true, res: null },
+              ['https://github.com/olcan/vault/commits/master/items/s-note.md'],
+              [],
+              [],
+              '#note',
+              [
+                { prevented: false, res: 'prior:KeyH' },
+                { prevented: false, res: 'prior:KeyH' },
+                { prevented: false, res: 'prior:KeyH' },
+                { prevented: false, res: 'prior:KeyH' },
+              ],
+              [
+                { prevented: false, res: 'prior:KeyH' },
+                { prevented: false, res: 'prior:KeyH' },
+                { prevented: false, res: 'prior:KeyH' },
+                { prevented: false, res: 'prior:KeyH' },
+              ],
+              8,
+            ]
+          )
+        }
+
+        // (e) Absent / off pusher, missing / malformed destination, or unsaved item: no button, forwarded KeyH, inactive shortcut
+        {
+          const cases = [
+            ['no pusher', { pusherPresent: false }],
+            ['pusher #_debug', { pusherTags: ['#pusher', '#_welcome', '#_listen', '#_debug'] }],
+            ['pusher no #_listen', { pusherTags: ['#pusher', '#_welcome'] }],
+            ['no dest', { dest: null }],
+            ['empty dest', { dest: '' }],
+            ['dest no slash', { dest: 'onlyowner' }],
+            ['dest empty owner', { dest: '/repo' }],
+            ['dest empty repo', { dest: 'owner/' }],
+            ['dest extra slash', { dest: 'a/b/c' }],
+            ['dest whitespace', { dest: 'owner/my repo' }],
+            ['item unsaved', { noteSavedId: null }],
+          ]
+          const got = cases.map(([label, opts]) => {
+            const h = makeHistoryStage(opts)
+            h.s.setBox('#note')
+            h.s.env._bin_buttons(h.note)
+            const names = (h.s.doc.querySelector('.todoer-bin-buttons')?.children ?? []).map(b => b.className.split(/\s+/)[0])
+            const key = h.sendKey('KeyH')
+            return [label, names, key, h.opened.length, h.hShortcutActive(), h.pusherStoreSaves, h.modals.length]
+          })
+          check(
+            'history absent: no button, forwarded KeyH, and inactive shortcut when pusher is absent, off, has no/invalid destination, or item has no saved_id',
+            got,
+            cases.map(([label]) => [label, ['up', 'down', 'bell'], { prevented: false, res: 'prior:KeyH' }, 0, false, 0, 0])
+          )
+        }
+
+        // (f) Non-item rows (todos, replies, off-list todo, unlisted, none): no history button, forwarded KeyH, inactive shortcut
+        {
+          const h = makeHistoryStage()
+          const targets = ['#t1', '#t2', '#sn1', '#dl1', '#rep', '#offTodo', '#unlisted', '']
+          const results = targets.map(box => {
+            h.s.setBox(box)
+            const item = box ? h.s.env._item(box) : null
+            h.s.env._bin_buttons(item)
+            const names = (h.s.doc.querySelector('.todoer-bin-buttons')?.children ?? []).map(b => b.className.split(/\s+/)[0])
+            const key = h.sendKey('KeyH')
+            return [box, names.includes('history'), key, h.hShortcutActive()]
+          })
+          const t1Row = h.main.list.children.find(r => r.getAttribute('data-id') == 't1')
+          const repRow = h.main.list.children.find(r => r.getAttribute('data-id') == 'rep')
+          const directRefusals = [h.s.env._bin_act('history', h.t1, t1Row, false), h.s.env._bin_act('history', h.rep, repRow, false)]
+          check(
+            'history row kinds: todo rows (main, snoozed, delegated, off-list), reply rows, and unlisted items never show history button, forward KeyH, and keep shortcut inactive',
+            [results, directRefusals, h.opened.length],
+            [
+              targets.map(box => [box, false, { prevented: false, res: 'prior:KeyH' }, false]),
+              [false, false],
+              0,
+            ]
+          )
+        }
+
+        // (g) _ROW_SHORTCUTS entry `h`: shape, active on item row (including with draft), hidden while busy
+        {
+          const h = makeHistoryStage()
+          const entry = h.s.win._shortcuts.todoer.find(e => e.keys == 'h')
+          h.s.setBox('#note')
+          const activePlain = h.hShortcutActive()
+          h.s.win._todoer_bin_busy = true
+          const activeBusy = h.hShortcutActive()
+          h.s.win._todoer_bin_busy = false
+          const activeAfterBusy = h.hShortcutActive()
+          const hDraft = makeHistoryStage({ noteEditing: true, noteDraft: '#note\nEdited locally' })
+          hDraft.s.setBox('#note')
+          const activeDraft = hDraft.hShortcutActive()
+          check(
+            'history shortcut: _ROW_SHORTCUTS entry h is active iff the button shows and not busy (kept over unsaved draft)',
+            [
+              entry ? [entry.keys, entry.does, typeof entry.when == 'string' && entry.when.length > 0, entry.context === undefined] : null,
+              activePlain,
+              activeBusy,
+              activeAfterBusy,
+              activeDraft,
+            ],
+            [
+              ['h', 'open item history', true, true],
+              true,
+              false,
+              true,
+              true,
+            ]
+          )
+        }
+      }
     }
   })())
   // ---- two windows, one selection (2026-11-25) -------------------------------------------------
@@ -9173,6 +9494,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_mounted_lists',
         '_bin_row',
         '_window_button',
+        '_history_url',
         '_row_buttons',
         '_todo_list',
         '_todo_buttons',
