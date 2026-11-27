@@ -749,7 +749,7 @@ check('controller: an item that only carries the code draws nothing and leaves t
   const strip_action_clicks = ['top', 'back', 'create'].map(name => {
     page.body.got.length = box.got.length = 0
     const ev = strip_btn(name).fire('click')
-    return [name, got(page.body), box.got.length, ev.prevented, ev.stopped]
+    return [name, got(page.body), got(box), ev.prevented, ev.stopped]
   })
   blur()
   v2('_on_search("#map/a/0")') // only up valid
@@ -825,20 +825,39 @@ check('controller: an item that only carries the code draws nothing and leaves t
   pointer.matches = true
   pointer.fire('change')
   page.body.got.length = 0
-  // editing guard on all seven desktop strip buttons: window.__items (and _items fallback) blocks
-  // dispatch while any item is open for editing (even while saving), taking each click without
-  // sending; once closed, dispatch resumes for arrows and non-arrows alike
+  // editing guard on the desktop strip: window.__items (and _items fallback) blocks the four arrows
+  // and create while any item is open for editing (even while saving), taking each click without
+  // sending; top and back still dispatch through key_buttons_target (editor, MindBox, or body) while
+  // an item is open for editing; once closed, arrows and create resume on body
   pointer.matches = false
   pointer.fire('change')
   const live_strip = parts('nav-strip')[0]
   const live_btn = name => live_strip.children.find(b => b.dataset.key == name)
   win.__items = [{ id: 'e1', editing: true, saving: true }]
-  page.body.got.length = 0
-  const edit_clicks = ['top', 'back', 'left', 'up', 'down', 'right', 'create'].map(name => {
+  focus(editor)
+  page.body.got.length = editor.got.length = box.got.length = 0
+  const edit_clicks = ['left', 'up', 'down', 'right', 'create'].map(name => {
     const ev = live_btn(name).fire('click')
     return [name, ev.prevented, ev.stopped]
   })
-  const edit_blocked = [got(page.body), edit_clicks, v2('key_buttons_any_editing(window)')]
+  const edit_blocked = [got(page.body), got(editor), edit_clicks, v2('key_buttons_any_editing(window)')]
+  const edit_scroll_editor = ['top', 'back'].map(name => {
+    page.body.got.length = editor.got.length = 0
+    const ev = live_btn(name).fire('click')
+    return [name, got(page.body), got(editor), ev.prevented, ev.stopped]
+  })
+  focus(box)
+  const edit_scroll_box = ['top', 'back'].map(name => {
+    page.body.got.length = box.got.length = 0
+    const ev = live_btn(name).fire('click')
+    return [name, got(page.body), got(box), ev.prevented, ev.stopped]
+  })
+  blur()
+  const edit_scroll_body = ['top', 'back'].map(name => {
+    page.body.got.length = 0
+    const ev = live_btn(name).fire('click')
+    return [name, got(page.body), ev.prevented, ev.stopped]
+  })
   win.__items = [{ id: 'e1', editing: false, saving: false }]
   const after_edit = [v2('key_buttons_any_editing(window)'), ['top', 'back', 'create', 'up'].map(name => {
     page.body.got.length = 0
@@ -859,10 +878,100 @@ check('controller: an item that only carries the code draws nothing and leaves t
   raw_d.p0.danglingTags = []
   const read_live = v2('key_buttons_read_nav("#d")')
   delete win.__item
-  open.items = []
+  // desktop strip editing dim: while any item is open for editing, the four arrows and create carry
+  // `dim` while top and back stay plain; closing restores each to its target/plain look via focus,
+  // item-change (including on an empty box without scheduling a nav task), the 15 s tick and the
+  // 200 ms ticker; the phone's main row (`bar`) is untouched by an open edit
+  open.items = map_tree.map(it => ({ ...it }))
+  pointer.matches = false
+  pointer.fire('change')
+  const strip_classes = () => live_strip.children.map(b => [b.dataset.key, b.className ?? ''])
+  const bar_now_edit = parts('bar')[0]
+  const bar_classes = () => bar_now_edit.children.map(b => [b.dataset.key, b.className ?? ''])
+  v2('_on_search("#map/a")')
+  const dim_idle = strip_classes()
+  win.__items = [{ id: 'e1', editing: true }]
+  focus(editor)
+  const dim_while_editing = strip_classes()
+  v2('_on_search("#map")') // target updates while still editing: all five stay dimmed
+  const dim_search_while_editing = strip_classes()
+  win.__items = [{ id: 'e1', editing: false }]
+  blur() // focusout -> 150 ms focus task -> restores target (#map: down valid, others dim, create plain)
+  const dim_after_blur = strip_classes()
+  // empty box + _on_item_change: restores create without scheduling a key_buttons_nav task
+  v2('_on_search("")')
+  win.__items = [{ id: 'e1', editing: true }]
+  focus(editor)
+  const dim_empty_editing = strip_classes()
+  win.__items = [{ id: 'e1', editing: false }]
+  log.length = 0
+  v2('_on_item_change("e1", "", "", false, false, false)')
+  const dim_empty_after_item_change = [strip_classes(), log.length]
+  // 15 s item task tick reconciles editing open and close with no focus/item-change events
+  blur()
+  v2('_on_search("#map/a")')
+  win.__items = [{ id: 'e1', editing: true }]
+  tasks.key_buttons.fn()
+  const dim_via_task_open = strip_classes()
+  win.__items = [{ id: 'e1', editing: false }]
+  tasks.key_buttons.fn()
+  const dim_via_task_close = strip_classes()
+  // 200 ms ticker catches editing transitions with no focus/search/item-change events
+  const tDoc = Object.assign(new FakeNode('document'), {
+    head: new FakeNode('head'),
+    body: new FakeNode('body'),
+    activeElement: null,
+    visibilityState: 'visible',
+    createElement: tag => new FakeNode(tag),
+    createElementNS: (_, tag) => new FakeNode(tag),
+  })
+  const tWin = Object.assign(new FakeNode('window'), {
+    innerWidth: 1000,
+    innerHeight: 800,
+    visualViewport: Object.assign(new FakeNode('viewport'), { width: 1000, height: 800, scale: 1, offsetLeft: 0, offsetTop: 0 }),
+    matchMedia: () => Object.assign(new FakeNode('media'), { matches: false }),
+    _items: () => map_tree.map(it => ({ ...it })),
+    __items: [{ id: 'e1', editing: false }],
+  })
+  const tIntervals = []
+  const tCtx = vm.createContext({
+    _this: { id: 'keys-id', deephash: 40, dispatch_task(name, fn, delay, repeat) { return { name, fn, delay, repeat } } },
+    _item: label => (label == '#key_buttons' ? { id: 'keys-id' } : null),
+    document: tDoc,
+    window: tWin,
+    KeyboardEvent: FakeKey,
+    Date: { now: () => clock.now },
+    performance: { now: () => 10_000 },
+    setInterval: (fn, ms) => { const h = { fn, ms, unref() {} }; tIntervals.push(h); return h },
+    clearInterval: () => {},
+  })
+  vm.runInContext(code, tCtx)
+  vm.runInContext('_on_welcome(); _on_search("#map/a")', tCtx)
+  const tStrip = tDoc.body.children.find(n => n.dataset.keyButtons == 'nav-strip')
+  const tClasses = () => tStrip.children.map(b => [b.dataset.key, b.className ?? ''])
+  const dim_ticker_idle = tClasses()
+  tWin.__items = [{ id: 'e1', editing: true }]
+  tIntervals[0].fn()
+  const dim_ticker_open = tClasses()
+  tWin.__items = [{ id: 'e1', editing: false }]
+  tIntervals[0].fn()
+  const dim_ticker_close = tClasses()
+  tWin._key_buttons.dispose()
+  // phone's main row (`bar`) is untouched by an open edit and still dispatches directly to the focused editor
   pointer.matches = true
   pointer.fire('change')
-  page.body.got.length = 0
+  win.__items = [{ id: 'e1', editing: true }]
+  focus(editor)
+  const phone_bar_while_editing = bar_classes()
+  page.body.got.length = editor.got.length = 0
+  bar_now_edit.children.find(b => b.dataset.key == 'left').fire('click')
+  bar_now_edit.children.find(b => b.dataset.key == 'create').fire('click')
+  const phone_bar_sent_while_editing = [got(page.body), got(editor)]
+  delete win.__items
+  open.items = []
+  blur()
+  page.body.got.length = editor.got.length = box.got.length = 0
+  log.length = 0
   check('desktop strip: seven buttons in order with group leads, arrows alone lit or dimmed (top, back and create never carry valid or dim), reload carries desktop class on a keyboard device and none on a phone',
     [strip_order_leads, non_arrows_all, non_arrows_down, non_arrows_empty, reload_desktop_cls, reload_phone_cls],
     [[['top', '1'], ['back', null], ['left', '1'], ['up', null], ['down', null], ['right', null], ['create', '1']],
@@ -871,14 +980,35 @@ check('controller: an item that only carries the code draws nothing and leaves t
       [['top', ''], ['back', ''], ['create', '']],
       'key-buttons-reload desktop',
       'key-buttons-reload'])
-  check('desktop strip clicks & editing guard: top, back and create send their keys from body even with MindBox focused; none of the seven sends anything while any item is editing (including saving), resumes once closed, falls back to _items when __items absent, and read_nav honors __item(id).danglingTags',
-    [strip_action_clicks, edit_blocked, after_edit, fallback_editing, fallback_clean, read_dangling, read_live],
-    [[['top', told(events('top')), 0, 1, 1], ['back', told(events('back')), 0, 1, 1], ['create', told(events('create')), 0, 1, 1]],
-      [[], [['top', 1, 1], ['back', 1, 1], ['left', 1, 1], ['up', 1, 1], ['down', 1, 1], ['right', 1, 1], ['create', 1, 1]], true],
+  check('desktop strip clicks & editing guard: top and back dispatch via key_buttons_target even while an item is editing (editor, MindBox, body); arrows and create dispatch from body and send nothing while any item is editing (including saving), resuming once closed; falls back to _items when __items absent, and read_nav honors __item(id).danglingTags',
+    [v2('[...KEY_BUTTONS_SCROLL_NAMES]'), strip_action_clicks, edit_blocked, edit_scroll_editor, edit_scroll_box, edit_scroll_body, after_edit, fallback_editing, fallback_clean, read_dangling, read_live],
+    [['top', 'back'],
+      [['top', [], told(events('top')), 1, 1], ['back', [], told(events('back')), 1, 1], ['create', told(events('create')), [], 1, 1]],
+      [[], [], [['left', 1, 1], ['up', 1, 1], ['down', 1, 1], ['right', 1, 1], ['create', 1, 1]], true],
+      [['top', [], told(events('top')), 1, 1], ['back', [], told(events('back')), 1, 1]],
+      [['top', [], told(events('top')), 1, 1], ['back', [], told(events('back')), 1, 1]],
+      [['top', told(events('top')), 1, 1], ['back', told(events('back')), 1, 1]],
       [false, [['top', 1, told(events('top'))], ['back', 1, told(events('back'))], ['create', 1, told(events('create'))], ['up', 1, told(events('up'))]]],
       true, false,
       { left: false, up: false, down: false, right: false },
       { left: false, up: false, down: true, right: false }])
+  const strip_cls = (t, b, l, u, d, r, c) => [['top', t], ['back', b], ['left', l], ['up', u], ['down', d], ['right', r], ['create', c]]
+  const bar_cls = (t, b, c, l, u, d, r) => [['top', t], ['back', b], ['create', c], ['left', l], ['up', u], ['down', d], ['right', r]]
+  check('desktop strip editing dim: while any item is editing, the four arrows and create carry dim while top and back stay plain; closing restores arrows by target and create plain via focus, item-change (also on empty box), 15 s tick and 200 ms ticker; phone bar is untouched by an open edit',
+    [dim_idle, dim_while_editing, dim_search_while_editing, dim_after_blur, dim_empty_editing, dim_empty_after_item_change, dim_via_task_open, dim_via_task_close, dim_ticker_idle, dim_ticker_open, dim_ticker_close, phone_bar_while_editing, phone_bar_sent_while_editing],
+    [strip_cls('', '', 'valid', 'valid', 'valid', 'valid', ''),
+      strip_cls('', '', 'dim', 'dim', 'dim', 'dim', 'dim'),
+      strip_cls('', '', 'dim', 'dim', 'dim', 'dim', 'dim'),
+      strip_cls('', '', 'dim', 'dim', 'valid', 'dim', ''),
+      strip_cls('', '', 'dim', 'dim', 'dim', 'dim', 'dim'),
+      [strip_cls('', '', 'dim', 'dim', 'dim', 'dim', ''), 0],
+      strip_cls('', '', 'dim', 'dim', 'dim', 'dim', 'dim'),
+      strip_cls('', '', 'valid', 'valid', 'valid', 'valid', ''),
+      strip_cls('', '', 'valid', 'valid', 'valid', 'valid', ''),
+      strip_cls('', '', 'dim', 'dim', 'dim', 'dim', 'dim'),
+      strip_cls('', '', 'valid', 'valid', 'valid', 'valid', ''),
+      bar_cls('', '', '', 'valid', 'valid', 'valid', 'valid'),
+      [[], [...told(events('left')), ...told(events('create'))]]])
   const strip_expect = (l, u, d, r) => ({
     shown: true,
     reload: 'key-buttons-reload desktop',
