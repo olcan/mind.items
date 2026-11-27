@@ -1205,26 +1205,20 @@ function _snooze_dialog() {
     if (!root) return
     const date = root.querySelector('.custom input')
     if (date && document.activeElement === date) {
-      if (lit_el !== date) return
       if (key == 'Escape') {
         stop(e)
         date.blur()
         return
       }
-      if (key == 'Enter') {
-        stop(e)
-        if (!e.repeat) {
-          const time = _snooze_input()
-          if (time >= Date.now()) _snooze_close(time)
+      if (key == 'Tab') {
+        if (lit_el) {
+          setTimeout(() => {
+            if (!closed && _modal_visible(modal) && document.activeElement && document.activeElement !== date) document.activeElement.blur?.()
+          })
         }
         return
       }
-      if (key == 'Tab') {
-        setTimeout(() => {
-          if (!closed && _modal_visible(modal) && document.activeElement && document.activeElement !== date) document.activeElement.blur?.()
-        })
-      }
-      return
+      if (key != 'Enter' || !lit_el) return
     }
     if (key == 'Escape' || key == 'Tab') return
     if (key == 'ArrowLeft' || key == 'ArrowRight' || key == 'ArrowUp' || key == 'ArrowDown') {
@@ -1273,9 +1267,9 @@ function _snooze_dialog() {
     }
   }
   // capture-phase pointermove on window for the dialog's lifetime: moves the same highlight as
-  // the keys on real pointer movement (screen coordinates differing from the last seen; the first
-  // event after opening only records the place), ignores touch, leaves focus untouched, and keeps
-  // the highlight when leaving stops
+  // the keys on real pointer movement (a first event with nonzero movementX/movementY counts at
+  // once, otherwise it only records the place; later events must change screen coordinates),
+  // ignores touch, leaves focus untouched, and keeps the highlight when leaving stops
   const on_pointer = e => {
     if (!_modal_visible(modal)) {
       if (shown) cleanup()
@@ -1288,16 +1282,20 @@ function _snooze_dialog() {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return
     if (!last_pt) {
       last_pt = [x, y]
+      const moved = (Number.isFinite(e.movementX) && e.movementX !== 0) || (Number.isFinite(e.movementY) && e.movementY !== 0)
+      if (!moved) return
+    } else if (x === last_pt[0] && y === last_pt[1]) {
       return
+    } else {
+      last_pt = [x, y]
     }
-    if (x === last_pt[0] && y === last_pt[1]) return
-    last_pt = [x, y]
     const target = e.target
     if (!target || target === window) return
     const root = document.querySelector('.snooze-modal')
-    if (!root) return
-    const rows = _snooze_rows(root)
+    if (!root || target === root || (root.contains && !root.contains(target))) return
     const label = (target.closest ? target : target.parentElement)?.closest?.('label')
+    if (lit_el && (lit_el === target || lit_el.contains?.(target) || label?.contains?.(lit_el))) return
+    const rows = _snooze_rows(root)
     for (let r = 0; r < rows.length; r++) {
       for (let c = 0; c < rows[r].length; c++) {
         const el = rows[r][c]
