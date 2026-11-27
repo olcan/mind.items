@@ -16736,6 +16736,240 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         )
       }
     }
+
+    // 72. List-window selection cue (.selected vs .selected.other) across every role & transition,
+    //     fresh __render (todo + waiting rows), and todoer-widget.html cyan CSS rules
+    {
+      const marksOf = nodes =>
+        [...nodes]
+          .map(n => [n.getAttribute('data-id'), ['selected', 'other'].filter(c => n.classList.contains(c))])
+          .filter(([, cs]) => cs.length > 0)
+      const widgetMarks = w => marksOf(w.widget.querySelectorAll('.list-item-container'))
+
+      const bus = makeBus()
+      const aStore = new Map()
+      const a = makeWindow(bus, { id: 'A', storage: aStore, now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+
+      const m1A = a.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      const m2A = a.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      const muA = a.makeItem('mu', { saved_id: null, name: '#mu', text: '#todo unsaved item' })
+      const mrA = a.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      const m1B = b.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      const m2B = b.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      b.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      const wA = a.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }, { id: 'mu', pageY: 604 }, { id: 'mr', pageY: 636, waits: 'reply' }] })
+      const wB = b.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }, { id: 'mr', pageY: 636, waits: 'reply' }] })
+
+      // (a) unlinked own target -> green (.selected only)
+      a.setBox('#m1')
+      a.env._on_search('#m1')
+      const unlinkedOwn = widgetMarks(wA)
+
+      // (b) link A (#todo) and B (#m1) -> list window A cyan (.selected.other), target window B green (.selected)
+      a.setBox('#todo')
+      a.env._on_search('#todo')
+      b.setBox('#m1')
+      b.env._on_search('#m1')
+      a.env._send_press()
+      bus.flush()
+      const linkedPair = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (c) pending saved ask (B paused before answering took) -> list window A marks m2 cyan immediately
+      b.win._todoer_windows.channel.paused = true
+      a.env._select_item(m2A)
+      const duringSavedAsk = widgetMarks(wA)
+      b.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const afterSavedAsk = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (d) pending unsaved handoff (kind: 'save', ask: true) -> list window A marks mu cyan until cancelled/replaced
+      a.env._select_item(muA)
+      const duringUnsavedAsk = widgetMarks(wA)
+
+      // (e) both-targets click even with debounced own target -> selecting window marks handed-off row cyan immediately
+      a.setBox('#m1')
+      a.env._on_search('#m1')
+      bus.flush()
+      const bothGreenBefore = [widgetMarks(wA), widgetMarks(wB)]
+      a.win._mindboxDebounced = true
+      a.win._mindboxApplied = '#m1'
+      a.env._select_item(m2A)
+      const bothDropImmediate = widgetMarks(wA)
+      bus.flush()
+      const bothDropSettled = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (f) role swap: both have targets, then B selects m1 -> B becomes cyan list, A becomes green target
+      a.setBox('#m2')
+      a.env._on_search('#m2')
+      bus.flush()
+      b.env._select_item(m1B)
+      bus.flush()
+      const afterRoleSwap = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (g) same-item role change: B (list, m1 cyan) targets #m1 directly -> turns green; A clears to #todo -> turns cyan
+      b.setBox('#m1')
+      b.env._on_search('#m1')
+      bus.flush()
+      const afterSameTakeover = [widgetMarks(wA), widgetMarks(wB)]
+      a.setBox('#todo')
+      a.env._on_search('#todo')
+      bus.flush()
+      const afterDropToSamePartner = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (h) partner closes (bye) -> list window A clears all marks; reloaded list window A2 discovers partner B2 (#m2) -> cyan
+      b.fireWin('pagehide')
+      b.win._todoer_windows.channel.close()
+      bus.flush()
+      const afterPartnerClose = widgetMarks(wA)
+      a.fireWin('pagehide')
+      a.win._todoer_windows.channel.close()
+      bus.flush()
+      const b2 = makeWindow(bus, { id: 'B2', now: 1_700_000_005_000 })
+      b2.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      b2.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      const wB2 = b2.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }] })
+      b2.setBox('#m2')
+      b2.env._start_windows()
+      b2.env._sync_marks()
+      const a2 = makeWindow(bus, { id: 'A2', storage: aStore, now: 1_700_000_005_000 })
+      const m1A2 = a2.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      a2.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      const wA2 = a2.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }] })
+      a2.setBox('#todo')
+      a2.env._start_windows()
+      bus.flush()
+      const afterReload = [widgetMarks(wA2), widgetMarks(wB2)]
+
+      // (i) unlink -> list window A2 clears mark, target window B2 keeps green; selecting in unlinked A2 shows green
+      a2.env._send_press()
+      bus.flush()
+      const afterUnlink = [widgetMarks(wA2), widgetMarks(wB2)]
+      a2.env._select_item(m1A2)
+      bus.flush()
+      const afterUnlinkedSelect = widgetMarks(wA2)
+
+      check(
+        'list cue: row classes across own target, list window, pending handoffs, role swap, partner close, reload, and unlink',
+        {
+          unlinkedOwn,
+          linkedPair,
+          duringSavedAsk,
+          afterSavedAsk,
+          duringUnsavedAsk,
+          bothGreenBefore,
+          bothDropImmediate,
+          bothDropSettled,
+          afterRoleSwap,
+          afterSameTakeover,
+          afterDropToSamePartner,
+          afterPartnerClose,
+          afterReload,
+          afterUnlink,
+          afterUnlinkedSelect,
+        },
+        {
+          unlinkedOwn: [['m1', ['selected']]],
+          linkedPair: [[['m1', ['selected', 'other']]], [['m1', ['selected']]]],
+          duringSavedAsk: [['m2', ['selected', 'other']]],
+          afterSavedAsk: [[['m2', ['selected', 'other']]], [['m2', ['selected']]]],
+          duringUnsavedAsk: [['mu', ['selected', 'other']]],
+          bothGreenBefore: [[['m1', ['selected']]], [['m2', ['selected']]]],
+          bothDropImmediate: [['m2', ['selected', 'other']]],
+          bothDropSettled: [[['m2', ['selected', 'other']]], [['m2', ['selected']]]],
+          afterRoleSwap: [[['m1', ['selected']]], [['m1', ['selected', 'other']]]],
+          afterSameTakeover: [[['m1', ['selected']]], [['m1', ['selected']]]],
+          afterDropToSamePartner: [[['m1', ['selected', 'other']]], [['m1', ['selected']]]],
+          afterPartnerClose: [],
+          afterReload: [[['m2', ['selected', 'other']]], [['m2', ['selected']]]],
+          afterUnlink: [[], [['m2', ['selected']]]],
+          afterUnlinkedSelect: [['m1', ['selected']]],
+        }
+      )
+
+      // Fresh __render marks both todo rows and waiting rows green (own target) vs cyan (other window / pending handoff)
+      const renderMarks = (w, wid) => {
+        const el = w.body.appendChild(new WinDomNode('div', { id: wid, className: 'todoer-widget' }))
+        const wItem = { store: { [wid]: { options: {} } }, _global_store: {} }
+        w.env._waits = it => (it.id == 'mr' ? 'reply' : null)
+        w.env._waiting_parts = it => [it.name, 'hello', 'hello']
+        w.env._wait_key_of = () => 'k1'
+        w.env._link_waiting_wiki = s => s
+        w.env._mark_tags = s => s
+        w.env._ = { escape: s => s }
+        w.env._wire_row_links = () => {}
+        w.env.dispatch_task = () => {}
+        w.env.__render(el, wItem)
+        const out = marksOf(el.querySelectorAll('.list-item-container'))
+        el.remove()
+        return out
+      }
+      const busR = makeBus()
+      const rA = makeWindow(busR, { id: 'RA', now: 1_700_000_010_000 })
+      const rB = makeWindow(busR, { id: 'RB', now: 1_700_000_010_000 })
+      rA.env._start_windows()
+      rB.env._start_windows()
+      busR.flush()
+      rA.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      const rUns = rA.makeItem('mu', { saved_id: null, name: '#mu', text: '#todo unsaved' })
+      rA.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      rB.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      rB.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      rA.setBox('#todo')
+      rB.setBox('#m1')
+      rA.env._send_press()
+      busR.flush()
+      const renderTodo = [renderMarks(rA, 'w_rt_a'), renderMarks(rB, 'w_rt_b')]
+      rB.setBox('#mr')
+      rB.env._on_search('#mr')
+      busR.flush()
+      const renderWaits = [renderMarks(rA, 'w_rw_a'), renderMarks(rB, 'w_rw_b')]
+      // pending unsaved handoff rendered fresh while awaiting saved_id
+      const wPendingHost = rA.makeWidget({ rows: [{ id: 'mu', pageY: 540 }] })
+      rA.env._select_item(rUns)
+      const renderPending = renderMarks(rA, 'w_rp_a')
+      wPendingHost.widget.remove()
+      // silence unused variable warnings on m1A/m2B/mrA
+      void (m1A && m2B && mrA)
+      check(
+        'list cue: __render marks todo and waiting rows with .selected alone for own target and .selected.other for partner or pending handoff',
+        { renderTodo, renderWaits, renderPending },
+        {
+          renderTodo: [[['m1', ['selected', 'other']]], [['m1', ['selected']]]],
+          renderWaits: [[['mr', ['selected', 'other']]], [['mr', ['selected']]]],
+          renderPending: [['mu', ['selected', 'other']]],
+        }
+      )
+
+      // Widget stylesheet holds the cyan rules alongside the green defaults, ghost reset, and bin reset
+      const css = fs.readFileSync(path.join(__dirname, '..', 'todoer-widget.html'), 'utf8')
+      const block = selector => {
+        const i = css.indexOf(selector)
+        if (i < 0) return ''
+        const start = css.indexOf('{', i)
+        const end = css.indexOf('}', start)
+        return start >= 0 && end > start ? css.slice(start + 1, end) : ''
+      }
+      const selRule = block('#widget .list > .list-item-container.selected > .list-item')
+      const dragRule = block('#widget .list > .list-item-container.selected:is(.sortable-drag, .sortable-chosen) > .list-item')
+      const otherRule = block('#widget .list > .list-item-container.selected.other {')
+      const ghostRule = block('#widget .list > .list-item-container.selected.sortable-ghost > .list-item')
+      const binRule = block('#widget:has(.bin:not(:empty)) .list > .list-item-container.selected.sortable-drag > .list-item')
+      check(
+        'list cue: todoer-widget.html defines cyan selection rules and preserves ghost and bin resets',
+        {
+          selUsesVars: /box-shadow:\s*-4px 0 0 0 var\(--sel-bar,\s*#6c6\)/.test(selRule) && /background:\s*var\(--sel-tint,\s*rgba\(102,\s*204,\s*102,\s*0\.1\)\)/.test(selRule),
+          dragUsesVar: /background:\s*var\(--sel-drag,\s*#1a241a\)/.test(dragRule) && /border-color:\s*transparent/.test(dragRule),
+          otherVars: /--sel-bar:\s*#6ff\b/.test(otherRule) && /--sel-tint:\s*rgba\(102,\s*255,\s*255,\s*0\.1\)/.test(otherRule) && /--sel-drag:\s*#1a2929\b/.test(otherRule),
+          ghostReset: /box-shadow:\s*none/.test(ghostRule) && /background:\s*none/.test(ghostRule) && /border-radius:\s*4px/.test(ghostRule),
+          binReset: /box-shadow:\s*none/.test(binRule) && /background:\s*#171717/.test(binRule) && /border-radius:\s*4px/.test(binRule),
+        },
+        { selUsesVars: true, dragUsesVar: true, otherVars: true, ghostReset: true, binReset: true }
+      )
+    }
   })())
 
   // 50. SNOOZE DIALOG KEYS: pure movement over rows of horizontal middles, Enter on every kind of

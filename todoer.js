@@ -359,8 +359,9 @@ function __render(widget, widget_item) {
   const members = (widget_item.store._todoer.items[widget.id] = new Set())
 
   // the selected item of this window (its own target where it has one, else the item the linked
-  // other window shows): its row is marked selected
+  // other window shows): its row is marked selected (and other where the other window shows it)
   const selected = _selected_item(undefined, { mounted: false })?.id
+  const selected_other = !!selected && _window_target()?.id != selected
   // insert all todo items into list
   let have_unsnoozed = false
   let review_anchor // the #vault item's review-anchor builder, resolved at the first task row that needs it
@@ -383,7 +384,10 @@ function __render(widget, widget_item) {
       container.className = 'list-item-container'
       container.setAttribute('data-id', item.id) // used for saving below
       container.setAttribute('data-waits', waits)
-      if (item.id == selected) container.classList.add('selected')
+      if (item.id == selected) {
+        container.classList.add('selected')
+        if (selected_other) container.classList.add('other')
+      }
       const div = document.createElement('div')
       div.className = 'list-item'
       const [name, line, raw] = _waiting_parts(item, waits)
@@ -466,7 +470,10 @@ function __render(widget, widget_item) {
     const container = document.createElement('div')
     container.className = 'list-item-container'
     if (pending) container.setAttribute('data-pending', pending.kind) // the overlay, until acked
-    if (item.id == selected) container.classList.add('selected')
+    if (item.id == selected) {
+      container.classList.add('selected')
+      if (selected_other) container.classList.add('other')
+    }
     list.appendChild(container)
     container.appendChild(div)
     container.setAttribute('data-id', item.id) // used for saving below
@@ -2071,15 +2078,19 @@ function _selected_item(text = undefined, { mounted = true } = {}) {
   return item && (!mounted || (typeof _bin_row == 'function' && _bin_row(item))) ? item : null
 }
 
-// moves .selected across mounted widgets without rebuilding lists; hidden/cached widgets hold none
-function _sync_marks(item = _selected_item(undefined, { mounted: false })) {
+// moves .selected (and .other where the marked item is not this window's own target) across
+// mounted widgets without rebuilding lists; hidden/cached widgets hold none
+function _sync_marks(item = _selected_item(undefined, { mounted: false }), other = null) {
   const id = item?.id ?? null
+  const is_other = !!(id && (other ?? _window_target()?.id != id))
   const mounted = typeof _mounted_lists == 'function' ? new Set(_mounted_lists()) : null
+  const set = (el, cls, on) => (el.classList?.toggle ? el.classList.toggle(cls, on) : el.classList?.[on ? 'add' : 'remove']?.(cls))
   document.querySelectorAll('.todoer-widget').forEach(w => {
     const on = !mounted || mounted.has(w)
     w.querySelectorAll('.list-item-container').forEach(r => {
       const hit = !!(on && id && r.getAttribute('data-id') == id)
-      r.classList?.toggle ? r.classList.toggle('selected', hit) : r.classList?.[hit ? 'add' : 'remove']?.('selected')
+      set(r, 'selected', hit)
+      set(r, 'other', hit && is_other)
     })
   })
 }
@@ -2103,7 +2114,7 @@ function _on_search(text) {
   const selected = _selected_item(live, { mounted: false })
   if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item(live)) // (a table loads this function alone)
   if (!selected && !document.querySelector('.todoer-widget .list-item-container.selected')) return
-  _sync_marks(selected)
+  _sync_marks(selected, !target_item)
 }
 
 // THE BIN BUTTONS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): one button per
@@ -4959,7 +4970,7 @@ function _select_item(item, selection, checked = false) {
     if (mine) { MindBox.elem?.blur?.(); MindBox.set(_window_target(SEND_LIST_QUERY) ? '' : SEND_LIST_QUERY) }
     if (item.saved_id) _send_ask(item, { fallback: true, selection, checked })
     else _send_selected(item, false, null, true, selection, checked)
-    _sync_marks(item)
+    _sync_marks(item, true)
     _bin_buttons(_selected_item())
     if (mine)
       _update_dom().then(() => {
