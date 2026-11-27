@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -231,6 +231,12 @@ const picked =
     '_send_peer',
     '_row_view_foot',
     '_row_strip_top',
+    '_window_target',
+    '_selected_item',
+    '_sync_marks',
+    '_set_shown',
+    '_send_sync_shown',
+    '_move_to_row',
     '_send_toggle',
     '_send_ask',
     '_send_selected',
@@ -238,11 +244,9 @@ const picked =
     '_send_take',
     '_start_windows',
     '_send_steps',
-    '_target_scroll_y',
-    '_swallow_scroll',
     '_hold_scroll',
-    '_stay_put',
     '_row_view_top',
+    '_open_here',
   ]).join('\n') +
   consts +
   src.match(/\nasync function _enqueue_command\([^\n]*\) \{[\s\S]*?\n\}\n/)[0]
@@ -3142,6 +3146,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     classList = {
       contains: name => this.className.split(' ').includes(name),
       add: name => void (this.classList.contains(name) || (this.className = (this.className + ' ' + name).trim())),
+      remove: name => void (this.className = this.className.split(' ').filter(c => c && c != name).join(' ')),
+      toggle: (name, on) => ((on ?? !this.classList.contains(name)) ? this.classList.add(name) : this.classList.remove(name)),
     }
     get firstChild() {
       return this.children[0] ?? null
@@ -3543,7 +3549,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // or its label as the app names the item; the target's row edits the item where it is, and
   // does not set the box either (the item's name there is the tab's own id for an unnamed item)
   check('click: a row selects its item by the app\'s select and marks the todo\'s line; the box is not set', [world().click('short'), world({ target: 'task' }).click('named')], [[['select', 'short'], ['mark', '#todo fix the cache']], [['select', 'named'], ['mark', NAMED.split('\n')[0].replace('#todo-list ', '')]]]) // the line from its todo tag on, as the snippet starts
-  check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['edit', '#todo fix the cache']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
+  check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['range', '0,19'], ['event', 'mousedown'], ['event', 'click']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
   check('click: on an app without the select the box is set as before', world({ app: false }).click('short'), [['set', 'id:short', { scroll: true, select: '#todo fix the cache' }]])
   check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
   // A BIN BUTTON'S PRESS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): what a drop
@@ -4029,12 +4035,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     named.ctx._this = { dependents: ['pinned'] }
     named.ctx.window.Sortable = named.ctx.Sortable
     named.ctx.document.querySelector = selector => (selector == '.todoer-widget .list-item-container.selected' && marked().length ? {} : null)
+    named.ctx.document.querySelectorAll = selector => (selector == '.todoer-widget' ? [named.widget] : [])
+    const origNamedQsa = named.widget.querySelectorAll.bind(named.widget)
+    named.widget.querySelectorAll = selector => (selector == '.list-item-container' ? named.rows() : origNamedQsa(selector))
     named.pinned.elem = { querySelectorAll: selector => (selector == '.todoer-widget' ? (renders++, [named.widget]) : []), querySelector: selector => (selector == '.list-item-container.selected' && marked().length ? {} : null) }
     const name_it = text => (named.ctx._on_search((box = text)), [marked(), renders])
-    check('search: a chat whose reply waits is named, no row marked before: the list is rendered again and its row is marked', name_it('#e2e_chatty/0'), [['chat'], 1])
-    check('search: a todo named next takes the mark', name_it('id:short'), [['short'], 2])
-    check('search: a text that names no item takes the mark away, and with no row marked renders nothing more', [name_it('fix'), name_it('fix the')], [[[], 3], [[], 3]])
-    check('search: an item that no widget lists renders nothing', name_it('pinned'), [[], 3])
+    check('search: a chat whose reply waits is named, no row marked before: its row is marked without rebuilding the list', name_it('#e2e_chatty/0'), [['chat'], 0])
+    check('search: a todo named next takes the mark without rebuilding', name_it('id:short'), [['short'], 0])
+    check('search: a text that names no item takes the mark away, and with no row marked renders nothing', [name_it('fix'), name_it('fix the')], [[[], 0], [[], 0]])
+    check('search: an item that no widget lists renders nothing', name_it('pinned'), [[], 0])
     // the list's start: one stamp, written only from a confirmed corpus that is not held
     const starting = chatting({ base: null })
     const todoer = starting.ctx._todoer
@@ -4161,6 +4170,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
         ].join('\n') +
         pick([
+          '_window_target',
+          '_selected_item',
+          '_sync_marks',
           '_mounted_lists',
           '_bin_row',
           '_history_url',
@@ -6567,7 +6579,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
-      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const binCode =
       binConsts +
@@ -6627,7 +6639,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_send_link',
         '_send_same_link',
         '_send_cancel',
+        '_window_target',
+        '_selected_item',
+        '_sync_marks',
+        '_set_shown',
         '_send_retire',
+        '_send_sync_shown',
+        '_move_to_row',
         '_send_press',
         '_send_peer',
         '_send_toggle',
@@ -6637,13 +6655,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_send_take',
         '_start_windows',
         '_send_steps',
-        '_target_scroll_y',
-        '_swallow_scroll',
         '_hold_scroll',
-        '_stay_put',
         '_row_view_foot',
         '_row_strip_top',
         '_row_view_top',
+        '_open_here',
       ]).join('\n')
 
     class DomNode {
@@ -7359,6 +7375,23 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       aDone.press()
       const doneNone = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
       s.warns.length = 0
+      // real debounced stale-button case: app's applied query still names A (_mindboxApplied),
+      // MindBox is debounced with new text (#C, then '') -> completion handler receives nothing
+      // and console.warn fires
+      s.setBox('#A')
+      s.win._mindboxDebounced = false
+      s.win._mindboxApplied = '#A'
+      s.setBox('#C')
+      s.win._mindboxDebounced = true
+      await aDone.press()
+      const doneDebouncedOther = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
+      s.warns.length = 0
+      s.setBox('')
+      await aDone.press()
+      const doneDebouncedNone = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
+      s.warns.length = 0
+      s.win._mindboxDebounced = false
+      s.win._mindboxApplied = undefined
       // draw buttons for B (middle row: both up -> A and down -> C would move if allowed)
       s.setBox('#B')
       s.env._bin_buttons(b)
@@ -7374,8 +7407,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bDown.press()
       const stepNone = [[...s.selected], [...s.warns]]
       check('_pressed_item: stale drawn done, up, and down callbacks are refused with console.warn when the box names another item or no item',
-        [doneOther, doneNone, stepOther, stepNone],
+        [doneOther, doneNone, doneDebouncedOther, doneDebouncedNone, stepOther, stepNone],
         [
+          [[], [], false, ['todoer: the press on "done" was not taken: the box names another item now']],
+          [[], [], false, ['todoer: the press on "done" was not taken: the box no longer names its item']],
           [[], [], false, ['todoer: the press on "done" was not taken: the box names another item now']],
           [[], [], false, ['todoer: the press on "done" was not taken: the box no longer names its item']],
           [[], [
@@ -8806,6 +8841,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               '_takeback_refusal',
               '_complete_refusal',
               '_delete_refusal',
+              '_window_target',
+              '_selected_item',
+              '_sync_marks',
               '_shown_bell',
               '_mounted_lists',
               '_bin_row',
@@ -10566,7 +10604,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
-      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_linked', '_send_ready', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const winCode =
       winConsts +
@@ -10585,7 +10623,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_send_link',
         '_send_same_link',
         '_send_cancel',
+        '_window_target',
+        '_selected_item',
+        '_sync_marks',
+        '_set_shown',
         '_send_retire',
+        '_send_sync_shown',
+        '_move_to_row',
         '_send_press',
         '_send_peer',
         '_send_toggle',
@@ -10595,13 +10639,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_send_take',
         '_start_windows',
         '_send_steps',
-        '_target_scroll_y',
-        '_swallow_scroll',
         '_hold_scroll',
-        '_stay_put',
         '_row_view_foot',
         '_row_strip_top',
         '_row_view_top',
+        '_open_here',
         '_select_item',
         '_edit_item',
         '_on_search',
@@ -10684,6 +10726,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       getAttribute(k) { return k in this.attrs ? this.attrs[k] : null }
       setAttribute(k, v) { this.attrs[k] = String(v) }
+      removeAttribute(k) { delete this.attrs[k] }
+      dispatchEvent(ev) { this._onDispatch?.(ev) }
       getBoundingClientRect() { return this._rect }
       appendChild(child) {
         if (child.parentElement) child.remove()
@@ -10802,8 +10846,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             const pending = this.held.splice(0)
             for (const msg of pending) {
               if (!this.closed && !this.muted && typeof this.onmessage == 'function') this.onmessage({ data: msg })
-              flush()
             }
+            flush()
           }
           postMessage(data) {
             if (this.closed) return
@@ -10825,7 +10869,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
     }
 
-    const makeWindow = (bus, { id, uid = 'u1', now = 1_700_000_000_000, focused = false, innerHeight = 700, scrollTop = 595, headerTop = scrollTop, autoSearch = true, hasBC = true, storage = new Map(), deferDom = false, deferSelect = false, search = '' } = {}) => {
+    const makeWindow = (bus, { id, uid = 'u1', now = 1_700_000_000_000, focused = false, innerHeight = 700, scrollTop = 595, headerTop = scrollTop, autoSearch = true, hasBC = true, storage = new Map(), deferDom = false, deferSelect = false, search = '', hasMindboxApplied = true } = {}) => {
       const clock = { now }
       const timers = new Map()
       let nextTid = 1
@@ -10923,6 +10967,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const itemList = []
       const selects = []
       const edits = []
+      targetContainer._onDispatch = ev => {
+        if (ev?.type == 'click') edits.push({ id: targetContainer.getAttribute('data-item-id'), selection: targetContainer.getAttribute('data-selection'), box: boxText })
+      }
       const marks = []
       const scrollToTargetCalls = []
       const binButtonDraws = []
@@ -10967,7 +11014,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           select: () => {
             if (refuseSelect) return false
             selects.push({ id: it.id, scrollBefore: body.scrollTop })
-            boxText = it.name
+            apply(it.name)
             for (const s of superNodes.values()) s.classList.remove('target')
             sup.classList.add('target')
             targetContainer.setAttribute('data-item-id', it.id)
@@ -11017,9 +11064,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         innerHeight,
         _user: uid == null ? null : { uid },
         _notification_account_left: false,
+        _mindboxDebounced: false,
+        ...(hasMindboxApplied ? { _mindboxApplied: '' } : {}),
         _key_buttons: { guest: () => binButtonDraws.push((win._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title, b.color])) },
         addEventListener: (type, fn, opts) => addL(winListeners, type, fn, opts),
         removeEventListener: (type, fn, opts) => remL(winListeners, type, fn, opts),
+      }
+      const apply = q => {
+        boxText = q
+        win._mindboxDebounced = false
+        if (hasMindboxApplied) win._mindboxApplied = q
       }
       const doc = {
         head,
@@ -11078,9 +11132,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         Sortable: { dragged: null, create: () => ({ destroy: () => {}, save: () => {}, toArray: () => [], sort: () => {} }) },
         MindBox: {
           get: () => boxText,
-          set: (t, opts) => { boxText = t; selects.push({ set: t, opts }) },
+          set: (t, opts) => { apply(t); selects.push({ set: t, opts }) },
           select_in_target: t => marks.push(t),
-          edit_target: t => edits.push({ box: boxText, text: t }),
+          edit_target: t => {
+            env._update_dom().then(() => {
+              const target = doc.querySelector('.container.target')
+              if (!target) return
+              if (t) {
+                const it = lookupItem(target.getAttribute('data-item-id'))
+                const pos = it?.text?.indexOf?.(t) ?? -1
+                if (pos >= 0) target.setAttribute('data-selection', `${pos},${pos + t.length}`)
+              }
+              target.dispatchEvent(new env.Event('mousedown'))
+              target.dispatchEvent(new env.Event('click'))
+            })
+          },
           scroll_to_target: () => {
             scrollToTargetCalls.push(boxText)
             const run = () => {
@@ -11092,6 +11158,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             else run()
           },
         },
+        Event: class { constructor(type) { this.type = type } },
+        _zwsp_offset: (s, p) => p,
         _update_dom: () => (deferDom ? new Promise(resolve => domQueue.push(resolve)) : Promise.resolve()),
         _task_state: () => null,
         _task_list: () => 'main',
@@ -11133,11 +11201,40 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         binCalls.push(target?.id ?? null)
         return origBinButtons(target)
       }
+      const extraTargets = []
+      const setTargetItems = ids => {
+        for (const el of extraTargets.splice(0)) el.remove()
+        const list = (ids ?? []).filter(Boolean)
+        if (!list.length) return void targetContainer.removeAttribute('data-item-id')
+        targetContainer.setAttribute('data-item-id', list[0])
+        for (const itemId of list.slice(1)) {
+          extraTargets.push(body.appendChild(new WinDomNode('div', { className: 'container target', 'data-item-id': itemId })))
+        }
+      }
+      const parseRegexTerms = q => {
+        const out = []
+        for (const t of String(q ?? '').toLowerCase().trim().split(/\s+/)) {
+          if (!/^regex:\S+/.test(t)) continue
+          try { out.push(new RegExp(t.slice(6))) } catch {}
+        }
+        return out
+      }
       return {
         id, env, win, doc, body, targetContainer, storage, clock, timers, domQueue,
         items, itemList, selects, edits, marks, scrollToTargetCalls, binCalls, binButtonDraws,
         makeItem, makeWidget, simScroll, advance, stall, nextDue,
-        setBox: t => { boxText = t },
+        applyQuery: (q, { targets = null, callbackDelay = null } = {}) => {
+          apply(q)
+          try { parseRegexTerms(q) } catch { return false }
+          if (targets != null) setTargetItems(targets)
+          if (callbackDelay != null) env.setTimeout(() => { env._on_search(boxText) }, callbackDelay)
+          return true
+        },
+        typeDraft: q => {
+          win._mindboxDebounced = true
+          boxText = q
+        },
+        setBox: t => { if (win._mindboxDebounced) boxText = t; else apply(t) },
         getBox: () => boxText,
         setFocused: v => { isFocused = v },
         fireWin: (type, ev) => fireL(winListeners, type, ev),
@@ -11146,7 +11243,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         setScrollTop: y => { body.scrollTop = y },
         getScrollTop: () => body.scrollTop,
         setInnerHeight: h => { env.innerHeight = win.innerHeight = env.visualViewport.height = body.offsetHeight = h },
-        setTargetItem: itemId => { targetContainer.setAttribute('data-item-id', itemId) },
+        setTargetItem: itemId => setTargetItems(itemId == null ? [] : [itemId]),
+        setTargetItems,
       }
     }
 
@@ -11483,10 +11581,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const r2 = a.env._send_selected(t1)
       const r3 = a.env._send_selected(t1, true)
       const tellMsgs = bus.sent.map(m => [m.data.type, m.data.item, m.data.to, 'n' in m.data])
-      // non-item search clears windows.last so next unforced _on_search sends again
+      // non-item search announces "none" (item: null, last: '') so partner clears mark and next unforced _on_search sends again
       bus.sent.length = 0
       a.env._on_search('plain search words')
-      const afterClear = [a.win._todoer_windows.last, bus.sent.length]
+      const afterClear = [a.win._todoer_windows.last, bus.sent.map(m => [m.data.type, m.data.item, 'n' in m.data])]
+      bus.sent.length = 0
       a.env._on_search('#t1')
       const afterReselect = bus.sent.map(m => [m.data.type, m.data.item, 'n' in m.data])
       // on with no peer: ask sends who (without item) and returns false
@@ -11496,13 +11595,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const rAloneOn = a.env._send_selected(t1, true, null, true)
       const aloneMsgs = bus.sent.map(m => [m.data.type, 'item' in m.data])
       check(
-        'windows _send_selected: unlinked sends nothing, linked tells once per item via _on_search, forced sends again, non-item search clears last, ask alone sends who and returns false',
+        'windows _send_selected: unlinked sends nothing, linked tells once per item via _on_search, forced sends again, non-item search tells none, ask alone sends who and returns false',
         [unlinkedRes, [r1, r2, r3], tellMsgs, afterClear, afterReselect, rAloneOn, aloneMsgs],
         [
           [false, false, 0],
           [false, false, false],
           [['selected', 's1', 'B', false], ['selected', 's1', 'B', false]],
-          [null, 0],
+          ['', [['selected', null, false]]],
           [['selected', 's1', false]],
           false,
           [['who', false]],
@@ -11532,41 +11631,42 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const sentTook = bus.sent.find(m => m.from == 'B' && m.data.type == 'took')?.data
       advanceAll(bus, [a, b], 3100)
       const afterAck = [sentAsk?.to, typeof sentAsk?.n == 'string' && sentAsk.n.startsWith('A:'), sentTook?.n === sentAsk?.n, a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
-      // silent peer (never answers took) while box still names item -> forgets peer at SEND_ACK_MS (3000ms),
-      // releases a stepped hold that is still active (e.g. after a busy stall), redraws buttons, and scrolls to target!
+      // silent peer (never answers took) -> forgets peer at SEND_ACK_MS (3000ms), redraws buttons, and opens t2 locally!
       b.win._todoer_windows.channel.muted = true
       a.setScrollTop(595)
       a.binCalls.length = 0
+      a.selects.length = 0
       a.env._select_item(t2)
       bus.flush()
       const midHoldScroll = a.getScrollTop()
-      a.stall(2800) // busy main thread: only 1 of 15 hold steps spent, 14 steps left!
+      a.stall(2800)
       a.advance(199) // 2999ms: still waiting for ack
-      const at2999 = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length]
-      a.advance(1) // 3000ms: SEND_ACK_MS fires while stepped hold STILL has 12 steps active!
+      const at2999 = [a.win._todoer_windows.peers.has('B'), a.selects.length, a.getBox()]
+      a.advance(1) // 3000ms: SEND_ACK_MS fires -> opens t2 locally!
       await Promise.resolve()
-      const afterTimeoutSame = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop(), a.binCalls.length > 0]
-      // silent peer when box moved to another item before SEND_ACK_MS -> forgets peer, does NOT scroll_to_target
+      const afterTimeoutSame = [a.win._todoer_windows.peers.has('B'), a.selects.map(s => s.id), a.getBox(), a.getScrollTop(), a.binCalls.length > 0]
+      // silent peer when box gained a target before SEND_ACK_MS -> forgets peer, does NOT open asked item locally
       const c = makeWindow(bus, { id: 'C', now: a.clock.now })
       c.env._start_windows()
       bus.flush()
       c.win._todoer_windows.channel.muted = true
-      a.scrollToTargetCalls.length = 0
-      a.setBox('#t1')
+      a.setBox('')
+      a.selects.length = 0
       const askedC = a.env._send_selected(t1, true, null, true)
       bus.flush()
-      a.setBox('#t2') // box moved on
+      a.setBox('#t2') // box gained a target meanwhile
       a.advance(3000)
-      const afterTimeoutMoved = [askedC, a.win._todoer_windows.peers.has('C'), a.scrollToTargetCalls.length]
+      await Promise.resolve()
+      const afterTimeoutMoved = [askedC, a.win._todoer_windows.peers.has('C'), a.selects.length, a.getBox()]
       check(
-        'windows _send_selected: switch on names peer and n, took in time keeps peer and skips scroll; no answer forgets peer, releases hold and scrolls only when box still names item',
+        'windows _send_selected: switch on names peer and n, took in time keeps peer and skips scroll; no answer forgets peer and opens locally only when no target intervened',
         [afterAck, midHoldScroll, at2999, afterTimeoutSame, afterTimeoutMoved],
         [
           ['B', true, true, true, 0, 595],
           595,
-          [true, 0],
-          [false, 1, 1800, true],
-          [true, false, 0],
+          [true, 0, ''],
+          [false, ['t2'], '#t2', 1800, true],
+          [true, false, 0, '#t2'],
         ]
       )
     }
@@ -11722,15 +11822,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.sent.length = 0
       a.env._select_item(itA)
       bus.flush()
-      const msgsAB = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null])
+      const msgsAB = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null, !!m.data.n])
+      // B now has target #e1 while A has no target -> selecting itB in B opens in B and tells A unasked (no echo!)
       bus.sent.length = 0
       b.env._select_item(itB)
       bus.flush()
-      const msgsBA = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null])
+      const msgsBA = bus.sent.filter(m => m.data.type == 'selected').map(m => [m.from, m.data.item, m.data.to ?? null, !!m.data.n])
       check(
-        'windows echo guard (once-per-item): A asks B and B asks A, partner _on_search after select sends nothing back (no ping-pong echo)',
-        [msgsAB, msgsBA, bus.overflows, a.selects.length, b.selects.length],
-        [[['A', 's_e1', 'B']], [['B', 's_e2', 'A']], 0, 2, 2]
+        'windows echo guard (once-per-item): A asks B and B tells A, partner _on_search after select sends nothing back (no ping-pong echo)',
+        [msgsAB, msgsBA, bus.overflows, a.selects.length, b.selects.length, a.getBox(), b.getBox()],
+        [[['A', 's_e1', 'B', true]], [['B', 's_e2', 'A', false]], 0, 0, 2, '', '#e2']
       )
     }
 
@@ -11779,28 +11880,28 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       advanceAll(bus, [a, b, c], 2000)
       b.fireWin('focus')
       bus.flush()
-      // with A's switch OFF, B's unaddressed selection is NOT taken by A or C
+      // with A's switch OFF, B's unasked selection is NOT taken by A or C
       b.env._send_selected(b.items.get('k1'), true)
       bus.flush()
-      const offBoxes = [a.getBox(), c.getBox()]
-      // turn A's switch ON: B's unaddressed selection IS taken by A (not C); C's unaddressed selection is NOT taken by A
+      const offMarks = [a.env._row_now().named?.id ?? null, c.getBox()]
+      // turn A's switch ON: B's unasked selection marks A's row (box stays ''), C ignored
       a.env._send_toggle(true)
       bus.flush()
       b.env._send_selected(b.items.get('k2'), true)
       bus.flush()
-      const afterB = [a.getBox(), c.getBox()]
+      const afterB = [a.getBox(), a.env._row_now().named?.id ?? null, c.getBox()]
       c.env._send_selected(c.items.get('k3'), true)
       bus.flush()
-      const afterCWhilePeerB = a.getBox()
-      // now C is used more recently -> A's _send_peer becomes C; C's selection IS taken by A
+      const afterCWhilePeerB = a.env._row_now().named?.id ?? null
+      // now C is used more recently -> A's _send_peer becomes C; C's selection marks A's row
       advanceAll(bus, [a, b, c], 2000)
       c.fireWin('focus')
       bus.flush()
       const peerNow = a.env._send_peer()
       c.env._send_selected(c.items.get('k3'), true)
       bus.flush()
-      const afterCNowPeer = a.getBox()
-      // asked message from A to C is taken by C (and B stays untouched), and row selection from C is taken by A
+      const afterCNowPeer = [a.getBox(), a.env._row_now().named?.id ?? null]
+      // asked message from A to C is taken by C (and B stays untouched), and asked selection from C is taken by A
       c.makeWidget({ rows: [{ id: 'k4' }, { id: 'k1' }] })
       a.env._send_selected(a.items.get('k4'), true, null, true)
       bus.flush()
@@ -11810,8 +11911,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const afterCAskedA = [a.getBox(), b.getBox()]
       check(
         'windows routing (3 windows): only the linked pair exchange selections (both directions, asked and unasked), partner shifts to window used last, unlinked third window ignored',
-        [offBoxes, afterB, afterCWhilePeerB, peerNow, afterCNowPeer, afterAddressed, afterCAskedA],
-        [['', ''], ['#k2', ''], '#k2', 'C', '#k3', ['#k4', ''], ['#k1', '']]
+        [offMarks, afterB, afterCWhilePeerB, peerNow, afterCNowPeer, afterAddressed, afterCAskedA],
+        [[null, ''], ['', 'k2', ''], 'k2', 'C', ['', 'k3'], ['#k4', ''], ['#k1', '']]
       )
     }
 
@@ -11974,42 +12075,39 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ],
       })
       a.env._select_item(rIn)
-      const holdAtHome = a.win._todoer_windows.hold
       bus.flush()
       await Promise.resolve()
-      const afterIn = [a.getScrollTop(), b.getScrollTop(), b.getBox(), a.win._todoer_windows.hold === holdAtHome]
-      // scrolled slightly into page (560), rIn (600..632) is still in view -> stays at 560 with no second hold
+      const afterIn = [a.getBox(), a.getScrollTop(), b.getScrollTop(), b.getBox(), !!a.win._todoer_windows.hold]
+      // scrolled slightly into page (560), rIn (600..632) is still in view -> stays at 560 with no hold
       a.fireWin('wheel')
       a.setScrollTop(560)
       a.env._select_item(rIn)
-      const holdScrolled = a.win._todoer_windows.hold
       bus.flush()
       await Promise.resolve()
-      const afterScrolledIn = [a.getScrollTop(), b.getScrollTop(), b.getBox(), a.win._todoer_windows.hold === holdScrolled]
+      const afterScrolledIn = [a.getBox(), a.getScrollTop(), b.getScrollTop(), b.getBox(), !!a.win._todoer_windows.hold]
       a.setScrollTop(500)
       a.env._select_item(rBelow)
-      const holdBelow = a.win._todoer_windows.hold
       bus.flush()
       await Promise.resolve()
-      const afterBelow = [a.getScrollTop(), b.getScrollTop(), b.getBox(), a.win._todoer_windows.hold === holdBelow]
+      const afterBelow = [a.getBox(), a.getScrollTop(), b.getScrollTop(), b.getBox(), !!a.win._todoer_windows.hold]
       // from 672, rIn (600) is above window's upper edge (672+8=680) -> moves back to home (500)
       a.env._select_item(rIn)
       bus.flush()
       await Promise.resolve()
-      const afterBackHome = [a.getScrollTop(), b.getScrollTop(), b.getBox()]
+      const afterBackHome = [a.getBox(), a.getScrollTop(), b.getScrollTop(), b.getBox()]
       a.env._select_item(rAbove)
       bus.flush()
       await Promise.resolve()
-      const afterAbove = [a.getScrollTop(), b.getScrollTop(), b.getBox()]
+      const afterAbove = [a.getBox(), a.getScrollTop(), b.getScrollTop(), b.getBox()]
       check(
-        'windows _select_item row-in-view: shared selection stays with same hold when row is in view and moves per _row_view_top when row is below or above',
+        'windows _select_item row-in-view: list window keeps query with no hold when row is in view and moves per _row_view_top when row is below or above',
         [afterIn, afterScrolledIn, afterBelow, afterBackHome, afterAbove],
         [
-          [500, 2000, '#si1', true],
-          [560, 2000, '#si1', true],
-          [672, 2600, '#si2', false],
-          [500, 2000, '#si1'],
-          [392, 3200, '#si3'],
+          ['', 500, 2000, '#si1', false],
+          ['', 560, 2000, '#si1', false],
+          ['', 672, 2600, '#si2', false],
+          ['', 500, 2000, '#si1'],
+          ['', 392, 3200, '#si3'],
         ]
       )
     }
@@ -12037,46 +12135,49 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       ]
       a.makeWidget({ rows })
       b.makeWidget({ rows })
-      // unasked item-itself selection in B (_on_search) -> A stays at 500
+      // unasked item-itself selection in B (_on_search) -> A keeps box '', marks rc1, stays at 500
       b.setScrollTop(1900)
+      b.setBox('#rc1')
       b.env._on_search('#rc1')
       bus.flush()
       await Promise.resolve()
-      const aTookUnasked = [a.getBox(), a.getScrollTop(), b.getScrollTop()]
-      // A scrolled to 560: unasked rc2 from B (632..664, in view at 560) -> A stays at 560 with same hold
+      const aTookUnasked = [a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), b.getScrollTop()]
+      // A scrolled to 560: unasked rc2 from B (632..664, in view at 560) -> A stays at 560 with no hold
       a.fireWin('wheel')
       a.setScrollTop(560)
+      b.setBox('#rc2')
       b.env._on_search('#rc2')
       bus.flush()
-      const holdRecv = a.win._todoer_windows.hold
       await Promise.resolve()
-      const aTookMid = [a.getBox(), a.getScrollTop(), a.win._todoer_windows.hold === holdRecv]
+      const aTookMid = [a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), !!a.win._todoer_windows.hold]
       // A still at 560: unasked rcTop from B (530 < 568, above upper edge, fits from home) -> A moves to 500
+      b.setBox('#rcTop')
       b.env._on_search('#rcTop')
       bus.flush()
       await Promise.resolve()
-      const aTookAbove = [a.getBox(), a.getScrollTop()]
-      // asked row selection in A -> B goes to 2100 even with its own row; asked row selection in B -> A goes to 1900 even with its own row
+      const aTookAbove = [a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop()]
+      // asked row selection in A (no target) -> B goes to 2100 even with its own row; row selection in B
+      // (which has target #rc2 while A has none) opens in B (1900) and moves A's mark to rc1!
       b.fireWin('wheel')
       b.setScrollTop(500)
       a.env._select_item(itA2)
       bus.flush()
       await Promise.resolve()
-      const bTookAsked = [b.getBox(), b.getScrollTop(), a.getScrollTop(), itA.id]
+      const bTookAsked = [b.getBox(), b.getScrollTop(), a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), itA.id]
       b.fireWin('wheel')
       b.setScrollTop(500)
       b.env._select_item(itB)
       bus.flush()
       await Promise.resolve()
-      const aTookAsked = [a.getBox(), a.getScrollTop(), b.getScrollTop(), itB2.id]
+      const bKeptTarget = [b.getBox(), b.getScrollTop(), a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), itB2.id]
       check(
-        'windows _select_item received: unasked selection stays in view or moves to row, while asked selection goes to item even with own row (both directions)',
-        [aTookUnasked, aTookMid, aTookAbove, bTookAsked, aTookAsked],
-        [['#rc1', 500, 1900], ['#rc2', 560, true], ['#rcTop', 500], ['#rc2', 2100, 500, 'rc1'], ['#rc1', 1900, 500, 'rc2']]
+        'windows _select_item received: unasked selection marks row and stays in view or moves, asked goes to item even with own row, and target window with no-target partner opens locally',
+        [aTookUnasked, aTookMid, aTookAbove, bTookAsked, bKeptTarget],
+        [['', 'rc1', 500, 1900], ['', 'rc2', 560, false], ['', 'rcTop', 500], ['#rc2', 2100, '', 'rc2', 500, 'rc1'], ['#rc1', 1900, '', 'rc1', 500, 'rc2']]
       )
     }
 
-    // 17. second click on the selected row (__render): opens editor without _send_ready and re-selects to partner without editing when _send_ready (both windows)
+    // 17. second click on the row of the item this window shows (__render): opens its editor, linked or not, and asks nothing of the other window (both windows)
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
@@ -12098,20 +12199,27 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const rowDivA = widgetA.querySelector('.list-item')
       const rowDivB = widgetB.querySelector('.list-item')
       const clickEv = { stopPropagation: () => {}, preventDefault: () => {} }
-      // (a) unlinked (_send_ready() == false): second click opens editor
+      // (a) unlinked: second click opens editor on sc1 itself
       rowDivA.onclick(clickEv)
       bus.flush()
-      const offClick = [a.edits.length, a.selects.length, b.selects.length]
-      // (b) linked (_send_ready() == true in BOTH A and B): second click in A shows in B, second click in B shows in A, neither opens editor
+      await Promise.resolve()
+      const offClick = [a.edits.map(e => e.id), a.selects.length, b.selects.length]
+      // (b) linked, both on #sc1: a click on its own row in A opens the editor there (the box stays, B is asked
+      //     nothing); the same in B (the owner, 2026-11-26: one rule, linked or not)
       a.edits.length = 0
       a.selects.length = 0
       a.setScrollTop(500)
       a.env._send_toggle(true)
       bus.flush()
-      b.selects.length = 0 // linking already told the currently selected listed item (#sc1) to B
+      b.selects.length = 0
       rowDivA.onclick(clickEv)
       bus.flush()
-      const aLinkedClick = [a.edits.length, a.selects.length, b.selects.map(s => s.id), a.getScrollTop()]
+      await Promise.resolve()
+      const aLinkedClick = [a.edits.map(e => e.id), a.getBox(), b.selects.map(s => s.id), a.getScrollTop()]
+      // A's query applied once more, then the same click in B
+      a.setBox('#sc1')
+      a.env._on_search('#sc1')
+      bus.flush()
       b.edits.length = 0
       b.selects.length = 0
       a.selects.length = 0
@@ -12119,23 +12227,87 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.setScrollTop(500)
       rowDivB.onclick(clickEv)
       bus.flush()
-      const bLinkedClick = [b.edits.length, b.selects.length, a.selects.map(s => s.id), b.getScrollTop()]
-      // (c) peer gone (_send_ready() == false): second click opens editor again
+      await Promise.resolve()
+      const bLinkedClick = [b.edits.map(e => e.id), b.getBox(), a.selects.map(s => s.id), b.getScrollTop()]
+      // (c) peer gone: second click in A (which holds #sc1 target) opens editor on sc1 as before
       b.fireWin('pagehide')
       bus.flush()
       a.edits.length = 0
       a.selects.length = 0
       rowDivA.onclick(clickEv)
       bus.flush()
-      const onAloneClick = [a.edits.length, a.selects.length, item.id]
+      await Promise.resolve()
+      const onAloneClick = [a.edits.map(e => e.id), a.selects.length, item.id]
       check(
-        'windows second click (__render): clicking the already-selected row opens editor without _send_ready and re-selects to partner without editing in both windows when _send_ready',
+        'windows second click (__render): clicking the row of the item this window shows opens its editor, linked or not, and asks nothing of the other window',
         [offClick, aLinkedClick, bLinkedClick, onAloneClick],
         [
-          [1, 1, 0], // _edit_item calls item.select() then MindBox.edit_target()
-          [0, 1, ['sc1'], 500],
-          [0, 1, ['sc1'], 500],
-          [1, 1, 'sc1'],
+          [['sc1'], 1, 0],
+          [['sc1'], '#sc1', [], 1700],
+          [['sc1'], '#sc1', [], 1700],
+          [['sc1'], 1, 'sc1'],
+        ]
+      )
+      // (d) deferred edit is bound to the clicked item: A asks B for newly saved scY not yet in B; B still
+      //     shows scX and its owner clicks scX's row to edit (selecting already-displayed scX skips _on_search,
+      //     leaving scY's pending take alive); scY arrives 15ms later before B's two-frame _update_dom() ends ->
+      //     editor click MUST NOT be dispatched on scY (none, or scX when target stayed scX)
+      const busD = makeBus()
+      const aD = makeWindow(busD, { id: 'A', now: 1_700_000_000_000, scrollTop: 500 })
+      const bD = makeWindow(busD, { id: 'B', now: 1_700_000_000_000, scrollTop: 500, deferDom: true })
+      aD.env._start_windows()
+      bD.env._start_windows()
+      busD.flush()
+      aD.makeItem('scX', { saved_id: 's_scX', name: '#scX', text: '#todo edit X', scrollY: 1600 })
+      const yA = aD.makeItem('scY', { saved_id: 's_scY', name: '#scY', text: '#todo brand new Y', scrollY: 1700 })
+      aD.makeWidget({ rows: [{ id: 'scX', pageY: 540 }, { id: 'scY', pageY: 580 }] })
+      const xB = bD.makeItem('scX', { saved_id: 's_scX', name: '#scX', text: '#todo edit X', scrollY: 1600 })
+      // mirror index.svelte:selectItem skipping onEditorChange/_on_search when scX is already displayed
+      const origSelectX = xB.select
+      xB.select = () => {
+        if (bD.getBox() == '#scX' && bD.targetContainer.getAttribute('data-item-id') == 'scX') {
+          bD.selects.push({ id: 'scX', scrollBefore: bD.getScrollTop() })
+          return true
+        }
+        return origSelectX()
+      }
+      const wBD = bD.body.appendChild(new WinDomNode('div', { id: 'w_scD', className: 'todoer-widget' }))
+      const wItemD = { store: { w_scD: { options: {} } }, _global_store: {} }
+      aD.setBox('#todo')
+      bD.setBox('#scX')
+      bD.setTargetItem('scX')
+      bD.env.__render(wBD, wItemD)
+      const rowX = wBD.querySelector('.list-item')
+      aD.env._send_toggle(true)
+      busD.flush()
+      // positive control with deferDom: when target stays scX across _update_dom(), scX receives the editor click
+      bD.edits.length = 0
+      rowX.onclick(clickEv)
+      while (bD.domQueue.length) bD.domQueue.shift()()
+      await Promise.resolve()
+      const stayedOnX = bD.edits.map(e => [e.id, e.selection])
+      // now A asks B to show newly saved scY (not yet in B) -> B polls every 250ms while still showing scX
+      bD.edits.length = 0
+      bD.targetContainer.removeAttribute('data-selection')
+      aD.env._select_item(yA)
+      busD.flush()
+      advanceAll(busD, [aD, bD], 235)
+      // owner clicks scX's row to edit; deferred edit waits in bD.domQueue
+      rowX.onclick(clickEv)
+      // 15ms later, before the two-frame _update_dom() ends, scY arrives in B and becomes the target!
+      bD.makeItem('scY', { saved_id: 's_scY', name: '#scY', text: '#todo brand new Y', scrollY: 1700 })
+      advanceAll(busD, [aD, bD], 15)
+      const targetBeforeFlush = [bD.getBox(), bD.targetContainer.getAttribute('data-item-id')]
+      while (bD.domQueue.length) bD.domQueue.shift()()
+      await Promise.resolve()
+      const afterYArrived = [bD.edits.map(e => e.id), bD.targetContainer.getAttribute('data-selection')]
+      check(
+        'windows second click deferred edit bound to clicked item: editor event opens scX when target stays scX and never opens scY if scY arrives before _update_dom finishes',
+        [stayedOnX, targetBeforeFlush, afterYArrived],
+        [
+          [['scX', '0,12']],
+          ['#scY', 'scY'],
+          [[], null],
         ]
       )
     }
@@ -12328,40 +12500,50 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const c = makeWindow(bus, { id: 'C', now: 1_700_000_000_000 })
       for (const w of [a, b, c]) { w.env._start_windows(); w.env._row_keys() }
       bus.flush()
+      a.makeItem('ux', { saved_id: 's_ux' })
+      b.makeItem('ux', { saved_id: 's_ux' })
+      const wA = a.makeWidget({ rows: [{ id: 'ux', pageY: 540 }] })
+      const wB = b.makeWidget({ rows: [{ id: 'ux', pageY: 540 }] })
       const pressW = w => { let p = false; w.win._on_key('KeyW', { preventDefault: () => (p = true) }); bus.flush(); return p }
-      // Focus B so A links to B
+      // Focus B so A links to B; A shows #ux while targetless B marks ux
+      a.setBox('#ux')
+      b.setBox('#todo')
       advanceAll(bus, [a, b, c], 2000)
       b.fireWin('focus')
       bus.flush()
-      // (a) unlinked A presses w -> A and B linked (C unlinked)
+      // (a) unlinked A presses w -> A and B linked (C unlinked), targetless B marks ux
       const pAOn = pressW(a)
-      const afterAOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner(), c.env._send_partner()]
-      // (b) linked B presses w -> sends unlink to A, does NOT turn B on; link ends in both!
+      const afterAOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner(), c.env._send_partner(), wB.rowNodes.get('ux').classList.contains('selected')]
+      // (b) targetless non-holder B presses w -> sends unlink to A, does NOT turn B on; link ends in both AND B's row highlight clears!
       bus.sent.length = 0
       const pBOff = pressW(b)
       const bSentTypes = bus.sent.filter(m => m.from == 'B').map(m => [m.data.type, m.data.to])
-      const afterBOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner()]
-      // (c) unlinked B presses w (with A used last) -> B and A linked; A presses w -> unlinks both
+      const afterBOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._send_partner(), b.env._selected_item(), wB.rowNodes.get('ux').classList.contains('selected')]
+      // (c) unlinked B (showing #ux) presses w (with A used last, targetless) -> B and A linked, A marks ux;
+      //     targetless non-holder A presses w -> unlinks both AND clears A's row highlight (while B keeps its own target mark)!
+      a.setBox('#todo')
+      b.setBox('#ux')
+      b.env._sync_marks()
       advanceAll(bus, [a, b, c], 2000)
       a.fireWin('focus')
       bus.flush()
       const pBOn = pressW(b)
-      const afterBOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_partner(), b.env._send_partner()]
+      const afterBOn = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_partner(), b.env._send_partner(), wA.rowNodes.get('ux').classList.contains('selected')]
       const pAOff = pressW(a)
-      const afterAOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_on(), b.env._send_on()]
+      const afterAOff = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), a.env._send_on(), b.env._send_on(), a.env._selected_item(), wA.rowNodes.get('ux').classList.contains('selected'), wB.rowNodes.get('ux').classList.contains('selected')]
       check(
         'windows _send_press & w: links from either side and unlinks from either side without turning the other on',
         [pAOn, afterAOn, pBOff, bSentTypes, afterBOff, pBOn, afterBOn, pAOff, afterAOff],
         [
           true,
-          [true, true, 'A', null],
+          [true, true, 'A', null, true],
           true,
           [['unlink', 'A']],
-          [false, false, null],
+          [false, false, null, null, false],
           true,
-          [true, true, 'B', 'A'],
+          [true, true, 'B', 'A', true],
           true,
-          [false, false, false, false],
+          [false, false, false, false, null, false, true],
         ]
       )
     }
@@ -12480,6 +12662,133 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
+    // 25b. reload during typing debounce & delayed discovery:
+    //      - unapplied draft (#old2) is never published; while debounced, B reports its applied target from
+    //        .container.target (#old or none), so a taken-back draft (no _on_search) keeps A2 on the applied target
+    //      - when discovery completes after a draft COMMITS (#old2 settles & runs _on_search while B has no partner),
+    //        B immediately tells A2 its current applied target passively (keeping A2's scroll), with or without an
+    //        earlier report, right after discovery (not waiting 30s for the heartbeat)
+    {
+      const runReloadDuringTyping = async ({ pauseA2Ms = 0, initialTarget = 'old', commit = false, pointerReport = false, draftAfterCommit = null } = {}) => {
+        const bus = makeBus()
+        const sharedStore = new Map()
+        const a1 = makeWindow(bus, { id: 'A1', now: 1_700_000_010_000, storage: sharedStore })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_010_000 })
+        for (const w of [a1, b]) {
+          w.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
+          w.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
+          w.makeItem('old23', { saved_id: 's_old23', text: '#todo old23 task', scrollY: 1800 })
+        }
+        a1.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 1400 }, { id: 'old23', pageY: 1440 }] })
+        a1.setBox('#todo')
+        b.setBox(initialTarget ? '#' + initialTarget : '#todo')
+        b.setTargetItem(initialTarget)
+        a1.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        a1.env._send_toggle(true)
+        bus.flush()
+        b.env._on_search(b.getBox())
+        bus.flush()
+        // reload A: A1 closes (pagehide -> bye; B retires)
+        a1.fireWin('pagehide')
+        a1.win._todoer_windows.channel.close()
+        bus.flush()
+        advanceAll(bus, [b], 2000)
+        // fresh A2 boots on same sessionStorage with #todo list at scrollTop 500 (old2 is off-screen at 1400)
+        const a2 = makeWindow(bus, { id: 'A2', now: b.clock.now, storage: sharedStore, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const doneHits = []
+        a2.env._complete_todo = it => (doneHits.push(it.id), false)
+        a2.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
+        a2.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
+        a2.makeItem('old23', { saved_id: 's_old23', text: '#todo old23 task', scrollY: 1800 })
+        const wA2 = a2.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 1400 }, { id: 'old23', pageY: 1440 }] })
+        const markedA2 = () => [...wA2.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        const pressDoneA2 = async () => {
+          doneHits.length = 0
+          const btn = a2.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+          await btn?.press?.()
+          return doneHits[0] ?? null
+        }
+        a2.setBox('#todo')
+        if (!pointerReport) {
+          // type '2' in B before A2 boots -> box holds unapplied draft '#old2' while debounced
+          b.win._mindboxDebounced = true
+          b.setBox('#old2')
+        }
+        a2.env._start_windows()
+        if (pauseA2Ms > 0) a2.win._todoer_windows.channel.paused = true
+        bus.flush()
+        if (pointerReport) {
+          // B reports its applied target on pointerdown in its box, then user types '2' (debounced)
+          b.fireDoc('pointerdown')
+          bus.flush()
+          b.win._mindboxDebounced = true
+          b.setBox('#old2')
+        }
+        const duringDebounce = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
+        if (commit) {
+          // draft '#old2' settles and runs B's search hook BEFORE A2 answers (B still has no partner!)
+          advanceAll(bus, [a2, b], 500)
+          b.applyQuery('#old2', { targets: ['old2'] })
+          b.env._on_search('#old2')
+          bus.flush()
+          if (draftAfterCommit) {
+            b.win._mindboxDebounced = true
+            b.setBox(draftAfterCommit)
+          }
+          if (pauseA2Ms > 0) {
+            advanceAll(bus, [a2, b], pauseA2Ms)
+            a2.win._todoer_windows.channel.unpause()
+            bus.flush()
+          }
+          // right after discovery completes (no 30s wait for heartbeat!): A2 marks old2, Done reaches old2, scroll stays 500
+          const rightAfterDiscovery = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2(), a2.getScrollTop()]
+          return [duringDebounce, rightAfterDiscovery]
+        }
+        // backspace before debounce settles -> returns to already-applied query, so app skips _on_search
+        advanceAll(bus, [a2, b], 100)
+        b.setBox(initialTarget ? '#' + initialTarget : '#todo')
+        advanceAll(bus, [a2, b], 200)
+        b.win._mindboxDebounced = false
+        if (pauseA2Ms > 0) {
+          advanceAll(bus, [a2, b], pauseA2Ms)
+          a2.win._todoer_windows.channel.unpause()
+          bus.flush()
+        }
+        const rightAfterDiscovery = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
+        // two seconds later, A2's actual Done button must act on the applied target
+        advanceAll(bus, [a2, b], 2000)
+        const afterTwoSeconds = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
+        return [duringDebounce, rightAfterDiscovery, afterTwoSeconds]
+      }
+      check(
+        'windows reload during typing debounce: first report holds back unapplied draft and applied target reaches reloaded list window for Done without _on_search',
+        [await runReloadDuringTyping(), await runReloadDuringTyping({ pauseA2Ms: 600 }), await runReloadDuringTyping({ initialTarget: null })],
+        [
+          [['s_old', ['old'], 'old'], ['s_old', ['old'], 'old'], ['s_old', ['old'], 'old']],
+          [[null, [], null], ['s_old', ['old'], 'old'], ['s_old', ['old'], 'old']],
+          [[null, [], null], [null, [], null], [null, [], null]],
+        ]
+      )
+      check(
+        'windows delayed discovery (draft commits after earlier report): right after discovery A2 marks old2 and Done reaches old2 without scrolling',
+        await runReloadDuringTyping({ pauseA2Ms: 600, commit: true, pointerReport: true }),
+        [[null, [], null], ['s_old2', ['old2'], 'old2', 500]]
+      )
+      check(
+        'windows delayed discovery (draft commits with no earlier report): right after discovery A2 marks old2 and Done reaches old2 without scrolling',
+        [
+          await runReloadDuringTyping({ pauseA2Ms: 600, initialTarget: null, commit: true }),
+          await runReloadDuringTyping({ pauseA2Ms: 600, commit: true, draftAfterCommit: '#old23' }),
+        ],
+        [
+          [[null, [], null], ['s_old2', ['old2'], 'old2', 500]],
+          [[null, [], null], ['s_old2', ['old2'], 'old2', 500]],
+        ]
+      )
+    }
+
     // 26. busy peer (SEND_ACK_MS = 3000): peer busy for 1500ms is not forgotten, second selection reaches it, both ack in time
     {
       const bus = makeBus()
@@ -12556,14 +12865,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeWidget({ rows: [{ id: 'os1' }, { id: 'os2' }] })
       a.env._send_toggle(true)
       bus.flush()
-      // (a) non-todoer search (e.g. typed name in MindBox): B follows, A starts NO hold
+      // (a) non-todoer search (e.g. typed name in MindBox): B (no target) marks os1 keeping its box '', A starts NO hold
       a.setScrollTop(1600)
       a.env._on_search('#os1')
       bus.flush()
       const holdAfterSearch = !!a.win._todoer_windows.hold
-      const bAfterSearch = b.getBox()
-      // (b) active hold at 595 during rapid j; app momentarily moves scrollTop to 1800 and fires late _on_search('#os2'):
-      // _on_search must NOT call _stay_put (which would overwrite the hold from 595 to 1800!)
+      const bAfterSearch = [b.getBox(), b.env._row_now().named?.id ?? null]
+      // (b) active hold at 595; late _on_search('#os2') must NOT overwrite the hold from 595 to 1800
       a.setScrollTop(595)
       a.env._hold_scroll(595)
       a.setScrollTop(1800) // un-dispatched app scroll before put()
@@ -12572,9 +12880,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.simScroll(1800) // browser scroll frame fires -> must still snap back to 595, NOT stay at 1800!
       const scrollAfterLateReport = a.getScrollTop()
       check(
-        'windows _on_search does not call _stay_put: non-todoer search starts no hold and late search report never overwrites an active hold',
+        'windows _on_search does not hold: non-todoer search starts no hold (marks in no-target partner) and late search report never overwrites an active hold',
         [holdAfterSearch, bAfterSearch, scrollAfterLateReport, it1.id, it2.id],
-        [false, '#os1', 595, 'os1', 'os2']
+        [false, ['', 'os1'], 595, 'os1', 'os2']
       )
     }
 
@@ -12657,22 +12965,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeWidget({ rows: [{ id: 'bl1' }] })
       a.env._send_toggle(true)
       bus.flush()
-      // (a) row selection of listed item in A -> asked to B, windows.last set, scroll held
+      // (a) row selection of listed item in A (no target) -> asked to B, A keeps box '' (last ''), stays at 500
       bus.sent.length = 0
       a.env._select_item(listed)
       bus.flush()
       const afterListed = [bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').map(m => [m.data.item, !!m.data.n]), a.win._todoer_windows.last, b.getBox(), a.getScrollTop()]
-      a.win._todoer_windows.hold?.() // release hold before testing unlisted selection
-      // (b) asked _send_selected / _select_item on saved unlisted item -> returns false, posts nothing, clears windows.last, starts NO hold (scrolls to 1700), leaves B on #lt1
+      // (b) asked _send_selected on saved unlisted item -> returns false, posts nothing; _select_item(unlisted) opens locally (1700, no hold), leaves B on #lt1
       bus.sent.length = 0
       const retUnlisted = a.env._send_selected(unlisted, false, null, true)
       bus.flush()
-      const afterUnlisted = [retUnlisted, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, a.win._todoer_windows.last, b.getBox()]
+      const afterUnlisted = [retUnlisted, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, b.getBox()]
       a.setScrollTop(500)
       a.env._select_item(unlisted)
       bus.flush()
       const unlistedSelectScroll = [a.getScrollTop(), !!a.win._todoer_windows.hold, b.getBox()]
-      // (c) because windows.last was cleared, unforced _on_search('#lt1') tells #lt1 again (unasked, no n)!
+      // (c) unforced _on_search('#lt1') tells #lt1 (unasked, no n) because windows.last is 's_ul1'
       bus.sent.length = 0
       a.env._on_search('#lt1')
       bus.flush()
@@ -12681,7 +12988,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.sent.length = 0
       const retParked = a.env._send_selected(parked, true, null, true)
       bus.flush()
-      const afterParked = [retParked, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, a.win._todoer_windows.last]
+      const afterParked = [retParked, bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length]
       // (e) unsaved item with no row on asked call -> returns false and starts NO _send_when_saved timer
       bus.sent.length = 0
       a.setBox('#uu1')
@@ -12696,14 +13003,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.env._send_selected(bListed, true)
       const bSent = bus.sent.filter(m => m.from == 'B' && m.data.type == 'selected').map(m => [m.data.item, m.data.to, !!m.data.n])
       check(
-        'windows asked vs unasked telling: asked skips unlisted/parked/unsaved-unlisted, clears last and holds nothing; unasked tells partner without n',
+        'windows asked vs unasked telling: asked skips unlisted/parked/unsaved-unlisted and holds nothing; unasked tells partner without n',
         [afterListed, afterUnlisted, unlistedSelectScroll, resentAfterClear, afterParked, [retUnsavedUnlisted, sentUnsavedUnlisted], bSent],
         [
-          [[['s_lt1', true]], 's_lt1', '#lt1', 500],
-          [false, 0, null, '#lt1'],
+          [[['s_lt1', true]], '', '#lt1', 500],
+          [false, 0, '#lt1'],
           [1700, false, '#lt1'],
           [['s_lt1', false]],
-          [false, 0, null],
+          [false, 0],
           [false, 0],
           [['s_bu1', 'A', false], ['s_bl1', 'A', false]],
         ]
@@ -12733,59 +13040,58 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const bCancel2 = b.makeItem('tkCancel2', { saved_id: 's_tkCancel2', scrollY: 1850 })
       a.env._send_toggle(true)
       bus.flush()
-      // (a) asked by list window A, other window B takes item even with NO todoer widget on B's page
+      const markedId = () => [...a.body.querySelectorAll('.todoer-widget .list-item-container.selected')].map(r => r.getAttribute('data-id'))
+      // (a) asked by list window A, other window B takes item even with NO todoer widget on B's page; A keeps box '' and marks tk1
       a.env._select_item(listed)
       bus.flush()
-      const bTookNoWidget = [b.getBox(), b.getScrollTop(), a.getBox(), a.getScrollTop()]
-      // (b) B selects listed item tk2 -> A takes it and holds scroll at 500
+      const bTookNoWidget = [b.getBox(), b.getScrollTop(), a.getBox(), markedId(), a.getScrollTop()]
+      // (b) B selects listed item tk2 -> A keeps box '', marks tk2, stays at 500
       b.env._send_selected(bTk2, true)
       bus.flush()
-      const aTookListed = [a.getBox(), a.getScrollTop(), a.win._todoer_windows.last]
-      // (c) B selects unlisted item tkNoRow -> A polls 3s, never takes it, leaves box/last/scroll intact; adding row at 3.5s is too late
+      const aTookListed = [a.getBox(), markedId(), a.getScrollTop()]
+      // (c) B selects unlisted item tkNoRow -> A unmarks stale tk2, polls 2s, never calls select, keeps box '' & scroll 500; adding row at 3.5s is past poll
       a.selects.length = 0
       b.env._send_selected(bNoRow, true)
       advanceAll(bus, [a, b], 3500)
-      const afterNoRow = [a.getBox(), a.win._todoer_windows.last, a.getScrollTop(), a.selects.length]
+      const afterNoRow = [a.getBox(), markedId(), a.getScrollTop(), a.selects.length]
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkNoRow' }))
       advanceAll(bus, [a, b], 500)
-      const afterTooLateRow = [a.getBox(), a.selects.length]
-      // (d) B selects tkLateRow (item exists in A, row not rendered yet -> row arrives at 500ms -> A takes at 750ms!)
+      const afterTooLateRow = [a.getBox(), markedId(), a.selects.length]
+      // (d) B selects tkLateRow (item exists in A, row not rendered yet -> row arrives at 500ms -> A marks at 750ms!)
       a.selects.length = 0
       b.env._send_selected(bLateRow, true)
       advanceAll(bus, [a, b], 500)
-      const beforeLateRow = [a.getBox(), a.selects.length]
+      const beforeLateRow = [a.getBox(), markedId(), a.selects.length]
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkLateRow' }))
       advanceAll(bus, [a, b], 250)
-      const afterLateRow = [a.getBox(), a.getScrollTop(), a.selects.length]
-      // (e) newer message from B cancels waiting missing-row poll (tkCancel waiting -> B sends tk1 -> row for tkCancel arrives -> only tk1 taken)
-      a.selects.length = 0
+      const afterLateRow = [a.getBox(), markedId(), a.getScrollTop(), a.selects.length]
+      // (e) newer message from B cancels waiting missing-row poll (tkCancel waiting -> B sends tk1 -> row for tkCancel arrives -> only tk1 marked)
       b.env._send_selected(bCancel, true)
       advanceAll(bus, [a, b], 200)
       b.env._send_selected(bTk1, true)
       bus.flush()
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkCancel' }))
       advanceAll(bus, [a, b], 500)
-      const afterNewerCancels = [a.getBox(), a.selects.map(s => s.id)]
+      const afterNewerCancels = [a.getBox(), markedId()]
       // (f) own selection in A (even unlisted!) cancels waiting missing-row poll
-      a.selects.length = 0
       b.env._send_selected(bCancel2, true)
       advanceAll(bus, [a, b], 200)
       a.env._send_selected(a.makeItem('ownUnlisted', { saved_id: 's_ownU', tags: [], tags_visible: [] }))
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'tkCancel2' }))
       advanceAll(bus, [a, b], 500)
-      const afterOwnCancels = [a.getBox(), a.selects.length]
+      const afterOwnCancels = [a.getBox(), markedId()]
       check(
-        'windows listed-only taking: list window takes listed items and items whose row arrives within 3s, skips unlisted items leaving box/row/scroll intact, cancels waiting poll on newer message or own selection; other window takes asked items with no list on its page',
+        'windows listed-only taking: list window marks listed items and items whose row arrives within 2s without touching box, unmarks unlisted, cancels waiting poll on newer message or own selection; other window takes asked items with no list on its page',
         [bTookNoWidget, aTookListed, afterNoRow, afterTooLateRow, beforeLateRow, afterLateRow, afterNewerCancels, afterOwnCancels],
         [
-          ['#tk1', 1600, '#tk1', 500],
-          ['#tk2', 500, 's_tk2'],
-          ['#tk2', 's_tk2', 500, 0],
-          ['#tk2', 0],
-          ['#tk2', 0],
-          ['#tkLateRow', 500, 1],
-          ['#tk1', ['tk1']],
-          ['#tk1', 0],
+          ['#tk1', 1600, '', ['tk1'], 500],
+          ['', ['tk2'], 500],
+          ['', [], 500, 0],
+          ['', [], 0],
+          ['', [], 0],
+          ['', ['tkLateRow'], 500, 0],
+          ['', ['tk1']],
+          ['', []],
         ]
       )
     }
@@ -12806,21 +13112,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._select_item(orig)
       bus.flush()
       // (a) new todo created in B: unsaved -> saves at 500ms -> B tells it -> item arrives in A at 750ms -> row renders in A at 1000ms -> A takes it and holds scroll!
+      const markedA = () => [...a.body.querySelectorAll('.todoer-widget .list-item-container.selected')].map(r => r.getAttribute('data-id'))
       const newTodoB = b.makeItem('ntB', { saved_id: null, name: '#ntB', text: '#todo created in B', scrollY: 1900 })
       b.setBox('#ntB')
       b.env._send_selected(newTodoB)
-      advanceAll(bus, [a, b], 250) // still unsaved in B
-      const beforeTodoSave = a.getBox()
+      advanceAll(bus, [a, b], 250) // still unsaved in B: partner reports target: true -> A clears stale t0 mark!
+      const beforeTodoSave = [a.getBox(), markedA(), a.env._pressed_item('done', 't0')?.id ?? null]
       newTodoB.saved_id = 's_ntB'
       b.items.set('s_ntB', newTodoB)
       advanceAll(bus, [a, b], 250) // 500ms: B sends selected(s_ntB); A doesn't have item yet
       a.makeItem('ntB', { saved_id: 's_ntB', name: '#ntB', text: '#todo created in B', scrollY: 1900 })
       advanceAll(bus, [a, b], 250) // 750ms: item exists in A, but row has NOT rendered yet -> still waiting!
-      const beforeTodoRow = a.getBox()
+      const beforeTodoRow = [a.getBox(), markedA()]
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ntB' }))
-      advanceAll(bus, [a, b], 250) // 1000ms: row rendered -> A takes #ntB and holds scroll at 500!
-      const afterTodoRow = [a.getBox(), a.getScrollTop()]
-      // (b) child created under a todo in B: unsaved -> saves at 250ms -> B tells it -> item arrives in A with NO row -> A never takes it (even past 3.5s)
+      advanceAll(bus, [a, b], 250) // 1000ms: row rendered -> A marks #ntB keeping box '' and scroll 500!
+      const afterTodoRow = [a.getBox(), markedA(), a.getScrollTop()]
+      // (b) child created under a todo in B: unsaved -> saves -> B tells it -> A has no row -> unmarks, never calls select, keeps box '' & scroll 500
       const childB = b.makeItem('chB', { saved_id: null, name: '#t0/0', text: '#t0/0 a task chat child', tags: [], tags_visible: [], scrollY: 2000 })
       b.setBox('#t0/0')
       b.env._send_selected(childB)
@@ -12829,15 +13136,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.makeItem('chB', { saved_id: 's_chB', name: '#t0/0', text: '#t0/0 a task chat child', tags: [], tags_visible: [], scrollY: 2000 })
       a.selects.length = 0
       advanceAll(bus, [a, b], 4000)
-      const afterChild = [a.getBox(), a.getScrollTop(), a.selects.length]
+      const afterChild = [a.getBox(), markedA(), a.getScrollTop(), a.selects.length]
       check(
-        'windows new todo vs child in other window: todo created in B is told once saved and taken by A once its row renders; child under todo created in B is never taken by A',
+        'windows new todo vs child in other window: todo created in B is told once saved and marked in A once its row renders; child under todo clears mark without touching box or scroll',
         [beforeTodoSave, beforeTodoRow, afterTodoRow, afterChild],
-        ['#t0', '#t0', ['#ntB', 500], ['#ntB', 500, 0]]
+        [['', [], null], ['', []], ['', ['ntB'], 500], ['', [], 500, 0]]
       )
     }
 
-    // 33b. the link ended while the list's window still waits for a row: the selection is not taken after all
+    // 33b. the link ended while the list's window still waits for a row: the mark is not set after all
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
@@ -12852,22 +13159,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       a.env._select_item(orig)
       bus.flush()
-      // B selects an item that A holds without a row: A waits for the row
+      const markedA = () => [...a.body.querySelectorAll('.todoer-widget .list-item-container.selected')].map(r => r.getAttribute('data-id'))
       const lateB = b.makeItem('lateU', { saved_id: 's_lateU', name: '#lateU', text: '#todo late', scrollY: 1900 })
       a.makeItem('lateU', { saved_id: 's_lateU', name: '#lateU', text: '#todo late', scrollY: 1900 })
       b.setBox('#lateU')
       b.env._send_selected(lateB)
       advanceAll(bus, [a, b], 300)
-      const whileWaiting = a.getBox()
+      const whileWaiting = [a.getBox(), markedA()]
       a.env._send_toggle(false) // the link is ended in the list's window
       bus.flush()
       a.selects.length = 0
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'lateU' }))
       advanceAll(bus, [a, b], 3500)
       check(
-        "windows unlink while a row is waited for: the list's window does not take the selection once its link is ended, though the row arrives within the 3 s",
-        [whileWaiting, a.getBox(), a.selects.length],
-        ['#t0', '#t0', 0]
+        "windows unlink while a row is waited for: the list's window does not mark the row once its link is ended, though the row arrives within the 2 s",
+        [whileWaiting, a.getBox(), markedA(), a.selects.length],
+        [['', []], '', [], 0]
       )
     }
 
@@ -12970,32 +13277,36 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeItem('ow_top', { saved_id: 's_ow_top', scrollY: 1800 })
       a.env._send_toggle(true)
       bus.flush()
-      // (a) wheel during pending _update_dom: wheel moves to 800 and ends hold; resolving _update_dom must NOT move to 596 or reinstate hold
+      // (a) wheel during pending _update_dom (both-targets hold -> #todo): wheel moves to 800 and ends hold; resolving _update_dom must NOT move or reinstate hold
+      a.setBox('#ow_top')
+      b.setBox('#ow_top')
+      b.env._on_search('#ow_top')
+      bus.flush()
       a.env._select_item(rBelow)
       bus.flush()
       a.fireWin('wheel')
       a.setScrollTop(800)
       while (a.domQueue.length) a.domQueue.shift()()
       await Promise.resolve()
-      const afterWheelDom = [a.getScrollTop(), !!a.win._todoer_windows.hold]
-      // (b) quick reversal across edge: older rBelow's pending _update_dom resolves AFTER rTop started its own hold -> must NOT pull to 596
+      const afterWheelDom = [a.getScrollTop(), !!a.win._todoer_windows.hold, a.getBox()]
+      // (b) quick reversal across edge from both-targets hold: older rBelow's pending _update_dom resolves AFTER rTop -> must NOT pull to 672
+      a.setBox('#ow_top')
       a.setScrollTop(500)
       a.env._select_item(rBelow)
       bus.flush()
       const dom1 = a.domQueue.shift()
       a.env._select_item(rTop)
       bus.flush()
-      const dom2 = a.domQueue.shift()
       dom1()
       await Promise.resolve()
       const afterOldDom = a.getScrollTop()
-      dom2()
+      while (a.domQueue.length) a.domQueue.shift()()
       await Promise.resolve()
       const afterNewDom = a.getScrollTop()
       // (c) wheel during 3s sender ack wait: dead peer is forgotten, but fallback must NOT pull owner from 225 to 1600
       b.win._todoer_windows.channel.muted = true
       a.setScrollTop(500)
-      a.scrollToTargetCalls.length = 0
+      a.selects.length = 0
       a.env._select_item(rBelow)
       bus.flush()
       a.fireWin('wheel')
@@ -13005,14 +13316,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.advance(3100)
       while (a.domQueue.length) a.domQueue.shift()()
       await Promise.resolve()
-      const afterWheelFallback = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
-      // (d) positive control: owner leaves page alone -> 3s fallback STILL shows item (even though 1500ms hold already expired!)
+      const afterWheelFallback = [a.win._todoer_windows.peers.has('B'), a.selects.length, a.getScrollTop()]
+      // (d) positive control: owner leaves page alone -> 3s fallback STILL opens item locally
       const c = makeWindow(bus, { id: 'C', now: a.clock.now })
       c.env._start_windows()
       bus.flush()
       c.win._todoer_windows.channel.muted = true
       a.setScrollTop(500)
-      a.scrollToTargetCalls.length = 0
+      a.selects.length = 0
       a.env._select_item(rTop)
       bus.flush()
       while (a.domQueue.length) a.domQueue.shift()()
@@ -13020,16 +13331,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.advance(3100)
       while (a.domQueue.length) a.domQueue.shift()()
       await Promise.resolve()
-      const afterIdleFallback = [a.win._todoer_windows.peers.has('C'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      const afterIdleFallback = [a.win._todoer_windows.peers.has('C'), a.selects.map(s => s.id), a.getBox(), a.getScrollTop()]
       check(
-        'windows owner scroll wins: wheel beats pending _update_dom and 3s fallback, older _update_dom cannot move newer selection, idle 3s fallback still scrolls',
+        'windows owner scroll wins: wheel beats pending _update_dom and 3s fallback, older _update_dom cannot move newer selection, idle 3s fallback still opens locally',
         [afterWheelDom, afterOldDom, afterNewDom, afterWheelFallback, afterIdleFallback],
         [
-          [800, false],
+          [800, false, '#todo'],
           500,
           500,
           [false, 0, 225],
-          [false, 1, 1800],
+          [false, ['ow_top'], '#ow_top', 1800],
         ]
       )
     }
@@ -13050,24 +13361,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeItem('f2_ref', { saved_id: 's_f2_ref', scrollY: 1750, refuseSelect: true })
       a.env._send_toggle(true)
       bus.flush()
-      // (a) missing item: B sends 0 took (stops at 2s), A falls back at 3s and scrolls to ghost
+      // (a) missing item: B sends 0 took (stops at 2s), A falls back at 3s and opens ghost locally
       bus.sent.length = 0
-      a.scrollToTargetCalls.length = 0
+      a.selects.length = 0
       a.env._select_item(ghost)
       bus.flush()
       const ghostTookAt0 = bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length
       advanceAll(bus, [a, b], 2100)
-      const ghostAt2100 = [bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length, a.scrollToTargetCalls.length]
+      const ghostAt2100 = [bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length, a.selects.length]
       advanceAll(bus, [a, b], 1000) // 3100ms: A falls back!
       await Promise.resolve()
-      const ghostAt3100 = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
-      // reconnect B (both tabs share one machine clock)
+      const ghostAt3100 = [a.win._todoer_windows.peers.has('B'), a.selects.length, a.getScrollTop()]
+      // reconnect B (both tabs share one machine clock) and clear A's target back to list
+      a.setBox('')
       advanceAll(bus, [a, b], 2000)
       b.fireWin('focus')
       bus.flush()
       // (b) refused item.select(): B sends 0 took, preserves b.last, A falls back at 3s
       bus.sent.length = 0
-      a.scrollToTargetCalls.length = 0
+      a.selects.length = 0
       a.setScrollTop(500)
       b.win._todoer_windows.last = 'prev_last'
       a.env._select_item(refIt)
@@ -13075,14 +13387,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const refusedImmediate = [bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length, b.win._todoer_windows.last]
       advanceAll(bus, [a, b], 3100)
       await Promise.resolve()
-      const refusedFallback = [a.scrollToTargetCalls.length, a.getScrollTop()]
-      // reconnect B (both tabs share one machine clock)
+      const refusedFallback = [a.selects.length, a.getScrollTop()]
+      // reconnect B (both tabs share one machine clock) and clear A's target back to list
+      a.setBox('')
       advanceAll(bus, [a, b], 2000)
       b.fireWin('focus')
       bus.flush()
       // (c) late item arrives at 500ms (<= 2s deadline): 0 took at t=0, 1 took at 750ms after select, A stays at 500 and keeps peer past 3s
       bus.sent.length = 0
-      a.scrollToTargetCalls.length = 0
+      a.selects.length = 0
       a.setScrollTop(500)
       a.env._select_item(late)
       bus.flush()
@@ -13092,7 +13405,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       advanceAll(bus, [a, b], 250)
       const lateAt750 = [b.getBox(), bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
       advanceAll(bus, [a, b], 3000)
-      const latePast3s = [a.win._todoer_windows.peers.has('B'), a.scrollToTargetCalls.length, a.getScrollTop()]
+      const latePast3s = [a.win._todoer_windows.peers.has('B'), a.selects.length, a.getScrollTop()]
       // (d) stalled receiver past 2s deadline (60s stall): item appears during stall -> B MUST NOT take 60s-old selection
       b.selects.length = 0
       bus.sent.length = 0
@@ -13205,17 +13518,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b2.env._start_windows()
       bus.flush()
       b2.win._todoer_windows.channel.muted = true
+      a.setBox('')
       a.setScrollTop(500)
-      a.scrollToTargetCalls.length = 0
+      a.selects.length = 0
       a.env._select_item(unlkA)
       bus.flush()
       a.env._send_toggle(false)
       bus.flush()
-      const retiredImmediately = [!a.win._todoer_windows.hold, !a.win._todoer_windows.swallow, !a.win._todoer_windows.pending]
+      const retiredImmediately = [!a.win._todoer_windows.hold, !a.win._todoer_windows.shown, !a.win._todoer_windows.pending]
       a.advance(3500)
       await Promise.resolve()
-      const afterUnlinkNoFallback = [retiredImmediately, a.scrollToTargetCalls.length, a.getScrollTop()]
-      // (d) pending sender ack wait in A when B2 simply leaves (bye) while link stays ON -> fallback STAYS and scrolls A!
+      const afterUnlinkNoFallback = [retiredImmediately, a.selects.length, a.getScrollTop()]
+      // (d) pending sender ack wait in A when B2 simply leaves (bye) while link stays ON -> fallback STAYS and opens locally in A!
       a.env._send_toggle(true)
       bus.flush()
       b2.win._todoer_windows.channel.muted = false
@@ -13224,7 +13538,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       b2.win._todoer_windows.channel.muted = true
       a.setScrollTop(500)
-      a.scrollToTargetCalls.length = 0
+      a.selects.length = 0
       a.env._select_item(byeA)
       bus.flush()
       b2.win._todoer_windows.channel.muted = false
@@ -13233,7 +13547,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       a.advance(3500)
       await Promise.resolve()
-      const afterPeerByeFallback = [a.scrollToTargetCalls.length, a.getScrollTop()]
+      const afterPeerByeFallback = [a.selects.length, a.getScrollTop()]
       // (e) pending lookup in A and pending saving in B when account is left -> neither fires!
       const b3 = makeWindow(bus, { id: 'B3', now: a.clock.now })
       b3.env._start_windows()
@@ -13304,6 +13618,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const fb2 = fb.makeItem('fb_bye', { saved_id: 's_fb_bye', scrollY: 1950 })
       fb.makeWidget({ rows: [{ id: 'fb_unlk' }, { id: 'fb_bye' }] })
       fa.win._todoer_windows.channel.muted = true
+      fb.selects.length = 0
       fb.env._select_item(fb1)
       bus3.flush()
       fa.win._todoer_windows.channel.muted = false
@@ -13311,20 +13626,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus3.flush()
       fb.advance(3500)
       await Promise.resolve()
-      const bAfterAUnlink = [fb.scrollToTargetCalls.length, fb.getScrollTop()]
+      const bAfterAUnlink = [fb.selects.length, fb.getScrollTop()]
       fa.env._send_toggle(true)
       bus3.flush()
       fa.win._todoer_windows.channel.muted = true
       fb.setScrollTop(500)
+      fb.selects.length = 0
       fb.env._select_item(fb2)
       bus3.flush()
       fa.win._todoer_windows.channel.muted = false
-      fa.fireWin('pagehide') // A closes -> B keeps ask fallback and scrolls to 1950!
+      fa.fireWin('pagehide') // A closes -> B keeps ask fallback and opens locally at 1950!
       fa.win._todoer_windows.channel.close()
       bus3.flush()
       fb.advance(3500)
       await Promise.resolve()
-      const bAfterABye = [fb.scrollToTargetCalls.length, fb.getScrollTop()]
+      const bAfterABye = [fb.selects.length, fb.getScrollTop()]
       check(
         'windows retire & switch owner: unlink/bye/account-left drop stale work while peer-bye keeps sender fallback (both directions), and another account forgets stored switch',
         [afterUnlinkTakeB, afterByeTakeA, afterUnlinkNoFallback, afterPeerByeFallback, bAfterAUnlink, bAfterABye, afterAccountLeftTake, afterAccountLeftSave, sameAcctReload, diffAcctReset, leftA.id, bLeftA.id],
@@ -13336,7 +13652,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [0, 500],
           [1, 1950],
           ['#f4_byeA', 0],
-          [0, 'keep_last'],
+          [0, true], // hello({ target: true }) recorded true; account-left kept it without sending s_f4_usLeft
           [true, 'U1A2'],
           [false, null, null, true],
           'f4_leftA',
@@ -13374,7 +13690,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         }
         bus.flush()
         advanceAll(bus, [a, b], 4000)
-        return [a.getBox(), b.getBox(), a.win._todoer_windows.peers.has(idB), a.scrollToTargetCalls.length, aTwo.id]
+        return [a.getBox(), b.getBox(), a.env._row_now().named?.id ?? null, b.env._row_now().named?.id ?? null, a.win._todoer_windows.peers.has(idB), aTwo.id]
       }
       const bLaterAB = runCross('A', 1_700_000_001_000, 'B', 1_700_000_001_005, false)
       const bLaterBA = runCross('A', 1_700_000_001_000, 'B', 1_700_000_001_005, true)
@@ -13383,15 +13699,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const tieBWins = runCross('A', 1_700_000_001_000, 'B', 1_700_000_001_000, false)
       const tieAWins = runCross('Z', 1_700_000_001_000, 'B', 1_700_000_001_000, true)
       check(
-        'windows crossing selections converge: later clock wins in both flush orders, exact tie goes to greater window id, peer stays and fallback does not fire',
+        'windows crossing selections converge: later clock wins in both flush orders (winner stays list marking item, loser opens it), exact tie goes to greater window id, peer stays',
         [bLaterAB, bLaterBA, aLaterAB, aLaterBA, tieBWins, tieAWins],
         [
-          ['#two', '#two', true, 0, 'two'],
-          ['#two', '#two', true, 0, 'two'],
-          ['#one', '#one', true, 0, 'two'],
-          ['#one', '#one', true, 0, 'two'],
-          ['#two', '#two', true, 0, 'two'],
-          ['#one', '#one', true, 0, 'two'],
+          ['#two', '', 'two', 'two', true, 'two'],
+          ['#two', '', 'two', 'two', true, 'two'],
+          ['', '#one', 'one', 'one', true, 'two'],
+          ['', '#one', 'one', 'one', true, 'two'],
+          ['#two', '', 'two', 'two', true, 'two'],
+          ['', '#one', 'one', 'one', true, 'two'],
         ]
       )
     }
@@ -13466,7 +13782,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 41. Link starts with what is selected: turning link on with a listed item selected tells it to the other window at once (unlisted is not told)
+    // 41. Link & relink from either side (targetless side included): turning link on syncs a no-target window's
+    //     actual marked row and captured Done action to the partner's live target without touching its box
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', scrollTop: 500 })
@@ -13474,266 +13791,173 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._start_windows()
       b.env._start_windows()
       bus.flush()
+      const doneHits = []
+      b.env._complete_todo = it => (doneHits.push(it.id), false)
       const t1 = a.makeItem('init1', { saved_id: 's_init1', scrollY: 1600 })
+      const t2 = a.makeItem('init2', { saved_id: 's_init2', scrollY: 1700 })
       const note = a.makeItem('initNote', { saved_id: 's_initNote', tags: [], tags_visible: [] })
-      a.makeWidget({ rows: [{ id: 'init1' }] })
+      a.makeWidget({ rows: [{ id: 'init1' }, { id: 'init2' }] })
       b.makeItem('init1', { saved_id: 's_init1', scrollY: 1600 })
+      b.makeItem('init2', { saved_id: 's_init2', scrollY: 1700 })
       b.makeItem('initNote', { saved_id: 's_initNote', tags: [], tags_visible: [] })
-      // A already selected #init1 while unlinked (windows.last already set), B is empty -> turning link on tells #init1 to B at once!
+      const wB = b.makeWidget({ rows: [{ id: 'init1' }, { id: 'init2' }] })
+      const markedB = () => [...wB.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const doneB = () => b.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDone = async (btn = doneB()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
+      // (a) Fresh link from the TARGETLESS side (B) after A navigated to #init1 while unlinked -> B marks init1 and Done acts on init1!
       a.env._select_item(t1)
       bus.flush()
-      const bBeforeLink = b.getBox()
+      const bBeforeLink = [b.getBox(), markedB(), await pressDone()]
+      b.env._send_press()
+      bus.flush()
+      const doneForInit1 = doneB()
+      const bAfterFreshTargetless = [b.getBox(), markedB(), await pressDone()]
+      // (b) Unlink, A navigates to #init2 while unlinked, relink from targetless side B -> B marks init2, stale init1 Done rejected, current Done acts on init2!
+      b.env._send_press()
+      bus.flush()
+      a.env._select_item(t2)
+      bus.flush()
+      b.env._send_press()
+      bus.flush()
+      const bAfterRelinkTargetless = [b.getBox(), markedB(), await pressDone(doneForInit1), await pressDone()]
+      // (c) Unlink, A navigates back to #init1 while unlinked, relink from targeted side A -> B marks init1 and Done acts on init1!
       a.env._send_press()
       bus.flush()
-      const bAfterLinkListed = b.getBox()
-      // Unlink, select unlisted #initNote in A, link again -> B keeps #init1 (unlisted NOT told)
+      a.env._select_item(t1)
+      bus.flush()
       a.env._send_press()
+      bus.flush()
+      const bAfterRelinkTargeted = [b.getBox(), markedB(), await pressDone()]
+      // (d) Unlink, A selects unlisted #initNote while unlinked, relink from targetless side B -> no mark, no Done button, stale Done rejected!
+      b.env._send_press()
       bus.flush()
       a.env._select_item(note)
       bus.flush()
-      a.env._send_press()
+      b.env._send_press()
       bus.flush()
-      const bAfterLinkUnlisted = b.getBox()
+      const bAfterLinkUnlisted = [b.getBox(), markedB(), !!doneB(), await pressDone(doneForInit1)]
+      // (e) Unlink, A clears target to '' while unlinked, relink from targetless side B -> no mark, no Done button!
+      b.env._send_press()
+      bus.flush()
+      a.setBox('')
+      a.env._on_search('')
+      bus.flush()
+      b.env._send_press()
+      bus.flush()
+      const bAfterLinkNone = [b.getBox(), markedB(), !!doneB()]
       check(
-        'windows link starts with selected listed item: turning link on tells currently selected listed item to peer at once, skips unlisted item',
-        [bBeforeLink, bAfterLinkListed, bAfterLinkUnlisted],
-        ['', '#init1', '#init1']
+        'windows link starts with peer target: fresh link and relink from either side sync actual marked row and Done action without touching box; unlisted or none leaves no mark',
+        [bBeforeLink, bAfterFreshTargetless, bAfterRelinkTargetless, bAfterRelinkTargeted, bAfterLinkUnlisted, bAfterLinkNone],
+        [
+          ['', [], null],
+          ['', ['init1'], 'init1'],
+          ['', ['init2'], null, 'init2'],
+          ['', ['init1'], 'init1'],
+          ['', [], false, null],
+          ['', [], false],
+        ]
       )
     }
 
-    // 42. Sitting 5 + 6 + 8 + 9: targeted _swallow_scroll lifecycle — swallows ONLY item's target scroll
-    // (zero scroll events, drains at 0 ms when unheld), passes non-matching scrollTo, synchronous scrollTo
-    // inside a keydown (window.event), and scrollTo after .column-padding height changes (updating its
-    // baseline while staying armed), drops on popstate in capture before bubble, unlink/takeover/account-left,
-    // expiry, and 3s fallback, keeps swallow across pointer/wheel/touch/keydown/resize/visualViewport.resize,
-    // and stays safe across sequential/overlapping calls
+    // 42. No body.scrollTo shadow and minimal _hold_scroll lifecycle (only used when both-targets drops target):
+    //     holds against no-target scroll-up until SEND_HOLD_MS, ends immediately on owner inputs, popstate,
+    //     resize, visualViewport.resize, unlink, account-left, and fallback, and never shadows body.scrollTo
     {
       const bus = makeBus()
-      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const a = makeWindow(bus, { id: 'A', scrollTop: 900, headerTop: 500 })
       const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
       a.env._start_windows()
       b.env._start_windows()
       bus.flush()
-      const swItem = a.makeItem('sw1', { saved_id: 's_sw1', scrollY: 1600 })
-      const swItem2 = a.makeItem('sw2', { saved_id: 's_sw2', scrollY: 1650 })
       const hasShadow = w => Object.prototype.hasOwnProperty.call(w.body, 'scrollTo')
-      // (a) before swallow: no own scrollTo, scrollTo works normally
-      const beforeSwallow = [hasShadow(a), (a.body.scrollTo(0, 900), a.getScrollTop())]
-      a.setScrollTop(500)
-      a.body._scrollToCalls.length = 0
-      // (b) during swallow + hold: target scroll (1600) swallowed with zero scroll events, non-matching (1300) passes through; expiry removes it
-      let scrollEvents = 0
-      a.doc.addEventListener('scroll', () => scrollEvents++, true)
-      a.env._swallow_scroll(swItem)
-      a.env._hold_scroll(500)
-      const duringShadow = hasShadow(a)
-      a.body.scrollTo(0, 1600)
-      const duringState = [a.getScrollTop(), a.body._scrollToCalls.length, scrollEvents]
+      // (a) hold restores scroll-up, never shadows body.scrollTo, expires after SEND_HOLD_MS
+      a.env._hold_scroll(900)
+      a.simScroll(500)
+      const duringHold = [hasShadow(a), !!a.win._todoer_windows.hold, a.getScrollTop()]
       a.advance(1500)
-      const afterExpiry = [hasShadow(a), (a.body.scrollTo(0, 1100), a.getScrollTop())]
-      // (c) pointer/wheel/touch inputs end hold while keeping targeted swallow armed (non-matching passes, target swallowed & drained at 0ms);
-      //     popstate drops BOTH hold and swallow in capture BEFORE bubble listeners run;
-      //     keydown ends hold, keeps swallow standing, passes synchronous scrollTo inside keydown via window.event,
-      //     and still swallows a non-keydown target scroll afterwards;
-      //     window resize and visualViewport resize end hold while keeping swallow armed (padding change passes even target coordinate and re-arms baseline)
-      const inputOrder = []
-      for (const input of ['wheel', 'touchstart', 'pointerdown']) {
-        a.setScrollTop(500)
-        a.env._swallow_scroll(swItem)
-        a.env._hold_scroll(500)
-        a.fireWin(input, { type: input })
-        a.body.scrollTo(0, 1300) // non-matching passes straight through!
-        const nonMatchTop = a.getScrollTop()
-        a.body.scrollTo(0, 1600) // matching target scroll still swallowed!
-        const afterTargetTop = a.getScrollTop()
-        a.advance(0) // 0ms drain drops shadow now that hold is gone
-        inputOrder.push([input, !!a.win._todoer_windows.hold, nonMatchTop, afterTargetTop, hasShadow(a)])
-      }
-      const navOrder = []
-      for (const ev of ['popstate', 'keydown']) {
-        a.setScrollTop(500)
-        a.env._swallow_scroll(swItem)
-        a.env._hold_scroll(500)
-        let bubbleSawShadow = null
-        const appBubble = () => {
-          bubbleSawShadow = hasShadow(a)
-          a.body.scrollTo(0, 1600) // popstate dropped swallow; keydown passes via window.event
-        }
-        a.win.addEventListener(ev, appBubble, false)
+      a.simScroll(600)
+      const afterExpiry = [hasShadow(a), !!a.win._todoer_windows.hold, a.getScrollTop()]
+      // (b) every input/nav/resize event ends hold in capture before bubble
+      const evEnded = []
+      for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown', 'popstate', 'resize']) {
+        a.setScrollTop(900)
+        a.env._hold_scroll(900)
         a.fireWin(ev, { type: ev })
-        a.win.removeEventListener(ev, appBubble, false)
-        const duringTop = a.getScrollTop()
-        const afterEvShadow = hasShadow(a)
-        let postKeySwallow = null
-        if (ev == 'keydown') {
-          a.setScrollTop(500)
-          a.body.scrollTo(0, 1600) // outside keydown: still swallowed and drained at 0ms
-          a.advance(0)
-          postKeySwallow = [a.getScrollTop(), hasShadow(a)]
-        }
-        navOrder.push([ev, bubbleSawShadow, afterEvShadow, !!a.win._todoer_windows.hold, duringTop, postKeySwallow])
+        a.simScroll(650)
+        evEnded.push([ev, !!a.win._todoer_windows.hold, a.getScrollTop()])
       }
-      const colPad = a.body.querySelector('.column-padding')
-      colPad.offsetHeight = 595
-      colPad.style.height = '595px'
-      a.setScrollTop(500)
-      a.env._swallow_scroll(swItem)
-      a.env._hold_scroll(500)
-      a.fireWin('resize', { type: 'resize' })
-      const afterWinResize = [hasShadow(a), !!a.win._todoer_windows.hold]
-      colPad.offsetHeight = 510
-      colPad.style.height = '510px'
-      a.body.scrollTo(0, 1600) // the route wrote a new inline height -> passes even exact target coordinate, updating baseline
-      const afterWinResizePad = [a.getScrollTop(), hasShadow(a)]
-      a.setScrollTop(560)
-      a.body.scrollTo(0, 1600) // padding unchanged -> target scroll still swallowed and drained at 0ms
-      a.advance(0)
-      const afterWinResizeTarget = [a.getScrollTop(), hasShadow(a)]
-      // the signal is the inline height the route writes: a height that CSS alone changes (as on iOS, where the route
-      // writes none) gives no pass, nor does a cleared inline value, which the remembered value follows (so the same
-      // height written again afterwards is a change, and passes)
-      a.setScrollTop(560)
-      a.env._swallow_scroll(swItem)
-      a.env._hold_scroll(560)
-      a.fireWin('resize', { type: 'resize' }) // (a change of the window's height ends the hold, which would else put a passed scroll back)
-      colPad.offsetHeight = 425
-      a.body.scrollTo(0, 1600)
-      const afterCssOnly = a.getScrollTop()
-      colPad.style.height = ''
-      a.body.scrollTo(0, 1600)
-      const afterCleared = a.getScrollTop()
-      colPad.style.height = '510px'
-      a.body.scrollTo(0, 1600)
-      const afterRewritten = [a.getScrollTop(), hasShadow(a)]
-      a.win._todoer_windows.hold?.()
-      a.win._todoer_windows.swallow?.()
-      check('windows _swallow_scroll padding signal: CSS-only height change and a cleared inline height give no pass, a rewritten one passes', [afterCssOnly, afterCleared, afterRewritten], [560, 560, [1600, true]])
-      colPad.offsetHeight = 595
-      colPad.style.height = '595px'
-      a.setScrollTop(500)
-      a.env._swallow_scroll(swItem)
-      a.env._hold_scroll(500)
+      a.setScrollTop(900)
+      a.env._hold_scroll(900)
       a.fireVv('resize', { type: 'resize' })
-      const afterVvResize = [hasShadow(a), !!a.win._todoer_windows.hold]
-      a.win._todoer_windows.swallow?.()
-      // (d) link ended from list window, from showing window (unlink), and by takeover all delete shadow
-      a.setScrollTop(500)
+      a.simScroll(650)
+      const vvEnded = [!!a.win._todoer_windows.hold, a.getScrollTop()]
+      // (c) unlink (own & peer) and account-left end hold
       a.env._send_toggle(true)
       bus.flush()
-      a.env._swallow_scroll(swItem)
-      const onListSwallow = hasShadow(a)
+      a.env._hold_scroll(900)
       a.env._send_toggle(false)
       bus.flush()
-      const afterOwnUnlink = hasShadow(a)
+      const afterOwnUnlink = !!a.win._todoer_windows.hold
       a.env._send_toggle(true)
       bus.flush()
-      a.env._swallow_scroll(swItem)
-      b.env._send_press() // showing window sends unlink
+      a.env._hold_scroll(900)
+      b.env._send_press()
       bus.flush()
-      const afterPeerUnlink = hasShadow(a)
-      a.env._send_toggle(true)
-      bus.flush()
-      const swItemB = b.makeItem('sw1', { saved_id: 's_sw1', scrollY: 1600 })
-      b.env._swallow_scroll(swItemB)
-      a.env._send_toggle(false) // A unlinks -> B's swallow shadow drops too!
-      bus.flush()
-      const afterTakeover = hasShadow(b)
-      // (e) account left removes shadow on step/heartbeat
-      const d = makeWindow(bus, { id: 'D', scrollTop: 500, headerTop: 500 })
+      const afterPeerUnlink = !!a.win._todoer_windows.hold
+      const d = makeWindow(bus, { id: 'D', scrollTop: 900, headerTop: 500 })
       d.env._start_windows()
-      const dItem = d.makeItem('dsw', { saved_id: 's_dsw', scrollY: 1600 })
-      d.env._swallow_scroll(dItem)
-      const dBeforeLeft = hasShadow(d)
+      d.env._hold_scroll(900)
       d.win._notification_account_left = true
-      d.advance(100) // next step sees account left -> calls drop()
-      const dAfterLeft = hasShadow(d)
-      // (f) two swallows in a row, two overlapping swallows with windows (stale drop1 never deletes swallow2's shadow),
-      //     and two swallows at once without windows
-      a.setScrollTop(500)
-      const seq1 = a.env._swallow_scroll(swItem)
-      const seq1On = hasShadow(a)
-      seq1()
-      const seq1Off = hasShadow(a)
-      const seq2 = a.env._swallow_scroll(swItem2)
-      const seq2On = hasShadow(a)
-      seq2()
-      const seq2Off = hasShadow(a)
-      const ov1 = a.env._swallow_scroll(swItem)
-      const ov2 = a.env._swallow_scroll(swItem2)
-      a.env._hold_scroll(650)
-      const ovBothStarted = hasShadow(a)
-      ov1() // stale drop of swallow 1!
-      a.body.scrollTo(0, 1650)
-      const ovAfterStaleEnd1 = [hasShadow(a), a.getScrollTop()]
-      ov2()
-      a.win._todoer_windows.hold?.()
-      const ovAfterEnd2 = hasShadow(a)
-      const bare = makeWindow(bus, { id: 'BARE', scrollTop: 500, headerTop: 500 }) // _start_windows not called
-      const bi1 = bare.makeItem('bi1', { saved_id: 's_bi1', scrollY: 1600 })
-      const bi2 = bare.makeItem('bi2', { saved_id: 's_bi2', scrollY: 1650 })
-      const b1 = bare.env._swallow_scroll(bi1)
-      const b2 = bare.env._swallow_scroll(bi2)
-      b1() // dropping swallow 1 must NOT delete swallow 2's shadow
-      bare.body.scrollTo(0, 1650)
-      const bareAfterB1 = [hasShadow(bare), bare.getScrollTop()]
-      b2()
-      const bareAfterB2 = hasShadow(bare)
-      // (g) 3s fallback while stepped hold + swallow still stand deletes shadow BEFORE scrolling to target
-      const fb = makeWindow(bus, { id: 'FB', scrollTop: 500, headerTop: 500 })
+      d.advance(100)
+      const afterAccountLeft = !!d.win._todoer_windows.hold
+      // (d) overlapping hold replaces prior cleanly and stale end does not clear newer hold
+      const h1 = a.env._hold_scroll(800)
+      const h2 = a.env._hold_scroll(850)
+      h1()
+      a.simScroll(500)
+      const afterStaleH1 = [!!a.win._todoer_windows.hold, a.getScrollTop()]
+      h2()
+      const afterH2 = !!a.win._todoer_windows.hold
+      // (e) 3s fallback while stepped hold still stands (both-targets drop -> silent peer) releases hold and opens locally
+      const fb = makeWindow(bus, { id: 'FB', scrollTop: 900, headerTop: 500 })
       const fbp = makeWindow(bus, { id: 'FBP', scrollTop: 500, headerTop: 500 })
       fb.env._start_windows()
       fbp.env._start_windows()
       bus.flush()
       fb.env._send_toggle(true)
       bus.flush()
+      fb.makeItem('fb0', { saved_id: 's_fb0', scrollY: 1600 })
       const fbItem = fb.makeItem('fb1', { saved_id: 's_fb1', scrollY: 1750 })
-      fb.makeWidget({ rows: [{ id: 'fb1', pageY: 580, height: 32 }] })
+      fb.makeWidget({ rows: [{ id: 'fb1', pageY: 940, height: 32 }] })
+      fbp.makeItem('fbp0', { saved_id: 's_fbp0', scrollY: 1600 })
+      fb.setBox('#fb0')
+      fbp.setBox('#fbp0')
+      fbp.fireWin('focus')
+      bus.flush()
       fbp.win._todoer_windows.channel.muted = true
       fb.env._select_item(fbItem)
       bus.flush()
-      fb.stall(3100) // stepped hold & swallow spent only 1 step, STILL standing when 3s ack timeout fires!
+      fb.stall(3100) // stepped hold spent only 1 step, STILL standing when 3s ack timeout fires!
       await Promise.resolve()
-      const afterStallFallback = [hasShadow(fb), fb.getScrollTop()]
+      const afterStallFallback = [hasShadow(fb), !!fb.win._todoer_windows.hold, fb.getBox(), fb.getScrollTop()]
       check(
-        'windows _swallow_scroll lifecycle: swallows target scroll only, drains unheld, passes non-matching/keydown/padding-change scrollTo, drops on popstate/unlink/takeover/account-left/fallback, keeps swallow across keydown/resize, safe across overlaps',
+        'windows _hold_scroll lifecycle: no body.scrollTo shadow, holds against scroll-up until expiry/input/nav/resize/unlink/account-left/fallback, safe across overlaps',
+        [duringHold, afterExpiry, evEnded, vvEnded, [afterOwnUnlink, afterPeerUnlink, afterAccountLeft], [afterStaleH1, afterH2], afterStallFallback],
         [
-          beforeSwallow,
-          duringShadow,
-          duringState,
-          afterExpiry,
-          inputOrder,
-          navOrder,
-          [afterWinResize, afterWinResizePad, afterWinResizeTarget],
-          afterVvResize,
-          [onListSwallow, afterOwnUnlink, afterPeerUnlink, afterTakeover],
-          [dBeforeLeft, dAfterLeft],
-          [seq1On, seq1Off, seq2On, seq2Off],
-          [ovBothStarted, ovAfterStaleEnd1, ovAfterEnd2],
-          [bareAfterB1, bareAfterB2],
-          afterStallFallback,
-        ],
-        [
-          [false, 900],
-          true,
-          [500, 0, 0],
-          [false, 1100],
+          [false, true, 900],
+          [false, false, 600],
           [
-            ['wheel', false, 1300, 1300, false],
-            ['touchstart', false, 1300, 1300, false],
-            ['pointerdown', false, 1300, 1300, false],
+            ['wheel', false, 650],
+            ['touchstart', false, 650],
+            ['pointerdown', false, 650],
+            ['keydown', false, 650],
+            ['popstate', false, 650],
+            ['resize', false, 650],
           ],
-          [
-            ['popstate', false, false, false, 1600, null],
-            ['keydown', true, true, false, 1600, [500, false]],
-          ],
-          [[true, false], [1600, true], [560, false]],
-          [true, false],
-          [true, false, false, false],
-          [true, false],
-          [true, false, true, false],
-          [true, [true, 650], false],
-          [[true, 500], false],
-          [false, 1750],
+          [false, 650],
+          [false, false, false],
+          [[true, 850], false],
+          [false, false, '#fb1', 1750],
         ]
       )
     }
@@ -13808,12 +14032,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       c.win._todoer_windows.channel.close()
       bus.flush()
       // (c) wheel while a received selection waits for its row to mount:
-      //     row arrives after wheel -> box syncs, automatic scroll to 1775 swallowed, NO hold started, stays at 800 (not pulled back to 500)
+      //     row arrives after wheel -> mark syncs (box stays ''), NO hold started, stays at 800 (not pulled back to 500)
       b.win._todoer_windows.channel.muted = false
       b.clock.now = a.clock.now
       advanceAll(bus, [a, b], 2000)
       b.fireWin('focus')
       bus.flush()
+      a.setBox('')
       a.setScrollTop(500)
       b.env._send_selected(bLate, true)
       bus.flush()
@@ -13825,18 +14050,17 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.advance(250)
       await flushDom(a)
       a.advance(0)
-      const afterLateRowAfterWheel = [a.getBox(), a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      const afterLateRowAfterWheel = [a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
       check(
-        'windows wheel wins at actual write: wheel beats deferred app scrollToTarget, deferred 3s fallback write, and late-mounting received row while idle fallback still scrolls',
+        'windows wheel wins at actual write: wheel beats deferred _update_dom, deferred 3s fallback write, and late-mounting received row while idle fallback still scrolls',
         [afterWheelBeforeLayout, afterWheelBeforeFallbackWrite, afterIdleFallbackWrite, afterLateRowAfterWheel, rLate.id],
-        [[800, false, false], 800, 1775, ['#w6_late', 800, false, false], 'w6_late']
+        [[800, false, false], 800, 1775, ['', 'w6_late', 800, false, false], 'w6_late']
       )
     }
 
-    // 44. Sitting 6 Case 2 + Sitting 8 Case 2 + Sitting 9 Case 2: history restore (popstate) ends hold + swallow
-    //     before app handler; viewport resize (700 -> 600, padding 595 -> 510) ends hold while keeping targeted
-    //     swallow armed so queued selection callbacks are STILL swallowed and padding adjustment lands at 510
-    //     for both far items (never 1715) and near-header items whose clamped target coordinate equals 510
+    // 44. History restore (popstate) and viewport resize during the both-targets hold: popstate ends hold
+    //     before the app's handler so box and scroll restore cleanly; resize ends hold so padding adjustment
+    //     lands at 510 without any body.scrollTo shadow
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 595, headerTop: 595, deferDom: true, deferSelect: true })
@@ -13855,28 +14079,28 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       const hdr = a.body.querySelector('.header')
       const colPad = a.body.querySelector('.column-padding')
-      const r1 = a.makeItem('h6_1', { saved_id: 's_h6_1', scrollY: 1775 }) // sup.offsetTop = 1950 at vh=700
-      const r1Sup = a.body.querySelector('#super-container-h6_1')
-      const rNear = a.makeItem('h6_near', { saved_id: 's_h6_near', offsetTop: 655 }) // in-band near header; shifts 655 -> 570 on shrink, target clamped to 510
-      const rNearSup = a.body.querySelector('#super-container-h6_near')
+      a.makeItem('h6_0', { saved_id: 's_h6_0', scrollY: 1600 })
+      const r1 = a.makeItem('h6_1', { saved_id: 's_h6_1', scrollY: 1775 })
+      b.makeItem('h6_0', { saved_id: 's_h6_0', scrollY: 1600 })
       b.makeItem('h6_1', { saved_id: 's_h6_1', scrollY: 1775 })
-      b.makeItem('h6_near', { saved_id: 's_h6_near', offsetTop: 655 })
-      a.makeWidget({ rows: [{ id: 'h6_1', pageY: 660, height: 32 }, { id: 'h6_near', pageY: 700, height: 32 }] })
+      a.makeWidget({ rows: [{ id: 'h6_1', pageY: 660, height: 32 }] })
       a.env._send_toggle(true)
       bus.flush()
-      let pad = 0.85 * 700 // 595
-      const resetGeom = () => {
+      let pad = 0.85 * 700
+      const resetBoth = () => {
         a.setInnerHeight(700)
         pad = 0.85 * 700
         colPad.offsetHeight = pad
         colPad.style.height = pad + 'px'
         hdr.offsetTop = pad
-        r1Sup.offsetTop = 1950
-        rNearSup.offsetTop = 655
         a.setScrollTop(pad)
         a.domQueue.length = 0
         a.win._todoer_windows.hold?.()
-        a.win._todoer_windows.swallow?.()
+        a.setBox('#h6_0')
+        b.setBox('#h6_0')
+        b.advance(2000)
+        b.fireWin('focus')
+        bus.flush()
       }
       const applyPadding = () => {
         const nextPad = 0.85 * a.env.visualViewport.height
@@ -13885,30 +14109,17 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         colPad.offsetHeight = nextPad
         colPad.style.height = nextPad + 'px'
         hdr.offsetTop += delta
-        r1Sup.offsetTop += delta
-        rNearSup.offsetTop += delta
         a.body.scrollTo(0, a.getScrollTop() + delta)
-      }
-      // as on iOS: the route's padding function returns at once (no inline height, no adjustment call), and the height
-      // that CSS gives the padding (85vh) follows the layout viewport on its own
-      const applyCssPadding = () => {
-        const nextPad = 0.85 * a.env.visualViewport.height
-        const delta = nextPad - pad
-        pad = nextPad
-        colPad.offsetHeight = nextPad
-        hdr.offsetTop += delta
-        r1Sup.offsetTop += delta
-        rNearSup.offsetTop += delta
       }
       const resizeTo = h => {
         a.setInnerHeight(h)
         a.fireWin('resize', { type: 'resize' })
         a.fireVv('resize', { type: 'resize' })
       }
-      // (a) replay route's history restore during an active hold at 595: restores both box and scroll position 240
+      // (a) popstate during active both-targets hold restores box and scroll position 240
       let popStateScrollPending = false
       const onPopState = () => {
-        a.setBox('#prev_history')
+        a.setBox('#h6_0')
         popStateScrollPending = true
         a.env._update_dom().then(() => {
           a.body.scrollTo(0, 240)
@@ -13916,95 +14127,31 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         })
       }
       a.win.addEventListener('popstate', onPopState, false)
-      resetGeom()
+      resetBoth()
       a.env._select_item(r1)
       bus.flush()
-      a.domQueue.length = 0 // popstate suppresses r1's old layout via restoredScrollQuery
+      const holdStarted = [a.getBox(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      a.domQueue.length = 0
       a.fireWin('popstate', { type: 'popstate' })
       await flushDom(a)
       const afterPopImmediate = [a.getBox(), a.getScrollTop(), popStateScrollPending, !!a.win._todoer_windows.hold, hasShadow(a)]
       a.advance(2000)
       const afterPopExpired = [a.getBox(), a.getScrollTop()]
       a.win.removeEventListener('popstate', onPopState, false)
-      // (b1) far item: resize (700 -> 600) AFTER selection frames finished -> padding adjustment moves 595 -> 510
-      resetGeom()
-      a.env._select_item(r1)
-      bus.flush()
-      await flushDom(a)
-      resizeTo(600)
-      applyPadding()
-      a.advance(0)
-      const afterResizeAfterFrames = [a.getScrollTop(), !!a.win._todoer_windows.hold]
-      // (b2) far item: resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), padding before flush ->
-      //      padding moves 595 -> 510, queued scrollToTarget(1715) is swallowed -> eventual position stays 510!
-      resetGeom()
+      // (b) resize (700 -> 600) during active both-targets hold ends hold so padding lands at 510
+      resetBoth()
       a.env._select_item(r1)
       bus.flush()
       resizeTo(600)
       applyPadding()
       await flushDom(a)
-      a.advance(0)
-      const afterResizeBeforeFramesPadFirst = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
-      // (b3) far item: resize (700 -> 600) BEFORE selection frames run (queued callbacks KEPT!), delayed checkLayout padding AFTER flush ->
-      //      queued scrollToTarget(1800) is swallowed, then padding moves 595 -> 510 -> eventual position stays 510!
-      resetGeom()
-      a.env._select_item(r1)
-      bus.flush()
-      resizeTo(600)
-      await flushDom(a)
-      a.advance(0)
-      applyPadding()
-      const afterResizeBeforeFramesPadLater = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
-      // (b3-ios) far item, no inline height (iOS): resize (700 -> 600) BEFORE selection frames run, the CSS height follows,
-      //      no adjustment is asked for -> the queued scrollToTarget(1715) is still swallowed, the list stays at 595 past expiry!
-      resetGeom()
-      colPad.style.height = ''
-      a.env._select_item(r1)
-      bus.flush()
-      resizeTo(600)
-      applyCssPadding()
-      await flushDom(a)
-      a.advance(0)
-      const iosAfterImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
+      const afterResize = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
       a.advance(2000)
-      const iosAfterExp = [a.getScrollTop(), hasShadow(a)]
-      check('windows resize where CSS alone changes the padding (no inline height, as on iOS): the queued selection scroll stays swallowed and the list stays put', [iosAfterImmed, iosAfterExp], [[595, false], [595, false]])
-      // (b4) near-header item (offsetTop 655 at 595, shifts to 570 at 510 -> clamped target == 510!):
-      //      resize (700 -> 600) AFTER selection frames finish -> padding change passes 510, stays 510 past expiry!
-      resetGeom()
-      a.env._select_item(rNear)
-      bus.flush()
-      await flushDom(a)
-      resizeTo(600)
-      applyPadding()
-      const nearAfterImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
-      a.advance(2000)
-      const nearAfterExp = [a.getScrollTop(), hasShadow(a)]
-      // (b5) near-header item: resize (700 -> 600) BEFORE selection frames, padding before flush -> lands at 510, stays 510 past expiry!
-      resetGeom()
-      a.env._select_item(rNear)
-      bus.flush()
-      resizeTo(600)
-      applyPadding()
-      await flushDom(a)
-      const nearBeforeImmed = [a.getScrollTop(), !!a.win._todoer_windows.hold]
-      a.advance(2000)
-      const nearBeforeExp = [a.getScrollTop(), hasShadow(a)]
-      // (c) non-matching scrollTo (e.g. 240) passes through while swallow for 1775 is armed, and 1775 is still swallowed
-      resetGeom()
-      a.env._select_item(r1)
-      bus.flush()
-      a.fireWin('wheel')
-      a.setScrollTop(800)
-      a.body.scrollTo(0, 240)
-      const afterOtherScroll = a.getScrollTop()
-      await flushDom(a) // r1's automatic 1775 scroll fires -> swallowed!
-      a.advance(0)
-      const afterTargetSwallowed = [a.getScrollTop(), hasShadow(a)]
+      const afterResizeExp = [a.getScrollTop(), hasShadow(a)]
       check(
-        'windows history restore & resize during hold: popstate restores box and scroll position, resize keeps swallow so queued callbacks stay suppressed before/after frames and padding lands at 510 for both far and near-header items, and non-matching scrollTo passes',
-        [afterPopImmediate, afterPopExpired, afterResizeAfterFrames, afterResizeBeforeFramesPadFirst, afterResizeBeforeFramesPadLater, [nearAfterImmed, nearAfterExp], [nearBeforeImmed, nearBeforeExp], afterOtherScroll, afterTargetSwallowed],
-        [['#prev_history', 240, false, false, false], ['#prev_history', 240], [510, false], [510, false, false], [510, false, false], [[510, false], [510, false]], [[510, false], [510, false]], 240, [240, false]]
+        'windows history restore & resize during both-targets hold: popstate restores box and scroll, resize lets padding land at 510, never shadows body.scrollTo',
+        [holdStarted, afterPopImmediate, afterPopExpired, afterResize, afterResizeExp],
+        [['#todo', true, false], ['#h6_0', 240, false, false, false], ['#h6_0', 240], [510, false, false], [510, false]]
       )
     }
 
@@ -14038,7 +14185,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       advanceAll(bus, [a, b], 4000)
       const afterPausedExpiry = [a.getBox(), b.getBox()]
-      // (b) B paused again, A selects #hrep, then third window C takes over as showing window -> B's pending ask retired (no fallback scroll!)
+      // (b) B paused again, A (no target) selects #hrep, then third window C takes over as showing window -> B's pending ask retired (no fallback scroll!)
+      a.setBox('')
       b.clock.now = a.clock.now
       advanceAll(bus, [a, b], 1500)
       b.fireWin('focus')
@@ -14139,8 +14287,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.makeItem('ps_new', { saved_id: 's_ps_new', name: '#ps_new' })
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ps_new' }))
       advanceAll(bus, [a, b], 500)
-      const afterUnsavedWins = [a.getBox(), b.getBox()]
-      // (b1) B selects unsaved #ps_u1, B presses unlink, A links again with empty box, #ps_u1 saves -> A stays empty!
+      const afterUnsavedWins = [a.getBox(), a.env._row_now().named?.id ?? null, b.getBox()]
+      // (b1) B selects unsaved #ps_u1, B presses unlink, A links again with empty box, #ps_u1 saves -> A stays empty & unmarked!
       const u1B = b.makeItem('ps_u1', { saved_id: null, name: '#ps_u1' })
       b.setBox('#ps_u1')
       b.env._send_selected(u1B, true)
@@ -14156,8 +14304,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.makeItem('ps_u1', { saved_id: 's_ps_u1', name: '#ps_u1' })
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ps_u1' }))
       advanceAll(bus, [a, b], 600)
-      const afterLocalUnlinkSave = a.getBox()
-      // (b2) B selects unsaved #ps_u2, A unlinks and links again with empty box, #ps_u2 saves -> A stays empty!
+      const afterLocalUnlinkSave = [a.getBox(), a.env._row_now().named?.id ?? null]
+      // (b2) B selects unsaved #ps_u2, A unlinks and links again with empty box, #ps_u2 saves -> A stays empty & unmarked!
       const u2B = b.makeItem('ps_u2', { saved_id: null, name: '#ps_u2' })
       b.setBox('#ps_u2')
       b.env._send_selected(u2B, true)
@@ -14173,22 +14321,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.makeItem('ps_u2', { saved_id: 's_ps_u2', name: '#ps_u2' })
       aw.list.appendChild(new WinDomNode('div', { className: 'list-item-container', 'data-id': 'ps_u2' }))
       advanceAll(bus, [a, b], 600)
-      const afterPeerRelinkSave = a.getBox()
+      const afterPeerRelinkSave = [a.getBox(), a.env._row_now().named?.id ?? null]
       check(
         'windows pending save order & lifetime: unsaved selection beats older incoming selection, and pending save retires across local unlink or peer unlink/relink',
         [afterUnsavedWins, afterLocalUnlinkSave, afterPeerRelinkSave],
-        [['#ps_new', '#ps_new'], '', '']
+        [['', 'ps_new', '#ps_new'], ['', null], ['', null]]
       )
     }
 
-    // 47. Sitting 8 Case 1 + Sitting 9 Case 1: synchronous scrollTo inside keydown passes _swallow_scroll
-    //     via window.event without dropping the swallow — explicit route keys (0 and Ctrl+Alt+Down) scroll
-    //     visibly and record matching history entries for BOTH far items and in-band items (where layout skipped
-    //     automatic scrolling), and even before layout runs, while quick j and an ordinary key before layout
-    //     still keep the delayed selection scroll suppressed
+    // 47. Key navigation in list window and during both-targets hold: no scrollTo shadow ever; `0` ends hold
+    //     and scrolls to home cleanly; quick `j` steps from k1 to k2 keeping #todo and zero scroll movement
     {
       const bus = makeBus()
-      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500, deferDom: true, deferSelect: true })
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 720, headerTop: 500, deferDom: true, deferSelect: true })
       const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
       a.env._start_windows()
       b.env._start_windows()
@@ -14202,115 +14347,51 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         }
         await Promise.resolve()
       }
+      a.makeItem('k8_0', { saved_id: 's_k8_0', scrollY: 1600 })
       const k1 = a.makeItem('k8_1', { saved_id: 's_k8_1', scrollY: 1775 })
       const k2 = a.makeItem('k8_2', { saved_id: 's_k8_2', scrollY: 1900 })
-      const kIn = a.makeItem('k8_in', { saved_id: 's_k8_in', offsetTop: 900 }) // in-band at 500 (500 <= 900 <= 1000); targetY = 725
+      b.makeItem('k8_0', { saved_id: 's_k8_0', scrollY: 1600 })
       b.makeItem('k8_1', { saved_id: 's_k8_1', scrollY: 1775 })
       b.makeItem('k8_2', { saved_id: 's_k8_2', scrollY: 1900 })
-      b.makeItem('k8_in', { saved_id: 's_k8_in', offsetTop: 900 })
-      a.makeWidget({ rows: [{ id: 'k8_1', pageY: 560, height: 32 }, { id: 'k8_2', pageY: 600, height: 32 }, { id: 'k8_in', pageY: 640, height: 32 }] })
+      a.makeWidget({ rows: [{ id: 'k8_1', pageY: 760, height: 32 }, { id: 'k8_2', pageY: 800, height: 32 }] })
       a.env._send_toggle(true)
       bus.flush()
-      // Replay index.svelte's actual keydown handler (lines 12071-12108 + scrollToTargetWithHistory lines 2190-2212)
-      let history = []
       const appKeyDown = e => {
         const key = e.code
         const modified = !!(e.ctrlKey || e.altKey || e.metaKey || e.shiftKey)
-        const target = a.body.querySelector('.super-container.target')
         const home = a.body.querySelector('.header')?.offsetTop ?? 0
-        const targetY = target ? Math.max(home, target.offsetTop - a.env.visualViewport.height / 4) : null
-        if (key == 'ArrowDown' && [e.ctrlKey, e.altKey, e.metaKey].filter(Boolean).length >= 2) {
-          if (targetY == null || Math.abs(targetY - a.getScrollTop()) <= 2) return
-          history[history.length - 1] = { ...history[history.length - 1], scrollPosition: a.getScrollTop() }
-          history.push({ editorText: a.getBox(), scrollPosition: targetY, final: true, scrolledToTop: false })
-          a.body.scrollTo(0, targetY)
-          return
-        }
         if (key == 'Digit0' && !modified) {
-          a.body.scrollTo(0, targetY ?? home)
+          a.body.scrollTo(0, home)
           return
         }
         a.env._on_row_key(key, e)
       }
       a.win.addEventListener('keydown', appKeyDown, false)
-      // (a) far item k8_1, let layout finish, press `0` within hold -> scrolls visibly to 1775 and stays past expiry
-      a.setScrollTop(500)
+      // (a) both-targets click starts hold at 720 -> pressing `0` ends hold immediately and scrolls to home (500)
+      a.setBox('#k8_0')
+      b.setBox('#k8_0')
+      b.advance(2000)
+      b.fireWin('focus')
+      bus.flush()
       a.env._select_item(k1)
       bus.flush()
-      await flushDom(a)
-      history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
+      const holdOn = [a.getBox(), !!a.win._todoer_windows.hold, hasShadow(a)]
       a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
-      const digit0Imm = [a.getScrollTop(), !!a.win._todoer_windows.hold]
-      a.advance(2000)
-      const afterDigit0 = [...digit0Imm, a.getScrollTop(), hasShadow(a)]
-      // (b) far item k8_1, let layout finish, press Ctrl+Alt+Down within hold -> visible 1775 AND history entry 1775 past expiry
-      a.setScrollTop(500)
-      a.env._select_item(k1)
-      bus.flush()
       await flushDom(a)
-      history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
-      a.fireWin('keydown', { type: 'keydown', code: 'ArrowDown', key: 'ArrowDown', ctrlKey: true, altKey: true })
-      const cadImm = [a.getScrollTop(), history.length, history[history.length - 1].scrollPosition, !!a.win._todoer_windows.hold]
-      a.advance(2000)
-      const afterCtrlAltDown = [...cadImm, a.getScrollTop(), hasShadow(a)]
-      // (c) in-band item k8_in (offsetTop 900 at 500, vh 700 -> layout skips scrollTo!), press `0` -> moves to 725 and stays past expiry!
-      a.setScrollTop(500)
-      a.body._scrollToCalls.length = 0
-      a.env._select_item(kIn)
-      bus.flush()
-      await flushDom(a)
-      const inBandAutoCalls = a.body._scrollToCalls.length
-      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
-      const inBand0Imm = [a.getScrollTop(), !!a.win._todoer_windows.hold]
-      a.advance(2000)
-      const afterInBand0 = [inBandAutoCalls, ...inBand0Imm, a.getScrollTop(), hasShadow(a)]
-      // (d) in-band item k8_in, let layout finish, wheel to 950, press Ctrl+Alt+Down -> moves to 725 AND history records 725 past expiry!
-      a.setScrollTop(500)
-      a.env._select_item(kIn)
-      bus.flush()
-      await flushDom(a)
-      a.fireWin('wheel')
-      a.setScrollTop(950)
-      history = [{ editorText: a.getBox(), scrollPosition: a.getScrollTop(), final: true }]
-      a.fireWin('keydown', { type: 'keydown', code: 'ArrowDown', key: 'ArrowDown', ctrlKey: true, altKey: true })
-      const inBandCadImm = [a.getScrollTop(), history.length, history[history.length - 1].scrollPosition]
-      a.advance(2000)
-      const afterInBandCad = [...inBandCadImm, a.getScrollTop(), history[history.length - 1].scrollPosition, hasShadow(a)]
-      // (e) early `0` BEFORE layout runs on far item k8_1 -> scrolls to 1775 immediately while swallow stands, stays 1775 past expiry
-      a.setScrollTop(500)
-      a.env._select_item(k1)
-      bus.flush()
-      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
-      const early0Imm = [a.getScrollTop(), hasShadow(a)]
-      await flushDom(a)
-      a.advance(2000)
-      const afterEarly0 = [...early0Imm, a.getScrollTop(), hasShadow(a)]
-      // (f) quick `j` after selection BEFORE first layout runs: drops old swallow, selects k8_2 with its own swallow,
-      //     and older queued scroll (computed for live target k8_2 = 1900) plus k8_2's scroll are both swallowed -> stays at 500!
-      a.setScrollTop(500)
+      const afterDigit0 = [a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
+      // (b) quick `j` from k1 in list window (#todo) -> steps to k2 in B while A stays #todo at 720 with no hold/shadow
+      a.setScrollTop(720)
       a.env._select_item(k1)
       bus.flush()
       a.fireWin('keydown', { type: 'keydown', code: 'KeyJ', key: 'j' })
       bus.flush()
       await flushDom(a)
-      const afterQuickJ = [a.getBox(), b.getBox(), a.getScrollTop(), !!a.win._todoer_windows.hold]
-      // (g) a key that selects nothing (Shift) BEFORE the layout runs: the hold ends, the swallow stands, and the
-      //     selection's queued scroll is still swallowed -> stays at 500; `0` after that goes to the item
-      a.setScrollTop(500)
-      a.env._select_item(k1)
-      bus.flush()
-      a.fireWin('keydown', { type: 'keydown', code: 'ShiftLeft', key: 'Shift', shiftKey: true })
-      const earlyKey = [!!a.win._todoer_windows.hold, hasShadow(a)]
-      await flushDom(a)
-      a.advance(0)
-      earlyKey.push(a.getScrollTop(), hasShadow(a))
-      a.fireWin('keydown', { type: 'keydown', code: 'Digit0', key: '0' })
-      earlyKey.push(a.getScrollTop())
+      const afterQuickJ = [a.getBox(), a.env._row_now().named?.id ?? null, b.getBox(), a.getScrollTop(), !!a.win._todoer_windows.hold, hasShadow(a)]
       a.win.removeEventListener('keydown', appKeyDown, false)
       check(
-        'windows explicit key navigation passes swallow: 0 and Ctrl+Alt+Down scroll to target (with matching history entry) for far, in-band, and pre-layout selections, while quick j and an ordinary key before layout keep the list in place',
-        [afterDigit0, afterCtrlAltDown, afterInBand0, afterInBandCad, afterEarly0, afterQuickJ, k2.id, earlyKey],
-        [[1775, false, 1775, false], [1775, 2, 1775, false, 1775, false], [0, 725, false, 725, false], [725, 2, 725, 725, 725, false], [1775, true, 1775, false], ['#k8_2', '#k8_2', 500, true], 'k8_2', [false, true, 500, false, 1775]]
+        'windows key navigation: no scrollTo shadow, 0 ends both-targets hold and scrolls to home, quick j advances marked row keeping #todo and scroll position',
+        [holdOn, afterDigit0, afterQuickJ, k2.id],
+        [['#todo', true, false], [500, false, false], ['#todo', 'k8_2', '#k8_2', 720, false, false], 'k8_2']
       )
     }
 
@@ -14348,37 +14429,30 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const stripSeen = [a.env._row_strip_top({ left: 16, right: 300 })]
       let scrollEvents = 0
       a.doc.addEventListener('scroll', () => scrollEvents++, true)
-      // (1) local selection in middle of page (620), row in view -> stays at 620, first hold stands, zero scroll events
+      // (1) local selection in middle of page (620), row in view -> stays at 620, no hold, zero scroll events
       a.env._select_item(aItems.rs_in1)
-      const h1 = a.win._todoer_windows.hold
       bus.flush()
       await Promise.resolve()
-      const localMid = [a.getScrollTop(), a.win._todoer_windows.hold === h1, scrollEvents, b.getBox()]
-      // (2) received unasked item-itself selection from B while A is at 620, row in view -> stays at 620, first hold stands, zero scroll events
-      a.fireWin('wheel')
+      const localMid = [a.getScrollTop(), !!a.win._todoer_windows.hold, scrollEvents, b.getBox(), a.env._row_now().named?.id ?? null]
+      // (2) received unasked item-itself selection from B while A is at 620, row in view -> stays at 620, no hold, zero scroll events, box untouched
       a.setScrollTop(620)
       b.env._on_search('#rs_in2')
       bus.flush()
-      const h2 = a.win._todoer_windows.hold
       await Promise.resolve()
-      const recvMid = [a.getScrollTop(), a.win._todoer_windows.hold === h2, scrollEvents, a.getBox()]
-      // (3) row 1 px behind the strip at 620 (bottom 1269 > 1268) -> moves to 709 (new hold)
-      a.fireWin('wheel')
+      const recvMid = [a.getScrollTop(), !!a.win._todoer_windows.hold, scrollEvents, a.getBox(), a.env._row_now().named?.id ?? null]
+      // (3) row 1 px behind the strip at 620 (bottom 1269 > 1268) -> moves to 709
       a.setScrollTop(620)
       a.env._select_item(aItems.rs_strip)
-      const h3 = a.win._todoer_windows.hold
       bus.flush()
       await Promise.resolve()
-      const behindStrip = [a.getScrollTop(), a.win._todoer_windows.hold === h3]
+      const behindStrip = [a.getScrollTop(), !!a.win._todoer_windows.hold]
       // (4) row 1 px above the window's upper edge (y=619 < 620) -> moves to home (500)
-      a.fireWin('wheel')
       a.setScrollTop(620)
       a.env._select_item(aItems.rs_edge)
       bus.flush()
       await Promise.resolve()
       const atUpperEdge = a.getScrollTop()
       // (5) row well above window's upper edge (y=540) -> moves to home (500)
-      a.fireWin('wheel')
       a.setScrollTop(620)
       a.env._select_item(aItems.rs_above)
       bus.flush()
@@ -14386,14 +14460,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const aboveUpperEdge = a.getScrollTop()
       stripSeen.push(a.env._row_strip_top({ left: 16, right: 300 })) // (still there after the selections)
       check(
-        'windows stay in view: middle of page stays with same hold (local and received, each touching an edge), a row 1 px behind the strip moves, a row 1 px or well above the window upper edge moves to home',
+        'windows stay in view: middle of page stays with no hold (local and received, each touching an edge), a row 1 px behind the strip moves, a row 1 px or well above the window upper edge moves to home',
         [stripSeen, localMid, recvMid, behindStrip, atUpperEdge, aboveUpperEdge],
-        [[648, 648], [620, true, 0, '#rs_in1'], [620, true, 0, '#rs_in2'], [709, false], 500, 500]
+        [[648, 648], [620, false, 0, '#rs_in1', 'rs_in1'], [620, false, 0, '', 'rs_in2'], [709, false], 500, 500]
       )
     }
 
-    // 48b. Walking a long list with j: window stays for each row in view, moves once by 80% depth when a row
-    // leaves the view, and stays again for the next rows that now fit
+    // 48b. Walking a long list with j: window stays for each row in view (zero holds), moves once by 80% depth
+    // when a row leaves the view, and stays again for the next rows that now fit
     {
       const bus = makeBus()
       const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
@@ -14403,9 +14477,6 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       a.env._send_toggle(true)
       bus.flush()
-      // 9 rows at 36px pitch starting at 1000 (height 32, no strip: readable down to the window's lower edge; placed with low=560):
-      // rows 0..4 are readable from 500 (bottoms <= 1200); row 5 (bottom 1212) is clipped and moves to 1212-560 = 652;
-      // rows 6..8 are readable from 652 (bottoms <= 1352)
       const rows = []
       const itemsA = []
       for (let i = 0; i < 9; i++) {
@@ -14416,31 +14487,30 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       a.makeWidget({ rows })
       const tops = []
-      const sameHolds = []
+      const holds = []
       const bBoxes = []
       a.env._select_item(itemsA[0])
-      let h = a.win._todoer_windows.hold
       bus.flush()
       await Promise.resolve()
       tops.push(a.getScrollTop())
-      sameHolds.push(a.win._todoer_windows.hold === h)
+      holds.push(!!a.win._todoer_windows.hold)
       bBoxes.push(b.getBox())
       for (let i = 1; i < 9; i++) {
         a.env._on_row_key('KeyJ', {})
-        h = a.win._todoer_windows.hold
         bus.flush()
         await Promise.resolve()
         tops.push(a.getScrollTop())
-        sameHolds.push(a.win._todoer_windows.hold === h)
+        holds.push(!!a.win._todoer_windows.hold)
         bBoxes.push(b.getBox())
       }
       check(
-        'windows j walk down long list: stays for each row in view, moves once by depth rule when leaving view, and stays again for next rows',
-        [tops, sameHolds, bBoxes],
+        'windows j walk down long list: stays for each row in view with no hold, moves once by depth rule when leaving view, and stays again for next rows',
+        [tops, holds, bBoxes, a.getBox()],
         [
           [500, 500, 500, 500, 500, 652, 652, 652, 652],
-          [true, true, true, true, true, false, true, true, true],
+          [false, false, false, false, false, false, false, false, false],
           ['#jw_0', '#jw_1', '#jw_2', '#jw_3', '#jw_4', '#jw_5', '#jw_6', '#jw_7', '#jw_8'],
+          '',
         ]
       )
     }
@@ -14552,46 +14622,48 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // link from A
       a.env._send_press()
       bus.flush()
-      // (1) row in A -> A stays at 500, B goes to 1900 even though B has a row of fr1
+      // (1) neither has target: row in A -> A keeps '' at 500 marking fr1, B goes to 1900 even though B has a row of fr1
       a.env._select_item(aIt.fr1)
       bus.flush()
       await Promise.resolve()
-      const afterAtoB = [a.getBox(), a.getScrollTop(), b.getBox(), b.getScrollTop()]
-      // (2) without unlinking: scroll B back to list (500) and select row fr2 in B WHILE A's hold is still active!
-      //     B stays at 500 with its hold active, A goes to 2100 even though A has a row of fr2
+      const afterAtoB = [a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), b.getBox(), b.getScrollTop()]
+      // (2) both have targets (A opens #fr1, B is on #fr1): select row fr2 in B -> B drops target to #todo with hold at 500, A goes to 2100 even though A has a row of fr2
+      a.setBox('#fr1')
+      a.env._on_search('#fr1')
+      bus.flush()
       b.fireWin('wheel')
       b.setScrollTop(500)
       b.env._select_item(bIt.fr2)
       bus.flush()
       await Promise.resolve()
-      const afterBtoA = [b.getBox(), b.getScrollTop(), !!b.win._todoer_windows.hold, a.getBox(), a.getScrollTop()]
-      // (3) out-of-view row fr3 in B -> B moves to 672 (80% depth), A goes to 2800
+      const afterBtoA = [b.getBox(), b.env._row_now().named?.id ?? null, b.getScrollTop(), !!b.win._todoer_windows.hold, a.getBox(), a.getScrollTop()]
+      // (3) out-of-view row fr3 in B (list window on #todo) -> B moves to 672 (80% depth) keeping #todo, A goes to 2800
       b.env._select_item(bIt.fr3)
       bus.flush()
       await Promise.resolve()
-      const afterBOutOfView = [b.getScrollTop(), a.getBox(), a.getScrollTop()]
-      // (4) silent peer A when B selects row fr4 -> B stays at 500 until 2999ms, falls back to 2500 at 3000ms
+      const afterBOutOfView = [b.getBox(), b.getScrollTop(), a.getBox(), a.getScrollTop()]
+      // (4) silent peer A when B selects row fr4 -> B keeps #todo at 500 until 2999ms, falls back locally to #fr4 at 2500 at 3000ms
       a.win._todoer_windows.channel.muted = true
       b.fireWin('wheel')
       b.setScrollTop(500)
-      b.scrollToTargetCalls.length = 0
+      b.selects.length = 0
       b.env._select_item(bIt.fr4)
       bus.flush()
       b.advance(2999)
       await Promise.resolve()
-      const bBeforeFallback = [b.getScrollTop(), b.scrollToTargetCalls.length]
+      const bBeforeFallback = [b.getBox(), b.getScrollTop(), b.selects.length]
       b.advance(1)
       await Promise.resolve()
-      const bAfterFallback = [b.getScrollTop(), b.scrollToTargetCalls.length, b.win._todoer_windows.peers.has('A')]
+      const bAfterFallback = [b.getBox(), b.getScrollTop(), b.selects.length, b.win._todoer_windows.peers.has('A')]
       check(
-        'windows fluid row selection: A->B then B->A without unlinking, asked goes to item with own row, second window stays put and falls back on silent peer',
+        'windows fluid row selection: A->B then B->A without unlinking, asked goes to item with own row, second window keeps query and falls back on silent peer',
         [afterAtoB, afterBtoA, afterBOutOfView, bBeforeFallback, bAfterFallback],
         [
-          ['#fr1', 500, '#fr1', 1900],
-          ['#fr2', 500, true, '#fr2', 2100],
-          [672, '#fr3', 2800],
-          [500, 0],
-          [2500, 1, false],
+          ['', 'fr1', 500, '#fr1', 1900],
+          ['#todo', 'fr2', 500, true, '#fr2', 2100],
+          ['#todo', 672, '#fr3', 2800],
+          ['#todo', 500, 0],
+          ['#fr4', 2500, 1, false],
         ]
       )
     }
@@ -14614,36 +14686,41 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       a.env._send_press()
       bus.flush()
-      // (1) item-itself selection in A -> B selects readable row staying put (no took), unlisted ignored by B
+      // (1) item-itself selection in A -> no-target B marks readable row staying put & keeping '' (no took), unlisted clears B's mark
       bus.sent.length = 0
       a.setScrollTop(1900)
+      a.setBox('#im1')
       a.env._on_search('#im1')
       bus.flush()
       await Promise.resolve()
-      const bTookItem = [b.getBox(), b.getScrollTop(), bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      const bTookItem = [b.getBox(), b.env._row_now().named?.id ?? null, b.getScrollTop(), bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      a.setBox('#imu')
       a.env._on_search('#imu')
       advanceAll(bus, [a, b], 2500)
-      const bIgnoredUnlisted = [b.getBox(), b.getScrollTop()]
-      // (2) item-itself selection in B -> A selects readable row staying put (no took), unlisted ignored by A
+      const bAfterUnlisted = [b.getBox(), b.env._row_now().named ?? null, b.getScrollTop()]
+      // (2) item-itself selection in B while A has no target -> A marks readable row staying put & keeping '' (no took), unlisted clears A's mark
+      a.setBox('')
       a.fireWin('wheel')
       a.setScrollTop(500)
       bus.sent.length = 0
       b.setScrollTop(2100)
+      b.setBox('#im2')
       b.env._on_search('#im2')
       bus.flush()
       await Promise.resolve()
-      const aTookItem = [a.getBox(), a.getScrollTop(), bus.sent.filter(m => m.from == 'A' && m.data.type == 'took').length]
+      const aTookItem = [a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), bus.sent.filter(m => m.from == 'A' && m.data.type == 'took').length]
+      b.setBox('#imu')
       b.env._on_search('#imu')
       advanceAll(bus, [a, b], 2500)
-      const aIgnoredUnlisted = [a.getBox(), a.getScrollTop()]
+      const aAfterUnlisted = [a.getBox(), a.env._row_now().named ?? null, a.getScrollTop()]
       check(
-        'windows fluid item-itself selection: non-row selection in either window selects mounted row in other by row-stay rule and ignores unlisted',
-        [bTookItem, bIgnoredUnlisted, aTookItem, aIgnoredUnlisted],
+        'windows fluid item-itself selection: non-row selection in either window marks mounted row in no-target partner keeping its box, and unlisted clears mark',
+        [bTookItem, bAfterUnlisted, aTookItem, aAfterUnlisted],
         [
-          ['#im1', 500, 0],
-          ['#im1', 500],
-          ['#im2', 500, 0],
-          ['#im2', 500],
+          ['', 'im1', 500, 0],
+          ['', null, 500],
+          ['', 'im2', 500, 0],
+          ['', null, 500],
         ]
       )
     }
@@ -14661,12 +14738,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const showOf = (w, it) => (typeof w.win._todoer_windows?.show == 'function' ? w.win._todoer_windows.show(it) : Promise.resolve(null))
       const gA = a.makeItem('gr1', { saved_id: 's_gr1', scrollY: 2400, tags: [], tags_visible: [] })
       b.makeItem('gr1', { saved_id: 's_gr1', scrollY: 2400, tags: [], tags_visible: [] })
-      a.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      const doneHits = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      const gt1A = a.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      const gt2A = a.makeItem('gt2', { saved_id: 's_gt2', scrollY: 2100 })
       b.makeItem('gt1', { saved_id: 's_gt1', scrollY: 2000 })
+      b.makeItem('gt2', { saved_id: 's_gt2', scrollY: 2100 })
       const missA = a.makeItem('gmiss', { saved_id: 's_gmiss', scrollY: 2600 })
       const unsavedA = a.makeItem('gus', { saved_id: null, scrollY: 2700 })
-      a.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }] })
-      b.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }] })
+      const wA = a.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }, { id: 'gt2', pageY: 1400, height: 32 }] })
+      b.makeWidget({ rows: [{ id: 'gt1', pageY: 600, height: 32 }, { id: 'gt2', pageY: 1400, height: 32 }] })
+      const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const doneA = () => a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDoneA = async (btn = doneA()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
       a.setBox('#keep_a')
       b.setBox('#keep_b')
       // (a) unlinked: resolves false at once, nothing sent, neither window moves
@@ -14721,14 +14805,33 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       showOf(a, unsavedA).then(v => (unsavedRes = v))
       await Promise.resolve()
       const unsavedSent = bus.sent.length
+      // (f) public show(Y) from a no-target list window A marking gt1 updates marks and buttons without changing query or scroll
+      a.setBox('#todo')
+      a.env._on_search('#todo')
+      a.setScrollTop(500)
+      bus.flush()
+      a.env._select_item(gt1A)
+      bus.flush()
+      const doneForGt1 = doneA()
+      let showListedRes = 'pending'
+      showOf(a, gt2A).then(v => (showListedRes = v))
+      bus.flush()
+      await Promise.resolve()
+      const doneForGt2 = doneA()
+      const afterShowListed = [showListedRes, a.getBox(), a.getScrollTop(), b.getBox(), markedA(), await pressDoneA(doneForGt1), await pressDoneA()]
+      let showUnlistedRes = 'pending'
+      showOf(a, gA).then(v => (showUnlistedRes = v))
+      bus.flush()
+      await Promise.resolve()
+      const afterShowUnlisted = [showUnlistedRes, a.getBox(), a.getScrollTop(), b.getBox(), markedA(), !!doneA(), await pressDoneA(doneForGt2)]
       b.fireWin('pagehide')
       bus.flush()
       let aloneRes = 'pending'
       showOf(a, gA).then(v => (aloneRes = v))
       await Promise.resolve()
       check(
-        'windows show(item): unlinked false at once sending nothing, linked true from either side without moving caller, silent false at SEND_ACK_MS, cancel/unsaved/alone false',
-        [afterUnlinked, afterAShow, afterBShow, silentAt2999, silentAt3000, unlinkWaitRes, [unsavedRes, unsavedSent], aloneRes],
+        'windows show(item): unlinked false at once sending nothing, linked true from either side without moving caller, silent false at SEND_ACK_MS, cancel/unsaved/alone false, list caller reconciles mark and Done',
+        [afterUnlinked, afterAShow, afterBShow, silentAt2999, silentAt3000, unlinkWaitRes, [unsavedRes, unsavedSent], afterShowListed, afterShowUnlisted, aloneRes],
         [
           [false, 0, '#keep_a', '#keep_b'],
           [true, '#keep_a', 500, '#gr1', 2400],
@@ -14737,6 +14840,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [false, '#stay_a', 500],
           false,
           [false, 0],
+          [true, '#todo', 500, '#gt2', ['gt2'], null, 'gt2'],
+          [true, '#todo', 500, '#gr1', [], false, null],
           false,
         ]
       )
@@ -14816,8 +14921,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.makeWidget({ rows: [{ id: 'rmB', pageY: 560, height: 32 }, { id: 'rhB', pageY: 600, height: 32 }, { id: 'rhA', pageY: 640, height: 32 }] })
       a.env._send_press()
       bus.flush()
-      // (a) A (holder) row ask misses -> fallback scrolls A, forgets B, sends who; B answers hello and returns; next row reaches B
-      a.scrollToTargetCalls.length = 0
+      // (a) A (holder) row ask misses -> fallback opens locally in A, forgets B, sends who; B answers hello and returns; next row from list A reaches B
+      a.selects.length = 0
       a.env._select_item(rmA)
       bus.flush()
       advanceAll(bus, [a, b], 2500)
@@ -14827,23 +14932,27 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       const aAtTimeout = [
         a.win._todoer_windows.peers.has('B'),
-        a.scrollToTargetCalls.length,
+        a.selects.length,
         a.getScrollTop(),
         bus.sent.filter(m => m.from == 'A' && m.data.type == 'who').length,
       ]
       b.win._todoer_windows.channel.unpause()
       bus.flush()
       const aAfterHello = [a.win._todoer_windows.peers.has('B'), a.env._send_partner(), b.env._send_partner(), b.win._todoer_windows.linked()]
+      a.setBox('#todo')
       a.fireWin('wheel')
       a.setScrollTop(500)
       a.env._select_item(rhA)
       bus.flush()
       await Promise.resolve()
       const aNextRow = [b.getBox(), b.getScrollTop(), a.getScrollTop()]
-      // (b) B (non-holder) row ask misses -> fallback scrolls B, forgets A, sends who; A answers hello and returns; next row reaches A
+      // (b) B (non-holder, on #todo while A shows #rhA) row ask misses -> fallback opens locally in B, forgets A, sends who; A answers hello and returns; next row from list B reaches A
+      a.setBox('#rhA')
+      a.env._on_search('#rhA')
+      b.setBox('#todo')
       b.fireWin('wheel')
       b.setScrollTop(500)
-      b.scrollToTargetCalls.length = 0
+      b.selects.length = 0
       b.env._select_item(rmB)
       bus.flush()
       advanceAll(bus, [a, b], 2500)
@@ -14854,13 +14963,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const bAtTimeout = [
         b.win._todoer_windows.peers.has('A'),
         b.win._todoer_windows.linked(),
-        b.scrollToTargetCalls.length,
+        b.selects.length,
         b.getScrollTop(),
         bus.sent.filter(m => m.from == 'B' && m.data.type == 'who').length,
       ]
       a.win._todoer_windows.channel.unpause()
       bus.flush()
       const bAfterHello = [b.win._todoer_windows.peers.has('A'), b.env._send_partner(), b.win._todoer_windows.linked()]
+      b.setBox('#todo')
       b.fireWin('wheel')
       b.setScrollTop(500)
       b.env._select_item(rhB)
@@ -14868,7 +14978,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       const bNextRow = [a.getBox(), a.getScrollTop(), b.getScrollTop()]
       check(
-        'windows row ask timeout rediscovery: fallback scrolls locally, forgets peer and says who, live partner returns via hello and takes next row in both directions',
+        'windows row ask timeout rediscovery: fallback opens locally, forgets peer and says who, live partner returns via hello and takes next row in both directions',
         [aAtTimeout, aAfterHello, aNextRow, bAtTimeout, bAfterHello, bNextRow],
         [
           [false, 1, 1900, 1],
@@ -15009,45 +15119,1307 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       a.makeWidget({ rows: [{ id: 'rx', pageY: 600, height: 32 }] })
       b.makeWidget({ rows: [{ id: 'rx', pageY: 600, height: 32 }] })
-      // link from A and both select X
+      // link from A and A opens X directly -> B (no target) marks X while keeping ''
       a.env._send_press()
       bus.flush()
       a.setBox('#rx')
       a.env._on_search('#rx')
       bus.flush()
       await Promise.resolve()
-      const bothOnX = [a.getBox(), b.getBox()]
+      const bothOnX = [a.getBox(), b.getBox(), b.env._row_now().named?.id ?? null]
       // unlink via _send_press
       a.env._send_press()
       bus.flush()
-      const afterUnlink = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked()]
-      // each opens Y directly (no row of Y) while unlinked
+      const afterUnlink = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.env._row_now().named ?? null]
+      // A opens Y directly (no row of Y) while unlinked
       a.setBox('#ry')
       a.env._on_search('#ry')
-      b.setBox('#ry')
-      b.env._on_search('#ry')
       bus.flush()
-      // B links again from Y (no row of Y)
+      // B (no target) links again
       b.env._send_press()
       bus.flush()
       const afterRelink = [a.win._todoer_windows.linked(), b.win._todoer_windows.linked(), b.getBox()]
-      // A opens X directly -> B selects X's row
+      // A opens X directly -> dedup cleared so A sends selected and B marks X keeping ''
       bus.sent.length = 0
       a.setBox('#rx')
       a.env._on_search('#rx')
       bus.flush()
       await Promise.resolve()
-      const afterReselectX = [bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, b.getBox()]
+      const afterReselectX = [bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length, b.getBox(), b.env._row_now().named?.id ?? null]
       check(
-        'windows relink selection: direct selection while unlinked clears dedup so reselecting same item after relink reaches partner',
+        'windows relink selection: direct selection while unlinked clears dedup so reselecting same item after relink reaches no-target partner',
         [bothOnX, afterUnlink, afterRelink, afterReselectX],
         [
-          ['#rx', '#rx'],
-          [false, false],
-          [true, true, '#ry'],
-          [1, '#rx'],
+          ['#rx', '', 'rx'],
+          [false, false, null],
+          [true, true, ''],
+          [1, '', 'rx'],
         ]
       )
+    }
+
+    // 55. List window keeps its own query (any non-target query: #todo, empty, search, multi-tag),
+    //     marks the row without touching MindBox or shadowing body.scrollTo, and asks the other window
+    {
+      const runNonTarget = query => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        const t1 = a.makeItem('lt1', { saved_id: 's_lt1', scrollY: 1800 })
+        const t2 = a.makeItem('lt2', { saved_id: 's_lt2', scrollY: 1900 })
+        const wA = a.makeWidget({ rows: [{ id: 'lt1', pageY: 540 }, { id: 'lt2', pageY: 1200 }] })
+        b.makeItem('lt1', { saved_id: 's_lt1', scrollY: 1800 })
+        b.makeItem('lt2', { saved_id: 's_lt2', scrollY: 1900 })
+        b.makeItem('b0', { saved_id: 's_b0', scrollY: 1600 })
+        a.setBox(query)
+        b.setBox('#b0')
+        a.env._send_press()
+        bus.flush()
+        a.env._select_item(t1)
+        bus.flush()
+        const afterInView = [
+          a.getBox(),
+          b.getBox(),
+          wA.rowNodes.get('lt1').classList.contains('selected'),
+          wA.rowNodes.get('lt2').classList.contains('selected'),
+          a.getScrollTop(),
+          Object.prototype.hasOwnProperty.call(a.body, 'scrollTo'),
+          !!a.win._todoer_windows.hold,
+        ]
+        a.env._select_item(t2)
+        bus.flush()
+        const afterOffView = [
+          a.getBox(),
+          b.getBox(),
+          wA.rowNodes.get('lt1').classList.contains('selected'),
+          wA.rowNodes.get('lt2').classList.contains('selected'),
+          a.getScrollTop() > 500,
+        ]
+        return [afterInView, afterOffView]
+      }
+      check(
+        'windows list window keeps query and marks row: any non-target query stays intact, marks row, asks partner, no scrollTo shadow or hold, moves only when row out of view',
+        [runNonTarget('#todo'), runNonTarget(''), runNonTarget('search words')],
+        [
+          [['#todo', '#lt1', true, false, 500, false, false], ['#todo', '#lt2', false, true, true]],
+          [['', '#lt1', true, false, 500, false, false], ['', '#lt2', false, true, true]],
+          [['search words', '#lt1', true, false, 500, false, false], ['search words', '#lt2', false, true, true]],
+        ]
+      )
+    }
+
+    // 56. List window buttons and keys act on the marked row (what the linked window shows) where a row exists
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const completed = []
+      a.env._complete_todo = it => (completed.push(it.id), true)
+      const t1 = a.makeItem('bk1', { saved_id: 's_bk1', text: '#todo first', scrollY: 1600 })
+      const t2 = a.makeItem('bk2', { saved_id: 's_bk2', text: '#todo second', scrollY: 1700 })
+      const t3 = a.makeItem('bk3', { saved_id: 's_bk3', text: '#todo third', scrollY: 1800 })
+      const wA = a.makeWidget({ rows: [{ id: 'bk1', pageY: 540 }, { id: 'bk2', pageY: 580 }, { id: 'bk3', pageY: 620 }] })
+      b.makeItem('bk1', { saved_id: 's_bk1', text: '#todo first', scrollY: 1600 })
+      b.makeItem('bk2', { saved_id: 's_bk2', text: '#todo second', scrollY: 1700 })
+      b.makeItem('bk3', { saved_id: 's_bk3', text: '#todo third', scrollY: 1800 })
+      a.setBox('#todo')
+      b.setBox('')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(t1)
+      bus.flush()
+      const now1 = [a.env._row_now().named?.id ?? null, a.win._key_buttons_guests?.buttons?.map(x => x.name) ?? []]
+      a.env._on_row_key('KeyJ', {})
+      bus.flush()
+      const afterJ = [a.getBox(), b.getBox(), a.env._row_now().named?.id ?? null, wA.rowNodes.get('bk2').classList.contains('selected')]
+      // Press the drawn Done button on the strip (verifies _pressed_item + _bin_press + _select_next)
+      const doneBtn = a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+      await doneBtn?.press?.()
+      bus.flush()
+      const afterDone = [completed, a.getBox(), b.getBox(), a.env._row_now().named?.id ?? null, wA.rowNodes.get('bk3').classList.contains('selected')]
+      check(
+        'windows list window buttons and keys act on marked row: _row_now, strip buttons, j key, and done button act on linked window selection while box stays #todo',
+        [now1, afterJ, afterDone],
+        [
+          ['bk1', ['up', 'down', 'agent', 'done', 'snooze', 'cancel', 'window']],
+          ['#todo', '#bk2', 'bk2', true],
+          [['bk2'], '#todo', '#bk3', 'bk3', true],
+        ]
+      )
+    }
+
+    // 57. Target window with no-target partner: row selection in the target window opens THERE and moves partner's mark
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('tw1', { saved_id: 's_tw1', scrollY: 1600 })
+      const t2 = a.makeItem('tw2', { saved_id: 's_tw2', scrollY: 1700 })
+      const wA = a.makeWidget({ rows: [{ id: 'tw1', pageY: 540 }, { id: 'tw2', pageY: 580 }] })
+      const bt1 = b.makeItem('tw1', { saved_id: 's_tw1', scrollY: 1600 })
+      const bt2 = b.makeItem('tw2', { saved_id: 's_tw2', scrollY: 1700 })
+      b.makeWidget({ rows: [{ id: 'tw1', pageY: 540 }, { id: 'tw2', pageY: 580 }] })
+      a.setBox('#todo')
+      b.setBox('#tw1')
+      a.env._send_press()
+      bus.flush()
+      // j in B (target window) while A has no target -> opens #tw2 in B, A stays #todo and marks tw2
+      b.env._on_row_key('KeyJ', {})
+      bus.flush()
+      const afterBKey = [a.getBox(), b.getBox(), wA.rowNodes.get('tw2').classList.contains('selected'), a.env._row_now().named?.id ?? null]
+      // Row click in B while A has no target -> opens #tw1 in B, A stays #todo and marks tw1
+      b.env._select_item(bt1)
+      bus.flush()
+      const afterBClick = [a.getBox(), b.getBox(), wA.rowNodes.get('tw1').classList.contains('selected'), wA.rowNodes.get('tw2').classList.contains('selected')]
+      check(
+        'windows target window with no-target partner: j and row selection in target window open there and move list window mark without touching list box',
+        [afterBKey, afterBClick, !!t1 && !!t2 && !!bt2],
+        [
+          ['#todo', '#tw2', true, 'tw2'],
+          ['#todo', '#tw1', true, false],
+          true,
+        ]
+      )
+    }
+
+    // 58. Both windows have targets: selecting a row gives this window's target up (#todo) and asks the other
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 900, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.makeItem('btA', { saved_id: 's_btA', scrollY: 1500 })
+      const t2 = a.makeItem('bt2', { saved_id: 's_bt2', scrollY: 1700 })
+      const wA = a.makeWidget({ rows: [{ id: 'btA', pageY: 540 }, { id: 'bt2', pageY: 940 }] })
+      b.makeItem('btB', { saved_id: 's_btB', scrollY: 1600 })
+      b.makeItem('bt2', { saved_id: 's_bt2', scrollY: 1700 })
+      a.setBox('#btA')
+      b.setBox('#btB')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(t2)
+      bus.flush()
+      // Simulate app's !target mover scroll-up trying to yank A up to headerTop while hold stands
+      a.simScroll(500)
+      const afterBoth = [
+        a.getBox(),
+        b.getBox(),
+        wA.rowNodes.get('bt2').classList.contains('selected'),
+        a.getScrollTop(),
+        a.env._row_now().named?.id ?? null,
+      ]
+      check(
+        'windows both targets give up target: selecting row sets #todo in action window, holds readable row against scroll-up, marks row, and opens item in partner',
+        afterBoth,
+        ['#todo', '#bt2', true, 900, 'bt2']
+      )
+    }
+
+    // 58b. Point 2: both windows have targets while a single item is labeled `#todo` (so `#todo` itself
+    //      resolves as a target): release falls back to empty query `''`, marks clicked row with action
+    //      item = clicked row (not `#todo`), and silent-partner fallback still opens clicked row locally
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 900, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const doneHits = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      a.makeItem('todo', { saved_id: 's_todo', name: '#todo', text: '#todo buy milk', scrollY: 1400 })
+      a.makeItem('btA', { saved_id: 's_btA', scrollY: 1500 })
+      const t2 = a.makeItem('bt2', { saved_id: 's_bt2', scrollY: 1700 })
+      const t3 = a.makeItem('bt3', { saved_id: 's_bt3', scrollY: 1800 })
+      const wA = a.makeWidget({ rows: [{ id: 'todo', pageY: 540 }, { id: 'btA', pageY: 580 }, { id: 'bt2', pageY: 940 }, { id: 'bt3', pageY: 980 }] })
+      b.makeItem('btB', { saved_id: 's_btB', scrollY: 1600 })
+      b.makeItem('bt2', { saved_id: 's_bt2', scrollY: 1700 })
+      a.setBox('#btA')
+      b.setBox('#btB')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(t2)
+      bus.flush()
+      a.simScroll(500)
+      const doneBtn = a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+      await doneBtn?.press?.()
+      const afterRelease = [
+        a.getBox(),
+        a.env._window_target() ?? null,
+        b.getBox(),
+        wA.rowNodes.get('bt2').classList.contains('selected'),
+        wA.rowNodes.get('todo').classList.contains('selected'),
+        a.env._row_now().named?.id ?? null,
+        doneHits[0] ?? null,
+        a.getScrollTop(),
+      ]
+      // Silent-partner fallback in the same state (both targets, single item labeled `#todo`)
+      a.setBox('#btA')
+      a.env._on_search('#btA')
+      bus.flush()
+      b.win._todoer_windows.channel.muted = true
+      a.setScrollTop(900)
+      a.env._select_item(t3)
+      bus.flush()
+      const duringFallbackWait = [a.getBox(), a.env._window_target() ?? null, wA.rowNodes.get('bt3').classList.contains('selected'), a.env._row_now().named?.id ?? null]
+      advanceAll(bus, [a, b], 3000)
+      await Promise.resolve()
+      const afterSilentFallback = [a.getBox(), a.getScrollTop()]
+      check(
+        'windows both targets release when #todo is a target: uses empty query, marks clicked row with clicked action item, and silent-partner fallback opens locally',
+        [afterRelease, duringFallbackWait, afterSilentFallback],
+        [
+          ['', null, '#bt2', true, false, 'bt2', 'bt2', 900],
+          ['', null, true, 'bt3'],
+          ['#bt3', 1800],
+        ]
+      )
+    }
+
+    // 59. Neither window has a target: action window keeps its query and becomes list, partner opens item
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('nt1', { saved_id: 's_nt1', scrollY: 1600 })
+      const wA = a.makeWidget({ rows: [{ id: 'nt1', pageY: 540 }] })
+      b.makeItem('nt1', { saved_id: 's_nt1', scrollY: 1600 })
+      a.setBox('')
+      b.setBox('search words')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(t1)
+      bus.flush()
+      check(
+        'windows neither target: action window keeps its non-target query, marks row, and opens item in partner',
+        [a.getBox(), b.getBox(), wA.rowNodes.get('nt1').classList.contains('selected')],
+        ['', '#nt1', true]
+      )
+    }
+
+    // 60. Window with a target ignores unasked selection (item or none) told by the other window
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      a.makeItem('ig1', { saved_id: 's_ig1', scrollY: 1600 })
+      a.makeItem('ig2', { saved_id: 's_ig2', scrollY: 1700 })
+      const wA = a.makeWidget({ rows: [{ id: 'ig1', pageY: 540 }, { id: 'ig2', pageY: 1200 }] })
+      b.makeItem('ig1', { saved_id: 's_ig1', scrollY: 1600 })
+      b.makeItem('ig2', { saved_id: 's_ig2', scrollY: 1700 })
+      a.setBox('#ig1')
+      a.env._on_search('#ig1')
+      b.setBox('#ig1')
+      a.env._send_press()
+      bus.flush()
+      wA.rowNodes.get('ig1').classList.add('selected')
+      b.setBox('#ig2')
+      b.env._on_search('#ig2')
+      bus.flush()
+      const afterItem = [a.getBox(), a.env._row_now().named?.id ?? null, a.getScrollTop(), wA.rowNodes.get('ig1').classList.contains('selected'), wA.rowNodes.get('ig2').classList.contains('selected')]
+      b.setBox('')
+      b.env._on_search('')
+      bus.flush()
+      const afterNone = [a.getBox(), a.env._row_now().named?.id ?? null, wA.rowNodes.get('ig1').classList.contains('selected')]
+      check(
+        'windows target window ignores told selection: keeps own target, buttons, mark, and scroll when partner navigates or clears target',
+        [afterItem, afterNone],
+        [
+          ['#ig1', 'ig1', 500, true, false],
+          ['#ig1', 'ig1', true],
+        ]
+      )
+    }
+
+    // 61. Partner tells none: clearing partner target clears list window mark and row buttons
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('cl1', { saved_id: 's_cl1', scrollY: 1600 })
+      const wA = a.makeWidget({ rows: [{ id: 'cl1', pageY: 540 }] })
+      b.makeItem('cl1', { saved_id: 's_cl1', scrollY: 1600 })
+      a.setBox('#todo')
+      b.setBox('')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(t1)
+      bus.flush()
+      const before = [wA.rowNodes.get('cl1').classList.contains('selected'), a.env._row_now().named?.id ?? null]
+      b.setBox('')
+      b.env._on_search('')
+      bus.flush()
+      const afterClear = [
+        a.getBox(),
+        wA.rowNodes.get('cl1').classList.contains('selected'),
+        a.env._row_now().named ?? null,
+        a.win._key_buttons_guests?.buttons?.map(x => x.name) ?? [],
+      ]
+      check(
+        'windows partner tells none clears mark: clearing partner target unmarks row and drops row buttons while list box stays #todo',
+        [before, afterClear],
+        [
+          [true, 'cl1'],
+          ['#todo', false, null, ['window']],
+        ]
+      )
+    }
+
+    // 62. Fallback opens locally: silent partner leaves list box intact during wait, then opens item locally at SEND_ACK_MS
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('fb1', { saved_id: 's_fb1', scrollY: 1800 })
+      a.makeWidget({ rows: [{ id: 'fb1', pageY: 540 }] })
+      // B does NOT have fb1 so B never answers took
+      a.setBox('#todo')
+      b.setBox('')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(t1)
+      bus.flush()
+      const duringWait = [a.getBox(), a.env._row_now().named?.id ?? null]
+      advanceAll(bus, [a, b], 3000)
+      await Promise.resolve()
+      const afterTimeout = [a.getBox(), a.getScrollTop()]
+      check(
+        'windows fallback opens locally: list box stays #todo during wait, then silent partner falls back to opening item in selecting window at SEND_ACK_MS',
+        [duringWait, afterTimeout],
+        [
+          ['#todo', 'fb1'],
+          ['#fb1', 1800],
+        ]
+      )
+    }
+
+    // 63. _window_target matches app target semantics: unique label first term (even with extra words),
+    //     id: term anywhere, never #log, /commands, non-first label, or non-unique/plain query
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A' })
+      a.makeItem('wt1', { saved_id: 's_wt1', name: '#wt1' })
+      a.makeItem('log_item', { saved_id: 's_log', name: '#log' })
+      const got = q => a.env._window_target(q)?.id ?? null
+      check(
+        'windows _window_target semantics: first unique label (with or without extra words) and id: term anywhere match; #log, /command, non-first label, empty, and #todo return null',
+        [
+          got('#wt1'),
+          got('#wt1 extra words'),
+          got('extra id:s_wt1 more'),
+          got('id:wt1'),
+          got('#log'),
+          got('/vault #wt1'),
+          got('search #wt1'),
+          got('#todo'),
+          got(''),
+        ],
+        ['wt1', 'wt1', 'wt1', 'wt1', null, null, null, null, null]
+      )
+    }
+
+    // 64. Unlinked row selection opens locally as before (no channel send, scrolls to target)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const t1 = a.makeItem('ul1', { saved_id: 's_ul1', scrollY: 1850 })
+      a.makeWidget({ rows: [{ id: 'ul1', pageY: 540 }] })
+      a.setBox('#todo')
+      bus.sent.length = 0
+      a.env._select_item(t1)
+      bus.flush()
+      check(
+        'windows unlinked row selection: opens locally in selecting window without touching peer',
+        [a.getBox(), a.getScrollTop(), b.getBox(), bus.sent.length],
+        ['#ul1', 1850, '', 0]
+      )
+    }
+
+    // 65. Point 1: settled mark follows partner's reported target (clears on unsaved `true` or `null`
+    //     heartbeat, takes late navigation past 2s deadline without replaying scroll, keeps optimistic row
+    //     while a newer row request of this window is outstanding)
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', innerHeight: 700, scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const doneHits = []
+      const doneHitsB = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      b.env._complete_todo = it => (doneHitsB.push(it.id), false)
+      const xA = a.makeItem('mpX', { saved_id: 's_mpX', scrollY: 1600 })
+      a.makeItem('mpX2', { saved_id: 's_mpX2', scrollY: 1650 })
+      const yA = a.makeItem('mpY', { saved_id: 's_mpY', scrollY: 1700 })
+      const zA = a.makeItem('mpZ', { saved_id: 's_mpZ', scrollY: 1800 })
+      b.makeItem('mpX', { saved_id: 's_mpX', scrollY: 1600 })
+      b.makeItem('mpX2', { saved_id: 's_mpX2', scrollY: 1650 })
+      b.makeItem('mpY', { saved_id: 's_mpY', scrollY: 1700 })
+      b.makeItem('mpZ', { saved_id: 's_mpZ', scrollY: 1800 })
+      const wA = a.makeWidget({ rows: [{ id: 'mpX', pageY: 540 }, { id: 'mpX2', pageY: 560 }, { id: 'mpY', pageY: 1400 }, { id: 'mpZ', pageY: 580 }] })
+      const wB = b.makeWidget({ rows: [{ id: 'mpX', pageY: 540 }, { id: 'mpX2', pageY: 560 }, { id: 'mpY', pageY: 1400 }, { id: 'mpZ', pageY: 580 }] })
+      const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const markedB = () => [...wB.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const doneA = () => a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const doneB = () => b.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDone = async (btn = doneA()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
+      const pressDoneB = async (btn = doneB()) => { doneHitsB.length = 0; await btn?.press?.(); return doneHitsB[0] ?? null }
+      a.setBox('#todo')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(xA)
+      bus.flush()
+      const doneX = doneA()
+      const settledX = [markedA(), await pressDone()]
+      // (a) partner reports unsaved target (`true`) -> clears mark and Done
+      const uB = b.makeItem('mpUns', { saved_id: null, name: '#mpUns' })
+      b.setBox('#mpUns')
+      b.env._on_search('#mpUns')
+      bus.flush()
+      const afterUnsaved = [markedA(), !!doneA(), await pressDone(doneX), !!uB]
+      // restore X, then (b) partner target disappears under unchanged query (heartbeat reports `target: null`) -> clears mark and Done
+      advanceAll(bus, [a, b], 50)
+      a.env._select_item(xA)
+      bus.flush()
+      const doneX2 = doneA()
+      b.items.set('#mpX', null) // label becomes ambiguous / unresolvable without _on_search firing
+      advanceAll(bus, [a, b], 2000)
+      b.fireWin('focus') // sends same-partner hello with target: null
+      bus.flush()
+      const afterNullHello = [markedA(), !!doneA(), await pressDone(doneX2)]
+      // restore #mpX, mark X, then (c) partner navigates to off-screen Y delivered AFTER its 2s deadline -> mark & Done update to Y, scroll stays 500!
+      b.items.set('#mpX', b.items.get('mpX'))
+      a.env._select_item(xA)
+      bus.flush()
+      const doneX3 = doneA()
+      a.win._todoer_windows.channel.paused = true
+      b.setBox('#mpY')
+      b.env._on_search('#mpY')
+      bus.flush()
+      a.clock.now += 2500
+      b.clock.now = a.clock.now
+      a.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const doneY = doneA()
+      const afterLateNav = [markedA(), a.getScrollTop(), await pressDone(doneX3), await pressDone()]
+      // (d) partner clears target delivered AFTER its 2s deadline -> mark & Done clear!
+      a.win._todoer_windows.channel.paused = true
+      b.setBox('')
+      b.env._on_search('')
+      bus.flush()
+      a.clock.now += 2500
+      b.clock.now = a.clock.now
+      a.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const afterLateNone = [markedA(), !!doneA(), await pressDone(doneY)]
+      // (e) optimistic row Z preserved during pending row ask even when partner sends stale hello reporting X, then settles on Z when took arrives
+      a.env._select_item(xA)
+      bus.flush()
+      b.win._todoer_windows.channel.paused = true
+      a.env._select_item(zA)
+      bus.flush()
+      b.advance(2000)
+      b.fireWin('focus') // B still shows mpX and sends hello(target: s_mpX) before seeing A's ask for mpZ
+      bus.flush()
+      const duringOptimistic = [markedA(), await pressDone()]
+      b.clock.now = a.clock.now
+      b.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const afterSettledZ = [markedA(), b.getBox(), await pressDone(), !!yA]
+      // (f) typing intermediate target before editor debounce settles:
+      //     (f1) keydown and focus hello while box holds debounced #mpX2 then Backspace back to #mpX without _on_search:
+      //          reads applied .container.target (never publishes #mpX2), Done on mpX2 rejected, live Done acts on mpX
+      advanceAll(bus, [a, b], 3000) // past (e)'s clock rewind so used() fires hello on each probe
+      a.env._select_item(xA)
+      bus.flush()
+      b.win._mindboxDebounced = true
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      bus.sent.length = 0
+      b.fireDoc('keydown', { key: 'Backspace' })
+      bus.flush()
+      const keydownHelloTarget = bus.sent.find(m => m.from == 'B' && m.data.type == 'hello')?.data.target ?? 'none'
+      advanceAll(bus, [a, b], 1000)
+      bus.sent.length = 0
+      b.fireWin('focus')
+      bus.flush()
+      const debouncedFocusTarget = bus.sent.find(m => m.from == 'B' && m.data.type == 'hello')?.data.target ?? 'none'
+      b.setBox('#mpX')
+      b.win._mindboxDebounced = false
+      const afterKeydownType = [
+        keydownHelloTarget,
+        debouncedFocusTarget,
+        a.win._todoer_windows.peers.get('B')?.target ?? null,
+        markedA(),
+        a.env._pressed_item('done', 'mpX2'),
+        await pressDone(),
+      ]
+      //     (f2) presence hello drift (windows.reported differs from windows.last) -> returning to #mpX WITH _on_search corrects partner
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      const midFocusMark = markedA()
+      const doneMpX2 = doneA()
+      b.setBox('#mpX')
+      b.env._on_search('#mpX')
+      bus.flush()
+      const afterFocusWithSearch = [
+        midFocusMark,
+        a.win._todoer_windows.peers.get('B')?.target ?? null,
+        markedA(),
+        await pressDone(doneMpX2),
+        await pressDone(),
+      ]
+      //     (f3) typing #mpX2 while debounced (focus fires mid-debounce) then returning to #mpX WITHOUT _on_search:
+      //          applied .container.target stays mpX throughout so A never marks mpX2 and Done acts on mpX
+      b.win._mindboxDebounced = true
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      const midNoHookMark = markedA()
+      b.setBox('#mpX')
+      advanceAll(bus, [a, b], 500)
+      b.win._mindboxDebounced = false
+      const afterFocusNoHook = [
+        midNoHookMark,
+        a.win._todoer_windows.peers.get('B')?.target ?? null,
+        markedA(),
+        a.env._pressed_item('done', 'mpX2'),
+        await pressDone(),
+      ]
+      //     (f4) typing #mpX2 briefly while debounced from plain search in B while A has target #mpX -> next click in A opens in A (B keeps plain search)
+      b.setBox('plain search')
+      b.setTargetItem(null)
+      b.env._on_search('plain search')
+      bus.flush()
+      a.setBox('#mpX')
+      a.setTargetItem('mpX')
+      a.env._on_search('#mpX')
+      bus.flush()
+      const doneOnXBefore = doneB()
+      b.win._mindboxDebounced = true
+      b.setBox('#mpX2')
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      b.setBox('plain search')
+      advanceAll(bus, [a, b], 500)
+      b.win._mindboxDebounced = false
+      const targetAfterPlainBack = a.win._todoer_windows.peers.get('B')?.target ?? null
+      a.env._select_item(zA)
+      bus.flush()
+      const afterTypedPlainNextClick = [targetAfterPlainBack, a.getBox(), b.getBox(), markedB(), await pressDoneB(doneOnXBefore), await pressDoneB()]
+      // (g) unsaved target in B given up before its save: returning to earlier plain search tells partner `target: null`,
+      //     so targeted A's next click opens in A and keeps B's plain search (Done in B rejects stale and acts on new)
+      const doneZBeforeUns = doneB()
+      const uB2 = b.makeItem('mpUns2', { saved_id: null, name: '#mpUns2' })
+      b.setBox('#mpUns2')
+      b.env._on_search('#mpUns2')
+      bus.flush()
+      const aPeerDuringUns = a.win._todoer_windows.peers.get('B')?.target ?? null
+      b.setBox('plain search')
+      b.env._on_search('plain search')
+      bus.flush()
+      const aPeerAfterUnsReturn = a.win._todoer_windows.peers.get('B')?.target ?? null
+      a.env._select_item(xA)
+      bus.flush()
+      const afterUnsavedReturnNextClick = [
+        aPeerDuringUns,
+        aPeerAfterUnsReturn,
+        a.getBox(),
+        b.getBox(),
+        markedB(),
+        await pressDoneB(doneZBeforeUns),
+        await pressDoneB(),
+        !!uB2,
+      ]
+      check(
+        'windows mark follows partner target: clears on unsaved or null heartbeat, takes expired navigation without scroll replay, preserves optimistic row during pending ask',
+        [settledX, afterUnsaved, afterNullHello, afterLateNav, afterLateNone, duringOptimistic, afterSettledZ, afterKeydownType, afterFocusWithSearch, afterFocusNoHook, afterTypedPlainNextClick, afterUnsavedReturnNextClick],
+        [
+          [['mpX'], 'mpX'],
+          [[], false, null, true],
+          [[], false, null],
+          [['mpY'], 500, null, 'mpY'],
+          [[], false, null],
+          [['mpZ'], 'mpZ'],
+          [['mpZ'], '#mpZ', 'mpZ', true],
+          ['s_mpX', 's_mpX', 's_mpX', ['mpX'], null, 'mpX'],
+          [['mpX2'], 's_mpX', ['mpX'], null, 'mpX'],
+          [['mpX'], 's_mpX', ['mpX'], null, 'mpX'],
+          [null, '#mpZ', 'plain search', ['mpZ'], null, 'mpZ'],
+          [true, null, '#mpX', 'plain search', ['mpX'], null, 'mpX', true],
+        ]
+      )
+    }
+
+    // 66. Point 3: clicking a mounted row whose item awaits its first save (through _select_item itself)
+    //     keeps the list query, marks the row optimistically, and shows it in the partner once saved
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      const doneHits = []
+      a.env._complete_todo = it => (doneHits.push(it.id), false)
+      a.makeItem('usX', { saved_id: 's_usX', scrollY: 1600 })
+      b.makeItem('usX', { saved_id: 's_usX', scrollY: 1600 })
+      const uY = a.makeItem('usY', { saved_id: null, name: '#usY', scrollY: 1700 })
+      const uNever = a.makeItem('usNever', { saved_id: null, name: '#usNever', scrollY: 1750 })
+      const uBoth = a.makeItem('usBoth', { saved_id: null, name: '#usBoth', scrollY: 1800 })
+      const uRel = a.makeItem('usRel', { saved_id: null, name: '#usRel', scrollY: 1825 })
+      const uSuper = a.makeItem('usSuper', { saved_id: null, name: '#usSuper', scrollY: 1850 })
+      const uSilentActive = a.makeItem('usSilentActive', { saved_id: null, name: '#usSilentActive', scrollY: 1870 })
+      const uSilentIdle = a.makeItem('usSilentIdle', { saved_id: null, name: '#usSilentIdle', scrollY: 1880 })
+      const other = a.makeItem('usOther', { saved_id: 's_usOther', scrollY: 1900 })
+      const zA = a.makeItem('usZ', { saved_id: 's_usZ', scrollY: 1950 })
+      b.makeItem('usOther', { saved_id: 's_usOther', scrollY: 1900 })
+      const zB = b.makeItem('usZ', { saved_id: 's_usZ', scrollY: 1950 })
+      const wA = a.makeWidget({
+        rows: [
+          { id: 'usX', pageY: 540 },
+          { id: 'usY', pageY: 580 },
+          { id: 'usNever', pageY: 620 },
+          { id: 'usBoth', pageY: 660 },
+          { id: 'usRel', pageY: 680 },
+          { id: 'usSuper', pageY: 700 },
+          { id: 'usSilentActive', pageY: 710 },
+          { id: 'usSilentIdle', pageY: 720 },
+          { id: 'usOther', pageY: 740 },
+          { id: 'usZ', pageY: 760 },
+        ],
+      })
+      b.makeWidget({ rows: [{ id: 'usX', pageY: 540 }, { id: 'usZ', pageY: 580 }] })
+      const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+      const doneA = () => a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done') ?? null
+      const pressDone = async (btn = doneA()) => { doneHits.length = 0; await btn?.press?.(); return doneHits[0] ?? null }
+      a.setBox('search words')
+      b.setBox('#usX')
+      a.env._send_press()
+      bus.flush()
+      // (a) A on plain search, B on #usX: click unsaved row uY through _select_item -> A keeps search, B stays #usX until save, then B shows #usY
+      bus.sent.length = 0
+      a.env._select_item(uY)
+      bus.flush()
+      advanceAll(bus, [a, b], 500)
+      const beforeSave = [a.getBox(), b.getBox(), markedA(), bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length]
+      uY.saved_id = 's_usY'
+      a.items.set('s_usY', uY)
+      b.makeItem('usY', { saved_id: 's_usY', name: '#usY', scrollY: 1700 })
+      advanceAll(bus, [a, b], 250)
+      const afterSave = [a.getBox(), b.getBox(), markedA(), await pressDone()]
+      // (b) unsaved row that never saves within SEND_SAVE_MS (10s) -> restores mark to partner's current target (#usY)
+      bus.sent.length = 0
+      a.env._select_item(uNever)
+      bus.flush()
+      const duringNever = [a.getBox(), markedA()]
+      advanceAll(bus, [a, b], 10_250)
+      const afterNever = [a.getBox(), b.getBox(), markedA(), bus.sent.filter(m => m.from == 'A' && m.data.type == 'selected').length]
+      // (c) both windows have targets, click unsaved row uBoth -> A drops target to #todo, async _on_search('#todo') does not cancel wait, B opens once saved
+      a.setBox('#usX')
+      a.env._on_search('#usX')
+      bus.flush()
+      a.env._select_item(uBoth)
+      a.env._on_search('#todo') // Svelte reactive flush after MindBox.set('#todo')
+      bus.flush()
+      uBoth.saved_id = 's_usBoth'
+      a.items.set('s_usBoth', uBoth)
+      b.makeItem('usBoth', { saved_id: 's_usBoth', name: '#usBoth', scrollY: 1800 })
+      advanceAll(bus, [a, b], 250)
+      const afterBothUnsaved = [a.getBox(), b.getBox(), markedA()]
+      // (c2) both targets release for unsaved row tells partner `target: null` at once (before save):
+      //      next click on saved Z in B opens Z in B (keeping A on #todo marking Z), captured Done on uRel rejected,
+      //      live Done in A acts on Z, and uRel saving later does not clobber B
+      a.setBox('#usX')
+      a.env._on_search('#usX')
+      bus.flush()
+      a.env._select_item(uRel)
+      a.env._on_search('#todo')
+      bus.flush()
+      advanceAll(bus, [a, b], 500)
+      const doneRel = doneA()
+      const bKnowsRelease = [a.getBox(), markedA(), b.win._todoer_windows.peers.get('A')?.target ?? null]
+      b.env._select_item(zB)
+      bus.flush()
+      uRel.saved_id = 's_usRel'
+      a.items.set('s_usRel', uRel)
+      b.makeItem('usRel', { saved_id: 's_usRel', name: '#usRel', scrollY: 1825 })
+      advanceAll(bus, [a, b], 500)
+      const afterBClickDuringWait = [a.getBox(), b.getBox(), markedA(), await pressDone(doneRel), await pressDone(), !!zA]
+      // (d) clicking another row supersedes pending unsaved row wait
+      a.env._select_item(uSuper)
+      bus.flush()
+      a.env._select_item(other)
+      bus.flush()
+      uSuper.saved_id = 's_usSuper'
+      a.items.set('s_usSuper', uSuper)
+      b.makeItem('usSuper', { saved_id: 's_usSuper', name: '#usSuper', scrollY: 1850 })
+      advanceAll(bus, [a, b], 500)
+      const afterSuperseded = [a.getBox(), b.getBox(), markedA()]
+      // (e) Fault 2: original click's input counter and _carry_input fallback opener are carried through
+      //     the first-save wait: with a silent partner (B lacks the newly saved item), intervening input
+      //     during the save wait preserves the newer plain search (does not open over it), while an idle
+      //     wait falls back locally using the original click's carried user-input intent (history step)
+      let inUserClick = false
+      const carriedRuns = []
+      a.win._carry_input = fn => {
+        const captured = inUserClick
+        return (...args) => {
+          carriedRuns.push(captured)
+          return fn(...args)
+        }
+      }
+      a.setBox('plain one')
+      a.env._on_search('plain one')
+      bus.flush()
+      // (e1) intervening typing during save wait + silent partner (B lacks uSilentActive) -> keeps 'plain two'
+      inUserClick = true
+      a.env._select_item(uSilentActive)
+      inUserClick = false
+      bus.flush()
+      a.fireWin('keydown', { key: 'a' })
+      a.setBox('plain two')
+      a.env._on_search('plain two')
+      bus.flush()
+      uSilentActive.saved_id = 's_usSilentActive'
+      a.items.set('s_usSilentActive', uSilentActive)
+      // B deliberately lacks uSilentActive -> stays silent past SEND_ACK_MS
+      advanceAll(bus, [a, b], 250) // save poll starts _send_ask carrying pre-typing acted
+      advanceAll(bus, [a, b], 3000) // SEND_ACK_MS fallback sees acted changed -> keeps 'plain two'!
+      await Promise.resolve()
+      const afterSilentWithInput = [a.getBox(), carriedRuns.length]
+      // reconnect B via who (sent on fallback) and test (e2): idle during save wait + silent partner ->
+      // opens locally with original click's carried user-input intent (captured === true at the click!)
+      advanceAll(bus, [a, b], 1000)
+      b.fireWin('focus')
+      bus.flush()
+      a.setBox('plain three')
+      a.env._on_search('plain three')
+      bus.flush()
+      inUserClick = true
+      a.env._select_item(uSilentIdle)
+      inUserClick = false
+      bus.flush()
+      uSilentIdle.saved_id = 's_usSilentIdle'
+      a.items.set('s_usSilentIdle', uSilentIdle)
+      // B deliberately lacks uSilentIdle -> stays silent past SEND_ACK_MS
+      advanceAll(bus, [a, b], 250) // save poll starts _send_ask while inUserClick is false
+      advanceAll(bus, [a, b], 3000) // SEND_ACK_MS fallback runs opener carried from click!
+      await Promise.resolve()
+      const afterSilentIdle = [a.getBox(), a.getScrollTop(), [...carriedRuns]]
+      delete a.win._carry_input
+      check(
+        'windows unsaved row selection via _select_item: keeps list query, waits for saved_id, hands off once saved, restores mark on timeout, survives both-targets release, superseded by newer click',
+        [beforeSave, afterSave, duringNever, afterNever, afterBothUnsaved, bKnowsRelease, afterBClickDuringWait, afterSuperseded, afterSilentWithInput, afterSilentIdle],
+        [
+          ['search words', '#usX', ['usY'], 0],
+          ['search words', '#usY', ['usY'], 'usY'],
+          ['search words', ['usNever']],
+          ['search words', '#usY', ['usY'], 0],
+          ['#todo', '#usBoth', ['usBoth']],
+          ['#todo', ['usRel'], null],
+          ['#todo', '#usZ', ['usZ'], null, 'usZ', true],
+          ['#todo', '#usOther', ['usOther']],
+          ['plain two', 0],
+          ['#usSilentIdle', 1880, [true]],
+        ]
+      )
+    }
+
+    // 67. Mark-only _on_search does not rebuild lists (even as a detached mark survives settled plain-search edits)
+    //     and a slow receiver cancels a pending asked take when its owner enters a newer plain search
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      let rebuilds = 0
+      a.env._render_todoer_widget = () => { rebuilds++ }
+      a.env._this.dependents = ['pinned']
+      const wA = a.makeWidget({ rows: [{ id: 'sr1', pageY: 540 }, { id: 'srLate', pageY: 580 }] })
+      a.items.set('pinned', { id: 'pinned', elem: { querySelectorAll: () => [wA.widget], querySelector: () => wA.widget.querySelector('.list-item-container.selected') } })
+      a.env._listed = () => true
+      const sr1 = a.makeItem('sr1', { saved_id: 's_sr1', scrollY: 1600 })
+      const srLate = a.makeItem('srLate', { saved_id: 's_srLate', scrollY: 1700 })
+      b.makeItem('sr1', { saved_id: 's_sr1', scrollY: 1600 })
+      a.setBox('#todo')
+      b.setBox('alpha')
+      a.env._send_press()
+      bus.flush()
+      a.env._select_item(sr1)
+      bus.flush()
+      // (a) detached mark survives settled edits of a plain search without rebuilding widgets
+      for (const q of ['a', 'ab', 'abc']) {
+        a.setBox(q)
+        a.env._on_search(q)
+      }
+      const afterPlainEdits = [rebuilds, wA.rowNodes.get('sr1').classList.contains('selected'), a.getBox()]
+      // (b) slow receiver: B already announced no target (`windows.last === ''`), A asks B for srLate not yet in B,
+      //     B's owner enters a different plain search `'beta'` while lookup waits -> pending asked take is canceled,
+      //     so srLate arriving later does NOT overwrite B's `'beta'` query!
+      b.setBox('alpha')
+      b.env._on_search('alpha')
+      bus.flush()
+      const bLastBefore = b.win._todoer_windows.last
+      bus.sent.length = 0
+      a.env._select_item(srLate)
+      bus.flush()
+      const bPendingDuring = b.win._todoer_windows.pending?.kind ?? null
+      b.setBox('beta')
+      b.env._on_search('beta')
+      bus.flush()
+      b.makeItem('srLate', { saved_id: 's_srLate', scrollY: 1700 })
+      advanceAll(bus, [a, b], 1000)
+      const afterSlowReceiver = [bLastBefore, bPendingDuring, b.getBox(), bus.sent.filter(m => m.from == 'B' && m.data.type == 'took').length]
+      check(
+        'windows _on_search mark-only & slow receiver: plain search edits keep detached mark with zero widget rebuilds, and receiver plain search cancels pending asked take',
+        [afterPlainEdits, afterSlowReceiver],
+        [
+          [0, true, 'abc'],
+          ['', 'take', 'beta', 0],
+        ]
+      )
+    }
+
+    // 68. Presence report is not a selection: A clicks row Z (delivery held 20ms), B applies #new
+    //     and runs its deferred _on_search('#new'); whether B's 30s heartbeat runs BEFORE or AFTER
+    //     the deferred search hook, B stays on #new and A marks new (and scrolls to show it)
+    {
+      const runHeartbeatOrder = heartbeatBeforeSearch => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        for (const w of [a, b]) {
+          w.makeItem('old', { saved_id: 's_old', scrollY: 1600 })
+          w.makeItem('z', { saved_id: 's_z', scrollY: 1700 })
+          w.makeItem('new', { saved_id: 's_new', scrollY: 1800 })
+        }
+        const zA = a.items.get('z')
+        const wA = a.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'z', pageY: 580 }, { id: 'new', pageY: 1400 }] })
+        const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        a.setBox('#todo')
+        b.setBox('#old')
+        a.env._send_press()
+        bus.flush()
+        b.env._on_search('#old')
+        bus.flush()
+        // B's ordinary 30s heartbeat fires at t = +30,000ms:
+        // - heartbeatBeforeSearch: start click at +29,987ms -> apply #new at +29,997ms -> heartbeat at +30,000ms -> _on_search at +30,002ms -> deliver click at +30,007ms
+        // - heartbeatAfterSearch:  start click at +29,982ms -> apply #new at +29,992ms -> _on_search at +29,997ms -> heartbeat at +30,000ms -> deliver click at +30,002ms
+        advanceAll(bus, [a, b], heartbeatBeforeSearch ? 29_987 : 29_982)
+        b.win._todoer_windows.channel.paused = true
+        a.env._select_item(zA)
+        bus.flush()
+        advanceAll(bus, [a, b], 10)
+        b.setBox('#new')
+        b.win._mindboxDebounced = false
+        advanceAll(bus, [a, b], 5)
+        b.env._on_search('#new')
+        bus.flush()
+        advanceAll(bus, [a, b], 5)
+        b.win._todoer_windows.channel.unpause()
+        advanceAll(bus, [a, b], 3500)
+        return [b.getBox(), markedA(), a.getBox(), a.getScrollTop() > 500]
+      }
+      check(
+        'windows presence vs selection (heartbeat before search hook): ordinary heartbeat before deferred _on_search does not suppress selection stamp, so older click cannot overwrite #new',
+        runHeartbeatOrder(true),
+        ['#new', ['new'], '#todo', true]
+      )
+      check(
+        'windows presence vs selection (heartbeat after search hook): ordinary heartbeat after deferred _on_search preserves #new and marks new in list window',
+        runHeartbeatOrder(false),
+        ['#new', ['new'], '#todo', true]
+      )
+    }
+
+    // 69. Older search callback must not deliver a newer draft:
+    //     index.svelte schedules _on_search via setTimeout(() => _on_search(editorText)) reading LIVE editorText;
+    //     if B applies #old2 (queuing the callback) and the user types '3' (#old23, debounced) BEFORE the callback
+    //     runs, _on_search receives '#old23' while _mindboxDebounced is true. Todoer must publish B's APPLIED target
+    //     (#old2, from .container.target) with its ordering stamp rather than '#old23' (and must not skip the hook).
+    {
+      const runStaleSearchCallback = async ({ withOlderClick = false, applyQuery = '#old2', applyId = 'old2', commitDraft = false } = {}) => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const doneHits = []
+        a.env._complete_todo = it => (doneHits.push(it.id), false)
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        for (const w of [a, b]) {
+          w.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
+          w.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
+          w.makeItem('old23', { saved_id: 's_old23', text: '#todo old23 task', scrollY: 1800 })
+          w.makeItem('z', { saved_id: 's_z', text: '#todo z task', scrollY: 1900 })
+        }
+        const zA = a.items.get('z')
+        const wA = a.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 580 }, { id: 'old23', pageY: 620 }, { id: 'z', pageY: 660 }] })
+        const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        const pressDoneA = async () => {
+          doneHits.length = 0
+          const btn = a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+          await btn?.press?.()
+          return doneHits[0] ?? null
+        }
+        a.setBox('#todo')
+        b.setBox('#old')
+        b.setTargetItem('old')
+        a.env._send_press()
+        bus.flush()
+        b.env._on_search('#old')
+        bus.flush()
+        if (withOlderClick) {
+          // A clicks row z at t=100 (held 20ms in flight to B)
+          advanceAll(bus, [a, b], 100)
+          b.win._todoer_windows.channel.paused = true
+          a.env._select_item(zA)
+          bus.flush()
+          advanceAll(bus, [a, b], 5)
+        }
+        // B applies `applyQuery` (e.g. #old2 or plain) -> sets _mindboxApplied, app queues setTimeout reading live box
+        b.applyQuery(applyQuery, { targets: applyId ? [applyId] : [], callbackDelay: 5 })
+        // 2ms later, BEFORE the queued _on_search runs, user types '3' -> live box is '#old23' while debounced!
+        advanceAll(bus, [a, b], 2)
+        b.typeDraft('#old23')
+        // queued _on_search callback fires at +5ms, handed live '#old23' while _mindboxDebounced is true
+        advanceAll(bus, [a, b], 5)
+        if (withOlderClick) {
+          // A's older click on z arrives after B's search callback published #old2 with its ordering stamp
+          advanceAll(bus, [a, b], 10)
+          b.win._todoer_windows.channel.unpause()
+        }
+        if (commitDraft) {
+          // draft '#old23' settles and fires final _on_search('#old23')
+          advanceAll(bus, [a, b], 500)
+          b.applyQuery('#old23', { targets: ['old23'] })
+          b.env._on_search('#old23')
+          bus.flush()
+        } else {
+          // user backspaces '3' -> returns to already-applied query, debounce ends, NO final _on_search runs
+          advanceAll(bus, [a, b], 100)
+          b.setBox(applyQuery)
+          advanceAll(bus, [a, b], 500)
+          b.applyQuery(applyQuery, { targets: applyId ? [applyId] : [] })
+        }
+        // two seconds later: check B's box, A's peer target, A's mark, and A's Done target
+        advanceAll(bus, [a, b], 2000)
+        return [b.getBox(), a.win._todoer_windows.peers.get('B')?.target ?? null, markedA(), await pressDoneA()]
+      }
+      check(
+        'windows older search callback with newer draft: publishes applied target (#old2) with ordering stamp, never debounced draft (#old23)',
+        [
+          await runStaleSearchCallback(),
+          await runStaleSearchCallback({ withOlderClick: true }),
+          await runStaleSearchCallback({ applyQuery: 'plain', applyId: null }),
+          await runStaleSearchCallback({ commitDraft: true }),
+        ],
+        [
+          ['#old2', 's_old2', ['old2'], 'old2'],
+          ['#old2', 's_old2', ['old2'], 'old2'],
+          ['plain', null, [], null],
+          ['#old23', 's_old23', ['old23'], 'old23'],
+        ]
+      )
+    }
+
+    // 70. Multi-target queries while debounced read window._mindboxApplied (exact term order, never DOM order):
+    //     - heartbeat & undo for '#first id:second' and 'id:first id:second' (with second pinned first in DOM)
+    //     - case (a): B on #second (or 'id:second id:first'), applies 'id:first id:second', suffix typed
+    //       before or after the queued _on_search callback, then taken back without a final hook
+    //     - case (b): A on #peer (or targetless #todo), B on #old, applies 'id:first id:second', then starts
+    //       a plain-text replacement before or after the callback and takes it back without a final hook
+    //     - app without window._mindboxApplied: falls back to MindBox.get() while debounced
+    {
+      const setupPair = ({ aQuery = '#todo', aTargets = [] } = {}) => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const doneHitsA = []
+        const doneHitsB = []
+        a.env._complete_todo = it => (doneHitsA.push(it.id), false)
+        b.env._complete_todo = it => (doneHitsB.push(it.id), false)
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        for (const w of [a, b]) {
+          w.makeItem('first', { saved_id: 's_first', text: '#todo first task', scrollY: 1600 })
+          w.makeItem('second', { saved_id: 's_second', text: '#todo second task', scrollY: 1700 })
+          w.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1800 })
+          w.makeItem('new', { saved_id: 's_new', text: '#todo new task with x', scrollY: 1900 })
+          w.makeItem('peer', { saved_id: 's_peer', text: '#todo peer task', scrollY: 2000 })
+        }
+        const rows = [
+          { id: 'first', pageY: 540 },
+          { id: 'second', pageY: 580 },
+          { id: 'old', pageY: 620 },
+          { id: 'new', pageY: 660 },
+          { id: 'peer', pageY: 700 },
+        ]
+        const wA = a.makeWidget({ rows })
+        const wB = b.makeWidget({ rows })
+        const markedOf = w => [...w.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        const pressDoneOf = (winObj, hits) => async () => {
+          hits.length = 0
+          const btn = winObj.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+          await btn?.press?.()
+          return hits[0] ?? null
+        }
+        const markedA = () => markedOf(wA)
+        const markedB = () => markedOf(wB)
+        const pressDoneA = pressDoneOf(a, doneHitsA)
+        const pressDoneB = pressDoneOf(b, doneHitsB)
+        const snap = async () => [b.env._selected_item()?.id ?? null, markedA(), await pressDoneA()]
+        a.applyQuery(aQuery, { targets: aTargets })
+        a.env._on_search(aQuery)
+        a.env._send_press()
+        bus.flush()
+        return { bus, a, b, markedA, markedB, pressDoneA, pressDoneB, snap }
+      }
+      const runMultiTarget = async ({ query, preQuery = null, preTargets = null }) => {
+        const { bus, a, b, snap } = setupPair()
+        if (preQuery != null) {
+          b.applyQuery(preQuery, { targets: preTargets })
+          b.env._on_search(preQuery)
+          bus.flush()
+        }
+        // Apply multi-target query in B; second is pinned so app renders .container.target for second BEFORE first
+        b.applyQuery(query, { targets: ['second', 'first'] })
+        b.env._on_search(query)
+        bus.flush()
+        // Advance just before B's ordinary 30s heartbeat, type suffix (debounced)
+        advanceAll(bus, [a, b], 29_900)
+        b.typeDraft(query + ' x')
+        const whilePending = await snap()
+        // Ordinary 30s heartbeat fires at +30,000ms while suffix is still debounced
+        bus.sent.length = 0
+        advanceAll(bus, [a, b], 200)
+        const heartbeatSent = bus.sent.some(m => m.from == 'B' && m.data.type == 'hello')
+        const atHeartbeat = await snap()
+        // User backspaces suffix before 500ms debounce settles (returns to applied query -> app skips _on_search)
+        advanceAll(bus, [a, b], 100)
+        b.setBox(query)
+        b.applyQuery(query, { targets: ['second', 'first'] })
+        // Two seconds after undo
+        advanceAll(bus, [a, b], 2000)
+        const afterUndo = await snap()
+        return { heartbeatSent, whilePending, atHeartbeat, afterUndo }
+      }
+      check(
+        'windows multi-target query while debounced: keeps applied query pick (#first id:second and id:first id:second with second pinned) across pending suffix, heartbeat, and undo',
+        [
+          await runMultiTarget({ query: '#first id:second' }),
+          await runMultiTarget({ query: 'id:first id:second', preQuery: '#second', preTargets: ['second'] }),
+        ],
+        [
+          { heartbeatSent: true, whilePending: ['first', ['first'], 'first'], atHeartbeat: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { heartbeatSent: true, whilePending: ['first', ['first'], 'first'], atHeartbeat: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+        ]
+      )
+
+      // 70a. Reviewer case (a): B on #second (or 'id:second id:first' — identical target set throughout),
+      //      A as its list; B applies 'id:first id:second'; suffix typed before or after the queued search
+      //      callback and taken back before it applies (no final _on_search); 2s after undo B's selected
+      //      item, A's marked row, and the id A's Done button really reaches are all 'first'.
+      const runCaseA = async ({ preQuery, preTargets, callbackBeforeInput }) => {
+        const { bus, a, b, snap } = setupPair()
+        b.applyQuery(preQuery, { targets: preTargets })
+        b.env._on_search(preQuery)
+        bus.flush()
+        const beforeSwitch = await snap()
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'], callbackDelay: 5 })
+        if (callbackBeforeInput) {
+          advanceAll(bus, [a, b], 5) // queued _on_search fires before next input
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('id:first id:second x')
+        } else {
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('id:first id:second x')
+          advanceAll(bus, [a, b], 5) // queued _on_search fires during the new debounce, handed live draft
+        }
+        const duringDraft = await snap()
+        // Backspace suffix before 500ms debounce applies -> returns to applied query without a final _on_search
+        advanceAll(bus, [a, b], 100)
+        b.setBox('id:first id:second')
+        advanceAll(bus, [a, b], 400)
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'] })
+        advanceAll(bus, [a, b], 2000)
+        const afterUndo = await snap()
+        return { beforeSwitch, duringDraft, afterUndo }
+      }
+      check(
+        'windows multi-target applied query across queued callback and undo (case a): #second or id:second id:first to id:first id:second selects, marks, and completes first',
+        [
+          await runCaseA({ preQuery: '#second', preTargets: ['second'], callbackBeforeInput: true }),
+          await runCaseA({ preQuery: '#second', preTargets: ['second'], callbackBeforeInput: false }),
+          await runCaseA({ preQuery: 'id:second id:first', preTargets: ['second', 'first'], callbackBeforeInput: true }),
+          await runCaseA({ preQuery: 'id:second id:first', preTargets: ['second', 'first'], callbackBeforeInput: false }),
+        ],
+        [
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+        ]
+      )
+
+      // 70b. Reviewer case (b): A shows #peer (or targetless #todo), B shows #old; B applies 'id:first id:second'
+      //      and starts a plain-text replacement before or after the queued callback; B never marks A's #peer
+      //      or reaches it with Done, and A's mark and Done are right during the draft and 2s after undo
+      //      without a final hook (no wait for the 30s heartbeat).
+      const runCaseB = async ({ aQuery, aTargets, callbackBeforeInput }) => {
+        const { bus, a, b, markedA, markedB, pressDoneA, pressDoneB } = setupPair({ aQuery, aTargets })
+        b.applyQuery('#old', { targets: ['old'] })
+        b.env._on_search('#old')
+        bus.flush()
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'], callbackDelay: 5 })
+        if (callbackBeforeInput) {
+          advanceAll(bus, [a, b], 5)
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('plain')
+        } else {
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('plain')
+          advanceAll(bus, [a, b], 5)
+        }
+        const bDuring = [b.env._selected_item()?.id ?? null, markedB(), await pressDoneB()]
+        const aDuring = [markedA(), await pressDoneA()]
+        // Undo plain-text replacement before debounce applies -> no final _on_search; wait 2s (not 30s heartbeat)
+        advanceAll(bus, [a, b], 100)
+        b.setBox('id:first id:second')
+        advanceAll(bus, [a, b], 400)
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'] })
+        advanceAll(bus, [a, b], 2000)
+        const bAfter = [b.env._selected_item()?.id ?? null, markedB(), await pressDoneB()]
+        const aAfter = [markedA(), await pressDoneA()]
+        return { bDuring, aDuring, bAfter, aAfter }
+      }
+      check(
+        'windows multi-target applied query with plain-text draft (case b): B never falls back to partner #peer and A keeps right mark and Done across draft and undo without heartbeat',
+        [
+          await runCaseB({ aQuery: '#peer', aTargets: ['peer'], callbackBeforeInput: true }),
+          await runCaseB({ aQuery: '#peer', aTargets: ['peer'], callbackBeforeInput: false }),
+          await runCaseB({ aQuery: '#todo', aTargets: [], callbackBeforeInput: true }),
+          await runCaseB({ aQuery: '#todo', aTargets: [], callbackBeforeInput: false }),
+        ],
+        [
+          { bDuring: ['first', ['first'], null], aDuring: [['peer'], 'peer'], bAfter: ['first', ['first'], 'first'], aAfter: [['peer'], 'peer'] },
+          { bDuring: ['first', ['first'], null], aDuring: [['peer'], 'peer'], bAfter: ['first', ['first'], 'first'], aAfter: [['peer'], 'peer'] },
+          { bDuring: ['first', ['first'], null], aDuring: [['first'], 'first'], bAfter: ['first', ['first'], 'first'], aAfter: [['first'], 'first'] },
+          { bDuring: ['first', ['first'], null], aDuring: [['first'], 'first'], bAfter: ['first', ['first'], 'first'], aAfter: [['first'], 'first'] },
+        ]
+      )
+
+      // 70c. App without window._mindboxApplied (e.g. a tab not reloaded since deploy):
+      //      falls back to MindBox.get() while debounced (the released rule), while an empty-string
+      //      _mindboxApplied IS honored as the applied query (no target) while debounced.
+      {
+        const bus = makeBus()
+        const oldApp = makeWindow(bus, { id: 'OLD', hasMindboxApplied: false })
+        oldApp.makeItem('first', { saved_id: 's_first', text: '#todo first task' })
+        oldApp.makeItem('second', { saved_id: 's_second', text: '#todo second task' })
+        oldApp.applyQuery('#first')
+        const initialAbsent = oldApp.win._mindboxApplied === undefined
+        const settledTarget = oldApp.env._window_target()?.id ?? null
+        oldApp.typeDraft('#second')
+        const debouncedBoxTarget = oldApp.env._window_target()?.id ?? null
+        oldApp.setBox('plain')
+        const debouncedPlainTarget = oldApp.env._window_target()?.id ?? null
+        const explicitTarget = oldApp.env._window_target('#first')?.id ?? null
+        oldApp.win._mindboxApplied = null // non-string also falls back to box
+        oldApp.setBox('#second')
+        const nonStringFallback = oldApp.env._window_target()?.id ?? null
+        oldApp.win._mindboxApplied = '' // empty string IS a string -> applied query has no target
+        const emptyStringApplied = oldApp.env._window_target()?.id ?? null
+        check(
+          'windows _window_target without _mindboxApplied: falls back to MindBox.get() while debounced and honors empty-string _mindboxApplied',
+          [initialAbsent, settledTarget, debouncedBoxTarget, debouncedPlainTarget, explicitTarget, nonStringFallback, emptyStringApplied],
+          [true, 'first', 'second', null, 'first', 'second', null]
+        )
+      }
+
+      // 70d. Reviewer round-6 sequence: B on #old applies '#new regex:[x' (incomplete regex contributes
+      //      no regex matches and the rest of the query still ranks and applies), then types the closing
+      //      ']' (debounced) with a 30s heartbeat in between: B's target container, B's selected item,
+      //      A's marked row, and the id A's Done button reaches are all 'new' at the pause, at the
+      //      heartbeat, and once the closing bracket settles.
+      {
+        const { bus, a, b, markedA, pressDoneA } = setupPair()
+        const state = async () => [
+          b.targetContainer.getAttribute('data-item-id'),
+          b.env._selected_item()?.id ?? null,
+          markedA(),
+          await pressDoneA(),
+        ]
+        b.applyQuery('#old', { targets: ['old'] })
+        b.env._on_search('#old')
+        bus.flush()
+        const before = await state()
+        // Pause after debounce expires on '#new regex:[x'
+        b.applyQuery('#new regex:[x', { targets: ['new'], callbackDelay: 5 })
+        advanceAll(bus, [a, b], 5)
+        const afterPause = await state()
+        // Advance just before B's 30s heartbeat, type closing ']' (debounced), let heartbeat fire
+        advanceAll(bus, [a, b], 29_900)
+        b.typeDraft('#new regex:[x]')
+        bus.sent.length = 0
+        advanceAll(bus, [a, b], 200)
+        const heartbeatSent = bus.sent.some(m => m.from == 'B' && m.data.type == 'hello')
+        const atHeartbeat = await state()
+        // Closing bracket settles
+        b.applyQuery('#new regex:[x]', { targets: ['new'], callbackDelay: 5 })
+        advanceAll(bus, [a, b], 5)
+        const afterClose = await state()
+        check(
+          'windows incomplete regex applied then closing bracket debounced: B target, A mark, and A Done all agree on new',
+          { before, afterPause, heartbeatSent, atHeartbeat, afterClose },
+          {
+            before: ['old', 'old', ['old'], 'old'],
+            afterPause: ['new', 'new', ['new'], 'new'],
+            heartbeatSent: true,
+            atHeartbeat: ['new', 'new', ['new'], 'new'],
+            afterClose: ['new', 'new', ['new'], 'new'],
+          }
+        )
+      }
     }
   })())
 
@@ -16398,7 +17770,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       vm.createContext(octx)
       vm.runInContext(
         'const _BIN_KEYS = { a: "agent", d: "done", s: "snooze", x: "cancel", u: "owner", b: "bell" }\n' +
-          pick(['_merged_order', '_order_blocked', '_order_save_step', '__render', '_bin_row', '_row_sequence', '_row_beside', '_on_row_key', '_listed', '_on_search', '_render_todoer_widget']).join('\n'),
+          pick(['_merged_order', '_order_blocked', '_order_save_step', '__render', '_bin_row', '_row_sequence', '_row_beside', '_on_row_key', '_listed', '_window_target', '_selected_item', '_sync_marks', '_on_search', '_render_todoer_widget']).join('\n'),
         octx
       )
       const addWidget = (id, options = {}) => {
