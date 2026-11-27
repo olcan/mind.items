@@ -1736,6 +1736,231 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
         [[], []],
         [1, []],
       ])
+
+    // ---- fixed-end guest buttons: placement, wider gap, widths with/without split, glass -------
+    const gs = (n, split) => v1('key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, __args.n, 0, __args.split)', { n, split })
+    const css6Split = v1('key_buttons_css(KEY_BUTTONS_LOOK, 6, 0, true)')
+    const frame6Split = v1('key_buttons_backdrop_frame(KEY_BUTTONS_LOOK, 6, 0, true)')
+    const extraGap = look.group - look.gap // 18 - 6 = 12
+    check('guests fixed geom & css: split widens w_guests and w_piece by group - gap (12 px) when guests > 1, leaves guests <= 1 or unsplit unchanged, and emits wide/floor order & gap CSS rules',
+      [
+        [0, 1, 2, 4, 6, 7].map(n => [gs(n, false).w_guests, gs(n, true).w_guests, gs(n, false).w_piece, gs(n, true).w_piece]),
+        css6Split.includes(`width: ${gs(6, true).w_piece}px; -webkit-clip-path: path('${gs(6, true).clip_split}')`),
+        frame6Split.includes(`<path d="${gs(6, true).border_split}"`),
+        css6Split.includes(`.key-buttons-guests > button:not([data-fixed]) + button[data-fixed] { margin-left: ${extraGap}px }`),
+        css6Split.includes('.key-buttons-guests.floor > button[data-fixed] { order: -1 }'),
+        css6Split.includes('.key-buttons-guests.floor > button:not([data-fixed]) + button[data-fixed] { margin-left: 0 }'),
+        css6Split.includes(`.key-buttons-guests.floor > button:not([data-fixed]) ~ button[data-fixed]:last-child { margin-right: ${extraGap}px }`),
+      ],
+      [
+        [
+          [0, 0, 340, 340],
+          [42, 42, 382, 382],
+          [72, 84, 412, 424],
+          [132, 144, 472, 484],
+          [192, 204, 532, 544],
+          [222, 234, 562, 574],
+        ],
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+      ])
+    const in_glass_split = (x, y, vw, vh, mode, guests, floor, split) =>
+      v1('key_buttons_in_glass(__args.x, __args.y, __args.vw, __args.vh, __args.mode, false, KEY_BUTTONS_LOOK, __args.guests, __args.floor, __args.split)', { x, y, vw, vh, mode, guests, floor, split })
+    // vw=1000, vh=600, guests=6: split widens glass from rx<=532 (x>=468) to rx<=544 (x>=456);
+    // top-left corner arc centre (rx=532, dy=32) => (x=468, y=568), radius 12
+    check('guests fixed in_glass: split glass includes the extra 12 px extension and rounded corner on wide split, and widened floor on desktop/phone',
+      [
+        in_glass_split(460, 578, 1000, 600, 'desktop-split', 6, 0, false), // outside 532 without split
+        in_glass_split(460, 578, 1000, 600, 'desktop-split', 6, 0, true),  // inside 544 with split
+        in_glass_split(455, 578, 1000, 600, 'desktop-split', 6, 0, true),  // 1 px outside 544
+        in_glass_split(457, 557, 1000, 600, 'desktop-split', 6, 0, true),  // outer corner sliver (11^2 + 11^2 > 144)
+        in_glass_split(460, 560, 1000, 600, 'desktop-split', 6, 0, true),  // inside corner arc (8^2 + 8^2 <= 144)
+        in_glass_split(208, 530, 500, 600, 'desktop-strip', 0, 214, false), // widened desktop floor (202 -> 214)
+        in_glass_split(215, 530, 500, 600, 'desktop-strip', 0, 214, false), // 1 px outside desktop floor
+        in_glass_split(248, 778, 390, 844, 'mobile', 0, 254, false),        // widened phone floor (242 -> 254)
+        in_glass_split(255, 778, 390, 844, 'mobile', 0, 254, false),        // 1 px outside phone floor
+      ],
+      [false, true, false, false, true, true, false, true, false])
+
+    // Controller tests with marked buttons: partitioning regardless of handed order, same-count split rebuild,
+    // fixed-only / unmarked-only (no extra gap), mid-narrow threshold (538 px), phone floor width, and bare-glass capture on wider gap & edge
+    calm()
+    win.innerWidth = 1000
+    win.innerHeight = 800
+    pointer.matches = false
+    gWarns.length = 0
+    gErrors.length = 0
+    const mkBtn = (name, fixed = false) => ({ name, title: name, icon: 'M0 0h10', color: '#fff', ...(fixed ? { fixed: true } : {}), press: () => {} })
+    // start with 6 unmarked buttons (w_piece = 532)
+    win._key_buttons_guests = { buttons: ['a', 'b', 'c', 'd', 'e', 'f'].map(n => mkBtn(n, false)) }
+    vm.runInContext('_on_welcome()', gContext)
+    const fCtrl = win._key_buttons
+    const fEl = parts('guests')[0]
+    const fBg = parts('backdrop')[0]
+    const fFloor = fBg.children.find(c => c.className == 'key-buttons-bg-floor')
+    const fStyle = parts('style')[0]
+    const fFrame = fBg.children.find(c => c.className == 'key-buttons-bg-frame')
+    const splitWidthOf = () => Number(fStyle.textContent.match(/\.key-buttons-bg\.desktop\.split > \.key-buttons-bg-pane \{ left: auto; right: 0; width: (\d+)px;/)?.[1] ?? 0)
+    const stripWidthOf = () => Number(fStyle.textContent.match(/clip-path: path\('M 0 0 H (\d+) V 44 H 0 Z'\)/)?.[1] ?? 0)
+    const unmarked6 = [fCtrl.guest_count, fCtrl.guest_split, splitWidthOf(), fEl.children.map(b => [b.dataset.guest, b.dataset.fixed ?? null, b.className ?? ''])]
+    // same count (6), now with 2 marked handed interleaved/first -> bar places non-fixed first, fixed last, widens to 544
+    win._key_buttons_guests = { buttons: [mkBtn('up', true), mkBtn('agent'), mkBtn('done'), mkBtn('down', true), mkBtn('snooze'), mkBtn('cancel')] }
+    fCtrl.guest()
+    const split6 = [
+      fCtrl.guest_count,
+      fCtrl.guest_split,
+      splitWidthOf(),
+      fFrame.innerHTML.includes(`H ${544 + 72}`),
+      fEl.children.map(b => [b.dataset.guest, b.dataset.fixed ?? null, b.className ?? '']),
+    ]
+    // mid-narrow 538 px (between 532 and 544): split 6 goes to floor (width 214, strip 544); unmarked 6 fits inline!
+    win.innerWidth = 538
+    viewport.fire('resize')
+    const splitAt538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split, fCtrl.guest_floor, fFloor.style.width, fCtrl.guest_strip, stripWidthOf()]
+    win._key_buttons_guests = { buttons: ['a', 'b', 'c', 'd', 'e', 'f'].map(n => mkBtn(n, false)) }
+    fCtrl.guest()
+    const unmarkedAt538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split, fCtrl.guest_floor, fCtrl.guest_strip]
+    // fixed-only (2 marked, 0 other) and unmarked-only (1 unmarked): split is false (no extra 12 px)
+    win.innerWidth = 1000
+    win._key_buttons_guests = { buttons: [mkBtn('up', true), mkBtn('down', true)] }
+    fCtrl.guest()
+    const fixedOnlyWide = [fCtrl.guest_count, fCtrl.guest_split, splitWidthOf()]
+    win.innerWidth = 390
+    pointer.matches = true
+    viewport.fire('resize')
+    const fixedOnlyPhone = [fEl.className, fCtrl.guest_floor, fFloor.style.width]
+    // phone touch with 6 split buttons: floor width 254 (2*10 + 6*32 + 5*6 + 12)
+    win._key_buttons_guests = { buttons: [mkBtn('agent'), mkBtn('done'), mkBtn('snooze'), mkBtn('cancel'), mkBtn('up', true), mkBtn('down', true)] }
+    fCtrl.guest()
+    const split6Phone = [fEl.className, fCtrl.guest_floor, fFloor.style.width]
+    // glass capture on phone floor: wider gap between down [48..80] and agent [98..130] (x=89), extra edge (x=248), outside (x=260)
+    const fUnder = new FakeNode('div')
+    const fRectsPhone = { up: [10, 42], down: [48, 80], agent: [98, 130], done: [136, 168], snooze: [174, 206], cancel: [212, 244] }
+    for (const b of fEl.children) {
+      const [l, r] = fRectsPhone[b.dataset.guest]
+      b.getBoundingClientRect = () => ({ left: l, right: r, top: 718, bottom: 750, width: 32, height: 32 })
+    }
+    const probeGlass = (x, y, target = fUnder) => {
+      page.fire('pointerdown', { target, clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true })
+      page.fire('pointerup', { target, clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true })
+      const ev = page.fire('click', { target, detail: 1, pointerType: 'mouse' })
+      return ev.stopped
+    }
+    const phoneGlassHits = [probeGlass(89, 734), probeGlass(248, 734), probeGlass(260, 734)]
+    // glass capture on wide desktop (vw=1000, vh=800, 6 split -> w_piece=544, x in [456..1000]):
+    // buttons right-aligned at right=344 (x=656): down [632..656], up [602..626], 18 px gap [584..602], cancel [560..584], ..., agent [470..494]
+    pointer.matches = false
+    win.innerWidth = 1000
+    viewport.fire('resize')
+    const fRectsWide = { agent: [470, 494], done: [500, 524], snooze: [530, 554], cancel: [560, 584], up: [602, 626], down: [632, 656] }
+    for (const b of fEl.children) {
+      const [l, r] = fRectsWide[b.dataset.guest]
+      b.getBoundingClientRect = () => ({ left: l, right: r, top: 766, bottom: 790, width: 24, height: 24 })
+    }
+    const wideGlassHits = [
+      probeGlass(593, 778), // middle of wider 18 px gap between cancel and up -> blocked
+      probeGlass(460, 778), // leftmost widened 12 px edge (532 < rx=540 <= 544) -> blocked
+      probeGlass(450, 778), // outside widened 544 px edge -> passes through
+    ]
+    // adjusted tap starting in the wider 18 px gap onto `up` is dropped with one warning
+    gWarns.length = 0
+    const upBtn = fEl.children.find(b => b.dataset.guest == 'up')
+    const wideGapToUp = [probeGlass(593, 778, upBtn), [...gWarns]]
+
+    // Stable row choice with optional `max`: with max=8 (fit_w = w_piece(8, true) = 604), short groups
+    // stay on the second row at intermediate widths (538, 603) with floor sized to shown buttons and
+    // lower strip glass/clip/frame spanning 604 px; at 604 px inline glass stays sized to shown buttons;
+    // without `max`, short groups still fit inline at 538 px as before.
+    const setGuests = (btns, max) => {
+      win._key_buttons_guests = max === undefined ? { buttons: btns } : { buttons: btns, max }
+      fCtrl.guest()
+    }
+    const reply3 = [mkBtn('bell'), mkBtn('up', true), mkBtn('down', true)]
+    const deleg4 = [mkBtn('agent'), mkBtn('owner'), mkBtn('up', true), mkBtn('down', true)]
+    const todo6 = [mkBtn('agent'), mkBtn('done'), mkBtn('snooze'), mkBtn('cancel'), mkBtn('up', true), mkBtn('down', true)]
+    const winOnly1 = [mkBtn('window')]
+    win.innerWidth = 538
+    setGuests(reply3, 8)
+    const maxReply538 = [
+      fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split,
+      fCtrl.guest_floor, fFloor.style.width, fCtrl.guest_strip, stripWidthOf(),
+      fFrame.innerHTML.includes('M 0 36.5 H 604'),
+    ]
+    setGuests(deleg4, 8)
+    const maxDeleg538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+    setGuests(todo6, 8)
+    const maxTodo538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+    // single unmarked button with max=8 still stays on second row (fit_w uses wider gap -> 604) up to 603 px
+    win.innerWidth = 603
+    setGuests(winOnly1, 8)
+    const maxWinOnly603 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+    // 3-button split group at 603 px: floor glass sized to 3 shown buttons (124 px), lower strip covers 603 px
+    setGuests(reply3, 8)
+    const fRectsFloor3 = { up: [14, 38], down: [44, 68], bell: [86, 110] }
+    for (const b of fEl.children) {
+      const [l, r] = fRectsFloor3[b.dataset.guest]
+      b.getBoundingClientRect = () => ({ left: l, right: r, top: 722, bottom: 746, width: 24, height: 24 })
+    }
+    const maxReply603Glass = [
+      probeGlass(590, 778), // lower strip past 480 and past wide_w(454) -> blocked
+      probeGlass(77, 734),  // wider 18 px gap on second floor between down and bell -> blocked
+      probeGlass(130, 734), // outside 124 px second floor -> passes through
+    ]
+    // at 604 px (exact threshold where 8 split buttons fit), short group moves inline with glass sized to 3 buttons (454 px)
+    win.innerWidth = 604
+    viewport.fire('resize')
+    const maxReply604 = [
+      fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split,
+      fCtrl.guest_floor, fCtrl.guest_strip, splitWidthOf(),
+      fFrame.innerHTML.includes(`H ${454 + 72}`),
+    ]
+    setGuests(todo6, 8)
+    const maxTodo604 = [fCtrl.bg_mode, fCtrl.guest_count, fCtrl.guest_split, splitWidthOf()]
+    // empty group with max=8 hides guests and keeps normal desktop-split bar at 538 px
+    win.innerWidth = 538
+    setGuests([], 8)
+    const maxEmpty538 = [fCtrl.bg_mode, fEl.hidden, fCtrl.guest_count, fCtrl.guest_floor, fCtrl.guest_strip]
+    // guest without `max` is treated as today: 3 split buttons fit inline (454 <= 538) while 6 split move to second row
+    setGuests(reply3)
+    const noMaxReply538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split, fCtrl.guest_floor, splitWidthOf()]
+    setGuests(todo6)
+    const noMaxTodo538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+
+    fCtrl.dispose()
+    delete win._key_buttons_guests
+    win.innerWidth = 390
+    check('guests fixed controller: partitions marked buttons last with data-fixed, widens split/floor/strip by 12 px only when split, flips at 538 px, and blocks bare glass in wider gap and edge',
+      [unmarked6, split6, splitAt538, unmarkedAt538, fixedOnlyWide, fixedOnlyPhone, split6Phone, phoneGlassHits, wideGlassHits, wideGapToUp],
+      [
+        [6, false, 532, ['a', 'b', 'c', 'd', 'e', 'f'].map(n => [n, null, ''])],
+        [6, true, 544, true, [['agent', null, ''], ['done', null, ''], ['snooze', null, ''], ['cancel', null, ''], ['up', '1', ''], ['down', '1', '']]],
+        ['desktop-strip', 'key-buttons-guests floor', 0, false, 214, '214px', 544, 544],
+        ['desktop-split', 'key-buttons-guests', 6, false, 0, 0],
+        [2, false, 412],
+        ['key-buttons-guests floor touch', 90, '90px'],
+        ['key-buttons-guests floor touch', 254, '254px'],
+        [1, 1, 0],
+        [1, 1, 0],
+        [1, ['key buttons: a tap on "up" was not taken: it began on the glass beside the button']],
+      ])
+    check('guests fixed max: keeps short groups on second row below w_piece(max, split) with shown-sized floor and full strip, inline at/above with shown-sized glass, and leaves guests without max unchanged',
+      [maxReply538, maxDeleg538, maxTodo538, maxWinOnly603, maxReply603Glass, maxReply604, maxTodo604, maxEmpty538, noMaxReply538, noMaxTodo538],
+      [
+        ['desktop-strip', 'key-buttons-guests floor', 0, false, 124, '124px', 604, 604, true],
+        ['desktop-strip', 'key-buttons-guests floor', 154, 604, 604],
+        ['desktop-strip', 'key-buttons-guests floor', 214, 604, 604],
+        ['desktop-strip', 'key-buttons-guests floor', 52, 604, 604],
+        [1, 1, 0],
+        ['desktop-split', 'key-buttons-guests', 3, true, 0, 0, 454, true],
+        ['desktop-split', 6, true, 544],
+        ['desktop-split', true, 0, 0, 0],
+        ['desktop-split', 'key-buttons-guests', 3, true, 0, 454],
+        ['desktop-strip', 'key-buttons-guests floor', 0, 214, 544, 544],
+      ])
   }
 
   // ---- timing diagnostics: thresholds, waited/slow_line/timed/down/dropped, and stuck ticker ----

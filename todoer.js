@@ -2134,9 +2134,6 @@ function _on_search(text) {
 const _LIST_BINS = { main: ['agent', 'done', 'snooze', 'cancel'], snoozed: ['agent', 'done', 'snooze', 'cancel'], delegated: ['agent', 'owner'] }
 
 const _BIN_BUTTONS = [
-  // the row before and the row after the selected one, across the lists on the page (the keys k and j do the same)
-  { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
-  { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
   { name: 'bell', title: 'Clear the notification (b)', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
   // the pusher's commit-history address for a row of an item an agent wrote (a clock with an arrow turning back)
@@ -2148,8 +2145,12 @@ const _BIN_BUTTONS = [
   { name: 'owner', title: 'Take back from the agent (u)', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
   // the windows' link (_window_button): this window and another one of the app keep one selection; two panes,
   // lit whole in both linked windows and dim while unlinked.
-  // The last of these buttons, shown whether or not a row is selected, while another window is there or the link is on
+  // Shown whether or not a row is selected, while another window is there or the link is on, before fixed-end buttons
   { name: 'window', title: 'Link with the other window (w)', color: 'rgba(255, 255, 255, 0.25)', icon: 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z' },
+  // the row before and the row after the selected one, across the lists on the page (the keys k and j do the same):
+  // handed last and marked `fixed` so they stay at the group's fixed end (right inline, left on a second row or own piece)
+  { name: 'up', title: 'Previous row (k)', color: '#fff', fixed: true, icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
+  { name: 'down', title: 'Next row (j)', color: '#fff', fixed: true, icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
 ]
 const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
@@ -2199,16 +2200,19 @@ function __bin_buttons(target) {
       : { ...b, title: b.name == 'snooze' && snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
   )
   const link = _window_button()
-  if (link) specs.push(link)
+  if (link) {
+    const at = specs.findIndex(s => s.fixed)
+    specs.splice(at < 0 ? specs.length : at, 0, link)
+  }
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
   // its click). This item's own code is part of it: an update draws them anew, with its presses
-  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, came_up, specs.map(spec => [spec.name, spec.title, spec.color])])
+  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, came_up, specs.map(spec => [spec.name, spec.title, spec.color, !!spec.fixed])])
   let piece = document.querySelector('.todoer-bin-buttons')
   // handed over on the window in every case: a strip that is drawn later (its item installed or
   // updated after this) takes them from there and says so (`taken`: the piece of their own goes)
   const changed = window._key_buttons_guests?.drawn !== drawn
-  if (changed) window._key_buttons_guests = { drawn, buttons: specs, taken: () => void document.querySelector('.todoer-bin-buttons')?.remove() }
+  if (changed) window._key_buttons_guests = { drawn, buttons: specs, max: _BIN_BUTTONS_MAX, taken: () => void document.querySelector('.todoer-bin-buttons')?.remove() }
   const strip = window._key_buttons
   if (typeof strip?.guest == 'function') {
     piece?.remove() // a piece of their own, drawn before the strip could take them
@@ -2231,11 +2235,14 @@ function __bin_buttons(target) {
   }
   if (piece._drawn !== drawn) {
     piece._drawn = drawn
+    // the own piece sits at the lower left (its left edge is fixed), so marked buttons stand first
+    const own = [...specs.filter(s => s.fixed), ...specs.filter(s => !s.fixed)]
     piece.replaceChildren(
-      ...specs.map(spec => {
+      ...own.map(spec => {
         const button = document.createElement('button')
         button.type = 'button'
         button.className = spec.fill ? spec.name + ' fill' : spec.name
+        if (spec.fixed) button.setAttribute('data-fixed', '1')
         button.style.color = spec.color
         button.title = spec.title
         button.setAttribute('aria-label', spec.title)
@@ -2314,6 +2321,11 @@ function _window_button() {
 // the row buttons and their keys: which way each goes in the walk
 const _ROW_STEP = { up: -1, down: 1 }
 
+// largest guest group this item can hand over: bell, the longest list's bins (or history on a
+// non-todo row), the windows' link button, and the step pair (so key buttons keeps one row for
+// every selection at a given window width)
+const _BIN_BUTTONS_MAX = _BIN_BUTTONS.filter(b => b.name == 'bell' || b.name == 'window' || b.name in _ROW_STEP).length + Math.max(_BIN_BUTTONS.filter(b => b.name == 'history').length, ...Object.values(_LIST_BINS).map(b => b.length))
+
 // the keys of a row's other buttons, by the key's code: the first letter of what each button
 // says, x for the delete button (the owner, 2026-11-25, of this suggestion: "i want them")
 const _BIN_KEYS = { KeyA: 'agent', KeyD: 'done', KeyS: 'snooze', KeyX: 'cancel', KeyB: 'bell', KeyH: 'history', KeyU: 'owner' }
@@ -2338,8 +2350,8 @@ function _history_url(item) {
 }
 
 // the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
-// the two row buttons, its bell where it has one, history right after the bell on a row of an item
-// an agent wrote where the pusher has a destination and the item is saved, then its list's bins.
+// its bell where it has one, history right after the bell on a row of an item an agent wrote where
+// the pusher has a destination and the item is saved, its list's bins, then the two row buttons.
 // A row that is not a todo's has none of the bins' buttons: its bell clears it, and a row with no
 // bin buttons is seen to be a notification and no todo (the owner, 2026-11-25: "let's try removing
 // both the button and its shortcut, and let's remove the delete button (and shortcut) also",
@@ -2373,9 +2385,9 @@ function _todo_list(item) {
   return item._global_store?._todoer?.snoozed ? 'snoozed' : 'main'
 }
 
-// the buttons for a todo whose list is not on the page, in their order: the two row buttons
-// (drawn dim where the walk's sequence is empty), its bell where _bell rings for it, then the bins
-// of its list (_LIST_BINS)
+// the buttons for a todo whose list is not on the page, in their order: its bell where _bell rings
+// for it, the bins of its list (_LIST_BINS), then the two row buttons (drawn dim where the walk's
+// sequence is empty)
 function _todo_buttons(item, list = _todo_list(item)) {
   if (!list) return []
   const bins = _LIST_BINS[list]
