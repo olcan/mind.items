@@ -26,7 +26,8 @@ const _todoer = _item('$id')
 //   permission if the browser never asked, and the hint beside it shows this device's permission
 //   when it is not granted (every device whose permission is granted shows the notification). A
 //   todo you bring back by hand, or one the agent hands back before its time (on a device that sees
-//   the hand-back before then), shows no such notification.
+//   the hand-back before then), shows no such notification. The snooze dialog opens with the last
+//   choice lit (kept on this device), so `s` then `Enter` repeats it.
 // - `/notify on` asks for desktop notifications when a task comes back to the main list waiting on
 //   you (`question`, `blocked`, `proposal`, `budget`, `done`), when a vault or task chat gets the
 //   agent's reply (`reply`), and when an agent creates or edits an item with the item tool (`item`,
@@ -1056,10 +1057,11 @@ function _complete_todo(item, log_text, { back = () => {}, gone = () => {} } = {
 }
 
 Date.prototype.toInputValue = function () {
-  // from https://stackoverflow.com/a/16010247
-  let local = new Date(this)
-  local.setMinutes(this.getMinutes() - this.getTimezoneOffset())
-  return local.toJSON().slice(0, 16)
+  if (!Number.isFinite(this.getTime())) return ''
+  const year = this.getFullYear()
+  if (year < 0) return ''
+  const pad = (n, len = 2) => String(n).padStart(len, '0')
+  return `${pad(year, 4)}-${pad(this.getMonth() + 1)}-${pad(this.getDate())}T${pad(this.getHours())}:${pad(this.getMinutes())}`
 }
 
 // pure movement over the snooze dialog's rows of horizontal middles: nothing lit starts at the
@@ -1099,6 +1101,38 @@ function _snooze_rows(root = document.querySelector('.snooze-modal')) {
   return [...rows, custom, notify].filter(r => r.length)
 }
 
+const SNOOZE_LAST_KEY = 'mindpage_todoer_snooze_last' // localStorage: the device's last snooze choice
+
+// last snooze choice remembered on this device through localStorage (shared across windows):
+// either one of the time buttons by label ({label}) or a custom date/time by timestamp ({time}),
+// else null (also without storage or on unreadable text)
+function _snooze_last_read() {
+  let raw = null
+  try {
+    raw = localStorage.getItem(SNOOZE_LAST_KEY)
+  } catch (e) {
+    return null
+  }
+  if (!raw || typeof raw != 'string') return null
+  let rec = null
+  try {
+    rec = JSON.parse(raw)
+  } catch (e) {
+    return null
+  }
+  if (!rec || typeof rec != 'object' || Array.isArray(rec)) return null
+  if (typeof rec.label == 'string' && rec.label && rec.time === undefined) return { label: rec.label }
+  if (typeof rec.time == 'number' && Number.isFinite(rec.time) && rec.label === undefined) return { time: rec.time }
+  return null
+}
+
+// persists the last snooze choice on this device through localStorage (silent without storage)
+function _snooze_last_write(choice) {
+  try {
+    localStorage.setItem(SNOOZE_LAST_KEY, JSON.stringify(choice))
+  } catch (e) {}
+}
+
 // the snooze dialog, opened for a row dropped on the snooze bin: resolves to the answer, the time
 // and the dialog's box ({time, notify}, see _snooze_close), or to nothing when it is dismissed.
 // While one snooze dialog is open or queued, a second request is declined with no answer so the
@@ -1121,9 +1155,49 @@ function _snooze_dialog() {
     if (!root || !date) return false
     ready = true
     shown = true
-    if (!keep_date) date.value = new Date().toInputValue()
+    const last = _snooze_last_read()
+    let custom_lit = false
+    if (!keep_date) {
+      if (last?.time != null && last.time >= Date.now() && last.time < 253_402_214_400_000) {
+        const formatted = new Date(last.time).toInputValue()
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(formatted)) {
+          date.value = formatted
+          if (_snooze_input() >= Date.now()) custom_lit = true
+        }
+      }
+      if (!custom_lit) date.value = new Date().toInputValue()
+    }
     _snooze_hint()
     if (!keep_date) _on_snooze_input_change()
+    if (!lit_el && last) {
+      const rows = _snooze_rows(root)
+      const snooze = root.querySelector('.custom .button.snooze')
+      const notify = root.querySelector('.notify input')
+      const light = (r, c) => {
+        const el = rows[r]?.[c] ?? null
+        if (!el) return
+        pos = [r, c]
+        el.classList.add('lit')
+        lit_el = el
+      }
+      if (custom_lit && snooze) {
+        for (let r = 0; r < rows.length; r++) {
+          const c = rows[r].indexOf(snooze)
+          if (c >= 0) {
+            light(r, c)
+            break
+          }
+        }
+      } else if (last.label) {
+        for (let r = 0; r < rows.length; r++) {
+          const c = rows[r].findIndex(el => el !== date && el !== snooze && el !== notify && el.innerText == last.label)
+          if (c >= 0) {
+            light(r, c)
+            break
+          }
+        }
+      }
+    }
     // update validity every second (for Date.now) while this opening stays visible
     _todoer.dispatch_task(
       'snooze-modal-update',
@@ -1369,12 +1443,26 @@ function _on_snooze(e) {
   const label = e.target.innerText
   const time = _snooze_time(label)
   if (time < Date.now()) alert('future date/time required for snooze')
-  else _snooze_close(time)
+  else _snooze_close(time, label == 'snooze' ? null : label)
 }
 
 function _snooze_input() {
-  const input = document.querySelector('.snooze-modal .custom input')
-  return input.valueAsNumber + new Date().getTimezoneOffset() * 60 * 1000
+  const value = document.querySelector('.snooze-modal .custom input')?.value
+  if (typeof value != 'string') return NaN
+  const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value)
+  if (!match) return NaN
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = match[6] ? Number(match[6]) : 0
+  const ms = match[7] ? Number(match[7].padEnd(3, '0')) : 0
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return NaN
+  const date = new Date(year, month - 1, day, hour, minute, second, ms)
+  if (year < 100) date.setFullYear(year)
+  if (date.getFullYear() != year || date.getMonth() != month - 1 || date.getDate() != day) return NaN
+  return date.getTime()
 }
 
 function _on_snooze_input_change(e) {
@@ -1390,11 +1478,17 @@ function _on_snooze_input_change(e) {
 }
 
 // the snooze dialog's answer, read before it closes: the time and its box ("notify on
-// unsnooze"), {time, notify}, which the drop's handler writes on the todo (_snooze)
-function _snooze_close(time) {
+// unsnooze"), {time, notify}, which the drop's handler writes on the todo (_snooze); also
+// remembers this choice on this device for the next opening (a time button by its label, a
+// custom date by its time)
+function _snooze_close(time, label = null) {
   _todoer.store._snooze_setup?.()
   const notify = !!document.querySelector('.snooze-modal .notify input')?.checked
   const modal = _todoer.store._snooze_modal
+  if (modal) {
+    if (typeof label == 'string' && label) _snooze_last_write({ label })
+    else if (typeof time == 'number' && Number.isFinite(time)) _snooze_last_write({ time })
+  }
   _todoer.store._snooze_cleanup?.()
   if (modal) _modal_close(modal, { time, notify })
 }
