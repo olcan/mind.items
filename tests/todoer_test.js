@@ -1465,6 +1465,7 @@ delete context.__todos.p
   const modal_html = fs.readFileSync(path.join(__dirname, '..', 'todoer-snooze-modal.html'), 'utf8')
   check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {14}_snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
   check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
+  check('dialog: the date field hands an edit to _on_snooze_input_change at input (a browser may hold change back until the field loses the focus)', [/\n {4}<input type="datetime-local" oninput="__onchange__" \/>\n/.test(modal_html), /<input type="datetime-local"[^>]*\sonchange=/.test(modal_html), src.includes(".replaceAll('__onchange__', `_item('#todoer').eval('_on_snooze_input_change(event)')`)")], [true, false, true])
   check('drag: the snoozed list\'s bin unsnoozes as the owner\'s own act', /\n {10}_unsnooze\(item, true\) \/\//.test(src), true)
   const swept = { global_store: { _todoer: { snoozed: 100, notify: true } } }
   const dragged = { global_store: { _todoer: { snoozed: 100, notify: true } } }
