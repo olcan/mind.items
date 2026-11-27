@@ -3411,6 +3411,8 @@ const NOTIFIER_REFRESH_MS = 60 * 1000 // the elected window's heartbeat, and its
 const UNSNOOZE_SKEW_MS = 60 * 1000 // a snooze that ended this close before its time ended by it (the devices' clocks differ)
 const ITEM_STAMP_MAX_AGE_MS = 10 * 60 * 1000 // an agent write stamp further than this from this device's clock (either direction) never notifies
 const NOTIFY_CLICK_TYPE = 'mindpage:notificationclick' // app service-worker contract: click relay
+const NOTIFY_CLICK_QUERY = 'mindpage:notificationclick:query' // app service-worker contract: side-effect-free window discovery
+const NOTIFY_CLICK_STATUS = 'mindpage:notificationclick:status' // app service-worker contract: discovery answer (showing, canHandle)
 const NOTIFY_CLICK_RELAY = 'mindpage:notificationclick:relay' // app service-worker contract: confirmed worker event
 const NOTIFY_CLICK_READY = 'mindpage:notificationclick:ready' // app service-worker contract: drain pending clicks
 const NOTIFY_CLICK_RECEIVED = 'mindpage:notificationclick:received' // app service-worker contract: acknowledge click receipt
@@ -5125,22 +5127,19 @@ function _notify_fixed_view() {
   }
 }
 
-// acknowledges receipt of a worker-relayed click synchronously when a worker handle is at hand
-// (event.source, else controller, else active registration) so the worker can focus this window
-// and delete the stored click
-function _notify_ack(id, source = null) {
-  if (typeof id != 'string' || !id) return false
-  const ack = { type: NOTIFY_CLICK_RECEIVED, id }
+// posts a worker-relay message synchronously when a worker handle is at hand (event.source, else
+// controller, else active registration)
+function _notify_post(msg, source = null) {
   if (typeof source?.postMessage == 'function') {
     try {
-      source.postMessage(ack)
+      source.postMessage(msg)
       return true
     } catch (e) {}
   }
   const sw = typeof navigator != 'undefined' ? navigator.serviceWorker : null
   if (typeof sw?.controller?.postMessage == 'function') {
     try {
-      sw.controller.postMessage(ack)
+      sw.controller.postMessage(msg)
       return true
     } catch (e) {}
   }
@@ -5148,7 +5147,7 @@ function _notify_ack(id, source = null) {
     Promise.resolve(sw.getRegistration()).then(
       reg => {
         try {
-          reg?.active?.postMessage?.(ack)
+          reg?.active?.postMessage?.(msg)
         } catch (e) {}
       },
       () => {}
@@ -5159,7 +5158,7 @@ function _notify_ack(id, source = null) {
     Promise.resolve(sw.ready).then(
       reg => {
         try {
-          reg?.active?.postMessage?.(ack)
+          reg?.active?.postMessage?.(msg)
         } catch (e) {}
       },
       () => {}
@@ -5169,22 +5168,96 @@ function _notify_ack(id, source = null) {
   return false
 }
 
-// handles a click relayed by the app's service worker (attached on EVERY window, not only the
-// elected one): leaves unrelated and foreign messages alone without answering; answers `received`
-// ONLY when this window can act on the click — the test notification (no item), a duplicate id
-// this window already handled, or an item that exists in this window and that this window can
-// select (a fixed, shared view refuses selection and stays silent so the worker asks the next
-// window or keeps the click)
+// acknowledges receipt of a worker-relayed click synchronously when a worker handle is at hand
+// (event.source, else controller, else active registration) so the worker can focus this window
+// and delete the stored click
+function _notify_ack(id, source = null) {
+  if (typeof id != 'string' || !id) return false
+  return _notify_post({ type: NOTIFY_CLICK_RECEIVED, id }, source)
+}
+
+// whether the clicked item is currently rendered as a target in this window's applied view, read
+// from the app's own rendered super-container via `item.elem` (which marks every target, including
+// secondary targets in multi-target queries and case-varied id terms)
+function _notify_is_target(item) {
+  const el = item?.elem
+  return !!el?.classList?.contains('target') && !el.classList.contains('hidden')
+}
+
+// marks a todo line and scrolls an already-shown target item into view (outside the app's scroll
+// band) without calling item.select() or MindBox.set(), keeping the box, history, and any
+// unfinished draft intact; rechecks target identity via `item.elem` when the deferred DOM update runs
+function _notify_show_here(item, line) {
+  if (typeof _update_dom != 'function' || typeof document?.querySelector != 'function') {
+    if (line) {
+      try {
+        MindBox.select_in_target(line)
+      } catch (e) {}
+    }
+    try {
+      MindBox.scroll_to_target?.()
+    } catch (e) {}
+    return
+  }
+  _update_dom().then(() => {
+    const live = _item(item.id, { silent: true })
+    const sup = live?.elem
+    if (!sup?.classList?.contains('target') || sup.classList.contains('hidden')) return
+    const target = sup.querySelector?.('.container.target')
+    if (line && target) {
+      try {
+        const pos = typeof live.text == 'string' ? live.text.indexOf(line) : -1
+        if (pos >= 0) {
+          const textarea = target.querySelector('textarea')
+          if (textarea) {
+            textarea.focus()
+            textarea.setSelectionRange(_zwsp_offset(textarea.value, pos), _zwsp_offset(textarea.value, pos + line.length))
+          } else target.setAttribute('data-selection', `${pos},${pos + line.length}`)
+        }
+      } catch (e) {}
+    }
+    const header = document.querySelector('.header')
+    const vh = typeof visualViewport != 'undefined' && visualViewport ? visualViewport.height : typeof innerHeight == 'number' ? innerHeight : 0
+    if (vh > 0 && (sup.offsetTop < document.body.scrollTop || sup.offsetTop > document.body.scrollTop + vh - 200)) {
+      const y = Math.max(header ? header.offsetTop : 0, sup.offsetTop - vh / 4)
+      typeof _scroll_to == 'function' ? _scroll_to(y) : document.body.scrollTo(0, y)
+    }
+  })
+}
+
+// handles a discovery query or click relayed by the app's service worker (attached on EVERY
+// window, not only the elected one): leaves unrelated, foreign, and left-account messages silent.
+// On a discovery query (`query`), answers with `status` ({ showing, canHandle }) from the page as
+// it stands with zero side effects (no mark, scroll, selection, focus, or handled-id memory).
+// On an ordinary click, answers `received` ONLY when this window can act on the click — the test
+// notification (no item), a duplicate id already handled here, or an item present and selectable
+// here (a fixed, shared view refuses selection and stays silent). Where the clicked item is
+// already a rendered target in this view, marks and scrolls alone without calling `item.select()`
 function _on_notify_message(event) {
   if (_notify_account_left()) return false
   const msg = event?.data
-  if (!msg || typeof msg != 'object' || msg.type != NOTIFY_CLICK_TYPE) return false
+  if (!msg || typeof msg != 'object') return false
+  const is_query = msg.type == NOTIFY_CLICK_QUERY
+  if (!is_query && msg.type != NOTIFY_CLICK_TYPE) return false
   const data = msg.data
   if (!data || typeof data != 'object' || data.source != 'todoer') return false
+  const source = event?.source ?? null
   const id = typeof msg.id == 'string' && msg.id ? msg.id : null
   const handled = (_todoer.store.notify_handled ??= new Set())
+  if (is_query) {
+    if (!id) return false
+    if (handled.has(id) || !data.item) {
+      _notify_post({ type: NOTIFY_CLICK_STATUS, id, showing: false, canHandle: true }, source)
+      return true
+    }
+    const item = typeof data.item == 'string' ? _item(data.item, { silent: true }) : null
+    const canHandle = !!item && !_notify_fixed_view()
+    const showing = canHandle && _notify_is_target(item)
+    _notify_post({ type: NOTIFY_CLICK_STATUS, id, showing, canHandle }, source)
+    return true
+  }
   if (id && handled.has(id)) {
-    _notify_ack(id, event?.source ?? null)
+    _notify_ack(id, source)
     return true
   }
   const remember = () => {
@@ -5194,7 +5267,7 @@ function _on_notify_message(event) {
   }
   if (!data.item) {
     remember()
-    _notify_ack(id, event?.source ?? null)
+    _notify_ack(id, source)
     window.focus()
     return true
   }
@@ -5203,7 +5276,11 @@ function _on_notify_message(event) {
   if (!item) return false
   const text = item.tags_visible?.includes('#todo') ? _extract_todo_snippet(item) : null
   const line = text ? _todo_line(text) : null
-  if (typeof item.select == 'function') {
+  if (_notify_is_target(item)) {
+    if (_notify_fixed_view()) return false
+    remember()
+    _notify_show_here(item, line)
+  } else if (typeof item.select == 'function') {
     if (!item.select()) return false
     remember()
     if (line) {
@@ -5216,7 +5293,7 @@ function _on_notify_message(event) {
     MindBox.set(item.name, line ? { scroll: true, select: line } : { scroll: true })
     remember()
   }
-  _notify_ack(id, event?.source ?? null)
+  _notify_ack(id, source)
   window.focus()
   return true
 }

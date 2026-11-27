@@ -10,6 +10,7 @@
 // run: node external/mind.items/tests/todoer_test.js
 const fs = require('fs')
 const path = require('path')
+const { pathToFileURL } = require('url')
 const vm = require('vm')
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'todoer.js'), 'utf8')
@@ -21,7 +22,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'SNOOZE_LAST_KEY', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'SNOOZE_LAST_KEY', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_QUERY', 'NOTIFY_CLICK_STATUS', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -188,9 +189,12 @@ const picked =
     '_notify_confirmed_worker',
     '_notify_relayed',
     '_notify_show',
+    '_notify_post',
     '_notify_ack',
     '_notify_click',
     '_notify_fixed_view',
+    '_notify_is_target',
+    '_notify_show_here',
     '_on_notify_message',
     '_notify_ready',
     '_select_item',
@@ -5593,6 +5597,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // ---- SERVICE-WORKER NOTIFICATIONS (protocol v2: listener guard, eligibility-gated ack, worker replacement, show results) ----
   async_rows.push((async () => {
     const NOTIFY_CLICK_TYPE = vm.runInContext('NOTIFY_CLICK_TYPE', context)
+    const NOTIFY_CLICK_QUERY = vm.runInContext('NOTIFY_CLICK_QUERY', context)
+    const NOTIFY_CLICK_STATUS = vm.runInContext('NOTIFY_CLICK_STATUS', context)
     const NOTIFY_CLICK_RELAY = vm.runInContext('NOTIFY_CLICK_RELAY', context)
     const NOTIFY_CLICK_READY = vm.runInContext('NOTIFY_CLICK_READY', context)
     const NOTIFY_CLICK_RECEIVED = vm.runInContext('NOTIFY_CLICK_RECEIVED', context)
@@ -6040,6 +6046,123 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('sw click: foreign and unrelated messages are left alone and NOT answered',
         [ignored, combined, f.postedToWorker.length - postedBefore, order.length >= 0 && focused() >= 2],
         [[false, false, false], [], 0, true])
+
+      // Discovery (`NOTIFY_CLICK_QUERY`) and showing-target ordinary click branches:
+      // discovery answers `{ type: NOTIFY_CLICK_STATUS, id, showing, canHandle }` from `item.elem`
+      // with ZERO side effects (no mark, scroll, selection, focus, or handled-id memory)
+      let boxNow = ''
+      let scrollCalls = 0
+      env.MindBox.get = () => boxNow
+      env.MindBox.scroll_to_target = () => { scrollCalls++ }
+      const qReplies = []
+      const qSource = { postMessage: m => qReplies.push(m) }
+      const elemWith = (...classes) => ({ classList: { contains: c => classes.includes(c) } })
+
+      // Not showing (item.elem lacks target) -> status { showing: false, canHandle: true }, zero side effects
+      selects.length = 0; marks.length = 0; scrollCalls = 0
+      const focusBeforeQ = focused()
+      t1.elem = elemWith('super-container')
+      const qNotShow = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-not-showing', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      check('sw click query: non-showing window answers status {showing:false, canHandle:true} with zero side effects',
+        [qNotShow, qReplies.splice(0), selects, marks, scrollCalls, focused() - focusBeforeQ, env._todoer.store.notify_handled.has('q-not-showing')],
+        [true, [{ type: NOTIFY_CLICK_STATUS, id: 'q-not-showing', showing: false, canHandle: true }], [], [], 0, 0, false])
+
+      // Showing (item.elem has target, even when MindBox holds an unrelated or compound query) ->
+      // discovery answers { showing: true, canHandle: true } with ZERO side effects!
+      boxNow = '#unrelated extra'
+      t1.elem = elemWith('super-container', 'target')
+      const qShow = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-showing', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      check('sw click query: showing window answers status {showing:true, canHandle:true} from item.elem with zero side effects',
+        [qShow, qReplies.splice(0), selects, marks, scrollCalls, focused() - focusBeforeQ, env._todoer.store.notify_handled.has('q-showing')],
+        [true, [{ type: NOTIFY_CLICK_STATUS, id: 'q-showing', showing: true, canHandle: true }], [], [], 0, 0, false])
+
+      // Hidden target (super-container has both target and hidden) -> showing: false, canHandle: true
+      t1.elem = elemWith('super-container', 'target', 'hidden')
+      const qHidden = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-hidden', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      check('sw click query: hidden super-container reports showing:false, canHandle:true',
+        [qHidden, qReplies.splice(0)],
+        [true, [{ type: NOTIFY_CLICK_STATUS, id: 'q-hidden', showing: false, canHandle: true }]])
+
+      // Ordinary click on already-showing target (`item.elem` has target): marks and scrolls without item.select()
+      t1.elem = elemWith('super-container', 'target')
+      scrollCalls = 0
+      const clickShow = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'q-showing', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      check('sw click ordinary: already-showing target skips item.select(), keeps box untouched, marks/scrolls, and answers received',
+        [clickShow, qReplies.splice(0), selects, marks.splice(0), scrollCalls, boxNow, env._todoer.store.notify_handled.has('q-showing')],
+        [true, [{ type: NOTIFY_CLICK_RECEIVED, id: 'q-showing' }], [], ['#todo answer me'], 1, '#unrelated extra', true])
+
+      // Test notification (!data.item) on query -> { showing: false, canHandle: true } without acting
+      const focusBeforeTestQ = focused()
+      const qTest = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-test', tag: 'todoer:test', data: { source: 'todoer', item: null } },
+      })
+      check('sw click query: /notify test answers {showing:false, canHandle:true} without focusing or remembering',
+        [qTest, qReplies.splice(0), focused() - focusBeforeTestQ, env._todoer.store.notify_handled.has('q-test')],
+        [true, [{ type: NOTIFY_CLICK_STATUS, id: 'q-test', showing: false, canHandle: true }], 0, false])
+
+      // Missing item on query -> { showing: false, canHandle: false }; foreign message -> silent
+      const qMissing = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-missing', tag: 'todoer:gone', data: { source: 'todoer', item: 'gone' } },
+      })
+      const qForeign = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-foreign', tag: 'cal:1', data: { source: 'calendar', item: 's-t1' } },
+      })
+      check('sw click query: missing item answers {showing:false, canHandle:false}; foreign message stays silent',
+        [qMissing, qForeign, qReplies.splice(0)],
+        [true, false, [{ type: NOTIFY_CLICK_STATUS, id: 'q-missing', showing: false, canHandle: false }]])
+
+      // Fixed shared view (?shared=1): answers { showing: false, canHandle: false } on query even when targeting item,
+      // and refuses ordinary click silently without acting
+      env.location.search = '?shared=1'
+      scrollCalls = 0
+      const qFixed = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-fixed', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      const clickFixed = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_TYPE, id: 'q-fixed', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      env.location.search = ''
+      check('sw click query/ordinary: fixed shared view answers {showing:false, canHandle:false} on query and stays silent on ordinary click',
+        [qFixed, clickFixed, qReplies.splice(0), selects, marks, scrollCalls],
+        [true, false, [{ type: NOTIFY_CLICK_STATUS, id: 'q-fixed', showing: false, canHandle: false }], [], [], 0])
+
+      // Left account on query -> stays completely silent
+      env.window._notification_account_left = true
+      const qLeft = f.listeners[0]({
+        source: qSource,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-left', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      env.window._notification_account_left = false
+      check('sw click query: left account stays silent',
+        [qLeft, qReplies.splice(0)],
+        [false, []])
+
+      // Discovery reply without event.source falls back to controller via _notify_post (same order as _notify_ack)
+      const beforeCtrl = f.postedToWorker.length
+      const qNoSource = f.listeners[0]({
+        source: null,
+        data: { type: NOTIFY_CLICK_QUERY, id: 'q-ctrl-fallback', tag: 'todoer:s-t1', data: { source: 'todoer', item: 's-t1' } },
+      })
+      check('sw click query: reply uses same worker-handle fallback as _notify_ack (controller when source absent)',
+        [qNoSource, f.postedToWorker.slice(beforeCtrl)],
+        [true, [{ type: NOTIFY_CLICK_STATUS, id: 'q-ctrl-fallback', showing: true, canHandle: true }]])
     }
 
     // 4. `_notify_ready` across worker replacement (old active -> new confirmed, and across fresh evaluations)
@@ -10952,7 +11075,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _ROW_SAVED = [^\n]*\n/)[0],
       src.match(/\nconst _row_has = [^\n]*\n/)[0],
       src.match(/\nconst _ROW_SHORTCUTS = \[[\s\S]*?\n\]\n/)[0],
-      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
+      ...['SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL', '_notifier_id', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_QUERY', 'NOTIFY_CLICK_STATUS', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]),
     ].join('\n')
     const winCode =
       winConsts +
@@ -10964,7 +11087,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         '_delete_refusal',
         '_draft',
         '_draft_word',
+        '_notify_post',
+        '_notify_ack',
         '_notify_fixed_view',
+        '_notify_is_target',
+        '_notify_show_here',
+        '_on_notify_message',
         '_send_on',
         '_send_since',
         '_send_partner',
@@ -11345,6 +11473,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       const makeItem = (itemId, { saved_id = 's_' + itemId, name = '#' + itemId, text = '#todo ' + itemId, tags = ['#todo'], tags_visible = ['#todo'], scrollY = 1600, offsetTop = null, refuseSelect = false } = {}) => {
         const sup = body.appendChild(new WinDomNode('div', { id: 'super-container-' + itemId, className: 'super-container' }))
+        const cont = sup.appendChild(new WinDomNode('div', { className: 'container', 'data-item-id': itemId }))
         sup.offsetTop = offsetTop ?? scrollY + innerHeight / 4
         superNodes.set(itemId, sup)
         const it = {
@@ -11356,6 +11485,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           tags,
           tags_visible,
           _global_store: {},
+          get elem() { return doc.getElementById('super-container-' + itemId) },
           get global_store() { return this._global_store },
           read: () => it.text,
           scrollY,
@@ -11363,8 +11493,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             if (refuseSelect) return false
             selects.push({ id: it.id, scrollBefore: body.scrollTop })
             apply(it.name)
-            for (const s of superNodes.values()) s.classList.remove('target')
+            for (const s of superNodes.values()) {
+              s.classList.remove('target')
+              s.querySelector('.container')?.classList.remove('target')
+            }
             sup.classList.add('target')
+            cont.classList.add('target')
             targetContainer.setAttribute('data-item-id', it.id)
             const doScroll = () => {
               const y = scrollToTargetPos()
@@ -11407,6 +11541,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         return { widget: w, list, rowNodes }
       }
 
+      let focusCalls = 0
       const win = {
         innerWidth: 1100,
         innerHeight,
@@ -11415,6 +11550,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         _mindboxDebounced: false,
         ...(hasMindboxApplied ? { _mindboxApplied: '' } : {}),
         _key_buttons: { guest: () => binButtonDraws.push((win._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title, b.color])) },
+        focus: () => { focusCalls++ },
         addEventListener: (type, fn, opts) => addL(winListeners, type, fn, opts),
         removeEventListener: (type, fn, opts) => remL(winListeners, type, fn, opts),
       }
@@ -11553,6 +11689,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const setTargetItems = ids => {
         for (const el of extraTargets.splice(0)) el.remove()
         const list = (ids ?? []).filter(Boolean)
+        for (const [itemId, s] of superNodes) {
+          const on = list.includes(itemId)
+          s.classList[on ? 'add' : 'remove']('target')
+          s.querySelector('.container')?.classList[on ? 'add' : 'remove']('target')
+        }
         if (!list.length) return void targetContainer.removeAttribute('data-item-id')
         targetContainer.setAttribute('data-item-id', list[0])
         for (const itemId of list.slice(1)) {
@@ -11593,6 +11734,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         setInnerHeight: h => { env.innerHeight = win.innerHeight = env.visualViewport.height = body.offsetHeight = h },
         setTargetItem: itemId => setTargetItems(itemId == null ? [] : [itemId]),
         setTargetItems,
+        focusCalls: () => focusCalls,
       }
     }
 
