@@ -71,6 +71,9 @@ const KEY_BUTTONS_KEYBOARD_ROW = [
 // tree and dimmed when not
 const KEY_BUTTONS_ARROWS = KEY_BUTTONS.filter(b => !b.ctrl && !b.alt && !b.shift && b.key.startsWith('Arrow'))
 const KEY_BUTTONS_ARROW_NAMES = new Set(KEY_BUTTONS_ARROWS.map(b => b.name))
+// the two scroll buttons (Ctrl+Alt+Up/Down): global scroll shortcuts the app's editors let through
+// untouched without closing or disturbing an open edit, focus or caret
+const KEY_BUTTONS_SCROLL_NAMES = new Set(KEY_BUTTONS.filter(b => b.ctrl && b.alt && b.key.startsWith('Arrow')).map(b => b.name))
 // the strip of a device with a keyboard: the main row's buttons in one row at the page's lower
 // right, in groups with a wider gap between them, left to right: the two jumps, the four arrows,
 // the new item; then the reload button, then the #vault item's sparkle (the owner, 2026-11-23:
@@ -1079,9 +1082,11 @@ function key_buttons_create() {
   if (KEY_BUTTONS_PARTS.reload_button) document.body.appendChild(reloader)
   // the strip of a device with a keyboard, in a row at the lower right that ends beside the reload
   // button: the main row's buttons in the reload button's circle look, the arrows dimmed when they would not move
-  // and still clickable. A click dispatches on document.body so it always reaches the window's
-  // handler even while the MindBox holds focus (Editor.svelte stops propagation on arrows inside
-  // a focused textarea), and sends nothing while any item is open for editing
+  // and still clickable. The scroll buttons (top, back) dispatch through key_buttons_target(document)
+  // even while an item is open for editing, matching Ctrl+Alt+Up/Down from every editor without
+  // disturbing focus, caret or text. The arrows and create dispatch on document.body so they reach
+  // the window's handler even while the MindBox holds focus (Editor.svelte stops propagation on arrows
+  // inside a focused textarea), and send nothing while any item is open for editing
   const nav_group = (kind, className, specs, label) => {
     const group = document.createElement('div')
     group.className = className
@@ -1098,10 +1103,11 @@ function key_buttons_create() {
       button.title = spec.title
       button.setAttribute('aria-label', spec.title)
       button.innerHTML = key_buttons_svg(spec.icon)
+      const scroll = KEY_BUTTONS_SCROLL_NAMES.has(spec.name)
       button.addEventListener('click', e => {
         taken(e)
-        if (!self.disposed && !group.hidden && own_click_ok(button, e) && !key_buttons_any_editing(window))
-          key_buttons_press(spec, document, undefined, document.body)
+        if (!self.disposed && !group.hidden && own_click_ok(button, e) && (scroll || !key_buttons_any_editing(window)))
+          key_buttons_press(spec, document, undefined, scroll ? key_buttons_target(document) : document.body)
       })
       button.addEventListener('mousedown', taken)
       button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true })
@@ -1116,7 +1122,7 @@ function key_buttons_create() {
   // the group stands on a second floor)
   const guests = (self.guests = nav_group('guests', 'key-buttons-guests', [], 'Actions for the named item'))
   const viewport = window.visualViewport
-  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, bg_mode: null, guest_count: 0, guest_floor: 0, guest_strip: 0 })
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, editing: false, bg_mode: null, guest_count: 0, guest_floor: 0, guest_strip: 0 })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
   // once the item is gone (its own task's cancel disposes this controller)
   const later = (name, run, ms) => {
@@ -1188,7 +1194,9 @@ function key_buttons_create() {
   }
   // apply the last computed arrow state to the mobile row's arrows and the desktop strip:
   // arrows that would move are green (`valid`), arrows that would not are dimmed (`dim`);
-  // non-arrows never change; desktop always shows the strip and puts the reload button beside the sparkle
+  // non-arrows on the mobile row never change; desktop always shows the strip and puts the reload
+  // button beside the sparkle, and while any item is open for editing dims the five guarded
+  // desktop buttons (arrows and create) while leaving top and back untouched
   self.apply_nav = () => {
     const nav = self.nav
     for (const button of bar.children) {
@@ -1198,8 +1206,12 @@ function key_buttons_create() {
     nav_strip.hidden = !desktop
     // the reload button stands beside the sparkle there, and at the lower left on a phone
     reloader.className = desktop ? 'key-buttons-reload desktop' : 'key-buttons-reload'
+    const editing = (self.editing = desktop && key_buttons_any_editing(window))
     for (const button of nav_strip.children) {
-      if (KEY_BUTTONS_ARROW_NAMES.has(button.dataset.key)) button.className = nav[button.dataset.key] ? 'valid' : 'dim'
+      const name = button.dataset.key
+      if (KEY_BUTTONS_SCROLL_NAMES.has(name)) continue
+      if (editing) button.className = 'dim'
+      else button.className = KEY_BUTTONS_ARROW_NAMES.has(name) ? (nav[name] ? 'valid' : 'dim') : ''
     }
   }
   // the guest group, from what another item has put on the window (window._key_buttons_guests:
@@ -1280,9 +1292,14 @@ function key_buttons_create() {
     self.refresh()
   }
   // each item change (create, edit, delete, rename) restarts the 150 ms wait so a burst is
-  // looked at once it goes quiet; skipped while the box names no label (nothing can light up)
+  // looked at once it goes quiet; skipped while the box names no label (nothing can light up),
+  // except to refresh the desktop strip's editing dim state if it changed
   self.items_changed = () => {
-    if (self.disposed || !key_buttons_box_label(self.box())) return
+    if (self.disposed) return
+    if (!key_buttons_box_label(self.box())) {
+      if (!nav_strip.hidden && key_buttons_any_editing(window) !== self.editing) self.apply_nav()
+      return
+    }
     self.nav_pending = true
     later(
       'key_buttons_nav',
@@ -1489,6 +1506,7 @@ function key_buttons_create() {
     }
     tick_at = now
     tick_front = in_front()
+    if (!self.disposed && !nav_strip.hidden && key_buttons_any_editing(window) !== self.editing) self.apply_nav()
   }, KEY_BUTTONS_SLOW.tick)
   ticker?.unref?.() // (a test's process must not wait for it)
 
