@@ -16734,7 +16734,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // 50. SNOOZE DIALOG KEYS: pure movement over rows of horizontal middles, Enter on every kind of
   //     stop without double confirmation, Space on the notify box, date field focus & Escape/Tab
   //     exit, held repeats, and single-handler cleanup across ten open/close cycles
+  const priorAsyncRows = async_rows.slice()
   async_rows.push((async () => {
+    const toInputValueMatch = src.match(/\nDate\.prototype\.toInputValue = function \(\) \{[\s\S]*?\n\}\n/)
+    if (!toInputValueMatch) throw new Error('Date.prototype.toInputValue not found in todoer.js')
+    const toInputValueFn = toInputValueMatch[0]
     const snoozeFns = pick([
       '_snooze_move',
       '_snooze_key',
@@ -16855,15 +16859,44 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const row0 = labels0.map((t, i) => makeEl(middles[0][i], { text: t, classes: ['button'] }))
       const row1 = labels1.map((t, i) => makeEl(middles[1][i], { text: t, classes: ['button'] }))
       const dateInput = makeEl(middles[2][0])
+      const formatLocalForInput = ms => {
+        if (!Number.isFinite(ms)) return ''
+        const d = new RealDate(ms)
+        if (!Number.isFinite(d.getTime())) return ''
+        const p = (n, len = 2) => String(n).padStart(len, '0')
+        const base = `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+        const s = d.getSeconds()
+        const msec = d.getMilliseconds()
+        if (!s && !msec) return base
+        return msec ? `${base}:${p(s)}.${p(msec, 3)}` : `${base}:${p(s)}`
+      }
+      const parseWallClockAsNumber = v => {
+        if (typeof v != 'string') return NaN
+        const m = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(v)
+        if (!m) return NaN
+        const s = m[6] ?? '00'
+        const ms = m[7] ? '.' + m[7].padEnd(3, '0') : ''
+        const parsed = RealDate.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${s}${ms}Z`)
+        return Number.isFinite(parsed) ? parsed : NaN
+      }
       let dateValue = ''
+      let dateValueAsNumber = NaN
       const dateValueWrites = []
       Object.defineProperty(dateInput, 'value', {
         get: () => dateValue,
         set: v => {
           dateValue = v
           dateValueWrites.push(v)
-          const parsed = typeof v == 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? RealDate.parse(v + ':00Z') : NaN
-          dateInput.valueAsNumber = Number.isFinite(parsed) ? parsed : NaN
+          dateValueAsNumber = parseWallClockAsNumber(v)
+        },
+        enumerable: true,
+        configurable: true,
+      })
+      Object.defineProperty(dateInput, 'valueAsNumber', {
+        get: () => dateValueAsNumber,
+        set: n => {
+          dateValue = formatLocalForInput(n)
+          dateValueAsNumber = parseWallClockAsNumber(dateValue)
         },
         enumerable: true,
         configurable: true,
@@ -16931,12 +16964,6 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         }
         static now() {
           return clock
-        }
-        getTimezoneOffset() {
-          return 0
-        }
-        toInputValue() {
-          return new RealDate(this.getTime()).toISOString().slice(0, 16)
         }
       }
 
@@ -17106,7 +17133,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       if (!('localStorage' in envOpts)) env.localStorage = defaultLocalStorage
       else if (envOpts.localStorage !== undefined) env.localStorage = envOpts.localStorage
       vm.createContext(env)
-      vm.runInContext(notifyPermConst + '\n' + snoozeLastKeyConst + '\n' + snoozeFns, env)
+      vm.runInContext(toInputValueFn + '\n' + notifyPermConst + '\n' + snoozeLastKeyConst + '\n' + snoozeFns, env)
 
       // app src/event_key.ts resolver for simulated Modal.svelte bubble listener
       const REMAPPED_AS_NAMED = /^(Escape|Enter|NumpadEnter|Tab|Backspace|Delete|Insert|Home|End|Page(Up|Down)|Arrow(Up|Down|Left|Right)|F\d+)$/
@@ -19531,6 +19558,167 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [0, 0, 0, 0, 0],
         ]
       )
+    }
+
+    // 50w13. Last choice: a date across a clock change keeps its local time and its instant at
+    //        every repeat, under real America/Los_Angeles offsets with production toInputValue/_snooze_input
+    {
+      await Promise.all(priorAsyncRows)
+      const prevTz = process.env.TZ
+      process.env.TZ = 'America/Los_Angeles'
+      try {
+        const NOW = RealDate.UTC(2026, 10, 27, 20, 0, 20) // 2026-11-27 12:00:20 PST (UTC-8, offset 480)
+        const MAR_11Z = RealDate.UTC(2027, 2, 14, 11, 0, 0) // 2027-03-14 04:00 PDT (UTC-7, offset 420)
+        const JUL_19Z = RealDate.UTC(2027, 6, 15, 19, 0, 0) // 2027-07-15 12:00 PDT (UTC-7, offset 420)
+        const JUL_19Z_30S = RealDate.UTC(2027, 6, 15, 19, 0, 30)
+        const e = makeSnoozeEnv(NOW)
+        const offsets = [
+          new e.env.Date(NOW).getTimezoneOffset(),
+          new e.env.Date(MAR_11Z).getTimezoneOffset(),
+          new e.env.Date(JUL_19Z).getTimezoneOffset(),
+        ]
+
+        // (a) Spring-forward day: 2027-03-14T04:00 confirmed, reopened, Enter -> field stays 04:00, both 11:00Z
+        const mMar1 = e.env._snooze_dialog()
+        await Promise.resolve()
+        e.dateInput.value = '2027-03-14T04:00'
+        e.env._on_snooze_input_change({ target: e.dateInput })
+        e.env._on_snooze({ target: e.snoozeBtn })
+        const ansMar1 = await settleAnswer(mMar1)
+        await clearIfUnsettled(e, mMar1, ansMar1)
+
+        const mMar2 = e.env._snooze_dialog()
+        await Promise.resolve()
+        const marReopen = [e.dateInput.value, e.snoozeBtn.classList.contains('disabled'), e.litNames()]
+        e.dispatchKey('Enter')
+        const ansMar2 = await settleAnswer(mMar2)
+        await clearIfUnsettled(e, mMar2, ansMar2)
+
+        // (b) Reviewer's table: July 15, 2027 at noon -> 19:00Z on first choice and two repeats, field 12:00 each time
+        const mJul1 = e.env._snooze_dialog()
+        await Promise.resolve()
+        e.dateInput.value = '2027-07-15T12:00'
+        e.env._on_snooze_input_change({ target: e.dateInput })
+        const julField1 = e.dateInput.value
+        e.env._on_snooze({ target: e.snoozeBtn })
+        const ansJul1 = await settleAnswer(mJul1)
+        await clearIfUnsettled(e, mJul1, ansJul1)
+
+        const mJul2 = e.env._snooze_dialog()
+        await Promise.resolve()
+        const julOpen2 = [e.dateInput.value, e.litNames()]
+        e.dispatchKey('Enter')
+        const ansJul2 = await settleAnswer(mJul2)
+        await clearIfUnsettled(e, mJul2, ansJul2)
+
+        const mJul3 = e.env._snooze_dialog()
+        await Promise.resolve()
+        const julOpen3 = [e.dateInput.value, e.litNames()]
+        e.dispatchKey('Enter')
+        const ansJul3 = await settleAnswer(mJul3)
+        await clearIfUnsettled(e, mJul3, ansJul3)
+
+        // (c) Seconds in the field are read as local time too
+        const mSec = e.env._snooze_dialog()
+        await Promise.resolve()
+        e.dateInput.value = '2027-07-15T12:00:30'
+        e.env._on_snooze_input_change({ target: e.dateInput })
+        e.env._on_snooze({ target: e.snoozeBtn })
+        const ansSec = await settleAnswer(mSec)
+        await clearIfUnsettled(e, mSec, ansSec)
+
+        // (d) Empty and partial (and invalid calendar) fields stay invalid: snooze disabled, Enter answers nothing, nothing thrown
+        e.storage.delete(SNOOZE_LAST_KEY)
+        const badInputs = ['', '2027-03-14', '2027-03-14T', '2027-03-14T04', '2027-02-29T12:00']
+        const badUnlit = []
+        const mBad1 = e.env._snooze_dialog()
+        await Promise.resolve()
+        for (const val of badInputs) {
+          let threw = false
+          e.closes.length = 0
+          try {
+            e.dateInput.value = val
+            e.env._on_snooze_input_change({ target: e.dateInput })
+            e.dispatchKey('Enter')
+            badUnlit.push([
+              threw,
+              Number.isNaN(e.env._snooze_input()),
+              e.snoozeBtn.classList.contains('disabled'),
+              e.canConfirmNow(),
+              e.isVisible(),
+              e.closes.length,
+            ])
+          } catch {
+            threw = true
+            badUnlit.push([threw])
+          }
+        }
+        e.dispatchKey('Escape')
+        await settleAnswer(mBad1)
+
+        // Also with the snooze button lit (capture-phase Enter path)
+        e.storage.delete(SNOOZE_LAST_KEY)
+        const badLit = []
+        const mBad2 = e.env._snooze_dialog()
+        await Promise.resolve()
+        for (let i = 0; i < 6; i++) e.dispatchKey('ArrowRight') // 3h -> 28d
+        e.dispatchKey('ArrowDown') // next week
+        e.dispatchKey('ArrowDown') // snooze
+        const litStop = e.litNames()
+        for (const val of ['', '2027-03-14', '2027-03-14T04']) {
+          let threw = false
+          e.closes.length = 0
+          try {
+            e.dateInput.value = val
+            e.env._on_snooze_input_change()
+            e.dispatchKey('Enter')
+            badLit.push([
+              threw,
+              Number.isNaN(e.env._snooze_input()),
+              e.snoozeBtn.classList.contains('disabled'),
+              e.isVisible(),
+              e.closes.length,
+            ])
+          } catch {
+            threw = true
+            badLit.push([threw])
+          }
+        }
+        e.dispatchKey('Escape')
+        await settleAnswer(mBad2)
+
+        check(
+          'snooze dialog last choice: a date across a clock change keeps its local time and its instant at every repeat',
+          [
+            offsets,
+            [ansMar1, marReopen, ansMar2],
+            [julField1, ansJul1, julOpen2, ansJul2, julOpen3, ansJul3],
+            ansSec,
+            badUnlit,
+            [litStop, badLit],
+            [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
+          ],
+          [
+            [480, 420, 420],
+            [{ time: MAR_11Z, notify: false }, ['2027-03-14T04:00', false, ['snooze']], { time: MAR_11Z, notify: false }],
+            [
+              '2027-07-15T12:00',
+              { time: JUL_19Z, notify: false },
+              ['2027-07-15T12:00', ['snooze']],
+              { time: JUL_19Z, notify: false },
+              ['2027-07-15T12:00', ['snooze']],
+              { time: JUL_19Z, notify: false },
+            ],
+            { time: JUL_19Z_30S, notify: false },
+            Array(badInputs.length).fill([false, true, true, false, true, 0]),
+            [['snooze'], Array(3).fill([false, true, true, true, 0])],
+            [0, 0, 0],
+          ]
+        )
+      } finally {
+        if (prevTz === undefined) delete process.env.TZ
+        else process.env.TZ = prevTz
+      }
     }
   })())
   // unstored drawn order (2026-11-26, shortcuts_row): a row selected via j/k or click is

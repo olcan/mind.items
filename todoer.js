@@ -1057,10 +1057,11 @@ function _complete_todo(item, log_text, { back = () => {}, gone = () => {} } = {
 }
 
 Date.prototype.toInputValue = function () {
-  // from https://stackoverflow.com/a/16010247
-  let local = new Date(this)
-  local.setMinutes(this.getMinutes() - this.getTimezoneOffset())
-  return local.toJSON().slice(0, 16)
+  if (!Number.isFinite(this.getTime())) return ''
+  const year = this.getFullYear()
+  if (year < 0) return ''
+  const pad = (n, len = 2) => String(n).padStart(len, '0')
+  return `${pad(year, 4)}-${pad(this.getMonth() + 1)}-${pad(this.getDate())}T${pad(this.getHours())}:${pad(this.getMinutes())}`
 }
 
 // pure movement over the snooze dialog's rows of horizontal middles: nothing lit starts at the
@@ -1448,8 +1449,22 @@ function _on_snooze(e) {
 }
 
 function _snooze_input() {
-  const input = document.querySelector('.snooze-modal .custom input')
-  return input.valueAsNumber + new Date().getTimezoneOffset() * 60 * 1000
+  const value = document.querySelector('.snooze-modal .custom input')?.value
+  if (typeof value != 'string') return NaN
+  const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value)
+  if (!match) return NaN
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = match[6] ? Number(match[6]) : 0
+  const ms = match[7] ? Number(match[7].padEnd(3, '0')) : 0
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return NaN
+  const date = new Date(year, month - 1, day, hour, minute, second, ms)
+  if (year < 100) date.setFullYear(year)
+  if (date.getFullYear() != year || date.getMonth() != month - 1 || date.getDate() != day) return NaN
+  return date.getTime()
 }
 
 function _on_snooze_input_change(e) {
