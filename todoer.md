@@ -1,7 +1,7 @@
 #todoer helps manage todo items.  
 - Try <<link_eval(_this, 'create_pinned_item()', 'creating a pinned item')>> with drag-and-drop lists.
 - `/todo [text]` creates a todo. Drop a todo on a bin to delegate it to the vault agent, mark it done, snooze it or delete it.
-- Select a row (a click, or **`j`** and **`k`** to cycle notifications and the main list) for its buttons and their keys: **`a`** agent, **`d`** done, **`s`** snooze, **`x`** delete, **`b`** clear the bell, **`h`** item history (on an item an agent wrote, when the pusher has a destination), **`u`** take back.
+- Select a row (a click, or **`j`** and **`k`** to cycle every list on the page) for its buttons and their keys: **`a`** agent, **`d`** done, **`s`** snooze, **`x`** delete, **`b`** clear the bell, **`h`** item history (on an item an agent wrote, when the pusher has a destination), **`u`** take back.
 - A bell says why a row came up; a chat with a new reply from the agent is listed with a `reply` bell (wiki links in the reply's first line open as links where it is shown as written, while the rest stays text). An item that an agent wrote is listed with an `item` bell, for the latest hundred such items. A click on a bell clears it.
 - `/notify on` turns on desktop notifications for what waits on you.
 - With a second window of the app open, **`w`** (or the button with two panes) links them: a window without a target stays the list, marking the row of the item the other window shows and acting on it with its buttons and keys; where both have targets, selecting a row gives this window's target up and shows the item in the other. **`w`** in either window ends the link.

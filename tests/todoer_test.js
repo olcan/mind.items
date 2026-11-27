@@ -109,6 +109,8 @@ const picked =
     '_unsnooze_for_bell',
     '_sweep',
     '_unsnooze',
+    '_snooze_last_read',
+    '_snooze_last_write',
     '_snooze_close',
     '_snooze',
     '_on_snooze_notify',
@@ -1463,7 +1465,7 @@ delete context.__todos.p
   }
   // the drop's handler and the dialog's markup (the render, which the table cannot run): pinned by the sources
   const modal_html = fs.readFileSync(path.join(__dirname, '..', 'todoer-snooze-modal.html'), 'utf8')
-  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {14}_snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time\)\n/.test(src)], [true, true, true])
+  check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {14}_snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time, label == 'snooze' \? null : label\)\n/.test(src)], [true, true, true])
   check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
   check('dialog: the date field hands an edit to _on_snooze_input_change at input (a browser may hold change back until the field loses the focus)', [/\n {4}<input type="datetime-local" oninput="__onchange__" \/>\n/.test(modal_html), /<input type="datetime-local"[^>]*\sonchange=/.test(modal_html), src.includes(".replaceAll('__onchange__', `_item('#todoer').eval('_on_snooze_input_change(event)')`)")], [true, false, true])
   check('drag: the snoozed list\'s bin unsnoozes as the owner\'s own act', /\n {10}_unsnooze\(item, true\) \/\//.test(src), true)
@@ -6954,27 +6956,30 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ])
     }
 
-    // 3. _row_beside and _row_step: cycling across main list, wrapping at ends, non-row sibling ignored,
-    //    outside rows jumping to nearest sequence row, no-row picking ends, deleted neighbor skipped
+    // 3. _row_beside and _row_step: cycling across all mounted lists, wrapping at ends, non-row sibling ignored,
+    //    unresolvable/unmounted rows stepping to nearest live row or ends, no-row picking ends, deleted neighbor skipped
     {
       const s = makeStage()
       s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
       s.makeItem('d1'); s.makeItem('d2'); s.makeItem('u1')
       const main = s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
-      s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+      const del = s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
       main.list.appendChild(new s.DomNode('div')) // trailing non-row without data-id
       const [r1, r2, r3] = main.list.children
-      check('_row_beside: cycles main list (ignoring non-row sibling) and picks first/last for null',
+      const [dr1, dr2] = del.list.children
+      check('_row_beside: cycles all mounted lists in page order (ignoring non-row sibling) and picks first/last for null',
         [
           s.env._row_beside(r1, -1)?.id ?? null,
           s.env._row_beside(r1, 1)?.id ?? null,
           s.env._row_beside(r2, -1)?.id ?? null,
           s.env._row_beside(r2, 1)?.id ?? null,
           s.env._row_beside(r3, 1)?.id ?? null,
+          s.env._row_beside(dr1, -1)?.id ?? null,
+          s.env._row_beside(dr2, 1)?.id ?? null,
           s.env._row_beside(null, 1)?.id ?? null,
           s.env._row_beside(null, -1)?.id ?? null,
         ],
-        ['m3', 'm2', 'm1', 'm3', 'm1', 'm1', 'm3'])
+        ['d2', 'm2', 'm1', 'm3', 'd1', 'm3', 'm1', 'm1', 'd2'])
       const stepRes = [
         s.env._row_step('m1', 1),
         s.env._row_step('m1', -1),
@@ -6985,14 +6990,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         s.env._row_step('u1', 1),
         s.env._row_step('nope', 1),
       ]
-      // deleted neighbor in DOM is skipped cleanly; sole live row returns false
+      // deleted neighbor in DOM is skipped cleanly; sole live row across all mounted lists returns false
       main.list.children[1].setAttribute('data-id', 'deleted')
       stepRes.push(s.env._row_step('m1', 1))
       main.list.children[2].setAttribute('data-id', 'deleted2')
+      del.list.children[0].setAttribute('data-id', 'deleted3')
+      del.list.children[1].setAttribute('data-id', 'deleted4')
       stepRes.push(s.env._row_step('m1', 1))
-      check('_row_step: cycles sequence from mounted/outside/no-row items, skips deleted DOM rows, and returns false for unknown item or sole live row',
+      check('_row_step: cycles sequence across mounted lists and no-row items, skips deleted DOM rows, and returns false for unknown item or sole live row',
         [stepRes, s.selected],
-        [[true, true, true, true, true, true, true, false, true, false], ['m2', 'm3', 'm1', 'm2', 'm1', 'm3', 'm1', 'm3']])
+        [[true, true, true, true, true, true, true, false, true, false], ['m2', 'd2', 'd1', 'm2', 'd2', 'm3', 'm1', 'm3']])
     }
 
     // 4. _bin_buttons: per-list button sets, reply row filter, bell, Snooze vs Unsnooze title, dim state on up/down,
@@ -7491,14 +7498,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ])
     }
 
-    // 6. _on_row_key: every branch (selected row, ends, none selected -> main list only, empty main list,
-    //    focused fields, modifiers, unrelated keys)
+    // 6. _on_row_key: every branch (selected row, ends, none selected -> first/last mounted row,
+    //    empty mounted lists vs sole row, focused fields, modifiers, unrelated keys)
     {
       const s = makeStage()
       s.makeItem('sn1'); s.makeItem('dl1')
       s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
       s.makeItem('note')
-      // intentionally mount snoozed and delegated widgets BEFORE main to prove global j/k picks main only
+      // mount snoozed and delegated widgets BEFORE main to verify page order across every mounted list
       s.makeWidget({ snoozed: true, rows: [{ id: 'sn1' }] })
       s.makeWidget({ delegated: true, rows: [{ id: 'dl1' }] })
       s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
@@ -7519,7 +7526,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         fieldBlocked.push(s.env._on_row_key('KeyJ', {}))
       }
       s.doc.activeElement = { tagName: 'DIV', isContentEditable: false }
-      // empty box -> j selects first of main list (m1), k selects last of main list (m3)
+      // empty box -> j selects first mounted row (#sn1), walks into #dl1, k back to #sn1, k wraps to #m3
       const globalJ = s.env._on_row_key('KeyJ', {})
       const boxAfterJ = s.getBox()
       const stepDown = s.env._on_row_key('KeyJ', {})
@@ -7529,39 +7536,44 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // at top of sequence: k wraps round to last of sequence (#m3)
       const atTop = s.env._on_row_key('KeyK', {})
       const boxAtTop = s.getBox()
-      // unlisted item in box -> treated as no row selected: k selects last of sequence (m3)
+      // unlisted item in box -> treated as no row selected: k selects last of sequence (#m3)
       s.setBox('#note')
       const globalK = s.env._on_row_key('KeyK', {})
       const boxAfterK = s.getBox()
-      // at end of sequence: j wraps round to first of sequence (#m1)
+      // at end of sequence: j wraps round to first of sequence (#sn1)
       const atEnd = s.env._on_row_key('KeyJ', {})
       const boxAtEnd = s.getBox()
-      // selected unbelled row in delegated list above main: j goes to nearest sequence row after it (#m1)
+      // selected unbelled row in delegated list above main: j steps to #m1
       s.setBox('#dl1')
       const delNext = s.env._on_row_key('KeyJ', {})
       const boxDelNext = s.getBox()
-      // empty sequence (only unbelled delegated widget) with no selection -> returns false; with #d1 selected -> true, stays
+      // truly empty mounted lists -> unselected j/k return false; sole unbelled delegated row -> unselected selects it, selected claims and stays
       const sEmpty = makeStage()
-      sEmpty.makeItem('d1')
-      sEmpty.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+      sEmpty.makeWidget({ delegated: true, rows: [] })
       sEmpty.makeWidget({ rows: [] })
       const emptyRes = [sEmpty.env._on_row_key('KeyJ', {}), sEmpty.env._on_row_key('KeyK', {})]
-      sEmpty.setBox('#d1')
-      const emptySelectedRes = [sEmpty.env._on_row_key('KeyJ', {}), sEmpty.getBox(), sEmpty.env._on_row_key('KeyK', {}), sEmpty.getBox()]
-      check('_on_row_key: ignores other keys, modifiers, and focused fields; cycles sequence at both ends; outside row steps to nearest after; selects sequence ends when no row selected; empty sequence forwards when unselected and claims when selected',
+      const sSole = makeStage()
+      sSole.makeItem('d1')
+      sSole.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+      sSole.makeWidget({ rows: [] })
+      const soleFromEmpty = [sSole.env._on_row_key('KeyJ', {}), sSole.getBox()]
+      const soleSelectedRes = [sSole.env._on_row_key('KeyJ', {}), sSole.getBox(), sSole.env._on_row_key('KeyK', {}), sSole.getBox()]
+      check('_on_row_key: ignores other keys, modifiers, and focused fields; cycles all mounted lists at both ends; selects ends when no row selected; empty mounted lists forward while sole row claims',
         [
           rejected, fieldBlocked,
           [globalJ, boxAfterJ, stepDown, boxAfterDown, stepUp, boxAfterUp, atTop, boxAtTop],
           [globalK, boxAfterK, atEnd, boxAtEnd, delNext, boxDelNext],
           emptyRes,
-          emptySelectedRes,
+          soleFromEmpty,
+          soleSelectedRes,
         ],
         [
           [false, false, false, false, false, false, false],
           [false, false, false, false],
-          [true, '#m1', true, '#m2', true, '#m1', true, '#m3'],
-          [true, '#m3', true, '#m1', true, '#m1'],
+          [true, '#sn1', true, '#dl1', true, '#sn1', true, '#m3'],
+          [true, '#m3', true, '#sn1', true, '#m1'],
           [false, false],
+          [true, '#d1'],
           [true, '#d1', true, '#d1'],
         ])
 
@@ -8241,9 +8253,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ])
       }
 
-      // 10. Cycling walk across the union of belled rows (any list) and main list in page order (2026-11-25)
-      // 10a. _row_sequence across layouts: main alone, delegated above (with/without bells), snoozed below,
-      //      reply row, no list, empty sequence, one row, duplicate id across widgets, parked & deleted rows
+      // 10. Cycling walk across every row of every mounted list in page order (2026-11-26)
+      // 10a. _row_sequence across layouts: main alone, delegated above (with/without bells), main above delegated,
+      //      snoozed below (mounted vs absent/hidden), reply row, no list, empty widgets, one row, duplicate id, parked & deleted rows
       {
         const seqIds = setup => {
           const s = makeStage()
@@ -8264,6 +8276,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
           s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
         })
+        const mainAboveDel = seqIds(s => {
+          for (const id of ['m1', 'm2', 'd1', 'd2']) s.makeItem(id)
+          s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2', bell: true }] })
+        })
         const snzBelowWithAndWithout = [
           seqIds(s => {
             for (const id of ['m1', 'm2', 's1', 's2', 's3']) s.makeItem(id)
@@ -8282,17 +8299,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeWidget({ rows: [{ id: 'm1' }, { id: 'rep', waits: 'reply', bell: true }, { id: 'm2' }] })
         })
         const noList = seqIds(() => {})
-        const emptySeq = seqIds(s => {
+        const delAndSnzOnly = seqIds(s => {
           s.makeItem('d1'); s.makeItem('s1')
           s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
           s.makeWidget({ rows: [] })
           s.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
         })
+        const emptyWidgets = seqIds(s => {
+          s.makeWidget({ delegated: true, rows: [] })
+          s.makeWidget({ rows: [] })
+          s.makeWidget({ snoozed: true, rows: [] })
+        })
         const oneRowMain = seqIds(s => {
           s.makeItem('m1')
           s.makeWidget({ rows: [{ id: 'm1' }] })
         })
-        const oneRowDelBell = seqIds(s => {
+        const twoDelRows = seqIds(s => {
           s.makeItem('d0'); s.makeItem('d1')
           s.makeWidget({ delegated: true, rows: [{ id: 'd0' }, { id: 'd1', bell: true }] })
         })
@@ -8302,25 +8324,27 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeWidget({ delegated: true, rows: [{ id: 'x', bell: true }] })
           s.makeWidget({ rows: [{ id: 'x' }, { id: 'gone' }, { id: 'm1' }] })
         })
-        check('walk sequence: union of belled rows (any mounted list) and main list in page order, each once, across all layouts',
-          [mainAlone, delAboveBells, delAboveNoBells, snzBelowWithAndWithout, replyRows, noList, emptySeq, oneRowMain, oneRowDelBell, dupAndParkedAndDeleted],
+        check('walk sequence: every row of every mounted list in page order, each item once, across all layouts',
+          [mainAlone, delAboveBells, delAboveNoBells, mainAboveDel, snzBelowWithAndWithout, replyRows, noList, delAndSnzOnly, emptyWidgets, oneRowMain, twoDelRows, dupAndParkedAndDeleted],
           [
             ['m1', 'm2', 'm3'],
-            ['d2', 'd4', 'm1', 'm2'],
-            ['m1', 'm2'],
-            [['m1', 'm2', 's2'], ['m1', 'm2']],
+            ['d1', 'd2', 'd3', 'd4', 'm1', 'm2'],
+            ['d1', 'd2', 'm1', 'm2'],
+            ['m1', 'm2', 'd1', 'd2'],
+            [['m1', 'm2', 's1', 's2', 's3'], ['m1', 'm2', 's1', 's2']],
             ['dRep', 'm1', 'rep', 'm2'],
             [],
+            ['d1', 's1'],
             [],
             ['m1'],
-            ['d1'],
+            ['d0', 'd1'],
             ['x', 'm1'],
           ])
       }
 
-      // 10b. Points 1-4 both ways (j/k keys AND up/down buttons): delegated above main, snoozed below,
-      //      reply row inside main; full wrap in both directions; unbelled rows skipped; outside rows
-      //      at every position (before start, between sequence rows, after end) go to nearest or wrap
+      // 10b. Both ways (j/k keys AND up/down buttons): delegated above main, snoozed below,
+      //      reply row inside main; full wrap in both directions over every row of every mounted list;
+      //      outside rows still reachable in _row_beside (unresolvable mounted row, detached row)
       {
         const priorCalls = []
         const sharedWin = { innerWidth: 1000, _on_key: key => (priorCalls.push(key), 'prior') }
@@ -8343,40 +8367,37 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           b.press()
           return [b.color === '#fff', s.getBox()]
         }
-        // Full forward cycle via j from empty box (6 presses: lands on d1, walks to s1, wraps to d1)
+        const seqOrder = ['d0', 'd1', 'd2', 'm1', 'rep', 'm2', 's0', 's1', 's2']
+        // Full forward cycle via j from empty box (10 presses: lands on d0, walks all 9 rows, wraps to d0)
         s.setBox('')
-        const fwdKeys = Array.from({ length: 6 }, () => keyStep('KeyJ'))
-        // Full backward cycle via k from empty box (6 presses: lands on s1, walks to d1, wraps to s1)
+        const fwdKeys = Array.from({ length: 10 }, () => keyStep('KeyJ'))
+        // Full backward cycle via k from empty box (10 presses: lands on s2, walks all 9 rows backward, wraps to s2)
         s.setBox('')
-        const bwdKeys = Array.from({ length: 6 }, () => keyStep('KeyK'))
-        // Full cycle via down and up buttons from each sequence row
-        const seqOrder = ['d1', 'm1', 'rep', 'm2', 's1']
+        const bwdKeys = Array.from({ length: 10 }, () => keyStep('KeyK'))
+        // Full cycle via down and up buttons from every row
         const fwdBtns = seqOrder.map(id => btnStep(id, 'down'))
         const bwdBtns = seqOrder.map(id => btnStep(id, 'up'))
-        // Outside rows at EVERY position relative to sequence: before first (d0), between d1&m1 (d2),
-        // between m2&s1 (s0), after last (s2), tested both with j/k and down/up buttons
-        const outside = ['d0', 'd2', 's0', 's2'].map(id => {
-          s.setBox('#' + id)
-          const j = keyStep('KeyJ')
-          s.setBox('#' + id)
-          const k = keyStep('KeyK')
-          const dn = btnStep(id, 'down')
-          const up = btnStep(id, 'up')
-          return [id, j, k, dn, up]
-        })
-        check('walk cycle & outside rows: j/k and up/down cycle page-order union both ways, skip unbelled rows, and jump to nearest after/before (wrapping past ends) from every outside position',
-          [fwdKeys, bwdKeys, fwdBtns, bwdBtns, outside, priorCalls],
+        // Rows that can still stand outside seq in _row_beside: a mounted row whose item no longer resolves
+        // (at start, middle, end) steps to nearest live row or wraps; a detached/unmounted row picks first/last
+        const sOut = makeStage()
+        sOut.makeItem('a'); sOut.makeItem('b')
+        const wOut = sOut.makeWidget({ rows: [{ id: 'goneStart' }, { id: 'a' }, { id: 'goneMid' }, { id: 'b' }, { id: 'goneEnd' }] })
+        const detached = new sOut.DomNode('div', { className: 'list-item-container', 'data-id': 'ghost' })
+        const [gStart, , gMid, , gEnd] = wOut.list.children
+        const outsideFallback = [
+          [sOut.env._row_beside(gStart, 1)?.id ?? null, sOut.env._row_beside(gStart, -1)?.id ?? null],
+          [sOut.env._row_beside(gMid, 1)?.id ?? null, sOut.env._row_beside(gMid, -1)?.id ?? null],
+          [sOut.env._row_beside(gEnd, 1)?.id ?? null, sOut.env._row_beside(gEnd, -1)?.id ?? null],
+          [sOut.env._row_beside(detached, 1)?.id ?? null, sOut.env._row_beside(detached, -1)?.id ?? null],
+        ]
+        check('walk cycle & unresolvable fallback: j/k and up/down cycle every row of every mounted list both ways and wrap; unresolvable/detached rows fall back cleanly',
+          [fwdKeys, bwdKeys, fwdBtns, bwdBtns, outsideFallback, priorCalls],
           [
-            [[true, '#d1'], [true, '#m1'], [true, '#rep'], [true, '#m2'], [true, '#s1'], [true, '#d1']],
-            [[true, '#s1'], [true, '#m2'], [true, '#rep'], [true, '#m1'], [true, '#d1'], [true, '#s1']],
-            [[true, '#m1'], [true, '#rep'], [true, '#m2'], [true, '#s1'], [true, '#d1']],
-            [[true, '#s1'], [true, '#d1'], [true, '#m1'], [true, '#rep'], [true, '#m2']],
-            [
-              ['d0', [true, '#d1'], [true, '#s1'], [true, '#d1'], [true, '#s1']],
-              ['d2', [true, '#m1'], [true, '#d1'], [true, '#m1'], [true, '#d1']],
-              ['s0', [true, '#s1'], [true, '#m2'], [true, '#s1'], [true, '#m2']],
-              ['s2', [true, '#d1'], [true, '#s1'], [true, '#d1'], [true, '#s1']],
-            ],
+            [...seqOrder, seqOrder[0]].map(id => [true, '#' + id]),
+            [...[...seqOrder].reverse(), seqOrder[seqOrder.length - 1]].map(id => [true, '#' + id]),
+            seqOrder.map((_, i) => [true, '#' + seqOrder[(i + 1) % seqOrder.length]]),
+            seqOrder.map((_, i) => [true, '#' + seqOrder[(i - 1 + seqOrder.length) % seqOrder.length]]),
+            [['a', 'b'], ['b', 'a'], ['a', 'b'], ['a', 'b']],
             [],
           ])
       }
@@ -8499,13 +8520,24 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeItem('note', { tags_visible: [] })
           s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
         }
-        const unbelledOnlySetup = s => {
+        const emptyMountedSetup = s => {
+          s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+          s.makeWidget({ delegated: true, rows: [] })
+          s.makeWidget({ rows: [] })
+        }
+        const soleUnbelledDelSetup = s => {
           s.makeItem('d1', { tags_visible: ['#todo'] })
           s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
           s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
           s.makeWidget({ rows: [] })
         }
-        const oneMainSetup = s => {
+        const soleMainSetup = s => {
+          s.makeItem('m1', { tags_visible: ['#todo'] })
+          s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+          s.makeWidget({ delegated: true, rows: [] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+        }
+        const delAndMainSetup = s => {
           s.makeItem('d1', { tags_visible: ['#todo'] })
           s.makeItem('m1', { tags_visible: ['#todo'] })
           s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
@@ -8536,13 +8568,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ['no-widgets/empty-box', probe(emptyWidgetsSetup, { box: '' })],
           ['no-widgets/non-todo', probe(emptyWidgetsSetup, { box: '#note', targetId: 'note' })],
           ['no-widgets/off-list-todo', probe(emptyWidgetsSetup, { box: '#off', targetId: 'off' })],
-          ['unbelled-only/empty-box', probe(unbelledOnlySetup, { box: '' })],
-          ['unbelled-only/selected-row', probe(unbelledOnlySetup, { box: '#d1', targetId: 'd1' })],
-          ['unbelled-only/off-list-todo', probe(unbelledOnlySetup, { box: '#off', targetId: 'off' })],
-          ['one-main/selected-sole', probe(oneMainSetup, { box: '#m1', targetId: 'm1' })],
-          ['one-main/outside-row', probe(oneMainSetup, { box: '#d1', targetId: 'd1' })],
-          ['one-main/off-list-todo', probe(oneMainSetup, { box: '#off', targetId: 'off' })],
-          ['one-main/empty-box', probe(oneMainSetup, { box: '' })],
+          ['empty-mounted/empty-box', probe(emptyMountedSetup, { box: '' })],
+          ['empty-mounted/off-list-todo', probe(emptyMountedSetup, { box: '#off', targetId: 'off' })],
+          ['sole-unbelled-del/empty-box', probe(soleUnbelledDelSetup, { box: '' })],
+          ['sole-unbelled-del/selected-row', probe(soleUnbelledDelSetup, { box: '#d1', targetId: 'd1' })],
+          ['sole-unbelled-del/off-list-todo', probe(soleUnbelledDelSetup, { box: '#off', targetId: 'off' })],
+          ['sole-main/selected-sole', probe(soleMainSetup, { box: '#m1', targetId: 'm1' })],
+          ['sole-main/off-list-todo', probe(soleMainSetup, { box: '#off', targetId: 'off' })],
+          ['sole-main/empty-box', probe(soleMainSetup, { box: '' })],
+          ['del-and-main/selected-main', probe(delAndMainSetup, { box: '#m1', targetId: 'm1' })],
+          ['del-and-main/selected-del', probe(delAndMainSetup, { box: '#d1', targetId: 'd1' })],
+          ['del-and-main/off-list-todo', probe(delAndMainSetup, { box: '#off', targetId: 'off' })],
+          ['del-and-main/empty-box', probe(delAndMainSetup, { box: '' })],
           ['one-del-bell/selected-sole', probe(oneDelBellSetup, { box: '#d1', targetId: 'd1' })],
           ['one-del-bell/empty-box', probe(oneDelBellSetup, { box: '' })],
           ['two-seq/del-bell', probe(twoSeqSetup, { box: '#d1', targetId: 'd1' })],
@@ -8556,13 +8593,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['no-widgets/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
             ['no-widgets/non-todo', { btnSummary: null, j: [false, 1, '#note'], k: [false, 1, '#note'] }],
             ['no-widgets/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
-            ['unbelled-only/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
-            ['unbelled-only/selected-row', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
-            ['unbelled-only/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
-            ['one-main/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
-            ['one-main/outside-row', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
-            ['one-main/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
-            ['one-main/empty-box', { btnSummary: null, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['empty-mounted/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
+            ['empty-mounted/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
+            ['sole-unbelled-del/empty-box', { btnSummary: null, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['sole-unbelled-del/selected-row', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['sole-unbelled-del/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'd1', downDest: 'd1', dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['sole-main/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['sole-main/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['sole-main/empty-box', { btnSummary: null, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['del-and-main/selected-main', { btnSummary: { upLit: true, downLit: true, upDest: 'd1', downDest: 'd1', dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['del-and-main/selected-del', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['del-and-main/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'd1', dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#m1'] }],
+            ['del-and-main/empty-box', { btnSummary: null, j: [true, 0, '#d1'], k: [true, 0, '#m1'] }],
             ['one-del-bell/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
             ['one-del-bell/empty-box', { btnSummary: null, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
             ['two-seq/del-bell', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
@@ -8570,6 +8612,196 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['one-live-one-deleted/sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
             ['dup-sole/sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
           ])
+      }
+
+      // 10e. New walk rule (2026-11-26): every row of every mounted list is a stop in page order,
+      //      each item once at its first place; delegated & snoozed rows reached by j match click
+      {
+        // (1) Delegated row without a bell is a stop
+        {
+          const s = makeStage()
+          for (const id of ['m1', 'd1', 'd2']) s.makeItem(id, { tags_visible: ['#todo'] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+          const seq = s.env._row_sequence().seq.map(e => e.id)
+          s.setBox('')
+          const walkJ = Array.from({ length: 4 }, () => (s.env._on_row_key('KeyJ', {}), s.getBox()))
+          s.setBox('')
+          const walkK = Array.from({ length: 4 }, () => (s.env._on_row_key('KeyK', {}), s.getBox()))
+          check('jk walk: delegated row without a bell is a stop',
+            [seq, walkJ, walkK],
+            [['m1', 'd1', 'd2'], ['#m1', '#d1', '#d2', '#m1'], ['#d2', '#d1', '#m1', '#d2']])
+        }
+
+        // (2) Snoozed list rows are stops where that list is mounted and none where it is not
+        {
+          const runSnz = mode => {
+            const s = makeStage()
+            for (const id of ['m1', 's1', 's2']) s.makeItem(id, { tags_visible: ['#todo'], ...(id != 'm1' ? { store: { _todoer: { snoozed: 9999 } } } : {}) })
+            s.makeWidget({ rows: [{ id: 'm1' }] })
+            if (mode == 'mounted') s.makeWidget({ snoozed: true, rows: [{ id: 's1' }, { id: 's2' }] })
+            else if (mode == 'parked') s.makeWidget({ snoozed: true, parked: true, rows: [{ id: 's1' }, { id: 's2' }] })
+            else if (mode == 'folded') s.makeWidget({ snoozed: true, folded: true, rows: [{ id: 's1' }, { id: 's2' }] })
+            const seq = s.env._row_sequence().seq.map(e => e.id)
+            s.setBox('#m1')
+            s.env._on_row_key('KeyJ', {})
+            const afterJ = s.getBox()
+            s.setBox('#m1')
+            s.env._on_row_key('KeyK', {})
+            const afterK = s.getBox()
+            return [seq, afterJ, afterK]
+          }
+          check('jk walk: snoozed rows are stops where snoozed list is mounted and none where unmounted or hidden',
+            [runSnz('mounted'), runSnz('absent'), runSnz('parked'), runSnz('folded')],
+            [
+              [['m1', 's1', 's2'], '#s1', '#s2'],
+              [['m1'], '#m1', '#m1'],
+              [['m1'], '#m1', '#m1'],
+              [['m1'], '#m1', '#m1'],
+            ])
+        }
+
+        // (3) An item in two mounted lists is taken once, at its first place
+        {
+          const s = makeStage()
+          for (const id of ['a', 'dup', 'b', 'c', 'd']) s.makeItem(id, { tags_visible: ['#todo'] })
+          s.makeWidget({ rows: [{ id: 'a' }, { id: 'dup' }, { id: 'b' }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'c' }, { id: 'dup' }, { id: 'd' }] })
+          const seq = s.env._row_sequence().seq.map(e => e.id)
+          s.setBox('')
+          const fwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyJ', {}), s.getBox()))
+          s.setBox('')
+          const bwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyK', {}), s.getBox()))
+          check('jk walk: item in two mounted lists is taken once at its first place',
+            [seq, fwd, bwd],
+            [
+              ['a', 'dup', 'b', 'c', 'd'],
+              ['#a', '#dup', '#b', '#c', '#d', '#a'],
+              ['#d', '#c', '#b', '#dup', '#a', '#d'],
+            ])
+        }
+
+        // (4) Order follows the lists' order in the page (main above delegated AND delegated above main),
+        //     wrapping at both ends over all mounted lists
+        {
+          const walkOrder = mainFirst => {
+            const s = makeStage()
+            for (const id of ['m1', 'm2', 'd1', 'd2', 's1']) s.makeItem(id, { tags_visible: ['#todo'] })
+            if (mainFirst) {
+              s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+              s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2', bell: true }] })
+            } else {
+              s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2', bell: true }] })
+              s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+            }
+            s.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
+            const seq = s.env._row_sequence().seq.map(e => e.id)
+            s.setBox('')
+            const fwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyJ', {}), s.getBox()))
+            s.setBox('')
+            const bwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyK', {}), s.getBox()))
+            return [seq, fwd, bwd]
+          }
+          check('jk walk: page order follows main-above-delegated and delegated-above-main, wrapping at both ends over all mounted lists',
+            [walkOrder(true), walkOrder(false)],
+            [
+              [
+                ['m1', 'm2', 'd1', 'd2', 's1'],
+                ['#m1', '#m2', '#d1', '#d2', '#s1', '#m1'],
+                ['#s1', '#d2', '#d1', '#m2', '#m1', '#s1'],
+              ],
+              [
+                ['d1', 'd2', 'm1', 'm2', 's1'],
+                ['#d1', '#d2', '#m1', '#m2', '#s1', '#d1'],
+                ['#s1', '#m2', '#m1', '#d2', '#d1', '#s1'],
+              ],
+            ])
+        }
+
+        // (5) Delegated and snoozed rows reached by j show and take the exact same buttons and keys as reached by click
+        {
+          const probeRow = async (targetId, prevId, via) => {
+            const priorCalls = []
+            const sharedWin = { innerWidth: 1000, _on_key: key => priorCalls.push(key) }
+            sharedWin._key_buttons = { guest: () => {} }
+            const s = makeStage({ sharedWin })
+            s.makeItem('m1', { tags_visible: ['#todo'] })
+            s.makeItem('d1', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1 } } } })
+            s.makeItem('s1', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+            s.makeWidget({ rows: [{ id: 'm1' }] })
+            s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+            s.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
+            s.env._row_keys()
+            const reach = () => {
+              s.win._todoer_bin_busy = false
+              if (via == 'j') {
+                s.setBox('#' + prevId)
+                sharedWin._on_key('KeyJ', { preventDefault: () => {} })
+              } else {
+                s.env._select_item(s.items.get(targetId))
+              }
+              s.env._bin_buttons(s.env._selected_item())
+            }
+            reach()
+            const landed = s.getBox()
+            const buttons = (sharedWin._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title])
+            const shortcuts = s.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+            const keyOutcomes = []
+            for (const code of ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyB', 'KeyH', 'KeyU']) {
+              reach()
+              priorCalls.length = 0
+              s.actions.length = 0
+              let prevented = false
+              sharedWin._on_key(code, { preventDefault: () => { prevented = true } })
+              for (let i = 0; i < 6; i++) await Promise.resolve()
+              keyOutcomes.push([code, prevented, priorCalls.slice(), s.actions.slice()])
+            }
+            return { landed, buttons, shortcuts, keyOutcomes }
+          }
+          const delByJ = await probeRow('d1', 'm1', 'j')
+          const delByClick = await probeRow('d1', 'm1', 'click')
+          const snzByJ = await probeRow('s1', 'd1', 'j')
+          const snzByClick = await probeRow('s1', 'd1', 'click')
+          check('jk walk: delegated and snoozed rows reached by j show and take the same buttons and keys as reached by click',
+            [
+              delByJ,
+              delByJ.landed,
+              delByJ.buttons.map(b => b[0]),
+              delByJ.keyOutcomes.map(([code, prev, prior, acts]) => [code, prev, prior.length, acts.map(a => a[0])]),
+              snzByJ,
+              snzByJ.landed,
+              snzByJ.buttons.map(b => b[0]),
+              snzByJ.buttons.find(b => b[0] == 'snooze')?.[1],
+              snzByJ.keyOutcomes.map(([code, prev, prior, acts]) => [code, prev, prior.length, acts.map(a => a[0])]),
+            ],
+            [
+              delByClick,
+              '#d1',
+              ['up', 'down', 'agent', 'owner'],
+              [
+                ['KeyA', true, 0, ['delegate']],
+                ['KeyD', false, 1, []],
+                ['KeyS', false, 1, []],
+                ['KeyX', false, 1, []],
+                ['KeyB', false, 1, []],
+                ['KeyH', false, 1, []],
+                ['KeyU', true, 0, ['takeback']],
+              ],
+              snzByClick,
+              '#s1',
+              ['up', 'down', 'agent', 'done', 'snooze', 'cancel'],
+              'Unsnooze (s)',
+              [
+                ['KeyA', true, 0, ['delegate']],
+                ['KeyD', true, 0, ['complete']],
+                ['KeyS', true, 0, ['unsnooze']],
+                ['KeyX', true, 0, ['delete']],
+                ['KeyB', false, 1, []],
+                ['KeyH', false, 1, []],
+                ['KeyU', false, 1, []],
+              ],
+            ])
+        }
       }
 
       // 11. _ROW_SHORTCUTS, _row_now, _row_has, _row_can, _row_goes, _BIN_DRAFT, _BIN_REFUSAL, and
@@ -8642,7 +8874,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ])
 
         // Every row state across all 11 entries (adapted: no-row says first/last row; cycling enables both j/k when >= 2 seq rows)
-        check('_ROW_SHORTCUTS active: no row (empty or unlisted) activates walk first/last j and k alone; empty or parked/unbelled-only walk activates none',
+        check('_ROW_SHORTCUTS active: no row (empty or unlisted) activates walk first/last j and k alone (including unbelled snoozed/delegated lists); empty or parked-only activates none',
           [
             activeEntries(''),
             activeEntries('#note'),
@@ -8658,8 +8890,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               se.setBox('')
               return se.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
             })(),
+            (() => {
+              const sp = makeStage()
+              sp.makeItem('pk')
+              sp.makeWidget({ parked: true, rows: [{ id: 'pk' }] })
+              sp.makeWidget({ rows: [] })
+              sp.makeWidget({ snoozed: true, rows: [] })
+              sp.makeWidget({ delegated: true, rows: [] })
+              sp.setBox('')
+              return sp.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+            })(),
           ],
           [
+            ['j:the first row', 'k:the last row'],
             ['j:the first row', 'k:the last row'],
             ['j:the first row', 'k:the last row'],
             [],
@@ -8802,10 +9045,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           check('_ROW_SHORTCUTS when: every entry names its row, the walk, the list that has its button, and the unsaved-edit rule on the four draft-refused presses',
             whenByKey,
             [
-              'j:a row is selected: through the rows with a bell and the main list, round and round',
-              'j:no row is selected: of the rows with a bell and the main list',
-              'k:a row is selected: through the rows with a bell and the main list, round and round',
-              'k:no row is selected: of the rows with a bell and the main list',
+              'j:a row is selected: through every list on the page, round and round',
+              'j:no row is selected: of the lists on the page',
+              'k:a row is selected: through every list on the page, round and round',
+              'k:no row is selected: of the lists on the page',
               'a:a todo is selected, with no unsaved edit in it',
               'd:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
               's:a todo of the main list is selected',
@@ -9332,11 +9575,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             st.makeWidget({ delegated: true, rows: [{ id: 'd1', bell: true }] })
             st.makeWidget({ rows: [] })
           }, ['', '#d1']),
+          verifyWalk('sole-main-only', st => {
+            st.makeItem('m1', { tags_visible: ['#todo'] })
+            st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+            st.makeWidget({ rows: [{ id: 'm1' }] })
+          }, ['', '#offSnz', '#m1']),
           verifyWalk('empty-walk-no-widgets', st => {
             st.makeItem('note', { tags: [], tags_visible: [] })
             st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
           }, ['', '#note', '#offSnz']),
-          verifyWalk('empty-walk-unbelled-only', st => {
+          verifyWalk('unbelled-del-and-snz-only', st => {
             st.makeItem('d1', { tags_visible: ['#todo'] })
             st.makeItem('s1', { tags_visible: ['#todo'] })
             st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
@@ -9345,35 +9593,42 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             st.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
           }, ['', '#offSnz', '#d1', '#s1']),
         ]
-        check('_row_goes vs _on_row_key: active iff j/k selects another row across every walk layout (sole row, outside row, off-list todo, empty walk), and never both entries at once',
+        check('_row_goes vs _on_row_key: active iff j/k selects another row across every walk layout (sole row, multi-list, off-list todo, empty walk), and never both entries at once',
           walkChecks.map(w => [w.label, w.mismatches]),
           walkChecks.map(w => [w.label, []]))
 
-        // Explicit spot check of the key tricky cases from verifyWalk above (sole row, outside row, off-list todo, empty walk)
-        const soleSummary = walkChecks.find(w => w.label == 'sole-main-with-outside-and-offlist').summary
-        const emptyUnbelledSummary = walkChecks.find(w => w.label == 'empty-walk-unbelled-only').summary
-        check('_row_goes tricky cases: sole row inactive, outside/off-list active into sole row, empty unbelled walk all inactive',
-          [soleSummary, emptyUnbelledSummary],
+        // Explicit spot check of the key tricky cases from verifyWalk above (sole row, del+main, del+snz unbelled, empty walk)
+        const soleMainSummary = walkChecks.find(w => w.label == 'sole-main-only').summary
+        const delAndSnzSummary = walkChecks.find(w => w.label == 'unbelled-del-and-snz-only').summary
+        const emptyNoWidgetsSummary = walkChecks.find(w => w.label == 'empty-walk-no-widgets').summary
+        check('_row_goes tricky cases: sole row inactive, off-list active into sole row, unbelled delegated+snoozed walks both, empty walk all inactive',
+          [soleMainSummary, delAndSnzSummary, emptyNoWidgetsSummary],
           [
             [
               ['', 'KeyJ', false, true, '#m1'],
               ['', 'KeyK', false, true, '#m1'],
               ['#offSnz', 'KeyJ', false, true, '#m1'],
               ['#offSnz', 'KeyK', false, true, '#m1'],
-              ['#d1', 'KeyJ', true, false, '#m1'],
-              ['#d1', 'KeyK', true, false, '#m1'],
               ['#m1', 'KeyJ', false, false, '#m1'],
               ['#m1', 'KeyK', false, false, '#m1'],
             ],
             [
+              ['', 'KeyJ', false, true, '#d1'],
+              ['', 'KeyK', false, true, '#s1'],
+              ['#offSnz', 'KeyJ', false, true, '#d1'],
+              ['#offSnz', 'KeyK', false, true, '#s1'],
+              ['#d1', 'KeyJ', true, false, '#s1'],
+              ['#d1', 'KeyK', true, false, '#s1'],
+              ['#s1', 'KeyJ', true, false, '#d1'],
+              ['#s1', 'KeyK', true, false, '#d1'],
+            ],
+            [
               ['', 'KeyJ', false, false, ''],
               ['', 'KeyK', false, false, ''],
+              ['#note', 'KeyJ', false, false, '#note'],
+              ['#note', 'KeyK', false, false, '#note'],
               ['#offSnz', 'KeyJ', false, false, '#offSnz'],
               ['#offSnz', 'KeyK', false, false, '#offSnz'],
-              ['#d1', 'KeyJ', false, false, '#d1'],
-              ['#d1', 'KeyK', false, false, '#d1'],
-              ['#s1', 'KeyJ', false, false, '#s1'],
-              ['#s1', 'KeyK', false, false, '#s1'],
             ],
           ])
 
@@ -15255,6 +15510,58 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
+    // 56b. Two-window list window walks across main, unbelled delegated, and snoozed lists with j/k
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      for (const id of ['wm1', 'wd1', 'ws1']) {
+        a.makeItem(id, { saved_id: 's_' + id, scrollY: 1600 })
+        b.makeItem(id, { saved_id: 's_' + id, scrollY: 1600 })
+      }
+      const wMain = a.makeWidget({ rows: [{ id: 'wm1', pageY: 540 }] })
+      const wDel = a.makeWidget({ delegated: true, rows: [{ id: 'wd1', pageY: 580 }] })
+      const wSnz = a.makeWidget({ snoozed: true, rows: [{ id: 'ws1', pageY: 620 }] })
+      a.setBox('#todo')
+      b.setBox('')
+      a.env._send_press()
+      bus.flush()
+      const step = key => {
+        a.env._on_row_key(key, {})
+        bus.flush()
+        const btns = (a.win._key_buttons_guests?.buttons ?? []).map(x => (x.name == 'snooze' ? x.title : x.name))
+        return [
+          a.getBox(),
+          b.getBox(),
+          wMain.rowNodes.get('wm1').classList.contains('selected'),
+          wDel.rowNodes.get('wd1').classList.contains('selected'),
+          wSnz.rowNodes.get('ws1').classList.contains('selected'),
+          btns,
+        ]
+      }
+      const fwd = [step('KeyJ'), step('KeyJ'), step('KeyJ'), step('KeyJ')]
+      const bwd = [step('KeyK'), step('KeyK')]
+      check(
+        'jk walk (two windows): list window walks across main, unbelled delegated, and snoozed rows, keeping #todo and updating buttons while partner shows each item',
+        [fwd, bwd],
+        [
+          [
+            ['#todo', '#wm1', true, false, false, ['up', 'down', 'agent', 'done', 'Snooze (s)', 'cancel', 'window']],
+            ['#todo', '#wd1', false, true, false, ['up', 'down', 'agent', 'owner', 'window']],
+            ['#todo', '#ws1', false, false, true, ['up', 'down', 'agent', 'done', 'Unsnooze (s)', 'cancel', 'window']],
+            ['#todo', '#wm1', true, false, false, ['up', 'down', 'agent', 'done', 'Snooze (s)', 'cancel', 'window']],
+          ],
+          [
+            ['#todo', '#ws1', false, false, true, ['up', 'down', 'agent', 'done', 'Unsnooze (s)', 'cancel', 'window']],
+            ['#todo', '#wd1', false, true, false, ['up', 'down', 'agent', 'owner', 'window']],
+          ],
+        ]
+      )
+    }
+
     // 57. Target window with no-target partner: row selection in the target window opens THERE and moves partner's mark
     {
       const bus = makeBus()
@@ -16432,6 +16739,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       '_snooze_move',
       '_snooze_key',
       '_snooze_rows',
+      '_snooze_last_read',
+      '_snooze_last_write',
       '_snooze_dialog',
       '_snooze_time',
       '_on_snooze',
@@ -16551,6 +16860,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         set: v => {
           dateValue = v
           dateValueWrites.push(v)
+          const parsed = typeof v == 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? RealDate.parse(v + ':00Z') : NaN
+          dateInput.valueAsNumber = Number.isFinite(parsed) ? parsed : NaN
         },
         enumerable: true,
         configurable: true,
@@ -16665,6 +16976,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           }
         },
       }
+      const persisted = envOpts.persisted ?? { raw: null }
+      const localStoreObj = envOpts.localStore !== undefined ? envOpts.localStore : persisted.raw ? JSON.parse(persisted.raw) : {}
+      const globalStoreObj = {}
+      const localSaveCalls = []
+      const localAutoSaves = []
+      const globalSaves = []
       const env = {
         console,
         Date: FakeDate,
@@ -16690,6 +17007,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         },
         _todoer: {
           store: {},
+          get _local_store() {
+            return localStoreObj
+          },
+          get local_store() {
+            localAutoSaves.push(true)
+            return localStoreObj
+          },
+          save_local_store: opts => {
+            localSaveCalls.push(opts ?? {})
+            const next = JSON.stringify(localStoreObj)
+            persisted.raw = next == '{}' ? null : next
+          },
+          get _global_store() {
+            return globalStoreObj
+          },
+          get global_store() {
+            globalSaves.push(true)
+            return globalStoreObj
+          },
           read: () => '<div class="snooze-modal">__onclick__ __onchange__ __onnotify__</div>',
           dispatch_task: (name, fn, delay = 0, repeat = -1) => {
             tasks[name] = { fn, delay, repeat, cancelled: false, runs: 0 }
@@ -16921,6 +17257,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         },
         isVisible: () => modalVisible,
         canConfirmNow: () => !!currentOpts?.canConfirm?.(),
+        persisted,
+        localStore: localStoreObj,
+        localSaveCalls,
+        localAutoSaves,
+        globalStore: globalStoreObj,
+        globalSaves,
       }
     }
 
@@ -17045,24 +17387,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ans1 = await settleAnswer(m1)
       const after1 = [e.closes.length, e.listeners.length, e.litNames()]
       await clearIfUnsettled(e, m1, ans1)
-      // Row 1 button (tomorrow) via Down, Down, Enter
+      // Row 1 button (tomorrow): m1 remembered 6h ([0, 1]), so one Down reaches tomorrow ([1, 0])
       const expectedTom = e.env._snooze_tomorrow().getTime()
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
-      e.dispatchKey('ArrowDown')
       e.dispatchKey('ArrowDown')
       const lit2 = e.litNames()
       const ev2 = e.dispatchKey('Enter')
       const ans2 = await settleAnswer(m2)
       await clearIfUnsettled(e, m2, ans2)
-      // Past-time check via _on_snooze when _snooze_time returns a past timestamp (with a valid future date in the field so an unstopped Enter would confirm via the app)
+      // Past-time check via _on_snooze when _snooze_time returns a past timestamp (m2 remembered tomorrow, already lit at opening)
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dateInput.valueAsNumber = NOW + 10 * 3_600_000
       e.env._on_snooze_input_change()
       e.env._snooze_tomorrow = () => new e.env.Date(NOW - 1000)
-      e.dispatchKey('ArrowDown')
-      e.dispatchKey('ArrowDown')
       e.dispatchKey('Enter')
       const pastBtn = [e.isVisible(), e.alerts.slice(), e.closes.length]
       e.env._modal_close(m3)
@@ -17146,14 +17485,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
 
-      // focused Enter confirms directly; Tab out of last part blurs stray focus and keeps field lit; second Escape closes
+      // m1 remembered future custom time (opens on snooze [2, 1]); ArrowLeft moves to date [2, 0] and focuses it
+      // Tab out of last part blurs stray focus and keeps field lit; second Escape closes
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dateInput.valueAsNumber = future
       e.env._on_snooze_input_change()
-      e.dispatchKey('ArrowDown')
-      e.dispatchKey('ArrowDown')
-      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowLeft')
       const tabEv = e.dispatchKey('Tab')
       e.setActive(e.notifyBox) // browser moved focus to checkbox after last subfield
       e.flushTimers()
@@ -17167,9 +17505,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       e.dateInput.valueAsNumber = future
       e.env._on_snooze_input_change()
-      e.dispatchKey('ArrowDown')
-      e.dispatchKey('ArrowDown')
-      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowLeft')
       e.dispatchPointer(e.row0[1], 173, 100, { movementX: 4 }) // 6h lit while date stays focused
       const tabPresetEv = e.dispatchKey('Tab')
       e.setActive(e.notifyBox) // browser moved focus to checkbox after last subfield
@@ -17185,9 +17521,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       e.dateInput.valueAsNumber = future
       e.env._on_snooze_input_change()
-      e.dispatchKey('ArrowDown')
-      e.dispatchKey('ArrowDown')
-      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowLeft')
       e.appBubble.length = 0
       const enterFocused = e.dispatchKey('Enter')
       const ans3 = await settleAnswer(m3)
@@ -17305,13 +17639,13 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         countsOpen.push([e.listeners.length, e.pointerListeners.length, e.allWinListeners.length, e.allDocListeners.length])
         e.dispatchKey('ArrowRight')
         if (i % 4 == 0) {
-          e.dispatchKey('Enter') // Enter on 3h
-          expectedAnswers.push({ time: NOW + 3 * 3_600_000, notify: false })
+          e.dispatchKey('Enter') // i=0: 3h; after i=2/i=6 remembered 1d, ArrowRight lands on 3d
+          expectedAnswers.push({ time: NOW + (i == 0 ? 3 * 3_600_000 : 3 * 86_400_000), notify: false })
         } else if (i % 4 == 1) {
-          e.dispatchKey('Escape') // Escape on lit 3h
+          e.dispatchKey('Escape') // Escape on lit stop
           expectedAnswers.push(undefined)
         } else if (i % 4 == 2) {
-          e.env._on_snooze({ target: e.row0[2] }) // mouse click on 1d while 3h lit
+          e.env._on_snooze({ target: e.row0[2] }) // mouse click on 1d
           expectedAnswers.push({ time: NOW + 24 * 3_600_000, notify: false })
         } else {
           e.env._modal_close(m) // external close
@@ -17329,6 +17663,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchPointer(e.row0[0], 120, 100, { movementX: 4 })
       const postCloseLit = e.litNames()
       // mouse-focused date field with nothing lit leaves browser arrows untouched
+      delete e.localStore.snooze_last
       const mMouse = e.env._snooze_dialog()
       await Promise.resolve()
       e.setActive(e.dateInput)
@@ -17387,7 +17722,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m3, ans3)
       const dateAfter3 = e.dateInput.value
       await e.releaseDom()
-      // Opening 4: render held, no click on box, Right + Enter -> notify: false
+      // Opening 4: render held, no click on box, Right (3h -> 6h) + Enter -> notify: false
       e.dateInput.value = ''
       const m4 = e.env._snooze_dialog()
       e.dispatchKey('ArrowRight')
@@ -17416,7 +17751,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           false,
           { time: NOW + 3 * 3_600_000, notify: false },
           expectedDate,
-          { time: NOW + 3 * 3_600_000, notify: false },
+          { time: NOW + 6 * 3_600_000, notify: false },
           expectedDate,
           true,
           false,
@@ -17467,7 +17802,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.clickNotify()
       await e.releaseDom()
       const setupOnce = [e.dateValueWrites.length, e.notifyBox.checked]
-      e.dispatchKey('ArrowRight')
+      e.dispatchKey('ArrowRight') // prior remembered 3h, so ArrowRight moves to 6h
       e.dispatchKey('Enter')
       const ans = await settleAnswer(m)
       await clearIfUnsettled(e, m, ans)
@@ -17483,7 +17818,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [true, expectedDate, false, [expectedDate], true],
           [true, false],
           [1, true],
-          { time: NOW + 3 * 3_600_000, notify: true },
+          { time: NOW + 6 * 3_600_000, notify: true },
           null,
         ]
       )
@@ -17541,7 +17876,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           true,
           { time: NOW + 6 * 3_600_000, notify: false },
           true,
-          { time: NOW + 3 * 3_600_000, notify: false },
+          { time: NOW + 24 * 3_600_000, notify: false },
           0,
         ]
       )
@@ -17730,6 +18065,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m2, ans2)
 
       // (c) Touch move with nonzero movement still lights nothing and does not seed baseline
+      delete e.localStore.snooze_last
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dispatchPointer(e.row0[1], 176, 100, { pointerType: 'touch', movementX: 5 })
@@ -18082,6 +18418,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m6, ans6)
 
       // (g) Nothing lit with focused date field and valid 5h date: Enter still delegates to app and returns 5h
+      delete e.localStore.snooze_last
       const m7 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dateInput.valueAsNumber = future
@@ -18160,6 +18497,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m1, ans1)
 
       // (b) Parked-pointer variant: pointer parked on date, keys select 3h, field clicked in place and edited -> date lit, Enter returns 5h
+      delete e.localStore.snooze_last
       e.dateInput.blur()
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
@@ -18213,6 +18551,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.setHoldDom(false)
 
       // (e) Nothing-lit edit keeps nothing lit (touch / Tab-only) and Enter still delegates to app for 5h
+      delete e.localStore.snooze_last
       const m5 = e.env._snooze_dialog()
       await Promise.resolve()
       e.setActive(e.dateInput)
@@ -18335,6 +18674,537 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         'snooze dialog pointer: queued openings ignore background moves and leave no listeners after close or cancel',
         [countsQueued, whileBehind, firstAfterPromote, realAfterPromote, countsAfterClose, afterCloseLit, afterCancelQueued],
         [[1, 1, 2, 0], [], [], ['1d'], [0, 0, 0, 0, 0], [], [0, 0, 0, 0]]
+      )
+    }
+
+    // 50w1. Last choice: click and Enter on time buttons are remembered, lit at next opening, and Enter recomputes at the new time
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.env._on_snooze({ target: e.row0[1] }) // click 6h
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      const after1 = [e.localStore.snooze_last, e.localSaveCalls.slice(), e.localAutoSaves.length, e.globalSaves.length, e.globalStore, e.allWinListeners.length, e.litNames().length]
+
+      const T2 = NOW + 20 * 60_000
+      e.setNow(T2)
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const lit2 = e.litNames()
+      e.appBubble.length = 0
+      const ev2 = e.dispatchKey('Enter')
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+
+      // Choose weekend via arrows + Enter from lit 6h ([0,1] -> Down tomorrow [1,0] -> Right weekend [1,1])
+      const expectedWk2 = e.env._snooze_weekend().getTime()
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowRight')
+      const lit3 = e.litNames()
+      const ev3 = e.dispatchKey('Enter')
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+
+      const T4 = NOW + 2 * 86_400_000
+      e.setNow(T4)
+      const expectedWk4 = e.env._snooze_weekend().getTime()
+      const m4 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const lit4 = e.litNames()
+      e.appBubble.length = 0
+      const ev4 = e.dispatchKey('Enter')
+      const ans4 = await settleAnswer(m4)
+      await clearIfUnsettled(e, m4, ans4)
+
+      check(
+        'snooze dialog last choice: click and Enter on time buttons are remembered, lit at next opening, and Enter recomputes at the new time',
+        [
+          ans1,
+          after1,
+          lit2,
+          [ev2.stopped, e.appBubble.slice(), ans2],
+          lit3,
+          [ev3.stopped, ans3, e.localStore.snooze_last],
+          lit4,
+          [ev4.stopped, e.appBubble.slice(), ans4, expectedWk4 !== expectedWk2],
+          [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
+        ],
+        [
+          { time: NOW + 6 * 3_600_000, notify: false },
+          [{ label: '6h' }, [{ invalidate_elem_cache: false, force_render: false }], 0, 0, {}, 0, 0],
+          ['6h'],
+          [true, [], { time: T2 + 6 * 3_600_000, notify: false }],
+          ['weekend'],
+          [true, { time: expectedWk2, notify: false }, { label: 'weekend' }],
+          ['weekend'],
+          [true, [], { time: expectedWk4, notify: false }, true],
+          [0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w2. Last choice: Enter as the very first event before setup runs takes the remembered button or custom date
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.env._on_snooze({ target: e.row0[2] }) // click 1d
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+
+      const T2 = NOW + 5 * 60_000
+      e.setNow(T2)
+      const expectedDate2 = new e.env.Date(T2).toInputValue()
+      e.dateInput.value = ''
+      e.setHoldDom(true)
+      const m2 = e.env._snooze_dialog()
+      e.appBubble.length = 0
+      const ev2 = e.dispatchKey('Enter') // first event: before _update_dom resolves
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+      const dateAfter2 = e.dateInput.value
+      const after2 = [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length]
+      await e.releaseDom()
+
+      // Same for remembered future custom date
+      const future = Math.floor((T2 + 3 * 3_600_000) / 60_000) * 60_000
+      e.localStore.snooze_last = { time: future }
+      e.dateInput.value = ''
+      const m3 = e.env._snooze_dialog()
+      e.appBubble.length = 0
+      const ev3 = e.dispatchKey('Enter') // first event: before _update_dom resolves
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+      const after3 = [e.dateInput.value, e.getActive() === null, e.allWinListeners.length, e.allDocListeners.length, e.litNames().length]
+      await e.releaseDom()
+
+      check(
+        'snooze dialog last choice: Enter as first event before setup runs takes remembered time button and custom date',
+        [
+          [ev2.stopped, e.appBubble.slice(), ans2, dateAfter2, after2],
+          [ev3.stopped, e.appBubble.slice(), ans3, after3],
+        ],
+        [
+          [true, [], { time: T2 + 24 * 3_600_000, notify: false }, expectedDate2, [0, 0, 0]],
+          [true, [], { time: future, notify: false }, [new e.env.Date(future).toInputValue(), true, 0, 0, 0]],
+        ]
+      )
+    }
+
+    // 50w3. Last choice: custom date via field, snooze button click, and app confirm is remembered when ahead, enables and lights snooze without focus, and Enter takes it
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const f1 = Math.floor((NOW + 4 * 3_600_000) / 60_000) * 60_000
+      const f2 = f1 + 2 * 3_600_000
+      const f3 = f2 + 2 * 3_600_000
+
+      // (a) Enter on focused date field
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown') // date field focused
+      e.dateInput.value = new e.env.Date(f1).toInputValue()
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      e.dispatchKey('Enter')
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      e.dateInput.blur()
+      const rec1 = e.localStore.snooze_last
+
+      const m1b = e.env._snooze_dialog()
+      await Promise.resolve()
+      const open1b = [e.dateInput.value, e.snoozeBtn.classList.contains('disabled'), e.canConfirmNow(), e.litNames(), e.getActive() === null]
+      e.appBubble.length = 0
+      const ev1b = e.dispatchKey('Enter')
+      const ans1b = await settleAnswer(m1b)
+      await clearIfUnsettled(e, m1b, ans1b)
+
+      // (b) Click on custom snooze button (remembers {time}, not {label: 'snooze'})
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.value = new e.env.Date(f2).toInputValue()
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      e.env._on_snooze({ target: e.snoozeBtn })
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+      const rec2 = e.localStore.snooze_last
+
+      const m2b = e.env._snooze_dialog()
+      await Promise.resolve()
+      const open2b = [e.dateInput.value, e.snoozeBtn.classList.contains('disabled'), e.litNames(), e.getActive() === null]
+      const ev2b = e.dispatchKey('Enter')
+      const ans2b = await settleAnswer(m2b)
+      await clearIfUnsettled(e, m2b, ans2b)
+
+      // (c) App dialog's own onConfirm (Enter with nothing lit and valid future date)
+      delete e.localStore.snooze_last
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.value = new e.env.Date(f3).toInputValue()
+      e.env._on_snooze_input_change()
+      const ev3 = e.dispatchKey('Enter') // app confirm
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+      const rec3 = e.localStore.snooze_last
+
+      const m3b = e.env._snooze_dialog()
+      await Promise.resolve()
+      const open3b = [e.dateInput.value, e.snoozeBtn.classList.contains('disabled'), e.litNames(), e.getActive() === null]
+      e.appBubble.length = 0
+      const ev3b = e.dispatchKey('Enter')
+      const ans3b = await settleAnswer(m3b)
+      await clearIfUnsettled(e, m3b, ans3b)
+
+      check(
+        'snooze dialog last choice: custom date via field, snooze button, and app confirm is remembered when ahead, enables and lights snooze without focus, and Enter takes it',
+        [
+          [ans1, rec1, open1b, ev1b.stopped, e.appBubble.slice(), ans1b],
+          [ans2, rec2, open2b, ev2b.stopped, ans2b],
+          [ev3.stopped, ans3, rec3, open3b, ev3b.stopped, e.appBubble.slice(), ans3b],
+          [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
+        ],
+        [
+          [{ time: f1, notify: false }, { time: f1 }, [new e.env.Date(f1).toInputValue(), false, true, ['snooze'], true], true, [], { time: f1, notify: false }],
+          [{ time: f2, notify: false }, { time: f2 }, [new e.env.Date(f2).toInputValue(), false, ['snooze'], true], true, { time: f2, notify: false }],
+          [false, { time: f3, notify: false }, { time: f3 }, [new e.env.Date(f3).toInputValue(), false, ['snooze'], true], true, [], { time: f3, notify: false }],
+          [0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w4. Last choice: passed custom date (and sub-minute truncated to past) lights nothing and resets date field to now
+    {
+      const NOW = 1_795_700_000_000 // :20s into the minute
+      const e = makeSnoozeEnv(NOW)
+      const future = Math.floor((NOW + 2 * 3_600_000) / 60_000) * 60_000
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.value = new e.env.Date(future).toInputValue()
+      e.env._on_snooze_input_change()
+      e.dispatchKey('Enter')
+      await settleAnswer(m1)
+
+      // Advance past remembered time (:15s into the minute, so truncated now < Date.now())
+      const LATER = future + 75_000
+      e.setNow(LATER)
+      const expectedNow = new e.env.Date(LATER).toInputValue()
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const atOpenPast = [e.litNames(), e.dateInput.value, e.snoozeBtn.classList.contains('disabled'), e.canConfirmNow()]
+      e.closes.length = 0
+      const ev2 = e.dispatchKey('Enter')
+      const afterEnterPast = [ev2.stopped, e.isVisible(), e.closes.length]
+      e.env._modal_close(m2)
+      await settleAnswer(m2)
+
+      // Barely-ahead timestamp whose minute truncation falls behind now (:20s -> +10s is :30s, formatted to :00s < :20s)
+      e.setNow(NOW)
+      e.localStore.snooze_last = { time: NOW + 10_000 }
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const atOpenTrunc = [e.litNames(), e.dateInput.value, e.snoozeBtn.classList.contains('disabled'), e.canConfirmNow()]
+      e.env._modal_close(m3)
+      await settleAnswer(m3)
+
+      check(
+        'snooze dialog last choice: passed custom date lights nothing and resets date field to now',
+        [atOpenPast, afterEnterPast, atOpenTrunc, [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length]],
+        [
+          [[], expectedNow, true, false],
+          [false, true, 0],
+          [[], new e.env.Date(NOW).toInputValue(), true, false],
+          [0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w5. Last choice: unknown label and malformed records light nothing, leave field at now, and throw nothing
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedNow = new e.env.Date(NOW).toInputValue()
+      const badRecords = [
+        { label: '99d' },
+        { label: 'snooze' },
+        { label: '' },
+        { label: 6 },
+        { time: '2027-01-01T00:00' },
+        { time: NaN },
+        { time: Infinity },
+        { time: 1e20 },
+        { label: '6h', time: NOW + 3_600_000 },
+        '6h',
+        123,
+        true,
+        null,
+        ['6h'],
+        {},
+      ]
+      const results = []
+      for (const rec of badRecords) {
+        e.localStore.snooze_last = rec
+        let threw = false
+        try {
+          const m = e.env._snooze_dialog()
+          await Promise.resolve()
+          results.push([threw, e.litNames(), e.dateInput.value == expectedNow, e.snoozeBtn.classList.contains('disabled')])
+          e.env._modal_close(m)
+          await settleAnswer(m)
+        } catch {
+          threw = true
+          results.push([threw])
+        }
+      }
+      check(
+        'snooze dialog last choice: unknown label and malformed records light nothing, leave field at now, and throw nothing',
+        [results, e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
+        [Array(badRecords.length).fill([false, [], true, true]), 0, 0, 0]
+      )
+    }
+
+    // 50w6. Last choice: dismiss and highlight movement without choice leave remembered record untouched
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      // Nothing remembered: move arrows + pointer, dismiss -> still nothing remembered, no save
+      const m0 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('ArrowDown')
+      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 4 })
+      e.dispatchKey('Escape')
+      await settleAnswer(m0)
+      const afterEmptyDismiss = [e.localStore.snooze_last === undefined, e.localSaveCalls.length]
+
+      // Open again -> still nothing lit; choose 1d
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const litBeforeChoice = e.litNames()
+      e.env._on_snooze({ target: e.row0[2] }) // click 1d
+      await settleAnswer(m1)
+      const savesAfterChoice = e.localSaveCalls.length
+
+      // Reopen (1d lit), move arrows, hover 28d, edit date, then Escape -> record unchanged (1d), no extra save
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const litAt2 = e.litNames()
+      e.dispatchKey('ArrowRight') // 3d
+      e.dispatchKey('ArrowDown') // next week
+      e.dispatchPointer(e.row0[5], 391, 100, { movementX: 4 }) // 28d
+      e.dateInput.value = new e.env.Date(NOW + 5 * 3_600_000).toInputValue()
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      e.dispatchKey('Escape')
+      await settleAnswer(m2)
+      const afterEscape = [e.localStore.snooze_last, e.localSaveCalls.length == savesAfterChoice]
+
+      // Reopen (still 1d lit), move to 3h, close externally -> still 1d, no extra save
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const litAt3 = e.litNames()
+      e.dispatchKey('ArrowLeft')
+      e.dispatchKey('ArrowLeft')
+      e.env._modal_close(m3)
+      await settleAnswer(m3)
+      const afterExternal = [e.localStore.snooze_last, e.localSaveCalls.length == savesAfterChoice]
+
+      // Reopen once more -> still 1d
+      const m4 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const litAt4 = e.litNames()
+      e.env._modal_close(m4)
+      await settleAnswer(m4)
+
+      check(
+        'snooze dialog last choice: dismiss and highlight movement without choice leave remembered record untouched',
+        [afterEmptyDismiss, litBeforeChoice, litAt2, afterEscape, litAt3, afterExternal, litAt4, [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length]],
+        [[true, 0], [], ['1d'], [{ label: '1d' }, true], ['1d'], [{ label: '1d' }, true], ['1d'], [0, 0, 0]]
+      )
+    }
+
+    // 50w7. Last choice: arrows move from remembered stop, real pointer takes over, made-up move leaves it, and one stop stays lit
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      e.localStore.snooze_last = { label: '6h' }
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const atOpen = [e.litNames(), e.litNames().length]
+      // Resting pointer (zero movement) and made-up move at same place over 3d leave 6h lit
+      e.dispatchPointer(e.row0[3], 279, 100)
+      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 0, movementY: 0 })
+      const afterFake = [e.litNames(), e.litNames().length]
+      // Arrows continue from remembered 6h ([0, 1]) -> Right 1d ([0, 2]) -> Down weekend ([1, 1])
+      e.dispatchKey('ArrowRight')
+      const afterRight = [e.litNames(), e.litNames().length, e.row0[1].classList.contains('lit')]
+      e.dispatchKey('ArrowDown')
+      const afterDown = [e.litNames(), e.litNames().length, e.row0[2].classList.contains('lit')]
+      // Real pointer move onto tomorrow takes highlight over
+      e.dispatchPointer(e.row1[0], 145, 140)
+      const afterRealPtr = [e.litNames(), e.litNames().length, e.row1[1].classList.contains('lit')]
+      // Same-place move leaves tomorrow lit; ArrowUp moves from tomorrow -> 3h
+      e.dispatchPointer(e.row0[4], 145, 140)
+      const afterSame = e.litNames()
+      e.dispatchKey('ArrowUp')
+      const afterUp = [e.litNames(), e.litNames().length]
+      e.env._modal_close(m1)
+      await settleAnswer(m1)
+
+      // From remembered custom date (snooze [2, 1]): ArrowLeft moves to date [2, 0] and focuses it; real pointer onto 7d leaves one lit stop
+      const future = Math.floor((NOW + 3 * 3_600_000) / 60_000) * 60_000
+      e.localStore.snooze_last = { time: future }
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const customOpen = [e.litNames(), e.getActive() === null]
+      e.dispatchKey('ArrowLeft')
+      const customLeft = [e.litNames(), e.getActive() === e.dateInput, e.snoozeBtn.classList.contains('lit')]
+      e.dispatchPointer(e.row0[4], 333, 100, { movementX: 5 })
+      const customPtr = [e.litNames(), e.litNames().length, e.dateInput.classList.contains('lit'), e.snoozeBtn.classList.contains('lit')]
+      e.dateInput.blur()
+      e.env._modal_close(m2)
+      await settleAnswer(m2)
+
+      check(
+        'snooze dialog last choice: arrows move from remembered stop, real pointer takes over, made-up move leaves it, and one stop stays lit',
+        [atOpen, afterFake, afterRight, afterDown, afterRealPtr, afterSame, afterUp, customOpen, customLeft, customPtr, [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length]],
+        [
+          [['6h'], 1],
+          [['6h'], 1],
+          [['1d'], 1, false],
+          [['weekend'], 1, false],
+          [['tomorrow'], 1, false],
+          ['tomorrow'],
+          [['3h'], 1],
+          [['snooze'], true],
+          [['date'], true, false],
+          [['7d'], 1, false, false],
+          [0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w8. Last choice: notify box starts unchecked after a snooze taken with it checked
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.clickNotify()
+      e.env._on_snooze({ target: e.row0[3] }) // 3d with notify checked
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      const recAfter1 = e.localStore.snooze_last
+
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const open2 = [e.notifyBox.checked, e.litNames()]
+      e.dispatchKey('Enter')
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+
+      // Also after custom date with notify checked, even when Enter arrives before _update_dom
+      const future = Math.floor((NOW + 4 * 3_600_000) / 60_000) * 60_000
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.clickNotify()
+      e.dateInput.value = new e.env.Date(future).toInputValue()
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      e.dispatchKey('Enter')
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+
+      e.setHoldDom(true)
+      const m4 = e.env._snooze_dialog()
+      const checkedBeforeEnter = e.notifyBox.checked
+      e.dispatchKey('Enter')
+      const ans4 = await settleAnswer(m4)
+      await clearIfUnsettled(e, m4, ans4)
+      await e.releaseDom()
+
+      check(
+        'snooze dialog last choice: notify box starts unchecked after a snooze taken with it checked',
+        [ans1, recAfter1, open2, ans2, ans3, checkedBeforeEnter, ans4, [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length]],
+        [
+          { time: NOW + 3 * 86_400_000, notify: true },
+          { label: '3d' },
+          [false, ['3d']],
+          { time: NOW + 3 * 86_400_000, notify: false },
+          { time: future, notify: true },
+          false,
+          { time: future, notify: false },
+          [0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w9. Last choice: fresh evaluation over the same per-device store reloads choice and writes nothing to global store
+    {
+      const NOW = 1_795_700_000_000
+      const persisted = { raw: null }
+      const e1 = makeSnoozeEnv(NOW, { persisted })
+      const m1 = e1.env._snooze_dialog()
+      await Promise.resolve()
+      e1.dispatchKey('ArrowDown') // 3h
+      e1.dispatchKey('ArrowDown') // tomorrow
+      e1.dispatchKey('Enter')
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e1, m1, ans1)
+      const save1 = [e1.localSaveCalls.slice(), e1.localAutoSaves.length, e1.globalSaves.length, e1.globalStore, persisted.raw]
+
+      // Fresh evaluation (reload) over the same per-device store reads {label: 'tomorrow'}
+      const T2 = NOW + 60_000
+      const e2 = makeSnoozeEnv(T2, { persisted })
+      const expectedTom2 = e2.env._snooze_tomorrow().getTime()
+      const m2 = e2.env._snooze_dialog()
+      await Promise.resolve()
+      const lit2 = e2.litNames()
+      e2.dispatchKey('Enter')
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e2, m2, ans2)
+
+      // Save a future custom date in e2, then reload into e3
+      const future = Math.floor((T2 + 5 * 3_600_000) / 60_000) * 60_000
+      const m2b = e2.env._snooze_dialog()
+      await Promise.resolve()
+      e2.dateInput.value = new e2.env.Date(future).toInputValue()
+      e2.env._on_snooze_input_change({ target: e2.dateInput })
+      e2.env._on_snooze({ target: e2.snoozeBtn })
+      await settleAnswer(m2b)
+
+      const e3 = makeSnoozeEnv(T2 + 60_000, { persisted })
+      const m3 = e3.env._snooze_dialog()
+      await Promise.resolve()
+      const open3 = [e3.dateInput.value, e3.snoozeBtn.classList.contains('disabled'), e3.litNames(), e3.getActive() === null]
+      e3.dispatchKey('Enter')
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e3, m3, ans3)
+
+      check(
+        'snooze dialog last choice: fresh evaluation over the same per-device store reloads choice and writes nothing to global store',
+        [
+          save1,
+          lit2,
+          ans2,
+          open3,
+          ans3,
+          [e2.localAutoSaves.length, e2.globalSaves.length, e2.globalStore, e3.localAutoSaves.length, e3.globalSaves.length, e3.globalStore],
+          [e1.allWinListeners.length, e2.allWinListeners.length, e3.allWinListeners.length, e3.allDocListeners.length, e3.litNames().length],
+        ],
+        [
+          [[{ invalidate_elem_cache: false, force_render: false }], 0, 0, {}, JSON.stringify({ snooze_last: { label: 'tomorrow' } })],
+          ['tomorrow'],
+          { time: expectedTom2, notify: false },
+          [new e3.env.Date(future).toInputValue(), false, ['snooze'], true],
+          { time: future, notify: false },
+          [0, 0, {}, 0, 0, {}],
+          [0, 0, 0, 0, 0],
+        ]
       )
     }
   })())

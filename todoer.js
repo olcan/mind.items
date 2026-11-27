@@ -26,7 +26,8 @@ const _todoer = _item('$id')
 //   permission if the browser never asked, and the hint beside it shows this device's permission
 //   when it is not granted (every device whose permission is granted shows the notification). A
 //   todo you bring back by hand, or one the agent hands back before its time (on a device that sees
-//   the hand-back before then), shows no such notification.
+//   the hand-back before then), shows no such notification. The snooze dialog opens with the last
+//   choice lit (kept on this device), so `s` then `Enter` repeats it.
 // - `/notify on` asks for desktop notifications when a task comes back to the main list waiting on
 //   you (`question`, `blocked`, `proposal`, `budget`, `done`), when a vault or task chat gets the
 //   agent's reply (`reply`), and when an agent creates or edits an item with the item tool (`item`,
@@ -84,12 +85,10 @@ const _todoer = _item('$id')
 //   by button, the next row is selected (or the one before it after the last row; with no row on
 //   the page, the todo stays selected and its buttons update for its list now).
 // - **Up** and **down** buttons stand first among a selected item's buttons, and plain **`k`** and
-//   **`j`** do the same when no field has the focus: they cycle in page order through every row
-//   carrying a bell (in any mounted list) together with every row of the main list, passing over
-//   unbelled rows of other lists (from a selected unbelled row in another list, **`j`** goes to the
-//   nearest row of the sequence after it and **`k`** to the nearest before, wrapping at the ends;
-//   with no row on the page, **`j`** / **down** selects the sequence's first row and **`k`** /
-//   **up** its last; the two buttons are dimmed only where their press would select nothing). With
+//   **`j`** do the same when no field has the focus: they cycle in page order through every row of
+//   every mounted list, each item once at its first place, wrapping at the ends (with no row on
+//   the page, **`j`** / **down** selects the first row and **`k`** / **up** the last; the two
+//   buttons are dimmed only where their press would select nothing). With
 //   a listed row or any todo selected and no field focused, plain keys press the buttons it has
 //   (shown in their tooltips, once per press while held): **`a`** delegates to the agent, **`d`**
 //   marks a todo done, **`s`** snoozes (or unsnoozes when snoozed), **`x`** deletes after asking,
@@ -317,7 +316,7 @@ function __render(widget, widget_item) {
   const options = widget_item.store[widget.id]?.options ?? {}
   let { tags = [], snoozed, delegated, storage_key } = options
   widget._snoozed = !!snoozed // read by a bin button's press (its snooze button brings a snoozed todo back)
-  widget._delegated = !!delegated // with _snoozed: neither says the main list (the rows' keys start there)
+  widget._delegated = !!delegated // read by a bin button's press (re-delegating from the delegated list leaves the row in it)
   if (typeof _watch_list_visibility == 'function') _watch_list_visibility(widget)
 
   // the bins: the AGENT bin (a delegation) comes FIRST on every widget, followed by
@@ -1101,6 +1100,25 @@ function _snooze_rows(root = document.querySelector('.snooze-modal')) {
   return [...rows, custom, notify].filter(r => r.length)
 }
 
+// last snooze choice remembered on this device in the todoer's per-device store: either one of the
+// time buttons by label ({label}) or a custom date/time by timestamp ({time}), else null
+function _snooze_last_read() {
+  const rec = _todoer._local_store?.snooze_last
+  if (!rec || typeof rec != 'object' || Array.isArray(rec)) return null
+  if (typeof rec.label == 'string' && rec.label && rec.time === undefined) return { label: rec.label }
+  if (typeof rec.time == 'number' && Number.isFinite(rec.time) && rec.label === undefined) return { time: rec.time }
+  return null
+}
+
+// persists the last snooze choice on this device without invalidating the item's element cache or
+// scheduling a re-render (the dialog reads it directly at the next opening)
+function _snooze_last_write(choice) {
+  const store = _todoer._local_store
+  if (!store || typeof store != 'object') return
+  store.snooze_last = choice
+  _todoer.save_local_store?.({ invalidate_elem_cache: false, force_render: false })
+}
+
 // the snooze dialog, opened for a row dropped on the snooze bin: resolves to the answer, the time
 // and the dialog's box ({time, notify}, see _snooze_close), or to nothing when it is dismissed.
 // While one snooze dialog is open or queued, a second request is declined with no answer so the
@@ -1123,9 +1141,49 @@ function _snooze_dialog() {
     if (!root || !date) return false
     ready = true
     shown = true
-    if (!keep_date) date.value = new Date().toInputValue()
+    const last = _snooze_last_read()
+    let custom_lit = false
+    if (!keep_date) {
+      if (last?.time != null && last.time >= Date.now() && last.time < 253_402_214_400_000) {
+        const formatted = new Date(last.time).toInputValue()
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(formatted)) {
+          date.value = formatted
+          if (_snooze_input() >= Date.now()) custom_lit = true
+        }
+      }
+      if (!custom_lit) date.value = new Date().toInputValue()
+    }
     _snooze_hint()
     if (!keep_date) _on_snooze_input_change()
+    if (!lit_el && last) {
+      const rows = _snooze_rows(root)
+      const snooze = root.querySelector('.custom .button.snooze')
+      const notify = root.querySelector('.notify input')
+      const light = (r, c) => {
+        const el = rows[r]?.[c] ?? null
+        if (!el) return
+        pos = [r, c]
+        el.classList.add('lit')
+        lit_el = el
+      }
+      if (custom_lit && snooze) {
+        for (let r = 0; r < rows.length; r++) {
+          const c = rows[r].indexOf(snooze)
+          if (c >= 0) {
+            light(r, c)
+            break
+          }
+        }
+      } else if (last.label) {
+        for (let r = 0; r < rows.length; r++) {
+          const c = rows[r].findIndex(el => el !== date && el !== snooze && el !== notify && el.innerText == last.label)
+          if (c >= 0) {
+            light(r, c)
+            break
+          }
+        }
+      }
+    }
     // update validity every second (for Date.now) while this opening stays visible
     _todoer.dispatch_task(
       'snooze-modal-update',
@@ -1371,7 +1429,7 @@ function _on_snooze(e) {
   const label = e.target.innerText
   const time = _snooze_time(label)
   if (time < Date.now()) alert('future date/time required for snooze')
-  else _snooze_close(time)
+  else _snooze_close(time, label == 'snooze' ? null : label)
 }
 
 function _snooze_input() {
@@ -1392,11 +1450,17 @@ function _on_snooze_input_change(e) {
 }
 
 // the snooze dialog's answer, read before it closes: the time and its box ("notify on
-// unsnooze"), {time, notify}, which the drop's handler writes on the todo (_snooze)
-function _snooze_close(time) {
+// unsnooze"), {time, notify}, which the drop's handler writes on the todo (_snooze); also
+// remembers this choice on this device for the next opening (a time button by its label, a
+// custom date by its time)
+function _snooze_close(time, label = null) {
   _todoer.store._snooze_setup?.()
   const notify = !!document.querySelector('.snooze-modal .notify input')?.checked
   const modal = _todoer.store._snooze_modal
+  if (modal) {
+    if (typeof label == 'string' && label) _snooze_last_write({ label })
+    else if (typeof time == 'number' && Number.isFinite(time)) _snooze_last_write({ time })
+  }
   _todoer.store._snooze_cleanup?.()
   if (modal) _modal_close(modal, { time, notify })
 }
@@ -2029,7 +2093,7 @@ function _on_search(text) {
 const _LIST_BINS = { main: ['agent', 'done', 'snooze', 'cancel'], snoozed: ['agent', 'done', 'snooze', 'cancel'], delegated: ['agent', 'owner'] }
 
 const _BIN_BUTTONS = [
-  // the row before and the row after the selected one, in its list (the keys k and j do the same)
+  // the row before and the row after the selected one, across the lists on the page (the keys k and j do the same)
   { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
   { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
@@ -2206,7 +2270,7 @@ function _window_button() {
   return { ...spec, ...(linked ? { title: 'Linked with the other window. Unlink (w)', color: 'rgb(102, 255, 255)' } : {}), press: () => void _send_press() }
 }
 
-// the row buttons and their keys: which way each goes in its list
+// the row buttons and their keys: which way each goes in the walk
 const _ROW_STEP = { up: -1, down: 1 }
 
 // the keys of a row's other buttons, by the key's code: the first letter of what each button
@@ -2295,19 +2359,17 @@ function _todo_log_text(item, snoozed = false) {
   return (first_lines + shown).replace(/\s+/g, ' ')
 }
 
-// the mounted rows in page order, and the walk's sequence among them: every row that carries a
-// bell (mark.waits, in any mounted list) and every row of the main list (a mounted widget that is
-// neither snoozed nor delegated), each once, in document order
+// the mounted rows in page order, and the walk's sequence among them: every row of every mounted
+// list whose item resolves, each item once (at its first place), in document order
 function _row_sequence() {
   const all = []
   const seq = []
   const seen = new Set()
   for (const widget of _mounted_lists()) {
-    const main = !widget._snoozed && !widget._delegated
     for (const row of widget.querySelectorAll('.list .list-item-container[data-id]')) {
       const id = row.getAttribute('data-id')
       const item = id ? _item(id, { silent: true }) : null
-      const ok = !!item && (main || !!row.querySelector('mark.waits')) && !seen.has(id)
+      const ok = !!item && !seen.has(id)
       if (ok) seen.add(id)
       const entry = { row, id, item, in_seq: ok }
       all.push(entry)
@@ -2319,9 +2381,10 @@ function _row_sequence() {
 
 // the item the walk moves to from `row` (a mounted row, or null with no row on the page) for
 // `by` (1: j / down, -1: k / up), cycling over _row_sequence()'s sequence: from a row in it to
-// the next/previous (wrapping at the ends), from a row outside it to the nearest after/before
-// (wrapping past the ends), and from no row to the first/last; null where nothing else stands
-// in the sequence (empty sequence, or its only item is already selected)
+// the next/previous (wrapping at the ends), from a row outside it (an unresolvable or unmounted
+// row) to the nearest after/before (wrapping past the ends), and from no row to the first/last;
+// null where nothing else stands in the sequence (empty sequence, or its only item is already
+// selected)
 function _row_beside(row, by, walk = _row_sequence()) {
   const { all, seq } = walk
   if (!seq.length) return null
@@ -2353,14 +2416,12 @@ function _row_step(id, by) {
 }
 
 // the keys j and k, handed on by the app where nobody took them (window._on_key): they cycle in
-// page order through _row_sequence()'s union of every row carrying a bell (in any mounted list)
-// and every row of the main list (the owner, 2026-11-25: "cycle through the union of notified
-// items ... and main list items, in order of their visibility on the page", "they should cycle,
-// not stop"). From a row outside the sequence, j goes to the nearest row of the sequence after it
-// and k to the nearest before (wrapping past the ends); with no row on the page for what the box
-// names, j selects the first row of the sequence and k its last. Where nothing else stands in the
-// sequence, the key is still the rows' if a row is selected and goes on to any prior hook if none
-// is. And the keys of a row's other buttons (_BIN_KEYS): with a listed row or off-list todo named
+// page order through _row_sequence()'s sequence of every row of every mounted list, each item
+// once at its first place, wrapping at the ends (the owner, 2026-11-26: "have j/k walk ALL
+// visible lines"). With no row on the page for what the box names, j selects the first row of
+// the sequence and k its last. Where nothing else stands in the sequence, the key is still the
+// rows' if a row is selected and goes on to any prior hook if none is. And the keys of a row's
+// other buttons (_BIN_KEYS): with a listed row or off-list todo named
 // by the box that has the key's button, the key is that button's press, once for a key held down;
 // otherwise the key is not the rows' and goes on to whoever held the hook before. So the bins'
 // keys are a todo's alone: a reply's row has its bell and no other of these buttons (_row_buttons),
@@ -2435,7 +2496,7 @@ function _row_can(name) {
 }
 
 // whether j (`by` 1) or k (-1) would select another row now, as _on_row_key decides it
-// (_row_beside: the walk through the rows with a bell and the main list's): from the selected row
+// (_row_beside: the walk through every row of every mounted list): from the selected row
 // (`selected`), or with no row selected
 function _row_goes(by, selected) {
   const found = _row_now().found
@@ -2453,10 +2514,10 @@ function _row_goes(by, selected) {
 // dialog open, a delegation under way) no other button's key is carried out
 const _ROW_SAVED = ', with no unsaved edit in it'
 const _ROW_SHORTCUTS = [
-  { keys: 'j', does: 'the next row', when: 'a row is selected: through the rows with a bell and the main list, round and round', active: () => _row_goes(1, true) },
-  { keys: 'j', does: 'the first row', when: 'no row is selected: of the rows with a bell and the main list', active: () => _row_goes(1, false) },
-  { keys: 'k', does: 'the previous row', when: 'a row is selected: through the rows with a bell and the main list, round and round', active: () => _row_goes(-1, true) },
-  { keys: 'k', does: 'the last row', when: 'no row is selected: of the rows with a bell and the main list', active: () => _row_goes(-1, false) },
+  { keys: 'j', does: 'the next row', when: 'a row is selected: through every list on the page, round and round', active: () => _row_goes(1, true) },
+  { keys: 'j', does: 'the first row', when: 'no row is selected: of the lists on the page', active: () => _row_goes(1, false) },
+  { keys: 'k', does: 'the previous row', when: 'a row is selected: through every list on the page, round and round', active: () => _row_goes(-1, true) },
+  { keys: 'k', does: 'the last row', when: 'no row is selected: of the lists on the page', active: () => _row_goes(-1, false) },
   { keys: 'a', does: 'delegate to the agent', when: 'a todo is selected' + _ROW_SAVED, active: () => _row_can('agent') },
   { keys: 'd', does: 'done', when: 'a todo of the main or the snoozed list is selected' + _ROW_SAVED, active: () => _row_can('done') },
   { keys: 's', does: 'snooze', when: 'a todo of the main list is selected', active: () => _row_can('snooze') && !_row_now().snoozed },
