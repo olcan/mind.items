@@ -1468,6 +1468,13 @@ delete context.__todos.p
   check('confirm: the handler writes the answer, Enter and the buttons answer through the box\'s reader', [/\n {14}_snooze\(item, answer\)\n/.test(src), /\n {6}onConfirm: \(\) => _snooze_close\(_snooze_input\(\)\),\n/.test(src), /\n {2}else _snooze_close\(time, label == 'snooze' \? null : label\)\n/.test(src)], [true, true, true])
   check('dialog: the box (unchecked) with its hint, its change wired to _on_snooze_notify', [/<div class="notify">\s*<label><input type="checkbox" onchange="__onnotify__" \/>notify on unsnooze<\/label>\s*<span class="hint"><\/span>\s*<\/div>/.test(modal_html), /'__onnotify__',\s*`_item\('#todoer'\)\.eval\('_on_snooze_notify\(event\)'\)`/.test(src)], [true, true])
   check('dialog: the date field hands an edit to _on_snooze_input_change at input (a browser may hold change back until the field loses the focus)', [/\n {4}<input type="datetime-local" oninput="__onchange__" \/>\n/.test(modal_html), /<input type="datetime-local"[^>]*\sonchange=/.test(modal_html), src.includes(".replaceAll('__onchange__', `_item('#todoer').eval('_on_snooze_input_change(event)')`)")], [true, false, true])
+  const first_row = modal_html.match(/<div class="row">([\s\S]*?)<\/div>\s*<div class="row">/)?.[1] ?? ''
+  const first_row_buttons = [...first_row.matchAll(/<div class="button" onclick="__onclick__">([^<]+)<\/div>/g)].map(m => m[1])
+  check('dialog: first row has the seven time buttons in order, 1h first', [first_row_buttons, (first_row.match(/<div\b/g) ?? []).length], [['1h', '3h', '6h', '1d', '3d', '7d', '28d'], 7])
+  const modal_style = modal_html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
+  const narrow_match = modal_style.match(/@media only screen and \(max-width:\s*400px\)\s*\{\s*\.snooze-modal \.row \.button\s*\{\s*margin:\s*0 2px;\s*padding:\s*10px 7px;\s*\}\s*\}/)
+  const lit_rule_pos = modal_style.indexOf('.snooze-modal :is(.button:active, .button.lit)')
+  check('dialog: narrow-width media rule tightens row buttons below 400 px before the lit rule', [!!narrow_match, narrow_match ? narrow_match.index < lit_rule_pos : false], [true, true])
   check('drag: the snoozed list\'s bin unsnoozes as the owner\'s own act', /\n {10}_unsnooze\(item, true\) \/\//.test(src), true)
   const swept = { global_store: { _todoer: { snoozed: 100, notify: true } } }
   const dragged = { global_store: { _todoer: { snoozed: 100, notify: true } } }
@@ -16795,12 +16802,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
 
     const makeSnoozeEnv = (now = 1_795_700_000_000, envOpts = {}) => {
       const middles = [
-        [120, 173, 226, 279, 333, 391],
+        [93, 146, 199, 252, 305, 359, 417],
         [145, 256, 370],
         [211, 379],
         [185],
       ]
-      const labels0 = ['3h', '6h', '1d', '3d', '7d', '28d']
+      const labels0 = ['1h', '3h', '6h', '1d', '3d', '7d', '28d']
       const labels1 = ['tomorrow', 'weekend', 'next week']
       const listeners = []
       const pointerListeners = []
@@ -17251,6 +17258,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         notifyBox.checked = !notifyBox.checked
         env._on_snooze_notify({ target: notifyBox })
       }
+      const stop = label => {
+        const el = [...row0, ...row1, snoozeBtn].find(b => b.innerText == label)
+        if (!el) throw new Error(`snooze stop not found: ${label}`)
+        return el
+      }
 
       return {
         env,
@@ -17258,6 +17270,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         root,
         row0,
         row1,
+        stop,
         dateInput,
         dateValueWrites,
         snoozeBtn,
@@ -17318,7 +17331,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const { env, middles } = makeSnoozeEnv()
       const move = env._snooze_move
       check(
-        'snooze move: first arrow lights 3h from any direction and non-arrow leaves nothing lit',
+        'snooze move: first arrow lights 1h from any direction and non-arrow leaves nothing lit',
         ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].map(k => move(middles, null, k)),
         [[0, 0], [0, 0], [0, 0], [0, 0], null]
       )
@@ -17327,8 +17340,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [
           move(middles, [0, 0], 'ArrowLeft'),
           move(middles, [0, 0], 'ArrowRight'),
-          move(middles, [0, 5], 'ArrowRight'),
-          move(middles, [0, 5], 'ArrowLeft'),
+          move(middles, [0, 6], 'ArrowRight'),
+          move(middles, [0, 6], 'ArrowLeft'),
           move(middles, [1, 0], 'ArrowLeft'),
           move(middles, [1, 2], 'ArrowRight'),
           move(middles, [2, 0], 'ArrowLeft'),
@@ -17341,8 +17354,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [
           [0, 0],
           [0, 1],
+          [0, 6],
           [0, 5],
-          [0, 4],
           [1, 0],
           [1, 2],
           [2, 0],
@@ -17354,15 +17367,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ]
       )
       check(
-        'snooze move: Down from six buttons to three wide buttons, to field and snooze, to box, and stay at ends',
+        'snooze move: Down from seven buttons to three wide buttons, to field and snooze, to box, and stay at ends',
         [
-          ...[0, 1, 2, 3, 4, 5].map(c => move(middles, [0, c], 'ArrowDown')),
+          ...[0, 1, 2, 3, 4, 5, 6].map(c => move(middles, [0, c], 'ArrowDown')),
           ...[0, 1, 2].map(c => move(middles, [1, c], 'ArrowDown')),
           ...[0, 1].map(c => move(middles, [2, c], 'ArrowDown')),
           move(middles, [3, 0], 'ArrowDown'),
           move(middles, [0, 3], 'ArrowUp'),
         ],
         [
+          [1, 0],
           [1, 0],
           [1, 0],
           [1, 1],
@@ -17390,7 +17404,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           move([[100, 200], [150]], [1, 0], 'ArrowUp'),
           move([], null, 'ArrowDown'),
         ],
-        [[2, 0], [1, 1], [1, 2], [0, 0], [0, 3], [0, 5], [0, 0], null]
+        [[2, 0], [1, 1], [1, 2], [0, 1], [0, 3], [0, 5], [0, 0], null]
       )
     }
 
@@ -17428,13 +17442,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze_input_change()
       e.dispatchKey('ArrowRight')
       e.dispatchKey('ArrowRight')
+      e.dispatchKey('ArrowRight')
       const lit = e.litNames()
       e.appBubble.length = 0
       const ev = e.dispatchKey('Enter')
       const ans1 = await settleAnswer(m1)
       const after1 = [e.closes.length, e.listeners.length, e.litNames()]
       await clearIfUnsettled(e, m1, ans1)
-      // Row 1 button (tomorrow): m1 remembered 6h ([0, 1]), so one Down reaches tomorrow ([1, 0])
+      // Row 1 button (tomorrow): m1 remembered 6h ([0, 2]), so one Down reaches tomorrow ([1, 0])
       const expectedTom = e.env._snooze_tomorrow().getTime()
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
@@ -17481,7 +17496,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       e.dateInput.valueAsNumber = NOW - 5_000
       e.env._on_snooze_input_change()
-      for (let i = 0; i < 6; i++) e.dispatchKey('ArrowRight') // 3h -> 28d (extra Right stays on 28d)
+      for (let i = 0; i < 8; i++) e.dispatchKey('ArrowRight') // 1h -> 28d (extra Right stays on 28d)
       e.dispatchKey('ArrowDown') // next week
       e.dispatchKey('ArrowDown') // snooze button
       const lit = e.litNames()
@@ -17513,7 +17528,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       e.dateInput.valueAsNumber = NOW - 10_000
       e.env._on_snooze_input_change()
-      e.dispatchKey('ArrowDown') // 3h
+      e.dispatchKey('ArrowDown') // 1h
       e.dispatchKey('ArrowDown') // tomorrow
       e.dispatchKey('ArrowDown') // date field
       const onArrival = [e.litNames(), e.getActive() === e.dateInput]
@@ -17553,7 +17568,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dateInput.valueAsNumber = future
       e.env._on_snooze_input_change()
       e.dispatchKey('ArrowLeft')
-      e.dispatchPointer(e.row0[1], 173, 100, { movementX: 4 }) // 6h lit while date stays focused
+      e.dispatchPointer(e.stop('6h'), 199, 100, { movementX: 4 }) // 6h lit while date stays focused
       const tabPresetEv = e.dispatchKey('Tab')
       e.setActive(e.notifyBox) // browser moved focus to checkbox after last subfield
       e.flushTimers()
@@ -17607,10 +17622,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dateInput.valueAsNumber = NOW + 3_600_000
       e.env._on_snooze_input_change()
       // Space on a lit button does not answer or toggle box
-      e.dispatchKey('ArrowRight') // 3h
+      e.dispatchKey('ArrowRight') // 1h
       const spaceOnBtn = e.dispatchKey(' ')
       const afterBtnSpace = [spaceOnBtn.stopped, e.isVisible(), e.closes.length, e.notifyBox.checked]
-      // move to notify box: 3h -> tomorrow -> date (Escape) -> notify
+      // move to notify box: 1h -> tomorrow -> date (Escape) -> notify
       e.dispatchKey('ArrowDown')
       e.dispatchKey('ArrowDown')
       e.dispatchKey('Escape')
@@ -17630,7 +17645,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchKey('ArrowUp') // date (focused)
       e.dispatchKey('Escape') // blur date
       e.dispatchKey('ArrowUp') // weekend
-      e.dispatchKey('ArrowUp') // 3d
+      e.dispatchKey('ArrowUp') // 1d
+      e.dispatchKey('ArrowRight') // 3d
       e.dispatchKey('Enter')
       const ans = await settleAnswer(modal)
       await clearIfUnsettled(e, modal, ans)
@@ -17655,7 +17671,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const e = makeSnoozeEnv(NOW)
       const modal = e.env._snooze_dialog()
       await Promise.resolve()
-      e.dispatchKey('ArrowRight') // 3h
+      e.dispatchKey('ArrowRight') // 1h
+      e.dispatchKey('ArrowRight', { repeat: true }) // 3h
       e.dispatchKey('ArrowRight', { repeat: true }) // 6h
       const litAfterRepArrow = e.litNames()
       e.appBubble.length = 0
@@ -17686,13 +17703,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         countsOpen.push([e.listeners.length, e.pointerListeners.length, e.allWinListeners.length, e.allDocListeners.length])
         e.dispatchKey('ArrowRight')
         if (i % 4 == 0) {
+          if (i == 0) e.dispatchKey('ArrowRight')
           e.dispatchKey('Enter') // i=0: 3h; after i=2/i=6 remembered 1d, ArrowRight lands on 3d
           expectedAnswers.push({ time: NOW + (i == 0 ? 3 * 3_600_000 : 3 * 86_400_000), notify: false })
         } else if (i % 4 == 1) {
           e.dispatchKey('Escape') // Escape on lit stop
           expectedAnswers.push(undefined)
         } else if (i % 4 == 2) {
-          e.env._on_snooze({ target: e.row0[2] }) // mouse click on 1d
+          e.env._on_snooze({ target: e.stop('1d') }) // mouse click on 1d
           expectedAnswers.push({ time: NOW + 24 * 3_600_000, notify: false })
         } else {
           e.env._modal_close(m) // external close
@@ -17707,7 +17725,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       // after close, keys and pointer moves are not intercepted
       const postClose = e.dispatchKey('ArrowRight')
-      e.dispatchPointer(e.row0[0], 120, 100, { movementX: 4 })
+      e.dispatchPointer(e.stop('3h'), 146, 100, { movementX: 4 })
       const postCloseLit = e.litNames()
       // mouse-focused date field with nothing lit leaves browser arrows untouched
       e.storage.delete(SNOOZE_LAST_KEY)
@@ -17745,7 +17763,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
       e.clickNotify()
-      e.env._on_snooze({ target: e.row0[0] })
+      e.env._on_snooze({ target: e.stop('3h') })
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
       const checkedAfter1 = e.notifyBox.checked
@@ -17755,7 +17773,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m2 = e.env._snooze_dialog()
       const domPending2 = e.pendingDomCount()
       e.clickNotify()
-      e.env._on_snooze({ target: e.row0[0] })
+      e.env._on_snooze({ target: e.stop('3h') })
       const ans2 = await settleAnswer(m2)
       await clearIfUnsettled(e, m2, ans2)
       const dateAfter2 = e.dateInput.value
@@ -17764,7 +17782,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // Opening 3: render held, no click on box, time button 3h -> notify: false
       e.dateInput.value = ''
       const m3 = e.env._snooze_dialog()
-      e.env._on_snooze({ target: e.row0[0] })
+      e.env._on_snooze({ target: e.stop('3h') })
       const ans3 = await settleAnswer(m3)
       await clearIfUnsettled(e, m3, ans3)
       const dateAfter3 = e.dateInput.value
@@ -17816,7 +17834,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const prior = e.env._snooze_dialog()
       await Promise.resolve()
       e.clickNotify()
-      e.env._on_snooze({ target: e.row0[0] })
+      e.env._on_snooze({ target: e.stop('3h') })
       const priorAns = await settleAnswer(prior)
       await clearIfUnsettled(e, prior, priorAns)
       const priorTaskStopped = e.runTask('snooze-modal-update')
@@ -17882,6 +17900,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ansB = await settleAnswer(b)
       const midA = [e.env._modal_visible(a), e.listeners.length]
       e.dispatchKey('ArrowRight')
+      e.dispatchKey('ArrowRight')
       const litA = e.litNames()
       e.dispatchKey('Enter')
       const ansA = await settleAnswer(a)
@@ -17893,7 +17912,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       const b2 = e.env._snooze_dialog()
       const ansB2 = await settleAnswer(b2)
-      e.env._on_snooze({ target: e.row0[1] }) // 6h click
+      e.env._on_snooze({ target: e.stop('6h') }) // 6h click
       const ansA2 = await settleAnswer(a2)
       await clearIfUnsettled(e, a2, ansA2)
 
@@ -17951,6 +17970,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dateInput.valueAsNumber = NOW + 20 * 3_600_000
       e.env._on_snooze_input_change()
       const fieldValid = e.canConfirmNow()
+      e.dispatchKey('ArrowRight') // 1h
       e.dispatchKey('ArrowRight') // 3h lit
       // early key check: unrelated keys and dictated text do not measure stop rects or answer
       e.resetRectCalls()
@@ -18052,16 +18072,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const modal = e.env._snooze_dialog()
       await Promise.resolve()
       const atOpen = e.litNames()
-      e.dispatchPointer(e.row0[1], 200, 300) // first event with unknown movement only records place
+      e.dispatchPointer(e.stop('6h'), 200, 300) // first event with unknown movement only records place
       const afterFirst = e.litNames()
       e.dateInput.valueAsNumber = NOW + 3_600_000
       e.env._on_snooze_input_change() // content/validity change under still pointer
-      e.dispatchPointer(e.row0[1], 200, 300) // made-up move at same place
+      e.dispatchPointer(e.stop('6h'), 200, 300) // made-up move at same place
       const afterSame = e.litNames()
       e.dispatchPointer(e.row1[0], 200, 300) // content shifted under still pointer, same screen coords
       const afterShifted = e.litNames()
-      e.dispatchPointer(e.row0[0], NaN, 300) // non-finite coordinates ignored
-      e.dispatchPointer(e.row0[0], undefined, undefined)
+      e.dispatchPointer(e.stop('3h'), NaN, 300) // non-finite coordinates ignored
+      e.dispatchPointer(e.stop('3h'), undefined, undefined)
       const afterBadCoords = e.litNames()
       e.env._modal_close(modal)
       const ans = await settleAnswer(modal)
@@ -18069,9 +18089,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // Opening with explicit zero movement (movementX=0, movementY=0) only records place and keeps same-place guard
       const mZero = e.env._snooze_dialog()
       await Promise.resolve()
-      e.dispatchPointer(e.row0[1], 200, 300, { movementX: 0, movementY: 0 })
+      e.dispatchPointer(e.stop('6h'), 200, 300, { movementX: 0, movementY: 0 })
       const afterZeroFirst = e.litNames()
-      e.dispatchPointer(e.row0[1], 200, 300, { movementX: 0, movementY: 0 })
+      e.dispatchPointer(e.stop('6h'), 200, 300, { movementX: 0, movementY: 0 })
       const afterZeroSame = e.litNames()
       e.env._modal_close(mZero)
       const ansZero = await settleAnswer(mZero)
@@ -18090,9 +18110,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // (a) Open under 6h, select 3h with Right, one movement within 6h (movementX=3), Enter -> 6h
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
+      e.dispatchKey('ArrowRight') // 1h
       e.dispatchKey('ArrowRight') // 3h
       const litBefore = e.litNames()
-      e.dispatchPointer(e.row0[1], 176, 100, { movementX: 3, movementY: 0 })
+      e.dispatchPointer(e.stop('6h'), 202, 100, { movementX: 3, movementY: 0 })
       const litAfterOneMove = e.litNames()
       e.dispatchKey('Enter')
       const ans1 = await settleAnswer(m1)
@@ -18115,9 +18136,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.storage.delete(SNOOZE_LAST_KEY)
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
-      e.dispatchPointer(e.row0[1], 176, 100, { pointerType: 'touch', movementX: 5 })
+      e.dispatchPointer(e.stop('6h'), 202, 100, { pointerType: 'touch', movementX: 5 })
       const afterTouchMove = e.litNames()
-      e.dispatchPointer(e.row0[1], 176, 100, { pointerType: 'mouse', movementX: 0, movementY: 0 })
+      e.dispatchPointer(e.stop('6h'), 202, 100, { pointerType: 'mouse', movementX: 0, movementY: 0 })
       const afterMouseZero = e.litNames()
       e.env._modal_close(m3)
       const ans3 = await settleAnswer(m3)
@@ -18147,18 +18168,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const e = makeSnoozeEnv(NOW)
       const modal = e.env._snooze_dialog()
       await Promise.resolve()
-      e.dispatchPointer(e.row0[0], 100, 100) // seed place
+      e.dispatchPointer(e.stop('3h'), 100, 100) // seed place
       const seq = []
       const move = (target, x, y) => {
         e.dispatchPointer(target, x, y)
         seq.push([e.litNames(), e.extraClasses()])
       }
-      move(e.row0[1], 173, 100) // 6h
+      move(e.stop('6h'), 199, 100) // 6h
       move(e.row1[1], 256, 140) // weekend
       move(e.dateInput, 211, 180) // date
       move(e.snoozeBtn, 379, 180) // disabled snooze button
       move(e.notifyBox, 185, 220) // notify checkbox
-      move(e.row0[5], 391, 100) // 28d
+      move(e.stop('28d'), 417, 100) // 28d
       move(e.notifyLabel, 210, 220) // notify label lights the checkbox stop
       e.env._modal_close(modal)
       const ans = await settleAnswer(modal)
@@ -18189,9 +18210,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const modal = e.env._snooze_dialog()
       await Promise.resolve()
       e.dispatchPointer(e.outside, 50, 50) // seed
-      e.dispatchPointer(e.row0[1], 173, 100) // hover 6h ([0, 1])
+      e.dispatchPointer(e.stop('6h'), 199, 100) // hover 6h ([0, 2])
       const afterHover = e.litNames()
-      e.dispatchKey('ArrowRight') // -> 1d ([0, 2])
+      e.dispatchKey('ArrowRight') // -> 1d ([0, 3])
       const afterRight = e.litNames()
       e.dispatchKey('ArrowDown') // -> weekend ([1, 1])
       const afterDown = e.litNames()
@@ -18199,7 +18220,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchKey(' ') // Space toggles hovered notify box
       const afterSpace = [e.litNames(), e.notifyBox.checked]
       e.dispatchPointer(e.row1[0], 145, 140) // hover tomorrow ([1, 0])
-      e.dispatchKey('ArrowUp') // -> 3h ([0, 0])
+      e.dispatchKey('ArrowUp') // -> 3h ([0, 1])
       const afterUp = e.litNames()
       e.env._modal_close(modal)
       const ans = await settleAnswer(modal)
@@ -18217,19 +18238,20 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const e = makeSnoozeEnv(NOW)
       const modal = e.env._snooze_dialog()
       await Promise.resolve()
-      e.dispatchPointer(e.row0[1], 173, 100) // resting pointer on 6h
+      e.dispatchPointer(e.stop('6h'), 199, 100) // resting pointer on 6h
+      e.dispatchKey('ArrowRight') // 1h
       e.dispatchKey('ArrowRight') // 3h
       e.dispatchKey('ArrowRight') // 6h
       e.dispatchKey('ArrowRight') // 1d
       const afterKeys = e.litNames()
-      e.dispatchPointer(e.row0[1], 173, 100) // made-up move at resting coords on 6h
+      e.dispatchPointer(e.stop('6h'), 199, 100) // made-up move at resting coords on 6h
       const afterFake = e.litNames()
-      e.dispatchPointer(e.row0[4], 333, 100) // real move onto 7d
-      const afterHover = [e.litNames(), e.litNames().length, e.row0[2].classList.contains('lit'), e.extraClasses()]
+      e.dispatchPointer(e.stop('7d'), 359, 100) // real move onto 7d
+      const afterHover = [e.litNames(), e.litNames().length, e.stop('1d').classList.contains('lit'), e.extraClasses()]
       e.dispatchKey('ArrowRight') // 28d from 7d
-      const afterNextKey = [e.litNames(), e.litNames().length, e.row0[4].classList.contains('lit')]
+      const afterNextKey = [e.litNames(), e.litNames().length, e.stop('7d').classList.contains('lit')]
       e.dispatchPointer(e.row1[2], 370, 140) // real move onto next week
-      const afterHover2 = [e.litNames(), e.litNames().length, e.row0[5].classList.contains('lit'), e.extraClasses()]
+      const afterHover2 = [e.litNames(), e.litNames().length, e.stop('28d').classList.contains('lit'), e.extraClasses()]
       e.env._modal_close(modal)
       const ans = await settleAnswer(modal)
       await clearIfUnsettled(e, modal, ans)
@@ -18258,10 +18280,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchPointer(e.root, 20, 20)
       const stillEmpty = e.litNames()
       const queriesBeforeStop = e.getRowQueries()
-      e.dispatchPointer(e.row0[2], 226, 100) // 1d
+      e.dispatchPointer(e.stop('1d'), 252, 100) // 1d
       const litOnStop = e.litNames()
       e.resetRowQueries()
-      e.dispatchPointer(e.row0[2], 228, 101) // move within already-lit 1d updates last_pt without rebuilding stops
+      e.dispatchPointer(e.stop('1d'), 254, 101) // move within already-lit 1d updates last_pt without rebuilding stops
       e.dispatchPointer(e.root, 150, 115) // gap inside modal
       const afterGap = e.litNames()
       e.dispatchPointer(e.outside, 5, 5) // backdrop / outside
@@ -18271,9 +18293,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const queriesSkipped = e.getRowQueries()
       e.dispatchKey('ArrowRight') // continues from kept 1d -> 3d
       const afterArrow = e.litNames()
-      // last_pt was recorded at (6, 6), so returning to 1d at (228, 101) counts as a real move
+      // last_pt was recorded at (6, 6), so returning to 1d at (254, 101) counts as a real move
       e.resetRowQueries()
-      e.dispatchPointer(e.row0[2], 228, 101)
+      e.dispatchPointer(e.stop('1d'), 254, 101)
       const afterReturn = [e.litNames(), e.getRowQueries()]
       e.env._modal_close(modal)
       const ans = await settleAnswer(modal)
@@ -18295,7 +18317,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dateInput.valueAsNumber = NOW + 10 * 3_600_000
       e.env._on_snooze_input_change()
       e.dispatchPointer(e.outside, 10, 10)
-      e.dispatchPointer(e.row0[2], 226, 100) // hover 1d
+      e.dispatchPointer(e.stop('1d'), 252, 100) // hover 1d
       e.appBubble.length = 0
       const ev1 = e.dispatchKey('Enter')
       const ans1 = await settleAnswer(m1)
@@ -18389,7 +18411,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze_input_change()
       e.setActive(e.dateInput) // user clicked date field
       e.dispatchPointer(e.dateInput, 211, 180)
-      e.dispatchPointer(e.row0[1], 173, 100) // mouse moves to 6h
+      e.dispatchPointer(e.stop('6h'), 199, 100) // mouse moves to 6h
       const afterHoverOffClick = [e.litNames(), e.getActive() === e.dateInput]
       const arrowWhileClickFocused = e.dispatchKey('ArrowUp') // browser's own arrow in date field
       const afterArrowClickFocused = [arrowWhileClickFocused.stopped, e.litNames(), e.getActive() === e.dateInput]
@@ -18408,7 +18430,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchPointer(e.row1[0], 145, 140) // tomorrow
       e.dispatchKey('ArrowDown') // key arrives at date -> focuses date
       const keyFocused = [e.litNames(), e.getActive() === e.dateInput]
-      e.dispatchPointer(e.row0[3], 279, 100) // mouse moves to 3d
+      e.dispatchPointer(e.stop('3d'), 305, 100) // mouse moves to 3d
       const afterHoverOffKey = [e.litNames(), e.getActive() === e.dateInput]
       e.appBubble.length = 0
       const enterKeyFocused = e.dispatchKey('Enter')
@@ -18455,7 +18477,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.appBubble.length = 0
       const enterNotifyFocused = e.dispatchKey('Enter')
       const afterNotifyFocused = [enterNotifyFocused.stopped, e.appBubble.slice(), e.isVisible()]
-      e.dispatchPointer(e.row0[3], 279, 100) // 3d
+      e.dispatchPointer(e.stop('3d'), 305, 100) // 3d
       const esc1 = e.dispatchKey('Escape') // leaves focused date field first
       const afterEsc1 = [esc1.stopped, e.isVisible(), e.getActive() === null, e.litNames()]
       e.dispatchKey('ArrowRight') // 3d -> 7d
@@ -18531,7 +18553,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
       e.setActive(e.dateInput)
-      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 4 }) // 3d lit while date stays focused
+      e.dispatchPointer(e.stop('3d'), 305, 100, { movementX: 4 }) // 3d lit while date stays focused
       const litBeforeEdit1 = [e.litNames(), e.getActive() === e.dateInput]
       e.runTask('snooze-modal-update') // 1s validity check must not move highlight
       const litAfterTimer = e.litNames()
@@ -18549,6 +18571,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dispatchPointer(e.dateInput, 211, 180) // parked pointer only records place
+      e.dispatchKey('ArrowRight') // 1h
       e.dispatchKey('ArrowRight') // 3h lit by keys
       e.setActive(e.dateInput) // clicked in place without moving pointer
       const beforeParkedEdit = [e.litNames(), e.getActive() === e.dateInput]
@@ -18565,17 +18588,17 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
       e.setActive(e.dateInput)
-      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 4 }) // 3d lit
+      e.dispatchPointer(e.stop('3d'), 305, 100, { movementX: 4 }) // 3d lit
       e.dateInput.valueAsNumber = future
       e.env._on_snooze_input_change({ target: e.dateInput }) // date lit + pos moved to [2, 0]
-      e.dispatchPointer(e.row0[3], 279, 100) // same coords over 3d stay ignored
+      e.dispatchPointer(e.stop('3d'), 305, 100) // same coords over 3d stay ignored
       const afterSameCoords = e.litNames()
       e.dispatchKey('Escape') // blur date, keep date lit
       e.dispatchKey('ArrowRight') // [2, 0] -> [2, 1] (snooze), proving pos moved
       const afterArrowFromEdited = e.litNames()
       e.setActive(e.dateInput)
       e.env._on_snooze_input_change({ target: e.dateInput }) // moves back from snooze to date
-      e.dispatchPointer(e.row0[3], 281, 100) // later real move can select 3d again
+      e.dispatchPointer(e.stop('3d'), 307, 100) // later real move can select 3d again
       const afterRealMove = e.litNames()
       e.dateInput.valueAsNumber = NaN
       e.env._on_snooze_input_change({ target: e.dateInput }) // invalid edit still moves highlight off 3d
@@ -18589,7 +18612,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dateInput.blur()
       e.setHoldDom(true)
       const m4 = e.env._snooze_dialog()
-      e.dispatchPointer(e.row0[1], 173, 100, { movementX: 4 }) // 6h lit before setup runs
+      e.dispatchPointer(e.stop('6h'), 199, 100, { movementX: 4 }) // 6h lit before setup runs
       await e.releaseDom()
       const afterDeferredSetup = e.litNames()
       e.env._modal_close(m4)
@@ -18658,19 +18681,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const e = makeSnoozeEnv(NOW)
       const modal = e.env._snooze_dialog()
       await Promise.resolve()
-      e.dispatchPointer(e.row0[0], 120, 100, { pointerType: 'touch' })
-      e.dispatchPointer(e.row0[1], 173, 100, { pointerType: 'touch' })
-      e.dispatchPointer(e.row0[2], 226, 100, { pointerType: 'touch' })
+      e.dispatchPointer(e.stop('3h'), 146, 100, { pointerType: 'touch' })
+      e.dispatchPointer(e.stop('6h'), 199, 100, { pointerType: 'touch' })
+      e.dispatchPointer(e.stop('1d'), 252, 100, { pointerType: 'touch' })
       const afterTouches = e.litNames()
       // First mouse event still only records place (touch did not seed last_pt)
-      e.dispatchPointer(e.row0[0], 120, 100, { pointerType: 'mouse' })
+      e.dispatchPointer(e.stop('3h'), 146, 100, { pointerType: 'mouse' })
       const afterFirstMouse = e.litNames()
-      e.dispatchPointer(e.row0[1], 173, 100, { pointerType: 'mouse' })
+      e.dispatchPointer(e.stop('6h'), 199, 100, { pointerType: 'mouse' })
       const afterRealMouse = e.litNames()
       // Touch drag over another stop does not move highlight or overwrite last_pt
-      e.dispatchPointer(e.row0[3], 279, 100, { pointerType: 'touch' })
+      e.dispatchPointer(e.stop('3d'), 305, 100, { pointerType: 'touch' })
       const afterLaterTouch = e.litNames()
-      e.dispatchPointer(e.row0[2], 173, 100, { pointerType: 'mouse' }) // same coords as last real mouse move
+      e.dispatchPointer(e.stop('1d'), 199, 100, { pointerType: 'mouse' }) // same coords as last real mouse move
       const afterFakePostTouch = e.litNames()
       e.env._modal_close(modal)
       const ans = await settleAnswer(modal)
@@ -18691,20 +18714,20 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const q = e.env._snooze_dialog()
       await Promise.resolve()
       const countsQueued = [e.listeners.length, e.pointerListeners.length, e.allWinListeners.length, e.allDocListeners.length]
-      e.dispatchPointer(e.row0[0], 120, 100, { movementX: 5 })
-      e.dispatchPointer(e.row0[1], 173, 100, { movementX: 5 })
+      e.dispatchPointer(e.stop('3h'), 146, 100, { movementX: 5 })
+      e.dispatchPointer(e.stop('6h'), 199, 100, { movementX: 5 })
       const whileBehind = e.litNames()
       e.env._modal_close(u)
       await settleAnswer(u)
       await Promise.resolve()
-      e.dispatchPointer(e.row0[2], 226, 100) // first event after promotion with unknown movement only seeds
+      e.dispatchPointer(e.stop('1d'), 252, 100) // first event after promotion with unknown movement only seeds
       const firstAfterPromote = e.litNames()
-      e.dispatchPointer(e.row0[2], 228, 100) // real move lights 1d
+      e.dispatchPointer(e.stop('1d'), 254, 100) // real move lights 1d
       const realAfterPromote = e.litNames()
       e.env._modal_close(q)
       await settleAnswer(q)
       const countsAfterClose = [e.listeners.length, e.pointerListeners.length, e.allWinListeners.length, e.allDocListeners.length, e.litNames().length]
-      e.dispatchPointer(e.row0[0], 120, 100, { movementX: 4 })
+      e.dispatchPointer(e.stop('3h'), 146, 100, { movementX: 4 })
       const afterCloseLit = e.litNames()
 
       // Queued snooze cancelled before ever becoming visible cleans up all listeners
@@ -18730,7 +18753,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const e = makeSnoozeEnv(NOW)
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
-      e.env._on_snooze({ target: e.row0[1] }) // click 6h
+      e.env._on_snooze({ target: e.stop('6h') }) // click 6h
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
       const after1 = [e.storage.get(SNOOZE_LAST_KEY), e.localStoreTouches.slice(), e.globalStoreTouches.slice(), e.localStore, e.globalStore, e.allWinListeners.length, e.litNames().length]
@@ -18745,7 +18768,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ans2 = await settleAnswer(m2)
       await clearIfUnsettled(e, m2, ans2)
 
-      // Choose weekend via arrows + Enter from lit 6h ([0,1] -> Down tomorrow [1,0] -> Right weekend [1,1])
+      // Choose weekend via arrows + Enter from lit 6h ([0,2] -> Down tomorrow [1,0] -> Right weekend [1,1])
       const expectedWk2 = e.env._snooze_weekend().getTime()
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
@@ -18800,7 +18823,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const e = makeSnoozeEnv(NOW)
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
-      e.env._on_snooze({ target: e.row0[2] }) // click 1d
+      e.env._on_snooze({ target: e.stop('1d') }) // click 1d
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
 
@@ -19025,7 +19048,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       e.dispatchKey('ArrowRight')
       e.dispatchKey('ArrowDown')
-      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 4 })
+      e.dispatchPointer(e.stop('3d'), 305, 100, { movementX: 4 })
       e.dispatchKey('Escape')
       await settleAnswer(m0)
       const afterEmptyDismiss = [!e.storage.has(SNOOZE_LAST_KEY), e.storageWrites.length]
@@ -19034,7 +19057,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
       const litBeforeChoice = e.litNames()
-      e.env._on_snooze({ target: e.row0[2] }) // click 1d
+      e.env._on_snooze({ target: e.stop('1d') }) // click 1d
       await settleAnswer(m1)
       const writesAfterChoice = e.storageWrites.length
 
@@ -19044,7 +19067,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const litAt2 = e.litNames()
       e.dispatchKey('ArrowRight') // 3d
       e.dispatchKey('ArrowDown') // next week
-      e.dispatchPointer(e.row0[5], 391, 100, { movementX: 4 }) // 28d
+      e.dispatchPointer(e.stop('28d'), 417, 100, { movementX: 4 }) // 28d
       e.dateInput.value = new e.env.Date(NOW + 5 * 3_600_000).toInputValue()
       e.env._on_snooze_input_change({ target: e.dateInput })
       e.dispatchKey('Escape')
@@ -19084,19 +19107,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await Promise.resolve()
       const atOpen = [e.litNames(), e.litNames().length]
       // Resting pointer (zero movement) and made-up move at same place over 3d leave 6h lit
-      e.dispatchPointer(e.row0[3], 279, 100)
-      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 0, movementY: 0 })
+      e.dispatchPointer(e.stop('3d'), 305, 100)
+      e.dispatchPointer(e.stop('3d'), 305, 100, { movementX: 0, movementY: 0 })
       const afterFake = [e.litNames(), e.litNames().length]
-      // Arrows continue from remembered 6h ([0, 1]) -> Right 1d ([0, 2]) -> Down weekend ([1, 1])
+      // Arrows continue from remembered 6h ([0, 2]) -> Right 1d ([0, 3]) -> Down weekend ([1, 1])
       e.dispatchKey('ArrowRight')
-      const afterRight = [e.litNames(), e.litNames().length, e.row0[1].classList.contains('lit')]
+      const afterRight = [e.litNames(), e.litNames().length, e.stop('6h').classList.contains('lit')]
       e.dispatchKey('ArrowDown')
-      const afterDown = [e.litNames(), e.litNames().length, e.row0[2].classList.contains('lit')]
+      const afterDown = [e.litNames(), e.litNames().length, e.stop('1d').classList.contains('lit')]
       // Real pointer move onto tomorrow takes highlight over
       e.dispatchPointer(e.row1[0], 145, 140)
       const afterRealPtr = [e.litNames(), e.litNames().length, e.row1[1].classList.contains('lit')]
       // Same-place move leaves tomorrow lit; ArrowUp moves from tomorrow -> 3h
-      e.dispatchPointer(e.row0[4], 145, 140)
+      e.dispatchPointer(e.stop('7d'), 145, 140)
       const afterSame = e.litNames()
       e.dispatchKey('ArrowUp')
       const afterUp = [e.litNames(), e.litNames().length]
@@ -19111,7 +19134,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const customOpen = [e.litNames(), e.getActive() === null]
       e.dispatchKey('ArrowLeft')
       const customLeft = [e.litNames(), e.getActive() === e.dateInput, e.snoozeBtn.classList.contains('lit')]
-      e.dispatchPointer(e.row0[4], 333, 100, { movementX: 5 })
+      e.dispatchPointer(e.stop('7d'), 359, 100, { movementX: 5 })
       const customPtr = [e.litNames(), e.litNames().length, e.dateInput.classList.contains('lit'), e.snoozeBtn.classList.contains('lit')]
       e.dateInput.blur()
       e.env._modal_close(m2)
@@ -19143,7 +19166,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
       e.clickNotify()
-      e.env._on_snooze({ target: e.row0[3] }) // 3d with notify checked
+      e.env._on_snooze({ target: e.stop('3d') }) // 3d with notify checked
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
       const recAfter1 = e.readStored()
@@ -19197,7 +19220,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const e1 = makeSnoozeEnv(NOW, { storage: shared })
       const m1 = e1.env._snooze_dialog()
       await Promise.resolve()
-      e1.dispatchKey('ArrowDown') // 3h
+      e1.dispatchKey('ArrowDown') // 1h
       e1.dispatchKey('ArrowDown') // tomorrow
       e1.dispatchKey('Enter')
       const ans1 = await settleAnswer(m1)
@@ -19273,7 +19296,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const m1 = w1.env._snooze_dialog()
       await Promise.resolve()
       const lit1Init = w1.litNames()
-      w1.env._on_snooze({ target: w1.row0[1] }) // 6h
+      w1.env._on_snooze({ target: w1.stop('6h') }) // 6h
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(w1, m1, ans1)
 
@@ -19377,7 +19400,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           threwOpen = true
         }
         try {
-          eRead.env._on_snooze({ target: eRead.row0[1] }) // 6h
+          eRead.env._on_snooze({ target: eRead.stop('6h') }) // 6h
         } catch {
           threwChoose = true
         }
@@ -19430,7 +19453,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         const m1 = eWrite.env._snooze_dialog()
         await Promise.resolve()
         try {
-          eWrite.env._on_snooze({ target: eWrite.row0[2] }) // 1d
+          eWrite.env._on_snooze({ target: eWrite.stop('1d') }) // 1d
         } catch {
           threw1 = true
         }
@@ -19473,7 +19496,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         try {
           const m1 = eNone.env._snooze_dialog()
           await Promise.resolve()
-          eNone.env._on_snooze({ target: eNone.row0[0] }) // 3h
+          eNone.env._on_snooze({ target: eNone.stop('3h') }) // 3h
           ans1 = await settleAnswer(m1)
           await clearIfUnsettled(eNone, m1, ans1)
 
@@ -19536,7 +19559,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.storage.set(SNOOZE_LAST_KEY, 'not json')
       const mOk = e.env._snooze_dialog()
       await Promise.resolve()
-      e.env._on_snooze({ target: e.row0[1] }) // 6h
+      e.env._on_snooze({ target: e.stop('6h') }) // 6h
       const ansOk = await settleAnswer(mOk)
       await clearIfUnsettled(e, mOk, ansOk)
       const mNext = e.env._snooze_dialog()
@@ -19661,7 +19684,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         const badLit = []
         const mBad2 = e.env._snooze_dialog()
         await Promise.resolve()
-        for (let i = 0; i < 6; i++) e.dispatchKey('ArrowRight') // 3h -> 28d
+        for (let i = 0; i < 7; i++) e.dispatchKey('ArrowRight') // 1h -> 28d
         e.dispatchKey('ArrowDown') // next week
         e.dispatchKey('ArrowDown') // snooze
         const litStop = e.litNames()
@@ -19719,6 +19742,98 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         if (prevTz === undefined) delete process.env.TZ
         else process.env.TZ = prevTz
       }
+    }
+
+    // 50x. 1h option: first arrow from nothing lit lights 1h, Enter and click answer 1h from now,
+    //      and a remembered 1h is lit at the next opening
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const firstArrowLit = []
+      for (const dir of ['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown']) {
+        const m = e.env._snooze_dialog()
+        await Promise.resolve()
+        e.dispatchKey(dir)
+        firstArrowLit.push(e.litNames())
+        e.dispatchKey('Escape')
+        await settleAnswer(m)
+      }
+
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW + 10 * 3_600_000 // valid future date so app Enter WOULD confirm if not stopped
+      e.env._on_snooze_input_change()
+      e.dispatchKey('ArrowRight')
+      const lit1 = e.litNames()
+      e.appBubble.length = 0
+      let err1 = null
+      let ev1 = null
+      try {
+        ev1 = e.dispatchKey('Enter')
+      } catch (err) {
+        err1 = err?.message ?? String(err)
+      }
+      const bubble1 = e.appBubble.slice()
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      const rec1 = e.readStored()
+
+      const T2 = NOW + 15 * 60_000
+      e.setNow(T2)
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const lit2 = e.litNames()
+      e.appBubble.length = 0
+      let err2 = null
+      let ev2 = null
+      try {
+        ev2 = e.dispatchKey('Enter')
+      } catch (err) {
+        err2 = err?.message ?? String(err)
+      }
+      const bubble2 = e.appBubble.slice()
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+
+      // Click on 1h from nothing remembered answers 1h from now and remembers 1h for the next opening
+      e.storage.delete(SNOOZE_LAST_KEY)
+      const T3 = T2 + 10 * 60_000
+      e.setNow(T3)
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      let err3 = null
+      try {
+        e.env._on_snooze({ target: e.stop('1h') })
+      } catch (err) {
+        err3 = err?.message ?? String(err)
+      }
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+      const rec3 = e.readStored()
+
+      const m4 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const lit4 = e.litNames()
+      e.dispatchKey('Escape')
+      await settleAnswer(m4)
+
+      check(
+        'snooze dialog 1h: first arrow lights 1h, Enter and click answer 1h from now, and remembered 1h opens lit',
+        [
+          firstArrowLit,
+          [lit1, err1, !!ev1?.stopped, bubble1, ans1, rec1],
+          [lit2, err2, !!ev2?.stopped, bubble2, ans2],
+          [err3, ans3, rec3, lit4],
+          [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
+        ],
+        [
+          [['1h'], ['1h'], ['1h'], ['1h']],
+          [['1h'], null, true, [], { time: NOW + 1 * 3_600_000, notify: false }, { label: '1h' }],
+          [['1h'], null, true, [], { time: T2 + 1 * 3_600_000, notify: false }],
+          [null, { time: T3 + 1 * 3_600_000, notify: false }, { label: '1h' }, ['1h']],
+          [0, 0, 0],
+        ]
+      )
     }
   })())
   // unstored drawn order (2026-11-26, shortcuts_row): a row selected via j/k or click is

@@ -1,5 +1,6 @@
 <div class="snooze-modal">
   <div class="row">
+    <div class="button" onclick="__onclick__">1h</div>
     <div class="button" onclick="__onclick__">3h</div>
     <div class="button" onclick="__onclick__">6h</div>
     <div class="button" onclick="__onclick__">1d</div>
@@ -64,6 +65,12 @@
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
+  }
+  @media only screen and (max-width: 400px) {
+    .snooze-modal .row .button {
+      margin: 0 2px;
+      padding: 10px 7px;
+    }
   }
   .snooze-modal :is(.button:active, .button.lit) {
     background: #59f;
