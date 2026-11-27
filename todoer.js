@@ -1066,10 +1066,19 @@ function _snooze_move(rows, pos, dir) {
   return [nr, best]
 }
 
+// key value as the snooze dialog reads it: keeps a real key (preserving dictated characters on
+// remapped keycodes), and falls back to physical code when key is missing or Unidentified (soft
+// keyboards, matching app src/event_key.ts)
+function _snooze_key(e) {
+  const raw = typeof e?.key == 'string' && e.key && e.key != 'Unidentified' ? e.key : typeof e?.code == 'string' ? e.code : ''
+  if (raw == 'Space') return ' '
+  if (raw == 'NumpadEnter') return 'Enter'
+  return raw
+}
+
 // the snooze dialog's stops grouped by row, in order: the two rows of time buttons, the date
 // field with its snooze button, and the notify box
-function _snooze_rows() {
-  const root = document.querySelector('.snooze-modal')
+function _snooze_rows(root = document.querySelector('.snooze-modal')) {
   if (!root) return []
   const rows = [...root.querySelectorAll('.row')].map(r => [...r.querySelectorAll('.button')])
   const custom = [root.querySelector('.custom input'), root.querySelector('.custom .button.snooze')].filter(Boolean)
@@ -1078,24 +1087,65 @@ function _snooze_rows() {
 }
 
 // the snooze dialog, opened for a row dropped on the snooze bin: resolves to the answer, the time
-// and the dialog's box ({time, notify}, see _snooze_close), or to nothing when it is dismissed
+// and the dialog's box ({time, notify}, see _snooze_close), or to nothing when it is dismissed.
+// While one snooze dialog is open or queued, a second request is declined with no answer so the
+// visible dialog keeps its keys, clicks, and answer
 function _snooze_dialog() {
-  _todoer.store._snooze_cleanup?.()
-  const modal = (_todoer.store._snooze_modal = _modal(
+  if (_todoer.store._snooze_active) return Promise.resolve()
+  let modal = null
+  let pos = null
+  let lit_el = null
+  let shown = false
+  let closed = false
+  let ready = false
+  let dom_pending = false
+  const setup = ({ keep_date = false } = {}) => {
+    if (ready) return true
+    if (closed || !modal || !_modal_visible(modal)) return false
+    const root = document.querySelector('.snooze-modal')
+    const date = root?.querySelector('.custom input')
+    if (!root || !date) return false
+    ready = true
+    shown = true
+    if (!keep_date) date.value = new Date().toInputValue()
+    _snooze_hint()
+    if (!keep_date) _on_snooze_input_change()
+    // update validity every second (for Date.now) while this opening stays visible
+    _todoer.dispatch_task(
+      'snooze-modal-update',
+      () => {
+        if (closed || !_modal_visible(modal)) return null
+        _on_snooze_input_change()
+      },
+      1000,
+      1000
+    )
+    return true
+  }
+  const schedule_dom = () => {
+    if (closed || ready || dom_pending) return
+    dom_pending = true
+    _update_dom().then(() => {
+      dom_pending = false
+      if (!closed && !ready) setup()
+    })
+  }
+  modal = _modal(
     _todoer
       .read('html_snooze_modal')
       .replaceAll('__onclick__', `_item('#todoer').eval('_on_snooze(event)')`)
       .replaceAll('__onchange__', `_item('#todoer').eval('_on_snooze_input_change(event)')`)
       .replaceAll('__onnotify__', `_item('#todoer').eval('_on_snooze_notify(event)')`),
     {
-      canConfirm: () => false, // toggled in _on_snooze_input_change
+      canConfirm: () => {
+        if (modal && !ready && !closed && _modal_visible(modal)) schedule_dom()
+        return false // toggled in _on_snooze_input_change
+      },
       onConfirm: () => _snooze_close(_snooze_input()),
     }
-  ))
-  let pos = null
-  let lit_el = null
-  let shown = false
-  let closed = false
+  )
+  _todoer.store._snooze_active = modal
+  _todoer.store._snooze_modal = modal
   const clear_lit = () => {
     lit_el?.classList.remove('lit')
     lit_el = null
@@ -1112,8 +1162,14 @@ function _snooze_dialog() {
     closed = true
     window.removeEventListener('keydown', on_key, true)
     clear_lit()
+    const notify_box = document.querySelector('.snooze-modal .notify input')
+    if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
+    if (_todoer.store._snooze_active === modal) delete _todoer.store._snooze_active
+    if (_todoer.store._snooze_modal === modal) delete _todoer.store._snooze_modal
     if (_todoer.store._snooze_cleanup === cleanup) delete _todoer.store._snooze_cleanup
+    if (_todoer.store._snooze_setup === setup) delete _todoer.store._snooze_setup
   }
+  const keys = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Escape', ' ', 'Tab'])
   // capture-phase handler on window for the dialog's lifetime: runs before Modal.svelte's bubble
   // listener so Enter on a lit stop never confirms twice and Escape from a focused date field
   // returns keys to the dialog without closing it
@@ -1123,21 +1179,22 @@ function _snooze_dialog() {
       return
     }
     shown = true
+    _todoer.store._snooze_setup?.()
     if (e.ctrlKey || e.altKey || e.metaKey) return
-    const key = e.key
+    const key = _snooze_key(e)
+    if (!keys.has(key)) return
+    if (e.shiftKey && key != 'Tab') return
     const root = document.querySelector('.snooze-modal')
     if (!root) return
     const date = root.querySelector('.custom input')
-    const rows = _snooze_rows()
-    const lit = pos ? rows[pos[0]]?.[pos[1]] ?? null : null
     if (date && document.activeElement === date) {
-      if (lit !== date) return
-      if (key == 'Escape' && !e.shiftKey) {
+      if (lit_el !== date) return
+      if (key == 'Escape') {
         stop(e)
         date.blur()
         return
       }
-      if (key == 'Enter' && !e.shiftKey) {
+      if (key == 'Enter') {
         stop(e)
         if (!e.repeat) {
           const time = _snooze_input()
@@ -1152,9 +1209,10 @@ function _snooze_dialog() {
       }
       return
     }
-    if (e.shiftKey) return
+    if (key == 'Escape' || key == 'Tab') return
     if (key == 'ArrowLeft' || key == 'ArrowRight' || key == 'ArrowUp' || key == 'ArrowDown') {
       stop(e)
+      const rows = _snooze_rows(root)
       const middles = rows.map(r =>
         r.map(el => {
           const b = el.getBoundingClientRect()
@@ -1163,8 +1221,8 @@ function _snooze_dialog() {
       )
       pos = _snooze_move(middles, pos, key)
       const next = pos ? rows[pos[0]]?.[pos[1]] ?? null : null
-      if (next !== lit) {
-        lit?.classList.remove('lit')
+      if (next !== lit_el) {
+        lit_el?.classList.remove('lit')
         next?.classList.add('lit')
         lit_el = next
         if (next && next === date) next.focus()
@@ -1172,26 +1230,26 @@ function _snooze_dialog() {
       }
       return
     }
-    if (!lit) return
+    if (!lit_el) return
     if (key == 'Enter') {
       stop(e)
       if (e.repeat) return
       const notify = root.querySelector('.notify input')
-      if (lit === notify) return
+      if (lit_el === notify) return
       const snooze = root.querySelector('.custom .button.snooze')
-      if (lit === date || lit === snooze) {
+      if (lit_el === date || lit_el === snooze) {
         const time = _snooze_input()
         if (time >= Date.now()) _snooze_close(time)
         return
       }
-      _on_snooze({ target: lit })
+      _on_snooze({ target: lit_el })
       return
     }
     if (key == ' ') {
       stop(e)
       if (e.repeat) return
       const notify = root.querySelector('.notify input')
-      if (lit === notify) {
+      if (lit_el === notify) {
         notify.checked = !notify.checked
         _on_snooze_notify({ target: notify })
       }
@@ -1199,25 +1257,9 @@ function _snooze_dialog() {
   }
   window.addEventListener('keydown', on_key, true)
   _todoer.store._snooze_cleanup = cleanup
+  _todoer.store._snooze_setup = setup
   modal?.then?.(cleanup, cleanup)
-  _update_dom().then(() => {
-    if (closed || !_modal_visible(modal)) return
-    shown = true
-    document.querySelector('.snooze-modal .custom input').value = new Date().toInputValue()
-    const notify_box = document.querySelector('.snooze-modal .notify input')
-    if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
-    _snooze_hint() // this device's permission beside the box (the box starts unchecked, reset above)
-    // force trigger input change call now & every second (for Date.now)
-    _todoer.dispatch_task(
-      'snooze-modal-update',
-      () => {
-        if (!_modal_visible(_todoer.store._snooze_modal)) return null
-        _on_snooze_input_change()
-      },
-      0,
-      1000
-    )
-  })
+  schedule_dom()
   return modal
 }
 
@@ -1249,6 +1291,7 @@ function _snooze_time(label) {
 }
 
 function _on_snooze(e) {
+  _todoer.store._snooze_setup?.()
   const label = e.target.innerText
   const time = _snooze_time(label)
   if (time < Date.now()) alert('future date/time required for snooze')
@@ -1260,20 +1303,25 @@ function _snooze_input() {
   return input.valueAsNumber + new Date().getTimezoneOffset() * 60 * 1000
 }
 
-function _on_snooze_input_change() {
+function _on_snooze_input_change(e) {
+  if (e?.target) _todoer.store._snooze_setup?.({ keep_date: true })
+  const modal = _todoer.store._snooze_modal
+  if (!modal || !_modal_visible(modal)) return
   const can_confirm = _snooze_input() >= Date.now()
-  _modal_update(_todoer.store._snooze_modal, { canConfirm: () => can_confirm })
+  _modal_update(modal, { canConfirm: () => can_confirm })
   document
     .querySelector('.snooze-modal .button.snooze')
-    .classList.toggle('disabled', !can_confirm)
+    ?.classList.toggle('disabled', !can_confirm)
 }
 
 // the snooze dialog's answer, read before it closes: the time and its box ("notify on
 // unsnooze"), {time, notify}, which the drop's handler writes on the todo (_snooze)
 function _snooze_close(time) {
+  _todoer.store._snooze_setup?.()
   const notify = !!document.querySelector('.snooze-modal .notify input')?.checked
+  const modal = _todoer.store._snooze_modal
   _todoer.store._snooze_cleanup?.()
-  _modal_close(_todoer.store._snooze_modal, { time, notify })
+  if (modal) _modal_close(modal, { time, notify })
 }
 
 // a todo snoozed until `time` with the dialog's box written beside it as `notify` (a desktop
@@ -1293,6 +1341,7 @@ function _snooze(item, { time, notify }) {
 // browser has not asked yet (the box's click is the gesture a browser prompts from; the box is
 // the todo's own opt-in, no /notify reason needed), the hint beside the box following the answer
 function _on_snooze_notify(e) {
+  _todoer.store._snooze_setup?.()
   if (e?.target?.checked && _notify_permission() == 'default') Promise.resolve(Notification.requestPermission()).then(_snooze_hint, _snooze_hint)
   else _snooze_hint()
 }
@@ -1810,23 +1859,42 @@ function _listing_changed(item) {
 }
 
 // this window's query target (index.svelte: first term naming a unique label other than the log
-// tag, or any id: term; a / command targets nothing). Reads MindBox.get() directly (live during
-// the 500 ms typing debounce; case-sensitive id: lookup per _item; when a query names several
-// targets at once, picks the listing or the first resolving id:; compound queries also count for
-// marks and keys when unlinked)
-function _window_target(text = typeof MindBox != 'undefined' ? MindBox.get?.() : '') {
-  if (typeof text != 'string' || text.startsWith('/')) return null
-  const terms = text.trim().split(/\s+/).filter(Boolean)
-  const listed = terms[0]?.startsWith('#') && terms[0].toLowerCase() != '#log' ? _item(terms[0], { silent: true }) : null
-  if (listed) return listed
-  for (const t of terms) if (t.toLowerCase().startsWith('id:')) { const it = _item('id:' + t.slice(3), { silent: true }); if (it) return it }
-  return null
+// tag, or any id: term; a / command targets nothing). With no query argument while the box holds
+// an unapplied typing draft (_mindboxDebounced), reads the page's applied target containers
+// (.container.target), keeping the id last picked by a settled parse when it is still among them,
+// else the sole target container's item when there is one, else null (never guessing among
+// several targets); once settled (and for an explicit query string `text`), parses the query
+// directly (case-sensitive id: lookup per _item; when a query names several targets at once,
+// picks the listing or the first resolving id:; compound queries also count for marks and keys
+// when unlinked)
+function _window_target(text = undefined, { remember = text === undefined } = {}) {
+  if (text === undefined && typeof window != 'undefined' && window._mindboxDebounced) {
+    if (typeof document == 'undefined') return null
+    const els =
+      typeof document.querySelectorAll == 'function'
+        ? [...document.querySelectorAll('.container.target')]
+        : [document.querySelector?.('.container.target')].filter(Boolean)
+    const ids = [...new Set(els.map(el => el?.getAttribute?.('data-item-id')).filter(Boolean))]
+    const settled = window._todoer_settled_target
+    const id = settled && ids.includes(settled) ? settled : ids.length == 1 ? ids[0] : null
+    return id ? _item(id, { silent: true }) : null
+  }
+  const q = text === undefined ? (typeof MindBox != 'undefined' ? MindBox.get?.() : '') : text
+  let found = null
+  if (typeof q == 'string' && !q.startsWith('/')) {
+    const terms = q.trim().split(/\s+/).filter(Boolean)
+    const listed = terms[0]?.startsWith('#') && terms[0].toLowerCase() != '#log' ? _item(terms[0], { silent: true }) : null
+    if (listed) found = listed
+    else for (const t of terms) if (t.toLowerCase().startsWith('id:')) { const it = _item('id:' + t.slice(3), { silent: true }); if (it) { found = it; break } }
+  }
+  if (remember && typeof window != 'undefined' && !window._mindboxDebounced) window._todoer_settled_target = found?.id ?? null
+  return found
 }
 
 // this window's selected item: own target where it has one, else while linked (or during an
 // active row handoff) the optimistic row or the current linked partner's reported saved target
 // (where this window has a mounted row for it, unless `mounted` is false)
-function _selected_item(text = typeof MindBox != 'undefined' ? MindBox.get?.() : '', { mounted = true } = {}) {
+function _selected_item(text = undefined, { mounted = true } = {}) {
   const own = _window_target(text)
   if (own) return own
   const windows = typeof window != 'undefined' ? window._todoer_windows : null
@@ -1855,8 +1923,12 @@ function _sync_marks(item = _selected_item(undefined, { mounted: false })) {
 }
 
 // detect query changes: update buttons, announce target (or none) to partner, and sync marks
+// (index.svelte runs _on_search in a setTimeout reading live editorText: when a newer keystroke
+// debounced the box before this callback ran, publish the page's applied target rather than the
+// newer draft)
 function _on_search(text) {
-  const target_item = _window_target(text)
+  const live = typeof window != 'undefined' && window._mindboxDebounced ? undefined : text
+  const target_item = _window_target(live, { remember: true })
   const windows = typeof window != 'undefined' ? window._todoer_windows : null
   if (typeof _send_selected == 'function') _send_selected(target_item)
   if (windows) {
@@ -1866,8 +1938,8 @@ function _on_search(text) {
       windows.shown = typeof pt == 'string' ? pt : null
     }
   }
-  const selected = _selected_item(text, { mounted: false })
-  if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item(text)) // (a table loads this function alone)
+  const selected = _selected_item(live, { mounted: false })
+  if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item(live)) // (a table loads this function alone)
   if (!selected && !document.querySelector('.todoer-widget .list-item-container.selected')) return
   _sync_marks(selected)
 }
@@ -2389,7 +2461,7 @@ function _select_next(next, outcome) {
 // are those of the item selected before, and a press on them is not taken, and says so (the
 // review, 2026-11-24: Done completed the earlier item). Null where another item or none is selected
 function _pressed_item(name, id) {
-  const named = _selected_item()
+  const named = _selected_item(MindBox.get())
   if (named?.id === id) return named
   console.warn(`todoer: the press on "${name}" was not taken: the box ${named ? 'names another item now' : 'no longer names its item'}`)
   return null
@@ -4178,7 +4250,6 @@ function _set_shown(windows, id) {
 // drops all deferred link work (pending handoff, scroll hold, linked mark, and dedup state)
 function _send_retire(windows) {
   if (!windows) return
-  windows.clear_recheck?.()
   _send_cancel(windows)
   windows.hold?.()
   windows.last = null
@@ -4240,7 +4311,6 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
   const windows = window._todoer_windows
   const target = typeof item == 'string' ? _item(item, { silent: true }) : item
   if (!windows || !target || _notify_fixed_view() || _notify_account_left()) return Promise.resolve(false)
-  windows.clear_recheck?.()
   const to = _send_partner()
   if (!to || !target.saved_id) return Promise.resolve(false)
   _send_cancel(windows)
@@ -4300,7 +4370,6 @@ function _send_ask(item, { fallback = false, acted_at = null, selection = null, 
 function _send_selected(item, forced = false, acted_at = null, ask = false, selection = null, checked = false) {
   const windows = window._todoer_windows
   if (!windows || _notify_fixed_view() || _notify_account_left()) return false
-  windows.clear_recheck?.()
   const next_last = item ? item.saved_id ?? null : ''
   if (!ask && !forced && next_last !== null && windows.last === next_last && windows.reported === next_last) {
     if (windows.pending?.kind == 'take' && windows.pending.asked) _send_cancel(windows)
@@ -4428,7 +4497,6 @@ function _send_take(message, asked, until = null) {
       return true
     }
     const prev = [windows.last, windows.reported, windows.sel, windows.seen_at, windows.shown]
-    windows.clear_recheck?.()
     windows.hold?.()
     windows.shown = null
     windows.last = item.saved_id ?? item.id
@@ -4450,71 +4518,35 @@ function _start_windows() {
   const api = { show: item => _send_ask(item), linked: _send_linked, toggle: _send_press }
   if (window._todoer_windows) return void Object.assign(window._todoer_windows, api)
   const me = _notifier_id()
-  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, recheck: null, held: false, n: 0, last: null, reported: null, shown: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
-  const clear_recheck = () => {
-    windows.held = false
-    if (!windows.recheck) return
-    clearTimeout(windows.recheck)
-    windows.recheck = null
-  }
-  const sync_applied = () => {
-    if (_notify_fixed_view() || _notify_account_left() || windows.pending?.kind == 'ask' || windows.pending?.kind == 'save') return void clear_recheck()
-    if (!_send_partner()) return
-    clear_recheck()
-    const live = _send_target_id()
-    if ((live == null ? '' : live) === windows.reported) return
-    windows.say('hello', { target: live })
-  }
-  const schedule_recheck = () => {
-    if (windows.recheck) clearTimeout(windows.recheck)
-    const uid = _send_account()
-    const check = () => {
-      windows.recheck = null
-      if (_notify_fixed_view() || _notify_account_left() || _send_account() !== uid) return void clear_recheck()
-      if (window._mindboxDebounced) {
-        windows.recheck = setTimeout(check, 100)
-        return
-      }
-      sync_applied()
-    }
-    windows.recheck = setTimeout(check, 500)
-  }
-  windows.clear_recheck = clear_recheck
+  const windows = (window._todoer_windows = { me, channel: new BroadcastChannel(SEND_CHANNEL), peers: new Map(), pending: null, hold: null, n: 0, last: null, reported: null, shown: null, sel: null, seen_at: 0, acted: 0, used: document.hasFocus() ? Date.now() : 0, said: 0, ...api })
+  let replies = 0
+  let hidden = false
   windows.say = (type, more = {}) => {
-    if (_notify_account_left() || _notify_fixed_view()) return
+    if (hidden || _notify_account_left() || _notify_fixed_view()) return
     try {
       const since = _send_since()
-      const prevReported = windows.reported
-      const debounced = !!window._mindboxDebounced
       const ordered = type == 'selected' || type == 'took' || (type == 'hello' && 'at' in more)
-      const target = 'target' in more ? more.target : (debounced ? (prevReported || null) : _send_target_id())
+      const target = 'target' in more ? more.target : _send_target_id()
       windows.channel.postMessage({ type, id: me, uid: _send_account(), used: windows.used, on: since > 0, since, to: since > 0 ? _send_peer() : null, ...more, target })
       if (type != 'bye' && type != 'unlink') {
+        replies++
         const told = target == null ? '' : target
         windows.reported = told
         if (ordered && _send_partner()) windows.last = told
-        if (!ordered && debounced) {
-          windows.held = true
-          schedule_recheck()
-        } else if (type == 'hello' && !('target' in more) && prevReported !== null && told !== prevReported) {
-          windows.held = false
-          schedule_recheck()
-        } else if (!debounced && !('target' in more)) {
-          clear_recheck()
-        }
       }
     } catch (e) {}
   }
   const look = () => `${!!_send_peer()}|${_send_linked()}`
   windows.channel.onmessage = event => {
     const message = event?.data
-    if (!message || typeof message != 'object' || typeof message.id != 'string' || message.id == me) return
+    if (hidden || !message || typeof message != 'object' || typeof message.id != 'string' || message.id == me) return
     if ((message.uid ?? null) !== _send_account() || _notify_account_left() || _notify_fixed_view()) return
     const before = look()
     const wasLinked = _send_linked()
     const prevPartner = _send_partner()
     const prevShown = windows.shown
     const shows = _send_on() ? _send_peer() : null
+    const saidBefore = replies
     const prevPeer = windows.peers.get(message.id)
     let nextTarget = message.target ?? null
     if (message.type == 'selected' && message.to == me && message.id == prevPartner) {
@@ -4580,23 +4612,31 @@ function _start_windows() {
       }
       else if (message.type == 'took' && windows.pending?.kind == 'ask' && windows.pending.n == message.n && windows.pending.to == message.id) _send_cancel(windows, null, true)
     }
-    if (partner && windows.held && !window._mindboxDebounced) sync_applied()
+    if (partner && partner !== prevPartner && replies === saidBefore) windows.say('hello')
     if (partner) _send_sync_shown(windows, partner)
     if (yielded || look() != before || windows.shown !== prevShown) _bin_buttons(_selected_item())
   }
   const acted = () => { windows.acted++ }
   for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown', 'popstate', 'resize']) window.addEventListener(type, acted, { capture: true, passive: true })
   if (typeof visualViewport != 'undefined') visualViewport?.addEventListener?.('resize', acted)
-  const used = (typing = false) => {
+  const used = () => {
     windows.used = Date.now()
     if (windows.used - windows.said < 1000) return
     windows.said = windows.used
-    windows.say('hello', typing && windows.reported !== null ? { target: windows.reported || null } : {})
+    windows.say('hello')
   }
-  window.addEventListener('focus', () => used(false))
-  document.addEventListener('pointerdown', () => used(false), { capture: true, passive: true })
-  document.addEventListener('keydown', () => used(true), true)
-  window.addEventListener('pagehide', () => windows.say('bye'))
+  window.addEventListener('focus', used)
+  document.addEventListener('pointerdown', used, { capture: true, passive: true })
+  document.addEventListener('keydown', used, true)
+  window.addEventListener('pagehide', () => {
+    windows.say('bye')
+    hidden = true
+  })
+  window.addEventListener('pageshow', e => {
+    if (!hidden) return
+    hidden = false
+    if (e?.persisted) windows.say('who')
+  })
   let drawn = look()
   setInterval(() => {
     if (_notify_account_left()) return _send_retire(windows)
@@ -4835,11 +4875,48 @@ function _select_range(item, range, edit = false) {
 // No edit after a refused select (the item is gone). On an app without the select the box is set
 // to the item's name and its target edited, as before
 // `checked` (a chat-todo's question: a stretch by its offsets, or none where its place was not
-// found) opens the editor by _select_range, on this item alone
+// found) opens the editor by _select_range, on this item alone; the plain path binds its deferred
+// write to this item's identity as well so a target switch before the two-frame wait ends never
+// opens another item's editor
 function _edit_item(item, selection, checked = false) {
   const ranged = Array.isArray(selection)
-  if (typeof item.select != 'function') return MindBox.set(item.name, { edit: ranged ? item.text.slice(...selection) : selection })
-  if (item.select()) checked ? _select_range(item, ranged ? selection : null, true) : MindBox.edit_target(selection)
+  const text = ranged ? item.text.slice(...selection) : selection
+  if (typeof item.select != 'function') return MindBox.set(item.name, { edit: text })
+  if (!item.select()) return
+  if (checked) return _select_range(item, ranged ? selection : null, true)
+  if (typeof document == 'undefined' || typeof _update_dom != 'function' || !item.id) return MindBox.edit_target(text)
+  if (typeof navigator != 'undefined' && navigator.maxTouchPoints) MindBox.elem?.focus?.()
+  _update_dom().then(() => {
+    const target = document.querySelector('.container.target')
+    if (!target || target.getAttribute('data-item-id') != item.id) return
+    const textarea = target.querySelector('textarea') // already editing?
+    if (text) {
+      const live = _item(item.id, { silent: true }) ?? item
+      const pos = typeof live.text == 'string' ? live.text.indexOf(text) : -1
+      if (pos >= 0) {
+        if (textarea) {
+          textarea.focus()
+          textarea.setSelectionRange(_zwsp_offset(textarea.value, pos), _zwsp_offset(textarea.value, pos + text.length))
+        } else target.setAttribute('data-selection', `${pos},${pos + text.length}`)
+      } else {
+        if (!textarea) target.removeAttribute('data-selection')
+        console.error('could not find text: ' + text)
+      }
+    } else if (!textarea) target.removeAttribute('data-selection')
+    if (textarea) {
+      setTimeout(() => {
+        const cur = document.querySelector('.container.target')
+        if (!cur || cur.getAttribute('data-item-id') != item.id) return
+        const sup = cur.closest?.('.super-container')
+        const header = document.querySelector('.header')
+        if (sup && header && (sup.offsetTop < document.body.scrollTop || sup.offsetTop > document.body.scrollTop + visualViewport.height - 200))
+          _scroll_to(Math.max(header.offsetTop, sup.offsetTop - visualViewport.height / 4))
+      }, 100)
+    } else {
+      target.dispatchEvent(new Event('mousedown'))
+      target.dispatchEvent(new Event('click'))
+    }
+  })
 }
 
 // a notification's click: this window forward (the browser grants the click's activation to the

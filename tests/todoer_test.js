@@ -159,6 +159,7 @@ const picked =
     '_items_now',
     '_bell',
     '_clear_bell',
+    '_snooze_key',
     '_snooze_dialog',
     '_item_writes',
     '_item_visible',
@@ -2155,7 +2156,14 @@ const { replaceTags, parseTags, hash_64_fnv1a } = (() => {
     handlers.pointerup({})
     Sortable.dragged = null
   }
+  let finished = false
+  process.on('beforeExit', () => {
+    if (finished) return
+    console.log('FAIL table exited before async_rows settled')
+    process.exit(1)
+  })
   await Promise.all(async_rows)
+  finished = true
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()
@@ -3541,7 +3549,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   // or its label as the app names the item; the target's row edits the item where it is, and
   // does not set the box either (the item's name there is the tab's own id for an unnamed item)
   check('click: a row selects its item by the app\'s select and marks the todo\'s line; the box is not set', [world().click('short'), world({ target: 'task' }).click('named')], [[['select', 'short'], ['mark', '#todo fix the cache']], [['select', 'named'], ['mark', NAMED.split('\n')[0].replace('#todo-list ', '')]]]) // the line from its todo tag on, as the snippet starts
-  check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['edit', '#todo fix the cache']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
+  check('click: the target\'s row edits it, the todo\'s line selected, after the app\'s select of it; the box is not set', [world({ target: 'short' }).click('short'), world({ target: 'short', app: false }).click('short')], [[['select', 'short'], ['range', '0,19'], ['event', 'mousedown'], ['event', 'click']], [['set', 'id:short', { edit: '#todo fix the cache' }]]])
   check('click: on an app without the select the box is set as before', world({ app: false }).click('short'), [['set', 'id:short', { scroll: true, select: '#todo fix the cache' }]])
   check('cancel: the cancel bin still deletes (its meaning) and writes nothing', world().drop('short', 'cancel'), { text: '#todo fix the cache', calls: [['delete', 'short']], rows: ['task', 'long', 'named'], left: 0 })
   // A BIN BUTTON'S PRESS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): what a drop
@@ -7367,6 +7375,24 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       aDone.press()
       const doneNone = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
       s.warns.length = 0
+      // real debounced stale-button case: page's .container.target still shows A (and settled
+      // target remembered A), MindBox is debounced with new text (#C, then '') -> completion
+      // handler receives nothing and console.warn fires
+      const targetEl = s.body.appendChild(new s.DomNode('div', { className: 'container target', 'data-item-id': 'A' }))
+      s.setBox('#A')
+      s.win._mindboxDebounced = false
+      s.env._window_target()
+      s.setBox('#C')
+      s.win._mindboxDebounced = true
+      await aDone.press()
+      const doneDebouncedOther = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
+      s.warns.length = 0
+      s.setBox('')
+      await aDone.press()
+      const doneDebouncedNone = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
+      s.warns.length = 0
+      s.win._mindboxDebounced = false
+      targetEl.remove()
       // draw buttons for B (middle row: both up -> A and down -> C would move if allowed)
       s.setBox('#B')
       s.env._bin_buttons(b)
@@ -7382,8 +7408,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bDown.press()
       const stepNone = [[...s.selected], [...s.warns]]
       check('_pressed_item: stale drawn done, up, and down callbacks are refused with console.warn when the box names another item or no item',
-        [doneOther, doneNone, stepOther, stepNone],
+        [doneOther, doneNone, doneDebouncedOther, doneDebouncedNone, stepOther, stepNone],
         [
+          [[], [], false, ['todoer: the press on "done" was not taken: the box names another item now']],
+          [[], [], false, ['todoer: the press on "done" was not taken: the box no longer names its item']],
           [[], [], false, ['todoer: the press on "done" was not taken: the box names another item now']],
           [[], [], false, ['todoer: the press on "done" was not taken: the box no longer names its item']],
           [[], [
@@ -10699,6 +10727,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
       getAttribute(k) { return k in this.attrs ? this.attrs[k] : null }
       setAttribute(k, v) { this.attrs[k] = String(v) }
+      removeAttribute(k) { delete this.attrs[k] }
+      dispatchEvent(ev) { this._onDispatch?.(ev) }
       getBoundingClientRect() { return this._rect }
       appendChild(child) {
         if (child.parentElement) child.remove()
@@ -10817,8 +10847,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             const pending = this.held.splice(0)
             for (const msg of pending) {
               if (!this.closed && !this.muted && typeof this.onmessage == 'function') this.onmessage({ data: msg })
-              flush()
             }
+            flush()
           }
           postMessage(data) {
             if (this.closed) return
@@ -10938,6 +10968,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const itemList = []
       const selects = []
       const edits = []
+      targetContainer._onDispatch = ev => {
+        if (ev?.type == 'click') edits.push({ id: targetContainer.getAttribute('data-item-id'), selection: targetContainer.getAttribute('data-selection'), box: boxText })
+      }
       const marks = []
       const scrollToTargetCalls = []
       const binButtonDraws = []
@@ -11095,7 +11128,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           get: () => boxText,
           set: (t, opts) => { boxText = t; selects.push({ set: t, opts }) },
           select_in_target: t => marks.push(t),
-          edit_target: t => edits.push({ box: boxText, text: t }),
+          edit_target: t => {
+            env._update_dom().then(() => {
+              const target = doc.querySelector('.container.target')
+              if (!target) return
+              if (t) {
+                const it = lookupItem(target.getAttribute('data-item-id'))
+                const pos = it?.text?.indexOf?.(t) ?? -1
+                if (pos >= 0) target.setAttribute('data-selection', `${pos},${pos + t.length}`)
+              }
+              target.dispatchEvent(new env.Event('mousedown'))
+              target.dispatchEvent(new env.Event('click'))
+            })
+          },
           scroll_to_target: () => {
             scrollToTargetCalls.push(boxText)
             const run = () => {
@@ -11107,6 +11152,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             else run()
           },
         },
+        Event: class { constructor(type) { this.type = type } },
+        _zwsp_offset: (s, p) => p,
         _update_dom: () => (deferDom ? new Promise(resolve => domQueue.push(resolve)) : Promise.resolve()),
         _task_state: () => null,
         _task_list: () => 'main',
@@ -11148,6 +11195,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         binCalls.push(target?.id ?? null)
         return origBinButtons(target)
       }
+      const extraTargets = []
+      const setTargetItems = ids => {
+        for (const el of extraTargets.splice(0)) el.remove()
+        const list = (ids ?? []).filter(Boolean)
+        if (!list.length) return void targetContainer.removeAttribute('data-item-id')
+        targetContainer.setAttribute('data-item-id', list[0])
+        for (const itemId of list.slice(1)) {
+          extraTargets.push(body.appendChild(new WinDomNode('div', { className: 'container target', 'data-item-id': itemId })))
+        }
+      }
       return {
         id, env, win, doc, body, targetContainer, storage, clock, timers, domQueue,
         items, itemList, selects, edits, marks, scrollToTargetCalls, binCalls, binButtonDraws,
@@ -11161,7 +11218,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         setScrollTop: y => { body.scrollTop = y },
         getScrollTop: () => body.scrollTop,
         setInnerHeight: h => { env.innerHeight = win.innerHeight = env.visualViewport.height = body.offsetHeight = h },
-        setTargetItem: itemId => { targetContainer.setAttribute('data-item-id', itemId) },
+        setTargetItem: itemId => setTargetItems(itemId == null ? [] : [itemId]),
+        setTargetItems,
       }
     }
 
@@ -12116,10 +12174,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const rowDivA = widgetA.querySelector('.list-item')
       const rowDivB = widgetB.querySelector('.list-item')
       const clickEv = { stopPropagation: () => {}, preventDefault: () => {} }
-      // (a) unlinked: second click opens editor
+      // (a) unlinked: second click opens editor on sc1 itself
       rowDivA.onclick(clickEv)
       bus.flush()
-      const offClick = [a.edits.length, a.selects.length, b.selects.length]
+      await Promise.resolve()
+      const offClick = [a.edits.map(e => e.id), a.selects.length, b.selects.length]
       // (b) linked, both on #sc1: a click on its own row in A opens the editor there (the box stays, B is asked
       //     nothing); the same in B (the owner, 2026-11-26: one rule, linked or not)
       a.edits.length = 0
@@ -12130,7 +12189,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.selects.length = 0
       rowDivA.onclick(clickEv)
       bus.flush()
-      const aLinkedClick = [a.edits.length, a.getBox(), b.selects.map(s => s.id), a.getScrollTop()]
+      await Promise.resolve()
+      const aLinkedClick = [a.edits.map(e => e.id), a.getBox(), b.selects.map(s => s.id), a.getScrollTop()]
       // A's query applied once more, then the same click in B
       a.setBox('#sc1')
       a.env._on_search('#sc1')
@@ -12142,23 +12202,87 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       b.setScrollTop(500)
       rowDivB.onclick(clickEv)
       bus.flush()
-      const bLinkedClick = [b.edits.length, b.getBox(), a.selects.map(s => s.id), b.getScrollTop()]
-      // (c) peer gone: second click in A (which holds #sc1 target) opens editor as before
+      await Promise.resolve()
+      const bLinkedClick = [b.edits.map(e => e.id), b.getBox(), a.selects.map(s => s.id), b.getScrollTop()]
+      // (c) peer gone: second click in A (which holds #sc1 target) opens editor on sc1 as before
       b.fireWin('pagehide')
       bus.flush()
       a.edits.length = 0
       a.selects.length = 0
       rowDivA.onclick(clickEv)
       bus.flush()
-      const onAloneClick = [a.edits.length, a.selects.length, item.id]
+      await Promise.resolve()
+      const onAloneClick = [a.edits.map(e => e.id), a.selects.length, item.id]
       check(
         'windows second click (__render): clicking the row of the item this window shows opens its editor, linked or not, and asks nothing of the other window',
         [offClick, aLinkedClick, bLinkedClick, onAloneClick],
         [
-          [1, 1, 0], // _edit_item calls item.select() then MindBox.edit_target()
-          [1, '#sc1', [], 1700],
-          [1, '#sc1', [], 1700],
-          [1, 1, 'sc1'],
+          [['sc1'], 1, 0],
+          [['sc1'], '#sc1', [], 1700],
+          [['sc1'], '#sc1', [], 1700],
+          [['sc1'], 1, 'sc1'],
+        ]
+      )
+      // (d) deferred edit is bound to the clicked item: A asks B for newly saved scY not yet in B; B still
+      //     shows scX and its owner clicks scX's row to edit (selecting already-displayed scX skips _on_search,
+      //     leaving scY's pending take alive); scY arrives 15ms later before B's two-frame _update_dom() ends ->
+      //     editor click MUST NOT be dispatched on scY (none, or scX when target stayed scX)
+      const busD = makeBus()
+      const aD = makeWindow(busD, { id: 'A', now: 1_700_000_000_000, scrollTop: 500 })
+      const bD = makeWindow(busD, { id: 'B', now: 1_700_000_000_000, scrollTop: 500, deferDom: true })
+      aD.env._start_windows()
+      bD.env._start_windows()
+      busD.flush()
+      aD.makeItem('scX', { saved_id: 's_scX', name: '#scX', text: '#todo edit X', scrollY: 1600 })
+      const yA = aD.makeItem('scY', { saved_id: 's_scY', name: '#scY', text: '#todo brand new Y', scrollY: 1700 })
+      aD.makeWidget({ rows: [{ id: 'scX', pageY: 540 }, { id: 'scY', pageY: 580 }] })
+      const xB = bD.makeItem('scX', { saved_id: 's_scX', name: '#scX', text: '#todo edit X', scrollY: 1600 })
+      // mirror index.svelte:selectItem skipping onEditorChange/_on_search when scX is already displayed
+      const origSelectX = xB.select
+      xB.select = () => {
+        if (bD.getBox() == '#scX' && bD.targetContainer.getAttribute('data-item-id') == 'scX') {
+          bD.selects.push({ id: 'scX', scrollBefore: bD.getScrollTop() })
+          return true
+        }
+        return origSelectX()
+      }
+      const wBD = bD.body.appendChild(new WinDomNode('div', { id: 'w_scD', className: 'todoer-widget' }))
+      const wItemD = { store: { w_scD: { options: {} } }, _global_store: {} }
+      aD.setBox('#todo')
+      bD.setBox('#scX')
+      bD.setTargetItem('scX')
+      bD.env.__render(wBD, wItemD)
+      const rowX = wBD.querySelector('.list-item')
+      aD.env._send_toggle(true)
+      busD.flush()
+      // positive control with deferDom: when target stays scX across _update_dom(), scX receives the editor click
+      bD.edits.length = 0
+      rowX.onclick(clickEv)
+      while (bD.domQueue.length) bD.domQueue.shift()()
+      await Promise.resolve()
+      const stayedOnX = bD.edits.map(e => [e.id, e.selection])
+      // now A asks B to show newly saved scY (not yet in B) -> B polls every 250ms while still showing scX
+      bD.edits.length = 0
+      bD.targetContainer.removeAttribute('data-selection')
+      aD.env._select_item(yA)
+      busD.flush()
+      advanceAll(busD, [aD, bD], 235)
+      // owner clicks scX's row to edit; deferred edit waits in bD.domQueue
+      rowX.onclick(clickEv)
+      // 15ms later, before the two-frame _update_dom() ends, scY arrives in B and becomes the target!
+      bD.makeItem('scY', { saved_id: 's_scY', name: '#scY', text: '#todo brand new Y', scrollY: 1700 })
+      advanceAll(busD, [aD, bD], 15)
+      const targetBeforeFlush = [bD.getBox(), bD.targetContainer.getAttribute('data-item-id')]
+      while (bD.domQueue.length) bD.domQueue.shift()()
+      await Promise.resolve()
+      const afterYArrived = [bD.edits.map(e => e.id), bD.targetContainer.getAttribute('data-selection')]
+      check(
+        'windows second click deferred edit bound to clicked item: editor event opens scX when target stays scX and never opens scY if scY arrives before _update_dom finishes',
+        [stayedOnX, targetBeforeFlush, afterYArrived],
+        [
+          [['scX', '0,12']],
+          ['#scY', 'scY'],
+          [[], null],
         ]
       )
     }
@@ -12513,11 +12637,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 25b. reload during typing debounce: first report must not publish unapplied draft (#old2), and
-    //      once debounce settles back on already-applied #old (with no _on_search hook), Done in the
-    //      reloaded list window acts on old — both when A2 replies right away and when A2 is busy past 500ms
+    // 25b. reload during typing debounce & delayed discovery:
+    //      - unapplied draft (#old2) is never published; while debounced, B reports its applied target from
+    //        .container.target (#old or none), so a taken-back draft (no _on_search) keeps A2 on the applied target
+    //      - when discovery completes after a draft COMMITS (#old2 settles & runs _on_search while B has no partner),
+    //        B immediately tells A2 its current applied target passively (keeping A2's scroll), with or without an
+    //        earlier report, right after discovery (not waiting 30s for the heartbeat)
     {
-      const runReloadDuringTyping = async ({ pauseA2Ms = 0 } = {}) => {
+      const runReloadDuringTyping = async ({ pauseA2Ms = 0, initialTarget = 'old', commit = false, pointerReport = false, draftAfterCommit = null } = {}) => {
         const bus = makeBus()
         const sharedStore = new Map()
         const a1 = makeWindow(bus, { id: 'A1', now: 1_700_000_010_000, storage: sharedStore })
@@ -12525,32 +12652,32 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         for (const w of [a1, b]) {
           w.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
           w.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
+          w.makeItem('old23', { saved_id: 's_old23', text: '#todo old23 task', scrollY: 1800 })
         }
-        a1.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 580 }] })
+        a1.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 1400 }, { id: 'old23', pageY: 1440 }] })
         a1.setBox('#todo')
-        b.setBox('#old')
+        b.setBox(initialTarget ? '#' + initialTarget : '#todo')
+        b.setTargetItem(initialTarget)
         a1.env._start_windows()
         b.env._start_windows()
         bus.flush()
         a1.env._send_toggle(true)
         bus.flush()
-        b.env._on_search('#old')
+        b.env._on_search(b.getBox())
         bus.flush()
         // reload A: A1 closes (pagehide -> bye; B retires)
         a1.fireWin('pagehide')
         a1.win._todoer_windows.channel.close()
         bus.flush()
-        // while A is away, type '2' in B -> box holds unapplied draft '#old2' while debounced
         advanceAll(bus, [b], 2000)
-        b.win._mindboxDebounced = true
-        b.setBox('#old2')
-        // fresh A2 boots on same sessionStorage with #todo list and rediscovers B while B is debounced
-        const a2 = makeWindow(bus, { id: 'A2', now: b.clock.now, storage: sharedStore })
+        // fresh A2 boots on same sessionStorage with #todo list at scrollTop 500 (old2 is off-screen at 1400)
+        const a2 = makeWindow(bus, { id: 'A2', now: b.clock.now, storage: sharedStore, innerHeight: 700, scrollTop: 500, headerTop: 500 })
         const doneHits = []
         a2.env._complete_todo = it => (doneHits.push(it.id), false)
         a2.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
         a2.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
-        const wA2 = a2.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 580 }] })
+        a2.makeItem('old23', { saved_id: 's_old23', text: '#todo old23 task', scrollY: 1800 })
+        const wA2 = a2.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 1400 }, { id: 'old23', pageY: 1440 }] })
         const markedA2 = () => [...wA2.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
         const pressDoneA2 = async () => {
           doneHits.length = 0
@@ -12559,30 +12686,81 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           return doneHits[0] ?? null
         }
         a2.setBox('#todo')
+        if (!pointerReport) {
+          // type '2' in B before A2 boots -> box holds unapplied draft '#old2' while debounced
+          b.win._mindboxDebounced = true
+          b.setBox('#old2')
+        }
         a2.env._start_windows()
         if (pauseA2Ms > 0) a2.win._todoer_windows.channel.paused = true
         bus.flush()
+        if (pointerReport) {
+          // B reports its applied target on pointerdown in its box, then user types '2' (debounced)
+          b.fireDoc('pointerdown')
+          bus.flush()
+          b.win._mindboxDebounced = true
+          b.setBox('#old2')
+        }
         const duringDebounce = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
-        // backspace before debounce settles -> returns to already-applied '#old', so app skips _on_search
+        if (commit) {
+          // draft '#old2' settles and runs B's search hook BEFORE A2 answers (B still has no partner!)
+          advanceAll(bus, [a2, b], 500)
+          b.win._mindboxDebounced = false
+          b.setTargetItem('old2')
+          b.env._on_search('#old2')
+          bus.flush()
+          if (draftAfterCommit) {
+            b.win._mindboxDebounced = true
+            b.setBox(draftAfterCommit)
+          }
+          if (pauseA2Ms > 0) {
+            advanceAll(bus, [a2, b], pauseA2Ms)
+            a2.win._todoer_windows.channel.unpause()
+            bus.flush()
+          }
+          // right after discovery completes (no 30s wait for heartbeat!): A2 marks old2, Done reaches old2, scroll stays 500
+          const rightAfterDiscovery = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2(), a2.getScrollTop()]
+          return [duringDebounce, rightAfterDiscovery]
+        }
+        // backspace before debounce settles -> returns to already-applied query, so app skips _on_search
         advanceAll(bus, [a2, b], 100)
-        b.setBox('#old')
+        b.setBox(initialTarget ? '#' + initialTarget : '#todo')
         advanceAll(bus, [a2, b], 200)
         b.win._mindboxDebounced = false
         if (pauseA2Ms > 0) {
           advanceAll(bus, [a2, b], pauseA2Ms)
           a2.win._todoer_windows.channel.unpause()
+          bus.flush()
         }
-        // two seconds later, A2's actual Done button must act on 'old'
+        const rightAfterDiscovery = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
+        // two seconds later, A2's actual Done button must act on the applied target
         advanceAll(bus, [a2, b], 2000)
         const afterTwoSeconds = [a2.win._todoer_windows.peers.get('B')?.target ?? null, markedA2(), await pressDoneA2()]
-        return [duringDebounce, afterTwoSeconds]
+        return [duringDebounce, rightAfterDiscovery, afterTwoSeconds]
       }
       check(
         'windows reload during typing debounce: first report holds back unapplied draft and applied target reaches reloaded list window for Done without _on_search',
-        [await runReloadDuringTyping(), await runReloadDuringTyping({ pauseA2Ms: 600 })],
+        [await runReloadDuringTyping(), await runReloadDuringTyping({ pauseA2Ms: 600 }), await runReloadDuringTyping({ initialTarget: null })],
         [
-          [[null, [], null], ['s_old', ['old'], 'old']],
-          [[null, [], null], ['s_old', ['old'], 'old']],
+          [['s_old', ['old'], 'old'], ['s_old', ['old'], 'old'], ['s_old', ['old'], 'old']],
+          [[null, [], null], ['s_old', ['old'], 'old'], ['s_old', ['old'], 'old']],
+          [[null, [], null], [null, [], null], [null, [], null]],
+        ]
+      )
+      check(
+        'windows delayed discovery (draft commits after earlier report): right after discovery A2 marks old2 and Done reaches old2 without scrolling',
+        await runReloadDuringTyping({ pauseA2Ms: 600, commit: true, pointerReport: true }),
+        [[null, [], null], ['s_old2', ['old2'], 'old2', 500]]
+      )
+      check(
+        'windows delayed discovery (draft commits with no earlier report): right after discovery A2 marks old2 and Done reaches old2 without scrolling',
+        [
+          await runReloadDuringTyping({ pauseA2Ms: 600, initialTarget: null, commit: true }),
+          await runReloadDuringTyping({ pauseA2Ms: 600, commit: true, draftAfterCommit: '#old23' }),
+        ],
+        [
+          [[null, [], null], ['s_old2', ['old2'], 'old2', 500]],
+          [[null, [], null], ['s_old2', ['old2'], 'old2', 500]],
         ]
       )
     }
@@ -15453,26 +15631,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       bus.flush()
       const afterSettledZ = [markedA(), b.getBox(), await pressDone(), !!yA]
       // (f) typing intermediate target before editor debounce settles:
-      //     (f1) keydown hello while box briefly holds #mpX2 then Backspace back to #mpX without _on_search:
-      //          hello fires with settled target (never publishes #mpX2), Done on mpX2 rejected, live Done acts on mpX
+      //     (f1) keydown and focus hello while box holds debounced #mpX2 then Backspace back to #mpX without _on_search:
+      //          reads applied .container.target (never publishes #mpX2), Done on mpX2 rejected, live Done acts on mpX
       advanceAll(bus, [a, b], 3000) // past (e)'s clock rewind so used() fires hello on each probe
       a.env._select_item(xA)
       bus.flush()
+      b.win._mindboxDebounced = true
       b.setBox('#mpX2')
       advanceAll(bus, [a, b], 1000)
       bus.sent.length = 0
       b.fireDoc('keydown', { key: 'Backspace' })
       bus.flush()
       const keydownHelloTarget = bus.sent.find(m => m.from == 'B' && m.data.type == 'hello')?.data.target ?? 'none'
-      // While the app's _mindboxDebounced flag is set, even a non-keydown focus hello keeps the settled target
-      b.win._mindboxDebounced = true
       advanceAll(bus, [a, b], 1000)
       bus.sent.length = 0
       b.fireWin('focus')
       bus.flush()
       const debouncedFocusTarget = bus.sent.find(m => m.from == 'B' && m.data.type == 'hello')?.data.target ?? 'none'
-      b.win._mindboxDebounced = false
       b.setBox('#mpX')
+      b.win._mindboxDebounced = false
       const afterKeydownType = [
         keydownHelloTarget,
         debouncedFocusTarget,
@@ -15481,7 +15658,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         a.env._pressed_item('done', 'mpX2'),
         await pressDone(),
       ]
-      //     (f2) non-keydown hello (focus) publishes intermediate #mpX2 -> returning to #mpX WITH _on_search corrects partner
+      //     (f2) presence hello drift (windows.reported differs from windows.last) -> returning to #mpX WITH _on_search corrects partner
       b.setBox('#mpX2')
       advanceAll(bus, [a, b], 1000)
       b.fireWin('focus')
@@ -15498,37 +15675,42 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         await pressDone(doneMpX2),
         await pressDone(),
       ]
-      //     (f3) non-keydown hello (focus) publishes intermediate #mpX2 -> returning to #mpX WITHOUT _on_search
-      //          (app skips hook when typing returns to applied query): post-debounce recheck corrects partner!
+      //     (f3) typing #mpX2 while debounced (focus fires mid-debounce) then returning to #mpX WITHOUT _on_search:
+      //          applied .container.target stays mpX throughout so A never marks mpX2 and Done acts on mpX
+      b.win._mindboxDebounced = true
       b.setBox('#mpX2')
       advanceAll(bus, [a, b], 1000)
       b.fireWin('focus')
       bus.flush()
       const midNoHookMark = markedA()
-      const doneX2NoHook = doneA()
       b.setBox('#mpX')
       advanceAll(bus, [a, b], 500)
+      b.win._mindboxDebounced = false
       const afterFocusNoHook = [
         midNoHookMark,
         a.win._todoer_windows.peers.get('B')?.target ?? null,
         markedA(),
-        await pressDone(doneX2NoHook),
+        a.env._pressed_item('done', 'mpX2'),
         await pressDone(),
       ]
-      //     (f4) typing #mpX2 briefly from plain search in B while A has target #mpX -> next click in A opens in A (B keeps plain search)
+      //     (f4) typing #mpX2 briefly while debounced from plain search in B while A has target #mpX -> next click in A opens in A (B keeps plain search)
       b.setBox('plain search')
+      b.setTargetItem(null)
       b.env._on_search('plain search')
       bus.flush()
       a.setBox('#mpX')
+      a.setTargetItem('mpX')
       a.env._on_search('#mpX')
       bus.flush()
       const doneOnXBefore = doneB()
+      b.win._mindboxDebounced = true
       b.setBox('#mpX2')
       advanceAll(bus, [a, b], 1000)
       b.fireWin('focus')
       bus.flush()
       b.setBox('plain search')
       advanceAll(bus, [a, b], 500)
+      b.win._mindboxDebounced = false
       const targetAfterPlainBack = a.win._todoer_windows.peers.get('B')?.target ?? null
       a.env._select_item(zA)
       bus.flush()
@@ -15570,7 +15752,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [['mpZ'], '#mpZ', 'mpZ', true],
           ['s_mpX', 's_mpX', 's_mpX', ['mpX'], null, 'mpX'],
           [['mpX2'], 's_mpX', ['mpX'], null, 'mpX'],
-          [['mpX2'], 's_mpX', ['mpX'], null, 'mpX'],
+          [['mpX'], 's_mpX', ['mpX'], null, 'mpX'],
           [null, '#mpZ', 'plain search', ['mpZ'], null, 'mpZ'],
           [true, null, '#mpX', 'plain search', ['mpX'], null, 'mpX', true],
         ]
@@ -15863,6 +16045,208 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ['#new', ['new'], '#todo', true]
       )
     }
+
+    // 69. Older search callback must not deliver a newer draft:
+    //     index.svelte schedules _on_search via setTimeout(() => _on_search(editorText)) reading LIVE editorText;
+    //     if B applies #old2 (queuing the callback) and the user types '3' (#old23, debounced) BEFORE the callback
+    //     runs, _on_search receives '#old23' while _mindboxDebounced is true. Todoer must publish B's APPLIED target
+    //     (#old2, from .container.target) with its ordering stamp rather than '#old23' (and must not skip the hook).
+    {
+      const runStaleSearchCallback = async ({ withOlderClick = false, applyQuery = '#old2', applyId = 'old2', commitDraft = false } = {}) => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const doneHits = []
+        a.env._complete_todo = it => (doneHits.push(it.id), false)
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        for (const w of [a, b]) {
+          w.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1600 })
+          w.makeItem('old2', { saved_id: 's_old2', text: '#todo old2 task', scrollY: 1700 })
+          w.makeItem('old23', { saved_id: 's_old23', text: '#todo old23 task', scrollY: 1800 })
+          w.makeItem('z', { saved_id: 's_z', text: '#todo z task', scrollY: 1900 })
+        }
+        const zA = a.items.get('z')
+        const wA = a.makeWidget({ rows: [{ id: 'old', pageY: 540 }, { id: 'old2', pageY: 580 }, { id: 'old23', pageY: 620 }, { id: 'z', pageY: 660 }] })
+        const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        const pressDoneA = async () => {
+          doneHits.length = 0
+          const btn = a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+          await btn?.press?.()
+          return doneHits[0] ?? null
+        }
+        a.setBox('#todo')
+        b.setBox('#old')
+        b.setTargetItem('old')
+        a.env._send_press()
+        bus.flush()
+        b.env._on_search('#old')
+        bus.flush()
+        if (withOlderClick) {
+          // A clicks row z at t=100 (held 20ms in flight to B)
+          advanceAll(bus, [a, b], 100)
+          b.win._todoer_windows.channel.paused = true
+          a.env._select_item(zA)
+          bus.flush()
+          advanceAll(bus, [a, b], 5)
+        }
+        // B applies `applyQuery` (e.g. #old2 or plain) -> DOM updates .container.target, app queues setTimeout reading live box
+        b.setBox(applyQuery)
+        b.setTargetItem(applyId)
+        b.win._mindboxDebounced = false
+        b.env.setTimeout(() => { b.env._on_search(b.getBox()) }, 5)
+        // 2ms later, BEFORE the queued _on_search runs, user types '3' -> live box is '#old23' while debounced!
+        advanceAll(bus, [a, b], 2)
+        b.setBox('#old23')
+        b.win._mindboxDebounced = true
+        // queued _on_search callback fires at +5ms, handed live '#old23' while _mindboxDebounced is true
+        advanceAll(bus, [a, b], 5)
+        if (withOlderClick) {
+          // A's older click on z arrives after B's search callback published #old2 with its ordering stamp
+          advanceAll(bus, [a, b], 10)
+          b.win._todoer_windows.channel.unpause()
+        }
+        if (commitDraft) {
+          // draft '#old23' settles and fires final _on_search('#old23')
+          advanceAll(bus, [a, b], 500)
+          b.win._mindboxDebounced = false
+          b.setTargetItem('old23')
+          b.env._on_search('#old23')
+          bus.flush()
+        } else {
+          // user backspaces '3' -> returns to already-applied query, debounce ends, NO final _on_search runs
+          advanceAll(bus, [a, b], 100)
+          b.setBox(applyQuery)
+          advanceAll(bus, [a, b], 500)
+          b.win._mindboxDebounced = false
+        }
+        // two seconds later: check B's box, A's peer target, A's mark, and A's Done target
+        advanceAll(bus, [a, b], 2000)
+        return [b.getBox(), a.win._todoer_windows.peers.get('B')?.target ?? null, markedA(), await pressDoneA()]
+      }
+      check(
+        'windows older search callback with newer draft: publishes applied target (#old2) with ordering stamp, never debounced draft (#old23)',
+        [
+          await runStaleSearchCallback(),
+          await runStaleSearchCallback({ withOlderClick: true }),
+          await runStaleSearchCallback({ applyQuery: 'plain', applyId: null }),
+          await runStaleSearchCallback({ commitDraft: true }),
+        ],
+        [
+          ['#old2', 's_old2', ['old2'], 'old2'],
+          ['#old2', 's_old2', ['old2'], 'old2'],
+          ['plain', null, [], null],
+          ['#old23', 's_old23', ['old23'], 'old23'],
+        ]
+      )
+    }
+
+    // 70. Multi-target query keeps settled parser's pick while debounced (never guesses pinned/first DOM match):
+    //     B applies '#first id:second' (with second pinned first in DOM) or 'id:first id:second',
+    //     types a suffix (debounced), B's ordinary 30s heartbeat fires, then user backspaces before
+    //     the suffix applies (no _on_search). Also verifies unresolved multi-target debounced state
+    //     (several targets in DOM with no settled pick among them -> no target, Done unavailable until settled).
+    {
+      const setupPair = () => {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
+        const doneHits = []
+        a.env._complete_todo = it => (doneHits.push(it.id), false)
+        a.env._start_windows()
+        b.env._start_windows()
+        bus.flush()
+        for (const w of [a, b]) {
+          w.makeItem('first', { saved_id: 's_first', text: '#todo first task', scrollY: 1600 })
+          w.makeItem('second', { saved_id: 's_second', text: '#todo second task', scrollY: 1700 })
+          w.makeItem('other', { saved_id: 's_other', text: '#todo other task', scrollY: 1800 })
+        }
+        const wA = a.makeWidget({ rows: [{ id: 'first', pageY: 540 }, { id: 'second', pageY: 580 }, { id: 'other', pageY: 620 }] })
+        const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        const pressDoneA = async () => {
+          doneHits.length = 0
+          const btn = a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+          await btn?.press?.()
+          return doneHits[0] ?? null
+        }
+        const snap = async () => [b.env._selected_item()?.id ?? null, markedA(), await pressDoneA()]
+        a.setBox('#todo')
+        a.env._send_press()
+        bus.flush()
+        return { bus, a, b, snap }
+      }
+      const runMultiTarget = async ({ query, preQuery = null, preTargets = null }) => {
+        const { bus, a, b, snap } = setupPair()
+        if (preQuery != null) {
+          b.setBox(preQuery)
+          b.setTargetItems(preTargets)
+          b.win._mindboxDebounced = false
+          b.env._on_search(preQuery)
+          bus.flush()
+        }
+        // Apply multi-target query in B; second is pinned so app renders .container.target for second BEFORE first
+        b.setBox(query)
+        b.setTargetItems(['second', 'first'])
+        b.win._mindboxDebounced = false
+        b.env._on_search(query)
+        bus.flush()
+        // Advance just before B's ordinary 30s heartbeat, type suffix (debounced)
+        advanceAll(bus, [a, b], 29_900)
+        b.setBox(query + ' x')
+        b.win._mindboxDebounced = true
+        const whilePending = await snap()
+        // Ordinary 30s heartbeat fires at +30,000ms while suffix is still debounced
+        bus.sent.length = 0
+        advanceAll(bus, [a, b], 200)
+        const heartbeatSent = bus.sent.some(m => m.from == 'B' && m.data.type == 'hello')
+        const atHeartbeat = await snap()
+        // User backspaces suffix before 500ms debounce settles (returns to applied query -> app skips _on_search)
+        advanceAll(bus, [a, b], 100)
+        b.setBox(query)
+        b.win._mindboxDebounced = false
+        // Two seconds after undo
+        advanceAll(bus, [a, b], 2000)
+        const afterUndo = await snap()
+        return { heartbeatSent, whilePending, atHeartbeat, afterUndo }
+      }
+      const runUnresolvedMultiTarget = async () => {
+        const { bus, a, b, snap } = setupPair()
+        b.setBox('#other')
+        b.setTargetItems(['other'])
+        b.win._mindboxDebounced = false
+        b.env._on_search('#other')
+        bus.flush()
+        // Several targets appear in DOM while debounced without a settled parse having picked either
+        advanceAll(bus, [a, b], 29_900)
+        b.setTargetItems(['second', 'first'])
+        b.setBox('#first id:second x')
+        b.win._mindboxDebounced = true
+        const bBeforeHb = b.env._selected_item()?.id ?? null
+        advanceAll(bus, [a, b], 200)
+        const atHeartbeat = await snap()
+        // Settling resolves #first id:second -> first becomes selected, marked, and Done-ready
+        b.setBox('#first id:second')
+        b.win._mindboxDebounced = false
+        b.env._on_search('#first id:second')
+        bus.flush()
+        const afterSettle = await snap()
+        return { bBeforeHb, atHeartbeat, afterSettle }
+      }
+      check(
+        'windows multi-target query while debounced: keeps settled parser pick (#first id:second and id:first id:second with second pinned) across pending suffix, heartbeat, and undo, and refuses to guess when unresolved',
+        [
+          await runMultiTarget({ query: '#first id:second' }),
+          await runMultiTarget({ query: 'id:first id:second', preQuery: '#second', preTargets: ['second'] }),
+          await runUnresolvedMultiTarget(),
+        ],
+        [
+          { heartbeatSent: true, whilePending: ['first', ['first'], 'first'], atHeartbeat: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { heartbeatSent: true, whilePending: ['first', ['first'], 'first'], atHeartbeat: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { bBeforeHb: null, atHeartbeat: [null, [], null], afterSettle: ['first', ['first'], 'first'] },
+        ]
+      )
+    }
   })())
 
   // 50. SNOOZE DIALOG KEYS: pure movement over rows of horizontal middles, Enter on every kind of
@@ -15871,6 +16255,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
   async_rows.push((async () => {
     const snoozeFns = pick([
       '_snooze_move',
+      '_snooze_key',
       '_snooze_rows',
       '_snooze_dialog',
       '_snooze_time',
@@ -15885,8 +16270,40 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       '_snooze_next_week',
     ]).join('\n')
     const notifyPermConst = src.match(/\nconst _notify_permission = [^\n]*\n/)[0]
+    const UNSETTLED = '__UNSETTLED__'
+    // never hang on an unsettled modal promise: race against the next event-loop turn so any
+    // broken confirmation fails its named check and exits non-zero
+    const settleAnswer = modal =>
+      new Promise(resolve => {
+        let done = false
+        const timer = setImmediate(() => {
+          if (done) return
+          done = true
+          resolve(UNSETTLED)
+        })
+        Promise.resolve(modal).then(
+          val => {
+            if (done) return
+            done = true
+            clearImmediate(timer)
+            resolve(val)
+          },
+          err => {
+            if (done) return
+            done = true
+            clearImmediate(timer)
+            resolve(`__REJECTED__:${err?.message ?? err}`)
+          }
+        )
+      })
+    const clearIfUnsettled = async (e, modal, ans) => {
+      if (ans === UNSETTLED) {
+        e.env._modal_close(modal)
+        await Promise.resolve()
+      }
+    }
 
-    const makeSnoozeEnv = (now = 1_795_700_000_000) => {
+    const makeSnoozeEnv = (now = 1_795_700_000_000, envOpts = {}) => {
       const middles = [
         [120, 173, 226, 279, 333, 391],
         [145, 256, 370],
@@ -15900,6 +16317,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const alerts = []
       const closes = []
       const appBubble = []
+      const modalQueue = []
+      const domWaiters = []
+      const tasks = {}
+      let domHeld = !!envOpts.holdDom
+      let hasSnoozeDom = false
       let modalVisible = false
       let currentModal = null
       let currentOpts = null
@@ -15908,6 +16330,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       let askCount = 0
       let askResult = 'denied'
       let activeEl = null
+      let rectCalls = 0
 
       const makeEl = (mid, extra = {}) => {
         const classes = new Set(extra.classes ?? [])
@@ -15922,7 +16345,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             toggle: (c, f) => (f === undefined ? (classes.has(c) ? classes.delete(c) : classes.add(c)) : f ? classes.add(c) : classes.delete(c)),
             contains: c => classes.has(c),
           },
-          getBoundingClientRect: () => ({ left: mid - 20, right: mid + 20, top: 0, bottom: 20, width: 40, height: 20 }),
+          getBoundingClientRect: () => {
+            rectCalls++
+            return { left: mid - 20, right: mid + 20, top: 0, bottom: 20, width: 40, height: 20 }
+          },
           focus: () => {
             activeEl = el
           },
@@ -15936,6 +16362,17 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const row0 = labels0.map((t, i) => makeEl(middles[0][i], { text: t, classes: ['button'] }))
       const row1 = labels1.map((t, i) => makeEl(middles[1][i], { text: t, classes: ['button'] }))
       const dateInput = makeEl(middles[2][0])
+      let dateValue = ''
+      const dateValueWrites = []
+      Object.defineProperty(dateInput, 'value', {
+        get: () => dateValue,
+        set: v => {
+          dateValue = v
+          dateValueWrites.push(v)
+        },
+        enumerable: true,
+        configurable: true,
+      })
       const snoozeBtn = makeEl(middles[2][1], { text: 'snooze', classes: ['button', 'snooze'] })
       const notifyBox = makeEl(middles[3][0])
       const hintEl = { innerText: '' }
@@ -15960,14 +16397,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           return activeEl
         },
         querySelector: s =>
-          ({
-            '.snooze-modal': root,
-            '.snooze-modal .custom input': dateInput,
-            '.snooze-modal .button.snooze': snoozeBtn,
-            '.snooze-modal .notify input': notifyBox,
-            '.snooze-modal .notify .hint': hintEl,
-          })[s] ?? null,
-        querySelectorAll: s => (s == '.snooze-modal .lit' ? allStops.filter(e => e.classList.contains('lit')) : []),
+          !hasSnoozeDom
+            ? null
+            : ({
+                '.snooze-modal': root,
+                '.snooze-modal .custom input': dateInput,
+                '.snooze-modal .button.snooze': snoozeBtn,
+                '.snooze-modal .notify input': notifyBox,
+                '.snooze-modal .notify .hint': hintEl,
+              })[s] ?? null,
+        querySelectorAll: s => (hasSnoozeDom && s == '.snooze-modal .lit' ? allStops.filter(e => e.classList.contains('lit')) : []),
       }
 
       let clock = now
@@ -15983,6 +16422,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         }
         toInputValue() {
           return new RealDate(this.getTime()).toISOString().slice(0, 16)
+        }
+      }
+
+      const showNextQueued = () => {
+        while (modalQueue.length) {
+          const next = modalQueue.shift()
+          if (next.cancelled) {
+            next.resolve(next.output)
+            continue
+          }
+          modalVisible = true
+          currentModal = next.promise
+          currentOpts = next.opts
+          resolveModal = next.resolve
+          hasSnoozeDom = next.content.includes('snooze-modal')
+          Promise.resolve().then(() => {
+            if (currentModal === next.promise) next.opts?.canConfirm?.()
+          })
+          return
         }
       }
 
@@ -16023,39 +16481,85 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         _todoer: {
           store: {},
           read: () => '<div class="snooze-modal">__onclick__ __onchange__ __onnotify__</div>',
-          dispatch_task: () => {},
+          dispatch_task: (name, fn, delay = 0, repeat = -1) => {
+            tasks[name] = { fn, delay, repeat, cancelled: false, runs: 0 }
+          },
         },
-        _update_dom: () => Promise.resolve(),
-        _modal: (_content, opts) => {
-          modalVisible = true
-          currentOpts = { ...opts }
-          currentModal = new Promise(resolve => {
-            resolveModal = resolve
+        _update_dom: () => (domHeld ? new Promise(r => domWaiters.push(r)) : Promise.resolve()),
+        _modal: (content, opts) => {
+          const entry = {
+            content: String(content ?? ''),
+            opts: { ...opts },
+            cancelled: false,
+            output: undefined,
+            resolve: null,
+            promise: null,
+          }
+          entry.promise = new Promise(resolve => {
+            entry.resolve = resolve
           })
-          return currentModal
+          if (!modalVisible) {
+            modalVisible = true
+            currentModal = entry.promise
+            currentOpts = entry.opts
+            resolveModal = entry.resolve
+            hasSnoozeDom = entry.content.includes('snooze-modal')
+          } else {
+            modalQueue.push(entry)
+          }
+          return entry.promise
         },
         _modal_visible: p => modalVisible && (!p || p === currentModal),
         _modal_update: (p, opts) => {
           if (p === currentModal) Object.assign(currentOpts, opts)
+          else {
+            const q = modalQueue.find(x => x.promise === p)
+            if (q) Object.assign(q.opts, opts)
+          }
         },
         _modal_close: (p, out) => {
           closes.push([p, out])
-          if (!p || p === currentModal) {
+          if (!p) {
+            for (const q of modalQueue) {
+              q.cancelled = true
+              q.output = undefined
+            }
+          } else if (p !== currentModal) {
+            const q = modalQueue.find(x => x.promise === p)
+            if (q) {
+              q.cancelled = true
+              q.output = out
+            }
+            return
+          }
+          if (modalVisible) {
             modalVisible = false
             const r = resolveModal
             resolveModal = null
             currentModal = null
+            currentOpts = null
             r?.(out)
           }
+          showNextQueued()
         },
       }
       vm.createContext(env)
       vm.runInContext(notifyPermConst + '\n' + snoozeFns, env)
 
+      // app src/event_key.ts resolver for simulated Modal.svelte bubble listener
+      const REMAPPED_AS_NAMED = /^(Escape|Enter|NumpadEnter|Tab|Backspace|Delete|Insert|Home|End|Page(Up|Down)|Arrow(Up|Down|Left|Right)|F\d+)$/
+      const KEY_NAME = /^[A-Za-z][A-Za-z0-9]+$/
+      const appEventKey = ev => {
+        const code = ev?.code || ev?.key || ''
+        const key = typeof ev?.key == 'string' ? ev.key : ''
+        if (key && REMAPPED_AS_NAMED.test(code) && !KEY_NAME.test(key)) return key
+        return code
+      }
+
       const dispatchKey = (key, extra = {}) => {
         const e = {
           key,
-          code: extra.code ?? (key == ' ' ? 'Space' : key),
+          code: 'code' in extra ? extra.code : key == ' ' ? 'Space' : key ?? '',
           repeat: !!extra.repeat,
           ctrlKey: !!extra.ctrlKey,
           altKey: !!extra.altKey,
@@ -16081,10 +16585,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         }
         // simulated Modal.svelte bubble listener on window (runs whenever propagation was not stopped)
         if (!e.stopped) {
-          appBubble.push(key)
+          const appKey = appEventKey(e)
+          appBubble.push(appKey)
           if (modalVisible && !e.repeat) {
-            if (key == 'Enter' && currentOpts?.canConfirm?.()) currentOpts.onConfirm?.()
-            else if (key == 'Escape') env._modal_close(currentModal, undefined)
+            if (appKey == 'Enter' && currentOpts?.canConfirm?.()) currentOpts.onConfirm?.()
+            else if (appKey == 'Escape') env._modal_close(currentModal, undefined)
           }
         }
         return e
@@ -16101,6 +16606,32 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         perm = p
         askResult = next
       }
+      const setHoldDom = v => {
+        domHeld = !!v
+      }
+      const releaseDom = async () => {
+        const pending = domWaiters.splice(0)
+        for (const r of pending) r()
+        await Promise.resolve()
+        await Promise.resolve()
+      }
+      const runTask = name => {
+        const t = tasks[name]
+        if (!t || t.cancelled) return 'none'
+        t.runs++
+        const out = t.fn()
+        if (out === null) t.cancelled = true
+        else if (typeof out == 'number' && out >= 0) t.delay = out
+        else if (t.repeat >= 0) t.delay = t.repeat
+        else t.cancelled = true
+        return out
+      }
+
+      // real browser click order on a checkbox: browser toggles checked BEFORE firing change
+      const clickNotify = () => {
+        notifyBox.checked = !notifyBox.checked
+        env._on_snooze_notify({ target: notifyBox })
+      }
 
       return {
         env,
@@ -16108,6 +16639,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         row0,
         row1,
         dateInput,
+        dateValueWrites,
         snoozeBtn,
         notifyBox,
         hintEl,
@@ -16115,17 +16647,28 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         alerts,
         closes,
         appBubble,
+        tasks,
         dispatchKey,
+        clickNotify,
         litNames,
         flushTimers,
         setNow,
         setPerm,
+        setHoldDom,
+        releaseDom,
+        pendingDomCount: () => domWaiters.length,
+        runTask,
+        getRectCalls: () => rectCalls,
+        resetRectCalls: () => {
+          rectCalls = 0
+        },
         getAskCount: () => askCount,
         getActive: () => activeEl,
         setActive: el => {
           activeEl = el
         },
         isVisible: () => modalVisible,
+        canConfirmNow: () => !!currentOpts?.canConfirm?.(),
       }
     }
 
@@ -16225,7 +16768,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dateInput.valueAsNumber = future
       e.env._on_snooze_input_change()
       const futEnter = e.dispatchKey('Enter')
-      const answer = await modal
+      const answer = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, answer)
       check(
         'snooze dialog keys: nothing is lit at opening and Enter delegates to the app',
         [atOpenLit, afterPast, futEnter.stopped, answer, e.closes.length, e.listeners.length],
@@ -16246,8 +16790,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const lit = e.litNames()
       e.appBubble.length = 0
       const ev = e.dispatchKey('Enter')
-      const ans1 = await m1
+      const ans1 = await settleAnswer(m1)
       const after1 = [e.closes.length, e.listeners.length, e.litNames()]
+      await clearIfUnsettled(e, m1, ans1)
       // Row 1 button (tomorrow) via Down, Down, Enter
       const expectedTom = e.env._snooze_tomorrow().getTime()
       const m2 = e.env._snooze_dialog()
@@ -16256,7 +16801,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchKey('ArrowDown')
       const lit2 = e.litNames()
       const ev2 = e.dispatchKey('Enter')
-      const ans2 = await m2
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
       // Past-time check via _on_snooze when _snooze_time returns a past timestamp (with a valid future date in the field so an unstopped Enter would confirm via the app)
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
@@ -16268,7 +16814,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchKey('Enter')
       const pastBtn = [e.isVisible(), e.alerts.slice(), e.closes.length]
       e.env._modal_close(m3)
-      await m3
+      await settleAnswer(m3)
       check(
         'snooze dialog keys: Enter on a lit time button answers with its label time, blocks app confirmation, and checks past time',
         [lit, ev.defaultPrevented, ev.stopped, e.appBubble.slice(), ans1, after1, lit2, ev2.stopped, ans2, pastBtn, e.listeners.length, e.litNames()],
@@ -16312,7 +16858,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze_input_change()
       e.appBubble.length = 0
       const okEv = e.dispatchKey('Enter')
-      const ans = await modal
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
       check(
         'snooze dialog keys: Enter on the lit snooze button confirms only where allowed and never twice',
         [lit, afterPast, afterNaN, okEv.stopped, e.appBubble.slice(), ans, e.closes.length, e.listeners.length],
@@ -16344,7 +16891,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze_input_change()
       e.appBubble.length = 0
       const enterBlurred = e.dispatchKey('Enter')
-      const ans1 = await m1
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
 
       // focused Enter confirms directly; Tab out of last part blurs stray focus and keeps field lit; second Escape closes
       const m2 = e.env._snooze_dialog()
@@ -16359,7 +16907,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.flushTimers()
       const afterTab = [tabEv.stopped, e.getActive() === null, e.litNames(), e.isVisible()]
       const esc2 = e.dispatchKey('Escape') // now closes dialog
-      const ans2 = await m2
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
 
       // focused Enter with valid future time confirms once
       const m3 = e.env._snooze_dialog()
@@ -16371,7 +16920,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchKey('ArrowDown')
       e.appBubble.length = 0
       const enterFocused = e.dispatchKey('Enter')
-      const ans3 = await m3
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
 
       check(
         'snooze dialog keys: date field focuses on arrival, owns arrows, leaves lit on Escape or Tab, and confirms on Enter when allowed',
@@ -16429,7 +16979,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchKey('ArrowUp') // weekend
       e.dispatchKey('ArrowUp') // 3d
       e.dispatchKey('Enter')
-      const ans = await modal
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
       check(
         'snooze dialog keys: Space on the lit notify box toggles it with the hint and never answers',
         [afterBtnSpace, litBox, afterCheck, afterRep, afterEntBox, afterUncheck, ans],
@@ -16458,7 +17009,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const repEnter = e.dispatchKey('Enter', { repeat: true })
       const afterRepEnter = [repEnter.stopped, e.appBubble.slice(), e.isVisible(), e.closes.length]
       e.dispatchKey('Enter')
-      const ans = await modal
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
       check(
         'snooze dialog keys: held arrow repeat moves highlight and held Enter repeat never answers',
         [litAfterRepArrow, afterRepEnter, ans],
@@ -16471,6 +17023,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const NOW = 1_795_700_000_000
       const e = makeSnoozeEnv(NOW)
       const countsOpen = []
+      const answers = []
+      const expectedAnswers = []
       const countsClosed = []
       const litClosed = []
       for (let i = 0; i < 10; i++) {
@@ -16478,13 +17032,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         await Promise.resolve()
         countsOpen.push(e.listeners.length)
         e.dispatchKey('ArrowRight')
-        if (i % 4 == 0) e.dispatchKey('Enter') // Enter on 3h
-        else if (i % 4 == 1) e.dispatchKey('Escape') // Escape
-        else if (i % 4 == 2) e.env._on_snooze({ target: e.row0[2] }) // mouse click on 1d while 3h lit
-        else e.env._modal_close(m) // external close
-        await m
+        if (i % 4 == 0) {
+          e.dispatchKey('Enter') // Enter on 3h
+          expectedAnswers.push({ time: NOW + 3 * 3_600_000, notify: false })
+        } else if (i % 4 == 1) {
+          e.dispatchKey('Escape') // Escape on lit 3h
+          expectedAnswers.push(undefined)
+        } else if (i % 4 == 2) {
+          e.env._on_snooze({ target: e.row0[2] }) // mouse click on 1d while 3h lit
+          expectedAnswers.push({ time: NOW + 24 * 3_600_000, notify: false })
+        } else {
+          e.env._modal_close(m) // external close
+          expectedAnswers.push(undefined)
+        }
+        const ans = await settleAnswer(m)
+        // record the original settlement and state BEFORE repairing any unsettled fixture
+        answers.push(ans)
         countsClosed.push(e.listeners.length)
         litClosed.push(e.litNames().length)
+        await clearIfUnsettled(e, m, ans)
       }
       // after close, keys are not intercepted
       const postClose = e.dispatchKey('ArrowRight')
@@ -16495,16 +17061,328 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const mouseArrow = e.dispatchKey('ArrowUp')
       const mouseState = [mouseArrow.stopped, e.litNames()]
       e.env._modal_close(mMouse)
-      await mMouse
+      const ansMouse = await settleAnswer(mMouse)
+      await clearIfUnsettled(e, mMouse, ansMouse)
       check(
         'snooze dialog keys: one handler while open, none after every close across ten cycles, and mouse date focus untouched',
-        [countsOpen, countsClosed, litClosed, postClose.stopped, mouseState, e.listeners.length],
+        [countsOpen, answers, countsClosed, litClosed, postClose.stopped, mouseState, ansMouse === undefined, e.listeners.length],
         [
           Array(10).fill(1),
+          expectedAnswers,
           Array(10).fill(0),
           Array(10).fill(0),
           false,
           [false, []],
+          true,
+          0,
+        ]
+      )
+    }
+
+    // 50i. Notify box starts unticked from frame 0 via end-of-opening cleanup, and setup runs before first answer when _update_dom() is held
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedDate = new e.env.Date(NOW).toInputValue()
+      // Opening 1: real click order (toggle then change) on notify box, then time button 3h -> notify: true; cleanup unticks reused box
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.clickNotify()
+      e.env._on_snooze({ target: e.row0[0] })
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      const checkedAfter1 = e.notifyBox.checked
+      // Opening 2: render held; first click on notify box (toggle then change), then time button 3h -> notify: true
+      e.dateInput.value = ''
+      e.setHoldDom(true)
+      const m2 = e.env._snooze_dialog()
+      const domPending2 = e.pendingDomCount()
+      e.clickNotify()
+      e.env._on_snooze({ target: e.row0[0] })
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+      const dateAfter2 = e.dateInput.value
+      const checkedAfter2 = e.notifyBox.checked
+      await e.releaseDom()
+      // Opening 3: render held, no click on box, time button 3h -> notify: false
+      e.dateInput.value = ''
+      const m3 = e.env._snooze_dialog()
+      e.env._on_snooze({ target: e.row0[0] })
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+      const dateAfter3 = e.dateInput.value
+      await e.releaseDom()
+      // Opening 4: render held, no click on box, Right + Enter -> notify: false
+      e.dateInput.value = ''
+      const m4 = e.env._snooze_dialog()
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('Enter')
+      const ans4 = await settleAnswer(m4)
+      await clearIfUnsettled(e, m4, ans4)
+      const dateAfter4 = e.dateInput.value
+      await e.releaseDom()
+      // Opening 5: render held, notify clicked then dismissed with Escape -> cleanup unticks reused box
+      const m5 = e.env._snooze_dialog()
+      e.clickNotify()
+      e.dispatchKey('Escape')
+      const ans5 = await settleAnswer(m5)
+      await clearIfUnsettled(e, m5, ans5)
+      const checkedAfterEsc = e.notifyBox.checked
+      await e.releaseDom()
+      check(
+        'snooze dialog setup: runs before key or click answer when _update_dom is held, resetting reused notify box',
+        [ans1, checkedAfter1, domPending2, ans2, dateAfter2, checkedAfter2, ans3, dateAfter3, ans4, dateAfter4, ans5 === undefined, checkedAfterEsc, e.listeners.length],
+        [
+          { time: NOW + 3 * 3_600_000, notify: true },
+          false,
+          1,
+          { time: NOW + 3 * 3_600_000, notify: true },
+          expectedDate,
+          false,
+          { time: NOW + 3 * 3_600_000, notify: false },
+          expectedDate,
+          { time: NOW + 3 * 3_600_000, notify: false },
+          expectedDate,
+          true,
+          false,
+          0,
+        ]
+      )
+    }
+
+    // 50j. Queued snooze dialog behind an unrelated modal initializes once promoted (date filled, box unticked, validity task running, setup run once)
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedDate = new e.env.Date(NOW).toInputValue()
+      // Prior snooze opening ticked notify and closed, leaving the reused DOM unticked
+      const prior = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.clickNotify()
+      e.env._on_snooze({ target: e.row0[0] })
+      const priorAns = await settleAnswer(prior)
+      await clearIfUnsettled(e, prior, priorAns)
+      const priorTaskStopped = e.runTask('snooze-modal-update')
+
+      // Unrelated modal is up while a new snooze dialog is queued behind it
+      e.setHoldDom(true)
+      const other = e.env._modal('<div>other</div>', {})
+      e.dateInput.value = ''
+      e.dateValueWrites.length = 0
+      const m = e.env._snooze_dialog()
+      await e.releaseDom() // initial render callback fires while unrelated modal is still up
+      const whileOther = [e.env._modal_visible(m), e.dateInput.value, e.dateValueWrites.length, e.runTask('snooze-modal-update')]
+      // Promotion installs fresh canConfirm and evaluates it -> schedule_dom -> setup
+      e.env._modal_close(other)
+      const otherAns = await settleAnswer(other)
+      await Promise.resolve() // allow promoted canConfirm -> schedule_dom
+      await e.releaseDom()
+      const afterPromotion = [
+        e.env._modal_visible(m),
+        e.dateInput.value,
+        e.notifyBox.checked,
+        e.dateValueWrites.slice(),
+        !!e.tasks['snooze-modal-update'] && !e.tasks['snooze-modal-update'].cancelled,
+      ]
+      // Validity task runs and enables confirm when date moves to future
+      e.dateInput.valueAsNumber = NOW + 2 * 3_600_000
+      e.runTask('snooze-modal-update')
+      const validityRunning = [e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      // Setup runs once: further render release does not overwrite date or user tick
+      e.clickNotify()
+      await e.releaseDom()
+      const setupOnce = [e.dateValueWrites.length, e.notifyBox.checked]
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('Enter')
+      const ans = await settleAnswer(m)
+      await clearIfUnsettled(e, m, ans)
+      const afterCloseTask = e.runTask('snooze-modal-update')
+      check(
+        'snooze dialog setup: queued dialog behind unrelated modal initializes once visible with date filled and validity check running',
+        [priorAns, priorTaskStopped, whileOther, otherAns === undefined, afterPromotion, validityRunning, setupOnce, ans, afterCloseTask],
+        [
+          { time: NOW + 3 * 3_600_000, notify: true },
+          null,
+          [false, '', 0, 'none'],
+          true,
+          [true, expectedDate, false, [expectedDate], true],
+          [true, false],
+          [1, true],
+          { time: NOW + 3 * 3_600_000, notify: true },
+          null,
+        ]
+      )
+    }
+
+    // 50k. Overlapping snooze requests: second is declined empty at once while the first keeps keys, clicks, and answer
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      // (a) A open, B asked -> B resolves undefined at once; arrows and Enter answer A alone
+      const a = e.env._snooze_dialog()
+      await Promise.resolve()
+      const b = e.env._snooze_dialog()
+      const ansB = await settleAnswer(b)
+      const midA = [e.env._modal_visible(a), e.listeners.length]
+      e.dispatchKey('ArrowRight')
+      const litA = e.litNames()
+      e.dispatchKey('Enter')
+      const ansA = await settleAnswer(a)
+      await clearIfUnsettled(e, a, ansA)
+      const afterA = [e.isVisible(), e.listeners.length]
+
+      // (b) A2 open, B2 asked -> B2 resolves undefined; click on 6h answers A2 alone
+      const a2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const b2 = e.env._snooze_dialog()
+      const ansB2 = await settleAnswer(b2)
+      e.env._on_snooze({ target: e.row0[1] }) // 6h click
+      const ansA2 = await settleAnswer(a2)
+      await clearIfUnsettled(e, a2, ansA2)
+
+      // (c) A3 queued behind unrelated modal U, B3 asked -> B3 resolves undefined; U closes, A3 works
+      const u = e.env._modal('<div>other</div>', {})
+      const a3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const b3 = e.env._snooze_dialog()
+      const ansB3 = await settleAnswer(b3)
+      e.env._modal_close(u)
+      await settleAnswer(u)
+      await Promise.resolve()
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('Enter')
+      const ansA3 = await settleAnswer(a3)
+      await clearIfUnsettled(e, a3, ansA3)
+
+      check(
+        'snooze dialog ownership: concurrent request declines empty at once while first keeps keys, clicks, and answer',
+        [ansB === undefined, midA, litA, ansA, afterA, ansB2 === undefined, ansA2, ansB3 === undefined, ansA3, e.listeners.length],
+        [
+          true,
+          [true, 1],
+          ['3h'],
+          { time: NOW + 3 * 3_600_000, notify: false },
+          [false, 0],
+          true,
+          { time: NOW + 6 * 3_600_000, notify: false },
+          true,
+          { time: NOW + 3 * 3_600_000, notify: false },
+          0,
+        ]
+      )
+    }
+
+    // 50l. Soft-keyboard Enter ({key: 'Unidentified', code: 'Enter'}) takes the lit button over a valid custom date, real chars stay chars, and unrelated keys skip row layout
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const keyMap = [
+        e.env._snooze_key({ key: 'Unidentified', code: 'Enter' }),
+        e.env._snooze_key({ key: '', code: 'Enter' }),
+        e.env._snooze_key({ code: 'NumpadEnter' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'Escape' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'Space' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'Tab' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'ArrowRight' }),
+        e.env._snooze_key({ key: 'a', code: 'Enter' }),
+        e.env._snooze_key({ key: '😀', code: 'Escape' }),
+        e.env._snooze_key({ key: 'x', code: 'Space' }),
+      ]
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      // valid and visibly different time (+20h) in the date field
+      e.dateInput.valueAsNumber = NOW + 20 * 3_600_000
+      e.env._on_snooze_input_change()
+      const fieldValid = e.canConfirmNow()
+      e.dispatchKey('ArrowRight') // 3h lit
+      // early key check: unrelated keys and dictated text do not measure stop rects or answer
+      e.resetRectCalls()
+      const dictEv = e.dispatchKey('a', { code: 'Enter' })
+      e.dispatchKey('5', { code: 'Digit5' })
+      e.dispatchKey('Backspace', { code: 'Backspace' })
+      const afterUnrelated = [dictEv.stopped, e.isVisible(), e.closes.length, e.getRectCalls()]
+      // soft-keyboard Enter with 3h lit takes 3h (not the 20h custom date)
+      e.appBubble.length = 0
+      const softEnter = e.dispatchKey('Unidentified', { code: 'Enter' })
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog keys: Unidentified+Enter takes lit preset over valid custom field, dictation chars stay chars, and unrelated keys skip layout',
+        [keyMap, fieldValid, afterUnrelated, softEnter.stopped, e.appBubble.slice(), ans, e.listeners.length],
+        [
+          ['Enter', 'Enter', 'Enter', 'Escape', ' ', 'Tab', 'ArrowRight', 'a', '😀', 'x'],
+          true,
+          [false, true, 0, 0],
+          true,
+          [],
+          { time: NOW + 3 * 3_600_000, notify: false },
+          0,
+        ]
+      )
+    }
+
+    // 50m. Native change from the date field never assigns to the field (after setup or before setup); pre-setup change still initializes other controls and validates in place
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedDate = new e.env.Date(NOW).toInputValue()
+      // (a) After setup: native change on partial (empty serialized value, NaN) and valid future date writes nothing to dateInput.value
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const setupWrites1 = e.dateValueWrites.slice()
+      e.dateInput.value = ''
+      e.dateInput.valueAsNumber = NaN
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const afterPartial = [e.dateValueWrites.slice(), e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      e.dateInput.value = '2027-01-17T12:38'
+      e.dateInput.valueAsNumber = NOW + 5 * 3_600_000
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const afterFuture = [e.dateValueWrites.slice(), e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      e.env._modal_close(m1)
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      e.runTask('snooze-modal-update')
+
+      // (b) Before setup (_update_dom held): native change initializes other controls (hint, validity, 1s task) without writing dateInput.value, and delayed releaseDom leaves dateInput.value untouched
+      e.setPerm('denied')
+      e.hintEl.innerText = 'stale'
+      e.setHoldDom(true)
+      const m2 = e.env._snooze_dialog()
+      e.dateInput.value = ''
+      e.dateInput.valueAsNumber = NaN
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const preSetupPartial = [
+        e.dateValueWrites.slice(),
+        e.hintEl.innerText,
+        e.canConfirmNow(),
+        e.snoozeBtn.classList.contains('disabled'),
+        !!e.tasks['snooze-modal-update'] && !e.tasks['snooze-modal-update'].cancelled,
+      ]
+      await e.releaseDom()
+      const afterDelayedDom = e.dateValueWrites.slice()
+      e.dateInput.value = '2027-01-17T12:38'
+      e.dateInput.valueAsNumber = NOW + 4 * 3_600_000
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const preSetupFuture = [e.dateValueWrites.slice(), e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      e.env._modal_close(m2)
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+      check(
+        'snooze dialog date change: never assigns field value after or before setup while initializing other controls',
+        [setupWrites1, afterPartial, afterFuture, ans1 === undefined, preSetupPartial, afterDelayedDom, preSetupFuture, ans2 === undefined, e.listeners.length],
+        [
+          [expectedDate],
+          [[], false, true],
+          [[], true, false],
+          true,
+          [[], 'this device: denied', false, true, true],
+          [],
+          [[], true, false],
+          true,
           0,
         ]
       )
