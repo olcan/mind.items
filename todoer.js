@@ -1110,6 +1110,7 @@ function _snooze_dialog() {
   let modal = null
   let pos = null
   let lit_el = null
+  let last_pt = null
   let shown = false
   let closed = false
   let ready = false
@@ -1176,6 +1177,7 @@ function _snooze_dialog() {
     if (closed) return
     closed = true
     window.removeEventListener('keydown', on_key, true)
+    window.removeEventListener('pointermove', on_pointer, true)
     clear_lit()
     const notify_box = document.querySelector('.snooze-modal .notify input')
     if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
@@ -1183,6 +1185,24 @@ function _snooze_dialog() {
     if (_todoer.store._snooze_modal === modal) delete _todoer.store._snooze_modal
     if (_todoer.store._snooze_cleanup === cleanup) delete _todoer.store._snooze_cleanup
     if (_todoer.store._snooze_setup === setup) delete _todoer.store._snooze_setup
+    if (_todoer.store._snooze_select_date === select_date) delete _todoer.store._snooze_select_date
+  }
+  const select_date = target => {
+    if (closed || !_modal_visible(modal) || !lit_el) return
+    const root = document.querySelector('.snooze-modal')
+    const date = root?.querySelector('.custom input')
+    if (!root || !date || target !== date || lit_el === date) return
+    const rows = _snooze_rows(root)
+    for (let r = 0; r < rows.length; r++) {
+      const c = rows[r].indexOf(date)
+      if (c >= 0) {
+        pos = [r, c]
+        lit_el.classList.remove('lit')
+        date.classList.add('lit')
+        lit_el = date
+        return
+      }
+    }
   }
   const keys = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Escape', ' ', 'Tab'])
   // capture-phase handler on window for the dialog's lifetime: runs before Modal.svelte's bubble
@@ -1203,26 +1223,20 @@ function _snooze_dialog() {
     if (!root) return
     const date = root.querySelector('.custom input')
     if (date && document.activeElement === date) {
-      if (lit_el !== date) return
       if (key == 'Escape') {
         stop(e)
         date.blur()
         return
       }
-      if (key == 'Enter') {
-        stop(e)
-        if (!e.repeat) {
-          const time = _snooze_input()
-          if (time >= Date.now()) _snooze_close(time)
+      if (key == 'Tab') {
+        if (lit_el === date) {
+          setTimeout(() => {
+            if (!closed && _modal_visible(modal) && document.activeElement && document.activeElement !== date) document.activeElement.blur?.()
+          })
         }
         return
       }
-      if (key == 'Tab') {
-        setTimeout(() => {
-          if (!closed && _modal_visible(modal) && document.activeElement && document.activeElement !== date) document.activeElement.blur?.()
-        })
-      }
-      return
+      if (key != 'Enter' || !lit_el) return
     }
     if (key == 'Escape' || key == 'Tab') return
     if (key == 'ArrowLeft' || key == 'ArrowRight' || key == 'ArrowUp' || key == 'ArrowDown') {
@@ -1270,9 +1284,56 @@ function _snooze_dialog() {
       }
     }
   }
+  // capture-phase pointermove on window for the dialog's lifetime: moves the same highlight as
+  // the keys on real pointer movement (a first event with nonzero movementX/movementY counts at
+  // once, otherwise it only records the place; later events must change screen coordinates),
+  // ignores touch, leaves focus untouched, and keeps the highlight when leaving stops
+  const on_pointer = e => {
+    if (!_modal_visible(modal)) {
+      if (shown) cleanup()
+      return
+    }
+    shown = true
+    if (e.pointerType == 'touch') return
+    const x = e.screenX
+    const y = e.screenY
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    if (!last_pt) {
+      last_pt = [x, y]
+      const moved = (Number.isFinite(e.movementX) && e.movementX !== 0) || (Number.isFinite(e.movementY) && e.movementY !== 0)
+      if (!moved) return
+    } else if (x === last_pt[0] && y === last_pt[1]) {
+      return
+    } else {
+      last_pt = [x, y]
+    }
+    const target = e.target
+    if (!target || target === window) return
+    const root = document.querySelector('.snooze-modal')
+    if (!root || target === root || (root.contains && !root.contains(target))) return
+    const label = (target.closest ? target : target.parentElement)?.closest?.('label')
+    if (lit_el && (lit_el === target || lit_el.contains?.(target) || label?.contains?.(lit_el))) return
+    const rows = _snooze_rows(root)
+    for (let r = 0; r < rows.length; r++) {
+      for (let c = 0; c < rows[r].length; c++) {
+        const el = rows[r][c]
+        if (el === target || el.contains?.(target) || label?.contains?.(el)) {
+          pos = [r, c]
+          if (el !== lit_el) {
+            lit_el?.classList.remove('lit')
+            el.classList.add('lit')
+            lit_el = el
+          }
+          return
+        }
+      }
+    }
+  }
   window.addEventListener('keydown', on_key, true)
+  window.addEventListener('pointermove', on_pointer, true)
   _todoer.store._snooze_cleanup = cleanup
   _todoer.store._snooze_setup = setup
+  _todoer.store._snooze_select_date = select_date
   modal?.then?.(cleanup, cleanup)
   schedule_dom()
   return modal
@@ -1322,6 +1383,7 @@ function _on_snooze_input_change(e) {
   if (e?.target) _todoer.store._snooze_setup?.({ keep_date: true })
   const modal = _todoer.store._snooze_modal
   if (!modal || !_modal_visible(modal)) return
+  if (e?.target) _todoer.store._snooze_select_date?.(e.target)
   const can_confirm = _snooze_input() >= Date.now()
   _modal_update(modal, { canConfirm: () => can_confirm })
   document
