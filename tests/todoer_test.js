@@ -4828,7 +4828,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           'item waits clear (key b): only up/down/bell offered, a/d/s/x/u forward untouched, b clears stamp without writing item and advances selection',
           [drawn, activeOnLast, nonBell, priorCalls, bRes, byKey.note.text == NOTE_TEXT, byKey.note._global_store._todoer, byKey.ids(), byKey.calls.filter(c => c[0] == 'select').map(c => c[1])],
           [
-            ['up', 'down', 'bell'],
+            ['bell', 'up', 'down'],
             ['j:the next row', 'k:the previous row', 'b:clear the bell'], // (the walk goes round: on the last row j is active too)
             ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU'].map(k => ({ prevented: false, res: 'prior:' + k })),
             ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyU'],
@@ -7045,32 +7045,32 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [mainFirst, callsAfterFirst, callsAfterDup, callsAfterHash],
         [
           [
-            ['up', 'Previous row (k)', '#fff', false, 16],
-            ['down', 'Next row (j)', '#fff', false, 16],
             ['agent', 'Delegate to the agent (a)', '#6af', true, 16],
             ['done', 'Done (d)', '#6f6', false, 16],
             ['snooze', 'Snooze (s)', '#fa4', false, 16],
             ['cancel', 'Delete (x)', '#f66', false, 16],
+            ['up', 'Previous row (k)', '#fff', false, 16],
+            ['down', 'Next row (j)', '#fff', false, 16],
           ],
           1, 1, 2,
         ])
       check('bin buttons: middle row with bell has both up/down lit and yellow bell (box 24) before bins; reply row has up/down/bell only with down lit (cycles)',
-        [mainBell.map(x => x.slice(0, 3)), mainBell[2], replyBtns.map(x => [x[0], x[1]]), replyBtns[1][2]],
+        [mainBell.map(x => x.slice(0, 3)), mainBell[0], replyBtns.map(x => [x[0], x[1]]), replyBtns[2][2]],
         [
           [
-            ['up', 'Previous row (k)', '#fff'],
-            ['down', 'Next row (j)', '#fff'],
             ['bell', 'Clear the notification (b)', '#ff6'],
             ['agent', 'Delegate to the agent (a)', '#6af'],
             ['done', 'Done (d)', '#6f6'],
             ['snooze', 'Snooze (s)', '#fa4'],
             ['cancel', 'Delete (x)', '#f66'],
+            ['up', 'Previous row (k)', '#fff'],
+            ['down', 'Next row (j)', '#fff'],
           ],
           ['bell', 'Clear the notification (b)', '#ff6', true, 24],
           [
+            ['bell', 'Clear the notification (b)'],
             ['up', 'Previous row (k)'],
             ['down', 'Next row (j)'],
-            ['bell', 'Clear the notification (b)'],
           ],
           '#fff',
         ])
@@ -7083,19 +7083,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ],
         [
           [
-            ['up', 'Previous row (k)', '#fff'],
-            ['down', 'Next row (j)', '#fff'],
             ['agent', 'Delegate to the agent (a)', '#6af'],
             ['done', 'Done (d)', '#6f6'],
             ['snooze', 'Unsnooze (s)', '#fa4'],
             ['cancel', 'Delete (x)', '#f66'],
-          ],
-          [
             ['up', 'Previous row (k)', '#fff'],
             ['down', 'Next row (j)', '#fff'],
+          ],
+          [
             ['bell', 'Clear the notification (b)', '#ff6'],
             ['agent', 'Delegate to the agent (a)', '#6af'],
             ['owner', 'Take back from the agent (u)', '#ccc'],
+            ['up', 'Previous row (k)', '#fff'],
+            ['down', 'Next row (j)', '#fff'],
           ],
           [],
           [],
@@ -7113,12 +7113,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('_row_buttons: lists exact buttons for todo (with/without bell), reply, snoozed, and delegated (with/without bell), agreeing with drawn buttons',
         rowKinds,
         [
-          ['t1', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true],
-          ['t2', ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], true],
-          ['rep', ['up', 'down', 'bell'], true],
-          ['snz', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true],
-          ['dlPlain', ['up', 'down', 'agent', 'owner'], true],
-          ['dlg', ['up', 'down', 'bell', 'agent', 'owner'], true],
+          ['t1', ['agent', 'done', 'snooze', 'cancel', 'up', 'down'], true],
+          ['t2', ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down'], true],
+          ['rep', ['bell', 'up', 'down'], true],
+          ['snz', ['agent', 'done', 'snooze', 'cancel', 'up', 'down'], true],
+          ['dlPlain', ['agent', 'owner', 'up', 'down'], true],
+          ['dlg', ['bell', 'agent', 'owner', 'up', 'down'], true],
         ])
       check('bin buttons tooltips: every button names its key and reply row has up, down, and bell only',
         [
@@ -7129,20 +7129,20 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ],
         [
           [
-            ['up', 'Previous row (k)'],
-            ['down', 'Next row (j)'],
             ['bell', 'Clear the notification (b)'],
             ['agent', 'Delegate to the agent (a)'],
             ['done', 'Done (d)'],
             ['snooze', 'Snooze (s)'],
             ['cancel', 'Delete (x)'],
+            ['up', 'Previous row (k)'],
+            ['down', 'Next row (j)'],
           ],
           'Unsnooze (s)',
           'Take back from the agent (u)',
           [
+            ['bell', 'Clear the notification (b)'],
             ['up', 'Previous row (k)'],
             ['down', 'Next row (j)'],
-            ['bell', 'Clear the notification (b)'],
           ],
         ])
       // pressing the generated up/down specs invokes _row_step when the box names the drawn item
@@ -7182,6 +7182,70 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       check('bin buttons: fallback piece draws without strip, obeys _bin_buttons_room, is removed by taken(), and _bin_buttons catches errors',
         [drawnFallback, tightHidden, wideShown, stripHidden, afterTaken, s.errors],
         [[true, false, 6, true], true, false, true, false, ['bin buttons: Error: dom exploded']])
+
+      // Fixed-end placement: handed order (row with bell, delegated row, and with windows' link button),
+      // `fixed` mark on up/down and nothing else, and own piece's left-anchored order + group gap rule
+      const allDefs = s.eval('_BIN_BUTTONS')
+      const fixedInDefs = allDefs.filter(b => b.fixed).map(b => [b.name, b.fixed])
+      const nonFixedHasMark = allDefs.filter(b => b.name != 'up' && b.name != 'down').some(b => 'fixed' in b)
+      s.win._key_buttons = { guest: () => {} }
+      const hand = (it, peer = false) => {
+        s.win._todoer_windows = peer ? { peers: new Map([['peer', { seen: Date.now(), used: Date.now() }]]) } : null
+        s.env._bin_buttons(it)
+        return (s.win._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.fixed ?? null])
+      }
+      const handedBell = hand(t2, false)
+      const handedDelegPlain = hand(dlPlain, false)
+      const handedDelegBell = hand(dlg, false)
+      const handedBellWin = hand(t2, true)
+      const handedDelegWin = hand(dlg, true)
+      const handedOnlyWin = hand(null, true)
+      check('bin buttons fixed end: up and down handed last (after window), marked fixed=true with no other button marked',
+        [fixedInDefs, nonFixedHasMark, handedBell, handedDelegPlain, handedDelegBell, handedBellWin, handedDelegWin, handedOnlyWin],
+        [
+          [['up', true], ['down', true]],
+          false,
+          [['bell', null], ['agent', null], ['done', null], ['snooze', null], ['cancel', null], ['up', true], ['down', true]],
+          [['agent', null], ['owner', null], ['up', true], ['down', true]],
+          [['bell', null], ['agent', null], ['owner', null], ['up', true], ['down', true]],
+          [['bell', null], ['agent', null], ['done', null], ['snooze', null], ['cancel', null], ['window', null], ['up', true], ['down', true]],
+          [['bell', null], ['agent', null], ['owner', null], ['window', null], ['up', true], ['down', true]],
+          [['window', null]],
+        ])
+      // Own piece (without #key_buttons): puts fixed buttons first (left) with data-fixed="1",
+      // while window._key_buttons_guests still hands them last; the piece keeps its own gap (18 px), with 12 px more after the pair
+      delete s.win._key_buttons
+      const ownOrder = (it, peer = false) => {
+        s.win._todoer_windows = peer ? { peers: new Map([['peer', { seen: Date.now(), used: Date.now() }]]) } : null
+        s.env._bin_buttons(it)
+        const p = s.doc.querySelector('.todoer-bin-buttons')
+        return [
+          (p?.children ?? []).map(b => [b.className.split(/\s+/)[0], b.getAttribute('data-fixed')]),
+          (s.win._key_buttons_guests?.buttons ?? []).map(b => b.name),
+        ]
+      }
+      const ownBell = ownOrder(t2, false)
+      const ownDeleg = ownOrder(dlPlain, false)
+      const ownBellWin = ownOrder(t2, true)
+      const ownOnlyWin = ownOrder(null, true)
+      const ownCss = s.doc.getElementById('todoer-bin-buttons-style')?.textContent ?? ''
+      check('bin buttons own piece: places marked up/down first at fixed left edge with group gap rule while handing them last to bar',
+        [
+          ownBell,
+          ownDeleg,
+          ownBellWin,
+          ownOnlyWin,
+          ownCss.includes('gap: 18px;'),
+          ownCss.includes('.todoer-bin-buttons > button[data-fixed] + button:not([data-fixed]) { margin-left: 12px }'),
+        ],
+        [
+          [[['up', '1'], ['down', '1'], ['bell', null], ['agent', null], ['done', null], ['snooze', null], ['cancel', null]], ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down']],
+          [[['up', '1'], ['down', '1'], ['agent', null], ['owner', null]], ['agent', 'owner', 'up', 'down']],
+          [[['up', '1'], ['down', '1'], ['bell', null], ['agent', null], ['done', null], ['snooze', null], ['cancel', null], ['window', null]], ['bell', 'agent', 'done', 'snooze', 'cancel', 'window', 'up', 'down']],
+          [[['window', null]], ['window']],
+          true,
+          true,
+        ])
     }
 
     // 4b. Parked lists (#cache-div) in _bin_row: parked-only items get no row, no buttons, no step,
@@ -7814,7 +7878,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         check('row keys reply: only up/down/bell drawn, a/d/s/x/u forward to prior hook with default left and no action, and b clears the row',
           [drawnNames, binRes, actionsBeforeBell, bRes, priorCalls, s.actions, s.selected],
           [
-            ['up', 'down', 'bell'],
+            ['bell', 'up', 'down'],
             binKeys.map(k => ({ prevented: false, res: 'prior:' + k })),
             [],
             { prevented: true, res: undefined },
@@ -7910,41 +7974,41 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ],
           [
             [
-              ['up', 'Previous row (k)', DIM],
-              ['down', 'Next row (j)', DIM],
               ['agent', 'Delegate to the agent (a)', '#6af'],
               ['done', 'Done (d)', '#6f6'],
               ['snooze', 'Snooze (s)', '#fa4'],
               ['cancel', 'Delete (x)', '#f66'],
-            ],
-            ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'],
-            [
               ['up', 'Previous row (k)', DIM],
               ['down', 'Next row (j)', DIM],
+            ],
+            ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down'],
+            [
               ['agent', 'Delegate to the agent (a)', '#6af'],
               ['done', 'Done (d)', '#6f6'],
               ['snooze', 'Unsnooze (s)', '#fa4'],
               ['cancel', 'Delete (x)', '#f66'],
+              ['up', 'Previous row (k)', DIM],
+              ['down', 'Next row (j)', DIM],
             ],
             [
-              ['up', 'Previous row (k)'],
-              ['down', 'Next row (j)'],
               ['bell', 'Clear the notification (b)'],
               ['agent', 'Delegate to the agent (a)'],
               ['done', 'Done (d)'],
               ['snooze', 'Unsnooze (s)'],
               ['cancel', 'Delete (x)'],
+              ['up', 'Previous row (k)'],
+              ['down', 'Next row (j)'],
             ],
             [
-              ['up', 'Previous row (k)', DIM],
-              ['down', 'Next row (j)', DIM],
               ['agent', 'Delegate to the agent (a)', '#6af'],
               ['owner', 'Take back from the agent (u)', '#ccc'],
+              ['up', 'Previous row (k)', DIM],
+              ['down', 'Next row (j)', DIM],
             ],
-            ['up', 'down', 'bell', 'agent', 'owner'],
-            ['up', 'down', 'agent', 'owner'],
-            ['up', 'down', 'agent', 'owner'],
-            ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'],
+            ['bell', 'agent', 'owner', 'up', 'down'],
+            ['agent', 'owner', 'up', 'down'],
+            ['agent', 'owner', 'up', 'down'],
+            ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down'],
             [[], [], []],
           ])
 
@@ -7980,7 +8044,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         s.selected.length = 0
         s.setBox('#snPlain')
         s.env._bin_buttons(snPlain)
-        const snNavColors = sharedWin._key_buttons_guests.buttons.slice(0, 2).map(b => b.color)
+        const snNavColors = sharedWin._key_buttons_guests.buttons.slice(-2).map(b => b.color)
         sharedWin._key_buttons_guests.buttons.find(b => b.name == 'up').press()
         s.setBox('#snPlain')
         sharedWin._key_buttons_guests.buttons.find(b => b.name == 'down').press()
@@ -8039,12 +8103,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [btns, s.actions, s.selected],
           [
             [
-              ['up', 'Previous row (k)', '#fff'],
-              ['down', 'Next row (j)', '#fff'],
               ['agent', 'Delegate to the agent (a)', '#6af'],
               ['done', 'Done (d)', '#6f6'],
               ['snooze', 'Snooze (s)', '#fa4'],
               ['cancel', 'Delete (x)', '#f66'],
+              ['up', 'Previous row (k)', '#fff'],
+              ['down', 'Next row (j)', '#fff'],
             ],
             [['complete', 't1', 'row log text']],
             ['t2'],
@@ -8784,7 +8848,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             [
               delByClick,
               '#d1',
-              ['up', 'down', 'agent', 'owner'],
+              ['agent', 'owner', 'up', 'down'],
               [
                 ['KeyA', true, 0, ['delegate']],
                 ['KeyD', false, 1, []],
@@ -8796,7 +8860,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               ],
               snzByClick,
               '#s1',
-              ['up', 'down', 'agent', 'done', 'snooze', 'cancel'],
+              ['agent', 'done', 'snooze', 'cancel', 'up', 'down'],
               'Unsnooze (s)',
               [
                 ['KeyA', true, 0, ['delegate']],
@@ -8876,7 +8940,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [nowEmpty, nowTrimmed, nowUnlisted],
           [
             [null, null, [], false, false, false, true, false, true],
-            ['m2', 'm2', ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], false, true, true, false, true, false],
+            ['m2', 'm2', ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down'], false, true, true, false, true, false],
             ['note', null, [], false, false, false, true],
           ])
 
@@ -9422,16 +9486,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['capTodo', null, [], false, true],
             ['menuTodo', null, [], false, true],
             ['hiddenTodo', null, [], false, true],
-            ['lMain', 'lMain', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], false, true],
-            ['lRep', 'lRep', ['up', 'down', 'bell'], false, true],
-            ['lSnz', 'lSnz', ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true, true],
-            ['lDel', 'lDel', ['up', 'down', 'bell', 'agent', 'owner'], false, true],
-            ['oMain', null, ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], false, true],
-            ['oMainBell', null, ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], false, true],
-            ['oSnz', null, ['up', 'down', 'agent', 'done', 'snooze', 'cancel'], true, true],
-            ['oSnzBell', null, ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], true, true],
-            ['oDel', null, ['up', 'down', 'agent', 'owner'], false, true],
-            ['oDelBell', null, ['up', 'down', 'bell', 'agent', 'owner'], false, true],
+            ['lMain', 'lMain', ['agent', 'done', 'snooze', 'cancel', 'up', 'down'], false, true],
+            ['lRep', 'lRep', ['bell', 'up', 'down'], false, true],
+            ['lSnz', 'lSnz', ['agent', 'done', 'snooze', 'cancel', 'up', 'down'], true, true],
+            ['lDel', 'lDel', ['bell', 'agent', 'owner', 'up', 'down'], false, true],
+            ['oMain', null, ['agent', 'done', 'snooze', 'cancel', 'up', 'down'], false, true],
+            ['oMainBell', null, ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down'], false, true],
+            ['oSnz', null, ['agent', 'done', 'snooze', 'cancel', 'up', 'down'], true, true],
+            ['oSnzBell', null, ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down'], true, true],
+            ['oDel', null, ['agent', 'owner', 'up', 'down'], false, true],
+            ['oDelBell', null, ['bell', 'agent', 'owner', 'up', 'down'], false, true],
           ])
 
         // 11b-2. _row_has, _row_can, and _ROW_SHORTCUTS for off-list todos (zero mounted widgets AND
@@ -10211,12 +10275,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           check('zero-widget strip reconciliation: parent standing_land drop (todo and non-todo), remote rename, and ambiguous label all update displayed buttons to match menu',
             [pBefore, pAfter, pNonTodoAfter, rBefore, rAfter, aBefore, aAfter],
             [
-              [['up', 'down', 'agent', 'owner'], ['a:delegate to the agent', 'u:take back from the agent']],
-              [['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell']],
-              [['up', 'down', 'agent', 'owner'], ['a:delegate to the agent', 'u:take back from the agent']],
-              [['up', 'down', 'agent', 'done', 'snooze', 'cancel'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question']],
+              [['agent', 'owner', 'up', 'down'], ['a:delegate to the agent', 'u:take back from the agent']],
+              [['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question', 'b:clear the bell']],
+              [['agent', 'owner', 'up', 'down'], ['a:delegate to the agent', 'u:take back from the agent']],
+              [['agent', 'done', 'snooze', 'cancel', 'up', 'down'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question']],
               [[], []],
-              [['up', 'down', 'agent', 'done', 'snooze', 'cancel'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question']],
+              [['agent', 'done', 'snooze', 'cancel', 'up', 'down'], ['a:delegate to the agent', 'd:done', 's:snooze', 'x:delete, after a question']],
               [[], []],
             ])
 
@@ -10626,7 +10690,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ],
             [
               ['up', 'down', 'bell', 'history'],
-              ['up', 'down', 'bell', 'history'],
+              ['bell', 'history', 'up', 'down'],
               'history',
               'Open item history (h)',
               'Open item history (h)',
@@ -10679,7 +10743,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           check(
             'history button target: builds address and eligibility from the row item, not another item named in MindBox',
             [actOk, h.opened, rbWithUnsavedBox],
-            [true, ['https://github.com/olcan/vault/commits/master/items/s-note.md'], ['up', 'down', 'bell', 'history']]
+            [true, ['https://github.com/olcan/vault/commits/master/items/s-note.md'], ['bell', 'history', 'up', 'down']]
           )
         }
 
@@ -11749,9 +11813,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       a.env._bin_buttons(null)
       const drawnNoRow = a.win._key_buttons_guests.buttons.map(x => x.name)
       check(
-        'windows button: _row_buttons omits window on every list type, and __bin_buttons places window last (with or without selected row)',
+        'windows button: _row_buttons omits window on every list type, and __bin_buttons places window before fixed-end up/down (or alone without a row)',
         [rowBtnNames(t1).includes('window'), rowBtnNames(rep).includes('window'), rowBtnNames(del).includes('window'), drawnWithRow, drawnNoRow],
-        [false, false, false, ['up', 'down', 'bell', 'agent', 'done', 'snooze', 'cancel', 'window'], ['window']]
+        [false, false, false, ['bell', 'agent', 'done', 'snooze', 'cancel', 'window', 'up', 'down'], ['window']]
       )
     }
 
@@ -15510,7 +15574,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         'windows list window buttons and keys act on marked row: _row_now, strip buttons, j key, and done button act on linked window selection while box stays #todo',
         [now1, afterJ, afterDone],
         [
-          ['bk1', ['up', 'down', 'agent', 'done', 'snooze', 'cancel', 'window']],
+          ['bk1', ['agent', 'done', 'snooze', 'cancel', 'window', 'up', 'down']],
           ['#todo', '#bk2', 'bk2', true],
           [['bk2'], '#todo', '#bk3', 'bk3', true],
         ]
@@ -15556,14 +15620,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         [fwd, bwd],
         [
           [
-            ['#todo', '#wm1', true, false, false, ['up', 'down', 'agent', 'done', 'Snooze (s)', 'cancel', 'window']],
-            ['#todo', '#wd1', false, true, false, ['up', 'down', 'agent', 'owner', 'window']],
-            ['#todo', '#ws1', false, false, true, ['up', 'down', 'agent', 'done', 'Unsnooze (s)', 'cancel', 'window']],
-            ['#todo', '#wm1', true, false, false, ['up', 'down', 'agent', 'done', 'Snooze (s)', 'cancel', 'window']],
+            ['#todo', '#wm1', true, false, false, ['agent', 'done', 'Snooze (s)', 'cancel', 'window', 'up', 'down']],
+            ['#todo', '#wd1', false, true, false, ['agent', 'owner', 'window', 'up', 'down']],
+            ['#todo', '#ws1', false, false, true, ['agent', 'done', 'Unsnooze (s)', 'cancel', 'window', 'up', 'down']],
+            ['#todo', '#wm1', true, false, false, ['agent', 'done', 'Snooze (s)', 'cancel', 'window', 'up', 'down']],
           ],
           [
-            ['#todo', '#ws1', false, false, true, ['up', 'down', 'agent', 'done', 'Unsnooze (s)', 'cancel', 'window']],
-            ['#todo', '#wd1', false, true, false, ['up', 'down', 'agent', 'owner', 'window']],
+            ['#todo', '#ws1', false, false, true, ['agent', 'done', 'Unsnooze (s)', 'cancel', 'window', 'up', 'down']],
+            ['#todo', '#wd1', false, true, false, ['agent', 'owner', 'window', 'up', 'down']],
           ],
         ]
       )
@@ -16735,6 +16799,240 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           }
         )
       }
+    }
+
+    // 72. List-window selection cue (.selected vs .selected.other) across every role & transition,
+    //     fresh __render (todo + waiting rows), and todoer-widget.html cyan CSS rules
+    {
+      const marksOf = nodes =>
+        [...nodes]
+          .map(n => [n.getAttribute('data-id'), ['selected', 'other'].filter(c => n.classList.contains(c))])
+          .filter(([, cs]) => cs.length > 0)
+      const widgetMarks = w => marksOf(w.widget.querySelectorAll('.list-item-container'))
+
+      const bus = makeBus()
+      const aStore = new Map()
+      const a = makeWindow(bus, { id: 'A', storage: aStore, now: 1_700_000_000_000 })
+      const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+
+      const m1A = a.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      const m2A = a.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      const muA = a.makeItem('mu', { saved_id: null, name: '#mu', text: '#todo unsaved item' })
+      const mrA = a.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      const m1B = b.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      const m2B = b.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      b.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      const wA = a.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }, { id: 'mu', pageY: 604 }, { id: 'mr', pageY: 636, waits: 'reply' }] })
+      const wB = b.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }, { id: 'mr', pageY: 636, waits: 'reply' }] })
+
+      // (a) unlinked own target -> green (.selected only)
+      a.setBox('#m1')
+      a.env._on_search('#m1')
+      const unlinkedOwn = widgetMarks(wA)
+
+      // (b) link A (#todo) and B (#m1) -> list window A cyan (.selected.other), target window B green (.selected)
+      a.setBox('#todo')
+      a.env._on_search('#todo')
+      b.setBox('#m1')
+      b.env._on_search('#m1')
+      a.env._send_press()
+      bus.flush()
+      const linkedPair = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (c) pending saved ask (B paused before answering took) -> list window A marks m2 cyan immediately
+      b.win._todoer_windows.channel.paused = true
+      a.env._select_item(m2A)
+      const duringSavedAsk = widgetMarks(wA)
+      b.win._todoer_windows.channel.unpause()
+      bus.flush()
+      const afterSavedAsk = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (d) pending unsaved handoff (kind: 'save', ask: true) -> list window A marks mu cyan until cancelled/replaced
+      a.env._select_item(muA)
+      const duringUnsavedAsk = widgetMarks(wA)
+
+      // (e) both-targets click even with debounced own target -> selecting window marks handed-off row cyan immediately
+      a.setBox('#m1')
+      a.env._on_search('#m1')
+      bus.flush()
+      const bothGreenBefore = [widgetMarks(wA), widgetMarks(wB)]
+      a.win._mindboxDebounced = true
+      a.win._mindboxApplied = '#m1'
+      a.env._select_item(m2A)
+      const bothDropImmediate = widgetMarks(wA)
+      bus.flush()
+      const bothDropSettled = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (f) role swap: both have targets, then B selects m1 -> B becomes cyan list, A becomes green target
+      a.setBox('#m2')
+      a.env._on_search('#m2')
+      bus.flush()
+      b.env._select_item(m1B)
+      bus.flush()
+      const afterRoleSwap = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (g) same-item role change: B (list, m1 cyan) targets #m1 directly -> turns green; A clears to #todo -> turns cyan
+      b.setBox('#m1')
+      b.env._on_search('#m1')
+      bus.flush()
+      const afterSameTakeover = [widgetMarks(wA), widgetMarks(wB)]
+      a.setBox('#todo')
+      a.env._on_search('#todo')
+      bus.flush()
+      const afterDropToSamePartner = [widgetMarks(wA), widgetMarks(wB)]
+
+      // (h) partner closes (bye) -> list window A clears all marks; reloaded list window A2 discovers partner B2 (#m2) -> cyan
+      b.fireWin('pagehide')
+      b.win._todoer_windows.channel.close()
+      bus.flush()
+      const afterPartnerClose = widgetMarks(wA)
+      a.fireWin('pagehide')
+      a.win._todoer_windows.channel.close()
+      bus.flush()
+      const b2 = makeWindow(bus, { id: 'B2', now: 1_700_000_005_000 })
+      b2.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      b2.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      const wB2 = b2.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }] })
+      b2.setBox('#m2')
+      b2.env._start_windows()
+      b2.env._sync_marks()
+      const a2 = makeWindow(bus, { id: 'A2', storage: aStore, now: 1_700_000_005_000 })
+      const m1A2 = a2.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      a2.makeItem('m2', { saved_id: 's_m2', name: '#m2', text: '#todo second item' })
+      const wA2 = a2.makeWidget({ rows: [{ id: 'm1', pageY: 540 }, { id: 'm2', pageY: 572 }] })
+      a2.setBox('#todo')
+      a2.env._start_windows()
+      bus.flush()
+      const afterReload = [widgetMarks(wA2), widgetMarks(wB2)]
+
+      // (i) unlink -> list window A2 clears mark, target window B2 keeps green; selecting in unlinked A2 shows green
+      a2.env._send_press()
+      bus.flush()
+      const afterUnlink = [widgetMarks(wA2), widgetMarks(wB2)]
+      a2.env._select_item(m1A2)
+      bus.flush()
+      const afterUnlinkedSelect = widgetMarks(wA2)
+
+      check(
+        'list cue: row classes across own target, list window, pending handoffs, role swap, partner close, reload, and unlink',
+        {
+          unlinkedOwn,
+          linkedPair,
+          duringSavedAsk,
+          afterSavedAsk,
+          duringUnsavedAsk,
+          bothGreenBefore,
+          bothDropImmediate,
+          bothDropSettled,
+          afterRoleSwap,
+          afterSameTakeover,
+          afterDropToSamePartner,
+          afterPartnerClose,
+          afterReload,
+          afterUnlink,
+          afterUnlinkedSelect,
+        },
+        {
+          unlinkedOwn: [['m1', ['selected']]],
+          linkedPair: [[['m1', ['selected', 'other']]], [['m1', ['selected']]]],
+          duringSavedAsk: [['m2', ['selected', 'other']]],
+          afterSavedAsk: [[['m2', ['selected', 'other']]], [['m2', ['selected']]]],
+          duringUnsavedAsk: [['mu', ['selected', 'other']]],
+          bothGreenBefore: [[['m1', ['selected']]], [['m2', ['selected']]]],
+          bothDropImmediate: [['m2', ['selected', 'other']]],
+          bothDropSettled: [[['m2', ['selected', 'other']]], [['m2', ['selected']]]],
+          afterRoleSwap: [[['m1', ['selected']]], [['m1', ['selected', 'other']]]],
+          afterSameTakeover: [[['m1', ['selected']]], [['m1', ['selected']]]],
+          afterDropToSamePartner: [[['m1', ['selected', 'other']]], [['m1', ['selected']]]],
+          afterPartnerClose: [],
+          afterReload: [[['m2', ['selected', 'other']]], [['m2', ['selected']]]],
+          afterUnlink: [[], [['m2', ['selected']]]],
+          afterUnlinkedSelect: [['m1', ['selected']]],
+        }
+      )
+
+      // Fresh __render marks both todo rows and waiting rows green (own target) vs cyan (other window / pending handoff)
+      const renderMarks = (w, wid) => {
+        const el = w.body.appendChild(new WinDomNode('div', { id: wid, className: 'todoer-widget' }))
+        const wItem = { store: { [wid]: { options: {} } }, _global_store: {} }
+        w.env._waits = it => (it.id == 'mr' ? 'reply' : null)
+        w.env._waiting_parts = it => [it.name, 'hello', 'hello']
+        w.env._wait_key_of = () => 'k1'
+        w.env._link_waiting_wiki = s => s
+        w.env._mark_tags = s => s
+        w.env._ = { escape: s => s }
+        w.env._wire_row_links = () => {}
+        w.env.dispatch_task = () => {}
+        w.env.__render(el, wItem)
+        const out = marksOf(el.querySelectorAll('.list-item-container'))
+        el.remove()
+        return out
+      }
+      const busR = makeBus()
+      const rA = makeWindow(busR, { id: 'RA', now: 1_700_000_010_000 })
+      const rB = makeWindow(busR, { id: 'RB', now: 1_700_000_010_000 })
+      rA.env._start_windows()
+      rB.env._start_windows()
+      busR.flush()
+      rA.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      const rUns = rA.makeItem('mu', { saved_id: null, name: '#mu', text: '#todo unsaved' })
+      rA.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      rB.makeItem('m1', { saved_id: 's_m1', name: '#m1', text: '#todo first item' })
+      rB.makeItem('mr', { saved_id: 's_mr', name: '#mr', text: 'chat reply', tags: [], tags_visible: [] })
+      rA.setBox('#todo')
+      rB.setBox('#m1')
+      rA.env._send_press()
+      busR.flush()
+      const renderTodo = [renderMarks(rA, 'w_rt_a'), renderMarks(rB, 'w_rt_b')]
+      rB.setBox('#mr')
+      rB.env._on_search('#mr')
+      busR.flush()
+      const renderWaits = [renderMarks(rA, 'w_rw_a'), renderMarks(rB, 'w_rw_b')]
+      // pending unsaved handoff rendered fresh while awaiting saved_id
+      const wPendingHost = rA.makeWidget({ rows: [{ id: 'mu', pageY: 540 }] })
+      rA.env._select_item(rUns)
+      const renderPending = renderMarks(rA, 'w_rp_a')
+      wPendingHost.widget.remove()
+      // silence unused variable warnings on m1A/m2B/mrA
+      void (m1A && m2B && mrA)
+      check(
+        'list cue: __render marks todo and waiting rows with .selected alone for own target and .selected.other for partner or pending handoff',
+        { renderTodo, renderWaits, renderPending },
+        {
+          renderTodo: [[['m1', ['selected', 'other']]], [['m1', ['selected']]]],
+          renderWaits: [[['mr', ['selected', 'other']]], [['mr', ['selected']]]],
+          renderPending: [['mu', ['selected', 'other']]],
+        }
+      )
+
+      // Widget stylesheet holds the cyan rules alongside the green defaults, ghost reset, and bin reset
+      const css = fs.readFileSync(path.join(__dirname, '..', 'todoer-widget.html'), 'utf8')
+      const block = selector => {
+        const i = css.indexOf(selector)
+        if (i < 0) return ''
+        const start = css.indexOf('{', i)
+        const end = css.indexOf('}', start)
+        return start >= 0 && end > start ? css.slice(start + 1, end) : ''
+      }
+      const selRule = block('#widget .list > .list-item-container.selected > .list-item')
+      const dragRule = block('#widget .list > .list-item-container.selected:is(.sortable-drag, .sortable-chosen) > .list-item')
+      const otherRule = block('#widget .list > .list-item-container.selected.other {')
+      const ghostRule = block('#widget .list > .list-item-container.selected.sortable-ghost > .list-item')
+      const binRule = block('#widget:has(.bin:not(:empty)) .list > .list-item-container.selected.sortable-drag > .list-item')
+      check(
+        'list cue: todoer-widget.html defines cyan selection rules and preserves ghost and bin resets',
+        {
+          selUsesVars: /box-shadow:\s*-4px 0 0 0 var\(--sel-bar,\s*#6c6\)/.test(selRule) && /background:\s*var\(--sel-tint,\s*rgba\(102,\s*204,\s*102,\s*0\.1\)\)/.test(selRule),
+          dragUsesVar: /background:\s*var\(--sel-drag,\s*#1a241a\)/.test(dragRule) && /border-color:\s*transparent/.test(dragRule),
+          otherVars: /--sel-bar:\s*#6ff\b/.test(otherRule) && /--sel-tint:\s*rgba\(102,\s*255,\s*255,\s*0\.1\)/.test(otherRule) && /--sel-drag:\s*#1a2929\b/.test(otherRule),
+          ghostReset: /box-shadow:\s*none/.test(ghostRule) && /background:\s*none/.test(ghostRule) && /border-radius:\s*4px/.test(ghostRule),
+          binReset: /box-shadow:\s*none/.test(binRule) && /background:\s*#171717/.test(binRule) && /border-radius:\s*4px/.test(binRule),
+        },
+        { selUsesVars: true, dragUsesVar: true, otherVars: true, ghostReset: true, binReset: true }
+      )
     }
   })())
 

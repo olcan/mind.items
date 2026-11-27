@@ -280,7 +280,11 @@
      nothing, over a faint green tint, the row's two left corners square so that the bar is
      straight. The same look while the row is grabbed and on the clone a drag carries: no grey
      outline, and the tint as the one colour it makes on the item's own background (1a241a),
-     opaque, since a dragged row passes over other rows. Not on the dashed place a dragged row
+     opaque, since a dragged row passes over other rows. Where the marked item is shown in the
+     linked other window (or its handoff is pending), .selected.other shifts the bar, tint and
+     opaque drag colour to the link's cyan (rgb(102, 255, 255), rgba(102, 255, 255, 0.1), and
+     1a2929 on the item's own background) via custom properties so the ghost and bin rules keep
+     applying unchanged. Not on the dashed place a dragged row
      leaves in the list, and not on a bin, where the row is as any other row there (the rules
      at the end). The bar stands OUTSIDE the row's own left edge, 4 px wide and flush with it, so
      that there are 5 px of the tint between it and the row's text (the owner: "shift that thick
@@ -292,14 +296,19 @@
      beside the item's number, a box that gives way to a float). The look before this trial: a
      border of 1px solid 6c6 with a ring of the same */
   #widget .list > .list-item-container.selected > .list-item {
-    box-shadow: -4px 0 0 0 #6c6;
-    background: rgba(102, 204, 102, 0.1);
+    box-shadow: -4px 0 0 0 var(--sel-bar, #6c6);
+    background: var(--sel-tint, rgba(102, 204, 102, 0.1));
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
   }
   #widget .list > .list-item-container.selected:is(.sortable-drag, .sortable-chosen) > .list-item {
-    background: #1a241a;
+    background: var(--sel-drag, #1a241a);
     border-color: transparent;
+  }
+  #widget .list > .list-item-container.selected.other {
+    --sel-bar: #6ff;
+    --sel-tint: rgba(102, 255, 255, 0.1);
+    --sel-drag: #1a2929;
   }
   #widget .list > .list-item-container.selected.sortable-ghost > .list-item {
     box-shadow: none;

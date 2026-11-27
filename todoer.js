@@ -359,8 +359,9 @@ function __render(widget, widget_item) {
   const members = (widget_item.store._todoer.items[widget.id] = new Set())
 
   // the selected item of this window (its own target where it has one, else the item the linked
-  // other window shows): its row is marked selected
+  // other window shows): its row is marked selected (and other where the other window shows it)
   const selected = _selected_item(undefined, { mounted: false })?.id
+  const selected_other = !!selected && _window_target()?.id != selected
   // insert all todo items into list
   let have_unsnoozed = false
   let review_anchor // the #vault item's review-anchor builder, resolved at the first task row that needs it
@@ -383,7 +384,10 @@ function __render(widget, widget_item) {
       container.className = 'list-item-container'
       container.setAttribute('data-id', item.id) // used for saving below
       container.setAttribute('data-waits', waits)
-      if (item.id == selected) container.classList.add('selected')
+      if (item.id == selected) {
+        container.classList.add('selected')
+        if (selected_other) container.classList.add('other')
+      }
       const div = document.createElement('div')
       div.className = 'list-item'
       const [name, line, raw] = _waiting_parts(item, waits)
@@ -466,7 +470,10 @@ function __render(widget, widget_item) {
     const container = document.createElement('div')
     container.className = 'list-item-container'
     if (pending) container.setAttribute('data-pending', pending.kind) // the overlay, until acked
-    if (item.id == selected) container.classList.add('selected')
+    if (item.id == selected) {
+      container.classList.add('selected')
+      if (selected_other) container.classList.add('other')
+    }
     list.appendChild(container)
     container.appendChild(div)
     container.setAttribute('data-id', item.id) // used for saving below
@@ -2071,15 +2078,19 @@ function _selected_item(text = undefined, { mounted = true } = {}) {
   return item && (!mounted || (typeof _bin_row == 'function' && _bin_row(item))) ? item : null
 }
 
-// moves .selected across mounted widgets without rebuilding lists; hidden/cached widgets hold none
-function _sync_marks(item = _selected_item(undefined, { mounted: false })) {
+// moves .selected (and .other where the marked item is not this window's own target) across
+// mounted widgets without rebuilding lists; hidden/cached widgets hold none
+function _sync_marks(item = _selected_item(undefined, { mounted: false }), other = null) {
   const id = item?.id ?? null
+  const is_other = !!(id && (other ?? _window_target()?.id != id))
   const mounted = typeof _mounted_lists == 'function' ? new Set(_mounted_lists()) : null
+  const set = (el, cls, on) => (el.classList?.toggle ? el.classList.toggle(cls, on) : el.classList?.[on ? 'add' : 'remove']?.(cls))
   document.querySelectorAll('.todoer-widget').forEach(w => {
     const on = !mounted || mounted.has(w)
     w.querySelectorAll('.list-item-container').forEach(r => {
       const hit = !!(on && id && r.getAttribute('data-id') == id)
-      r.classList?.toggle ? r.classList.toggle('selected', hit) : r.classList?.[hit ? 'add' : 'remove']?.('selected')
+      set(r, 'selected', hit)
+      set(r, 'other', hit && is_other)
     })
   })
 }
@@ -2103,7 +2114,7 @@ function _on_search(text) {
   const selected = _selected_item(live, { mounted: false })
   if (typeof _bin_buttons == 'function') _bin_buttons(_selected_item(live)) // (a table loads this function alone)
   if (!selected && !document.querySelector('.todoer-widget .list-item-container.selected')) return
-  _sync_marks(selected)
+  _sync_marks(selected, !target_item)
 }
 
 // THE BIN BUTTONS (the owner, 2026-11-24: "drag/drop is becoming a bottleneck"): one button per
@@ -2123,9 +2134,6 @@ function _on_search(text) {
 const _LIST_BINS = { main: ['agent', 'done', 'snooze', 'cancel'], snoozed: ['agent', 'done', 'snooze', 'cancel'], delegated: ['agent', 'owner'] }
 
 const _BIN_BUTTONS = [
-  // the row before and the row after the selected one, across the lists on the page (the keys k and j do the same)
-  { name: 'up', title: 'Previous row (k)', color: '#fff', icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
-  { name: 'down', title: 'Next row (j)', color: '#fff', icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
   // the list's own bell (todoer-widget.html, mark.waits), filled, in the yellow the snooze bin had (the owner: "keep yellow for notifs, use orange for snooze")
   { name: 'bell', title: 'Clear the notification (b)', color: '#ff6', fill: true, box: 24, icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z' },
   // the pusher's commit-history address for a row of an item an agent wrote (a clock with an arrow turning back)
@@ -2137,13 +2145,18 @@ const _BIN_BUTTONS = [
   { name: 'owner', title: 'Take back from the agent (u)', color: '#ccc', icon: 'M6.2 3.4L3 6.6l3.2 3.2M3 6.6h6.2a3.4 3.4 0 0 1 0 6.8H7.4' },
   // the windows' link (_window_button): this window and another one of the app keep one selection; two panes,
   // lit whole in both linked windows and dim while unlinked.
-  // The last of these buttons, shown whether or not a row is selected, while another window is there or the link is on
+  // Shown whether or not a row is selected, while another window is there or the link is on, before fixed-end buttons
   { name: 'window', title: 'Link with the other window (w)', color: 'rgba(255, 255, 255, 0.25)', icon: 'M1.5 3.5h5.5v9h-5.5zM9 3.5h5.5v9H9z' },
+  // the row before and the row after the selected one, across the lists on the page (the keys k and j do the same):
+  // handed last and marked `fixed` so they stay at the group's fixed end (right inline, left on a second row or own piece)
+  { name: 'up', title: 'Previous row (k)', color: '#fff', fixed: true, icon: 'M3.5 10l4.5-4.5 4.5 4.5' },
+  { name: 'down', title: 'Next row (j)', color: '#fff', fixed: true, icon: 'M3.5 6l4.5 4.5 4.5-4.5' },
 ]
 const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
 .todoer-bin-buttons[hidden] { display: none }
 .todoer-bin-buttons > button { flex: none; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); cursor: pointer; -webkit-tap-highlight-color: transparent }
+.todoer-bin-buttons > button[data-fixed] + button:not([data-fixed]) { margin-left: 12px }
 .todoer-bin-buttons > button:focus { outline: none }
 .todoer-bin-buttons > button:focus-visible { outline: 1px solid currentColor }
 .todoer-bin-buttons > button:active { background: #555 }
@@ -2188,11 +2201,14 @@ function __bin_buttons(target) {
       : { ...b, title: b.name == 'snooze' && snoozed ? 'Unsnooze (s)' : b.title, press: () => _bin_press(b.name, target.id) }
   )
   const link = _window_button()
-  if (link) specs.push(link)
+  if (link) {
+    const at = specs.findIndex(s => s.fixed)
+    specs.splice(at < 0 ? specs.length : at, 0, link)
+  }
   // what is drawn, as one text: every render of a list comes through here, and buttons that
   // are the same are left standing (a button replaced between a press's two halves would lose
   // its click). This item's own code is part of it: an update draws them anew, with its presses
-  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, came_up, specs.map(spec => [spec.name, spec.title, spec.color])])
+  const drawn = JSON.stringify([_todoer?.deephash ?? null, target?.id ?? null, came_up, specs.map(spec => [spec.name, spec.title, spec.color, !!spec.fixed])])
   let piece = document.querySelector('.todoer-bin-buttons')
   // handed over on the window in every case: a strip that is drawn later (its item installed or
   // updated after this) takes them from there and says so (`taken`: the piece of their own goes)
@@ -2220,11 +2236,14 @@ function __bin_buttons(target) {
   }
   if (piece._drawn !== drawn) {
     piece._drawn = drawn
+    // the own piece sits at the lower left (its left edge is fixed), so marked buttons stand first
+    const own = [...specs.filter(s => s.fixed), ...specs.filter(s => !s.fixed)]
     piece.replaceChildren(
-      ...specs.map(spec => {
+      ...own.map(spec => {
         const button = document.createElement('button')
         button.type = 'button'
         button.className = spec.fill ? spec.name + ' fill' : spec.name
+        if (spec.fixed) button.setAttribute('data-fixed', '1')
         button.style.color = spec.color
         button.title = spec.title
         button.setAttribute('aria-label', spec.title)
@@ -2327,8 +2346,8 @@ function _history_url(item) {
 }
 
 // the buttons that the row of a listed item has ({ widget, row }, from _bin_row), in their order:
-// the two row buttons, its bell where it has one, history right after the bell on a row of an item
-// an agent wrote where the pusher has a destination and the item is saved, then its list's bins.
+// its bell where it has one, history right after the bell on a row of an item an agent wrote where
+// the pusher has a destination and the item is saved, its list's bins, then the two row buttons.
 // A row that is not a todo's has none of the bins' buttons: its bell clears it, and a row with no
 // bin buttons is seen to be a notification and no todo (the owner, 2026-11-25: "let's try removing
 // both the button and its shortcut, and let's remove the delete button (and shortcut) also",
@@ -2362,9 +2381,9 @@ function _todo_list(item) {
   return item._global_store?._todoer?.snoozed ? 'snoozed' : 'main'
 }
 
-// the buttons for a todo whose list is not on the page, in their order: the two row buttons
-// (drawn dim where the walk's sequence is empty), its bell where _bell rings for it, then the bins
-// of its list (_LIST_BINS)
+// the buttons for a todo whose list is not on the page, in their order: its bell where _bell rings
+// for it, the bins of its list (_LIST_BINS), then the two row buttons (drawn dim where the walk's
+// sequence is empty)
 function _todo_buttons(item, list = _todo_list(item)) {
   if (!list) return []
   const bins = _LIST_BINS[list]
@@ -4959,7 +4978,7 @@ function _select_item(item, selection, checked = false) {
     if (mine) { MindBox.elem?.blur?.(); MindBox.set(_window_target(SEND_LIST_QUERY) ? '' : SEND_LIST_QUERY) }
     if (item.saved_id) _send_ask(item, { fallback: true, selection, checked })
     else _send_selected(item, false, null, true, selection, checked)
-    _sync_marks(item)
+    _sync_marks(item, true)
     _bin_buttons(_selected_item())
     if (mine)
       _update_dom().then(() => {
