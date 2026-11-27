@@ -6581,6 +6581,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
       src.match(/\nconst _BIN_BUTTONS_CSS = `[\s\S]*?\n`\n/)[0],
       src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_BUTTONS_MAX = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_KEYS = [^\n]*\n/)[0],
       src.match(/\nconst _pending_commands = [^\n]*\n/)[0],
       src.match(/\nconst CHAT_DELIMITER = [^\n]*\n/)[0],
@@ -7212,8 +7213,25 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [['bell', null], ['agent', null], ['owner', null], ['window', null], ['up', true], ['down', true]],
           [['window', null]],
         ])
+      // Largest group count (_BIN_BUTTONS_MAX): derived from tables, handed as `max`, never exceeded by any row
+      const binMax = s.eval('_BIN_BUTTONS_MAX')
+      const handedCases = []
+      for (const peer of [false, true]) {
+        for (const it of [t1, t2, rep, snz, dlPlain, dlg, null]) {
+          const btns = hand(it, peer)
+          handedCases.push([btns.length, s.win._key_buttons_guests?.max])
+        }
+      }
+      check('bin buttons max: hands _BIN_BUTTONS_MAX derived from tables (8) and no handed group exceeds it',
+        [
+          binMax,
+          handedCases.every(([, m]) => m === binMax),
+          handedCases.every(([n, m]) => n <= m),
+          Math.max(...handedCases.map(([n]) => n)),
+        ],
+        [8, true, true, 8])
       // Own piece (without #key_buttons): puts fixed buttons first (left) with data-fixed="1",
-      // while window._key_buttons_guests still hands them last; the piece keeps its own gap (18 px), with 12 px more after the pair
+      // while window._key_buttons_guests still hands them last; keeps its own 18 px gap with no extra margin
       delete s.win._key_buttons
       const ownOrder = (it, peer = false) => {
         s.win._todoer_windows = peer ? { peers: new Map([['peer', { seen: Date.now(), used: Date.now() }]]) } : null
@@ -7229,14 +7247,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ownBellWin = ownOrder(t2, true)
       const ownOnlyWin = ownOrder(null, true)
       const ownCss = s.doc.getElementById('todoer-bin-buttons-style')?.textContent ?? ''
-      check('bin buttons own piece: places marked up/down first at fixed left edge with group gap rule while handing them last to bar',
+      check('bin buttons own piece: places marked up/down first at fixed left edge with its own 18 px gap and no extra margin',
         [
           ownBell,
           ownDeleg,
           ownBellWin,
           ownOnlyWin,
           ownCss.includes('gap: 18px;'),
-          ownCss.includes('.todoer-bin-buttons > button[data-fixed] + button:not([data-fixed]) { margin-left: 12px }'),
+          ownCss.includes('data-fixed'),
+          /margin-(?:left|right)\s*:/i.test(ownCss),
         ],
         [
           [[['up', '1'], ['down', '1'], ['bell', null], ['agent', null], ['done', null], ['snooze', null], ['cancel', null]], ['bell', 'agent', 'done', 'snooze', 'cancel', 'up', 'down']],
@@ -7244,7 +7263,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [[['up', '1'], ['down', '1'], ['bell', null], ['agent', null], ['done', null], ['snooze', null], ['cancel', null], ['window', null]], ['bell', 'agent', 'done', 'snooze', 'cancel', 'window', 'up', 'down']],
           [[['window', null]], ['window']],
           true,
-          true,
+          false,
+          false,
         ])
     }
 
@@ -10925,6 +10945,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       src.match(/\nconst _BIN_BUTTONS = \[[\s\S]*?\n\]\n/)[0],
       src.match(/\nconst _BIN_BUTTONS_CSS = `[\s\S]*?\n`\n/)[0],
       src.match(/\nconst _ROW_STEP = [^\n]*\n/)[0],
+      src.match(/\nconst _BIN_BUTTONS_MAX = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_KEYS = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_DRAFT = [^\n]*\n/)[0],
       src.match(/\nconst _BIN_REFUSAL = [^\n]*\n/)[0],

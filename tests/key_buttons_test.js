@@ -1846,8 +1846,8 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
     }
     const probeGlass = (x, y, target = fUnder) => {
       page.fire('pointerdown', { target, clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true })
-      const ev = page.fire('click', { target, detail: 1, pointerType: 'mouse' })
       page.fire('pointerup', { target, clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true })
+      const ev = page.fire('click', { target, detail: 1, pointerType: 'mouse' })
       return ev.stopped
     }
     const phoneGlassHits = [probeGlass(89, 734), probeGlass(248, 734), probeGlass(260, 734)]
@@ -1870,6 +1870,66 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
     gWarns.length = 0
     const upBtn = fEl.children.find(b => b.dataset.guest == 'up')
     const wideGapToUp = [probeGlass(593, 778, upBtn), [...gWarns]]
+
+    // Stable row choice with optional `max`: with max=8 (fit_w = w_piece(8, true) = 604), short groups
+    // stay on the second row at intermediate widths (538, 603) with floor sized to shown buttons and
+    // lower strip glass/clip/frame spanning 604 px; at 604 px inline glass stays sized to shown buttons;
+    // without `max`, short groups still fit inline at 538 px as before.
+    const setGuests = (btns, max) => {
+      win._key_buttons_guests = max === undefined ? { buttons: btns } : { buttons: btns, max }
+      fCtrl.guest()
+    }
+    const reply3 = [mkBtn('bell'), mkBtn('up', true), mkBtn('down', true)]
+    const deleg4 = [mkBtn('agent'), mkBtn('owner'), mkBtn('up', true), mkBtn('down', true)]
+    const todo6 = [mkBtn('agent'), mkBtn('done'), mkBtn('snooze'), mkBtn('cancel'), mkBtn('up', true), mkBtn('down', true)]
+    const winOnly1 = [mkBtn('window')]
+    win.innerWidth = 538
+    setGuests(reply3, 8)
+    const maxReply538 = [
+      fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split,
+      fCtrl.guest_floor, fFloor.style.width, fCtrl.guest_strip, stripWidthOf(),
+      fFrame.innerHTML.includes('M 0 36.5 H 604'),
+    ]
+    setGuests(deleg4, 8)
+    const maxDeleg538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+    setGuests(todo6, 8)
+    const maxTodo538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+    // single unmarked button with max=8 still stays on second row (fit_w uses wider gap -> 604) up to 603 px
+    win.innerWidth = 603
+    setGuests(winOnly1, 8)
+    const maxWinOnly603 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+    // 3-button split group at 603 px: floor glass sized to 3 shown buttons (124 px), lower strip covers 603 px
+    setGuests(reply3, 8)
+    const fRectsFloor3 = { up: [14, 38], down: [44, 68], bell: [86, 110] }
+    for (const b of fEl.children) {
+      const [l, r] = fRectsFloor3[b.dataset.guest]
+      b.getBoundingClientRect = () => ({ left: l, right: r, top: 722, bottom: 746, width: 24, height: 24 })
+    }
+    const maxReply603Glass = [
+      probeGlass(590, 778), // lower strip past 480 and past wide_w(454) -> blocked
+      probeGlass(77, 734),  // wider 18 px gap on second floor between down and bell -> blocked
+      probeGlass(130, 734), // outside 124 px second floor -> passes through
+    ]
+    // at 604 px (exact threshold where 8 split buttons fit), short group moves inline with glass sized to 3 buttons (454 px)
+    win.innerWidth = 604
+    viewport.fire('resize')
+    const maxReply604 = [
+      fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split,
+      fCtrl.guest_floor, fCtrl.guest_strip, splitWidthOf(),
+      fFrame.innerHTML.includes(`H ${454 + 72}`),
+    ]
+    setGuests(todo6, 8)
+    const maxTodo604 = [fCtrl.bg_mode, fCtrl.guest_count, fCtrl.guest_split, splitWidthOf()]
+    // empty group with max=8 hides guests and keeps normal desktop-split bar at 538 px
+    win.innerWidth = 538
+    setGuests([], 8)
+    const maxEmpty538 = [fCtrl.bg_mode, fEl.hidden, fCtrl.guest_count, fCtrl.guest_floor, fCtrl.guest_strip]
+    // guest without `max` is treated as today: 3 split buttons fit inline (454 <= 538) while 6 split move to second row
+    setGuests(reply3)
+    const noMaxReply538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_split, fCtrl.guest_floor, splitWidthOf()]
+    setGuests(todo6)
+    const noMaxTodo538 = [fCtrl.bg_mode, fEl.className, fCtrl.guest_count, fCtrl.guest_floor, fCtrl.guest_strip, stripWidthOf()]
+
     fCtrl.dispose()
     delete win._key_buttons_guests
     win.innerWidth = 390
@@ -1886,6 +1946,20 @@ check('item: its label, its code as an embed of key_buttons.js, and the welcome 
         [1, 1, 0],
         [1, 1, 0],
         [1, ['key buttons: a tap on "up" was not taken: it began on the glass beside the button']],
+      ])
+    check('guests fixed max: keeps short groups on second row below w_piece(max, split) with shown-sized floor and full strip, inline at/above with shown-sized glass, and leaves guests without max unchanged',
+      [maxReply538, maxDeleg538, maxTodo538, maxWinOnly603, maxReply603Glass, maxReply604, maxTodo604, maxEmpty538, noMaxReply538, noMaxTodo538],
+      [
+        ['desktop-strip', 'key-buttons-guests floor', 0, false, 124, '124px', 604, 604, true],
+        ['desktop-strip', 'key-buttons-guests floor', 154, 604, 604],
+        ['desktop-strip', 'key-buttons-guests floor', 214, 604, 604],
+        ['desktop-strip', 'key-buttons-guests floor', 52, 604, 604],
+        [1, 1, 0],
+        ['desktop-split', 'key-buttons-guests', 3, true, 0, 0, 454, true],
+        ['desktop-split', 6, true, 544],
+        ['desktop-split', true, 0, 0, 0],
+        ['desktop-split', 'key-buttons-guests', 3, true, 0, 454],
+        ['desktop-strip', 'key-buttons-guests floor', 0, 214, 544, 544],
       ])
   }
 

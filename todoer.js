@@ -2156,7 +2156,6 @@ const _BIN_BUTTONS_CSS = `
 .todoer-bin-buttons { position: fixed; left: 0; bottom: 0; z-index: 88; display: flex; align-items: center; gap: 18px; box-sizing: border-box; height: 44px; margin: 0; padding: 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.09); border-right: 1px solid rgba(255, 255, 255, 0.09); border-top-right-radius: 12px; background: rgba(17, 17, 17, 0.65); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 0 12px rgba(0, 0, 0, 1) }
 .todoer-bin-buttons[hidden] { display: none }
 .todoer-bin-buttons > button { flex: none; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #222; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); cursor: pointer; -webkit-tap-highlight-color: transparent }
-.todoer-bin-buttons > button[data-fixed] + button:not([data-fixed]) { margin-left: 12px }
 .todoer-bin-buttons > button:focus { outline: none }
 .todoer-bin-buttons > button:focus-visible { outline: 1px solid currentColor }
 .todoer-bin-buttons > button:active { background: #555 }
@@ -2213,7 +2212,7 @@ function __bin_buttons(target) {
   // handed over on the window in every case: a strip that is drawn later (its item installed or
   // updated after this) takes them from there and says so (`taken`: the piece of their own goes)
   const changed = window._key_buttons_guests?.drawn !== drawn
-  if (changed) window._key_buttons_guests = { drawn, buttons: specs, taken: () => void document.querySelector('.todoer-bin-buttons')?.remove() }
+  if (changed) window._key_buttons_guests = { drawn, buttons: specs, max: _BIN_BUTTONS_MAX, taken: () => void document.querySelector('.todoer-bin-buttons')?.remove() }
   const strip = window._key_buttons
   if (typeof strip?.guest == 'function') {
     piece?.remove() // a piece of their own, drawn before the strip could take them
@@ -2321,6 +2320,11 @@ function _window_button() {
 
 // the row buttons and their keys: which way each goes in the walk
 const _ROW_STEP = { up: -1, down: 1 }
+
+// largest guest group this item can hand over: bell, the longest list's bins (or history on a
+// non-todo row), the windows' link button, and the step pair (so key buttons keeps one row for
+// every selection at a given window width)
+const _BIN_BUTTONS_MAX = _BIN_BUTTONS.filter(b => b.name == 'bell' || b.name == 'window' || b.name in _ROW_STEP).length + Math.max(_BIN_BUTTONS.filter(b => b.name == 'history').length, ...Object.values(_LIST_BINS).map(b => b.length))
 
 // the keys of a row's other buttons, by the key's code: the first letter of what each button
 // says, x for the delete button (the owner, 2026-11-25, of this suggestion: "i want them")

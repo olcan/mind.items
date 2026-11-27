@@ -1128,7 +1128,7 @@ function key_buttons_create() {
   // the group stands on a second floor)
   const guests = (self.guests = nav_group('guests', 'key-buttons-guests', [], 'Actions for the named item'))
   const viewport = window.visualViewport
-  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, editing: false, bg_mode: null, guest_count: 0, guest_split: false, guest_floor: 0, guest_strip: 0 })
+  Object.assign(self, { tallest: {}, shown: undefined, changes: [], cleared: false, nav: { ...KEY_BUTTONS_NONE }, query: undefined, keyboard_up: false, nav_pending: false, editing: false, bg_mode: null, guest_count: 0, guest_split: false, guest_max: 0, guest_floor: 0, guest_strip: 0 })
   // a task of the item a moment from now (a later one of the same name replaces it); nothing
   // once the item is gone (its own task's cancel disposes this controller)
   const later = (name, run, ms) => {
@@ -1161,8 +1161,13 @@ function key_buttons_create() {
     const fixed = [...guests.children].filter(b => b.dataset.fixed).length
     const split = fixed > 0 && fixed < handed
     const extra = split ? KEY_BUTTONS_LOOK.group - KEY_BUTTONS_LOOK.gap : 0
-    const wide_w = handed ? key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, handed, 0, split).w_piece : 0
-    const room = !!handed && bg_mode == 'desktop-split' && (window.innerWidth ?? Infinity) >= wide_w
+    // when a guest names its largest group (`max`), decide the row from that group's width (with
+    // the wider gap in it) so the group keeps one row across selections at any window width;
+    // otherwise decide from the buttons currently handed
+    const fit_count = self.guest_max ? Math.max(handed, self.guest_max) : handed
+    const fit_split = self.guest_max ? fit_count > 1 : split
+    const fit_w = handed ? key_buttons_backdrop_geom(KEY_BUTTONS_LOOK, fit_count, 0, fit_split).w_piece : 0
+    const room = !!handed && bg_mode == 'desktop-split' && (window.innerWidth ?? Infinity) >= fit_w
     if (handed && bg_mode == 'desktop-split' && !room) bg_mode = 'desktop-strip'
     self.bg_mode = bg_mode
     const floor = !!handed && !room && !!bg_mode
@@ -1178,8 +1183,8 @@ function key_buttons_create() {
     const guest_count = room ? handed : 0
     const guest_split = room && split
     // a strip under a second floor also shows in a window of `merge` px and more, up to the width
-    // that has room for the wider piece: its glass, border and shadow are drawn to that width
-    const guest_strip = floor && bg_mode == 'desktop-strip' ? wide_w : 0
+    // that has room for the wider piece (`fit_w`): its glass, border and shadow are drawn to that width
+    const guest_strip = floor && bg_mode == 'desktop-strip' ? fit_w : 0
     if (guest_count !== self.guest_count || guest_split !== self.guest_split || guest_strip !== self.guest_strip) {
       self.guest_count = guest_count
       self.guest_split = guest_split
@@ -1227,16 +1232,21 @@ function key_buttons_create() {
     }
   }
   // the guest group, from what another item has put on the window (window._key_buttons_guests:
-  // { buttons, taken }, each button { name, title, icon, box, fill, color, fixed, press }: `icon` one path in a
+  // { buttons, max, taken }, each button { name, title, icon, box, fill, color, fixed, press }: `icon` one path in a
   // box of `box` units, 16 where it is left out, drawn as a line or, with `fill`, filled, in
   // `color`; `fixed` (optional) pins the button to the group's fixed end (right inline, left on a
-  // second floor), set apart by a group's gap from non-fixed buttons; `press` is that item's own
-  // function; `taken`, if given, is called once they are drawn here). The item sets it and calls
-  // this; it stays on the window, so a controller drawn anew (an update of this item) shows the
-  // group again. A press takes no focus and reaches nothing under the button, as the strip's own
+  // second floor), set apart by a group's gap from non-fixed buttons; `max` (optional) is the
+  // largest button count the guest can ever hand, used to choose inline vs second floor stably
+  // across selections while keeping glass and frame sized to the buttons shown; `press` is that
+  // item's own function; `taken`, if given, is called once they are drawn here). The item sets it
+  // and calls this; it stays on the window, so a controller drawn anew (an update of this item)
+  // shows the group again. A press takes no focus and reaches nothing under the button, as the
+  // strip's own
   self.guest = () => {
     if (self.disposed) return
     const raw = window._key_buttons_guests?.buttons
+    const raw_max = window._key_buttons_guests?.max
+    self.guest_max = typeof raw_max == 'number' && Number.isFinite(raw_max) && raw_max > 0 ? Math.floor(raw_max) : 0
     const specs = Array.isArray(raw) ? [...raw.filter(s => !s?.fixed), ...raw.filter(s => s?.fixed)] : []
     guests.replaceChildren(
       ...specs.map(spec => {
