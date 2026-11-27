@@ -340,10 +340,12 @@ function __render(widget, widget_item) {
 
   // console.debug(`rendering list ${storage_key} in ${widget.id} ...`)
 
-  // initialize this widget's set of todo items in session-lived store (membership is tracked
-  // PER WIDGET: the main and delegated widgets of one pinned item hold different items)
-  widget_item.store._todoer ??= { items: {} }
+  // initialize this widget's set of todo items and remembered unstored order in session-lived
+  // store (both are tracked PER WIDGET: two widgets on one pinned item can share a storage_key,
+  // such as two delegated widgets, while holding different rows)
+  widget_item.store._todoer ??= { items: {}, order: {} }
   widget_item.store._todoer.items ??= {}
+  widget_item.store._todoer.order ??= {}
   const members = (widget_item.store._todoer.items[widget.id] = new Set())
 
   // the item the box targets by NAME (the unique label or the id reference the rows' clicks set;
@@ -671,26 +673,30 @@ function __render(widget, widget_item) {
       ? null /* disabled for snooze list */
       : {
           get: () => {
-            const ids =
+            // persisted order (mapped to tab ids), with unstored rows (newly drawn first,
+            // then remembered in this widget's prior draw) kept ahead of it; unsnooze order
+            // applies within each group so a second redraw with the same inputs draws the
+            // same order and a soft touch on selection (item.time) cannot move an unstored row
+            const unsnoozed = id =>
+              -(
+                _item(id, { silent: true })?._global_store._todoer?.unsnoozed ??
+                0
+              )
+            const stored = (
               widget_item._global_store._todoer?.[storage_key]?.split(',') ?? []
-            if (snoozed)
-              sort_by(
-                ids,
-                id =>
-                  _item(id, { silent: true })?._global_store._todoer?.snoozed
-              )
-            else
-              sort_by(
-                ids,
-                id =>
-                  -(
-                    _item(id, { silent: true })?._global_store._todoer
-                      ?.unsnoozed ?? 0
-                  )
-              )
-            // convert back to temp ids (if any) as used in list elem attribs
-            apply(ids, id => _item(id, { silent: true })?.id ?? id)
-            return ids
+            )
+              .filter(id => id)
+              .map(id => _item(id, { silent: true })?.id ?? id)
+            const seen = new Set(stored)
+            const prior = (
+              widget_item.store._todoer.order?.[widget.id] ?? []
+            ).filter(id => members.has(id) && !seen.has(id))
+            for (const id of prior) seen.add(id)
+            const fresh = [...members].filter(id => !seen.has(id))
+            return [
+              ...sort_by([...fresh, ...prior], unsnoozed),
+              ...sort_by(stored, unsnoozed),
+            ]
           },
           set: sortable => {
             // dispatch task to ensure that all items have been saved
@@ -783,7 +789,10 @@ function __render(widget, widget_item) {
       // a started drag only: Sortable fires unchoose for a plain click too (a press without a
       // move), which saves nothing, so a hint recorded then would outlive it and a later remote
       // reorder's render would apply it and persist it (review 0)
-      if (dragged && e.to == list) widget._orderAfterDrag = list.sortable.toArray()
+      if (dragged && e.to == list) {
+        widget._orderAfterDrag = list.sortable.toArray()
+        if (!snoozed) (widget_item.store._todoer.order ??= {})[widget.id] = widget._orderAfterDrag
+      }
       // trigger the pending renders, this widget's and every other widget's deferred by this
       // drag or press (see __render), each with the item it was asked for
       _run_deferred_renders()
@@ -882,6 +891,12 @@ function __render(widget, widget_item) {
   // (a row a bin took, a row that arrived meanwhile) stay ahead of it, as Sortable's sort
   // leaves them
   if (widget._orderAfterDrag && !snoozed) list.sortable.sort(widget._orderAfterDrag)
+  if (!snoozed)
+    (widget_item.store._todoer.order ??= {})[widget.id] = Array.from(
+      list.children
+    )
+      .map(e => e.getAttribute('data-id'))
+      .filter(Boolean)
 
   // the bin buttons follow the list as drawn: a row that came or went while the box names its item
   if (typeof _bin_buttons == 'function') _bin_buttons(_item(MindBox.get().trim(), { silent: true }))

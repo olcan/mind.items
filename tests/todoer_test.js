@@ -16190,6 +16190,448 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
   })())
+  // unstored drawn order (2026-11-26, shortcuts_row): a row selected via j/k or click is
+  // soft-touched by the app (item.time = now + 2), so while the widget's deferred order save
+  // has not yet persisted new rows (waiting on saved_id's 1s retry, offline, or resume hold),
+  // a re-render (_on_search or force_render destroying the widget DOM) must keep already-drawn
+  // unstored rows in their drawn order rather than re-sorting them by -item.time
+  {
+    class OrderElem {
+      constructor(tag) {
+        this.tagName = tag.toUpperCase()
+        this.attrs = new Map()
+        this.children = []
+        this.parentElement = null
+        this.parentNode = null
+        this.style = {}
+        this._cls = new Set()
+        this.classList = {
+          add: (...cs) => cs.forEach(c => this._cls.add(c)),
+          remove: (...cs) => cs.forEach(c => this._cls.delete(c)),
+          contains: c => this._cls.has(c),
+          toggle: (c, f) => (f === undefined ? (this._cls.has(c) ? (this._cls.delete(c), false) : (this._cls.add(c), true)) : f ? (this._cls.add(c), true) : (this._cls.delete(c), false)),
+        }
+      }
+      get className() { return [...this._cls].join(' ') }
+      set className(v) { this._cls = new Set(String(v).split(/\s+/).filter(Boolean)) }
+      setAttribute(k, v) { this.attrs.set(k, String(v)) }
+      getAttribute(k) { return this.attrs.has(k) ? this.attrs.get(k) : null }
+      removeAttribute(k) { this.attrs.delete(k) }
+      appendChild(c) {
+        if (c.parentElement) c.parentElement.removeChild(c)
+        c.parentElement = c.parentNode = this
+        this.children.push(c)
+        return c
+      }
+      removeChild(c) {
+        const i = this.children.indexOf(c)
+        if (i >= 0) { this.children.splice(i, 1); c.parentElement = c.parentNode = null }
+        return c
+      }
+      remove() { this.parentElement?.removeChild(this) }
+      prepend(...nodes) {
+        for (const n of nodes.reverse()) {
+          if (typeof n == 'string') continue
+          if (n.parentElement) n.parentElement.removeChild(n)
+          n.parentElement = n.parentNode = this
+          this.children.unshift(n)
+        }
+      }
+      closest(sel) {
+        for (let cur = this; cur; cur = cur.parentElement) {
+          if (sel == '.todoer-widget' && cur._cls.has('todoer-widget')) return cur
+          if (sel == '#cache-div' && cur.id == 'cache-div') return cur
+        }
+        return null
+      }
+      querySelectorAll(sel) {
+        const out = []
+        const walk = n => {
+          for (const c of n.children) {
+            const hit =
+              sel == ':is(.list,.bin)' ? (c._cls.has('list') || c._cls.has('bin')) :
+              sel == '.list' ? c._cls.has('list') :
+              sel == '.todoer-widget' ? c._cls.has('todoer-widget') :
+              sel == '.list-item-container' ? c._cls.has('list-item-container') :
+              sel == '.list-item-container.selected' ? (c._cls.has('list-item-container') && c._cls.has('selected')) :
+              sel == '.list .list-item-container[data-id]' ? (c._cls.has('list-item-container') && c.getAttribute('data-id') != null && c.parentElement?._cls.has('list')) :
+              false
+            if (hit) out.push(c)
+            walk(c)
+          }
+        }
+        walk(this)
+        return out
+      }
+      querySelector(sel) { return this.querySelectorAll(sel)[0] ?? null }
+    }
+    const makeSortable = (el, options) => {
+      const inst = {
+        el,
+        options,
+        toArray() { return el.children.map(c => c.getAttribute('data-id')).filter(Boolean) },
+        sort(order) {
+          const map = {}
+          this.toArray().forEach((id, i) => { map[id] = el.children[i] })
+          for (const id of order) if (map[id]) { el.removeChild(map[id]); el.appendChild(map[id]) }
+        },
+        save() { options.store?.set?.(this) },
+        destroy() {},
+      }
+      if (options.store?.get) inst.sort(options.store.get(inst) || [])
+      return inst
+    }
+    const orderWorld = () => {
+      let clock = 1000
+      let box = ''
+      const items = []
+      const byId = new Map()
+      const byName = new Map()
+      const tasks = new Map()
+      const timers = []
+      const makeItem = (id, name, text, { todo = false, waits = null, saved_id = null, tags = null, state = null } = {}) => {
+        const tagList = tags ?? (todo ? ['#todo'] : [])
+        const it = {
+          id,
+          name,
+          label: name,
+          text,
+          time: ++clock,
+          saved_id,
+          tags: [...tagList],
+          tags_visible: [...tagList],
+          tags_hidden: [],
+          store: {},
+          _global_store: {},
+          get global_store() { return this._global_store },
+          _waits: waits,
+          _state: state,
+          select() { box = this.name; this.time = (clock += 10) + 2; return true },
+          save_global_store() {},
+        }
+        items.push(it); byId.set(id, it); byName.set(name, it)
+        return it
+      }
+      const pinned = makeItem('pinned', 'id:pinned', '#_pin\n#_todoer', { saved_id: 's_pinned' })
+      pinned.store['w1'] = { options: {} }
+      const root = new OrderElem('div')
+      let widget = new OrderElem('div')
+      widget.id = 'w1'; widget.className = 'todoer-widget'
+      root.appendChild(widget)
+      pinned.elem = root
+      const smOne = makeItem('t1', '#sm_one', '#sm_one\n#todo first shortcuts todo', { todo: true })
+      const smReply = makeItem('r1', '#sm_reply/0', '#sm_reply/0', { waits: 'reply' })
+      const smTwo = makeItem('t2', '#sm_two', '#sm_two\n#todo second shortcuts todo', { todo: true })
+      const _item = ref => {
+        if (!ref) return null
+        if (byId.has(ref)) return byId.get(ref)
+        if (byName.has(ref)) return byName.get(ref)
+        for (const it of items) if (it.saved_id == ref) return it
+        return null
+      }
+      const win = { _server_confirmed: true, _server_current: true, Sortable: { dragged: null, create: makeSortable } }
+      const octx = {
+        window: win,
+        document: { createElement: t => new OrderElem(t), querySelectorAll: s => root.querySelectorAll(s), querySelector: s => root.querySelector(s), activeElement: null },
+        navigator: { userAgent: 'Chrome' },
+        console: { debug() {}, warn() {}, error() {}, log() {} },
+        Date: { now: () => ++clock },
+        Set, Map, Array, Object, String, Number, Math, RegExp, JSON, Promise,
+        Sortable: win.Sortable,
+        MindBox: { get: () => box, set: v => { box = v } },
+        _item,
+        _items: () => [...items].sort((a, b) => b.time - a.time),
+        _exists: id => !!_item(id),
+        _todoer: { id: 'todoer', store: {}, dependents: ['pinned'], _global_store: {} },
+        _this: { id: 'todoer', dependents: ['pinned'], dispatch_task: (n, fn, d, r) => tasks.set(n, { fn, d, r }) },
+        dispatch_task: (n, fn, d, r) => tasks.set(n, { fn, d, r }),
+        setTimeout: fn => { timers.push(fn); return timers.length },
+        fatal: m => { throw new Error(m) },
+        debug: () => {},
+        alert: () => {},
+        is_string: x => typeof x == 'string',
+        uniq: xs => [...new Set(xs)],
+        each: (xs, f) => xs.forEach(f),
+        apply: (xs, f) => { for (let i = 0; i < xs.length; i++) xs[i] = f(xs[i]); return xs },
+        sort_by: (xs, f) => xs.sort((a, b) => f(a) - f(b)),
+        clone_deep: x => JSON.parse(JSON.stringify(x)),
+        pick_by: (o, p) => Object.fromEntries(Object.entries(o).filter(([, v]) => p(v))),
+        equal: (a, b) => JSON.stringify(a) == JSON.stringify(b),
+        _: { escape: s => String(s) },
+        _LIST_BINS: { main: ['agent', 'done', 'snooze', 'cancel'], snoozed: ['agent', 'done', 'snooze', 'cancel'], delegated: ['agent', 'owner'] },
+        _waits: it => it._waits,
+        _waiting_parts: it => [it.name, 'Shortcuts reply.', 'Shortcuts reply.'],
+        _wait_key_of: () => 'k1',
+        _link_waiting_wiki: x => x,
+        _mark_tags: x => x,
+        _wire_row_links: () => {},
+        _suppress_touch_context_menu: () => {},
+        _grab_on_sideways_touch: () => {},
+        _extract_todo_snippet: it => it.text.replace(/^#\w+\n/, ''),
+        _task_state: it => it._state ?? null,
+        _pending_commands: () => ({}),
+        _list_of: () => 'main',
+        _delegated_view: () => false,
+        _clear_waiting: () => false,
+        _clear_bell: () => false,
+        _task_list: (s, p, ps) => s?.list ?? 'main',
+        _age: () => '1m',
+        _stats_suffix: () => '',
+        _wake_suffix: () => '',
+        _age_title: () => '',
+        _row_question: () => null,
+        _visible: s => s,
+        _row_title: s => s,
+        _notify_change: () => {},
+        _row_html: s => s,
+        _decorate_row: h => h,
+        _row_label: () => '',
+        _bell: () => null,
+        _corpus_current: w => !!w._server_confirmed && (w._server_current ?? true),
+        _held: () => false,
+        TODOER_VERSION: 1,
+        _bin_buttons: () => {},
+        _run_deferred_renders: () => {},
+        _mounted_lists: () => root.querySelectorAll('.todoer-widget'),
+        _select_item: it => it.select(),
+      }
+      vm.createContext(octx)
+      vm.runInContext(
+        'const _BIN_KEYS = { a: "agent", d: "done", s: "snooze", x: "cancel", u: "owner", b: "bell" }\n' +
+          pick(['_merged_order', '_order_blocked', '_order_save_step', '__render', '_bin_row', '_row_sequence', '_row_beside', '_on_row_key', '_listed', '_on_search', '_render_todoer_widget']).join('\n'),
+        octx
+      )
+      const addWidget = (id, options = {}) => {
+        pinned.store[id] = { options }
+        const el = new OrderElem('div')
+        el.id = id; el.className = 'todoer-widget'
+        root.appendChild(el)
+        return el
+      }
+      const rowNames = (el = widget) => el.querySelectorAll('.list .list-item-container[data-id]').map(r => _item(r.getAttribute('data-id')).name)
+      const flush = () => { while (timers.length) timers.shift()() }
+      const saveNow = (key = 'save.w1.#todo') => tasks.get(key)?.fn()
+      // whole-widget DOM replacement (remount): drops DOM properties such as _orderAfterDrag;
+      // in production, todoer-widget.html uses _skip_invalidation so cache invalidation keeps the
+      // widget and rebuilds its inner .list via __render(widget, pinned)
+      const remount = () => {
+        widget.remove()
+        widget = new OrderElem('div')
+        widget.id = 'w1'; widget.className = 'todoer-widget'
+        root.appendChild(widget)
+        octx.__render(widget, pinned)
+      }
+      octx.__render(widget, pinned)
+      flush(); saveNow() // waits because saved_id == null
+      smOne.saved_id = 's1'; smReply.saved_id = 's2'; smTwo.saved_id = 's3'
+      return { octx, win, pinned, smOne, smReply, smTwo, makeItem, addWidget, getWidget: () => widget, getBox: () => box, rowNames, flush, saveNow, remount }
+    }
+
+    // 1. Exact trace failure: force_render (rebuilding .list in place on the retained widget)
+    //    between j #2 and j #3 while order save waits its 1s retry
+    {
+      const w = orderWorld()
+      w.octx._on_row_key('KeyJ', {})
+      const j1 = w.getBox()
+      w.octx._on_row_key('KeyJ', {})
+      const j2 = w.getBox()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const afterForce = w.rowNames()
+      w.flush(); w.saveNow()
+      w.octx._on_row_key('KeyJ', {})
+      check(
+        'unstored order: force_render between j presses keeps drawn order and j lands on last row',
+        [j1, j2, afterForce, w.getBox(), w.pinned._global_store._todoer?.['#todo']],
+        ['#sm_two', '#sm_reply/0', ['#sm_two', '#sm_reply/0', '#sm_one'], '#sm_one', 's3,s2,s1']
+      )
+    }
+
+    // 2. Held save (offline / resume hold): _on_search re-renders on every j without ping-ponging
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      const walk = []
+      const orders = []
+      for (let i = 0; i < 4; i++) {
+        w.octx._on_row_key('KeyJ', {})
+        w.octx._on_search(w.getBox())
+        w.flush(); w.saveNow()
+        walk.push(w.getBox())
+        orders.push(w.rowNames())
+      }
+      check(
+        'unstored order: held-save j walk through _on_search cycles without jumping or ping-ponging',
+        [walk, orders],
+        [['#sm_two', '#sm_reply/0', '#sm_one', '#sm_two'], Array(4).fill(['#sm_two', '#sm_reply/0', '#sm_one'])]
+      )
+    }
+
+    // 3. Selecting a non-first new row before 1s retry keeps order and persists drawn order
+    {
+      const w = orderWorld()
+      w.smReply.select()
+      w.octx._on_search(w.getBox())
+      w.flush(); w.saveNow()
+      const afterSel = w.rowNames()
+      w.octx._on_row_key('KeyJ', {})
+      check(
+        'unstored order: selecting a non-first new row before the 1s save keeps it in place and persists drawn order',
+        [afterSel, w.pinned._global_store._todoer?.['#todo'], w.getBox()],
+        [['#sm_two', '#sm_reply/0', '#sm_one'], 's3,s2,s1', '#sm_one']
+      )
+    }
+
+    // 4. Remote saved order overrides prior drawn order (mapped via temp ids) while unstored rows stay ahead
+    {
+      const w = orderWorld()
+      w.pinned._global_store._todoer = { '#todo': 's1,s3', version: 1 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const partialRemote = w.rowNames()
+      const partialIds = w.getWidget().querySelector('.list').sortable.options.store.get()
+      w.pinned._global_store._todoer = { '#todo': 's1,s2,s3', version: 1 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const fullRemote = w.rowNames()
+      const fullIds = w.getWidget().querySelector('.list').sortable.options.store.get()
+      check(
+        'unstored order: remote saved order overrides prior drawn order (mapped via temp ids) while keeping unstored new rows ahead',
+        [partialRemote, partialIds, fullRemote, fullIds],
+        [['#sm_reply/0', '#sm_one', '#sm_two'], ['r1', 't1', 't2'], ['#sm_one', '#sm_reply/0', '#sm_two'], ['t1', 'r1', 't2']]
+      )
+    }
+
+    // 5. Drag of unstored rows survives whole-widget remount, unsnoozed todo rises above prior,
+    //    and a removed last row (not already at index 0) is dropped from prior and re-enters at top
+    {
+      const w = orderWorld()
+      const list = w.getWidget().querySelector('.list')
+      list.sortable.options.onStart({})
+      // drag #sm_one (index 2) to index 0
+      const moved = list.children[2]
+      list.removeChild(moved)
+      list.children.unshift(moved)
+      moved.parentElement = moved.parentNode = list
+      list.sortable.options.onUnchoose({ to: list })
+      w.remount()
+      const afterDragRemount = w.rowNames()
+      // unsnoozed todo (#sm_two, currently index 1) rises to top within the unstored group
+      w.smTwo._global_store._todoer = { unsnoozed: 9999 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const afterUnsnooze = w.rowNames()
+      delete w.smTwo._global_store._todoer.unsnoozed
+      // #sm_reply/0 sits LAST (index 2): leaves the list -> dropped from prior -> returns first
+      w.smReply._waits = null
+      w.octx.__render(w.getWidget(), w.pinned)
+      const withoutReply = w.rowNames()
+      w.smReply._waits = 'reply'
+      w.octx.__render(w.getWidget(), w.pinned)
+      const returnedReply = w.rowNames()
+      check(
+        'unstored order: drag of unstored rows survives remount, unsnoozed todo rises above prior, and removed last row re-enters at top',
+        [afterDragRemount, afterUnsnooze, withoutReply, returnedReply],
+        [
+          ['#sm_one', '#sm_two', '#sm_reply/0'],
+          ['#sm_two', '#sm_one', '#sm_reply/0'],
+          ['#sm_two', '#sm_one'],
+          ['#sm_reply/0', '#sm_two', '#sm_one'],
+        ]
+      )
+    }
+
+    // 6a. Blocker 1: held save with stored s3,s1, unsnoozed s1, and arriving waiting reply s2:
+    //     two consecutive draws (and a selection redraw) keep [s2, s1, s3] and release saves s2,s1,s3
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      w.pinned._global_store._todoer = { '#todo': 's3,s1', version: 1 }
+      w.smReply._waits = null
+      w.octx.__render(w.getWidget(), w.pinned)
+      w.smOne._global_store._todoer = { unsnoozed: 5000 }
+      w.smReply._waits = 'reply'
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw1 = w.rowNames()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw2 = w.rowNames()
+      w.smTwo.select()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw3 = w.rowNames()
+      w.win._server_current = true
+      w.flush(); w.saveNow()
+      check(
+        'unstored order: second redraw with stored unsnoozed row and unstored reply keeps order and saves it',
+        [draw1, draw2, draw3, w.pinned._global_store._todoer?.['#todo'], w.smOne._global_store._todoer?.unsnoozed ?? null],
+        [['#sm_reply/0', '#sm_one', '#sm_two'], ['#sm_reply/0', '#sm_one', '#sm_two'], ['#sm_reply/0', '#sm_one', '#sm_two'], 's2,s1,s3', null]
+      )
+    }
+
+    // 6b. Blocker 1 (unstored group first draw): unsnooze ordering applies within the unstored
+    //     group on first draw and second redraw, with remembered order breaking ties and stored
+    //     rows (even with a higher unsnooze timestamp) staying behind the unstored group
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      const smExtra = w.makeItem('t3', '#sm_extra', '#sm_extra\n#todo extra todo', { todo: true, saved_id: 's4' })
+      const smOlder = w.makeItem('t4', '#sm_older', '#sm_older\n#todo older todo', { todo: true, saved_id: 's5' })
+      const smU2 = w.makeItem('t5', '#sm_u2', '#sm_u2\n#todo second unsnoozed todo', { todo: true, saved_id: 's6' })
+      w.pinned._global_store._todoer = { '#todo': 's3', version: 1 }
+      w.smReply._waits = null
+      smU2._global_store._todoer = { snoozed: 999999 }
+      w.smOne._global_store._todoer = { unsnoozed: 5000 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      // soft-touch #sm_extra so smExtra.time > smOlder.time; remembered order must still keep #sm_older ahead
+      smExtra.select()
+      w.smReply._waits = 'reply'
+      smU2._global_store._todoer = { snoozed: 0, unsnoozed: 3000 }
+      w.smTwo._global_store._todoer = { unsnoozed: 9000 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw1 = w.rowNames()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw2 = w.rowNames()
+      w.win._server_current = true
+      w.flush(); w.saveNow()
+      const want = ['#sm_one', '#sm_u2', '#sm_reply/0', '#sm_older', '#sm_extra', '#sm_two']
+      check(
+        'unstored order: unsnooze applies within unstored group on first draw and redraw with remembered order breaking ties',
+        [draw1, draw2, w.pinned._global_store._todoer?.['#todo']],
+        [want, want, 's1,s6,s2,s5,s4,s3']
+      )
+    }
+
+    // 7. Blocker 2: two delegated widgets on one pinned item filtered to different tags share
+    //    storage_key 'delegated'; drawing the empty second widget must not erase the first's
+    //    remembered order while save is held, and persisted order keeps the shared key and format
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      const wWork = w.addWidget('w_work', { delegated: true, tags: ['#work'] })
+      const wHome = w.addWidget('w_home', { delegated: true, tags: ['#home'] })
+      const workA = w.makeItem('wa', '#work_a', '#work_a\n#todo #work first work todo', {
+        tags: ['#todo', '#work'],
+        saved_id: 'sw1',
+        state: { list: 'delegated', updated: 1000 },
+      })
+      w.makeItem('wb', '#work_b', '#work_b\n#todo #work second work todo', {
+        tags: ['#todo', '#work'],
+        saved_id: 'sw2',
+        state: { list: 'delegated', updated: 1000 },
+      })
+      w.octx.__render(wWork, w.pinned)
+      const workInitial = w.rowNames(wWork)
+      w.octx.__render(wHome, w.pinned)
+      const homeEmpty = w.rowNames(wHome)
+      workA.select()
+      w.octx.__render(wWork, w.pinned)
+      const workAfterSelect = w.rowNames(wWork)
+      w.win._server_current = true
+      w.flush()
+      w.saveNow('save.w_work.delegated')
+      w.saveNow('save.w_home.delegated')
+      check(
+        'unstored order: two delegated widgets on one pinned item keep separate remembered orders while sharing storage_key',
+        [workInitial, homeEmpty, workAfterSelect, w.pinned._global_store._todoer],
+        [['#work_b', '#work_a'], [], ['#work_b', '#work_a'], { delegated: 'sw2,sw1', version: 1 }]
+      )
+    }
+  }
   // the item's files are embedded in the #todoer item's own text, where the app expands every
   // macro opener that no backslash escapes, also in code and comments (a preview of another item
   // broke its page that way, 2026-11-23): none may stand unescaped in the script or the widget's file
