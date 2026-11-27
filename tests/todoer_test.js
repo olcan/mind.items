@@ -159,6 +159,7 @@ const picked =
     '_items_now',
     '_bell',
     '_clear_bell',
+    '_snooze_key',
     '_snooze_dialog',
     '_item_writes',
     '_item_visible',
@@ -2151,7 +2152,14 @@ const { replaceTags, parseTags, hash_64_fnv1a } = (() => {
     handlers.pointerup({})
     Sortable.dragged = null
   }
+  let finished = false
+  process.on('beforeExit', () => {
+    if (finished) return
+    console.log('FAIL table exited before async_rows settled')
+    process.exit(1)
+  })
   await Promise.all(async_rows)
+  finished = true
   console.log(failures ? `${failures} FAILED` : 'all ok')
   process.exit(failures ? 1 : 0)
 })()
@@ -15042,10 +15050,1150 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
   })())
+
+  // 50. SNOOZE DIALOG KEYS: pure movement over rows of horizontal middles, Enter on every kind of
+  //     stop without double confirmation, Space on the notify box, date field focus & Escape/Tab
+  //     exit, held repeats, and single-handler cleanup across ten open/close cycles
+  async_rows.push((async () => {
+    const snoozeFns = pick([
+      '_snooze_move',
+      '_snooze_key',
+      '_snooze_rows',
+      '_snooze_dialog',
+      '_snooze_time',
+      '_on_snooze',
+      '_snooze_input',
+      '_on_snooze_input_change',
+      '_snooze_close',
+      '_on_snooze_notify',
+      '_snooze_hint',
+      '_snooze_tomorrow',
+      '_snooze_weekend',
+      '_snooze_next_week',
+    ]).join('\n')
+    const notifyPermConst = src.match(/\nconst _notify_permission = [^\n]*\n/)[0]
+    const UNSETTLED = '__UNSETTLED__'
+    // never hang on an unsettled modal promise: race against the next event-loop turn so any
+    // broken confirmation fails its named check and exits non-zero
+    const settleAnswer = modal =>
+      new Promise(resolve => {
+        let done = false
+        const timer = setImmediate(() => {
+          if (done) return
+          done = true
+          resolve(UNSETTLED)
+        })
+        Promise.resolve(modal).then(
+          val => {
+            if (done) return
+            done = true
+            clearImmediate(timer)
+            resolve(val)
+          },
+          err => {
+            if (done) return
+            done = true
+            clearImmediate(timer)
+            resolve(`__REJECTED__:${err?.message ?? err}`)
+          }
+        )
+      })
+    const clearIfUnsettled = async (e, modal, ans) => {
+      if (ans === UNSETTLED) {
+        e.env._modal_close(modal)
+        await Promise.resolve()
+      }
+    }
+
+    const makeSnoozeEnv = (now = 1_795_700_000_000, envOpts = {}) => {
+      const middles = [
+        [120, 173, 226, 279, 333, 391],
+        [145, 256, 370],
+        [211, 379],
+        [185],
+      ]
+      const labels0 = ['3h', '6h', '1d', '3d', '7d', '28d']
+      const labels1 = ['tomorrow', 'weekend', 'next week']
+      const listeners = []
+      const timers = []
+      const alerts = []
+      const closes = []
+      const appBubble = []
+      const modalQueue = []
+      const domWaiters = []
+      const tasks = {}
+      let domHeld = !!envOpts.holdDom
+      let hasSnoozeDom = false
+      let modalVisible = false
+      let currentModal = null
+      let currentOpts = null
+      let resolveModal = null
+      let perm = 'default'
+      let askCount = 0
+      let askResult = 'denied'
+      let activeEl = null
+      let rectCalls = 0
+
+      const makeEl = (mid, extra = {}) => {
+        const classes = new Set(extra.classes ?? [])
+        const el = {
+          innerText: extra.text ?? '',
+          value: '',
+          valueAsNumber: NaN,
+          checked: false,
+          classList: {
+            add: c => classes.add(c),
+            remove: c => classes.delete(c),
+            toggle: (c, f) => (f === undefined ? (classes.has(c) ? classes.delete(c) : classes.add(c)) : f ? classes.add(c) : classes.delete(c)),
+            contains: c => classes.has(c),
+          },
+          getBoundingClientRect: () => {
+            rectCalls++
+            return { left: mid - 20, right: mid + 20, top: 0, bottom: 20, width: 40, height: 20 }
+          },
+          focus: () => {
+            activeEl = el
+          },
+          blur: () => {
+            if (activeEl === el) activeEl = null
+          },
+        }
+        return el
+      }
+
+      const row0 = labels0.map((t, i) => makeEl(middles[0][i], { text: t, classes: ['button'] }))
+      const row1 = labels1.map((t, i) => makeEl(middles[1][i], { text: t, classes: ['button'] }))
+      const dateInput = makeEl(middles[2][0])
+      let dateValue = ''
+      const dateValueWrites = []
+      Object.defineProperty(dateInput, 'value', {
+        get: () => dateValue,
+        set: v => {
+          dateValue = v
+          dateValueWrites.push(v)
+        },
+        enumerable: true,
+        configurable: true,
+      })
+      const snoozeBtn = makeEl(middles[2][1], { text: 'snooze', classes: ['button', 'snooze'] })
+      const notifyBox = makeEl(middles[3][0])
+      const hintEl = { innerText: '' }
+      const allStops = [...row0, ...row1, dateInput, snoozeBtn, notifyBox]
+      const rowDivs = [
+        { querySelectorAll: s => (s == '.button' ? row0 : []) },
+        { querySelectorAll: s => (s == '.button' ? row1 : []) },
+      ]
+      const root = {
+        querySelectorAll: s => (s == '.row' ? rowDivs : s == '.lit' ? allStops.filter(e => e.classList.contains('lit')) : []),
+        querySelector: s =>
+          ({
+            '.custom input': dateInput,
+            '.custom .button.snooze': snoozeBtn,
+            '.notify input': notifyBox,
+            '.notify .hint': hintEl,
+          })[s] ?? null,
+        contains: el => allStops.includes(el),
+      }
+      const doc = {
+        get activeElement() {
+          return activeEl
+        },
+        querySelector: s =>
+          !hasSnoozeDom
+            ? null
+            : ({
+                '.snooze-modal': root,
+                '.snooze-modal .custom input': dateInput,
+                '.snooze-modal .button.snooze': snoozeBtn,
+                '.snooze-modal .notify input': notifyBox,
+                '.snooze-modal .notify .hint': hintEl,
+              })[s] ?? null,
+        querySelectorAll: s => (hasSnoozeDom && s == '.snooze-modal .lit' ? allStops.filter(e => e.classList.contains('lit')) : []),
+      }
+
+      let clock = now
+      class FakeDate extends RealDate {
+        constructor(...args) {
+          super(...(args.length ? args : [clock]))
+        }
+        static now() {
+          return clock
+        }
+        getTimezoneOffset() {
+          return 0
+        }
+        toInputValue() {
+          return new RealDate(this.getTime()).toISOString().slice(0, 16)
+        }
+      }
+
+      const showNextQueued = () => {
+        while (modalQueue.length) {
+          const next = modalQueue.shift()
+          if (next.cancelled) {
+            next.resolve(next.output)
+            continue
+          }
+          modalVisible = true
+          currentModal = next.promise
+          currentOpts = next.opts
+          resolveModal = next.resolve
+          hasSnoozeDom = next.content.includes('snooze-modal')
+          Promise.resolve().then(() => {
+            if (currentModal === next.promise) next.opts?.canConfirm?.()
+          })
+          return
+        }
+      }
+
+      const win = {
+        addEventListener: (type, fn, cap) => {
+          if (type == 'keydown' && cap) listeners.push(fn)
+        },
+        removeEventListener: (type, fn, cap) => {
+          if (type == 'keydown' && cap) {
+            const idx = listeners.indexOf(fn)
+            if (idx >= 0) listeners.splice(idx, 1)
+          }
+        },
+      }
+      const env = {
+        console,
+        Date: FakeDate,
+        window: win,
+        document: doc,
+        Notification: {
+          get permission() {
+            return perm
+          },
+          requestPermission: () => {
+            askCount++
+            perm = askResult
+            return Promise.resolve(perm)
+          },
+        },
+        alert: msg => alerts.push(msg),
+        fatal: msg => {
+          throw new Error(msg)
+        },
+        setTimeout: fn => {
+          timers.push(fn)
+          return timers.length
+        },
+        _todoer: {
+          store: {},
+          read: () => '<div class="snooze-modal">__onclick__ __onchange__ __onnotify__</div>',
+          dispatch_task: (name, fn, delay = 0, repeat = -1) => {
+            tasks[name] = { fn, delay, repeat, cancelled: false, runs: 0 }
+          },
+        },
+        _update_dom: () => (domHeld ? new Promise(r => domWaiters.push(r)) : Promise.resolve()),
+        _modal: (content, opts) => {
+          const entry = {
+            content: String(content ?? ''),
+            opts: { ...opts },
+            cancelled: false,
+            output: undefined,
+            resolve: null,
+            promise: null,
+          }
+          entry.promise = new Promise(resolve => {
+            entry.resolve = resolve
+          })
+          if (!modalVisible) {
+            modalVisible = true
+            currentModal = entry.promise
+            currentOpts = entry.opts
+            resolveModal = entry.resolve
+            hasSnoozeDom = entry.content.includes('snooze-modal')
+          } else {
+            modalQueue.push(entry)
+          }
+          return entry.promise
+        },
+        _modal_visible: p => modalVisible && (!p || p === currentModal),
+        _modal_update: (p, opts) => {
+          if (p === currentModal) Object.assign(currentOpts, opts)
+          else {
+            const q = modalQueue.find(x => x.promise === p)
+            if (q) Object.assign(q.opts, opts)
+          }
+        },
+        _modal_close: (p, out) => {
+          closes.push([p, out])
+          if (!p) {
+            for (const q of modalQueue) {
+              q.cancelled = true
+              q.output = undefined
+            }
+          } else if (p !== currentModal) {
+            const q = modalQueue.find(x => x.promise === p)
+            if (q) {
+              q.cancelled = true
+              q.output = out
+            }
+            return
+          }
+          if (modalVisible) {
+            modalVisible = false
+            const r = resolveModal
+            resolveModal = null
+            currentModal = null
+            currentOpts = null
+            r?.(out)
+          }
+          showNextQueued()
+        },
+      }
+      vm.createContext(env)
+      vm.runInContext(notifyPermConst + '\n' + snoozeFns, env)
+
+      // app src/event_key.ts resolver for simulated Modal.svelte bubble listener
+      const REMAPPED_AS_NAMED = /^(Escape|Enter|NumpadEnter|Tab|Backspace|Delete|Insert|Home|End|Page(Up|Down)|Arrow(Up|Down|Left|Right)|F\d+)$/
+      const KEY_NAME = /^[A-Za-z][A-Za-z0-9]+$/
+      const appEventKey = ev => {
+        const code = ev?.code || ev?.key || ''
+        const key = typeof ev?.key == 'string' ? ev.key : ''
+        if (key && REMAPPED_AS_NAMED.test(code) && !KEY_NAME.test(key)) return key
+        return code
+      }
+
+      const dispatchKey = (key, extra = {}) => {
+        const e = {
+          key,
+          code: 'code' in extra ? extra.code : key == ' ' ? 'Space' : key ?? '',
+          repeat: !!extra.repeat,
+          ctrlKey: !!extra.ctrlKey,
+          altKey: !!extra.altKey,
+          metaKey: !!extra.metaKey,
+          shiftKey: !!extra.shiftKey,
+          defaultPrevented: false,
+          stopped: false,
+          immediateStopped: false,
+          preventDefault() {
+            this.defaultPrevented = true
+          },
+          stopPropagation() {
+            this.stopped = true
+          },
+          stopImmediatePropagation() {
+            this.stopped = true
+            this.immediateStopped = true
+          },
+        }
+        for (const fn of [...listeners]) {
+          fn(e)
+          if (e.immediateStopped) break
+        }
+        // simulated Modal.svelte bubble listener on window (runs whenever propagation was not stopped)
+        if (!e.stopped) {
+          const appKey = appEventKey(e)
+          appBubble.push(appKey)
+          if (modalVisible && !e.repeat) {
+            if (appKey == 'Enter' && currentOpts?.canConfirm?.()) currentOpts.onConfirm?.()
+            else if (appKey == 'Escape') env._modal_close(currentModal, undefined)
+          }
+        }
+        return e
+      }
+
+      const litNames = () => allStops.filter(el => el.classList.contains('lit')).map(el => el.innerText || (el === dateInput ? 'date' : 'notify'))
+      const flushTimers = () => {
+        while (timers.length) timers.shift()()
+      }
+      const setNow = t => {
+        clock = t
+      }
+      const setPerm = (p, next = p) => {
+        perm = p
+        askResult = next
+      }
+      const setHoldDom = v => {
+        domHeld = !!v
+      }
+      const releaseDom = async () => {
+        const pending = domWaiters.splice(0)
+        for (const r of pending) r()
+        await Promise.resolve()
+        await Promise.resolve()
+      }
+      const runTask = name => {
+        const t = tasks[name]
+        if (!t || t.cancelled) return 'none'
+        t.runs++
+        const out = t.fn()
+        if (out === null) t.cancelled = true
+        else if (typeof out == 'number' && out >= 0) t.delay = out
+        else if (t.repeat >= 0) t.delay = t.repeat
+        else t.cancelled = true
+        return out
+      }
+
+      // real browser click order on a checkbox: browser toggles checked BEFORE firing change
+      const clickNotify = () => {
+        notifyBox.checked = !notifyBox.checked
+        env._on_snooze_notify({ target: notifyBox })
+      }
+
+      return {
+        env,
+        middles,
+        row0,
+        row1,
+        dateInput,
+        dateValueWrites,
+        snoozeBtn,
+        notifyBox,
+        hintEl,
+        listeners,
+        alerts,
+        closes,
+        appBubble,
+        tasks,
+        dispatchKey,
+        clickNotify,
+        litNames,
+        flushTimers,
+        setNow,
+        setPerm,
+        setHoldDom,
+        releaseDom,
+        pendingDomCount: () => domWaiters.length,
+        runTask,
+        getRectCalls: () => rectCalls,
+        resetRectCalls: () => {
+          rectCalls = 0
+        },
+        getAskCount: () => askCount,
+        getActive: () => activeEl,
+        setActive: el => {
+          activeEl = el
+        },
+        isVisible: () => modalVisible,
+        canConfirmNow: () => !!currentOpts?.canConfirm?.(),
+      }
+    }
+
+    // 50a. Pure movement function over given middles
+    {
+      const { env, middles } = makeSnoozeEnv()
+      const move = env._snooze_move
+      check(
+        'snooze move: first arrow lights 3h from any direction and non-arrow leaves nothing lit',
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].map(k => move(middles, null, k)),
+        [[0, 0], [0, 0], [0, 0], [0, 0], null]
+      )
+      check(
+        'snooze move: Left and Right move within a row and stop at its ends without wrapping',
+        [
+          move(middles, [0, 0], 'ArrowLeft'),
+          move(middles, [0, 0], 'ArrowRight'),
+          move(middles, [0, 5], 'ArrowRight'),
+          move(middles, [0, 5], 'ArrowLeft'),
+          move(middles, [1, 0], 'ArrowLeft'),
+          move(middles, [1, 2], 'ArrowRight'),
+          move(middles, [2, 0], 'ArrowLeft'),
+          move(middles, [2, 0], 'ArrowRight'),
+          move(middles, [2, 1], 'ArrowRight'),
+          move(middles, [2, 1], 'ArrowLeft'),
+          move(middles, [3, 0], 'ArrowLeft'),
+          move(middles, [3, 0], 'ArrowRight'),
+        ],
+        [
+          [0, 0],
+          [0, 1],
+          [0, 5],
+          [0, 4],
+          [1, 0],
+          [1, 2],
+          [2, 0],
+          [2, 1],
+          [2, 1],
+          [2, 0],
+          [3, 0],
+          [3, 0],
+        ]
+      )
+      check(
+        'snooze move: Down from six buttons to three wide buttons, to field and snooze, to box, and stay at ends',
+        [
+          ...[0, 1, 2, 3, 4, 5].map(c => move(middles, [0, c], 'ArrowDown')),
+          ...[0, 1, 2].map(c => move(middles, [1, c], 'ArrowDown')),
+          ...[0, 1].map(c => move(middles, [2, c], 'ArrowDown')),
+          move(middles, [3, 0], 'ArrowDown'),
+          move(middles, [0, 3], 'ArrowUp'),
+        ],
+        [
+          [1, 0],
+          [1, 0],
+          [1, 1],
+          [1, 1],
+          [1, 2],
+          [1, 2],
+          [2, 0],
+          [2, 0],
+          [2, 1],
+          [3, 0],
+          [3, 0],
+          [3, 0],
+          [0, 3],
+        ]
+      )
+      check(
+        'snooze move: Up back through every row by nearest horizontal middle, tie takes leftmost, empty rows stay null',
+        [
+          move(middles, [3, 0], 'ArrowUp'),
+          move(middles, [2, 0], 'ArrowUp'),
+          move(middles, [2, 1], 'ArrowUp'),
+          move(middles, [1, 0], 'ArrowUp'),
+          move(middles, [1, 1], 'ArrowUp'),
+          move(middles, [1, 2], 'ArrowUp'),
+          move([[100, 200], [150]], [1, 0], 'ArrowUp'),
+          move([], null, 'ArrowDown'),
+        ],
+        [[2, 0], [1, 1], [1, 2], [0, 0], [0, 3], [0, 5], [0, 0], null]
+      )
+    }
+
+    // 50b. Opening state: nothing lit, Enter left to app
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      const atOpenLit = e.litNames()
+      e.dateInput.valueAsNumber = NOW - 60_000
+      e.env._on_snooze_input_change()
+      const pastEnter = e.dispatchKey('Enter')
+      const afterPast = [e.isVisible(), e.closes.length, pastEnter.stopped]
+      const future = NOW + 3_600_000
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      const futEnter = e.dispatchKey('Enter')
+      const answer = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, answer)
+      check(
+        'snooze dialog keys: nothing is lit at opening and Enter delegates to the app',
+        [atOpenLit, afterPast, futEnter.stopped, answer, e.closes.length, e.listeners.length],
+        [[], [true, 0, false], false, { time: future, notify: false }, 1, 0]
+      )
+    }
+
+    // 50c. Enter on a lit time button: answers with its label time, blocks app confirmation even when field is valid, and past-time check still alerts
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW + 10 * 3_600_000 // valid future date so app Enter WOULD confirm if not stopped
+      e.env._on_snooze_input_change()
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('ArrowRight')
+      const lit = e.litNames()
+      e.appBubble.length = 0
+      const ev = e.dispatchKey('Enter')
+      const ans1 = await settleAnswer(m1)
+      const after1 = [e.closes.length, e.listeners.length, e.litNames()]
+      await clearIfUnsettled(e, m1, ans1)
+      // Row 1 button (tomorrow) via Down, Down, Enter
+      const expectedTom = e.env._snooze_tomorrow().getTime()
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      const lit2 = e.litNames()
+      const ev2 = e.dispatchKey('Enter')
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+      // Past-time check via _on_snooze when _snooze_time returns a past timestamp (with a valid future date in the field so an unstopped Enter would confirm via the app)
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW + 10 * 3_600_000
+      e.env._on_snooze_input_change()
+      e.env._snooze_tomorrow = () => new e.env.Date(NOW - 1000)
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('Enter')
+      const pastBtn = [e.isVisible(), e.alerts.slice(), e.closes.length]
+      e.env._modal_close(m3)
+      await settleAnswer(m3)
+      check(
+        'snooze dialog keys: Enter on a lit time button answers with its label time, blocks app confirmation, and checks past time',
+        [lit, ev.defaultPrevented, ev.stopped, e.appBubble.slice(), ans1, after1, lit2, ev2.stopped, ans2, pastBtn, e.listeners.length, e.litNames()],
+        [
+          ['6h'],
+          true,
+          true,
+          [],
+          { time: NOW + 6 * 3_600_000, notify: false },
+          [1, 0, []],
+          ['tomorrow'],
+          true,
+          { time: expectedTom, notify: false },
+          [true, ['future date/time required for snooze'], 2],
+          0,
+          [],
+        ]
+      )
+    }
+
+    // 50d. Enter on the lit snooze button: only where allowed, no alert when disabled, no double confirm
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW - 5_000
+      e.env._on_snooze_input_change()
+      for (let i = 0; i < 6; i++) e.dispatchKey('ArrowRight') // 3h -> 28d (extra Right stays on 28d)
+      e.dispatchKey('ArrowDown') // next week
+      e.dispatchKey('ArrowDown') // snooze button
+      const lit = e.litNames()
+      e.appBubble.length = 0
+      const pastEv = e.dispatchKey('Enter')
+      const afterPast = [e.isVisible(), e.closes.length, e.alerts.length, pastEv.stopped, e.appBubble.slice()]
+      e.dateInput.valueAsNumber = NaN
+      e.dispatchKey('Enter')
+      const afterNaN = [e.isVisible(), e.closes.length]
+      const future = NOW + 2 * 3_600_000
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.appBubble.length = 0
+      const okEv = e.dispatchKey('Enter')
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog keys: Enter on the lit snooze button confirms only where allowed and never twice',
+        [lit, afterPast, afterNaN, okEv.stopped, e.appBubble.slice(), ans, e.closes.length, e.listeners.length],
+        [['snooze'], [true, 0, 0, true, []], [true, 0], true, [], { time: future, notify: false }, 1, 0]
+      )
+    }
+
+    // 50e. Date field: focuses on arrival, lets browser own arrows, Escape & Tab leave it lit, Enter confirms when allowed, second Escape closes
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW - 10_000
+      e.env._on_snooze_input_change()
+      e.dispatchKey('ArrowDown') // 3h
+      e.dispatchKey('ArrowDown') // tomorrow
+      e.dispatchKey('ArrowDown') // date field
+      const onArrival = [e.litNames(), e.getActive() === e.dateInput]
+      const arrowInField = e.dispatchKey('ArrowUp') // browser's own arrow
+      const pastEnterInField = e.dispatchKey('Enter')
+      const afterPast = [arrowInField.stopped, pastEnterInField.stopped, e.isVisible(), e.closes.length]
+      const esc1 = e.dispatchKey('Escape') // leaves field, stays open and lit
+      const afterEsc1 = [esc1.stopped, e.isVisible(), e.getActive() === null, e.litNames()]
+      const leftStays = e.dispatchKey('ArrowLeft') // stays on date without refocusing
+      const afterLeft = [leftStays.stopped, e.getActive() === null, e.litNames()]
+      const future = NOW + 90 * 60_000
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.appBubble.length = 0
+      const enterBlurred = e.dispatchKey('Enter')
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+
+      // focused Enter confirms directly; Tab out of last part blurs stray focus and keeps field lit; second Escape closes
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      const tabEv = e.dispatchKey('Tab')
+      e.setActive(e.notifyBox) // browser moved focus to checkbox after last subfield
+      e.flushTimers()
+      const afterTab = [tabEv.stopped, e.getActive() === null, e.litNames(), e.isVisible()]
+      const esc2 = e.dispatchKey('Escape') // now closes dialog
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+
+      // focused Enter with valid future time confirms once
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.appBubble.length = 0
+      const enterFocused = e.dispatchKey('Enter')
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+
+      check(
+        'snooze dialog keys: date field focuses on arrival, owns arrows, leaves lit on Escape or Tab, and confirms on Enter when allowed',
+        [onArrival, afterPast, afterEsc1, afterLeft, enterBlurred.stopped, e.appBubble.slice(), ans1, afterTab, esc2.stopped, ans2 === undefined, enterFocused.stopped, ans3, e.listeners.length],
+        [
+          [['date'], true],
+          [false, true, true, 0],
+          [true, true, true, ['date']],
+          [true, true, ['date']],
+          true,
+          [],
+          { time: future, notify: false },
+          [false, true, ['date'], true],
+          false,
+          true,
+          true,
+          { time: future, notify: false },
+          0,
+        ]
+      )
+    }
+
+    // 50f. Space on the notify box (and Space on buttons): ticks/unticks with hint, never answers
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      e.setPerm('default', 'denied')
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW + 3_600_000
+      e.env._on_snooze_input_change()
+      // Space on a lit button does not answer or toggle box
+      e.dispatchKey('ArrowRight') // 3h
+      const spaceOnBtn = e.dispatchKey(' ')
+      const afterBtnSpace = [spaceOnBtn.stopped, e.isVisible(), e.closes.length, e.notifyBox.checked]
+      // move to notify box: 3h -> tomorrow -> date (Escape) -> notify
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('Escape')
+      e.dispatchKey('ArrowDown')
+      const litBox = e.litNames()
+      const sp1 = e.dispatchKey(' ')
+      await new Promise(r => setImmediate(r))
+      const afterCheck = [sp1.stopped, e.isVisible(), e.closes.length, e.notifyBox.checked, e.getAskCount(), e.hintEl.innerText]
+      const spRep = e.dispatchKey(' ', { repeat: true }) // repeat ignored
+      const afterRep = [spRep.stopped, e.notifyBox.checked]
+      e.appBubble.length = 0
+      const entBox = e.dispatchKey('Enter') // Enter on box never answers (even with valid date)
+      const afterEntBox = [entBox.stopped, e.appBubble.slice(), e.isVisible(), e.closes.length]
+      e.dispatchKey(' ') // untick
+      const afterUncheck = [e.notifyBox.checked, e.isVisible()]
+      e.dispatchKey(' ') // tick again and confirm via 3d
+      e.dispatchKey('ArrowUp') // date (focused)
+      e.dispatchKey('Escape') // blur date
+      e.dispatchKey('ArrowUp') // weekend
+      e.dispatchKey('ArrowUp') // 3d
+      e.dispatchKey('Enter')
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog keys: Space on the lit notify box toggles it with the hint and never answers',
+        [afterBtnSpace, litBox, afterCheck, afterRep, afterEntBox, afterUncheck, ans],
+        [
+          [true, true, 0, false],
+          ['notify'],
+          [true, true, 0, true, 1, 'this device: denied'],
+          [true, true],
+          [true, [], true, 0],
+          [false, true],
+          { time: NOW + 3 * 86_400_000, notify: true },
+        ]
+      )
+    }
+
+    // 50g. Held key repeats: arrows move, Enter never answers
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchKey('ArrowRight') // 3h
+      e.dispatchKey('ArrowRight', { repeat: true }) // 6h
+      const litAfterRepArrow = e.litNames()
+      e.appBubble.length = 0
+      const repEnter = e.dispatchKey('Enter', { repeat: true })
+      const afterRepEnter = [repEnter.stopped, e.appBubble.slice(), e.isVisible(), e.closes.length]
+      e.dispatchKey('Enter')
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog keys: held arrow repeat moves highlight and held Enter repeat never answers',
+        [litAfterRepArrow, afterRepEnter, ans],
+        [['6h'], [true, [], true, 0], { time: NOW + 6 * 3_600_000, notify: false }]
+      )
+    }
+
+    // 50h. Handler cleanup across ten open/close cycles and mouse independence
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const countsOpen = []
+      const answers = []
+      const expectedAnswers = []
+      const countsClosed = []
+      const litClosed = []
+      for (let i = 0; i < 10; i++) {
+        const m = e.env._snooze_dialog()
+        await Promise.resolve()
+        countsOpen.push(e.listeners.length)
+        e.dispatchKey('ArrowRight')
+        if (i % 4 == 0) {
+          e.dispatchKey('Enter') // Enter on 3h
+          expectedAnswers.push({ time: NOW + 3 * 3_600_000, notify: false })
+        } else if (i % 4 == 1) {
+          e.dispatchKey('Escape') // Escape on lit 3h
+          expectedAnswers.push(undefined)
+        } else if (i % 4 == 2) {
+          e.env._on_snooze({ target: e.row0[2] }) // mouse click on 1d while 3h lit
+          expectedAnswers.push({ time: NOW + 24 * 3_600_000, notify: false })
+        } else {
+          e.env._modal_close(m) // external close
+          expectedAnswers.push(undefined)
+        }
+        const ans = await settleAnswer(m)
+        // record the original settlement and state BEFORE repairing any unsettled fixture
+        answers.push(ans)
+        countsClosed.push(e.listeners.length)
+        litClosed.push(e.litNames().length)
+        await clearIfUnsettled(e, m, ans)
+      }
+      // after close, keys are not intercepted
+      const postClose = e.dispatchKey('ArrowRight')
+      // mouse-focused date field with nothing lit leaves browser arrows untouched
+      const mMouse = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.setActive(e.dateInput)
+      const mouseArrow = e.dispatchKey('ArrowUp')
+      const mouseState = [mouseArrow.stopped, e.litNames()]
+      e.env._modal_close(mMouse)
+      const ansMouse = await settleAnswer(mMouse)
+      await clearIfUnsettled(e, mMouse, ansMouse)
+      check(
+        'snooze dialog keys: one handler while open, none after every close across ten cycles, and mouse date focus untouched',
+        [countsOpen, answers, countsClosed, litClosed, postClose.stopped, mouseState, ansMouse === undefined, e.listeners.length],
+        [
+          Array(10).fill(1),
+          expectedAnswers,
+          Array(10).fill(0),
+          Array(10).fill(0),
+          false,
+          [false, []],
+          true,
+          0,
+        ]
+      )
+    }
+
+    // 50i. Notify box starts unticked from frame 0 via end-of-opening cleanup, and setup runs before first answer when _update_dom() is held
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedDate = new e.env.Date(NOW).toInputValue()
+      // Opening 1: real click order (toggle then change) on notify box, then time button 3h -> notify: true; cleanup unticks reused box
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.clickNotify()
+      e.env._on_snooze({ target: e.row0[0] })
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      const checkedAfter1 = e.notifyBox.checked
+      // Opening 2: render held; first click on notify box (toggle then change), then time button 3h -> notify: true
+      e.dateInput.value = ''
+      e.setHoldDom(true)
+      const m2 = e.env._snooze_dialog()
+      const domPending2 = e.pendingDomCount()
+      e.clickNotify()
+      e.env._on_snooze({ target: e.row0[0] })
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+      const dateAfter2 = e.dateInput.value
+      const checkedAfter2 = e.notifyBox.checked
+      await e.releaseDom()
+      // Opening 3: render held, no click on box, time button 3h -> notify: false
+      e.dateInput.value = ''
+      const m3 = e.env._snooze_dialog()
+      e.env._on_snooze({ target: e.row0[0] })
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+      const dateAfter3 = e.dateInput.value
+      await e.releaseDom()
+      // Opening 4: render held, no click on box, Right + Enter -> notify: false
+      e.dateInput.value = ''
+      const m4 = e.env._snooze_dialog()
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('Enter')
+      const ans4 = await settleAnswer(m4)
+      await clearIfUnsettled(e, m4, ans4)
+      const dateAfter4 = e.dateInput.value
+      await e.releaseDom()
+      // Opening 5: render held, notify clicked then dismissed with Escape -> cleanup unticks reused box
+      const m5 = e.env._snooze_dialog()
+      e.clickNotify()
+      e.dispatchKey('Escape')
+      const ans5 = await settleAnswer(m5)
+      await clearIfUnsettled(e, m5, ans5)
+      const checkedAfterEsc = e.notifyBox.checked
+      await e.releaseDom()
+      check(
+        'snooze dialog setup: runs before key or click answer when _update_dom is held, resetting reused notify box',
+        [ans1, checkedAfter1, domPending2, ans2, dateAfter2, checkedAfter2, ans3, dateAfter3, ans4, dateAfter4, ans5 === undefined, checkedAfterEsc, e.listeners.length],
+        [
+          { time: NOW + 3 * 3_600_000, notify: true },
+          false,
+          1,
+          { time: NOW + 3 * 3_600_000, notify: true },
+          expectedDate,
+          false,
+          { time: NOW + 3 * 3_600_000, notify: false },
+          expectedDate,
+          { time: NOW + 3 * 3_600_000, notify: false },
+          expectedDate,
+          true,
+          false,
+          0,
+        ]
+      )
+    }
+
+    // 50j. Queued snooze dialog behind an unrelated modal initializes once promoted (date filled, box unticked, validity task running, setup run once)
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedDate = new e.env.Date(NOW).toInputValue()
+      // Prior snooze opening ticked notify and closed, leaving the reused DOM unticked
+      const prior = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.clickNotify()
+      e.env._on_snooze({ target: e.row0[0] })
+      const priorAns = await settleAnswer(prior)
+      await clearIfUnsettled(e, prior, priorAns)
+      const priorTaskStopped = e.runTask('snooze-modal-update')
+
+      // Unrelated modal is up while a new snooze dialog is queued behind it
+      e.setHoldDom(true)
+      const other = e.env._modal('<div>other</div>', {})
+      e.dateInput.value = ''
+      e.dateValueWrites.length = 0
+      const m = e.env._snooze_dialog()
+      await e.releaseDom() // initial render callback fires while unrelated modal is still up
+      const whileOther = [e.env._modal_visible(m), e.dateInput.value, e.dateValueWrites.length, e.runTask('snooze-modal-update')]
+      // Promotion installs fresh canConfirm and evaluates it -> schedule_dom -> setup
+      e.env._modal_close(other)
+      const otherAns = await settleAnswer(other)
+      await Promise.resolve() // allow promoted canConfirm -> schedule_dom
+      await e.releaseDom()
+      const afterPromotion = [
+        e.env._modal_visible(m),
+        e.dateInput.value,
+        e.notifyBox.checked,
+        e.dateValueWrites.slice(),
+        !!e.tasks['snooze-modal-update'] && !e.tasks['snooze-modal-update'].cancelled,
+      ]
+      // Validity task runs and enables confirm when date moves to future
+      e.dateInput.valueAsNumber = NOW + 2 * 3_600_000
+      e.runTask('snooze-modal-update')
+      const validityRunning = [e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      // Setup runs once: further render release does not overwrite date or user tick
+      e.clickNotify()
+      await e.releaseDom()
+      const setupOnce = [e.dateValueWrites.length, e.notifyBox.checked]
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('Enter')
+      const ans = await settleAnswer(m)
+      await clearIfUnsettled(e, m, ans)
+      const afterCloseTask = e.runTask('snooze-modal-update')
+      check(
+        'snooze dialog setup: queued dialog behind unrelated modal initializes once visible with date filled and validity check running',
+        [priorAns, priorTaskStopped, whileOther, otherAns === undefined, afterPromotion, validityRunning, setupOnce, ans, afterCloseTask],
+        [
+          { time: NOW + 3 * 3_600_000, notify: true },
+          null,
+          [false, '', 0, 'none'],
+          true,
+          [true, expectedDate, false, [expectedDate], true],
+          [true, false],
+          [1, true],
+          { time: NOW + 3 * 3_600_000, notify: true },
+          null,
+        ]
+      )
+    }
+
+    // 50k. Overlapping snooze requests: second is declined empty at once while the first keeps keys, clicks, and answer
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      // (a) A open, B asked -> B resolves undefined at once; arrows and Enter answer A alone
+      const a = e.env._snooze_dialog()
+      await Promise.resolve()
+      const b = e.env._snooze_dialog()
+      const ansB = await settleAnswer(b)
+      const midA = [e.env._modal_visible(a), e.listeners.length]
+      e.dispatchKey('ArrowRight')
+      const litA = e.litNames()
+      e.dispatchKey('Enter')
+      const ansA = await settleAnswer(a)
+      await clearIfUnsettled(e, a, ansA)
+      const afterA = [e.isVisible(), e.listeners.length]
+
+      // (b) A2 open, B2 asked -> B2 resolves undefined; click on 6h answers A2 alone
+      const a2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const b2 = e.env._snooze_dialog()
+      const ansB2 = await settleAnswer(b2)
+      e.env._on_snooze({ target: e.row0[1] }) // 6h click
+      const ansA2 = await settleAnswer(a2)
+      await clearIfUnsettled(e, a2, ansA2)
+
+      // (c) A3 queued behind unrelated modal U, B3 asked -> B3 resolves undefined; U closes, A3 works
+      const u = e.env._modal('<div>other</div>', {})
+      const a3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const b3 = e.env._snooze_dialog()
+      const ansB3 = await settleAnswer(b3)
+      e.env._modal_close(u)
+      await settleAnswer(u)
+      await Promise.resolve()
+      e.dispatchKey('ArrowRight')
+      e.dispatchKey('Enter')
+      const ansA3 = await settleAnswer(a3)
+      await clearIfUnsettled(e, a3, ansA3)
+
+      check(
+        'snooze dialog ownership: concurrent request declines empty at once while first keeps keys, clicks, and answer',
+        [ansB === undefined, midA, litA, ansA, afterA, ansB2 === undefined, ansA2, ansB3 === undefined, ansA3, e.listeners.length],
+        [
+          true,
+          [true, 1],
+          ['3h'],
+          { time: NOW + 3 * 3_600_000, notify: false },
+          [false, 0],
+          true,
+          { time: NOW + 6 * 3_600_000, notify: false },
+          true,
+          { time: NOW + 3 * 3_600_000, notify: false },
+          0,
+        ]
+      )
+    }
+
+    // 50l. Soft-keyboard Enter ({key: 'Unidentified', code: 'Enter'}) takes the lit button over a valid custom date, real chars stay chars, and unrelated keys skip row layout
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const keyMap = [
+        e.env._snooze_key({ key: 'Unidentified', code: 'Enter' }),
+        e.env._snooze_key({ key: '', code: 'Enter' }),
+        e.env._snooze_key({ code: 'NumpadEnter' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'Escape' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'Space' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'Tab' }),
+        e.env._snooze_key({ key: 'Unidentified', code: 'ArrowRight' }),
+        e.env._snooze_key({ key: 'a', code: 'Enter' }),
+        e.env._snooze_key({ key: '😀', code: 'Escape' }),
+        e.env._snooze_key({ key: 'x', code: 'Space' }),
+      ]
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      // valid and visibly different time (+20h) in the date field
+      e.dateInput.valueAsNumber = NOW + 20 * 3_600_000
+      e.env._on_snooze_input_change()
+      const fieldValid = e.canConfirmNow()
+      e.dispatchKey('ArrowRight') // 3h lit
+      // early key check: unrelated keys and dictated text do not measure stop rects or answer
+      e.resetRectCalls()
+      const dictEv = e.dispatchKey('a', { code: 'Enter' })
+      e.dispatchKey('5', { code: 'Digit5' })
+      e.dispatchKey('Backspace', { code: 'Backspace' })
+      const afterUnrelated = [dictEv.stopped, e.isVisible(), e.closes.length, e.getRectCalls()]
+      // soft-keyboard Enter with 3h lit takes 3h (not the 20h custom date)
+      e.appBubble.length = 0
+      const softEnter = e.dispatchKey('Unidentified', { code: 'Enter' })
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog keys: Unidentified+Enter takes lit preset over valid custom field, dictation chars stay chars, and unrelated keys skip layout',
+        [keyMap, fieldValid, afterUnrelated, softEnter.stopped, e.appBubble.slice(), ans, e.listeners.length],
+        [
+          ['Enter', 'Enter', 'Enter', 'Escape', ' ', 'Tab', 'ArrowRight', 'a', '😀', 'x'],
+          true,
+          [false, true, 0, 0],
+          true,
+          [],
+          { time: NOW + 3 * 3_600_000, notify: false },
+          0,
+        ]
+      )
+    }
+
+    // 50m. Native change from the date field never assigns to the field (after setup or before setup); pre-setup change still initializes other controls and validates in place
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedDate = new e.env.Date(NOW).toInputValue()
+      // (a) After setup: native change on partial (empty serialized value, NaN) and valid future date writes nothing to dateInput.value
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      const setupWrites1 = e.dateValueWrites.slice()
+      e.dateInput.value = ''
+      e.dateInput.valueAsNumber = NaN
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const afterPartial = [e.dateValueWrites.slice(), e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      e.dateInput.value = '2027-01-17T12:38'
+      e.dateInput.valueAsNumber = NOW + 5 * 3_600_000
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const afterFuture = [e.dateValueWrites.slice(), e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      e.env._modal_close(m1)
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+      e.runTask('snooze-modal-update')
+
+      // (b) Before setup (_update_dom held): native change initializes other controls (hint, validity, 1s task) without writing dateInput.value, and delayed releaseDom leaves dateInput.value untouched
+      e.setPerm('denied')
+      e.hintEl.innerText = 'stale'
+      e.setHoldDom(true)
+      const m2 = e.env._snooze_dialog()
+      e.dateInput.value = ''
+      e.dateInput.valueAsNumber = NaN
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const preSetupPartial = [
+        e.dateValueWrites.slice(),
+        e.hintEl.innerText,
+        e.canConfirmNow(),
+        e.snoozeBtn.classList.contains('disabled'),
+        !!e.tasks['snooze-modal-update'] && !e.tasks['snooze-modal-update'].cancelled,
+      ]
+      await e.releaseDom()
+      const afterDelayedDom = e.dateValueWrites.slice()
+      e.dateInput.value = '2027-01-17T12:38'
+      e.dateInput.valueAsNumber = NOW + 4 * 3_600_000
+      e.dateValueWrites.length = 0
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const preSetupFuture = [e.dateValueWrites.slice(), e.canConfirmNow(), e.snoozeBtn.classList.contains('disabled')]
+      e.env._modal_close(m2)
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+      check(
+        'snooze dialog date change: never assigns field value after or before setup while initializing other controls',
+        [setupWrites1, afterPartial, afterFuture, ans1 === undefined, preSetupPartial, afterDelayedDom, preSetupFuture, ans2 === undefined, e.listeners.length],
+        [
+          [expectedDate],
+          [[], false, true],
+          [[], true, false],
+          true,
+          [[], 'this device: denied', false, true, true],
+          [],
+          [[], true, false],
+          true,
+          0,
+        ]
+      )
+    }
+  })())
   // the item's files are embedded in the #todoer item's own text, where the app expands every
   // macro opener that no backslash escapes, also in code and comments (a preview of another item
   // broke its page that way, 2026-11-23): none may stand unescaped in the script or the widget's file
-  for (const file of ['todoer.js', 'todoer-widget.html'])
+  for (const file of ['todoer.js', 'todoer-widget.html', 'todoer-snooze-modal.html'])
     check(`embedded: ${file} holds no unescaped macro opener`, (fs.readFileSync(path.join(__dirname, '..', file), 'utf8').match(/(?<!\\)<</g) ?? []).length, 0)
   // the item's own visible text stays short, its functions table filters uppercase constants out,
   // and the detached reference block in todoer.js preserves the old bullets' words (snooze,

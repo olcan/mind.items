@@ -65,7 +65,7 @@
     -webkit-user-select: none;
     user-select: none;
   }
-  .snooze-modal :is(.button:hover, .button:active) {
+  .snooze-modal :is(.button:hover, .button:active, .button.lit) {
     background: #59f;
     color: white;
     border-color: white;
@@ -75,6 +75,10 @@
     border-color: #ddd;
     color: #999;
     cursor: not-allowed;
+  }
+  .snooze-modal :is(.custom input, .notify input, .button.disabled).lit {
+    outline: 2px solid #59f;
+    outline-offset: 2px;
   }
   .snooze-modal .notify {
     margin-top: 15px;
