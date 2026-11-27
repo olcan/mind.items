@@ -351,10 +351,12 @@ function __render(widget, widget_item) {
 
   // console.debug(`rendering list ${storage_key} in ${widget.id} ...`)
 
-  // initialize this widget's set of todo items in session-lived store (membership is tracked
-  // PER WIDGET: the main and delegated widgets of one pinned item hold different items)
-  widget_item.store._todoer ??= { items: {} }
+  // initialize this widget's set of todo items and remembered unstored order in session-lived
+  // store (both are tracked PER WIDGET: two widgets on one pinned item can share a storage_key,
+  // such as two delegated widgets, while holding different rows)
+  widget_item.store._todoer ??= { items: {}, order: {} }
   widget_item.store._todoer.items ??= {}
+  widget_item.store._todoer.order ??= {}
   const members = (widget_item.store._todoer.items[widget.id] = new Set())
 
   // the selected item of this window (its own target where it has one, else the item the linked
@@ -684,26 +686,30 @@ function __render(widget, widget_item) {
       ? null /* disabled for snooze list */
       : {
           get: () => {
-            const ids =
+            // persisted order (mapped to tab ids), with unstored rows (newly drawn first,
+            // then remembered in this widget's prior draw) kept ahead of it; unsnooze order
+            // applies within each group so a second redraw with the same inputs draws the
+            // same order and a soft touch on selection (item.time) cannot move an unstored row
+            const unsnoozed = id =>
+              -(
+                _item(id, { silent: true })?._global_store._todoer?.unsnoozed ??
+                0
+              )
+            const stored = (
               widget_item._global_store._todoer?.[storage_key]?.split(',') ?? []
-            if (snoozed)
-              sort_by(
-                ids,
-                id =>
-                  _item(id, { silent: true })?._global_store._todoer?.snoozed
-              )
-            else
-              sort_by(
-                ids,
-                id =>
-                  -(
-                    _item(id, { silent: true })?._global_store._todoer
-                      ?.unsnoozed ?? 0
-                  )
-              )
-            // convert back to temp ids (if any) as used in list elem attribs
-            apply(ids, id => _item(id, { silent: true })?.id ?? id)
-            return ids
+            )
+              .filter(id => id)
+              .map(id => _item(id, { silent: true })?.id ?? id)
+            const seen = new Set(stored)
+            const prior = (
+              widget_item.store._todoer.order?.[widget.id] ?? []
+            ).filter(id => members.has(id) && !seen.has(id))
+            for (const id of prior) seen.add(id)
+            const fresh = [...members].filter(id => !seen.has(id))
+            return [
+              ...sort_by([...fresh, ...prior], unsnoozed),
+              ...sort_by(stored, unsnoozed),
+            ]
           },
           set: sortable => {
             // dispatch task to ensure that all items have been saved
@@ -796,7 +802,10 @@ function __render(widget, widget_item) {
       // a started drag only: Sortable fires unchoose for a plain click too (a press without a
       // move), which saves nothing, so a hint recorded then would outlive it and a later remote
       // reorder's render would apply it and persist it (review 0)
-      if (dragged && e.to == list) widget._orderAfterDrag = list.sortable.toArray()
+      if (dragged && e.to == list) {
+        widget._orderAfterDrag = list.sortable.toArray()
+        if (!snoozed) (widget_item.store._todoer.order ??= {})[widget.id] = widget._orderAfterDrag
+      }
       // trigger the pending renders, this widget's and every other widget's deferred by this
       // drag or press (see __render), each with the item it was asked for
       _run_deferred_renders()
@@ -895,6 +904,12 @@ function __render(widget, widget_item) {
   // (a row a bin took, a row that arrived meanwhile) stay ahead of it, as Sortable's sort
   // leaves them
   if (widget._orderAfterDrag && !snoozed) list.sortable.sort(widget._orderAfterDrag)
+  if (!snoozed)
+    (widget_item.store._todoer.order ??= {})[widget.id] = Array.from(
+      list.children
+    )
+      .map(e => e.getAttribute('data-id'))
+      .filter(Boolean)
 
   // reconcile marks, visibility observer, and strip buttons when Item.svelte restores this cached
   // widget from cache-div after a query change that removed and re-mounted it
@@ -1095,6 +1110,7 @@ function _snooze_dialog() {
   let modal = null
   let pos = null
   let lit_el = null
+  let last_pt = null
   let shown = false
   let closed = false
   let ready = false
@@ -1161,6 +1177,7 @@ function _snooze_dialog() {
     if (closed) return
     closed = true
     window.removeEventListener('keydown', on_key, true)
+    window.removeEventListener('pointermove', on_pointer, true)
     clear_lit()
     const notify_box = document.querySelector('.snooze-modal .notify input')
     if (notify_box) notify_box.checked = false // the modal keeps an unchanged {@html} DOM across openings
@@ -1255,7 +1272,49 @@ function _snooze_dialog() {
       }
     }
   }
+  // capture-phase pointermove on window for the dialog's lifetime: moves the same highlight as
+  // the keys on real pointer movement (screen coordinates differing from the last seen; the first
+  // event after opening only records the place), ignores touch, leaves focus untouched, and keeps
+  // the highlight when leaving stops
+  const on_pointer = e => {
+    if (!_modal_visible(modal)) {
+      if (shown) cleanup()
+      return
+    }
+    shown = true
+    if (e.pointerType == 'touch') return
+    const x = e.screenX
+    const y = e.screenY
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    if (!last_pt) {
+      last_pt = [x, y]
+      return
+    }
+    if (x === last_pt[0] && y === last_pt[1]) return
+    last_pt = [x, y]
+    const target = e.target
+    if (!target || target === window) return
+    const root = document.querySelector('.snooze-modal')
+    if (!root) return
+    const rows = _snooze_rows(root)
+    const label = (target.closest ? target : target.parentElement)?.closest?.('label')
+    for (let r = 0; r < rows.length; r++) {
+      for (let c = 0; c < rows[r].length; c++) {
+        const el = rows[r][c]
+        if (el === target || el.contains?.(target) || label?.contains?.(el)) {
+          pos = [r, c]
+          if (el !== lit_el) {
+            lit_el?.classList.remove('lit')
+            el.classList.add('lit')
+            lit_el = el
+          }
+          return
+        }
+      }
+    }
+  }
   window.addEventListener('keydown', on_key, true)
+  window.addEventListener('pointermove', on_pointer, true)
   _todoer.store._snooze_cleanup = cleanup
   _todoer.store._snooze_setup = setup
   modal?.then?.(cleanup, cleanup)
@@ -1860,35 +1919,26 @@ function _listing_changed(item) {
 
 // this window's query target (index.svelte: first term naming a unique label other than the log
 // tag, or any id: term; a / command targets nothing). With no query argument while the box holds
-// an unapplied typing draft (_mindboxDebounced), reads the page's applied target containers
-// (.container.target), keeping the id last picked by a settled parse when it is still among them,
-// else the sole target container's item when there is one, else null (never guessing among
-// several targets); once settled (and for an explicit query string `text`), parses the query
-// directly (case-sensitive id: lookup per _item; when a query names several targets at once,
-// picks the listing or the first resolving id:; compound queries also count for marks and keys
-// when unlinked)
-function _window_target(text = undefined, { remember = text === undefined } = {}) {
-  if (text === undefined && typeof window != 'undefined' && window._mindboxDebounced) {
-    if (typeof document == 'undefined') return null
-    const els =
-      typeof document.querySelectorAll == 'function'
-        ? [...document.querySelectorAll('.container.target')]
-        : [document.querySelector?.('.container.target')].filter(Boolean)
-    const ids = [...new Set(els.map(el => el?.getAttribute?.('data-item-id')).filter(Boolean))]
-    const settled = window._todoer_settled_target
-    const id = settled && ids.includes(settled) ? settled : ids.length == 1 ? ids[0] : null
-    return id ? _item(id, { silent: true }) : null
-  }
-  const q = text === undefined ? (typeof MindBox != 'undefined' ? MindBox.get?.() : '') : text
-  let found = null
-  if (typeof q == 'string' && !q.startsWith('/')) {
-    const terms = q.trim().split(/\s+/).filter(Boolean)
-    const listed = terms[0]?.startsWith('#') && terms[0].toLowerCase() != '#log' ? _item(terms[0], { silent: true }) : null
-    if (listed) found = listed
-    else for (const t of terms) if (t.toLowerCase().startsWith('id:')) { const it = _item('id:' + t.slice(3), { silent: true }); if (it) { found = it; break } }
-  }
-  if (remember && typeof window != 'undefined' && !window._mindboxDebounced) window._todoer_settled_target = found?.id ?? null
-  return found
+// an unapplied typing draft (_mindboxDebounced), parses window._mindboxApplied when it is a
+// string (an app without it falls back to the box's text while debounced); otherwise (and for an
+// explicit query string `text`), parses the query directly (case-sensitive id: lookup per _item;
+// when a query names several targets at once, picks the listing or the first resolving id:;
+// compound queries also count for marks and keys when unlinked)
+function _window_target(text = undefined) {
+  const q =
+    text !== undefined
+      ? text
+      : typeof window != 'undefined' && window._mindboxDebounced && typeof window._mindboxApplied == 'string'
+        ? window._mindboxApplied
+        : typeof MindBox != 'undefined'
+          ? MindBox.get?.()
+          : ''
+  if (typeof q != 'string' || q.startsWith('/')) return null
+  const terms = q.trim().split(/\s+/).filter(Boolean)
+  const listed = terms[0]?.startsWith('#') && terms[0].toLowerCase() != '#log' ? _item(terms[0], { silent: true }) : null
+  if (listed) return listed
+  for (const t of terms) if (t.toLowerCase().startsWith('id:')) { const it = _item('id:' + t.slice(3), { silent: true }); if (it) return it }
+  return null
 }
 
 // this window's selected item: own target where it has one, else while linked (or during an
@@ -1928,7 +1978,7 @@ function _sync_marks(item = _selected_item(undefined, { mounted: false })) {
 // newer draft)
 function _on_search(text) {
   const live = typeof window != 'undefined' && window._mindboxDebounced ? undefined : text
-  const target_item = _window_target(live, { remember: true })
+  const target_item = _window_target(live)
   const windows = typeof window != 'undefined' ? window._todoer_windows : null
   if (typeof _send_selected == 'function') _send_selected(target_item)
   if (windows) {

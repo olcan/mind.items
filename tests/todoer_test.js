@@ -7375,13 +7375,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       aDone.press()
       const doneNone = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
       s.warns.length = 0
-      // real debounced stale-button case: page's .container.target still shows A (and settled
-      // target remembered A), MindBox is debounced with new text (#C, then '') -> completion
-      // handler receives nothing and console.warn fires
-      const targetEl = s.body.appendChild(new s.DomNode('div', { className: 'container target', 'data-item-id': 'A' }))
+      // real debounced stale-button case: app's applied query still names A (_mindboxApplied),
+      // MindBox is debounced with new text (#C, then '') -> completion handler receives nothing
+      // and console.warn fires
       s.setBox('#A')
       s.win._mindboxDebounced = false
-      s.env._window_target()
+      s.win._mindboxApplied = '#A'
       s.setBox('#C')
       s.win._mindboxDebounced = true
       await aDone.press()
@@ -7392,7 +7391,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const doneDebouncedNone = [[...s.actions], [...s.selected], !!s.win._todoer_bin_busy, [...s.warns]]
       s.warns.length = 0
       s.win._mindboxDebounced = false
-      targetEl.remove()
+      s.win._mindboxApplied = undefined
       // draw buttons for B (middle row: both up -> A and down -> C would move if allowed)
       s.setBox('#B')
       s.env._bin_buttons(b)
@@ -10870,7 +10869,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
     }
 
-    const makeWindow = (bus, { id, uid = 'u1', now = 1_700_000_000_000, focused = false, innerHeight = 700, scrollTop = 595, headerTop = scrollTop, autoSearch = true, hasBC = true, storage = new Map(), deferDom = false, deferSelect = false, search = '' } = {}) => {
+    const makeWindow = (bus, { id, uid = 'u1', now = 1_700_000_000_000, focused = false, innerHeight = 700, scrollTop = 595, headerTop = scrollTop, autoSearch = true, hasBC = true, storage = new Map(), deferDom = false, deferSelect = false, search = '', hasMindboxApplied = true } = {}) => {
       const clock = { now }
       const timers = new Map()
       let nextTid = 1
@@ -11015,7 +11014,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           select: () => {
             if (refuseSelect) return false
             selects.push({ id: it.id, scrollBefore: body.scrollTop })
-            boxText = it.name
+            apply(it.name)
             for (const s of superNodes.values()) s.classList.remove('target')
             sup.classList.add('target')
             targetContainer.setAttribute('data-item-id', it.id)
@@ -11065,9 +11064,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         innerHeight,
         _user: uid == null ? null : { uid },
         _notification_account_left: false,
+        _mindboxDebounced: false,
+        ...(hasMindboxApplied ? { _mindboxApplied: '' } : {}),
         _key_buttons: { guest: () => binButtonDraws.push((win._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title, b.color])) },
         addEventListener: (type, fn, opts) => addL(winListeners, type, fn, opts),
         removeEventListener: (type, fn, opts) => remL(winListeners, type, fn, opts),
+      }
+      const apply = q => {
+        boxText = q
+        win._mindboxDebounced = false
+        if (hasMindboxApplied) win._mindboxApplied = q
       }
       const doc = {
         head,
@@ -11126,7 +11132,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         Sortable: { dragged: null, create: () => ({ destroy: () => {}, save: () => {}, toArray: () => [], sort: () => {} }) },
         MindBox: {
           get: () => boxText,
-          set: (t, opts) => { boxText = t; selects.push({ set: t, opts }) },
+          set: (t, opts) => { apply(t); selects.push({ set: t, opts }) },
           select_in_target: t => marks.push(t),
           edit_target: t => {
             env._update_dom().then(() => {
@@ -11205,11 +11211,30 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           extraTargets.push(body.appendChild(new WinDomNode('div', { className: 'container target', 'data-item-id': itemId })))
         }
       }
+      const parseRegexTerms = q => {
+        const out = []
+        for (const t of String(q ?? '').toLowerCase().trim().split(/\s+/)) {
+          if (!/^regex:\S+/.test(t)) continue
+          try { out.push(new RegExp(t.slice(6))) } catch {}
+        }
+        return out
+      }
       return {
         id, env, win, doc, body, targetContainer, storage, clock, timers, domQueue,
         items, itemList, selects, edits, marks, scrollToTargetCalls, binCalls, binButtonDraws,
         makeItem, makeWidget, simScroll, advance, stall, nextDue,
-        setBox: t => { boxText = t },
+        applyQuery: (q, { targets = null, callbackDelay = null } = {}) => {
+          apply(q)
+          try { parseRegexTerms(q) } catch { return false }
+          if (targets != null) setTargetItems(targets)
+          if (callbackDelay != null) env.setTimeout(() => { env._on_search(boxText) }, callbackDelay)
+          return true
+        },
+        typeDraft: q => {
+          win._mindboxDebounced = true
+          boxText = q
+        },
+        setBox: t => { if (win._mindboxDebounced) boxText = t; else apply(t) },
         getBox: () => boxText,
         setFocused: v => { isFocused = v },
         fireWin: (type, ev) => fireL(winListeners, type, ev),
@@ -12705,8 +12730,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         if (commit) {
           // draft '#old2' settles and runs B's search hook BEFORE A2 answers (B still has no partner!)
           advanceAll(bus, [a2, b], 500)
-          b.win._mindboxDebounced = false
-          b.setTargetItem('old2')
+          b.applyQuery('#old2', { targets: ['old2'] })
           b.env._on_search('#old2')
           bus.flush()
           if (draftAfterCommit) {
@@ -16091,15 +16115,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           bus.flush()
           advanceAll(bus, [a, b], 5)
         }
-        // B applies `applyQuery` (e.g. #old2 or plain) -> DOM updates .container.target, app queues setTimeout reading live box
-        b.setBox(applyQuery)
-        b.setTargetItem(applyId)
-        b.win._mindboxDebounced = false
-        b.env.setTimeout(() => { b.env._on_search(b.getBox()) }, 5)
+        // B applies `applyQuery` (e.g. #old2 or plain) -> sets _mindboxApplied, app queues setTimeout reading live box
+        b.applyQuery(applyQuery, { targets: applyId ? [applyId] : [], callbackDelay: 5 })
         // 2ms later, BEFORE the queued _on_search runs, user types '3' -> live box is '#old23' while debounced!
         advanceAll(bus, [a, b], 2)
-        b.setBox('#old23')
-        b.win._mindboxDebounced = true
+        b.typeDraft('#old23')
         // queued _on_search callback fires at +5ms, handed live '#old23' while _mindboxDebounced is true
         advanceAll(bus, [a, b], 5)
         if (withOlderClick) {
@@ -16110,8 +16130,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         if (commitDraft) {
           // draft '#old23' settles and fires final _on_search('#old23')
           advanceAll(bus, [a, b], 500)
-          b.win._mindboxDebounced = false
-          b.setTargetItem('old23')
+          b.applyQuery('#old23', { targets: ['old23'] })
           b.env._on_search('#old23')
           bus.flush()
         } else {
@@ -16119,7 +16138,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           advanceAll(bus, [a, b], 100)
           b.setBox(applyQuery)
           advanceAll(bus, [a, b], 500)
-          b.win._mindboxDebounced = false
+          b.applyQuery(applyQuery, { targets: applyId ? [applyId] : [] })
         }
         // two seconds later: check B's box, A's peer target, A's mark, and A's Done target
         advanceAll(bus, [a, b], 2000)
@@ -16142,59 +16161,73 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 70. Multi-target query keeps settled parser's pick while debounced (never guesses pinned/first DOM match):
-    //     B applies '#first id:second' (with second pinned first in DOM) or 'id:first id:second',
-    //     types a suffix (debounced), B's ordinary 30s heartbeat fires, then user backspaces before
-    //     the suffix applies (no _on_search). Also verifies unresolved multi-target debounced state
-    //     (several targets in DOM with no settled pick among them -> no target, Done unavailable until settled).
+    // 70. Multi-target queries while debounced read window._mindboxApplied (exact term order, never DOM order):
+    //     - heartbeat & undo for '#first id:second' and 'id:first id:second' (with second pinned first in DOM)
+    //     - case (a): B on #second (or 'id:second id:first'), applies 'id:first id:second', suffix typed
+    //       before or after the queued _on_search callback, then taken back without a final hook
+    //     - case (b): A on #peer (or targetless #todo), B on #old, applies 'id:first id:second', then starts
+    //       a plain-text replacement before or after the callback and takes it back without a final hook
+    //     - app without window._mindboxApplied: falls back to MindBox.get() while debounced
     {
-      const setupPair = () => {
+      const setupPair = ({ aQuery = '#todo', aTargets = [] } = {}) => {
         const bus = makeBus()
         const a = makeWindow(bus, { id: 'A', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
         const b = makeWindow(bus, { id: 'B', now: 1_700_000_000_000, innerHeight: 700, scrollTop: 500, headerTop: 500 })
-        const doneHits = []
-        a.env._complete_todo = it => (doneHits.push(it.id), false)
+        const doneHitsA = []
+        const doneHitsB = []
+        a.env._complete_todo = it => (doneHitsA.push(it.id), false)
+        b.env._complete_todo = it => (doneHitsB.push(it.id), false)
         a.env._start_windows()
         b.env._start_windows()
         bus.flush()
         for (const w of [a, b]) {
           w.makeItem('first', { saved_id: 's_first', text: '#todo first task', scrollY: 1600 })
           w.makeItem('second', { saved_id: 's_second', text: '#todo second task', scrollY: 1700 })
-          w.makeItem('other', { saved_id: 's_other', text: '#todo other task', scrollY: 1800 })
+          w.makeItem('old', { saved_id: 's_old', text: '#todo old task', scrollY: 1800 })
+          w.makeItem('new', { saved_id: 's_new', text: '#todo new task with x', scrollY: 1900 })
+          w.makeItem('peer', { saved_id: 's_peer', text: '#todo peer task', scrollY: 2000 })
         }
-        const wA = a.makeWidget({ rows: [{ id: 'first', pageY: 540 }, { id: 'second', pageY: 580 }, { id: 'other', pageY: 620 }] })
-        const markedA = () => [...wA.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
-        const pressDoneA = async () => {
-          doneHits.length = 0
-          const btn = a.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
+        const rows = [
+          { id: 'first', pageY: 540 },
+          { id: 'second', pageY: 580 },
+          { id: 'old', pageY: 620 },
+          { id: 'new', pageY: 660 },
+          { id: 'peer', pageY: 700 },
+        ]
+        const wA = a.makeWidget({ rows })
+        const wB = b.makeWidget({ rows })
+        const markedOf = w => [...w.rowNodes.entries()].filter(([, n]) => n.classList.contains('selected')).map(([k]) => k)
+        const pressDoneOf = (winObj, hits) => async () => {
+          hits.length = 0
+          const btn = winObj.win._key_buttons_guests?.buttons?.find(x => x.name == 'done')
           await btn?.press?.()
-          return doneHits[0] ?? null
+          return hits[0] ?? null
         }
+        const markedA = () => markedOf(wA)
+        const markedB = () => markedOf(wB)
+        const pressDoneA = pressDoneOf(a, doneHitsA)
+        const pressDoneB = pressDoneOf(b, doneHitsB)
         const snap = async () => [b.env._selected_item()?.id ?? null, markedA(), await pressDoneA()]
-        a.setBox('#todo')
+        a.applyQuery(aQuery, { targets: aTargets })
+        a.env._on_search(aQuery)
         a.env._send_press()
         bus.flush()
-        return { bus, a, b, snap }
+        return { bus, a, b, markedA, markedB, pressDoneA, pressDoneB, snap }
       }
       const runMultiTarget = async ({ query, preQuery = null, preTargets = null }) => {
         const { bus, a, b, snap } = setupPair()
         if (preQuery != null) {
-          b.setBox(preQuery)
-          b.setTargetItems(preTargets)
-          b.win._mindboxDebounced = false
+          b.applyQuery(preQuery, { targets: preTargets })
           b.env._on_search(preQuery)
           bus.flush()
         }
         // Apply multi-target query in B; second is pinned so app renders .container.target for second BEFORE first
-        b.setBox(query)
-        b.setTargetItems(['second', 'first'])
-        b.win._mindboxDebounced = false
+        b.applyQuery(query, { targets: ['second', 'first'] })
         b.env._on_search(query)
         bus.flush()
         // Advance just before B's ordinary 30s heartbeat, type suffix (debounced)
         advanceAll(bus, [a, b], 29_900)
-        b.setBox(query + ' x')
-        b.win._mindboxDebounced = true
+        b.typeDraft(query + ' x')
         const whilePending = await snap()
         // Ordinary 30s heartbeat fires at +30,000ms while suffix is still debounced
         bus.sent.length = 0
@@ -16204,48 +16237,189 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         // User backspaces suffix before 500ms debounce settles (returns to applied query -> app skips _on_search)
         advanceAll(bus, [a, b], 100)
         b.setBox(query)
-        b.win._mindboxDebounced = false
+        b.applyQuery(query, { targets: ['second', 'first'] })
         // Two seconds after undo
         advanceAll(bus, [a, b], 2000)
         const afterUndo = await snap()
         return { heartbeatSent, whilePending, atHeartbeat, afterUndo }
       }
-      const runUnresolvedMultiTarget = async () => {
-        const { bus, a, b, snap } = setupPair()
-        b.setBox('#other')
-        b.setTargetItems(['other'])
-        b.win._mindboxDebounced = false
-        b.env._on_search('#other')
-        bus.flush()
-        // Several targets appear in DOM while debounced without a settled parse having picked either
-        advanceAll(bus, [a, b], 29_900)
-        b.setTargetItems(['second', 'first'])
-        b.setBox('#first id:second x')
-        b.win._mindboxDebounced = true
-        const bBeforeHb = b.env._selected_item()?.id ?? null
-        advanceAll(bus, [a, b], 200)
-        const atHeartbeat = await snap()
-        // Settling resolves #first id:second -> first becomes selected, marked, and Done-ready
-        b.setBox('#first id:second')
-        b.win._mindboxDebounced = false
-        b.env._on_search('#first id:second')
-        bus.flush()
-        const afterSettle = await snap()
-        return { bBeforeHb, atHeartbeat, afterSettle }
-      }
       check(
-        'windows multi-target query while debounced: keeps settled parser pick (#first id:second and id:first id:second with second pinned) across pending suffix, heartbeat, and undo, and refuses to guess when unresolved',
+        'windows multi-target query while debounced: keeps applied query pick (#first id:second and id:first id:second with second pinned) across pending suffix, heartbeat, and undo',
         [
           await runMultiTarget({ query: '#first id:second' }),
           await runMultiTarget({ query: 'id:first id:second', preQuery: '#second', preTargets: ['second'] }),
-          await runUnresolvedMultiTarget(),
         ],
         [
           { heartbeatSent: true, whilePending: ['first', ['first'], 'first'], atHeartbeat: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
           { heartbeatSent: true, whilePending: ['first', ['first'], 'first'], atHeartbeat: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
-          { bBeforeHb: null, atHeartbeat: [null, [], null], afterSettle: ['first', ['first'], 'first'] },
         ]
       )
+
+      // 70a. Reviewer case (a): B on #second (or 'id:second id:first' — identical target set throughout),
+      //      A as its list; B applies 'id:first id:second'; suffix typed before or after the queued search
+      //      callback and taken back before it applies (no final _on_search); 2s after undo B's selected
+      //      item, A's marked row, and the id A's Done button really reaches are all 'first'.
+      const runCaseA = async ({ preQuery, preTargets, callbackBeforeInput }) => {
+        const { bus, a, b, snap } = setupPair()
+        b.applyQuery(preQuery, { targets: preTargets })
+        b.env._on_search(preQuery)
+        bus.flush()
+        const beforeSwitch = await snap()
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'], callbackDelay: 5 })
+        if (callbackBeforeInput) {
+          advanceAll(bus, [a, b], 5) // queued _on_search fires before next input
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('id:first id:second x')
+        } else {
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('id:first id:second x')
+          advanceAll(bus, [a, b], 5) // queued _on_search fires during the new debounce, handed live draft
+        }
+        const duringDraft = await snap()
+        // Backspace suffix before 500ms debounce applies -> returns to applied query without a final _on_search
+        advanceAll(bus, [a, b], 100)
+        b.setBox('id:first id:second')
+        advanceAll(bus, [a, b], 400)
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'] })
+        advanceAll(bus, [a, b], 2000)
+        const afterUndo = await snap()
+        return { beforeSwitch, duringDraft, afterUndo }
+      }
+      check(
+        'windows multi-target applied query across queued callback and undo (case a): #second or id:second id:first to id:first id:second selects, marks, and completes first',
+        [
+          await runCaseA({ preQuery: '#second', preTargets: ['second'], callbackBeforeInput: true }),
+          await runCaseA({ preQuery: '#second', preTargets: ['second'], callbackBeforeInput: false }),
+          await runCaseA({ preQuery: 'id:second id:first', preTargets: ['second', 'first'], callbackBeforeInput: true }),
+          await runCaseA({ preQuery: 'id:second id:first', preTargets: ['second', 'first'], callbackBeforeInput: false }),
+        ],
+        [
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+          { beforeSwitch: ['second', ['second'], 'second'], duringDraft: ['first', ['first'], 'first'], afterUndo: ['first', ['first'], 'first'] },
+        ]
+      )
+
+      // 70b. Reviewer case (b): A shows #peer (or targetless #todo), B shows #old; B applies 'id:first id:second'
+      //      and starts a plain-text replacement before or after the queued callback; B never marks A's #peer
+      //      or reaches it with Done, and A's mark and Done are right during the draft and 2s after undo
+      //      without a final hook (no wait for the 30s heartbeat).
+      const runCaseB = async ({ aQuery, aTargets, callbackBeforeInput }) => {
+        const { bus, a, b, markedA, markedB, pressDoneA, pressDoneB } = setupPair({ aQuery, aTargets })
+        b.applyQuery('#old', { targets: ['old'] })
+        b.env._on_search('#old')
+        bus.flush()
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'], callbackDelay: 5 })
+        if (callbackBeforeInput) {
+          advanceAll(bus, [a, b], 5)
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('plain')
+        } else {
+          advanceAll(bus, [a, b], 2)
+          b.typeDraft('plain')
+          advanceAll(bus, [a, b], 5)
+        }
+        const bDuring = [b.env._selected_item()?.id ?? null, markedB(), await pressDoneB()]
+        const aDuring = [markedA(), await pressDoneA()]
+        // Undo plain-text replacement before debounce applies -> no final _on_search; wait 2s (not 30s heartbeat)
+        advanceAll(bus, [a, b], 100)
+        b.setBox('id:first id:second')
+        advanceAll(bus, [a, b], 400)
+        b.applyQuery('id:first id:second', { targets: ['second', 'first'] })
+        advanceAll(bus, [a, b], 2000)
+        const bAfter = [b.env._selected_item()?.id ?? null, markedB(), await pressDoneB()]
+        const aAfter = [markedA(), await pressDoneA()]
+        return { bDuring, aDuring, bAfter, aAfter }
+      }
+      check(
+        'windows multi-target applied query with plain-text draft (case b): B never falls back to partner #peer and A keeps right mark and Done across draft and undo without heartbeat',
+        [
+          await runCaseB({ aQuery: '#peer', aTargets: ['peer'], callbackBeforeInput: true }),
+          await runCaseB({ aQuery: '#peer', aTargets: ['peer'], callbackBeforeInput: false }),
+          await runCaseB({ aQuery: '#todo', aTargets: [], callbackBeforeInput: true }),
+          await runCaseB({ aQuery: '#todo', aTargets: [], callbackBeforeInput: false }),
+        ],
+        [
+          { bDuring: ['first', ['first'], null], aDuring: [['peer'], 'peer'], bAfter: ['first', ['first'], 'first'], aAfter: [['peer'], 'peer'] },
+          { bDuring: ['first', ['first'], null], aDuring: [['peer'], 'peer'], bAfter: ['first', ['first'], 'first'], aAfter: [['peer'], 'peer'] },
+          { bDuring: ['first', ['first'], null], aDuring: [['first'], 'first'], bAfter: ['first', ['first'], 'first'], aAfter: [['first'], 'first'] },
+          { bDuring: ['first', ['first'], null], aDuring: [['first'], 'first'], bAfter: ['first', ['first'], 'first'], aAfter: [['first'], 'first'] },
+        ]
+      )
+
+      // 70c. App without window._mindboxApplied (e.g. a tab not reloaded since deploy):
+      //      falls back to MindBox.get() while debounced (the released rule), while an empty-string
+      //      _mindboxApplied IS honored as the applied query (no target) while debounced.
+      {
+        const bus = makeBus()
+        const oldApp = makeWindow(bus, { id: 'OLD', hasMindboxApplied: false })
+        oldApp.makeItem('first', { saved_id: 's_first', text: '#todo first task' })
+        oldApp.makeItem('second', { saved_id: 's_second', text: '#todo second task' })
+        oldApp.applyQuery('#first')
+        const initialAbsent = oldApp.win._mindboxApplied === undefined
+        const settledTarget = oldApp.env._window_target()?.id ?? null
+        oldApp.typeDraft('#second')
+        const debouncedBoxTarget = oldApp.env._window_target()?.id ?? null
+        oldApp.setBox('plain')
+        const debouncedPlainTarget = oldApp.env._window_target()?.id ?? null
+        const explicitTarget = oldApp.env._window_target('#first')?.id ?? null
+        oldApp.win._mindboxApplied = null // non-string also falls back to box
+        oldApp.setBox('#second')
+        const nonStringFallback = oldApp.env._window_target()?.id ?? null
+        oldApp.win._mindboxApplied = '' // empty string IS a string -> applied query has no target
+        const emptyStringApplied = oldApp.env._window_target()?.id ?? null
+        check(
+          'windows _window_target without _mindboxApplied: falls back to MindBox.get() while debounced and honors empty-string _mindboxApplied',
+          [initialAbsent, settledTarget, debouncedBoxTarget, debouncedPlainTarget, explicitTarget, nonStringFallback, emptyStringApplied],
+          [true, 'first', 'second', null, 'first', 'second', null]
+        )
+      }
+
+      // 70d. Reviewer round-6 sequence: B on #old applies '#new regex:[x' (incomplete regex contributes
+      //      no regex matches and the rest of the query still ranks and applies), then types the closing
+      //      ']' (debounced) with a 30s heartbeat in between: B's target container, B's selected item,
+      //      A's marked row, and the id A's Done button reaches are all 'new' at the pause, at the
+      //      heartbeat, and once the closing bracket settles.
+      {
+        const { bus, a, b, markedA, pressDoneA } = setupPair()
+        const state = async () => [
+          b.targetContainer.getAttribute('data-item-id'),
+          b.env._selected_item()?.id ?? null,
+          markedA(),
+          await pressDoneA(),
+        ]
+        b.applyQuery('#old', { targets: ['old'] })
+        b.env._on_search('#old')
+        bus.flush()
+        const before = await state()
+        // Pause after debounce expires on '#new regex:[x'
+        b.applyQuery('#new regex:[x', { targets: ['new'], callbackDelay: 5 })
+        advanceAll(bus, [a, b], 5)
+        const afterPause = await state()
+        // Advance just before B's 30s heartbeat, type closing ']' (debounced), let heartbeat fire
+        advanceAll(bus, [a, b], 29_900)
+        b.typeDraft('#new regex:[x]')
+        bus.sent.length = 0
+        advanceAll(bus, [a, b], 200)
+        const heartbeatSent = bus.sent.some(m => m.from == 'B' && m.data.type == 'hello')
+        const atHeartbeat = await state()
+        // Closing bracket settles
+        b.applyQuery('#new regex:[x]', { targets: ['new'], callbackDelay: 5 })
+        advanceAll(bus, [a, b], 5)
+        const afterClose = await state()
+        check(
+          'windows incomplete regex applied then closing bracket debounced: B target, A mark, and A Done all agree on new',
+          { before, afterPause, heartbeatSent, atHeartbeat, afterClose },
+          {
+            before: ['old', 'old', ['old'], 'old'],
+            afterPause: ['new', 'new', ['new'], 'new'],
+            heartbeatSent: true,
+            atHeartbeat: ['new', 'new', ['new'], 'new'],
+            afterClose: ['new', 'new', ['new'], 'new'],
+          }
+        )
+      }
     }
   })())
 
@@ -16313,6 +16487,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const labels0 = ['3h', '6h', '1d', '3d', '7d', '28d']
       const labels1 = ['tomorrow', 'weekend', 'next week']
       const listeners = []
+      const pointerListeners = []
+      const allWinListeners = []
+      const allDocListeners = []
       const timers = []
       const alerts = []
       const closes = []
@@ -16339,12 +16516,15 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           value: '',
           valueAsNumber: NaN,
           checked: false,
+          _classes: classes,
           classList: {
             add: c => classes.add(c),
             remove: c => classes.delete(c),
             toggle: (c, f) => (f === undefined ? (classes.has(c) ? classes.delete(c) : classes.add(c)) : f ? classes.add(c) : classes.delete(c)),
             contains: c => classes.has(c),
           },
+          contains: node => node === el,
+          closest: () => null,
           getBoundingClientRect: () => {
             rectCalls++
             return { left: mid - 20, right: mid + 20, top: 0, bottom: 20, width: 40, height: 20 }
@@ -16375,6 +16555,12 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       })
       const snoozeBtn = makeEl(middles[2][1], { text: 'snooze', classes: ['button', 'snooze'] })
       const notifyBox = makeEl(middles[3][0])
+      const notifyLabel = {
+        tagName: 'LABEL',
+        closest: s => (s == 'label' ? notifyLabel : null),
+        contains: el => el === notifyLabel || el === notifyBox,
+      }
+      const outside = { tagName: 'DIV', closest: () => null, contains: () => false }
       const hintEl = { innerText: '' }
       const allStops = [...row0, ...row1, dateInput, snoozeBtn, notifyBox]
       const rowDivs = [
@@ -16390,11 +16576,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             '.notify input': notifyBox,
             '.notify .hint': hintEl,
           })[s] ?? null,
-        contains: el => allStops.includes(el),
+        contains: el => allStops.includes(el) || el === notifyLabel,
+        closest: () => null,
       }
       const doc = {
         get activeElement() {
           return activeEl
+        },
+        addEventListener: (type, fn, cap) => {
+          allDocListeners.push({ type, fn, cap: !!cap })
+        },
+        removeEventListener: (type, fn, cap) => {
+          const idx = allDocListeners.findIndex(l => l.type == type && l.fn === fn && l.cap === !!cap)
+          if (idx >= 0) allDocListeners.splice(idx, 1)
         },
         querySelector: s =>
           !hasSnoozeDom
@@ -16446,12 +16640,20 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
 
       const win = {
         addEventListener: (type, fn, cap) => {
+          allWinListeners.push({ type, fn, cap: !!cap })
           if (type == 'keydown' && cap) listeners.push(fn)
+          if (type == 'pointermove' && cap) pointerListeners.push(fn)
         },
         removeEventListener: (type, fn, cap) => {
+          const allIdx = allWinListeners.findIndex(l => l.type == type && l.fn === fn && l.cap === !!cap)
+          if (allIdx >= 0) allWinListeners.splice(allIdx, 1)
           if (type == 'keydown' && cap) {
             const idx = listeners.indexOf(fn)
             if (idx >= 0) listeners.splice(idx, 1)
+          }
+          if (type == 'pointermove' && cap) {
+            const idx = pointerListeners.indexOf(fn)
+            if (idx >= 0) pointerListeners.splice(idx, 1)
           }
         },
       }
@@ -16595,7 +16797,35 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         return e
       }
 
+      const dispatchPointer = (target, screenX, screenY, extra = {}) => {
+        const type = extra.type ?? 'pointermove'
+        const e = {
+          type,
+          target,
+          screenX,
+          screenY,
+          clientX: extra.clientX ?? screenX,
+          clientY: extra.clientY ?? screenY,
+          pointerType: 'pointerType' in extra ? extra.pointerType : 'mouse',
+          isPrimary: 'isPrimary' in extra ? extra.isPrimary : true,
+          defaultPrevented: false,
+          stopped: false,
+          preventDefault() {
+            this.defaultPrevented = true
+          },
+          stopPropagation() {
+            this.stopped = true
+          },
+        }
+        for (const l of [...allWinListeners]) {
+          if (l.type == type) l.fn(e)
+        }
+        return e
+      }
+
+      const KNOWN_CLASSES = new Set(['button', 'snooze', 'disabled', 'lit'])
       const litNames = () => allStops.filter(el => el.classList.contains('lit')).map(el => el.innerText || (el === dateInput ? 'date' : 'notify'))
+      const extraClasses = () => allStops.flatMap(el => [...el._classes].filter(c => !KNOWN_CLASSES.has(c)))
       const flushTimers = () => {
         while (timers.length) timers.shift()()
       }
@@ -16636,21 +16866,29 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       return {
         env,
         middles,
+        root,
         row0,
         row1,
         dateInput,
         dateValueWrites,
         snoozeBtn,
         notifyBox,
+        notifyLabel,
+        outside,
         hintEl,
         listeners,
+        pointerListeners,
+        allWinListeners,
+        allDocListeners,
         alerts,
         closes,
         appBubble,
         tasks,
         dispatchKey,
+        dispatchPointer,
         clickNotify,
         litNames,
+        extraClasses,
         flushTimers,
         setNow,
         setPerm,
@@ -17387,7 +17625,848 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ]
       )
     }
+
+    // 50n. Pointer: opening under a resting pointer and made-up moves at the same place light nothing
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      const atOpen = e.litNames()
+      e.dispatchPointer(e.row0[1], 200, 300) // first event after opening only records place
+      const afterFirst = e.litNames()
+      e.dateInput.valueAsNumber = NOW + 3_600_000
+      e.env._on_snooze_input_change() // content/validity change under still pointer
+      e.dispatchPointer(e.row0[1], 200, 300) // made-up move at same place
+      const afterSame = e.litNames()
+      e.dispatchPointer(e.row1[0], 200, 300) // content shifted under still pointer, same screen coords
+      const afterShifted = e.litNames()
+      e.dispatchPointer(e.row0[0], NaN, 300) // non-finite coordinates ignored
+      e.dispatchPointer(e.row0[0], undefined, undefined)
+      const afterBadCoords = e.litNames()
+      e.env._modal_close(modal)
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog pointer: opening under a resting pointer and made-up moves at the same place light nothing',
+        [atOpen, afterFirst, afterSame, afterShifted, afterBadCoords, ans === undefined, e.allWinListeners.length],
+        [[], [], [], [], [], true, 0]
+      )
+    }
+
+    // 50o. Pointer: real movement lights each stop under it (buttons, date, snooze, notify and its label)
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.row0[0], 100, 100) // seed place
+      const seq = []
+      const move = (target, x, y) => {
+        e.dispatchPointer(target, x, y)
+        seq.push([e.litNames(), e.extraClasses()])
+      }
+      move(e.row0[1], 173, 100) // 6h
+      move(e.row1[1], 256, 140) // weekend
+      move(e.dateInput, 211, 180) // date
+      move(e.snoozeBtn, 379, 180) // disabled snooze button
+      move(e.notifyBox, 185, 220) // notify checkbox
+      move(e.row0[5], 391, 100) // 28d
+      move(e.notifyLabel, 210, 220) // notify label lights the checkbox stop
+      e.env._modal_close(modal)
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog pointer: real movement lights each stop under it',
+        [seq, e.allWinListeners.length],
+        [
+          [
+            [['6h'], []],
+            [['weekend'], []],
+            [['date'], []],
+            [['snooze'], []],
+            [['notify'], []],
+            [['28d'], []],
+            [['notify'], []],
+          ],
+          0,
+        ]
+      )
+    }
+
+    // 50p. Pointer: keys after a hover continue from the hovered stop
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      e.setPerm('granted')
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.outside, 50, 50) // seed
+      e.dispatchPointer(e.row0[1], 173, 100) // hover 6h ([0, 1])
+      const afterHover = e.litNames()
+      e.dispatchKey('ArrowRight') // -> 1d ([0, 2])
+      const afterRight = e.litNames()
+      e.dispatchKey('ArrowDown') // -> weekend ([1, 1])
+      const afterDown = e.litNames()
+      e.dispatchPointer(e.notifyBox, 185, 220) // hover notify ([3, 0])
+      e.dispatchKey(' ') // Space toggles hovered notify box
+      const afterSpace = [e.litNames(), e.notifyBox.checked]
+      e.dispatchPointer(e.row1[0], 145, 140) // hover tomorrow ([1, 0])
+      e.dispatchKey('ArrowUp') // -> 3h ([0, 0])
+      const afterUp = e.litNames()
+      e.env._modal_close(modal)
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog pointer: keys after a hover continue from the hovered stop',
+        [afterHover, afterRight, afterDown, afterSpace, afterUp, e.allWinListeners.length],
+        [['6h'], ['1d'], ['weekend'], [['notify'], true], ['3h'], 0]
+      )
+    }
+
+    // 50q. Pointer: hover after keys moves the same highlight (count 1) and made-up move leaves keys alone
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.row0[1], 173, 100) // resting pointer on 6h
+      e.dispatchKey('ArrowRight') // 3h
+      e.dispatchKey('ArrowRight') // 6h
+      e.dispatchKey('ArrowRight') // 1d
+      const afterKeys = e.litNames()
+      e.dispatchPointer(e.row0[1], 173, 100) // made-up move at resting coords on 6h
+      const afterFake = e.litNames()
+      e.dispatchPointer(e.row0[4], 333, 100) // real move onto 7d
+      const afterHover = [e.litNames(), e.litNames().length, e.row0[2].classList.contains('lit'), e.extraClasses()]
+      e.dispatchKey('ArrowRight') // 28d from 7d
+      const afterNextKey = [e.litNames(), e.litNames().length, e.row0[4].classList.contains('lit')]
+      e.dispatchPointer(e.row1[2], 370, 140) // real move onto next week
+      const afterHover2 = [e.litNames(), e.litNames().length, e.row0[5].classList.contains('lit'), e.extraClasses()]
+      e.env._modal_close(modal)
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog pointer: hover after keys moves the same highlight leaving one lit stop',
+        [afterKeys, afterFake, afterHover, afterNextKey, afterHover2, e.allWinListeners.length],
+        [
+          ['1d'],
+          ['1d'],
+          [['7d'], 1, false, []],
+          [['28d'], 1, false],
+          [['next week'], 1, false, []],
+          0,
+        ]
+      )
+    }
+
+    // 50r. Pointer: leaving every stop keeps the highlight where it is
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.outside, 10, 10)
+      e.dispatchPointer(e.root, 20, 20)
+      const stillEmpty = e.litNames()
+      e.dispatchPointer(e.row0[2], 226, 100) // 1d
+      const litOnStop = e.litNames()
+      e.dispatchPointer(e.root, 150, 115) // gap inside modal
+      const afterGap = e.litNames()
+      e.dispatchPointer(e.outside, 5, 5) // backdrop / outside
+      const afterOutside = e.litNames()
+      e.dispatchPointer(null, 6, 6) // null target
+      const afterNull = e.litNames()
+      e.dispatchKey('ArrowRight') // continues from kept 1d -> 3d
+      const afterArrow = e.litNames()
+      e.env._modal_close(modal)
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog pointer: leaving every stop keeps the highlight where it is',
+        [stillEmpty, litOnStop, afterGap, afterOutside, afterNull, afterArrow, e.allWinListeners.length],
+        [[], ['1d'], ['1d'], ['1d'], ['1d'], ['3d'], 0]
+      )
+    }
+
+    // 50s. Pointer: Enter after a hover takes the hovered stop without double confirm
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      // (a) Time button 1d over a valid custom date
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW + 10 * 3_600_000
+      e.env._on_snooze_input_change()
+      e.dispatchPointer(e.outside, 10, 10)
+      e.dispatchPointer(e.row0[2], 226, 100) // hover 1d
+      e.appBubble.length = 0
+      const ev1 = e.dispatchKey('Enter')
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+
+      // (b) Wide button weekend
+      const expectedWk = e.env._snooze_weekend().getTime()
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.outside, 10, 10)
+      e.dispatchPointer(e.row1[1], 256, 140) // hover weekend
+      const ev2 = e.dispatchKey('Enter')
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+
+      // (c) Snooze button: disabled ignores Enter without alert, enabled confirms once
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = NOW - 5_000
+      e.env._on_snooze_input_change()
+      e.dispatchPointer(e.outside, 10, 10)
+      e.dispatchPointer(e.snoozeBtn, 379, 180)
+      const ev3Past = e.dispatchKey('Enter')
+      const afterPast = [e.isVisible(), e.alerts.length, ev3Past.stopped]
+      const future = NOW + 4 * 3_600_000
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.appBubble.length = 0
+      const ev3Ok = e.dispatchKey('Enter')
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+
+      // (d) Notify box: Enter does not answer even with valid date
+      const m4 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.dispatchPointer(e.outside, 10, 10)
+      e.dispatchPointer(e.notifyBox, 185, 220)
+      e.appBubble.length = 0
+      const ev4 = e.dispatchKey('Enter')
+      const notifyEnter = [ev4.stopped, e.appBubble.slice(), e.isVisible()]
+      e.env._modal_close(m4)
+      const ans4 = await settleAnswer(m4)
+      await clearIfUnsettled(e, m4, ans4)
+
+      check(
+        'snooze dialog pointer: Enter after a hover takes the hovered stop without double confirm',
+        [ev1.stopped, ans1, ev2.stopped, ans2, afterPast, ev3Ok.stopped, ans3, notifyEnter, ans4 === undefined, e.allWinListeners.length],
+        [
+          true,
+          { time: NOW + 24 * 3_600_000, notify: false },
+          true,
+          { time: expectedWk, notify: false },
+          [true, 0, true],
+          true,
+          { time: future, notify: false },
+          [true, [], true],
+          true,
+          0,
+        ]
+      )
+    }
+
+    // 50t. Pointer: hovering date lights without focus, and hovering elsewhere leaves a focused date field focused
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      // (a) Hovering date lights it without focusing; arrows move from it without focusing; Enter confirms when valid
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.outside, 10, 10)
+      e.dispatchPointer(e.dateInput, 211, 180)
+      const onHoverDate = [e.litNames(), e.getActive() === null]
+      e.dispatchKey('ArrowLeft') // stays on date without focusing
+      const afterLeftOnDate = [e.litNames(), e.getActive() === null]
+      e.dispatchKey('ArrowRight') // moves from date to snooze
+      const afterRightFromDate = [e.litNames(), e.getActive() === null]
+      e.dispatchPointer(e.dateInput, 212, 180) // hover date again
+      const future = NOW + 5 * 3_600_000
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.dispatchKey('Enter')
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+
+      // (b) Click-focused date field: hovering another stop moves highlight without blurring; arrows remain the browser's
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.setActive(e.dateInput) // user clicked date field
+      e.dispatchPointer(e.dateInput, 211, 180)
+      e.dispatchPointer(e.row0[1], 173, 100) // mouse moves to 6h
+      const afterHoverOffClick = [e.litNames(), e.getActive() === e.dateInput]
+      const arrowWhileClickFocused = e.dispatchKey('ArrowUp') // browser's own arrow in date field
+      const afterArrowClickFocused = [arrowWhileClickFocused.stopped, e.litNames(), e.getActive() === e.dateInput]
+
+      // (c) Key-focused date field: hovering another stop moves highlight without blurring
+      e.dateInput.blur()
+      e.dispatchPointer(e.row1[0], 145, 140) // tomorrow
+      e.dispatchKey('ArrowDown') // key arrives at date -> focuses date
+      const keyFocused = [e.litNames(), e.getActive() === e.dateInput]
+      e.dispatchPointer(e.row0[3], 279, 100) // mouse moves to 3d
+      const afterHoverOffKey = [e.litNames(), e.getActive() === e.dateInput]
+      e.env._modal_close(m2)
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+
+      check(
+        'snooze dialog pointer: hovering date lights without focus and hovering elsewhere leaves a focused date field focused',
+        [onHoverDate, afterLeftOnDate, afterRightFromDate, ans1, afterHoverOffClick, afterArrowClickFocused, keyFocused, afterHoverOffKey, ans2 === undefined, e.allWinListeners.length],
+        [
+          [['date'], true],
+          [['date'], true],
+          [['snooze'], true],
+          { time: future, notify: false },
+          [['6h'], true],
+          [false, ['6h'], true],
+          [['date'], true],
+          [['3d'], true],
+          true,
+          0,
+        ]
+      )
+    }
+
+    // 50u. Pointer: touch movement lights nothing and leaves pointer state untouched
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const modal = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.row0[0], 120, 100, { pointerType: 'touch' })
+      e.dispatchPointer(e.row0[1], 173, 100, { pointerType: 'touch' })
+      e.dispatchPointer(e.row0[2], 226, 100, { pointerType: 'touch' })
+      const afterTouches = e.litNames()
+      // First mouse event still only records place (touch did not seed last_pt)
+      e.dispatchPointer(e.row0[0], 120, 100, { pointerType: 'mouse' })
+      const afterFirstMouse = e.litNames()
+      e.dispatchPointer(e.row0[1], 173, 100, { pointerType: 'mouse' })
+      const afterRealMouse = e.litNames()
+      // Touch drag over another stop does not move highlight or overwrite last_pt
+      e.dispatchPointer(e.row0[3], 279, 100, { pointerType: 'touch' })
+      const afterLaterTouch = e.litNames()
+      e.dispatchPointer(e.row0[2], 173, 100, { pointerType: 'mouse' }) // same coords as last real mouse move
+      const afterFakePostTouch = e.litNames()
+      e.env._modal_close(modal)
+      const ans = await settleAnswer(modal)
+      await clearIfUnsettled(e, modal, ans)
+      check(
+        'snooze dialog pointer: touch movement lights nothing and leaves pointer state untouched',
+        [afterTouches, afterFirstMouse, afterRealMouse, afterLaterTouch, afterFakePostTouch, e.allWinListeners.length],
+        [[], [], ['6h'], ['6h'], ['6h'], 0]
+      )
+    }
+
+    // 50v. Pointer: one pointer listener while open and none left after every close across cycles and queuing
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const openCounts = []
+      const closedCounts = []
+      const litClosed = []
+      for (let i = 0; i < 8; i++) {
+        const m = e.env._snooze_dialog()
+        await Promise.resolve()
+        openCounts.push([e.listeners.length, e.pointerListeners.length, e.allWinListeners.length, e.allDocListeners.length])
+        e.dispatchPointer(e.outside, 10 + i, 10)
+        e.dispatchPointer(e.row0[0], 120 + i, 100)
+        if (i % 4 == 0) e.dispatchKey('Enter')
+        else if (i % 4 == 1) e.dispatchKey('Escape')
+        else if (i % 4 == 2) e.env._on_snooze({ target: e.row0[1] })
+        else e.env._modal_close(m)
+        const ans = await settleAnswer(m)
+        closedCounts.push([e.listeners.length, e.pointerListeners.length, e.allWinListeners.length, e.allDocListeners.length])
+        litClosed.push(e.litNames().length)
+        await clearIfUnsettled(e, m, ans)
+      }
+      // After close, pointer movement lights nothing
+      e.dispatchPointer(e.row0[0], 120, 100)
+      e.dispatchPointer(e.row0[1], 173, 100)
+      const afterCloseLit = e.litNames()
+
+      // Queued behind unrelated modal U: moves during U are ignored and do not seed last_pt
+      const u = e.env._modal('<div>other</div>', {})
+      const q = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.row0[0], 120, 100)
+      e.dispatchPointer(e.row0[1], 173, 100)
+      const whileBehind = e.litNames()
+      e.env._modal_close(u)
+      await settleAnswer(u)
+      await Promise.resolve()
+      e.dispatchPointer(e.row0[2], 226, 100) // first event after snooze becomes visible only seeds
+      const firstAfterPromote = e.litNames()
+      e.dispatchPointer(e.row0[2], 228, 100) // real move lights 1d
+      const realAfterPromote = e.litNames()
+      e.env._modal_close(q)
+      await settleAnswer(q)
+
+      // Queued snooze cancelled before ever becoming visible cleans up all listeners
+      const u2 = e.env._modal('<div>other2</div>', {})
+      const q2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.env._modal_close(q2)
+      e.env._modal_close(u2)
+      await settleAnswer(u2)
+      await settleAnswer(q2)
+      const afterCancelQueued = [e.allWinListeners.length, e.allDocListeners.length]
+
+      check(
+        'snooze dialog pointer: one pointer listener while open and none left after every close across openings and queuing',
+        [openCounts, closedCounts, litClosed, afterCloseLit, whileBehind, firstAfterPromote, realAfterPromote, afterCancelQueued],
+        [
+          Array(8).fill([1, 1, 2, 0]),
+          Array(8).fill([0, 0, 0, 0]),
+          Array(8).fill(0),
+          [],
+          [],
+          [],
+          ['1d'],
+          [0, 0],
+        ]
+      )
+    }
   })())
+  // unstored drawn order (2026-11-26, shortcuts_row): a row selected via j/k or click is
+  // soft-touched by the app (item.time = now + 2), so while the widget's deferred order save
+  // has not yet persisted new rows (waiting on saved_id's 1s retry, offline, or resume hold),
+  // a re-render (_on_search or force_render destroying the widget DOM) must keep already-drawn
+  // unstored rows in their drawn order rather than re-sorting them by -item.time
+  {
+    class OrderElem {
+      constructor(tag) {
+        this.tagName = tag.toUpperCase()
+        this.attrs = new Map()
+        this.children = []
+        this.parentElement = null
+        this.parentNode = null
+        this.style = {}
+        this._cls = new Set()
+        this.classList = {
+          add: (...cs) => cs.forEach(c => this._cls.add(c)),
+          remove: (...cs) => cs.forEach(c => this._cls.delete(c)),
+          contains: c => this._cls.has(c),
+          toggle: (c, f) => (f === undefined ? (this._cls.has(c) ? (this._cls.delete(c), false) : (this._cls.add(c), true)) : f ? (this._cls.add(c), true) : (this._cls.delete(c), false)),
+        }
+      }
+      get className() { return [...this._cls].join(' ') }
+      set className(v) { this._cls = new Set(String(v).split(/\s+/).filter(Boolean)) }
+      setAttribute(k, v) { this.attrs.set(k, String(v)) }
+      getAttribute(k) { return this.attrs.has(k) ? this.attrs.get(k) : null }
+      removeAttribute(k) { this.attrs.delete(k) }
+      appendChild(c) {
+        if (c.parentElement) c.parentElement.removeChild(c)
+        c.parentElement = c.parentNode = this
+        this.children.push(c)
+        return c
+      }
+      removeChild(c) {
+        const i = this.children.indexOf(c)
+        if (i >= 0) { this.children.splice(i, 1); c.parentElement = c.parentNode = null }
+        return c
+      }
+      remove() { this.parentElement?.removeChild(this) }
+      prepend(...nodes) {
+        for (const n of nodes.reverse()) {
+          if (typeof n == 'string') continue
+          if (n.parentElement) n.parentElement.removeChild(n)
+          n.parentElement = n.parentNode = this
+          this.children.unshift(n)
+        }
+      }
+      closest(sel) {
+        for (let cur = this; cur; cur = cur.parentElement) {
+          if (sel == '.todoer-widget' && cur._cls.has('todoer-widget')) return cur
+          if (sel == '#cache-div' && cur.id == 'cache-div') return cur
+        }
+        return null
+      }
+      querySelectorAll(sel) {
+        const out = []
+        const walk = n => {
+          for (const c of n.children) {
+            const hit =
+              sel == ':is(.list,.bin)' ? (c._cls.has('list') || c._cls.has('bin')) :
+              sel == '.list' ? c._cls.has('list') :
+              sel == '.todoer-widget' ? c._cls.has('todoer-widget') :
+              sel == '.list-item-container' ? c._cls.has('list-item-container') :
+              sel == '.list-item-container.selected' ? (c._cls.has('list-item-container') && c._cls.has('selected')) :
+              sel == '.list .list-item-container[data-id]' ? (c._cls.has('list-item-container') && c.getAttribute('data-id') != null && c.parentElement?._cls.has('list')) :
+              false
+            if (hit) out.push(c)
+            walk(c)
+          }
+        }
+        walk(this)
+        return out
+      }
+      querySelector(sel) { return this.querySelectorAll(sel)[0] ?? null }
+    }
+    const makeSortable = (el, options) => {
+      const inst = {
+        el,
+        options,
+        toArray() { return el.children.map(c => c.getAttribute('data-id')).filter(Boolean) },
+        sort(order) {
+          const map = {}
+          this.toArray().forEach((id, i) => { map[id] = el.children[i] })
+          for (const id of order) if (map[id]) { el.removeChild(map[id]); el.appendChild(map[id]) }
+        },
+        save() { options.store?.set?.(this) },
+        destroy() {},
+      }
+      if (options.store?.get) inst.sort(options.store.get(inst) || [])
+      return inst
+    }
+    const orderWorld = () => {
+      let clock = 1000
+      let box = ''
+      const items = []
+      const byId = new Map()
+      const byName = new Map()
+      const tasks = new Map()
+      const timers = []
+      const makeItem = (id, name, text, { todo = false, waits = null, saved_id = null, tags = null, state = null } = {}) => {
+        const tagList = tags ?? (todo ? ['#todo'] : [])
+        const it = {
+          id,
+          name,
+          label: name,
+          text,
+          time: ++clock,
+          saved_id,
+          tags: [...tagList],
+          tags_visible: [...tagList],
+          tags_hidden: [],
+          store: {},
+          _global_store: {},
+          get global_store() { return this._global_store },
+          _waits: waits,
+          _state: state,
+          select() { box = this.name; this.time = (clock += 10) + 2; return true },
+          save_global_store() {},
+        }
+        items.push(it); byId.set(id, it); byName.set(name, it)
+        return it
+      }
+      const pinned = makeItem('pinned', 'id:pinned', '#_pin\n#_todoer', { saved_id: 's_pinned' })
+      pinned.store['w1'] = { options: {} }
+      const root = new OrderElem('div')
+      let widget = new OrderElem('div')
+      widget.id = 'w1'; widget.className = 'todoer-widget'
+      root.appendChild(widget)
+      pinned.elem = root
+      const smOne = makeItem('t1', '#sm_one', '#sm_one\n#todo first shortcuts todo', { todo: true })
+      const smReply = makeItem('r1', '#sm_reply/0', '#sm_reply/0', { waits: 'reply' })
+      const smTwo = makeItem('t2', '#sm_two', '#sm_two\n#todo second shortcuts todo', { todo: true })
+      const _item = ref => {
+        if (!ref) return null
+        if (byId.has(ref)) return byId.get(ref)
+        if (byName.has(ref)) return byName.get(ref)
+        for (const it of items) if (it.saved_id == ref) return it
+        return null
+      }
+      const win = { _server_confirmed: true, _server_current: true, Sortable: { dragged: null, create: makeSortable } }
+      const octx = {
+        window: win,
+        document: { createElement: t => new OrderElem(t), querySelectorAll: s => root.querySelectorAll(s), querySelector: s => root.querySelector(s), activeElement: null },
+        navigator: { userAgent: 'Chrome' },
+        console: { debug() {}, warn() {}, error() {}, log() {} },
+        Date: { now: () => ++clock },
+        Set, Map, Array, Object, String, Number, Math, RegExp, JSON, Promise,
+        Sortable: win.Sortable,
+        MindBox: { get: () => box, set: v => { box = v } },
+        _item,
+        _items: () => [...items].sort((a, b) => b.time - a.time),
+        _exists: id => !!_item(id),
+        _todoer: { id: 'todoer', store: {}, dependents: ['pinned'], _global_store: {} },
+        _this: { id: 'todoer', dependents: ['pinned'], dispatch_task: (n, fn, d, r) => tasks.set(n, { fn, d, r }) },
+        dispatch_task: (n, fn, d, r) => tasks.set(n, { fn, d, r }),
+        setTimeout: fn => { timers.push(fn); return timers.length },
+        fatal: m => { throw new Error(m) },
+        debug: () => {},
+        alert: () => {},
+        is_string: x => typeof x == 'string',
+        uniq: xs => [...new Set(xs)],
+        each: (xs, f) => xs.forEach(f),
+        apply: (xs, f) => { for (let i = 0; i < xs.length; i++) xs[i] = f(xs[i]); return xs },
+        sort_by: (xs, f) => xs.sort((a, b) => f(a) - f(b)),
+        clone_deep: x => JSON.parse(JSON.stringify(x)),
+        pick_by: (o, p) => Object.fromEntries(Object.entries(o).filter(([, v]) => p(v))),
+        equal: (a, b) => JSON.stringify(a) == JSON.stringify(b),
+        _: { escape: s => String(s) },
+        _LIST_BINS: { main: ['agent', 'done', 'snooze', 'cancel'], snoozed: ['agent', 'done', 'snooze', 'cancel'], delegated: ['agent', 'owner'] },
+        _waits: it => it._waits,
+        _waiting_parts: it => [it.name, 'Shortcuts reply.', 'Shortcuts reply.'],
+        _wait_key_of: () => 'k1',
+        _link_waiting_wiki: x => x,
+        _mark_tags: x => x,
+        _wire_row_links: () => {},
+        _suppress_touch_context_menu: () => {},
+        _grab_on_sideways_touch: () => {},
+        _extract_todo_snippet: it => it.text.replace(/^#\w+\n/, ''),
+        _task_state: it => it._state ?? null,
+        _pending_commands: () => ({}),
+        _list_of: () => 'main',
+        _delegated_view: () => false,
+        _clear_waiting: () => false,
+        _clear_bell: () => false,
+        _task_list: (s, p, ps) => s?.list ?? 'main',
+        _age: () => '1m',
+        _stats_suffix: () => '',
+        _wake_suffix: () => '',
+        _age_title: () => '',
+        _row_question: () => null,
+        _visible: s => s,
+        _row_title: s => s,
+        _notify_change: () => {},
+        _row_html: s => s,
+        _decorate_row: h => h,
+        _row_label: () => '',
+        _bell: () => null,
+        _corpus_current: w => !!w._server_confirmed && (w._server_current ?? true),
+        _held: () => false,
+        TODOER_VERSION: 1,
+        _bin_buttons: () => {},
+        _run_deferred_renders: () => {},
+        _mounted_lists: () => root.querySelectorAll('.todoer-widget'),
+        _select_item: it => it.select(),
+      }
+      vm.createContext(octx)
+      vm.runInContext(
+        'const _BIN_KEYS = { a: "agent", d: "done", s: "snooze", x: "cancel", u: "owner", b: "bell" }\n' +
+          pick(['_merged_order', '_order_blocked', '_order_save_step', '__render', '_bin_row', '_row_sequence', '_row_beside', '_on_row_key', '_listed', '_window_target', '_selected_item', '_sync_marks', '_on_search', '_render_todoer_widget']).join('\n'),
+        octx
+      )
+      const addWidget = (id, options = {}) => {
+        pinned.store[id] = { options }
+        const el = new OrderElem('div')
+        el.id = id; el.className = 'todoer-widget'
+        root.appendChild(el)
+        return el
+      }
+      const rowNames = (el = widget) => el.querySelectorAll('.list .list-item-container[data-id]').map(r => _item(r.getAttribute('data-id')).name)
+      const flush = () => { while (timers.length) timers.shift()() }
+      const saveNow = (key = 'save.w1.#todo') => tasks.get(key)?.fn()
+      // whole-widget DOM replacement (remount): drops DOM properties such as _orderAfterDrag;
+      // in production, todoer-widget.html uses _skip_invalidation so cache invalidation keeps the
+      // widget and rebuilds its inner .list via __render(widget, pinned)
+      const remount = () => {
+        widget.remove()
+        widget = new OrderElem('div')
+        widget.id = 'w1'; widget.className = 'todoer-widget'
+        root.appendChild(widget)
+        octx.__render(widget, pinned)
+      }
+      octx.__render(widget, pinned)
+      flush(); saveNow() // waits because saved_id == null
+      smOne.saved_id = 's1'; smReply.saved_id = 's2'; smTwo.saved_id = 's3'
+      return { octx, win, pinned, smOne, smReply, smTwo, makeItem, addWidget, getWidget: () => widget, getBox: () => box, rowNames, flush, saveNow, remount }
+    }
+
+    // 1. Exact trace failure: force_render (rebuilding .list in place on the retained widget)
+    //    between j #2 and j #3 while order save waits its 1s retry
+    {
+      const w = orderWorld()
+      w.octx._on_row_key('KeyJ', {})
+      const j1 = w.getBox()
+      w.octx._on_row_key('KeyJ', {})
+      const j2 = w.getBox()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const afterForce = w.rowNames()
+      w.flush(); w.saveNow()
+      w.octx._on_row_key('KeyJ', {})
+      check(
+        'unstored order: force_render between j presses keeps drawn order and j lands on last row',
+        [j1, j2, afterForce, w.getBox(), w.pinned._global_store._todoer?.['#todo']],
+        ['#sm_two', '#sm_reply/0', ['#sm_two', '#sm_reply/0', '#sm_one'], '#sm_one', 's3,s2,s1']
+      )
+    }
+
+    // 2. Held save (offline / resume hold): _on_search re-renders on every j without ping-ponging
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      const walk = []
+      const orders = []
+      for (let i = 0; i < 4; i++) {
+        w.octx._on_row_key('KeyJ', {})
+        w.octx._on_search(w.getBox())
+        w.flush(); w.saveNow()
+        walk.push(w.getBox())
+        orders.push(w.rowNames())
+      }
+      check(
+        'unstored order: held-save j walk through _on_search cycles without jumping or ping-ponging',
+        [walk, orders],
+        [['#sm_two', '#sm_reply/0', '#sm_one', '#sm_two'], Array(4).fill(['#sm_two', '#sm_reply/0', '#sm_one'])]
+      )
+    }
+
+    // 3. Selecting a non-first new row before 1s retry keeps order and persists drawn order
+    {
+      const w = orderWorld()
+      w.smReply.select()
+      w.octx._on_search(w.getBox())
+      w.flush(); w.saveNow()
+      const afterSel = w.rowNames()
+      w.octx._on_row_key('KeyJ', {})
+      check(
+        'unstored order: selecting a non-first new row before the 1s save keeps it in place and persists drawn order',
+        [afterSel, w.pinned._global_store._todoer?.['#todo'], w.getBox()],
+        [['#sm_two', '#sm_reply/0', '#sm_one'], 's3,s2,s1', '#sm_one']
+      )
+    }
+
+    // 4. Remote saved order overrides prior drawn order (mapped via temp ids) while unstored rows stay ahead
+    {
+      const w = orderWorld()
+      w.pinned._global_store._todoer = { '#todo': 's1,s3', version: 1 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const partialRemote = w.rowNames()
+      const partialIds = w.getWidget().querySelector('.list').sortable.options.store.get()
+      w.pinned._global_store._todoer = { '#todo': 's1,s2,s3', version: 1 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const fullRemote = w.rowNames()
+      const fullIds = w.getWidget().querySelector('.list').sortable.options.store.get()
+      check(
+        'unstored order: remote saved order overrides prior drawn order (mapped via temp ids) while keeping unstored new rows ahead',
+        [partialRemote, partialIds, fullRemote, fullIds],
+        [['#sm_reply/0', '#sm_one', '#sm_two'], ['r1', 't1', 't2'], ['#sm_one', '#sm_reply/0', '#sm_two'], ['t1', 'r1', 't2']]
+      )
+    }
+
+    // 5. Drag of unstored rows survives whole-widget remount, unsnoozed todo rises above prior,
+    //    and a removed last row (not already at index 0) is dropped from prior and re-enters at top
+    {
+      const w = orderWorld()
+      const list = w.getWidget().querySelector('.list')
+      list.sortable.options.onStart({})
+      // drag #sm_one (index 2) to index 0
+      const moved = list.children[2]
+      list.removeChild(moved)
+      list.children.unshift(moved)
+      moved.parentElement = moved.parentNode = list
+      list.sortable.options.onUnchoose({ to: list })
+      w.remount()
+      const afterDragRemount = w.rowNames()
+      // unsnoozed todo (#sm_two, currently index 1) rises to top within the unstored group
+      w.smTwo._global_store._todoer = { unsnoozed: 9999 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const afterUnsnooze = w.rowNames()
+      delete w.smTwo._global_store._todoer.unsnoozed
+      // #sm_reply/0 sits LAST (index 2): leaves the list -> dropped from prior -> returns first
+      w.smReply._waits = null
+      w.octx.__render(w.getWidget(), w.pinned)
+      const withoutReply = w.rowNames()
+      w.smReply._waits = 'reply'
+      w.octx.__render(w.getWidget(), w.pinned)
+      const returnedReply = w.rowNames()
+      check(
+        'unstored order: drag of unstored rows survives remount, unsnoozed todo rises above prior, and removed last row re-enters at top',
+        [afterDragRemount, afterUnsnooze, withoutReply, returnedReply],
+        [
+          ['#sm_one', '#sm_two', '#sm_reply/0'],
+          ['#sm_two', '#sm_one', '#sm_reply/0'],
+          ['#sm_two', '#sm_one'],
+          ['#sm_reply/0', '#sm_two', '#sm_one'],
+        ]
+      )
+    }
+
+    // 6a. Blocker 1: held save with stored s3,s1, unsnoozed s1, and arriving waiting reply s2:
+    //     two consecutive draws (and a selection redraw) keep [s2, s1, s3] and release saves s2,s1,s3
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      w.pinned._global_store._todoer = { '#todo': 's3,s1', version: 1 }
+      w.smReply._waits = null
+      w.octx.__render(w.getWidget(), w.pinned)
+      w.smOne._global_store._todoer = { unsnoozed: 5000 }
+      w.smReply._waits = 'reply'
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw1 = w.rowNames()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw2 = w.rowNames()
+      w.smTwo.select()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw3 = w.rowNames()
+      w.win._server_current = true
+      w.flush(); w.saveNow()
+      check(
+        'unstored order: second redraw with stored unsnoozed row and unstored reply keeps order and saves it',
+        [draw1, draw2, draw3, w.pinned._global_store._todoer?.['#todo'], w.smOne._global_store._todoer?.unsnoozed ?? null],
+        [['#sm_reply/0', '#sm_one', '#sm_two'], ['#sm_reply/0', '#sm_one', '#sm_two'], ['#sm_reply/0', '#sm_one', '#sm_two'], 's2,s1,s3', null]
+      )
+    }
+
+    // 6b. Blocker 1 (unstored group first draw): unsnooze ordering applies within the unstored
+    //     group on first draw and second redraw, with remembered order breaking ties and stored
+    //     rows (even with a higher unsnooze timestamp) staying behind the unstored group
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      const smExtra = w.makeItem('t3', '#sm_extra', '#sm_extra\n#todo extra todo', { todo: true, saved_id: 's4' })
+      const smOlder = w.makeItem('t4', '#sm_older', '#sm_older\n#todo older todo', { todo: true, saved_id: 's5' })
+      const smU2 = w.makeItem('t5', '#sm_u2', '#sm_u2\n#todo second unsnoozed todo', { todo: true, saved_id: 's6' })
+      w.pinned._global_store._todoer = { '#todo': 's3', version: 1 }
+      w.smReply._waits = null
+      smU2._global_store._todoer = { snoozed: 999999 }
+      w.smOne._global_store._todoer = { unsnoozed: 5000 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      // soft-touch #sm_extra so smExtra.time > smOlder.time; remembered order must still keep #sm_older ahead
+      smExtra.select()
+      w.smReply._waits = 'reply'
+      smU2._global_store._todoer = { snoozed: 0, unsnoozed: 3000 }
+      w.smTwo._global_store._todoer = { unsnoozed: 9000 }
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw1 = w.rowNames()
+      w.octx.__render(w.getWidget(), w.pinned)
+      const draw2 = w.rowNames()
+      w.win._server_current = true
+      w.flush(); w.saveNow()
+      const want = ['#sm_one', '#sm_u2', '#sm_reply/0', '#sm_older', '#sm_extra', '#sm_two']
+      check(
+        'unstored order: unsnooze applies within unstored group on first draw and redraw with remembered order breaking ties',
+        [draw1, draw2, w.pinned._global_store._todoer?.['#todo']],
+        [want, want, 's1,s6,s2,s5,s4,s3']
+      )
+    }
+
+    // 7. Blocker 2: two delegated widgets on one pinned item filtered to different tags share
+    //    storage_key 'delegated'; drawing the empty second widget must not erase the first's
+    //    remembered order while save is held, and persisted order keeps the shared key and format
+    {
+      const w = orderWorld()
+      w.win._server_current = false
+      const wWork = w.addWidget('w_work', { delegated: true, tags: ['#work'] })
+      const wHome = w.addWidget('w_home', { delegated: true, tags: ['#home'] })
+      const workA = w.makeItem('wa', '#work_a', '#work_a\n#todo #work first work todo', {
+        tags: ['#todo', '#work'],
+        saved_id: 'sw1',
+        state: { list: 'delegated', updated: 1000 },
+      })
+      w.makeItem('wb', '#work_b', '#work_b\n#todo #work second work todo', {
+        tags: ['#todo', '#work'],
+        saved_id: 'sw2',
+        state: { list: 'delegated', updated: 1000 },
+      })
+      w.octx.__render(wWork, w.pinned)
+      const workInitial = w.rowNames(wWork)
+      w.octx.__render(wHome, w.pinned)
+      const homeEmpty = w.rowNames(wHome)
+      workA.select()
+      w.octx.__render(wWork, w.pinned)
+      const workAfterSelect = w.rowNames(wWork)
+      w.win._server_current = true
+      w.flush()
+      w.saveNow('save.w_work.delegated')
+      w.saveNow('save.w_home.delegated')
+      check(
+        'unstored order: two delegated widgets on one pinned item keep separate remembered orders while sharing storage_key',
+        [workInitial, homeEmpty, workAfterSelect, w.pinned._global_store._todoer],
+        [['#work_b', '#work_a'], [], ['#work_b', '#work_a'], { delegated: 'sw2,sw1', version: 1 }]
+      )
+    }
+  }
   // the item's files are embedded in the #todoer item's own text, where the app expands every
   // macro opener that no backslash escapes, also in code and comments (a preview of another item
   // broke its page that way, 2026-11-23): none may stand unescaped in the script or the widget's file
