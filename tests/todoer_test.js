@@ -17161,6 +17161,24 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ans2 = await settleAnswer(m2)
       await clearIfUnsettled(e, m2, ans2)
 
+      // Tab out of focused date field with a preset lit (6h) keeps focus on notify box after the timer
+      const m2b = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change()
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.dispatchKey('ArrowDown')
+      e.dispatchPointer(e.row0[1], 173, 100, { movementX: 4 }) // 6h lit while date stays focused
+      const tabPresetEv = e.dispatchKey('Tab')
+      e.setActive(e.notifyBox) // browser moved focus to checkbox after last subfield
+      e.flushTimers()
+      const afterTabPreset = [tabPresetEv.stopped, e.getActive() === e.notifyBox, e.litNames(), e.isVisible()]
+      e.notifyBox.blur()
+      e.env._modal_close(m2b)
+      const ans2b = await settleAnswer(m2b)
+      await clearIfUnsettled(e, m2b, ans2b)
+
       // focused Enter with valid future time confirms once
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
@@ -17176,7 +17194,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
 
       check(
         'snooze dialog keys: date field focuses on arrival, owns arrows, leaves lit on Escape or Tab, and confirms on Enter when allowed',
-        [onArrival, afterPast, afterEsc1, afterLeft, enterBlurred.stopped, e.appBubble.slice(), ans1, afterTab, esc2.stopped, ans2 === undefined, enterFocused.stopped, ans3, e.listeners.length],
+        [onArrival, afterPast, afterEsc1, afterLeft, enterBlurred.stopped, e.appBubble.slice(), ans1, afterTab, afterTabPreset, esc2.stopped, ans2 === undefined, ans2b === undefined, enterFocused.stopped, ans3, e.listeners.length],
         [
           [['date'], true],
           [false, true, true, 0],
@@ -17186,7 +17204,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [],
           { time: future, notify: false },
           [false, true, ['date'], true],
+          [false, true, ['6h'], true],
           false,
+          true,
           true,
           true,
           { time: future, notify: false },
@@ -18111,6 +18131,134 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           [true, true, true, ['3d']],
           ['7d'],
           [false, true],
+          [false, { time: future, notify: false }],
+          0,
+        ]
+      )
+    }
+
+    // 50t2. Pointer: editing the date field moves a preset highlight back to the field while setup and timer leave it
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const future = NOW + 5 * 3_600_000
+      // (a) Reverse order: focus date, hover 3d, 1s timer keeps 3d lit, then edit focused field -> date lit, Enter returns 5h
+      const m1 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.setActive(e.dateInput)
+      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 4 }) // 3d lit while date stays focused
+      const litBeforeEdit1 = [e.litNames(), e.getActive() === e.dateInput]
+      e.runTask('snooze-modal-update') // 1s validity check must not move highlight
+      const litAfterTimer = e.litNames()
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const litAfterEdit1 = [e.litNames(), e.getActive() === e.dateInput, e.extraClasses()]
+      e.appBubble.length = 0
+      const enter1 = e.dispatchKey('Enter')
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(e, m1, ans1)
+
+      // (b) Parked-pointer variant: pointer parked on date, keys select 3h, field clicked in place and edited -> date lit, Enter returns 5h
+      e.dateInput.blur()
+      const m2 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.dispatchPointer(e.dateInput, 211, 180) // parked pointer only records place
+      e.dispatchKey('ArrowRight') // 3h lit by keys
+      e.setActive(e.dateInput) // clicked in place without moving pointer
+      const beforeParkedEdit = [e.litNames(), e.getActive() === e.dateInput]
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const afterParkedEdit = [e.litNames(), e.getActive() === e.dateInput]
+      e.appBubble.length = 0
+      const enter2 = e.dispatchKey('Enter')
+      const ans2 = await settleAnswer(m2)
+      await clearIfUnsettled(e, m2, ans2)
+
+      // (c) Shared pos, same-place non-move, later real move back to 3d, and invalid edit moving highlight off 3d
+      e.dateInput.blur()
+      const m3 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.setActive(e.dateInput)
+      e.dispatchPointer(e.row0[3], 279, 100, { movementX: 4 }) // 3d lit
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change({ target: e.dateInput }) // date lit + pos moved to [2, 0]
+      e.dispatchPointer(e.row0[3], 279, 100) // same coords over 3d stay ignored
+      const afterSameCoords = e.litNames()
+      e.dispatchKey('Escape') // blur date, keep date lit
+      e.dispatchKey('ArrowRight') // [2, 0] -> [2, 1] (snooze), proving pos moved
+      const afterArrowFromEdited = e.litNames()
+      e.setActive(e.dateInput)
+      e.env._on_snooze_input_change({ target: e.dateInput }) // moves back from snooze to date
+      e.dispatchPointer(e.row0[3], 281, 100) // later real move can select 3d again
+      const afterRealMove = e.litNames()
+      e.dateInput.valueAsNumber = NaN
+      e.env._on_snooze_input_change({ target: e.dateInput }) // invalid edit still moves highlight off 3d
+      const enterInvalid = e.dispatchKey('Enter')
+      const afterInvalidEdit = [e.litNames(), enterInvalid.stopped, e.isVisible()]
+      e.env._modal_close(m3)
+      const ans3 = await settleAnswer(m3)
+      await clearIfUnsettled(e, m3, ans3)
+
+      // (d) Deferred setup running after hover must not move highlight to date
+      e.dateInput.blur()
+      e.setHoldDom(true)
+      const m4 = e.env._snooze_dialog()
+      e.dispatchPointer(e.row0[1], 173, 100, { movementX: 4 }) // 6h lit before setup runs
+      await e.releaseDom()
+      const afterDeferredSetup = e.litNames()
+      e.env._modal_close(m4)
+      const ans4 = await settleAnswer(m4)
+      await clearIfUnsettled(e, m4, ans4)
+      e.setHoldDom(false)
+
+      // (e) Nothing-lit edit keeps nothing lit (touch / Tab-only) and Enter still delegates to app for 5h
+      const m5 = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.setActive(e.dateInput)
+      e.dateInput.valueAsNumber = future
+      e.env._on_snooze_input_change({ target: e.dateInput })
+      const afterNothingLitEdit = e.litNames()
+      const enterNoLit = e.dispatchKey('Enter')
+      const ans5 = await settleAnswer(m5)
+      await clearIfUnsettled(e, m5, ans5)
+
+      check(
+        'snooze dialog pointer: editing the date field moves a preset highlight back to the field while setup and timer leave it',
+        [
+          litBeforeEdit1,
+          litAfterTimer,
+          litAfterEdit1,
+          [enter1.stopped, ans1],
+          beforeParkedEdit,
+          afterParkedEdit,
+          [enter2.stopped, ans2],
+          afterSameCoords,
+          afterArrowFromEdited,
+          afterRealMove,
+          afterInvalidEdit,
+          ans3 === undefined,
+          afterDeferredSetup,
+          ans4 === undefined,
+          afterNothingLitEdit,
+          [enterNoLit.stopped, ans5],
+          e.allWinListeners.length,
+        ],
+        [
+          [['3d'], true],
+          ['3d'],
+          [['date'], true, []],
+          [true, { time: future, notify: false }],
+          [['3h'], true],
+          [['date'], true],
+          [true, { time: future, notify: false }],
+          ['date'],
+          ['snooze'],
+          ['3d'],
+          [['date'], true, true],
+          true,
+          ['6h'],
+          true,
+          [],
           [false, { time: future, notify: false }],
           0,
         ]

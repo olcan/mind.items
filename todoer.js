@@ -1185,6 +1185,24 @@ function _snooze_dialog() {
     if (_todoer.store._snooze_modal === modal) delete _todoer.store._snooze_modal
     if (_todoer.store._snooze_cleanup === cleanup) delete _todoer.store._snooze_cleanup
     if (_todoer.store._snooze_setup === setup) delete _todoer.store._snooze_setup
+    if (_todoer.store._snooze_select_date === select_date) delete _todoer.store._snooze_select_date
+  }
+  const select_date = target => {
+    if (closed || !_modal_visible(modal) || !lit_el) return
+    const root = document.querySelector('.snooze-modal')
+    const date = root?.querySelector('.custom input')
+    if (!root || !date || target !== date || lit_el === date) return
+    const rows = _snooze_rows(root)
+    for (let r = 0; r < rows.length; r++) {
+      const c = rows[r].indexOf(date)
+      if (c >= 0) {
+        pos = [r, c]
+        lit_el.classList.remove('lit')
+        date.classList.add('lit')
+        lit_el = date
+        return
+      }
+    }
   }
   const keys = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Escape', ' ', 'Tab'])
   // capture-phase handler on window for the dialog's lifetime: runs before Modal.svelte's bubble
@@ -1211,7 +1229,7 @@ function _snooze_dialog() {
         return
       }
       if (key == 'Tab') {
-        if (lit_el) {
+        if (lit_el === date) {
           setTimeout(() => {
             if (!closed && _modal_visible(modal) && document.activeElement && document.activeElement !== date) document.activeElement.blur?.()
           })
@@ -1315,6 +1333,7 @@ function _snooze_dialog() {
   window.addEventListener('pointermove', on_pointer, true)
   _todoer.store._snooze_cleanup = cleanup
   _todoer.store._snooze_setup = setup
+  _todoer.store._snooze_select_date = select_date
   modal?.then?.(cleanup, cleanup)
   schedule_dom()
   return modal
@@ -1364,6 +1383,7 @@ function _on_snooze_input_change(e) {
   if (e?.target) _todoer.store._snooze_setup?.({ keep_date: true })
   const modal = _todoer.store._snooze_modal
   if (!modal || !_modal_visible(modal)) return
+  if (e?.target) _todoer.store._snooze_select_date?.(e.target)
   const can_confirm = _snooze_input() >= Date.now()
   _modal_update(modal, { canConfirm: () => can_confirm })
   document
