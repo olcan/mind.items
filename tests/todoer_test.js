@@ -21,7 +21,7 @@ const pick = names => names.map(name => {
   if (!m) throw new Error(`function ${name} not found in todoer.js`)
   return m[0]
 })
-const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
+const consts = ['_LIST_BINS', '_pending_commands', 'TODOER_VERSION', 'HGRAB_RADIUS', 'HGRAB_RATIO', 'SAVE_WAIT_MS', 'SAVE_POLL_MS', 'RESUME_GAP_MS', 'RESUME_HOLD_MS', 'SWEEP_PERIOD_MS', 'SWEEP_HIDDEN_MS', '_url_char', 'SNOOZE_LAST_KEY', 'NOTIFY_ATTENTION', 'NOTIFY_REASONS', 'NOTIFIER_KEY', 'NOTIFIER_STALE_MS', 'NOTIFIER_REFRESH_MS', '_notify_text', '_notify_permission', '_notifier_id', '_seen_record', 'CHAT_DELIMITER', 'REPLY_FOOTER', 'UNSNOOZE_SKEW_MS', 'ITEM_STAMP_MAX_AGE_MS', '_snooze_record', '_wait_key', '_item_wait_key', '_wait_key_of', 'NOTIFY_CLICK_TYPE', 'NOTIFY_CLICK_RELAY', 'NOTIFY_CLICK_READY', 'NOTIFY_CLICK_RECEIVED', 'NOTIFY_SW_WAIT_MS', '_notify_tag', 'NOTIFY_TEST_DELAY_MS', '_BIN_DRAFT', '_BIN_REFUSAL', 'SEND_KEY', 'SEND_CHANNEL', 'SEND_LIST_QUERY', 'SEND_ACK_MS', 'SEND_TAKE_MS', 'SEND_SAVE_MS', 'SEND_HELLO_MS', 'SEND_STALE_MS', '_send_account', '_send_beats', '_send_target_id', '_send_linked', 'SEND_HOLD_MS', 'SEND_HOLD_STEP_MS', 'SEND_ROW_EDGE', 'SEND_ROW_FOOT', 'SEND_ROW_DEPTH', '_ROW_STRIP_SEL'].map(name => src.match(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))[0]).join('')
 const delimiter = '[\\s<>&?!,.;:"\'`(){}\\[\\]]'
 // the clock the evaluated source reads: live, or frozen at __now by the callback rows below
 const RealDate = Date
@@ -16754,6 +16754,8 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       '_snooze_next_week',
     ]).join('\n')
     const notifyPermConst = src.match(/\nconst _notify_permission = [^\n]*\n/)[0]
+    const snoozeLastKeyConst = src.match(/\nconst SNOOZE_LAST_KEY = [^\n]*\n/)[0]
+    const SNOOZE_LAST_KEY = vm.runInContext('SNOOZE_LAST_KEY', context)
     const UNSETTLED = '__UNSETTLED__'
     // never hang on an unsettled modal promise: race against the next event-loop turn so any
     // broken confirmation fails its named check and exits non-zero
@@ -16976,12 +16978,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           }
         },
       }
-      const persisted = envOpts.persisted ?? { raw: null }
-      const localStoreObj = envOpts.localStore !== undefined ? envOpts.localStore : persisted.raw ? JSON.parse(persisted.raw) : {}
+      const storage = envOpts.storage ?? new Map()
+      const storageWrites = []
+      const defaultLocalStorage = {
+        getItem: k => storage.get(k) ?? null,
+        setItem: (k, v) => {
+          const sv = String(v)
+          storage.set(k, sv)
+          storageWrites.push([k, sv])
+        },
+        removeItem: k => storage.delete(k),
+      }
+      const localStoreObj = {}
       const globalStoreObj = {}
-      const localSaveCalls = []
-      const localAutoSaves = []
-      const globalSaves = []
+      const localStoreTouches = []
+      const globalStoreTouches = []
       const env = {
         console,
         Date: FakeDate,
@@ -17008,23 +17019,26 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         _todoer: {
           store: {},
           get _local_store() {
+            localStoreTouches.push('_local_store')
             return localStoreObj
           },
           get local_store() {
-            localAutoSaves.push(true)
+            localStoreTouches.push('local_store')
             return localStoreObj
           },
           save_local_store: opts => {
-            localSaveCalls.push(opts ?? {})
-            const next = JSON.stringify(localStoreObj)
-            persisted.raw = next == '{}' ? null : next
+            localStoreTouches.push(['save_local_store', opts ?? {}])
           },
           get _global_store() {
+            globalStoreTouches.push('_global_store')
             return globalStoreObj
           },
           get global_store() {
-            globalSaves.push(true)
+            globalStoreTouches.push('global_store')
             return globalStoreObj
+          },
+          save_global_store: opts => {
+            globalStoreTouches.push(['save_global_store', opts ?? {}])
           },
           read: () => '<div class="snooze-modal">__onclick__ __onchange__ __onnotify__</div>',
           dispatch_task: (name, fn, delay = 0, repeat = -1) => {
@@ -17089,8 +17103,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           showNextQueued()
         },
       }
+      if (!('localStorage' in envOpts)) env.localStorage = defaultLocalStorage
+      else if (envOpts.localStorage !== undefined) env.localStorage = envOpts.localStorage
       vm.createContext(env)
-      vm.runInContext(notifyPermConst + '\n' + snoozeFns, env)
+      vm.runInContext(notifyPermConst + '\n' + snoozeLastKeyConst + '\n' + snoozeFns, env)
 
       // app src/event_key.ts resolver for simulated Modal.svelte bubble listener
       const REMAPPED_AS_NAMED = /^(Escape|Enter|NumpadEnter|Tab|Backspace|Delete|Insert|Home|End|Page(Up|Down)|Arrow(Up|Down|Left|Right)|F\d+)$/
@@ -17257,12 +17273,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         },
         isVisible: () => modalVisible,
         canConfirmNow: () => !!currentOpts?.canConfirm?.(),
-        persisted,
+        storage,
+        storageWrites,
+        readStored: () => {
+          const raw = storage.get(SNOOZE_LAST_KEY)
+          return raw === undefined ? undefined : JSON.parse(raw)
+        },
         localStore: localStoreObj,
-        localSaveCalls,
-        localAutoSaves,
         globalStore: globalStoreObj,
-        globalSaves,
+        localStoreTouches,
+        globalStoreTouches,
       }
     }
 
@@ -17663,7 +17683,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchPointer(e.row0[0], 120, 100, { movementX: 4 })
       const postCloseLit = e.litNames()
       // mouse-focused date field with nothing lit leaves browser arrows untouched
-      delete e.localStore.snooze_last
+      e.storage.delete(SNOOZE_LAST_KEY)
       const mMouse = e.env._snooze_dialog()
       await Promise.resolve()
       e.setActive(e.dateInput)
@@ -18065,7 +18085,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m2, ans2)
 
       // (c) Touch move with nonzero movement still lights nothing and does not seed baseline
-      delete e.localStore.snooze_last
+      e.storage.delete(SNOOZE_LAST_KEY)
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dispatchPointer(e.row0[1], 176, 100, { pointerType: 'touch', movementX: 5 })
@@ -18418,7 +18438,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m6, ans6)
 
       // (g) Nothing lit with focused date field and valid 5h date: Enter still delegates to app and returns 5h
-      delete e.localStore.snooze_last
+      e.storage.delete(SNOOZE_LAST_KEY)
       const m7 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dateInput.valueAsNumber = future
@@ -18497,7 +18517,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m1, ans1)
 
       // (b) Parked-pointer variant: pointer parked on date, keys select 3h, field clicked in place and edited -> date lit, Enter returns 5h
-      delete e.localStore.snooze_last
+      e.storage.delete(SNOOZE_LAST_KEY)
       e.dateInput.blur()
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
@@ -18551,7 +18571,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.setHoldDom(false)
 
       // (e) Nothing-lit edit keeps nothing lit (touch / Tab-only) and Enter still delegates to app for 5h
-      delete e.localStore.snooze_last
+      e.storage.delete(SNOOZE_LAST_KEY)
       const m5 = e.env._snooze_dialog()
       await Promise.resolve()
       e.setActive(e.dateInput)
@@ -18686,7 +18706,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze({ target: e.row0[1] }) // click 6h
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
-      const after1 = [e.localStore.snooze_last, e.localSaveCalls.slice(), e.localAutoSaves.length, e.globalSaves.length, e.globalStore, e.allWinListeners.length, e.litNames().length]
+      const after1 = [e.storage.get(SNOOZE_LAST_KEY), e.localStoreTouches.slice(), e.globalStoreTouches.slice(), e.localStore, e.globalStore, e.allWinListeners.length, e.litNames().length]
 
       const T2 = NOW + 20 * 60_000
       e.setNow(T2)
@@ -18728,21 +18748,21 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           lit2,
           [ev2.stopped, e.appBubble.slice(), ans2],
           lit3,
-          [ev3.stopped, ans3, e.localStore.snooze_last],
+          [ev3.stopped, ans3, e.storage.get(SNOOZE_LAST_KEY)],
           lit4,
           [ev4.stopped, e.appBubble.slice(), ans4, expectedWk4 !== expectedWk2],
-          [e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
+          [e.localStoreTouches.length, e.globalStoreTouches.length, e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
         ],
         [
           { time: NOW + 6 * 3_600_000, notify: false },
-          [{ label: '6h' }, [{ invalidate_elem_cache: false, force_render: false }], 0, 0, {}, 0, 0],
+          [JSON.stringify({ label: '6h' }), [], [], {}, {}, 0, 0],
           ['6h'],
           [true, [], { time: T2 + 6 * 3_600_000, notify: false }],
           ['weekend'],
-          [true, { time: expectedWk2, notify: false }, { label: 'weekend' }],
+          [true, { time: expectedWk2, notify: false }, JSON.stringify({ label: 'weekend' })],
           ['weekend'],
           [true, [], { time: expectedWk4, notify: false }, true],
-          [0, 0, 0],
+          [0, 0, 0, 0, 0],
         ]
       )
     }
@@ -18773,7 +18793,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
 
       // Same for remembered future custom date
       const future = Math.floor((T2 + 3 * 3_600_000) / 60_000) * 60_000
-      e.localStore.snooze_last = { time: future }
+      e.storage.set(SNOOZE_LAST_KEY, JSON.stringify({ time: future }))
       e.dateInput.value = ''
       const m3 = e.env._snooze_dialog()
       e.appBubble.length = 0
@@ -18816,7 +18836,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
       e.dateInput.blur()
-      const rec1 = e.localStore.snooze_last
+      const rec1 = e.readStored()
 
       const m1b = e.env._snooze_dialog()
       await Promise.resolve()
@@ -18834,7 +18854,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze({ target: e.snoozeBtn })
       const ans2 = await settleAnswer(m2)
       await clearIfUnsettled(e, m2, ans2)
-      const rec2 = e.localStore.snooze_last
+      const rec2 = e.readStored()
 
       const m2b = e.env._snooze_dialog()
       await Promise.resolve()
@@ -18844,7 +18864,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e, m2b, ans2b)
 
       // (c) App dialog's own onConfirm (Enter with nothing lit and valid future date)
-      delete e.localStore.snooze_last
+      e.storage.delete(SNOOZE_LAST_KEY)
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
       e.dateInput.value = new e.env.Date(f3).toInputValue()
@@ -18852,7 +18872,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const ev3 = e.dispatchKey('Enter') // app confirm
       const ans3 = await settleAnswer(m3)
       await clearIfUnsettled(e, m3, ans3)
-      const rec3 = e.localStore.snooze_last
+      const rec3 = e.readStored()
 
       const m3b = e.env._snooze_dialog()
       await Promise.resolve()
@@ -18906,7 +18926,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
 
       // Barely-ahead timestamp whose minute truncation falls behind now (:20s -> +10s is :30s, formatted to :00s < :20s)
       e.setNow(NOW)
-      e.localStore.snooze_last = { time: NOW + 10_000 }
+      e.storage.set(SNOOZE_LAST_KEY, JSON.stringify({ time: NOW + 10_000 }))
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
       const atOpenTrunc = [e.litNames(), e.dateInput.value, e.snoozeBtn.classList.contains('disabled'), e.canConfirmNow()]
@@ -18949,7 +18969,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       ]
       const results = []
       for (const rec of badRecords) {
-        e.localStore.snooze_last = rec
+        e.storage.set(SNOOZE_LAST_KEY, JSON.stringify(rec))
         let threw = false
         try {
           const m = e.env._snooze_dialog()
@@ -18981,7 +19001,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchPointer(e.row0[3], 279, 100, { movementX: 4 })
       e.dispatchKey('Escape')
       await settleAnswer(m0)
-      const afterEmptyDismiss = [e.localStore.snooze_last === undefined, e.localSaveCalls.length]
+      const afterEmptyDismiss = [!e.storage.has(SNOOZE_LAST_KEY), e.storageWrites.length]
 
       // Open again -> still nothing lit; choose 1d
       const m1 = e.env._snooze_dialog()
@@ -18989,9 +19009,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       const litBeforeChoice = e.litNames()
       e.env._on_snooze({ target: e.row0[2] }) // click 1d
       await settleAnswer(m1)
-      const savesAfterChoice = e.localSaveCalls.length
+      const writesAfterChoice = e.storageWrites.length
 
-      // Reopen (1d lit), move arrows, hover 28d, edit date, then Escape -> record unchanged (1d), no extra save
+      // Reopen (1d lit), move arrows, hover 28d, edit date, then Escape -> record unchanged (1d), no extra write
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
       const litAt2 = e.litNames()
@@ -19002,9 +19022,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze_input_change({ target: e.dateInput })
       e.dispatchKey('Escape')
       await settleAnswer(m2)
-      const afterEscape = [e.localStore.snooze_last, e.localSaveCalls.length == savesAfterChoice]
+      const afterEscape = [e.readStored(), e.storageWrites.length == writesAfterChoice]
 
-      // Reopen (still 1d lit), move to 3h, close externally -> still 1d, no extra save
+      // Reopen (still 1d lit), move to 3h, close externally -> still 1d, no extra write
       const m3 = e.env._snooze_dialog()
       await Promise.resolve()
       const litAt3 = e.litNames()
@@ -19012,7 +19032,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.dispatchKey('ArrowLeft')
       e.env._modal_close(m3)
       await settleAnswer(m3)
-      const afterExternal = [e.localStore.snooze_last, e.localSaveCalls.length == savesAfterChoice]
+      const afterExternal = [e.readStored(), e.storageWrites.length == writesAfterChoice]
 
       // Reopen once more -> still 1d
       const m4 = e.env._snooze_dialog()
@@ -19032,7 +19052,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
     {
       const NOW = 1_795_700_000_000
       const e = makeSnoozeEnv(NOW)
-      e.localStore.snooze_last = { label: '6h' }
+      e.storage.set(SNOOZE_LAST_KEY, JSON.stringify({ label: '6h' }))
       const m1 = e.env._snooze_dialog()
       await Promise.resolve()
       const atOpen = [e.litNames(), e.litNames().length]
@@ -19058,7 +19078,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
 
       // From remembered custom date (snooze [2, 1]): ArrowLeft moves to date [2, 0] and focuses it; real pointer onto 7d leaves one lit stop
       const future = Math.floor((NOW + 3 * 3_600_000) / 60_000) * 60_000
-      e.localStore.snooze_last = { time: future }
+      e.storage.set(SNOOZE_LAST_KEY, JSON.stringify({ time: future }))
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
       const customOpen = [e.litNames(), e.getActive() === null]
@@ -19099,7 +19119,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e.env._on_snooze({ target: e.row0[3] }) // 3d with notify checked
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e, m1, ans1)
-      const recAfter1 = e.localStore.snooze_last
+      const recAfter1 = e.readStored()
 
       const m2 = e.env._snooze_dialog()
       await Promise.resolve()
@@ -19143,11 +19163,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       )
     }
 
-    // 50w9. Last choice: fresh evaluation over the same per-device store reloads choice and writes nothing to global store
+    // 50w9. Last choice: fresh evaluation over the same storage reloads choice and touches neither local nor global store
     {
       const NOW = 1_795_700_000_000
-      const persisted = { raw: null }
-      const e1 = makeSnoozeEnv(NOW, { persisted })
+      const shared = new Map()
+      const e1 = makeSnoozeEnv(NOW, { storage: shared })
       const m1 = e1.env._snooze_dialog()
       await Promise.resolve()
       e1.dispatchKey('ArrowDown') // 3h
@@ -19155,11 +19175,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e1.dispatchKey('Enter')
       const ans1 = await settleAnswer(m1)
       await clearIfUnsettled(e1, m1, ans1)
-      const save1 = [e1.localSaveCalls.slice(), e1.localAutoSaves.length, e1.globalSaves.length, e1.globalStore, persisted.raw]
+      const save1 = [shared.get(SNOOZE_LAST_KEY), e1.localStoreTouches.slice(), e1.globalStoreTouches.slice(), e1.localStore, e1.globalStore]
 
-      // Fresh evaluation (reload) over the same per-device store reads {label: 'tomorrow'}
+      // Fresh evaluation (reload) over the same storage reads {label: 'tomorrow'}
       const T2 = NOW + 60_000
-      const e2 = makeSnoozeEnv(T2, { persisted })
+      const e2 = makeSnoozeEnv(T2, { storage: shared })
       const expectedTom2 = e2.env._snooze_tomorrow().getTime()
       const m2 = e2.env._snooze_dialog()
       await Promise.resolve()
@@ -19177,7 +19197,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       e2.env._on_snooze({ target: e2.snoozeBtn })
       await settleAnswer(m2b)
 
-      const e3 = makeSnoozeEnv(T2 + 60_000, { persisted })
+      const e3 = makeSnoozeEnv(T2 + 60_000, { storage: shared })
       const m3 = e3.env._snooze_dialog()
       await Promise.resolve()
       const open3 = [e3.dateInput.value, e3.snoozeBtn.classList.contains('disabled'), e3.litNames(), e3.getActive() === null]
@@ -19186,23 +19206,328 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       await clearIfUnsettled(e3, m3, ans3)
 
       check(
-        'snooze dialog last choice: fresh evaluation over the same per-device store reloads choice and writes nothing to global store',
+        'snooze dialog last choice: fresh evaluation over the same storage reloads choice and touches neither local nor global store',
         [
           save1,
           lit2,
           ans2,
           open3,
           ans3,
-          [e2.localAutoSaves.length, e2.globalSaves.length, e2.globalStore, e3.localAutoSaves.length, e3.globalSaves.length, e3.globalStore],
+          [e2.localStoreTouches.slice(), e2.globalStoreTouches.slice(), e2.localStore, e2.globalStore, e3.localStoreTouches.slice(), e3.globalStoreTouches.slice(), e3.localStore, e3.globalStore],
           [e1.allWinListeners.length, e2.allWinListeners.length, e3.allWinListeners.length, e3.allDocListeners.length, e3.litNames().length],
         ],
         [
-          [[{ invalidate_elem_cache: false, force_render: false }], 0, 0, {}, JSON.stringify({ snooze_last: { label: 'tomorrow' } })],
+          [JSON.stringify({ label: 'tomorrow' }), [], [], {}, {}],
           ['tomorrow'],
           { time: expectedTom2, notify: false },
           [new e3.env.Date(future).toInputValue(), false, ['snooze'], true],
           { time: future, notify: false },
-          [0, 0, {}, 0, 0, {}],
+          [[], [], {}, {}, [], [], {}, {}],
+          [0, 0, 0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w10. Last choice: two environments over one storage (two windows) share the last choice without fresh evaluation
+    {
+      const NOW = 1_795_700_000_000
+      const shared = new Map()
+      const w1 = makeSnoozeEnv(NOW, { storage: shared })
+      const w2 = makeSnoozeEnv(NOW, { storage: shared })
+
+      // Window 2 opens before any choice exists -> nothing lit (would cache null if read only once)
+      const m2init = w2.env._snooze_dialog()
+      await Promise.resolve()
+      const lit2Init = w2.litNames()
+      w2.dispatchKey('Escape')
+      await settleAnswer(m2init)
+
+      // Window 1 chooses 6h
+      const m1 = w1.env._snooze_dialog()
+      await Promise.resolve()
+      const lit1Init = w1.litNames()
+      w1.env._on_snooze({ target: w1.row0[1] }) // 6h
+      const ans1 = await settleAnswer(m1)
+      await clearIfUnsettled(w1, m1, ans1)
+
+      // Window 2's next opening (no fresh evaluation) lights 6h and Enter takes it at its own clock
+      const T2 = NOW + 15 * 60_000
+      w2.setNow(T2)
+      const m2a = w2.env._snooze_dialog()
+      await Promise.resolve()
+      const lit2After1 = w2.litNames()
+      const ev2a = w2.dispatchKey('Enter')
+      const ans2a = await settleAnswer(m2a)
+      await clearIfUnsettled(w2, m2a, ans2a)
+
+      // Reverse: Window 2 chooses weekend via arrows + Enter; Window 1's next opening (no fresh evaluation) lights weekend
+      const expectedWk2 = w2.env._snooze_weekend().getTime()
+      const m2b = w2.env._snooze_dialog()
+      await Promise.resolve()
+      w2.dispatchKey('ArrowDown') // tomorrow
+      w2.dispatchKey('ArrowRight') // weekend
+      const ev2b = w2.dispatchKey('Enter')
+      const ans2b = await settleAnswer(m2b)
+      await clearIfUnsettled(w2, m2b, ans2b)
+
+      const T3 = T2 + 10 * 60_000
+      w1.setNow(T3)
+      const expectedWk3 = w1.env._snooze_weekend().getTime()
+      const m1b = w1.env._snooze_dialog()
+      await Promise.resolve()
+      const lit1After2 = w1.litNames()
+      const ev1b = w1.dispatchKey('Enter')
+      const ans1b = await settleAnswer(m1b)
+      await clearIfUnsettled(w1, m1b, ans1b)
+
+      // Custom future date chosen in Window 1 is lit on Window 2's next opening without fresh evaluation
+      const future = Math.floor((T3 + 4 * 3_600_000) / 60_000) * 60_000
+      const m1c = w1.env._snooze_dialog()
+      await Promise.resolve()
+      w1.dateInput.value = new w1.env.Date(future).toInputValue()
+      w1.env._on_snooze_input_change({ target: w1.dateInput })
+      w1.env._on_snooze({ target: w1.snoozeBtn })
+      await settleAnswer(m1c)
+
+      w2.setNow(T3)
+      const m2c = w2.env._snooze_dialog()
+      await Promise.resolve()
+      const open2c = [w2.dateInput.value, w2.snoozeBtn.classList.contains('disabled'), w2.litNames(), w2.getActive() === null]
+      const ev2c = w2.dispatchKey('Enter')
+      const ans2c = await settleAnswer(m2c)
+      await clearIfUnsettled(w2, m2c, ans2c)
+
+      check(
+        'snooze dialog last choice: two windows over one storage share the last choice without fresh evaluation',
+        [
+          [lit2Init, lit1Init, ans1],
+          [lit2After1, ev2a.stopped, ans2a],
+          [ev2b.stopped, ans2b, lit1After2, ev1b.stopped, ans1b],
+          [open2c, ev2c.stopped, ans2c],
+          [w1.localStoreTouches.length, w1.globalStoreTouches.length, w2.localStoreTouches.length, w2.globalStoreTouches.length],
+          [w1.allWinListeners.length, w1.allDocListeners.length, w1.litNames().length, w2.allWinListeners.length, w2.allDocListeners.length, w2.litNames().length],
+        ],
+        [
+          [[], [], { time: NOW + 6 * 3_600_000, notify: false }],
+          [['6h'], true, { time: T2 + 6 * 3_600_000, notify: false }],
+          [true, { time: expectedWk2, notify: false }, ['weekend'], true, { time: expectedWk3, notify: false }],
+          [[new w2.env.Date(future).toInputValue(), false, ['snooze'], true], true, { time: future, notify: false }],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w11. Last choice: storage that throws on read or write, or absent localStorage, remembers nothing, throws nothing, and still gives the answer
+    {
+      const NOW = 1_795_700_000_000
+      const expectedNow = new (makeSnoozeEnv(NOW).env.Date)(NOW).toInputValue()
+
+      // (a) Read throws
+      const backingA = new Map()
+      const eRead = makeSnoozeEnv(NOW, {
+        localStorage: {
+          getItem: () => {
+            throw new Error('read denied')
+          },
+          setItem: (k, v) => backingA.set(k, String(v)),
+          removeItem: k => backingA.delete(k),
+        },
+      })
+      let readStep1 = null
+      let readStep2 = null
+      {
+        let threwOpen = false
+        let threwChoose = false
+        let m1 = null
+        let openLit = null
+        let ans1 = null
+        try {
+          m1 = eRead.env._snooze_dialog()
+          await Promise.resolve()
+          openLit = [eRead.litNames(), eRead.dateInput.value == expectedNow]
+        } catch {
+          threwOpen = true
+        }
+        try {
+          eRead.env._on_snooze({ target: eRead.row0[1] }) // 6h
+        } catch {
+          threwChoose = true
+        }
+        if (m1) {
+          ans1 = await settleAnswer(m1)
+          await clearIfUnsettled(eRead, m1, ans1)
+        }
+        readStep1 = [threwOpen, threwChoose, openLit, ans1, eRead.allWinListeners.length, eRead.litNames().length]
+
+        // Reopen: read still throws -> nothing remembered (no in-memory fallback), Enter does not confirm
+        let threwReopen = false
+        let m2 = null
+        let reopenLit = null
+        let ev2Stopped = null
+        let visAfterEnter = null
+        try {
+          m2 = eRead.env._snooze_dialog()
+          await Promise.resolve()
+          reopenLit = [eRead.litNames(), eRead.dateInput.value == expectedNow]
+          ev2Stopped = eRead.dispatchKey('Enter').stopped
+          visAfterEnter = eRead.isVisible()
+          eRead.dispatchKey('Escape')
+          await settleAnswer(m2)
+        } catch {
+          threwReopen = true
+          if (m2) {
+            eRead.env._modal_close(m2)
+            await settleAnswer(m2)
+          }
+        }
+        readStep2 = [threwReopen, reopenLit, ev2Stopped, visAfterEnter, eRead.allWinListeners.length, eRead.litNames().length]
+      }
+
+      // (b) Write throws
+      const backingB = new Map()
+      const eWrite = makeSnoozeEnv(NOW, {
+        localStorage: {
+          getItem: k => backingB.get(k) ?? null,
+          setItem: () => {
+            throw new Error('QuotaExceededError')
+          },
+          removeItem: k => backingB.delete(k),
+        },
+      })
+      let writeStep1 = null
+      let writeStep2 = null
+      let writeStep3 = null
+      {
+        let threw1 = false
+        const m1 = eWrite.env._snooze_dialog()
+        await Promise.resolve()
+        try {
+          eWrite.env._on_snooze({ target: eWrite.row0[2] }) // 1d
+        } catch {
+          threw1 = true
+        }
+        const ans1 = await settleAnswer(m1)
+        await clearIfUnsettled(eWrite, m1, ans1)
+        writeStep1 = [threw1, ans1, backingB.size, eWrite.allWinListeners.length, eWrite.litNames().length]
+
+        // Next opening remembers nothing (no in-memory copy); custom date write also throws silently and still answers
+        const future = Math.floor((NOW + 3 * 3_600_000) / 60_000) * 60_000
+        let threw2 = false
+        const m2 = eWrite.env._snooze_dialog()
+        await Promise.resolve()
+        const lit2 = eWrite.litNames()
+        eWrite.dateInput.value = new eWrite.env.Date(future).toInputValue()
+        eWrite.env._on_snooze_input_change({ target: eWrite.dateInput })
+        try {
+          eWrite.dispatchKey('Enter')
+        } catch {
+          threw2 = true
+        }
+        const ans2 = await settleAnswer(m2)
+        await clearIfUnsettled(eWrite, m2, ans2)
+        writeStep2 = [lit2, threw2, ans2, backingB.size, eWrite.allWinListeners.length, eWrite.litNames().length]
+
+        const m3 = eWrite.env._snooze_dialog()
+        await Promise.resolve()
+        const open3 = [eWrite.litNames(), eWrite.dateInput.value == expectedNow, eWrite.snoozeBtn.classList.contains('disabled')]
+        eWrite.dispatchKey('Escape')
+        await settleAnswer(m3)
+        writeStep3 = [open3, eWrite.allWinListeners.length, eWrite.litNames().length]
+      }
+
+      // (c) No localStorage at all
+      const eNone = makeSnoozeEnv(NOW, { localStorage: undefined })
+      let noneStep = null
+      {
+        let threw = false
+        let ans1 = null
+        let litAfter = null
+        try {
+          const m1 = eNone.env._snooze_dialog()
+          await Promise.resolve()
+          eNone.env._on_snooze({ target: eNone.row0[0] }) // 3h
+          ans1 = await settleAnswer(m1)
+          await clearIfUnsettled(eNone, m1, ans1)
+
+          const m2 = eNone.env._snooze_dialog()
+          await Promise.resolve()
+          litAfter = eNone.litNames()
+          eNone.dispatchKey('Escape')
+          await settleAnswer(m2)
+        } catch {
+          threw = true
+        }
+        noneStep = [threw, ans1, litAfter, eNone.allWinListeners.length, eNone.litNames().length]
+      }
+
+      check(
+        'snooze dialog last choice: storage that throws on read or write, or absent localStorage, remembers nothing, throws nothing, and still gives the answer',
+        [
+          readStep1,
+          readStep2,
+          writeStep1,
+          writeStep2,
+          writeStep3,
+          noneStep,
+          [eRead.localStoreTouches.length, eRead.globalStoreTouches.length, eWrite.localStoreTouches.length, eWrite.globalStoreTouches.length, eNone.localStoreTouches.length, eNone.globalStoreTouches.length],
+        ],
+        [
+          [false, false, [[], true], { time: NOW + 6 * 3_600_000, notify: false }, 0, 0],
+          [false, [[], true], false, true, 0, 0],
+          [false, { time: NOW + 24 * 3_600_000, notify: false }, 0, 0, 0],
+          [[], false, { time: Math.floor((NOW + 3 * 3_600_000) / 60_000) * 60_000, notify: false }, 0, 0, 0],
+          [[[], true, true], 0, 0],
+          [false, { time: NOW + 3 * 3_600_000, notify: false }, [], 0, 0],
+          [0, 0, 0, 0, 0, 0],
+        ]
+      )
+    }
+
+    // 50w12. Last choice: stored text that is not JSON lights nothing and throws nothing
+    {
+      const NOW = 1_795_700_000_000
+      const e = makeSnoozeEnv(NOW)
+      const expectedNow = new e.env.Date(NOW).toInputValue()
+      const badTexts = ['{', 'not json', '{label:"6h"}', 'undefined', '']
+      const results = []
+      for (const raw of badTexts) {
+        e.storage.set(SNOOZE_LAST_KEY, raw)
+        let threw = false
+        try {
+          const m = e.env._snooze_dialog()
+          await Promise.resolve()
+          results.push([threw, e.litNames(), e.dateInput.value == expectedNow, e.snoozeBtn.classList.contains('disabled'), e.canConfirmNow()])
+          e.dispatchKey('Escape')
+          await settleAnswer(m)
+        } catch {
+          threw = true
+          results.push([threw])
+        }
+      }
+      // Choosing over unreadable stored text overwrites cleanly and is remembered at the next opening
+      e.storage.set(SNOOZE_LAST_KEY, 'not json')
+      const mOk = e.env._snooze_dialog()
+      await Promise.resolve()
+      e.env._on_snooze({ target: e.row0[1] }) // 6h
+      const ansOk = await settleAnswer(mOk)
+      await clearIfUnsettled(e, mOk, ansOk)
+      const mNext = e.env._snooze_dialog()
+      await Promise.resolve()
+      const litNext = e.litNames()
+      e.dispatchKey('Escape')
+      await settleAnswer(mNext)
+
+      check(
+        'snooze dialog last choice: stored text that is not JSON lights nothing and throws nothing',
+        [
+          results,
+          [ansOk, e.storage.get(SNOOZE_LAST_KEY), litNext],
+          [e.localStoreTouches.length, e.globalStoreTouches.length, e.allWinListeners.length, e.allDocListeners.length, e.litNames().length],
+        ],
+        [
+          Array(badTexts.length).fill([false, [], true, true, false]),
+          [{ time: NOW + 6 * 3_600_000, notify: false }, JSON.stringify({ label: '6h' }), ['6h']],
           [0, 0, 0, 0, 0],
         ]
       )

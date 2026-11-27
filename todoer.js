@@ -1100,23 +1100,36 @@ function _snooze_rows(root = document.querySelector('.snooze-modal')) {
   return [...rows, custom, notify].filter(r => r.length)
 }
 
-// last snooze choice remembered on this device in the todoer's per-device store: either one of the
-// time buttons by label ({label}) or a custom date/time by timestamp ({time}), else null
+const SNOOZE_LAST_KEY = 'mindpage_todoer_snooze_last' // localStorage: the device's last snooze choice
+
+// last snooze choice remembered on this device through localStorage (shared across windows):
+// either one of the time buttons by label ({label}) or a custom date/time by timestamp ({time}),
+// else null (also without storage or on unreadable text)
 function _snooze_last_read() {
-  const rec = _todoer._local_store?.snooze_last
+  let raw = null
+  try {
+    raw = localStorage.getItem(SNOOZE_LAST_KEY)
+  } catch (e) {
+    return null
+  }
+  if (!raw || typeof raw != 'string') return null
+  let rec = null
+  try {
+    rec = JSON.parse(raw)
+  } catch (e) {
+    return null
+  }
   if (!rec || typeof rec != 'object' || Array.isArray(rec)) return null
   if (typeof rec.label == 'string' && rec.label && rec.time === undefined) return { label: rec.label }
   if (typeof rec.time == 'number' && Number.isFinite(rec.time) && rec.label === undefined) return { time: rec.time }
   return null
 }
 
-// persists the last snooze choice on this device without invalidating the item's element cache or
-// scheduling a re-render (the dialog reads it directly at the next opening)
+// persists the last snooze choice on this device through localStorage (silent without storage)
 function _snooze_last_write(choice) {
-  const store = _todoer._local_store
-  if (!store || typeof store != 'object') return
-  store.snooze_last = choice
-  _todoer.save_local_store?.({ invalidate_elem_cache: false, force_render: false })
+  try {
+    localStorage.setItem(SNOOZE_LAST_KEY, JSON.stringify(choice))
+  } catch (e) {}
 }
 
 // the snooze dialog, opened for a row dropped on the snooze bin: resolves to the answer, the time
