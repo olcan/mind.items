@@ -1412,6 +1412,8 @@ function _snooze_dialog() {
 
 function _snooze_time(label) {
   switch (label) {
+    case '1h':
+      return Date.now() + 1 * 60 * 60 * 1000
     case '3h':
       return Date.now() + 3 * 60 * 60 * 1000
     case '6h':
