@@ -6954,27 +6954,30 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ])
     }
 
-    // 3. _row_beside and _row_step: cycling across main list, wrapping at ends, non-row sibling ignored,
-    //    outside rows jumping to nearest sequence row, no-row picking ends, deleted neighbor skipped
+    // 3. _row_beside and _row_step: cycling across all mounted lists, wrapping at ends, non-row sibling ignored,
+    //    unresolvable/unmounted rows stepping to nearest live row or ends, no-row picking ends, deleted neighbor skipped
     {
       const s = makeStage()
       s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
       s.makeItem('d1'); s.makeItem('d2'); s.makeItem('u1')
       const main = s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
-      s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+      const del = s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
       main.list.appendChild(new s.DomNode('div')) // trailing non-row without data-id
       const [r1, r2, r3] = main.list.children
-      check('_row_beside: cycles main list (ignoring non-row sibling) and picks first/last for null',
+      const [dr1, dr2] = del.list.children
+      check('_row_beside: cycles all mounted lists in page order (ignoring non-row sibling) and picks first/last for null',
         [
           s.env._row_beside(r1, -1)?.id ?? null,
           s.env._row_beside(r1, 1)?.id ?? null,
           s.env._row_beside(r2, -1)?.id ?? null,
           s.env._row_beside(r2, 1)?.id ?? null,
           s.env._row_beside(r3, 1)?.id ?? null,
+          s.env._row_beside(dr1, -1)?.id ?? null,
+          s.env._row_beside(dr2, 1)?.id ?? null,
           s.env._row_beside(null, 1)?.id ?? null,
           s.env._row_beside(null, -1)?.id ?? null,
         ],
-        ['m3', 'm2', 'm1', 'm3', 'm1', 'm1', 'm3'])
+        ['d2', 'm2', 'm1', 'm3', 'd1', 'm3', 'm1', 'm1', 'd2'])
       const stepRes = [
         s.env._row_step('m1', 1),
         s.env._row_step('m1', -1),
@@ -6985,14 +6988,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         s.env._row_step('u1', 1),
         s.env._row_step('nope', 1),
       ]
-      // deleted neighbor in DOM is skipped cleanly; sole live row returns false
+      // deleted neighbor in DOM is skipped cleanly; sole live row across all mounted lists returns false
       main.list.children[1].setAttribute('data-id', 'deleted')
       stepRes.push(s.env._row_step('m1', 1))
       main.list.children[2].setAttribute('data-id', 'deleted2')
+      del.list.children[0].setAttribute('data-id', 'deleted3')
+      del.list.children[1].setAttribute('data-id', 'deleted4')
       stepRes.push(s.env._row_step('m1', 1))
-      check('_row_step: cycles sequence from mounted/outside/no-row items, skips deleted DOM rows, and returns false for unknown item or sole live row',
+      check('_row_step: cycles sequence across mounted lists and no-row items, skips deleted DOM rows, and returns false for unknown item or sole live row',
         [stepRes, s.selected],
-        [[true, true, true, true, true, true, true, false, true, false], ['m2', 'm3', 'm1', 'm2', 'm1', 'm3', 'm1', 'm3']])
+        [[true, true, true, true, true, true, true, false, true, false], ['m2', 'd2', 'd1', 'm2', 'd2', 'm3', 'm1', 'm3']])
     }
 
     // 4. _bin_buttons: per-list button sets, reply row filter, bell, Snooze vs Unsnooze title, dim state on up/down,
@@ -7491,14 +7496,14 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         ])
     }
 
-    // 6. _on_row_key: every branch (selected row, ends, none selected -> main list only, empty main list,
-    //    focused fields, modifiers, unrelated keys)
+    // 6. _on_row_key: every branch (selected row, ends, none selected -> first/last mounted row,
+    //    empty mounted lists vs sole row, focused fields, modifiers, unrelated keys)
     {
       const s = makeStage()
       s.makeItem('sn1'); s.makeItem('dl1')
       s.makeItem('m1'); s.makeItem('m2'); s.makeItem('m3')
       s.makeItem('note')
-      // intentionally mount snoozed and delegated widgets BEFORE main to prove global j/k picks main only
+      // mount snoozed and delegated widgets BEFORE main to verify page order across every mounted list
       s.makeWidget({ snoozed: true, rows: [{ id: 'sn1' }] })
       s.makeWidget({ delegated: true, rows: [{ id: 'dl1' }] })
       s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] })
@@ -7519,7 +7524,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
         fieldBlocked.push(s.env._on_row_key('KeyJ', {}))
       }
       s.doc.activeElement = { tagName: 'DIV', isContentEditable: false }
-      // empty box -> j selects first of main list (m1), k selects last of main list (m3)
+      // empty box -> j selects first mounted row (#sn1), walks into #dl1, k back to #sn1, k wraps to #m3
       const globalJ = s.env._on_row_key('KeyJ', {})
       const boxAfterJ = s.getBox()
       const stepDown = s.env._on_row_key('KeyJ', {})
@@ -7529,39 +7534,44 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       // at top of sequence: k wraps round to last of sequence (#m3)
       const atTop = s.env._on_row_key('KeyK', {})
       const boxAtTop = s.getBox()
-      // unlisted item in box -> treated as no row selected: k selects last of sequence (m3)
+      // unlisted item in box -> treated as no row selected: k selects last of sequence (#m3)
       s.setBox('#note')
       const globalK = s.env._on_row_key('KeyK', {})
       const boxAfterK = s.getBox()
-      // at end of sequence: j wraps round to first of sequence (#m1)
+      // at end of sequence: j wraps round to first of sequence (#sn1)
       const atEnd = s.env._on_row_key('KeyJ', {})
       const boxAtEnd = s.getBox()
-      // selected unbelled row in delegated list above main: j goes to nearest sequence row after it (#m1)
+      // selected unbelled row in delegated list above main: j steps to #m1
       s.setBox('#dl1')
       const delNext = s.env._on_row_key('KeyJ', {})
       const boxDelNext = s.getBox()
-      // empty sequence (only unbelled delegated widget) with no selection -> returns false; with #d1 selected -> true, stays
+      // truly empty mounted lists -> unselected j/k return false; sole unbelled delegated row -> unselected selects it, selected claims and stays
       const sEmpty = makeStage()
-      sEmpty.makeItem('d1')
-      sEmpty.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+      sEmpty.makeWidget({ delegated: true, rows: [] })
       sEmpty.makeWidget({ rows: [] })
       const emptyRes = [sEmpty.env._on_row_key('KeyJ', {}), sEmpty.env._on_row_key('KeyK', {})]
-      sEmpty.setBox('#d1')
-      const emptySelectedRes = [sEmpty.env._on_row_key('KeyJ', {}), sEmpty.getBox(), sEmpty.env._on_row_key('KeyK', {}), sEmpty.getBox()]
-      check('_on_row_key: ignores other keys, modifiers, and focused fields; cycles sequence at both ends; outside row steps to nearest after; selects sequence ends when no row selected; empty sequence forwards when unselected and claims when selected',
+      const sSole = makeStage()
+      sSole.makeItem('d1')
+      sSole.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+      sSole.makeWidget({ rows: [] })
+      const soleFromEmpty = [sSole.env._on_row_key('KeyJ', {}), sSole.getBox()]
+      const soleSelectedRes = [sSole.env._on_row_key('KeyJ', {}), sSole.getBox(), sSole.env._on_row_key('KeyK', {}), sSole.getBox()]
+      check('_on_row_key: ignores other keys, modifiers, and focused fields; cycles all mounted lists at both ends; selects ends when no row selected; empty mounted lists forward while sole row claims',
         [
           rejected, fieldBlocked,
           [globalJ, boxAfterJ, stepDown, boxAfterDown, stepUp, boxAfterUp, atTop, boxAtTop],
           [globalK, boxAfterK, atEnd, boxAtEnd, delNext, boxDelNext],
           emptyRes,
-          emptySelectedRes,
+          soleFromEmpty,
+          soleSelectedRes,
         ],
         [
           [false, false, false, false, false, false, false],
           [false, false, false, false],
-          [true, '#m1', true, '#m2', true, '#m1', true, '#m3'],
-          [true, '#m3', true, '#m1', true, '#m1'],
+          [true, '#sn1', true, '#dl1', true, '#sn1', true, '#m3'],
+          [true, '#m3', true, '#sn1', true, '#m1'],
           [false, false],
+          [true, '#d1'],
           [true, '#d1', true, '#d1'],
         ])
 
@@ -8241,9 +8251,9 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ])
       }
 
-      // 10. Cycling walk across the union of belled rows (any list) and main list in page order (2026-11-25)
-      // 10a. _row_sequence across layouts: main alone, delegated above (with/without bells), snoozed below,
-      //      reply row, no list, empty sequence, one row, duplicate id across widgets, parked & deleted rows
+      // 10. Cycling walk across every row of every mounted list in page order (2026-11-26)
+      // 10a. _row_sequence across layouts: main alone, delegated above (with/without bells), main above delegated,
+      //      snoozed below (mounted vs absent/hidden), reply row, no list, empty widgets, one row, duplicate id, parked & deleted rows
       {
         const seqIds = setup => {
           const s = makeStage()
@@ -8264,6 +8274,11 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
           s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
         })
+        const mainAboveDel = seqIds(s => {
+          for (const id of ['m1', 'm2', 'd1', 'd2']) s.makeItem(id)
+          s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2', bell: true }] })
+        })
         const snzBelowWithAndWithout = [
           seqIds(s => {
             for (const id of ['m1', 'm2', 's1', 's2', 's3']) s.makeItem(id)
@@ -8282,17 +8297,22 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeWidget({ rows: [{ id: 'm1' }, { id: 'rep', waits: 'reply', bell: true }, { id: 'm2' }] })
         })
         const noList = seqIds(() => {})
-        const emptySeq = seqIds(s => {
+        const delAndSnzOnly = seqIds(s => {
           s.makeItem('d1'); s.makeItem('s1')
           s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
           s.makeWidget({ rows: [] })
           s.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
         })
+        const emptyWidgets = seqIds(s => {
+          s.makeWidget({ delegated: true, rows: [] })
+          s.makeWidget({ rows: [] })
+          s.makeWidget({ snoozed: true, rows: [] })
+        })
         const oneRowMain = seqIds(s => {
           s.makeItem('m1')
           s.makeWidget({ rows: [{ id: 'm1' }] })
         })
-        const oneRowDelBell = seqIds(s => {
+        const twoDelRows = seqIds(s => {
           s.makeItem('d0'); s.makeItem('d1')
           s.makeWidget({ delegated: true, rows: [{ id: 'd0' }, { id: 'd1', bell: true }] })
         })
@@ -8302,25 +8322,27 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeWidget({ delegated: true, rows: [{ id: 'x', bell: true }] })
           s.makeWidget({ rows: [{ id: 'x' }, { id: 'gone' }, { id: 'm1' }] })
         })
-        check('walk sequence: union of belled rows (any mounted list) and main list in page order, each once, across all layouts',
-          [mainAlone, delAboveBells, delAboveNoBells, snzBelowWithAndWithout, replyRows, noList, emptySeq, oneRowMain, oneRowDelBell, dupAndParkedAndDeleted],
+        check('walk sequence: every row of every mounted list in page order, each item once, across all layouts',
+          [mainAlone, delAboveBells, delAboveNoBells, mainAboveDel, snzBelowWithAndWithout, replyRows, noList, delAndSnzOnly, emptyWidgets, oneRowMain, twoDelRows, dupAndParkedAndDeleted],
           [
             ['m1', 'm2', 'm3'],
-            ['d2', 'd4', 'm1', 'm2'],
-            ['m1', 'm2'],
-            [['m1', 'm2', 's2'], ['m1', 'm2']],
+            ['d1', 'd2', 'd3', 'd4', 'm1', 'm2'],
+            ['d1', 'd2', 'm1', 'm2'],
+            ['m1', 'm2', 'd1', 'd2'],
+            [['m1', 'm2', 's1', 's2', 's3'], ['m1', 'm2', 's1', 's2']],
             ['dRep', 'm1', 'rep', 'm2'],
             [],
+            ['d1', 's1'],
             [],
             ['m1'],
-            ['d1'],
+            ['d0', 'd1'],
             ['x', 'm1'],
           ])
       }
 
-      // 10b. Points 1-4 both ways (j/k keys AND up/down buttons): delegated above main, snoozed below,
-      //      reply row inside main; full wrap in both directions; unbelled rows skipped; outside rows
-      //      at every position (before start, between sequence rows, after end) go to nearest or wrap
+      // 10b. Both ways (j/k keys AND up/down buttons): delegated above main, snoozed below,
+      //      reply row inside main; full wrap in both directions over every row of every mounted list;
+      //      outside rows still reachable in _row_beside (unresolvable mounted row, detached row)
       {
         const priorCalls = []
         const sharedWin = { innerWidth: 1000, _on_key: key => (priorCalls.push(key), 'prior') }
@@ -8343,40 +8365,37 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           b.press()
           return [b.color === '#fff', s.getBox()]
         }
-        // Full forward cycle via j from empty box (6 presses: lands on d1, walks to s1, wraps to d1)
+        const seqOrder = ['d0', 'd1', 'd2', 'm1', 'rep', 'm2', 's0', 's1', 's2']
+        // Full forward cycle via j from empty box (10 presses: lands on d0, walks all 9 rows, wraps to d0)
         s.setBox('')
-        const fwdKeys = Array.from({ length: 6 }, () => keyStep('KeyJ'))
-        // Full backward cycle via k from empty box (6 presses: lands on s1, walks to d1, wraps to s1)
+        const fwdKeys = Array.from({ length: 10 }, () => keyStep('KeyJ'))
+        // Full backward cycle via k from empty box (10 presses: lands on s2, walks all 9 rows backward, wraps to s2)
         s.setBox('')
-        const bwdKeys = Array.from({ length: 6 }, () => keyStep('KeyK'))
-        // Full cycle via down and up buttons from each sequence row
-        const seqOrder = ['d1', 'm1', 'rep', 'm2', 's1']
+        const bwdKeys = Array.from({ length: 10 }, () => keyStep('KeyK'))
+        // Full cycle via down and up buttons from every row
         const fwdBtns = seqOrder.map(id => btnStep(id, 'down'))
         const bwdBtns = seqOrder.map(id => btnStep(id, 'up'))
-        // Outside rows at EVERY position relative to sequence: before first (d0), between d1&m1 (d2),
-        // between m2&s1 (s0), after last (s2), tested both with j/k and down/up buttons
-        const outside = ['d0', 'd2', 's0', 's2'].map(id => {
-          s.setBox('#' + id)
-          const j = keyStep('KeyJ')
-          s.setBox('#' + id)
-          const k = keyStep('KeyK')
-          const dn = btnStep(id, 'down')
-          const up = btnStep(id, 'up')
-          return [id, j, k, dn, up]
-        })
-        check('walk cycle & outside rows: j/k and up/down cycle page-order union both ways, skip unbelled rows, and jump to nearest after/before (wrapping past ends) from every outside position',
-          [fwdKeys, bwdKeys, fwdBtns, bwdBtns, outside, priorCalls],
+        // Rows that can still stand outside seq in _row_beside: a mounted row whose item no longer resolves
+        // (at start, middle, end) steps to nearest live row or wraps; a detached/unmounted row picks first/last
+        const sOut = makeStage()
+        sOut.makeItem('a'); sOut.makeItem('b')
+        const wOut = sOut.makeWidget({ rows: [{ id: 'goneStart' }, { id: 'a' }, { id: 'goneMid' }, { id: 'b' }, { id: 'goneEnd' }] })
+        const detached = new sOut.DomNode('div', { className: 'list-item-container', 'data-id': 'ghost' })
+        const [gStart, , gMid, , gEnd] = wOut.list.children
+        const outsideFallback = [
+          [sOut.env._row_beside(gStart, 1)?.id ?? null, sOut.env._row_beside(gStart, -1)?.id ?? null],
+          [sOut.env._row_beside(gMid, 1)?.id ?? null, sOut.env._row_beside(gMid, -1)?.id ?? null],
+          [sOut.env._row_beside(gEnd, 1)?.id ?? null, sOut.env._row_beside(gEnd, -1)?.id ?? null],
+          [sOut.env._row_beside(detached, 1)?.id ?? null, sOut.env._row_beside(detached, -1)?.id ?? null],
+        ]
+        check('walk cycle & unresolvable fallback: j/k and up/down cycle every row of every mounted list both ways and wrap; unresolvable/detached rows fall back cleanly',
+          [fwdKeys, bwdKeys, fwdBtns, bwdBtns, outsideFallback, priorCalls],
           [
-            [[true, '#d1'], [true, '#m1'], [true, '#rep'], [true, '#m2'], [true, '#s1'], [true, '#d1']],
-            [[true, '#s1'], [true, '#m2'], [true, '#rep'], [true, '#m1'], [true, '#d1'], [true, '#s1']],
-            [[true, '#m1'], [true, '#rep'], [true, '#m2'], [true, '#s1'], [true, '#d1']],
-            [[true, '#s1'], [true, '#d1'], [true, '#m1'], [true, '#rep'], [true, '#m2']],
-            [
-              ['d0', [true, '#d1'], [true, '#s1'], [true, '#d1'], [true, '#s1']],
-              ['d2', [true, '#m1'], [true, '#d1'], [true, '#m1'], [true, '#d1']],
-              ['s0', [true, '#s1'], [true, '#m2'], [true, '#s1'], [true, '#m2']],
-              ['s2', [true, '#d1'], [true, '#s1'], [true, '#d1'], [true, '#s1']],
-            ],
+            [...seqOrder, seqOrder[0]].map(id => [true, '#' + id]),
+            [...[...seqOrder].reverse(), seqOrder[seqOrder.length - 1]].map(id => [true, '#' + id]),
+            seqOrder.map((_, i) => [true, '#' + seqOrder[(i + 1) % seqOrder.length]]),
+            seqOrder.map((_, i) => [true, '#' + seqOrder[(i - 1 + seqOrder.length) % seqOrder.length]]),
+            [['a', 'b'], ['b', 'a'], ['a', 'b'], ['a', 'b']],
             [],
           ])
       }
@@ -8499,13 +8518,24 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           s.makeItem('note', { tags_visible: [] })
           s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
         }
-        const unbelledOnlySetup = s => {
+        const emptyMountedSetup = s => {
+          s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+          s.makeWidget({ delegated: true, rows: [] })
+          s.makeWidget({ rows: [] })
+        }
+        const soleUnbelledDelSetup = s => {
           s.makeItem('d1', { tags_visible: ['#todo'] })
           s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
           s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
           s.makeWidget({ rows: [] })
         }
-        const oneMainSetup = s => {
+        const soleMainSetup = s => {
+          s.makeItem('m1', { tags_visible: ['#todo'] })
+          s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+          s.makeWidget({ delegated: true, rows: [] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+        }
+        const delAndMainSetup = s => {
           s.makeItem('d1', { tags_visible: ['#todo'] })
           s.makeItem('m1', { tags_visible: ['#todo'] })
           s.makeItem('off', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
@@ -8536,13 +8566,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ['no-widgets/empty-box', probe(emptyWidgetsSetup, { box: '' })],
           ['no-widgets/non-todo', probe(emptyWidgetsSetup, { box: '#note', targetId: 'note' })],
           ['no-widgets/off-list-todo', probe(emptyWidgetsSetup, { box: '#off', targetId: 'off' })],
-          ['unbelled-only/empty-box', probe(unbelledOnlySetup, { box: '' })],
-          ['unbelled-only/selected-row', probe(unbelledOnlySetup, { box: '#d1', targetId: 'd1' })],
-          ['unbelled-only/off-list-todo', probe(unbelledOnlySetup, { box: '#off', targetId: 'off' })],
-          ['one-main/selected-sole', probe(oneMainSetup, { box: '#m1', targetId: 'm1' })],
-          ['one-main/outside-row', probe(oneMainSetup, { box: '#d1', targetId: 'd1' })],
-          ['one-main/off-list-todo', probe(oneMainSetup, { box: '#off', targetId: 'off' })],
-          ['one-main/empty-box', probe(oneMainSetup, { box: '' })],
+          ['empty-mounted/empty-box', probe(emptyMountedSetup, { box: '' })],
+          ['empty-mounted/off-list-todo', probe(emptyMountedSetup, { box: '#off', targetId: 'off' })],
+          ['sole-unbelled-del/empty-box', probe(soleUnbelledDelSetup, { box: '' })],
+          ['sole-unbelled-del/selected-row', probe(soleUnbelledDelSetup, { box: '#d1', targetId: 'd1' })],
+          ['sole-unbelled-del/off-list-todo', probe(soleUnbelledDelSetup, { box: '#off', targetId: 'off' })],
+          ['sole-main/selected-sole', probe(soleMainSetup, { box: '#m1', targetId: 'm1' })],
+          ['sole-main/off-list-todo', probe(soleMainSetup, { box: '#off', targetId: 'off' })],
+          ['sole-main/empty-box', probe(soleMainSetup, { box: '' })],
+          ['del-and-main/selected-main', probe(delAndMainSetup, { box: '#m1', targetId: 'm1' })],
+          ['del-and-main/selected-del', probe(delAndMainSetup, { box: '#d1', targetId: 'd1' })],
+          ['del-and-main/off-list-todo', probe(delAndMainSetup, { box: '#off', targetId: 'off' })],
+          ['del-and-main/empty-box', probe(delAndMainSetup, { box: '' })],
           ['one-del-bell/selected-sole', probe(oneDelBellSetup, { box: '#d1', targetId: 'd1' })],
           ['one-del-bell/empty-box', probe(oneDelBellSetup, { box: '' })],
           ['two-seq/del-bell', probe(twoSeqSetup, { box: '#d1', targetId: 'd1' })],
@@ -8556,13 +8591,18 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['no-widgets/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
             ['no-widgets/non-todo', { btnSummary: null, j: [false, 1, '#note'], k: [false, 1, '#note'] }],
             ['no-widgets/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
-            ['unbelled-only/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
-            ['unbelled-only/selected-row', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
-            ['unbelled-only/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
-            ['one-main/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
-            ['one-main/outside-row', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
-            ['one-main/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
-            ['one-main/empty-box', { btnSummary: null, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['empty-mounted/empty-box', { btnSummary: null, j: [false, 1, ''], k: [false, 1, ''] }],
+            ['empty-mounted/off-list-todo', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [false, 1, '#off'], k: [false, 1, '#off'] }],
+            ['sole-unbelled-del/empty-box', { btnSummary: null, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['sole-unbelled-del/selected-row', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['sole-unbelled-del/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'd1', downDest: 'd1', dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['sole-main/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['sole-main/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['sole-main/empty-box', { btnSummary: null, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['del-and-main/selected-main', { btnSummary: { upLit: true, downLit: true, upDest: 'd1', downDest: 'd1', dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
+            ['del-and-main/selected-del', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
+            ['del-and-main/off-list-todo', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'd1', dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#m1'] }],
+            ['del-and-main/empty-box', { btnSummary: null, j: [true, 0, '#d1'], k: [true, 0, '#m1'] }],
             ['one-del-bell/selected-sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
             ['one-del-bell/empty-box', { btnSummary: null, j: [true, 0, '#d1'], k: [true, 0, '#d1'] }],
             ['two-seq/del-bell', { btnSummary: { upLit: true, downLit: true, upDest: 'm1', downDest: 'm1', dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
@@ -8570,6 +8610,196 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             ['one-live-one-deleted/sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
             ['dup-sole/sole', { btnSummary: { upLit: false, downLit: false, upDest: null, downDest: null, dimMatchesPress: true }, j: [true, 0, '#m1'], k: [true, 0, '#m1'] }],
           ])
+      }
+
+      // 10e. New walk rule (2026-11-26): every row of every mounted list is a stop in page order,
+      //      each item once at its first place; delegated & snoozed rows reached by j match click
+      {
+        // (1) Delegated row without a bell is a stop
+        {
+          const s = makeStage()
+          for (const id of ['m1', 'd1', 'd2']) s.makeItem(id, { tags_visible: ['#todo'] })
+          s.makeWidget({ rows: [{ id: 'm1' }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2' }] })
+          const seq = s.env._row_sequence().seq.map(e => e.id)
+          s.setBox('')
+          const walkJ = Array.from({ length: 4 }, () => (s.env._on_row_key('KeyJ', {}), s.getBox()))
+          s.setBox('')
+          const walkK = Array.from({ length: 4 }, () => (s.env._on_row_key('KeyK', {}), s.getBox()))
+          check('jk walk: delegated row without a bell is a stop',
+            [seq, walkJ, walkK],
+            [['m1', 'd1', 'd2'], ['#m1', '#d1', '#d2', '#m1'], ['#d2', '#d1', '#m1', '#d2']])
+        }
+
+        // (2) Snoozed list rows are stops where that list is mounted and none where it is not
+        {
+          const runSnz = mode => {
+            const s = makeStage()
+            for (const id of ['m1', 's1', 's2']) s.makeItem(id, { tags_visible: ['#todo'], ...(id != 'm1' ? { store: { _todoer: { snoozed: 9999 } } } : {}) })
+            s.makeWidget({ rows: [{ id: 'm1' }] })
+            if (mode == 'mounted') s.makeWidget({ snoozed: true, rows: [{ id: 's1' }, { id: 's2' }] })
+            else if (mode == 'parked') s.makeWidget({ snoozed: true, parked: true, rows: [{ id: 's1' }, { id: 's2' }] })
+            else if (mode == 'folded') s.makeWidget({ snoozed: true, folded: true, rows: [{ id: 's1' }, { id: 's2' }] })
+            const seq = s.env._row_sequence().seq.map(e => e.id)
+            s.setBox('#m1')
+            s.env._on_row_key('KeyJ', {})
+            const afterJ = s.getBox()
+            s.setBox('#m1')
+            s.env._on_row_key('KeyK', {})
+            const afterK = s.getBox()
+            return [seq, afterJ, afterK]
+          }
+          check('jk walk: snoozed rows are stops where snoozed list is mounted and none where unmounted or hidden',
+            [runSnz('mounted'), runSnz('absent'), runSnz('parked'), runSnz('folded')],
+            [
+              [['m1', 's1', 's2'], '#s1', '#s2'],
+              [['m1'], '#m1', '#m1'],
+              [['m1'], '#m1', '#m1'],
+              [['m1'], '#m1', '#m1'],
+            ])
+        }
+
+        // (3) An item in two mounted lists is taken once, at its first place
+        {
+          const s = makeStage()
+          for (const id of ['a', 'dup', 'b', 'c', 'd']) s.makeItem(id, { tags_visible: ['#todo'] })
+          s.makeWidget({ rows: [{ id: 'a' }, { id: 'dup' }, { id: 'b' }] })
+          s.makeWidget({ delegated: true, rows: [{ id: 'c' }, { id: 'dup' }, { id: 'd' }] })
+          const seq = s.env._row_sequence().seq.map(e => e.id)
+          s.setBox('')
+          const fwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyJ', {}), s.getBox()))
+          s.setBox('')
+          const bwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyK', {}), s.getBox()))
+          check('jk walk: item in two mounted lists is taken once at its first place',
+            [seq, fwd, bwd],
+            [
+              ['a', 'dup', 'b', 'c', 'd'],
+              ['#a', '#dup', '#b', '#c', '#d', '#a'],
+              ['#d', '#c', '#b', '#dup', '#a', '#d'],
+            ])
+        }
+
+        // (4) Order follows the lists' order in the page (main above delegated AND delegated above main),
+        //     wrapping at both ends over all mounted lists
+        {
+          const walkOrder = mainFirst => {
+            const s = makeStage()
+            for (const id of ['m1', 'm2', 'd1', 'd2', 's1']) s.makeItem(id, { tags_visible: ['#todo'] })
+            if (mainFirst) {
+              s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+              s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2', bell: true }] })
+            } else {
+              s.makeWidget({ delegated: true, rows: [{ id: 'd1' }, { id: 'd2', bell: true }] })
+              s.makeWidget({ rows: [{ id: 'm1' }, { id: 'm2' }] })
+            }
+            s.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
+            const seq = s.env._row_sequence().seq.map(e => e.id)
+            s.setBox('')
+            const fwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyJ', {}), s.getBox()))
+            s.setBox('')
+            const bwd = Array.from({ length: 6 }, () => (s.env._on_row_key('KeyK', {}), s.getBox()))
+            return [seq, fwd, bwd]
+          }
+          check('jk walk: page order follows main-above-delegated and delegated-above-main, wrapping at both ends over all mounted lists',
+            [walkOrder(true), walkOrder(false)],
+            [
+              [
+                ['m1', 'm2', 'd1', 'd2', 's1'],
+                ['#m1', '#m2', '#d1', '#d2', '#s1', '#m1'],
+                ['#s1', '#d2', '#d1', '#m2', '#m1', '#s1'],
+              ],
+              [
+                ['d1', 'd2', 'm1', 'm2', 's1'],
+                ['#d1', '#d2', '#m1', '#m2', '#s1', '#d1'],
+                ['#s1', '#m2', '#m1', '#d2', '#d1', '#s1'],
+              ],
+            ])
+        }
+
+        // (5) Delegated and snoozed rows reached by j show and take the exact same buttons and keys as reached by click
+        {
+          const probeRow = async (targetId, prevId, via) => {
+            const priorCalls = []
+            const sharedWin = { innerWidth: 1000, _on_key: key => priorCalls.push(key) }
+            sharedWin._key_buttons = { guest: () => {} }
+            const s = makeStage({ sharedWin })
+            s.makeItem('m1', { tags_visible: ['#todo'] })
+            s.makeItem('d1', { tags_visible: ['#todo'], store: { _agent: { state: { held: 'agent', reason: 'delegated', epoch: 1 } } } })
+            s.makeItem('s1', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+            s.makeWidget({ rows: [{ id: 'm1' }] })
+            s.makeWidget({ delegated: true, rows: [{ id: 'd1' }] })
+            s.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
+            s.env._row_keys()
+            const reach = () => {
+              s.win._todoer_bin_busy = false
+              if (via == 'j') {
+                s.setBox('#' + prevId)
+                sharedWin._on_key('KeyJ', { preventDefault: () => {} })
+              } else {
+                s.env._select_item(s.items.get(targetId))
+              }
+              s.env._bin_buttons(s.env._selected_item())
+            }
+            reach()
+            const landed = s.getBox()
+            const buttons = (sharedWin._key_buttons_guests?.buttons ?? []).map(b => [b.name, b.title])
+            const shortcuts = s.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+            const keyOutcomes = []
+            for (const code of ['KeyA', 'KeyD', 'KeyS', 'KeyX', 'KeyB', 'KeyH', 'KeyU']) {
+              reach()
+              priorCalls.length = 0
+              s.actions.length = 0
+              let prevented = false
+              sharedWin._on_key(code, { preventDefault: () => { prevented = true } })
+              for (let i = 0; i < 6; i++) await Promise.resolve()
+              keyOutcomes.push([code, prevented, priorCalls.slice(), s.actions.slice()])
+            }
+            return { landed, buttons, shortcuts, keyOutcomes }
+          }
+          const delByJ = await probeRow('d1', 'm1', 'j')
+          const delByClick = await probeRow('d1', 'm1', 'click')
+          const snzByJ = await probeRow('s1', 'd1', 'j')
+          const snzByClick = await probeRow('s1', 'd1', 'click')
+          check('jk walk: delegated and snoozed rows reached by j show and take the same buttons and keys as reached by click',
+            [
+              delByJ,
+              delByJ.landed,
+              delByJ.buttons.map(b => b[0]),
+              delByJ.keyOutcomes.map(([code, prev, prior, acts]) => [code, prev, prior.length, acts.map(a => a[0])]),
+              snzByJ,
+              snzByJ.landed,
+              snzByJ.buttons.map(b => b[0]),
+              snzByJ.buttons.find(b => b[0] == 'snooze')?.[1],
+              snzByJ.keyOutcomes.map(([code, prev, prior, acts]) => [code, prev, prior.length, acts.map(a => a[0])]),
+            ],
+            [
+              delByClick,
+              '#d1',
+              ['up', 'down', 'agent', 'owner'],
+              [
+                ['KeyA', true, 0, ['delegate']],
+                ['KeyD', false, 1, []],
+                ['KeyS', false, 1, []],
+                ['KeyX', false, 1, []],
+                ['KeyB', false, 1, []],
+                ['KeyH', false, 1, []],
+                ['KeyU', true, 0, ['takeback']],
+              ],
+              snzByClick,
+              '#s1',
+              ['up', 'down', 'agent', 'done', 'snooze', 'cancel'],
+              'Unsnooze (s)',
+              [
+                ['KeyA', true, 0, ['delegate']],
+                ['KeyD', true, 0, ['complete']],
+                ['KeyS', true, 0, ['unsnooze']],
+                ['KeyX', true, 0, ['delete']],
+                ['KeyB', false, 1, []],
+                ['KeyH', false, 1, []],
+                ['KeyU', false, 1, []],
+              ],
+            ])
+        }
       }
 
       // 11. _ROW_SHORTCUTS, _row_now, _row_has, _row_can, _row_goes, _BIN_DRAFT, _BIN_REFUSAL, and
@@ -8642,7 +8872,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ])
 
         // Every row state across all 11 entries (adapted: no-row says first/last row; cycling enables both j/k when >= 2 seq rows)
-        check('_ROW_SHORTCUTS active: no row (empty or unlisted) activates walk first/last j and k alone; empty or parked/unbelled-only walk activates none',
+        check('_ROW_SHORTCUTS active: no row (empty or unlisted) activates walk first/last j and k alone (including unbelled snoozed/delegated lists); empty or parked-only activates none',
           [
             activeEntries(''),
             activeEntries('#note'),
@@ -8658,8 +8888,19 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               se.setBox('')
               return se.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
             })(),
+            (() => {
+              const sp = makeStage()
+              sp.makeItem('pk')
+              sp.makeWidget({ parked: true, rows: [{ id: 'pk' }] })
+              sp.makeWidget({ rows: [] })
+              sp.makeWidget({ snoozed: true, rows: [] })
+              sp.makeWidget({ delegated: true, rows: [] })
+              sp.setBox('')
+              return sp.eval('_ROW_SHORTCUTS').filter(e => e.active()).map(e => `${e.keys}:${e.does}`)
+            })(),
           ],
           [
+            ['j:the first row', 'k:the last row'],
             ['j:the first row', 'k:the last row'],
             ['j:the first row', 'k:the last row'],
             [],
@@ -8802,10 +9043,10 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           check('_ROW_SHORTCUTS when: every entry names its row, the walk, the list that has its button, and the unsaved-edit rule on the four draft-refused presses',
             whenByKey,
             [
-              'j:a row is selected: through the rows with a bell and the main list, round and round',
-              'j:no row is selected: of the rows with a bell and the main list',
-              'k:a row is selected: through the rows with a bell and the main list, round and round',
-              'k:no row is selected: of the rows with a bell and the main list',
+              'j:a row is selected: through every list on the page, round and round',
+              'j:no row is selected: of the lists on the page',
+              'k:a row is selected: through every list on the page, round and round',
+              'k:no row is selected: of the lists on the page',
               'a:a todo is selected, with no unsaved edit in it',
               'd:a todo of the main or the snoozed list is selected, with no unsaved edit in it',
               's:a todo of the main list is selected',
@@ -9332,11 +9573,16 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             st.makeWidget({ delegated: true, rows: [{ id: 'd1', bell: true }] })
             st.makeWidget({ rows: [] })
           }, ['', '#d1']),
+          verifyWalk('sole-main-only', st => {
+            st.makeItem('m1', { tags_visible: ['#todo'] })
+            st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
+            st.makeWidget({ rows: [{ id: 'm1' }] })
+          }, ['', '#offSnz', '#m1']),
           verifyWalk('empty-walk-no-widgets', st => {
             st.makeItem('note', { tags: [], tags_visible: [] })
             st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
           }, ['', '#note', '#offSnz']),
-          verifyWalk('empty-walk-unbelled-only', st => {
+          verifyWalk('unbelled-del-and-snz-only', st => {
             st.makeItem('d1', { tags_visible: ['#todo'] })
             st.makeItem('s1', { tags_visible: ['#todo'] })
             st.makeItem('offSnz', { tags_visible: ['#todo'], store: { _todoer: { snoozed: 9999 } } })
@@ -9345,35 +9591,42 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
             st.makeWidget({ snoozed: true, rows: [{ id: 's1' }] })
           }, ['', '#offSnz', '#d1', '#s1']),
         ]
-        check('_row_goes vs _on_row_key: active iff j/k selects another row across every walk layout (sole row, outside row, off-list todo, empty walk), and never both entries at once',
+        check('_row_goes vs _on_row_key: active iff j/k selects another row across every walk layout (sole row, multi-list, off-list todo, empty walk), and never both entries at once',
           walkChecks.map(w => [w.label, w.mismatches]),
           walkChecks.map(w => [w.label, []]))
 
-        // Explicit spot check of the key tricky cases from verifyWalk above (sole row, outside row, off-list todo, empty walk)
-        const soleSummary = walkChecks.find(w => w.label == 'sole-main-with-outside-and-offlist').summary
-        const emptyUnbelledSummary = walkChecks.find(w => w.label == 'empty-walk-unbelled-only').summary
-        check('_row_goes tricky cases: sole row inactive, outside/off-list active into sole row, empty unbelled walk all inactive',
-          [soleSummary, emptyUnbelledSummary],
+        // Explicit spot check of the key tricky cases from verifyWalk above (sole row, del+main, del+snz unbelled, empty walk)
+        const soleMainSummary = walkChecks.find(w => w.label == 'sole-main-only').summary
+        const delAndSnzSummary = walkChecks.find(w => w.label == 'unbelled-del-and-snz-only').summary
+        const emptyNoWidgetsSummary = walkChecks.find(w => w.label == 'empty-walk-no-widgets').summary
+        check('_row_goes tricky cases: sole row inactive, off-list active into sole row, unbelled delegated+snoozed walks both, empty walk all inactive',
+          [soleMainSummary, delAndSnzSummary, emptyNoWidgetsSummary],
           [
             [
               ['', 'KeyJ', false, true, '#m1'],
               ['', 'KeyK', false, true, '#m1'],
               ['#offSnz', 'KeyJ', false, true, '#m1'],
               ['#offSnz', 'KeyK', false, true, '#m1'],
-              ['#d1', 'KeyJ', true, false, '#m1'],
-              ['#d1', 'KeyK', true, false, '#m1'],
               ['#m1', 'KeyJ', false, false, '#m1'],
               ['#m1', 'KeyK', false, false, '#m1'],
             ],
             [
+              ['', 'KeyJ', false, true, '#d1'],
+              ['', 'KeyK', false, true, '#s1'],
+              ['#offSnz', 'KeyJ', false, true, '#d1'],
+              ['#offSnz', 'KeyK', false, true, '#s1'],
+              ['#d1', 'KeyJ', true, false, '#s1'],
+              ['#d1', 'KeyK', true, false, '#s1'],
+              ['#s1', 'KeyJ', true, false, '#d1'],
+              ['#s1', 'KeyK', true, false, '#d1'],
+            ],
+            [
               ['', 'KeyJ', false, false, ''],
               ['', 'KeyK', false, false, ''],
+              ['#note', 'KeyJ', false, false, '#note'],
+              ['#note', 'KeyK', false, false, '#note'],
               ['#offSnz', 'KeyJ', false, false, '#offSnz'],
               ['#offSnz', 'KeyK', false, false, '#offSnz'],
-              ['#d1', 'KeyJ', false, false, '#d1'],
-              ['#d1', 'KeyK', false, false, '#d1'],
-              ['#s1', 'KeyJ', false, false, '#s1'],
-              ['#s1', 'KeyK', false, false, '#s1'],
             ],
           ])
 
@@ -15251,6 +15504,58 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
           ['bk1', ['up', 'down', 'agent', 'done', 'snooze', 'cancel', 'window']],
           ['#todo', '#bk2', 'bk2', true],
           [['bk2'], '#todo', '#bk3', 'bk3', true],
+        ]
+      )
+    }
+
+    // 56b. Two-window list window walks across main, unbelled delegated, and snoozed lists with j/k
+    {
+      const bus = makeBus()
+      const a = makeWindow(bus, { id: 'A', scrollTop: 500, headerTop: 500 })
+      const b = makeWindow(bus, { id: 'B', scrollTop: 500, headerTop: 500 })
+      a.env._start_windows()
+      b.env._start_windows()
+      bus.flush()
+      for (const id of ['wm1', 'wd1', 'ws1']) {
+        a.makeItem(id, { saved_id: 's_' + id, scrollY: 1600 })
+        b.makeItem(id, { saved_id: 's_' + id, scrollY: 1600 })
+      }
+      const wMain = a.makeWidget({ rows: [{ id: 'wm1', pageY: 540 }] })
+      const wDel = a.makeWidget({ delegated: true, rows: [{ id: 'wd1', pageY: 580 }] })
+      const wSnz = a.makeWidget({ snoozed: true, rows: [{ id: 'ws1', pageY: 620 }] })
+      a.setBox('#todo')
+      b.setBox('')
+      a.env._send_press()
+      bus.flush()
+      const step = key => {
+        a.env._on_row_key(key, {})
+        bus.flush()
+        const btns = (a.win._key_buttons_guests?.buttons ?? []).map(x => (x.name == 'snooze' ? x.title : x.name))
+        return [
+          a.getBox(),
+          b.getBox(),
+          wMain.rowNodes.get('wm1').classList.contains('selected'),
+          wDel.rowNodes.get('wd1').classList.contains('selected'),
+          wSnz.rowNodes.get('ws1').classList.contains('selected'),
+          btns,
+        ]
+      }
+      const fwd = [step('KeyJ'), step('KeyJ'), step('KeyJ'), step('KeyJ')]
+      const bwd = [step('KeyK'), step('KeyK')]
+      check(
+        'jk walk (two windows): list window walks across main, unbelled delegated, and snoozed rows, keeping #todo and updating buttons while partner shows each item',
+        [fwd, bwd],
+        [
+          [
+            ['#todo', '#wm1', true, false, false, ['up', 'down', 'agent', 'done', 'Snooze (s)', 'cancel', 'window']],
+            ['#todo', '#wd1', false, true, false, ['up', 'down', 'agent', 'owner', 'window']],
+            ['#todo', '#ws1', false, false, true, ['up', 'down', 'agent', 'done', 'Unsnooze (s)', 'cancel', 'window']],
+            ['#todo', '#wm1', true, false, false, ['up', 'down', 'agent', 'done', 'Snooze (s)', 'cancel', 'window']],
+          ],
+          [
+            ['#todo', '#ws1', false, false, true, ['up', 'down', 'agent', 'done', 'Unsnooze (s)', 'cancel', 'window']],
+            ['#todo', '#wd1', false, true, false, ['up', 'down', 'agent', 'owner', 'window']],
+          ],
         ]
       )
     }
