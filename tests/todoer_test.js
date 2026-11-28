@@ -16964,6 +16964,1116 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
       }
     }
 
+    // 71. Notification click window routing: drive the REAL `createNotificationClickRelay` from
+    //     `external/mind.page/src/notification_click.ts` with `makeWindow`, ONE shared controllable
+    //     clock (no real sleeps or wall-time ceilings), and controllable async delivery queues
+    //     (worker->window and window->worker), covering discovery, choice, turn rule, budget,
+    //     multi-target/case-varied `item.elem` detection, and all review regressions.
+    {
+      const {
+        createNotificationClickRelay,
+        NOTIFICATION_CLICK_TYPE,
+        NOTIFICATION_CLICK_QUERY,
+        NOTIFICATION_CLICK_READY,
+        PENDING_TTL_MS,
+      } = await import(pathToFileURL(path.join(app, 'src', 'notification_click.ts')).href)
+      const flushMicrotasks = async (n = 10) => {
+        for (let i = 0; i < n; i++) await Promise.resolve()
+      }
+      const itemSel = (w, itemId) => w.items.get(itemId)?.elem?.querySelector('.container')?.getAttribute('data-selection') ?? null
+
+      const makeRelayHarness = ({ windows, ackTimeoutMs = 250, totalAckBudgetMs = 1500, failPut = false, startNow = 50_000 } = {}) => {
+        let clockMs = startNow
+        const trackedWins = [...windows]
+        const syncClocks = () => { for (const w of trackedWins) w.clock.now = clockMs }
+        syncClocks()
+
+        let nextTimerId = 1
+        const relayTimers = new Map()
+        const setRelayTimer = (fn, ms) => {
+          const tid = nextTimerId++
+          relayTimers.set(tid, { tid, at: clockMs + Math.max(0, Number(ms) || 0), fn })
+          return tid
+        }
+        const clearRelayTimer = tid => void relayTimers.delete(tid)
+
+        let seq = 1
+        const rows = []
+        const prune = t => { for (let i = rows.length - 1; i >= 0; i--) if (t - rows[i].at >= PENDING_TTL_MS) rows.splice(i, 1) }
+        const store = {
+          rows,
+          async put(rec, t) { if (failPut) throw new Error('IDB blocked'); prune(t); rows.push({ ...rec, seq: seq++ }) },
+          async assignUnassigned(cid, t) { prune(t); for (const r of rows) if (r.clientId === null) r.clientId = cid },
+          async remove(id, t) { prune(t); for (let i = rows.length - 1; i >= 0; i--) if (rows[i].id === id) rows.splice(i, 1) },
+          async listEligible(cid, live, t) {
+            prune(t)
+            return rows.filter(r => r.clientId === cid || r.clientId === null || (live !== null && !live.has(r.clientId))).map(r => r.message)
+          },
+          async clear() { rows.length = 0 },
+        }
+
+        const focused = []
+        const focusedAt = []
+        const probed = []
+        const stateById = new Map()
+        const clients = []
+        let relay = null
+        let sw = null
+
+        const registerWindow = w => {
+          if (!trackedWins.includes(w)) trackedWins.push(w)
+          w.clock.now = clockMs
+          const st = { win: w, inQ: [], outQ: [], holdIn: false, holdOut: false, silent: false, clickDelayMs: 0, queryDelayMs: 0 }
+          stateById.set(w.id, st)
+          const sourceForWin = {
+            postMessage: reply => {
+              const copy = JSON.parse(JSON.stringify(reply))
+              const send = () => void relay.onMessage({ data: copy, source: client }, sw)
+              if (st.holdOut) st.outQ.push(send)
+              else queueMicrotask(send)
+            },
+          }
+          const client = {
+            id: w.id,
+            get focused() { return w.doc.hasFocus() },
+            frameType: 'top-level',
+            async focus() {
+              focused.push(w.id)
+              focusedAt.push({ id: w.id, at: clockMs - startNow })
+              return client
+            },
+            postMessage(msg) {
+              const copy = JSON.parse(JSON.stringify(msg))
+              probed.push({ id: w.id, clickId: copy.id, type: copy.type, at: clockMs - startNow })
+              if (st.silent) return
+              const deliver = () => { w.env._on_notify_message({ source: sourceForWin, data: copy }) }
+              const delayMs = copy.type === NOTIFICATION_CLICK_QUERY ? st.queryDelayMs : st.clickDelayMs
+              if (st.holdIn) st.inQ.push(deliver)
+              else if (delayMs > 0) setRelayTimer(deliver, delayMs)
+              else queueMicrotask(deliver)
+            },
+          }
+          st.client = client
+          clients.push(client)
+          return client
+        }
+        for (const w of windows) registerWindow(w)
+
+        sw = {
+          registration: { scope: 'https://mind.page/' },
+          clients: {
+            async matchAll() { return [...clients] },
+            async openWindow() { return null },
+          },
+        }
+        let cidSeq = 0
+        relay = createNotificationClickRelay(store, {
+          now: () => clockMs,
+          setTimeout: setRelayTimer,
+          clearTimeout: clearRelayTimer,
+          makeId: () => `clk-${++cidSeq}`,
+          ackTimeoutMs,
+          totalAckBudgetMs,
+        })
+
+        const nextRelayDue = target => {
+          let best = null
+          for (const t of relayTimers.values()) {
+            if (t.at <= target && (!best || t.at < best.at || (t.at === best.at && t.tid < best.tid))) best = t
+          }
+          return best
+        }
+        const advance = async ms => {
+          const target = clockMs + ms
+          await flushMicrotasks()
+          while (true) {
+            const t = nextRelayDue(target)
+            if (!t) break
+            clockMs = t.at
+            syncClocks()
+            relayTimers.delete(t.tid)
+            t.fn()
+            await flushMicrotasks()
+          }
+          clockMs = target
+          syncClocks()
+          await flushMicrotasks()
+        }
+        const runUntilIdle = async (maxSteps = 50) => {
+          await flushMicrotasks()
+          for (let i = 0; i < maxSteps; i++) {
+            const t = nextRelayDue(Infinity)
+            if (!t) break
+            clockMs = t.at
+            syncClocks()
+            relayTimers.delete(t.tid)
+            t.fn()
+            await flushMicrotasks()
+          }
+        }
+
+        const click = itemSavedId =>
+          relay.onNotificationClick(
+            { notification: { tag: `todoer:${itemSavedId}`, data: { source: 'todoer', item: itemSavedId }, close() {} } },
+            sw
+          )
+        const sendReady = id => relay.onMessage({ data: { type: NOTIFICATION_CLICK_READY }, source: stateById.get(id).client }, sw)
+        const setHoldIn = (id, v) => { stateById.get(id).holdIn = v }
+        const setHoldOut = (id, v) => { stateById.get(id).holdOut = v }
+        const setSilent = (id, v) => { stateById.get(id).silent = v }
+        const setDelay = (id, clickDelayMs, queryDelayMs = 0) => {
+          const st = stateById.get(id)
+          st.clickDelayMs = clickDelayMs
+          st.queryDelayMs = queryDelayMs
+        }
+        const deliverIn = (id, count = Infinity) => {
+          const q = stateById.get(id).inQ
+          let n = 0
+          while (q.length && n < count) { q.shift()(); n++ }
+          return n
+        }
+        const deliverOut = (id, count = Infinity) => {
+          const q = stateById.get(id).outQ
+          let n = 0
+          while (q.length && n < count) { q.shift()(); n++ }
+          return n
+        }
+        const inQueueLen = id => stateById.get(id).inQ.length
+        const outQueueLen = id => stateById.get(id).outQ.length
+        const queries = () => probed.filter(p => p.type === NOTIFICATION_CLICK_QUERY).map(p => p.id)
+        const clicks = () => probed.filter(p => p.type === NOTIFICATION_CLICK_TYPE).map(p => p.id)
+        const clickTimes = id => probed.filter(p => p.type === NOTIFICATION_CLICK_TYPE && p.id === id).map(p => p.at)
+        const actedWindows = () =>
+          trackedWins
+            .filter(
+              w =>
+                w.selects.length > 0 ||
+                w.marks.length > 0 ||
+                w.itemList.some(it => it.elem?.querySelector('.container')?.getAttribute('data-selection') !== null) ||
+                w.body._scrollToCalls.length > 0 ||
+                w.focusCalls() > 0
+            )
+            .map(w => w.id)
+
+        return {
+          relay, sw, store, focused, focusedAt, probed, click, sendReady, addWindow: registerWindow,
+          now: () => clockMs, advance, runUntilIdle,
+          setHoldIn, setHoldOut, setSilent, setDelay, deliverIn, deliverOut, inQueueLen, outQueueLen,
+          queries, clicks, clickTimes, actedWindows,
+        }
+      }
+
+      // 71a. Showing window asked second wins via discovery at t=0, only B receives the ordinary click,
+      //      preserves compound query (`#t1 status`), scrolls into view, marks todo line, no item.select()
+      {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b = makeWindow(bus, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug\ndetails', offsetTop: 1850 })
+        a.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug\ndetails', offsetTop: 1850 })
+        a.applyQuery('#other', { targets: ['other'] })
+        b.applyQuery('#t1 status', { targets: ['t1'] })
+
+        const h = makeRelayHarness({ windows: [a, b], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        const start = h.now()
+        const done = h.click('s_t1')
+        await h.runUntilIdle()
+        await done
+
+        check(
+          'notify discovery 71a: showing window asked second wins at t=0, receives ordinary click alone, keeps compound box without item.select()',
+          [
+            h.now() - start,
+            h.focused,
+            h.queries(),
+            h.clicks(),
+            h.actedWindows(),
+            a.selects.length,
+            a.getBox(),
+            a.getScrollTop(),
+            b.selects.length,
+            b.getBox(),
+            b.getScrollTop(),
+            itemSel(b, 't1'),
+            h.store.rows.length,
+          ],
+          [
+            0,
+            ['B'],
+            ['A', 'B'],
+            ['B'],
+            ['B'],
+            0,
+            '#other',
+            500,
+            0,
+            '#t1 status',
+            1675,
+            '0,13',
+            0,
+          ]
+        )
+      }
+
+      // 71b. Showing window asked first wins via discovery at t=0 (early finish), only B gets the
+      //      ordinary click, and labeled item targeted by `id:` keeps its `id:` query intact
+      {
+        const bus = makeBus()
+        const b = makeWindow(bus, { id: 'B', focused: true, scrollTop: 0, headerTop: 100 })
+        const a = makeWindow(bus, { id: 'A', focused: false, scrollTop: 500, headerTop: 100 })
+        b.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug\nmore', offsetTop: 1850 })
+        a.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug\nmore', offsetTop: 1850 })
+        a.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b.applyQuery('id:s_t1', { targets: ['t1'] })
+        a.applyQuery('#other', { targets: ['other'] })
+
+        const h = makeRelayHarness({ windows: [b, a], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        const start = h.now()
+        const done = h.click('s_t1')
+        await h.runUntilIdle()
+        await done
+
+        check(
+          'notify discovery 71b: showing window asked first wins at t=0, receives ordinary click alone, preserves id: query on labeled item',
+          [h.now() - start, h.focused, h.clicks(), h.actedWindows(), b.selects.length, b.getBox(), b.getScrollTop(), itemSel(b, 't1'), a.getBox()],
+          [0, ['B'], ['B'], ['B'], 0, 'id:s_t1', 1675, '0,13', '#other']
+        )
+      }
+
+      // 71c. REGRESSION 1 (review 1 finding 1): late answer of a showing window (BOTH held outgoing
+      //      discovery reply AND held incoming discovery query) adds NO second actor — discovery
+      //      changes nothing in B, fallback A selects and is focused, B stays completely untouched
+      {
+        // Subcase 1: B handles discovery inside wait, but its outgoing reply is held past the wait
+        const bus1 = makeBus()
+        const a1 = makeWindow(bus1, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b1 = makeWindow(bus1, { id: 'B', focused: false, scrollTop: 595, headerTop: 100 })
+        a1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a1.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a1.applyQuery('#other', { targets: ['other'] })
+        b1.applyQuery('#t1', { targets: ['t1'] })
+
+        const h1 = makeRelayHarness({ windows: [a1, b1], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h1.setHoldOut('B', true)
+        const done1 = h1.click('s_t1')
+        await flushMicrotasks()
+        const bOutHeld = h1.outQueueLen('B')
+        // Advance past discovery wait: worker falls back to A, A selects and is focused
+        await h1.runUntilIdle()
+        await done1
+        // Now B's late discovery status arrives after worker already focused A
+        const bOutDrained = h1.deliverOut('B')
+        await flushMicrotasks()
+
+        // Subcase 2: B's incoming discovery query is held until +600 ms
+        const bus2 = makeBus()
+        const a2 = makeWindow(bus2, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b2 = makeWindow(bus2, { id: 'B', focused: false, scrollTop: 595, headerTop: 100 })
+        a2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a2.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a2.applyQuery('#other', { targets: ['other'] })
+        b2.applyQuery('#t1', { targets: ['t1'] })
+
+        const h2 = makeRelayHarness({ windows: [a2, b2], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h2.setHoldIn('B', true)
+        const done2 = h2.click('s_t1')
+        await flushMicrotasks()
+        const bInHeld = h2.inQueueLen('B')
+        await h2.runUntilIdle()
+        await done2
+        await h2.advance(350)
+        const bInDrained = h2.deliverIn('B')
+        await flushMicrotasks()
+
+        check(
+          'notify regression 71c (finding 1): late discovery reply or late query in showing B adds no second actor — only focused A acts, B scroll/marks untouched',
+          [
+            [bOutHeld, bOutDrained, h1.focused, h1.clicks(), h1.actedWindows(), a1.selects.map(s => s.id), b1.selects.length, itemSel(b1, 't1'), b1.getScrollTop(), b1.focusCalls(), h1.store.rows.length],
+            [bInHeld, bInDrained, h2.focused, h2.clicks(), h2.actedWindows(), a2.selects.map(s => s.id), b2.selects.length, itemSel(b2, 't1'), b2.getScrollTop(), b2.focusCalls(), h2.store.rows.length],
+          ],
+          [
+            [1, 1, ['A'], ['A'], ['A'], ['t1'], 0, null, 595, 0, 0],
+            [1, 1, ['A'], ['A'], ['A'], ['t1'], 0, null, 595, 0, 0],
+          ]
+        )
+      }
+
+      // 71d. Slow showing window B behind a silent reloading window A: B misses discovery, wakes before
+      //      fallback reaches B, ignores late query with zero side effects, takes ordinary fallback click
+      //      without rewriting its compound box, and is focused by the worker
+      {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b = makeWindow(bus, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        b.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        b.applyQuery('#t1 extra', { targets: ['t1'] })
+
+        const h = makeRelayHarness({ windows: [a, b], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h.setSilent('A', true)
+        h.setHoldIn('B', true)
+        const done = h.click('s_t1')
+        // Advance past discovery (250 ms) into fallback waiting on silent A (at +300 ms)
+        await h.advance(300)
+        const drained = h.deliverIn('B')
+        const actedAfterLateQuery = h.actedWindows()
+        h.setHoldIn('B', false)
+        await h.runUntilIdle()
+        await done
+
+        check(
+          'notify discovery 71d: slow showing window behind silent window stays untouched on late query and takes ordinary fallback without rewriting box',
+          [drained, actedAfterLateQuery, h.focused, h.actedWindows(), b.selects.length, b.getBox(), b.getScrollTop(), itemSel(b, 't1'), h.store.rows.length],
+          [1, [], ['B'], ['B'], 0, '#t1 extra', 1675, '0,13', 0]
+        )
+      }
+
+      // 71e. No window shows the item: both answer discovery showing:false, fallback sends ordinary click
+      //      only to focused A and selects as released
+      {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b = makeWindow(bus, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a.makeItem('o1', { saved_id: 's_o1', name: '#o1', text: '#todo o1', offsetTop: 400 })
+        b.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        b.makeItem('o2', { saved_id: 's_o2', name: '#o2', text: '#todo o2', offsetTop: 400 })
+        a.applyQuery('#o1', { targets: ['o1'] })
+        b.applyQuery('#o2', { targets: ['o2'] })
+
+        const h = makeRelayHarness({ windows: [a, b], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        const start = h.now()
+        const done = h.click('s_t1')
+        await h.runUntilIdle()
+        await done
+
+        check(
+          'notify discovery 71e: no window shows item -> discovery finishes at t=0, fallback sends ordinary click only to focused A',
+          [h.now() - start, h.focused, h.queries(), h.clicks(), h.actedWindows(), a.selects.map(s => s.id), a.marks, a.getBox(), b.selects.length, b.getBox(), h.store.rows.length],
+          [0, ['A'], ['A', 'B'], ['A'], ['A'], ['t1'], ['#todo fix bug'], '#t1', 0, '#o2', 0]
+        )
+      }
+
+      // 71f. Failed initial IndexedDB write (`failPut: true`) with two windows: click is delivered in-memory
+      //      both when a showing window wins discovery and when fallback selects in A
+      {
+        const bus1 = makeBus()
+        const a1 = makeWindow(bus1, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b1 = makeWindow(bus1, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        b1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        b1.applyQuery('#t1', { targets: ['t1'] })
+        const h1 = makeRelayHarness({ windows: [a1, b1], failPut: true })
+        const done1 = h1.click('s_t1')
+        await h1.runUntilIdle()
+        await done1
+
+        const bus2 = makeBus()
+        const a2 = makeWindow(bus2, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b2 = makeWindow(bus2, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        b2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        const h2 = makeRelayHarness({ windows: [a2, b2], failPut: true })
+        const done2 = h2.click('s_t1')
+        await h2.runUntilIdle()
+        await done2
+
+        check(
+          'notify discovery 71f: failed initial IDB write never loses a click in discovery winner B or fallback A',
+          [h1.focused, h1.actedWindows(), b1.selects.length, h2.focused, h2.actedWindows(), a2.selects.map(s => s.id)],
+          [['B'], ['B'], 0, ['A'], ['A'], ['t1']]
+        )
+      }
+
+      // 71g. Two clicks in flight concurrently with interleaved delivery queues: each goes to its own window
+      {
+        // Case 1: A shows t2, B shows t1; click 1 (t1) and click 2 (t2) interleaved
+        const bus1 = makeBus()
+        const a1 = makeWindow(bus1, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b1 = makeWindow(bus1, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo one', offsetTop: 1850 })
+        a1.makeItem('t2', { saved_id: 's_t2', name: '#t2', text: '#todo two', offsetTop: 1850 })
+        b1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo one', offsetTop: 1850 })
+        b1.makeItem('t2', { saved_id: 's_t2', name: '#t2', text: '#todo two', offsetTop: 1850 })
+        a1.applyQuery('#t2 extra', { targets: ['t2'] })
+        b1.applyQuery('#t1 extra', { targets: ['t1'] })
+
+        const h1 = makeRelayHarness({ windows: [a1, b1], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h1.setHoldIn('A', true)
+        h1.setHoldIn('B', true)
+        const c1 = h1.click('s_t1')
+        const c2 = h1.click('s_t2')
+        await flushMicrotasks()
+        // Deliver discovery queries to A (shows t2, not t1) and B (shows t1, not t2)
+        h1.deliverIn('A')
+        await flushMicrotasks()
+        h1.deliverIn('B')
+        await flushMicrotasks()
+        // Now ordinary click 2 is queued for A and ordinary click 1 is queued for B
+        h1.deliverIn('A')
+        h1.deliverIn('B')
+        await h1.runUntilIdle()
+        await Promise.all([c1, c2])
+
+        // Case 2: B shows t1, neither shows t3 (A focused); click 1 (t1) and click 2 (t3) interleaved
+        const bus2 = makeBus()
+        const a2 = makeWindow(bus2, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b2 = makeWindow(bus2, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo one', offsetTop: 1850 })
+        a2.makeItem('t3', { saved_id: 's_t3', name: '#t3', text: '#todo three', offsetTop: 1850 })
+        b2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo one', offsetTop: 1850 })
+        b2.makeItem('t3', { saved_id: 's_t3', name: '#t3', text: '#todo three', offsetTop: 1850 })
+        b2.applyQuery('#t1', { targets: ['t1'] })
+
+        const h2 = makeRelayHarness({ windows: [a2, b2], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h2.setHoldIn('A', true)
+        h2.setHoldIn('B', true)
+        const c3 = h2.click('s_t1')
+        const c4 = h2.click('s_t3')
+        await flushMicrotasks()
+        // Deliver discovery to A (neither showing) and B (shows t1, not t3)
+        h2.deliverIn('A')
+        h2.deliverIn('B')
+        await flushMicrotasks()
+        // Deliver ordinary click for t1 to B and ordinary click for t3 to A
+        h2.deliverIn('B')
+        h2.deliverIn('A')
+        await h2.runUntilIdle()
+        await Promise.all([c3, c4])
+
+        check(
+          'notify discovery 71g: two concurrent clicks each go to their own window with zero cross-stealing',
+          [
+            h1.focused,
+            [a1.selects.length, a1.getBox(), itemSel(a1, 't2'), a1.getScrollTop()],
+            [b1.selects.length, b1.getBox(), itemSel(b1, 't1'), b1.getScrollTop()],
+            h1.store.rows.length,
+            h2.focused,
+            [a2.selects.map(s => s.id), a2.getBox(), a2.marks],
+            [b2.selects.length, b2.getBox(), itemSel(b2, 't1'), b2.getScrollTop()],
+            h2.store.rows.length,
+          ],
+          [
+            ['A', 'B'],
+            [0, '#t2 extra', '0,9', 1675],
+            [0, '#t1 extra', '0,9', 1675],
+            0,
+            ['B', 'A'],
+            [['t3'], '#t3', ['#todo three']],
+            [0, '#t1', '0,9', 1675],
+            0,
+          ]
+        )
+      }
+
+      // 71h. Showing-window details: unfinished draft kept, already-in-view does not scroll,
+      //      target switch before deferred `_update_dom()` aborts mark & scroll, and fixed shared view
+      //      reports canHandle:false so peer L wins at t=0 without waiting
+      {
+        // Unfinished draft + already-in-view check (single window -> no discovery, ordinary click uses item.elem)
+        const bus1 = makeBus()
+        const wDraft = makeWindow(bus1, { id: 'D', focused: true, scrollTop: 100, headerTop: 50 })
+        wDraft.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo draft item', offsetTop: 300 }) // in band [100, 600]
+        wDraft.applyQuery('#t1', { targets: ['t1'] })
+        wDraft.typeDraft('#typing_new')
+        const h1 = makeRelayHarness({ windows: [wDraft] })
+        const done1 = h1.click('s_t1')
+        await h1.runUntilIdle()
+        await done1
+
+        // Deferred `_update_dom()` target-identity guard via `item.elem`
+        const bus2 = makeBus()
+        const wDefer = makeWindow(bus2, { id: 'F', focused: true, scrollTop: 0, headerTop: 50, deferDom: true })
+        wDefer.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo switched', offsetTop: 1850 })
+        wDefer.makeItem('t2', { saved_id: 's_t2', name: '#t2', text: '#todo switched', offsetTop: 1850 })
+        wDefer.applyQuery('#t1', { targets: ['t1'] })
+        const h2 = makeRelayHarness({ windows: [wDefer] })
+        const done2 = h2.click('s_t1')
+        await h2.runUntilIdle()
+        await done2
+        // Before DOM flush runs, target changes to t2
+        wDefer.applyQuery('#t2', { targets: ['t2'] })
+        while (wDefer.domQueue.length) wDefer.domQueue.shift()()
+        await flushMicrotasks()
+
+        // Fixed shared view (?shared=1) even targeting t1 reports canHandle:false so peer L wins at t=0
+        const bus3 = makeBus()
+        const wFixed = makeWindow(bus3, { id: 'S', focused: true, search: '?shared=1', scrollTop: 0, headerTop: 50 })
+        const wLive = makeWindow(bus3, { id: 'L', focused: false, scrollTop: 0, headerTop: 50 })
+        wFixed.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo shared', offsetTop: 1850 })
+        wLive.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo shared', offsetTop: 1850 })
+        wFixed.applyQuery('#t1', { targets: ['t1'] })
+        wLive.applyQuery('#t1', { targets: ['t1'] })
+        const h3 = makeRelayHarness({ windows: [wFixed, wLive], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        const tFixed0 = h3.now()
+        const done3 = h3.click('s_t1')
+        await h3.runUntilIdle()
+        await done3
+
+        check(
+          'notify discovery 71h: unfinished draft preserved & in-view stays still; deferred target switch aborts mark/scroll; fixed view yields to showing peer at t=0',
+          [
+            [wDraft.selects.length, wDraft.getBox(), wDraft.win._mindboxDebounced, wDraft.getScrollTop(), wDraft.body._scrollToCalls.length, itemSel(wDraft, 't1')],
+            [wDefer.selects.length, wDefer.getScrollTop(), itemSel(wDefer, 't1'), itemSel(wDefer, 't2')],
+            [h3.now() - tFixed0, h3.focused, h3.clicks(), h3.actedWindows(), wFixed.selects.length, itemSel(wFixed, 't1'), wLive.selects.length, wLive.getScrollTop()],
+          ],
+          [
+            [0, '#typing_new', true, 100, 0, '0,16'],
+            [0, 0, null, null],
+            [0, ['L'], ['L'], ['L'], 0, null, 0, 1675],
+          ]
+        )
+      }
+
+      // 71i. TURN RULE (orders 3 & 7): a `ready` while a loop offer is in flight (from third window C
+      //      OR from first window A) waits its turn and is dropped when B acks; and a `ready` during
+      //      discovery (from C or A, while B's query is pending) takes the turn at once while B's
+      //      later offer waits behind it and is dropped — ALWAYS one actor alone, never two
+      {
+        // Subcase 1 (order 3): third window C says `ready` 3 ms after B was posted the ordinary click
+        const bus1 = makeBus()
+        const a1 = makeWindow(bus1, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b1 = makeWindow(bus1, { id: 'B', focused: false, scrollTop: 595, headerTop: 100 })
+        const c1 = makeWindow(bus1, { id: 'C', focused: false, scrollTop: 0, headerTop: 100 })
+        a1.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        c1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a1.applyQuery('#other', { targets: ['other'] })
+        b1.applyQuery('#t1', { targets: ['t1'] })
+
+        const h1 = makeRelayHarness({ windows: [a1, b1], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h1.setDelay('A', 8, 8)
+        h1.setDelay('B', 8, 8)
+        const click1 = h1.click('s_t1')
+        await h1.advance(11) // discovery ends at t=8, B posted at t=8; C says ready at t=11
+        h1.addWindow(c1)
+        h1.setDelay('C', 8, 8)
+        const readyC1 = h1.sendReady('C')
+        await h1.runUntilIdle()
+        await Promise.all([click1, readyC1])
+
+        // Subcase 2 (order 3, first window): A itself says `ready` 3 ms after B was posted the click
+        const bus2 = makeBus()
+        const a2 = makeWindow(bus2, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b2 = makeWindow(bus2, { id: 'B', focused: false, scrollTop: 595, headerTop: 100 })
+        for (const w of [a2, b2]) w.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a2.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        a2.applyQuery('#other', { targets: ['other'] })
+        b2.applyQuery('#t1', { targets: ['t1'] })
+
+        const h2 = makeRelayHarness({ windows: [a2, b2], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h2.setDelay('A', 8, 8)
+        h2.setDelay('B', 8, 8)
+        const click2 = h2.click('s_t1')
+        await h2.advance(11)
+        const readyA2 = h2.sendReady('A')
+        await h2.runUntilIdle()
+        await Promise.all([click2, readyA2])
+
+        // Subcase 3 (order 7, during discovery): C sends `ready` while B's query is queued, then B answers
+        // discovery at t=1 (before C acks at t=8) -> B waits behind C and is dropped; C alone acts & is focused
+        const bus3 = makeBus()
+        const a3 = makeWindow(bus3, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b3 = makeWindow(bus3, { id: 'B', focused: false, scrollTop: 595, headerTop: 100 })
+        const c3 = makeWindow(bus3, { id: 'C', focused: false, scrollTop: 0, headerTop: 100 })
+        for (const w of [a3, b3, c3]) w.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a3.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        a3.applyQuery('#other', { targets: ['other'] })
+        b3.applyQuery('#t1', { targets: ['t1'] })
+
+        const h3 = makeRelayHarness({ windows: [a3, b3], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h3.setHoldIn('B', true)
+        const click3 = h3.click('s_t1')
+        await flushMicrotasks()
+        h3.addWindow(c3)
+        h3.setDelay('C', 8, 8)
+        const readyC3 = h3.sendReady('C')
+        await h3.advance(1)
+        h3.setHoldIn('B', false)
+        h3.deliverIn('B')
+        await h3.runUntilIdle()
+        await Promise.all([click3, readyC3])
+
+        // Subcase 4 (order 7, first window during discovery): A itself sends `ready` while B's query is queued,
+        // then B answers discovery at t=1 (before A acks at t=8) -> B waits behind A and is dropped; A alone acts
+        const bus4 = makeBus()
+        const a4 = makeWindow(bus4, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b4 = makeWindow(bus4, { id: 'B', focused: false, scrollTop: 595, headerTop: 100 })
+        for (const w of [a4, b4]) w.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a4.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        a4.applyQuery('#other', { targets: ['other'] })
+        b4.applyQuery('#t1', { targets: ['t1'] })
+
+        const h4 = makeRelayHarness({ windows: [a4, b4], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h4.setDelay('A', 8, 0)
+        h4.setHoldIn('B', true)
+        const click4 = h4.click('s_t1')
+        await flushMicrotasks()
+        const readyA4 = h4.sendReady('A')
+        await h4.advance(1)
+        h4.setHoldIn('B', false)
+        h4.deliverIn('B')
+        await h4.runUntilIdle()
+        await Promise.all([click4, readyA4])
+
+        check(
+          'notify turn rule 71i (orders 3 & 7): ready during loop offer waits behind B and is dropped; ready during discovery yields one actor alone',
+          [
+            [h1.focusedAt, h1.clicks(), h1.actedWindows(), a1.selects.length, c1.selects.length, b1.selects.length, itemSel(b1, 't1'), h1.store.rows.length],
+            [h2.focusedAt, h2.clicks(), h2.actedWindows(), a2.selects.length, b2.selects.length, itemSel(b2, 't1'), h2.store.rows.length],
+            [h3.focusedAt, h3.clicks(), h3.actedWindows(), c3.selects.map(s => s.id), b3.selects.length, itemSel(b3, 't1'), b3.getScrollTop(), h3.store.rows.length],
+            [h4.focusedAt, h4.clicks(), h4.actedWindows(), a4.selects.map(s => s.id), b4.selects.length, itemSel(b4, 't1'), b4.getScrollTop(), h4.store.rows.length],
+          ],
+          [
+            [[{ id: 'B', at: 16 }], ['B'], ['B'], 0, 0, 0, '0,13', 0],
+            [[{ id: 'B', at: 16 }], ['B'], ['B'], 0, 0, '0,13', 0],
+            [[{ id: 'C', at: 8 }], ['C'], ['C'], ['t1'], 0, null, 595, 0],
+            [[{ id: 'A', at: 8 }], ['A'], ['A'], ['t1'], 0, null, 595, 0],
+          ]
+        )
+      }
+
+      // 71j. REGRESSION 3 (review 1 finding 3): three silent windows ahead of the only capable window D
+      //      at production waits (250 / 1500) — D IS reached, acts, and is focused with BOTH a working
+      //      store and a failing store (and likewise 5 silent windows ahead of a 6th capable window F)
+      {
+        const runChain = async ({ silentCount, targetShowing, failPut }) => {
+          const bus = makeBus()
+          const silents = Array.from({ length: silentCount }, (_, i) => makeWindow(bus, { id: `S${i + 1}`, focused: i === 0, scrollTop: 0, headerTop: 100 }))
+          const cap = makeWindow(bus, { id: 'D', focused: false, scrollTop: 0, headerTop: 100 })
+          cap.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo reach me', offsetTop: 1850 })
+          if (targetShowing) cap.applyQuery('#t1 extra', { targets: ['t1'] })
+          const h = makeRelayHarness({ windows: [...silents, cap], ackTimeoutMs: 250, totalAckBudgetMs: 1500, failPut })
+          for (const s of silents) h.setSilent(s.id, true)
+          const t0 = h.now()
+          const done = h.click('s_t1')
+          await h.runUntilIdle()
+          await done
+          return {
+            elapsed: h.now() - t0,
+            focused: h.focused,
+            acted: h.actedWindows(),
+            selects: cap.selects.map(s => s.id),
+            box: cap.getBox(),
+            rows: h.store.rows.length,
+          }
+        }
+
+        const r3Work = await runChain({ silentCount: 3, targetShowing: false, failPut: false })
+        const r3Fail = await runChain({ silentCount: 3, targetShowing: false, failPut: true })
+        const r3Show = await runChain({ silentCount: 3, targetShowing: true, failPut: false })
+        const r5Work = await runChain({ silentCount: 5, targetShowing: false, failPut: false })
+        const r5Fail = await runChain({ silentCount: 5, targetShowing: false, failPut: true })
+
+        check(
+          'notify regression 71j (finding 3): three silent predecessors (and five at the 1500 ms limit) still reach the capable client under working and failing stores',
+          [r3Work, r3Fail, r3Show, r5Work, r5Fail],
+          [
+            { elapsed: 1000, focused: ['D'], acted: ['D'], selects: ['t1'], box: '#t1', rows: 0 },
+            { elapsed: 1000, focused: ['D'], acted: ['D'], selects: ['t1'], box: '#t1', rows: 0 },
+            { elapsed: 250, focused: ['D'], acted: ['D'], selects: [], box: '#t1 extra', rows: 0 },
+            { elapsed: 1500, focused: ['D'], acted: ['D'], selects: ['t1'], box: '#t1', rows: 0 },
+            { elapsed: 1500, focused: ['D'], acted: ['D'], selects: ['t1'], box: '#t1', rows: 0 },
+          ]
+        )
+      }
+
+      // 71k. REGRESSION 4 (review 1 finding 4): two rendered targets (`id:s_t1 id:s_t2`) with a click
+      //      on the SECOND target (`s_t2`) in both two-window and single-window layouts, AND a
+      //      case-varied id (`id:S_T1`) — `item.elem` identifies the clicked item as a rendered target
+      //      without relying on `_window_target()`, preserves the box, and marks/scrolls the right item
+      {
+        // Subcase 1: two targets in B (`id:s_t1 id:s_t2`), focused A on `#other`, click on SECOND (`s_t2`)
+        const bus1 = makeBus()
+        const a1 = makeWindow(bus1, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b1 = makeWindow(bus1, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a1.makeItem('t2', { saved_id: 's_t2', name: '#t2', text: '#todo second target', offsetTop: 2200 })
+        a1.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo first target', offsetTop: 1200 })
+        b1.makeItem('t2', { saved_id: 's_t2', name: '#t2', text: '#todo second target', offsetTop: 2200 })
+        a1.applyQuery('#other', { targets: ['other'] })
+        b1.applyQuery('id:s_t1 id:s_t2', { targets: ['t1', 't2'] })
+
+        const h1 = makeRelayHarness({ windows: [a1, b1], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        const done1 = h1.click('s_t2')
+        await h1.runUntilIdle()
+        await done1
+
+        // Subcase 2: single window B showing `id:s_t1 id:s_t2`, click on SECOND (`s_t2`) -> no item.select()
+        const bus2 = makeBus()
+        const b2 = makeWindow(bus2, { id: 'B', focused: true, scrollTop: 0, headerTop: 100 })
+        b2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo first target', offsetTop: 1200 })
+        b2.makeItem('t2', { saved_id: 's_t2', name: '#t2', text: '#todo second target', offsetTop: 2200 })
+        b2.applyQuery('id:s_t1 id:s_t2', { targets: ['t1', 't2'] })
+
+        const h2 = makeRelayHarness({ windows: [b2], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        const done2 = h2.click('s_t2')
+        await h2.runUntilIdle()
+        await done2
+
+        // Subcase 3: case-varied id (`id:S_T1`) in B (app search folds case -> t1.elem marked `.target`),
+        // focused A on `#other`, click on `s_t1`
+        const bus3 = makeBus()
+        const a3 = makeWindow(bus3, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b3 = makeWindow(bus3, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        a3.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo case target', offsetTop: 1850 })
+        a3.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b3.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo case target', offsetTop: 1850 })
+        a3.applyQuery('#other', { targets: ['other'] })
+        b3.applyQuery('id:S_T1', { targets: ['t1'] })
+
+        const h3 = makeRelayHarness({ windows: [a3, b3], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        const done3 = h3.click('s_t1')
+        await h3.runUntilIdle()
+        await done3
+
+        check(
+          'notify regression 71k (finding 4): second target in `id:a id:b` (two-window & solo) and case-varied `id:S_T1` win via item.elem without rewriting box',
+          [
+            [h1.focused, h1.clicks(), h1.actedWindows(), a1.selects.length, a1.getBox(), b1.selects.length, b1.getBox(), b1.getScrollTop(), itemSel(b1, 't1'), itemSel(b1, 't2'), h1.store.rows.length],
+            [h2.focused, h2.actedWindows(), b2.selects.length, b2.getBox(), b2.getScrollTop(), itemSel(b2, 't1'), itemSel(b2, 't2')],
+            [h3.focused, h3.clicks(), h3.actedWindows(), a3.selects.length, a3.getBox(), b3.selects.length, b3.getBox(), b3.getScrollTop(), itemSel(b3, 't1'), h3.store.rows.length],
+          ],
+          [
+            [['B'], ['B'], ['B'], 0, '#other', 0, 'id:s_t1 id:s_t2', 2025, null, '0,19', 0],
+            [['B'], ['B'], 0, 'id:s_t1 id:s_t2', 2025, null, '0,19'],
+            [['B'], ['B'], ['B'], 0, '#other', 0, 'id:S_T1', 1675, '0,17', 0],
+          ]
+        )
+      }
+
+      // 71l. REVIEW 2 REGRESSION 1: B answers discovery canHandle:false (item not yet synced),
+      //      then receives the item by sync while worker waits for reloading A -> B stays in the
+      //      fallback line, selects the item, is focused, and store empties (working and failing stores)
+      {
+        const runChangingNo = async failPut => {
+          const bus = makeBus()
+          const a = makeWindow(bus, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+          const b = makeWindow(bus, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+          const h = makeRelayHarness({ windows: [a, b], ackTimeoutMs: 250, totalAckBudgetMs: 1500, failPut })
+          h.setSilent('A', true)
+          const done = h.click('s_t1')
+          await h.advance(300) // discovery (250) done with B canHandle:false; worker now waits on A
+          b.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo synced late', offsetTop: 1850 })
+          await h.runUntilIdle()
+          await done
+          return {
+            clicks: h.clicks(),
+            acted: h.actedWindows(),
+            selectsB: b.selects.map(s => s.id),
+            focused: h.focused,
+            rows: h.store.rows.length,
+          }
+        }
+        const work = await runChangingNo(false)
+        const fail = await runChangingNo(true)
+        check(
+          'notify regression 71l (review 2 finding 1): changing canHandle:false stays in fallback and delivers to B (working and failing stores)',
+          [work, fail],
+          [
+            { clicks: ['A', 'B'], acted: ['B'], selectsB: ['t1'], focused: ['B'], rows: 0 },
+            { clicks: ['A', 'B'], acted: ['B'], selectsB: ['t1'], focused: ['B'], rows: 0 },
+          ]
+        )
+      }
+
+      // 71m. ORDER 5 (review 2 finding 2): cache-then-server ready from the same client A (1 window and 2 windows)
+      //      — assert the first replay post actually reached A BEFORE enabling the item and sending ready #2;
+      //      ready #2 posts at once at t=60 (restarting the interval) and A acts & is focused at 68 ms
+      {
+        const runCacheThenServer = async twoWindows => {
+          const bus = makeBus()
+          const a = makeWindow(bus, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+          const wins = [a]
+          let b = null
+          if (twoWindows) {
+            b = makeWindow(bus, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+            wins.push(b)
+          }
+          const h = makeRelayHarness({ windows: wins, ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+          h.setDelay('A', 8, 8)
+          if (b) h.setSilent('B', true)
+          const done = h.click('s_t1')
+          await h.advance(50)
+          // Cache load complete without item: A sends ready #1 (takes or reuses A's active turn)
+          const r1 = h.sendReady('A')
+          await flushMicrotasks()
+          const timesBeforeEnable = h.clickTimes('A')
+          const actedBeforeEnable = h.actedWindows()
+          await h.advance(10) // t=60: server confirms item while A's turn is still in flight
+          a.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo confirmed', offsetTop: 1850 })
+          const r2 = h.sendReady('A')
+          await h.runUntilIdle()
+          await Promise.all([done, r1, r2])
+          return {
+            timesBeforeEnable,
+            actedBeforeEnable,
+            timesA: h.clickTimes('A'),
+            clicksB: b ? h.clickTimes('B') : [],
+            acted: h.actedWindows(),
+            selectsA: a.selects.map(s => s.id),
+            focusedAt: h.focusedAt,
+            rows: h.store.rows.length,
+          }
+        }
+        const solo = await runCacheThenServer(false)
+        const pair = await runCacheThenServer(true)
+        check(
+          'notify turn rule 71m (order 5): cache-then-server ready from same client posts at once without waiting behind itself (1-window and 2-window)',
+          [solo, pair],
+          [
+            {
+              timesBeforeEnable: [0, 50],
+              actedBeforeEnable: [],
+              timesA: [0, 50, 60],
+              clicksB: [],
+              acted: ['A'],
+              selectsA: ['t1'],
+              focusedAt: [{ id: 'A', at: 68 }],
+              rows: 0,
+            },
+            {
+              timesBeforeEnable: [50],
+              actedBeforeEnable: [],
+              timesA: [50, 60],
+              clicksB: [],
+              acted: ['A'],
+              selectsA: ['t1'],
+              focusedAt: [{ id: 'A', at: 68 }],
+              rows: 0,
+            },
+          ]
+        )
+      }
+
+      // 71n. REVIEW 2 THIRD TRACE: starting window C sends ready across an empty first matchAll with
+      //      openWindow returning null -> C acts, C is focused, openWindow is not called, store empties
+      {
+        const bus = makeBus()
+        const c = makeWindow(bus, { id: 'C', focused: false, scrollTop: 0, headerTop: 100 })
+        c.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo cold ready', offsetTop: 1850 })
+        const h = makeRelayHarness({ windows: [], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        let resolveFirst = null
+        const firstSnap = new Promise(r => { resolveFirst = r })
+        let matchCalls = 0
+        let openCalls = 0
+        const origMatch = h.sw.clients.matchAll
+        h.sw.clients.matchAll = async () => (++matchCalls === 1 ? firstSnap : origMatch())
+        h.sw.clients.openWindow = async () => { openCalls++; return null }
+
+        const done = h.click('s_t1')
+        await flushMicrotasks()
+        h.addWindow(c)
+        await h.sendReady('C')
+        await flushMicrotasks()
+        resolveFirst([])
+        await h.runUntilIdle()
+        await done
+
+        check(
+          'notify regression 71n (review 2 third trace): ready from starting window C across empty first matchAll delivers to C and opens nothing',
+          [h.actedWindows(), c.selects.map(s => s.id), h.focused, openCalls, h.store.rows.length],
+          [['C'], ['t1'], ['C'], 0, 0]
+        )
+      }
+
+      // 71o. REVIEW 2 BUDGET (7 windows): A..E silent, F capable, G preferred then silent ->
+      //      G gets its own ackTimeoutMs wait and fallback A..E..F reaches F (working and failing stores)
+      {
+        const runSeven = async failPut => {
+          const bus = makeBus()
+          const silents = ['A', 'B', 'C', 'D', 'E'].map((id, i) =>
+            makeWindow(bus, { id, focused: i === 0, scrollTop: 0, headerTop: 100 })
+          )
+          const f = makeWindow(bus, { id: 'F', focused: false, scrollTop: 0, headerTop: 100 })
+          f.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo seventh test', offsetTop: 1850 })
+          const g = makeWindow(bus, { id: 'G', focused: false, scrollTop: 0, headerTop: 100 })
+          g.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo seventh test', offsetTop: 1850 })
+          g.applyQuery('#t1', { targets: ['t1'] })
+          const h = makeRelayHarness({ windows: [...silents, f, g], ackTimeoutMs: 250, totalAckBudgetMs: 1500, failPut })
+          for (const s of silents) h.setSilent(s.id, true)
+          const t0 = h.now()
+          const done = h.click('s_t1')
+          await h.advance(100) // G has answered discovery showing:true; now G goes silent before ordinary click
+          h.setSilent('G', true)
+          await h.runUntilIdle()
+          await done
+          return {
+            elapsed: h.now() - t0,
+            clicks: h.clicks(),
+            acted: h.actedWindows(),
+            selectsF: f.selects.map(s => s.id),
+            focused: h.focused,
+            rows: h.store.rows.length,
+          }
+        }
+        const work = await runSeven(false)
+        const fail = await runSeven(true)
+        check(
+          'notify regression 71o (review 2 budget): seven-window case with silent preferred G still reaches F under working and failing stores',
+          [work, fail],
+          [
+            { elapsed: 1750, clicks: ['G', 'A', 'B', 'C', 'D', 'E', 'F'], acted: ['F'], selectsF: ['t1'], focused: ['F'], rows: 0 },
+            { elapsed: 1750, clicks: ['G', 'A', 'B', 'C', 'D', 'E', 'F'], acted: ['F'], selectsF: ['t1'], focused: ['F'], rows: 0 },
+          ]
+        )
+      }
+
+      // 71p. TURN RULE (orders 1, 2, 4 — review 3 traces):
+      //      Order 1: C says ready while first matchAll is pending; 1 ms later [A, B] returns with showing B ->
+      //               B waits behind C's active turn and is dropped; C alone acts at 8 ms and is focused.
+      //      Order 2: A and B silent; C says ready at 50 ms, D at 500 ms -> C acts & is focused at 58 ms
+      //               (ending discovery early); D gets nothing.
+      //      Order 4: A alone listed and silent; C says ready at 50 ms (and D at 60 ms) -> C posted at 250 ms,
+      //               acts & is focused at 258 ms; D gets nothing.
+      {
+        // Order 1
+        const bus1 = makeBus()
+        const a1 = makeWindow(bus1, { id: 'A', focused: true, scrollTop: 500, headerTop: 100 })
+        const b1 = makeWindow(bus1, { id: 'B', focused: false, scrollTop: 595, headerTop: 100 })
+        const c1 = makeWindow(bus1, { id: 'C', focused: false, scrollTop: 0, headerTop: 100 })
+        a1.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        c1.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo fix bug', offsetTop: 1850 })
+        a1.applyQuery('#other', { targets: ['other'] })
+        b1.applyQuery('#t1', { targets: ['t1'] })
+
+        const h1 = makeRelayHarness({ windows: [a1, b1], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h1.setDelay('A', 8, 0)
+        h1.setDelay('B', 8, 0)
+        let resolveFirst1 = null
+        const firstSnap1 = new Promise(r => { resolveFirst1 = r })
+        let matchCalls1 = 0
+        const origMatch1 = h1.sw.clients.matchAll
+        h1.sw.clients.matchAll = async () => (++matchCalls1 === 1 ? firstSnap1 : origMatch1())
+        const listed1 = await origMatch1()
+
+        const click1 = h1.click('s_t1')
+        await flushMicrotasks()
+        h1.addWindow(c1)
+        h1.setDelay('C', 8, 0)
+        const readyC1 = h1.sendReady('C')
+        await h1.advance(1)
+        resolveFirst1(listed1)
+        await h1.runUntilIdle()
+        await Promise.all([click1, readyC1])
+
+        // Order 2
+        const bus2 = makeBus()
+        const a2 = makeWindow(bus2, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b2 = makeWindow(bus2, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        const c2 = makeWindow(bus2, { id: 'C', focused: false, scrollTop: 0, headerTop: 100 })
+        const d2 = makeWindow(bus2, { id: 'D', focused: false, scrollTop: 0, headerTop: 100 })
+        c2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo loaded c', offsetTop: 1850 })
+        d2.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo loaded d', offsetTop: 1850 })
+
+        const h2 = makeRelayHarness({ windows: [a2, b2], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h2.setSilent('A', true)
+        h2.setSilent('B', true)
+        const click2 = h2.click('s_t1')
+        await h2.advance(50)
+        h2.addWindow(c2)
+        h2.setDelay('C', 8, 8)
+        const readyC2 = h2.sendReady('C')
+        await h2.advance(450) // t=500
+        h2.addWindow(d2)
+        h2.setDelay('D', 8, 8)
+        const readyD2 = h2.sendReady('D')
+        await h2.runUntilIdle()
+        await Promise.all([click2, readyC2, readyD2])
+
+        // Order 4 (with D also saying ready at 60 ms)
+        const bus4 = makeBus()
+        const a4 = makeWindow(bus4, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const c4 = makeWindow(bus4, { id: 'C', focused: false, scrollTop: 0, headerTop: 100 })
+        const d4 = makeWindow(bus4, { id: 'D', focused: false, scrollTop: 0, headerTop: 100 })
+        c4.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo queued c', offsetTop: 1850 })
+        d4.makeItem('t1', { saved_id: 's_t1', name: '#t1', text: '#todo queued d', offsetTop: 1850 })
+
+        const h4 = makeRelayHarness({ windows: [a4], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h4.setSilent('A', true)
+        const click4 = h4.click('s_t1')
+        await h4.advance(50)
+        h4.addWindow(c4)
+        h4.setDelay('C', 8, 8)
+        const readyC4 = h4.sendReady('C')
+        await h4.advance(10) // t=60
+        h4.addWindow(d4)
+        h4.setDelay('D', 8, 8)
+        const readyD4 = h4.sendReady('D')
+        await h4.runUntilIdle()
+        await Promise.all([click4, readyC4, readyD4])
+
+        check(
+          'notify turn rule 71p (orders 1, 2, 4): ready before list, two readies during silent discovery, and ready behind silent offer each yield one actor and exact focus timing',
+          [
+            [h1.focusedAt, h1.clickTimes('A'), h1.clickTimes('B'), h1.clickTimes('C'), h1.actedWindows(), c1.selects.map(s => s.id), b1.selects.length, itemSel(b1, 't1'), b1.getScrollTop(), h1.store.rows.length],
+            [h2.focusedAt, h2.clickTimes('A'), h2.clickTimes('B'), h2.clickTimes('C'), h2.clickTimes('D'), h2.actedWindows(), c2.selects.map(s => s.id), d2.selects.length, h2.store.rows.length],
+            [h4.focusedAt, h4.clickTimes('A'), h4.clickTimes('C'), h4.clickTimes('D'), h4.actedWindows(), c4.selects.map(s => s.id), d4.selects.length, h4.store.rows.length],
+          ],
+          [
+            [[{ id: 'C', at: 8 }], [], [], [0], ['C'], ['t1'], 0, null, 595, 0],
+            [[{ id: 'C', at: 58 }], [], [], [50], [], ['C'], ['t1'], 0, 0],
+            [[{ id: 'C', at: 258 }], [0], [250], [], ['C'], ['t1'], 0, 0],
+          ]
+        )
+      }
+
+      // 71q. REPLAY ORDER (review 4 trace 1): two overlapping clicks X (older) and Y (newer) with open windows
+      //      A and B lacking both items; C syncs both items and sends ready at 52 ms while X waits behind A's
+      //      turn and Y is still in discovery. Replay preserves X then Y order so C's real todoer handler
+      //      selects X then Y and ends on the newer item Y.
+      {
+        const bus = makeBus()
+        const a = makeWindow(bus, { id: 'A', focused: true, scrollTop: 0, headerTop: 100 })
+        const b = makeWindow(bus, { id: 'B', focused: false, scrollTop: 0, headerTop: 100 })
+        const c = makeWindow(bus, { id: 'C', focused: false, scrollTop: 0, headerTop: 100 })
+        a.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        b.makeItem('other', { saved_id: 's_other', name: '#other', text: '#todo other', offsetTop: 600 })
+        c.makeItem('t_x', { saved_id: 's_x', name: '#t_x', text: '#todo older x', offsetTop: 1850 })
+        c.makeItem('t_y', { saved_id: 's_y', name: '#t_y', text: '#todo newer y', offsetTop: 1950 })
+
+        const h = makeRelayHarness({ windows: [a, b], ackTimeoutMs: 250, totalAckBudgetMs: 1500 })
+        h.setDelay('A', 8, 8)
+        h.setDelay('B', 8, 8)
+
+        const clickX = h.click('s_x')
+        await h.advance(50)
+        const clickY = h.click('s_y')
+        await h.advance(2) // t=52
+        h.addWindow(c)
+        h.setDelay('C', 8, 8)
+        const readyC = h.sendReady('C')
+        await h.runUntilIdle()
+        await Promise.all([clickX, clickY, readyC])
+
+        const cPosts = h.probed
+          .filter(p => p.type === NOTIFICATION_CLICK_TYPE && p.id === 'C')
+          .map(p => ({ clickId: p.clickId, at: p.at }))
+        check(
+          'notify replay order 71q (review 4 trace 1): single ready replay posts X then Y and real todoer ends on newer item Y',
+          [
+            cPosts,
+            c.selects.map(s => s.id),
+            c.getBox(),
+            c.targetContainer.getAttribute('data-item-id'),
+            h.actedWindows(),
+            h.store.rows.length,
+          ],
+          [
+            [{ clickId: 'clk-1', at: 258 }, { clickId: 'clk-2', at: 308 }],
+            ['t_x', 't_y'],
+            '#t_y',
+            't_y',
+            ['C'],
+            0,
+          ]
+        )
+      }
+    }
+
     // 72. List-window selection cue (.selected vs .selected.other) across every role & transition,
     //     fresh __render (todo + waiting rows), and todoer-widget.html cyan CSS rules
     {
