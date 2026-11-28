@@ -3,6 +3,7 @@
 - **approve** merges a proposal's worktree into main once its gates pass; **reject** removes it; a delegated todo's worktree (its **state** is the todo's marker, `chat` for a chat's) takes them only while the todo is owner-held, and a row the bridge admits nothing on says why. A worktree an agent made itself is listed for its review alone: the bridge neither merges nor removes it, so tell the agent on its todo what to do with it.
 - the **sparkle** at the page's lower right is an agent session watching this account in the bridge's place (solid while it watches, pulsing while it answers); dim, nobody watches and it offers to start one. Its menu (a click or a tap, or a right click) has **Stop Watching** and **Close Agent Session**, or the starts, **Resume Last Watcher** and **Cancel Start**.
 - a little **sparkle by an item's number**, and left of its buttons while it is edited, marks an item an agent follows: an edit or a deletion of it wakes that agent. The menu's **watched:** lines say what each agent follows and how many items that is, each of which carries the mark; while an agent follows all items, every item is marked. The bottom-right sparkle's tooltip says the same on its second line.
+- a **turning ring by an item's number** on an item that nothing runs is an agent's mark: the agent is about to answer, write, edit or delete that item, and the ring's tooltip (a tap on a phone) says who and what. It goes when the change is made or the agent changes its mind, and the sparkle pulses while one is there. It is a sign, not a lock: the item can be edited meanwhile. An item that can run, and a chat, show no such mark: their ring always means a run.
 - a proposal's **worktree** link opens its changes against main, submodules included, in VS Code; **dir** opens its folder in a new window (both on the editor's host, a remote one included); a todo row's marker word opens the same review for a listed worktree.
 ---
 #### Runs
@@ -403,10 +404,17 @@ function vault_expire_pending() {
 // delivery (fresh empty elements, painted before this script refilled them: the item collapsed
 // for a frame and everything below it shifted; design 2026-09-19)
 function _on_global_store_change(id) {
+  const own = id == _this.id
+  // the listing's references and statuses first: an agent's marks, which the sparkle's look
+  // applies, share a ring with a listed run and read what the listing leaves of it
+  if (own) vault_reconcile_running()
   // the sparkle reads this store (who watches) and the #status item's (the bridge's freshness)
-  if (id == _this.id || id == vault_status_item()?.id) vault_sparkle_reconcile()
-  if (id != _this.id) return // another item's store (this item listens to item changes below)
-  vault_reconcile_running()
+  if (own || id == vault_status_item()?.id) vault_sparkle_reconcile()
+  if (!own) return // another item's store (this item listens to item changes below)
+  // one delivery can end a listed run and the mark beside it (the bridge publishes both in one
+  // snapshot): the listing put its clearing of that run's status off while the mark still ran
+  // the item, and finishes it now that the mark has given its reference back
+  if (_this.store._vault_shown) _this.store._vault_shown = vault_clear_status(_this.store._vault_shown, vault_held_items())
   update_vault_runs()
   return true
 }
@@ -703,6 +711,7 @@ function _on_item_change(id, label, prev_label, deleted, remote, dependency) {
   if (id == _this.id) vault_sparkle_reconcile()
   if (dependency) return // a dependency of the changed item, not the item itself
   vault_watched_changed() // a tag or a label put or taken, an item created or deleted (the watched mark)
+  vault_acting_changed() // an item created or deleted (an agent's mark)
   const [marked, pending] = vault_marks()
   // a change, local or remote, that leaves the item a pending request marks it: a save in this
   // tab, or another tab's save arriving by sync (its reply arrives as a remote change too, and
@@ -747,7 +756,8 @@ function _on_focus() {
 // 'answering', by?, tab?}), or with nobody watching what is on offer ({state: 'none', start?,
 // last?}): the start the owner asked for ({id, agent, state: 'starting' | 'failed' | 'unknown',
 // note?, resume?, tab?}) and the last watcher that can be resumed ({name, agent, key}). Beside
-// either it lists what the item watcher follows (`follows`: the watched mark, further down). The
+// either it lists what the item watcher follows (`follows`: the watched mark, further down) and
+// the items an agent says it is about to act on (`marks`: an agent's marks, further down). The
 // element is drawn from this item's hooks and a task, never from its render, so it shows with
 // #vault off screen. What the owner asks goes to the bridge as a hidden command document under
 // a name of its own, `watch_command_<id>` ({id, kind, ..., at}). A stop names the take of the
@@ -794,7 +804,8 @@ const vault_last_watcher = last =>
 // the listing is fresh: its own #status entry, written by the bridge, within the stale interval
 // (it fails closed: no entry for the listing's host, another publisher such as the one-shot
 // `cli`, or a time that is no number shows nothing). `seen` is that entry's time, which a
-// command carries. A watcher is shown solid; with nobody watching the sparkle is dim: the offer
+// command carries. A watcher is shown solid, and pulsing while it answers or while an agent's
+// mark stands on an item (vault_agent_marks); with nobody watching the sparkle is dim: the offer
 // to start one, a start under way, or what became of the last one. `marks` are commands this
 // tab sent, each shown for VAULT_MARK_MS at most: `stopping` and `closing` ({took, at}) for the
 // watch listed, `cancelling` ({id, at}) for the start shown, and `started` ({id, at}), a start
@@ -814,8 +825,13 @@ function vault_sparkle_state(bridge, hosts, now, marks = {}) {
     const stopping = live(marks.stopping) && marks.stopping.took === took
     const answering = state == 'answering'
     const who = typeof by == 'string' && by ? by : name
-    const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering` : `${name} is watching`
-    return { kind: 'watching', key: 'watching:' + took, name, took, tab: watcher.tab === true, jump: vault_jump(watcher.jump), busy: closing || stopping || answering, dim: false, title, seen }
+    // an agent's marks (vault_agent_marks): while one stands and nothing above is to be said,
+    // the sparkle pulses and says who is at work on how many items
+    const acts = vault_agent_marks(watcher)
+    const actors = [...new Set(acts.map(act => act.name))]
+    const acting = `${actors.join(' and ')} ${actors.length == 1 ? 'is' : 'are'} working on ${vault_count(acts.length)}`
+    const title = closing ? `Closing ${name}'s session` : stopping ? `Stopping ${name}'s watch` : answering ? `${who} is answering` : acts.length ? acting : `${name} is watching`
+    return { kind: 'watching', key: 'watching:' + took, name, took, tab: watcher.tab === true, jump: vault_jump(watcher.jump), busy: closing || stopping || answering || acts.length > 0, dim: false, title, seen }
   }
   const last = vault_last_watcher(watcher.last)
   const start = vault_start(watcher.start)
@@ -931,6 +947,177 @@ const vault_follow = told => {
 }
 const vault_follows = watcher =>
   watcher && typeof watcher == 'object' && Array.isArray(watcher.follows) ? watcher.follows.slice(0, VAULT_FOLLOWS).map(vault_follow).filter(rule => rule) : []
+
+// AN AGENT'S MARKS (vault lib/mindpage_marks.py, docs/mind_marks.md): the items an agent says
+// it is ABOUT TO ACT ON, before it acts (the note it answers, an item it will write, edit or
+// delete), which the bridge publishes as `_bridge.watcher.marks`: up to 32 entries, each
+// `{id, name, what}`, the item's saved id, the agent, and its word for what is coming. The
+// page shows the app's own running mark on each, the ring of a chat that is being answered:
+// this tab holds ONE running reference on a marked item, beside any other holder's, and the
+// item's status, which is the ring's tooltip, says `<name>: <what>`. The sparkle pulses while
+// a mark stands under a watcher (vault_sparkle_state). A mark is a sign: nothing of the item
+// is locked, the agent's tools end it when the item is final or deleted, and the bridge ends
+// it at its deadline, so none outlasts an agent that left. Like the rules, the marks are read
+// only while the bridge is fresh. The #todoer item holds an agent's alert for a marked item
+// back until its mark has ended (todoer.js, _agent_marked: it reads the controller's list)
+const VAULT_AGENT_MARKS = 32 // the bridge's bound (MAX_MARKS in vault lib/mindpage_marks.py)
+const VAULT_MARK_WHAT = /^[a-z][a-z0-9 ,.'-]{0,47}$/ // WHAT there: an agent's word, shown as text
+const VAULT_MARK_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/ // NAME there
+// the published marks as this code can use them, like the rules above: entries of those shapes
+// within the bridge's bound, an item once (its first entry), and nothing else
+const vault_agent_marks = watcher => {
+  const told = watcher && typeof watcher == 'object' && Array.isArray(watcher.marks) ? watcher.marks.slice(0, VAULT_AGENT_MARKS) : []
+  const seen = new Set()
+  const read = mark => {
+    if (!mark || typeof mark != 'object') return null
+    const { id, name, what } = mark
+    if (typeof id != 'string' || !VAULT_FOLLOW_ID.test(id) || seen.has(id)) return null
+    if (typeof name != 'string' || !VAULT_MARK_NAME.test(name) || typeof what != 'string' || !VAULT_MARK_WHAT.test(what)) return null
+    seen.add(id)
+    return { id, name, what }
+  }
+  return told.map(read).filter(mark => mark)
+}
+// AN ITEM AS THE APP'S RECORD HOLDS IT (`window.__item`, the app's own lookup, by an item's own
+// id): its stored status and progress, its COUNT of running references, and whether the app can
+// run it. The item's public accessors do not serve here: their getters give nothing for an item
+// that has no element on the page, where the setters store all the same, and a mark is most
+// often set on an item the page does not show at that moment. Nothing is written to a record:
+// the writes stay with the public setters. An item the lookup does not give is none (and takes
+// no mark)
+function vault_record(item) {
+  try {
+    return window.__item(item.id) || null
+  } catch {
+    return null
+  }
+}
+// WHICH ITEMS SHOW A MARK: an item that has no run of its own to offer. The ring is the app's
+// running state, and the app and other items ask that state before they run something: a click
+// on Run does nothing on a running item, and a chat's responder refuses one. A mark on such an
+// item would take its run from the owner for as long as the mark stands, so it shows none, and
+// its ring keeps meaning a run (the marks are for the notes an agent writes with the owner).
+// "It can run" is the app's own word, the `runnable` of its record. A chat is any item that
+// depends on the #chat item (the responder asks for its chain at the start), which errs toward
+// "it can run". Returns the record of an item a mark shows on, else null
+function vault_markable(item) {
+  const record = vault_record(item)
+  if (!record || record.runnable) return null
+  const chat = _item('#chat', { silent: true })?.id
+  return chat && (item.dependencies ?? []).includes(chat) ? null : record
+}
+// THIS TAB'S REFERENCES for the marks listed. `held` maps an item's OWN id (the listing names an
+// item by its SAVED id) to what this tab did for its mark: in-tab state under _this.store, which
+// outlives this code's evaluations and its updates, and an object with no prototype, so an item
+// whose id is a name every object carries is an item like any other. A listed mark whose item
+// this page has and can show it on takes ONE reference, once: by its saved id, through the
+// app's own lookup, as the watched mark finds an item (the id must BE the saved one). A held
+// item that is listed no longer, deleted, or no longer one a mark shows on, gives it back (a
+// deleted item's count is gone with it). An item that is not on this page yet is looked for
+// again when an item changes (vault_acting_changed).
+// WHOSE WORDS THE RING SAYS. A status has one slot and can have other writers, and what tells
+// them apart is who runs: every writer of a ring holds a running reference of its own (a run of
+// the item's own; the bridge's listing, for a run or a worker it lists on the item). So, where
+// the record does not say the mark's words (`said`: as the record held them once written;
+// `words`: as asked):
+// - this tab's reference is the ONLY one: the words and the progress there are nobody's (left
+//   by a run that ended, a listed run that has left, a writer that is gone), and the mark
+//   writes its own, with no progress;
+// - another reference is there and the record says nothing: the mark writes its words into the
+//   empty slot and leaves the progress, which is that holder's;
+// - another reference is there and the record says something: those words stand (a listed
+//   run's, which the listing writes at each of its deliveries, among them).
+// Where the record says the mark's words, they are written again when other words are asked,
+// and when this tab's reference is the only one and a progress is there: a holder that showed
+// a progress and no words has left, and the app takes a fill off by itself only when nothing
+// runs the item. The listing settles its own references before this look
+// (_on_global_store_change), so a run that is delisted hands the ring over at that delivery.
+// And a mark that ends takes its words off only where the record still says exactly them.
+// (Ownership is by the words alone: a writer that sets the very same words is not told from
+// the mark.)
+function vault_mark_acting(listed, held) {
+  const wanted = new Map()
+  for (const { id, name, what } of listed) {
+    const item = _item(id, { silent: true })
+    const record = item?.saved_id === id ? vault_markable(item) : null
+    if (record) wanted.set(item.id, [item, record, _.escape(`${name}: ${what}`)])
+  }
+  for (const id of keys(held)) if (!wanted.has(id)) vault_unmark_acting(id, held)
+  for (const [id, [item, record, words]] of wanted) {
+    if (!Object.hasOwn(held, id)) {
+      held[id] = { words: '', said: '' }
+      item.running = true
+    }
+    const entry = held[id]
+    const now = record.status ?? ''
+    const mine = !!entry.said && now === entry.said
+    const alone = record.running <= 1
+    const stale = alone && (!mine || record.progress > 0) // nobody's: other words, or a fill left behind
+    if (stale || (mine ? entry.words !== words : !now)) entry.said = vault_say(item, words, stale)
+    entry.words = words
+  }
+}
+// one reference given back, and the mark's words with it where the record still says them (a
+// listed run's words, and another writer's, read otherwise and stand)
+function vault_unmark_acting(id, held) {
+  const entry = held[id]
+  delete held[id]
+  const item = _item(id, { silent: true })
+  if (!item) return // deleted: its count is gone with it
+  item.running = false
+  if (entry.said && vault_record(item)?.status === entry.said) vault_say(item, '', false)
+}
+// a mark's words on its item's ring (html, as the app reads a status), or none, and with
+// `reset` no progress either; returns the status as the app's record holds it then, which is
+// what a later look compares the record with
+function vault_say(item, words, reset) {
+  try {
+    item.status = words
+    if (reset) item.progress = 0
+    return vault_record(item)?.status ?? ''
+  } catch (e) {
+    console.warn(`#vault: the words of an agent's mark on ${item.id} were not written: ${e}`)
+    return ''
+  }
+}
+// this tab's record of those references, made once: the sparkle's controller keeps it too, so
+// that its end can give every reference back after the item itself is gone
+function vault_acting_held() {
+  return (_this.store._vault_acting ??= Object.create(null))
+}
+// ONE APPLICATION of the marks listed, for a controller: its list (`acts`: the marks this tab
+// shows or is about to show, by saved id, an item that has not arrived yet among them), this
+// tab's references by it, and the word that they are applied (vault_marks_applied), said when
+// the list is another. The #todoer item holds an agent's alert for an item while the item is
+// in the list of the page's controller, and decides it again after that word, when the turn
+// has settled: so the alert comes after the ring has gone, whichever item's hook the app calls
+// first at a delivery, and not at all when a controller only makes way for the next one, which
+// shows the same marks (todoer.js, _agent_marked)
+function vault_apply_marks(self, listed) {
+  const before = JSON.stringify(self.acts)
+  self.acts = listed
+  vault_mark_acting(listed, self.acting)
+  if (JSON.stringify(listed) !== before) vault_marks_applied()
+}
+// an event on the window, for whoever waits for a mark's end; nothing where a page has none
+function vault_marks_applied() {
+  if (typeof window.dispatchEvent != 'function' || typeof Event != 'function') return
+  try {
+    window.dispatchEvent(new Event('vault-agent-marks'))
+  } catch (e) {
+    console.warn(`#vault: the marks' change was not said: ${e}`)
+  }
+}
+// an item changed: a marked item may have arrived on this page (an agent marks an item it is
+// about to create), left it, or changed whether a mark shows on it. The marks the controller of
+// THIS item last applied are applied again, when there is one listed or held: with neither
+// nothing is looked up (and a controller drawn by this item's earlier code, which applied none,
+// has none to apply)
+function vault_acting_changed() {
+  const held = window._vault_sparkle
+  const acts = held?.item === _this.id ? held.acts : null
+  if (acts && (acts.length || keys(held.acting).length)) vault_apply_marks(held, acts)
+}
 
 // whether the glob names the label, as the watcher's fnmatch reads the two: `*` is any run of
 // characters (`/` included), `?` one character, and the whole label must match. The label comes
@@ -1158,7 +1345,7 @@ function vault_sparkle_reconcile() {
   if (typeof document == 'undefined') return // no page
   let held = window._vault_sparkle
   if (!vault_is_current()) {
-    if (held?.item === _this.id) held.dispose()
+    if (held?.item === _this.id) held.dispose() // (its end gives the references of an agent's marks back too)
     return
   }
   if (held && (held.code !== vault_code || held.item !== _this.id)) {
@@ -1173,7 +1360,9 @@ function vault_sparkle_create() {
   // all items, `checks` whether they hold anything this page checks, `found` what the last
   // look at the items found for them (null: no look), `took` how long that look took (ms),
   // and `warned` whether a slow look was warned of
-  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false, rule: '[]', follows: [], all: false, checks: false, found: null, took: 0, warned: false }
+  // `acts` are the agent's marks last applied (vault_agent_marks), for a change of the items,
+  // and `acting` this tab's references for them (vault_mark_acting's record), for the end
+  const self = { code: vault_code, item: _this.id, shown: null, marks: {}, menu: null, disposed: false, rule: '[]', follows: [], all: false, checks: false, found: null, took: 0, warned: false, acts: [], acting: vault_acting_held() }
   const style = (self.style = document.createElement('style'))
   style.dataset.vaultSparkle = 'style'
   style.textContent = VAULT_SPARKLE_CSS
@@ -1218,6 +1407,9 @@ function vault_sparkle_create() {
       if (checks) self.look()
       else self.mark()
     }
+    // the items an agent says it is about to act on, read like the rules only while the
+    // bridge is fresh: this tab's running references and their words follow what is listed
+    vault_apply_marks(self, state ? vault_agent_marks(bridge.watcher) : [])
     const keyboard = vault_keyboard_open(window)
     if (self.menu && (!state || keyboard || state.key !== self.menu.key || self.lines().key !== self.menu.lines)) self.close()
     self.shown = state
@@ -1512,6 +1704,13 @@ function vault_sparkle_create() {
     if (self.disposed) return
     self.close()
     self.disposed = true
+    // an agent's marks go with the controller that showed them: its list is empty, and every
+    // reference this tab holds for one is given back, once, by the record alone, each mark's
+    // words with it where its item still says them. This item may be gone (a deleted item's
+    // task ends its controller, and no hook of the item runs again), so nothing of it is
+    // asked. A controller that replaces this one takes the references again at its first look,
+    // in the same turn (vault_sparkle_reconcile)
+    vault_apply_marks(self, [])
     viewport?.removeEventListener('resize', on_viewport)
     node.remove()
     style.remove()

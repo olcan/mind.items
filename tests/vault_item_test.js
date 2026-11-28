@@ -1847,6 +1847,234 @@ if (realMarked) {
     own.tasks.watched.fn()
     check('watched: the controller\'s end removes the marks, and a look still due does nothing', [parts('watched').length, parts('node').length, '_vault_sparkle' in win], [0, 0, false])
   }
+  // ---- an agent's marks (vault lib/mindpage_marks.py): what the bridge lists as
+  // `_bridge.watcher.marks`, read by shape; which items show a mark; this tab's running
+  // references and whose words the items' rings say; the sparkle's pulse and words while a
+  // mark stands; and the controller applying them at a store change, while the bridge is
+  // fresh, for the page's #vault alone, saying so on the window after each application, and
+  // giving every reference back at its end, its item deleted or not
+  {
+    const A = watching.name
+    const acts = watcher => { ctx.__watcher = watcher; return vm.runInContext('vault_agent_marks(__watcher)', ctx) }
+    const act = (id, what = 'writing', name = A) => ({ id, name, what })
+    check('marks: the entries of the bridge\'s shapes are read, an item once, within the bound; anything else is none',
+      [acts({ marks: [act('a1'), { ...act('b1', 'splitting it'), more: 1 }, act('a1', 'editing'), act('no id!'), act('c1', 'WRITING'), act('d1', 'writing', ''), act('e1', 'x'.repeat(49)), act('f1', 'writing', 'né'), act('g1', 'writing', 'the "agent"'), { id: 'h1' }, null, 'i1'] }),
+        acts({ marks: Array.from({ length: 40 }, (_, n) => act('i' + n)) }).length, acts(null), acts({}), acts({ marks: 'a1' })],
+      [[act('a1'), act('b1', 'splitting it')], 32, [], [], []])
+    // the page's items: an item's own id, and the saved id a mark names (the app's lookup finds
+    // an item held under a temporary id by its saved one). And the app's own lookup of an item's
+    // RECORD, by the item's own id (index.svelte, window.__item): what was set as its status and
+    // progress, its COUNT of running references, and `runnable`, the app's word on whether it
+    // can run the item (`runs`, which a case sets)
+    const records = new Map()
+    win.__item = id => { if (!records.has(id)) throw new Error(`item ${id} deleted`); return records.get(id) }
+    const made = (id, saved = id, deps = []) => {
+      const item = new FakeItem('#m/' + id, 0, '', [], deps)
+      Object.assign(item, { id, saved_id: saved })
+      records.set(id, { get status() { return item._status }, get progress() { return item._progress }, get running() { return item.count }, get runnable() { return item.runs ?? null } })
+      items[saved] = item
+      return (items[id] = item)
+    }
+    const [m1, m2, m3] = [made('m1'), made('m2'), made('tmp-9', 'm3')]
+    const held = Object.create(null)
+    // one look at the marks listed
+    const apply = listed => {
+      Object.assign(ctx, { __listed: listed, __held: held })
+      vm.runInContext('vault_mark_acting(__listed, __held)', ctx)
+      return [[m1.count, m2.count, m3.count], [m1.status, m2.status, m3.status], Object.keys(held)]
+    }
+    const words = what => `${A}: ${what}`
+    const first = [act('m1', 'answering'), act('m3', "it's"), act('zz'), act('tmp-9')]
+    check('marks: a listed mark takes ONE reference on its item and says its words, escaped, by the saved id alone (an item this tab holds under a temporary id is reached, the temporary id names nothing, an item that is not here takes nothing)',
+      [apply(first), apply(first)[0]], [[[1, 0, 1], [words('answering'), null, words('it&#39;s')], ['m1', 'tmp-9']], [1, 0, 1]])
+    const both = [act('m1', 'editing'), act('m2')]
+    check('marks: other words are written without another reference; a mark that ended gives its reference back and takes its words with it',
+      apply(both), [[1, 1, 0], [words('editing'), words('writing'), ''], ['m1', 'm2']])
+    // which items show a mark: none that has a run of its own to offer, by the app's own word on
+    // the item (its text is not read), and none the app's lookup does not give
+    const fence = '`'.repeat(3)
+    const [runs, chat, plain, unknown] = [made('r1'), made('c1', 'c1', ['chat-root']), made('p1'), made('u1')]
+    runs.runs = [`${fence}js_input\n1\n${fence}`]
+    plain.text = `#m/p1\n${fence}js_input\nan example that is not closed` // an ordinary note: the app cannot run it
+    records.delete('u1')
+    const ringed = apply([...both, act('r1'), act('c1'), act('p1'), act('u1')])[2]
+    plain.runs = runs.runs // the marked item becomes one the app can run
+    check('marks: an item that has a run of its own to offer shows no mark and stays as it is (one the app says it can run; a chat), nor does one the app\'s lookup does not give; a marked item that becomes one gives its reference back',
+      [[runs.count, chat.count, unknown.count], ringed, apply([...both, act('p1')])[2], plain.count], [[0, 0, 0], ['m1', 'm2', 'p1'], ['m1', 'm2'], 0])
+    // WHOSE WORDS THE RING SAYS. Another holder of the item: a reference of its own, and words
+    // it writes (a run the bridge's listing holds on the item, as the listing takes and writes
+    // them; a run of the item's own). In both orders of the two leaving
+    const run = (status, progress) => { m2.running = true; Object.assign(m2, { status, progress }) }
+    run('Reading file x', 0.4)
+    const beside = [apply(both)[1][1], m2.count, m2.progress]
+    m2.running = false // the run is delisted and the listing gives its reference back: the mark stays
+    check('marks: beside a listed run the ring says the run\'s words; when the run has left and the mark\'s reference is the only one, the mark\'s words are back, with no progress',
+      [beside, apply(both)[1][1], m2.count, m2.progress], [['Reading file x', 2, 0.4], words('writing'), 1, 0])
+    run('Reading file y', 0.7)
+    check('marks: when the mark leaves and the run stays, the run keeps its reference, its words and its progress',
+      [apply([both[0]])[2], m2.count, m2.status, m2.progress], [['m1'], 1, 'Reading file y', 0.7])
+    m2.running = false
+    Object.assign(m2, { status: '', progress: 0 })
+    // three holders: the mark, a listed run, and a writer the listing does not name (a run of the
+    // item's own), which wrote last. The listed run leaves first, then the writer
+    apply(both)
+    run('Reading file z', 0.2)
+    run('independent step', 0.74)
+    m2.running = false // the listed run leaves: the listing gives its reference back
+    const survives = [apply(both)[1][1], m2.count, m2.progress]
+    m2.running = false // the writer ends, and leaves its words
+    check('marks: a listed run that leaves while another writer holds the ring leaves that writer\'s words and progress; once the mark\'s reference is the only one, what is there is nobody\'s: the mark writes its own, with no progress',
+      [survives, apply(both)[1][1], m2.count, m2.progress], [['independent step', 2, 0.74], words('writing'), 1, 0])
+    apply([both[0]])
+    // a listed run that shows a progress and no words
+    apply(both)
+    run('', 0.74)
+    const filled = [apply(both)[1][1], apply(both)[1][1], m2.progress]
+    m2.running = false // the run is delisted
+    check('marks: beside a run that shows a progress and no words the ring says the mark\'s words over that fill, which stays while the run does; when the mark\'s reference is the only one again the fill goes, though the words are the mark\'s already',
+      [filled, apply(both)[1][1], m2.count, m2.progress], [[words('writing'), words('writing'), 0.74], words('writing'), 1, 0])
+    apply([both[0]])
+    // a second writer, in both orders with the mark
+    apply(both) // the mark first: its words are on the ring
+    run('Step 2 of 5', 0.4) // then the writer, with newer words and a progress
+    check('marks: a writer that wrote after the mark keeps its words and its progress when the mark ends',
+      [apply([both[0]])[2], m2.count, m2.status, m2.progress], [['m1'], 1, 'Step 2 of 5', 0.4])
+    const under = [apply(both)[0][1], m2.status] // the writer first: the mark is set on its ring
+    Object.assign(m2, { status: '' }) // the writer blanks its words between two steps, and runs on
+    const blanked = [apply(both)[1][1], m2.progress]
+    Object.assign(m2, { status: 'Step 3 of 5', progress: 0.6 }) // and writes its next
+    const next = apply(both)[1][1]
+    m2.running = false // the writer ends, and leaves its words
+    check('marks: a mark set where another writer already speaks leaves those words; where that writer leaves the ring blank the mark writes its own and leaves the progress, which is the writer\'s; the writer\'s next words stand; and when it has gone, what it left is nobody\'s',
+      [under, blanked, next, apply(both)[1][1], m2.count, m2.progress], [[2, 'Step 2 of 5'], [words('writing'), 0.4], 'Step 3 of 5', words('writing'), 1, 0])
+    apply([both[0]])
+    Object.assign(m2, { status: 'left by a run that ended', progress: 0.9 })
+    check('marks: words left on an item that runs for nobody are nobody\'s: the mark writes its own, with no progress, and takes them off when it ends',
+      [apply(both)[1][1], m2.progress, apply([both[0]])[1][1]], [words('writing'), 0, ''])
+    // an item that has no element on the page: the app's getters give null there whatever was
+    // set, and its setters store. The mark goes by what the app's record holds
+    const off = made('o1')
+    for (const prop of ['status', 'progress']) Object.defineProperty(off, prop, { get: () => null, set: value => void (off['_' + prop] = value) })
+    const stored = () => [off._status, off.count]
+    const there = [both[0], act('o1', 'answering')]
+    apply(there)
+    const set = [stored(), held.o1.said]
+    apply([both[0], act('o1', 'editing')])
+    const retitled = stored()
+    apply([both[0]])
+    check('marks: on an item that is not on the screen the mark\'s words are stored, replaced when other words are asked, and taken off at its end',
+      [set, retitled, stored()], [[[words('answering'), 1], words('answering')], [words('editing'), 1], ['', 0]])
+    off.running = true
+    off.status = 'Step 1 of 2' // a writer of the item's own, already there
+    apply(there)
+    const beneath = stored()
+    apply([both[0]])
+    off.running = false
+    check('marks: and a writer\'s words there stand, under the mark and after it', [beneath, stored()], [['Step 1 of 2', 2], ['Step 1 of 2', 0]])
+    // an id that names a property every object inherits, with a record that HAS a prototype (the
+    // code's own has none, below): membership is by the record's own keys
+    const named = made('constructor')
+    const proto = {}
+    const again = listed => { Object.assign(ctx, { __listed: listed, __held: proto, __bridged: new Set() }); vm.runInContext('vault_mark_acting(__listed, __held, __bridged)', ctx); return named.count }
+    check('marks: an item whose id every object carries as a property is an item like any other: one reference, and it is given back',
+      [again([act('constructor')]), again([act('constructor')]), Object.keys(proto), again([])], [1, 1, ['constructor'], 0])
+    delete items.m1
+    check('marks: a marked item that was deleted is forgotten: its count went with it', apply([])[2], [])
+    const marked = (marks, more = {}) => state(listed({ ...watching, ...more, marks }), fresh)
+    check('marks: the sparkle pulses under its watcher while a mark stands and says who is at work on how many items; an answer\'s words come first; with no mark of those shapes it is as it was',
+      [marked([act('a1')]), marked([act('a1'), act('b1', 'editing', 'codex'), act('c1')]).title, marked([act('a1')], { state: 'answering' }).title, marked([]), marked([act('no id!')])],
+      [{ ...shown, busy: true, title: A + ' is working on 1 item' }, A + ' and codex are working on 3 items', A + ' is answering', shown, shown])
+    check('marks: with nobody watching the offer is as it was', state(listed({ state: 'none', marks: [act('a1')] }), fresh), offer)
+    // the controller: the page's #vault with a store of its own; `said` is its word on the window
+    // after an application of the marks (for the #todoer item, which holds an alert by its list)
+    const said = []
+    win.dispatchEvent = event => void said.push(event.type)
+    const page_event = { Event: class { constructor(type) { this.type = type } } }
+    const acting = { store: { _bridge: { host: 'test-host', watcher: { ...watching, marks: [act('m2', 'answering')] } } }, tasks: {} }
+    const a1 = evaluation(1, 'vault2-id', acting, page_event)
+    const kept = code => JSON.parse(JSON.stringify(a1(code)))
+    const applied = () => JSON.parse(JSON.stringify(win._vault_sparkle?.acts ?? null))
+    a1('_on_welcome()')
+    const spark = parts('node')[0]
+    check('marks: the page\'s welcome puts the ring and its words on the marked item, and the sparkle pulses with its own; the controller keeps the list it applied and says so once; this tab\'s record has no prototype',
+      [m2.count, m2.status, spark.classes.has('answering'), spark.title, kept('Object.keys(_this.store._vault_acting)'), applied(), said, a1('Object.getPrototypeOf(_this.store._vault_acting)')],
+      [1, words('answering'), true, A + ' is working on 1 item', ['m2'], [act('m2', 'answering')], ['vault-agent-marks'], null])
+    acting.store._bridge.watcher.marks = [act('m2', 'answering'), act('n9')]
+    a1('_on_global_store_change(_this.id)')
+    const before = [m2.count, kept('Object.keys(_this.store._vault_acting)'), applied().map(mark => mark.id), said.length]
+    const n9 = made('n9')
+    a1("_on_item_change('n9', '#m/n9', '', false, true, false)")
+    check('marks: an item marked before it is created is in the controller\'s list from the listing\'s delivery, and takes its ring when it arrives (nothing ended, so no word)', [before, n9.count, n9.status, spark.title, said.length],
+      [[1, ['m2'], ['m2', 'n9'], 2], 1, words('writing'), A + ' is working on 2 items', 2])
+    acting.store._bridge.runs = { r1: { item: 'm2', persona: 'p', started: T, status: 'Reading file x' } }
+    a1('_on_global_store_change(_this.id)')
+    const listed_run = [m2.count, m2.status]
+    delete acting.store._bridge.runs
+    a1('_on_global_store_change(_this.id)')
+    check('marks: at a store change the listing\'s run and the mark share the ring by that rule: the run\'s words while it is listed, and the mark\'s again at the delivery that delists it (the listing gives its reference back before the marks are looked at)',
+      [listed_run, m2.count, m2.status], [[2, 'Reading file x'], 1, words('answering')])
+    // ONE delivery ends the listed run and the mark beside it (the bridge publishes its runs and
+    // the marks in one snapshot); and the same while a writer of the item's own, which wrote
+    // last, runs on
+    const listing = acting.store._bridge
+    const [marks_then, ended_marks] = [listing.watcher.marks, [act('n9')]]
+    const shown_for = () => kept('Object.keys(_this.store._vault_shown ?? {})')
+    listing.runs = { r1: { item: 'm2', persona: 'p', started: T, status: 'Reading file y' } }
+    a1('_on_global_store_change(_this.id)')
+    const beside_run = [m2.count, m2.status, shown_for()]
+    delete listing.runs
+    listing.watcher.marks = ended_marks
+    a1('_on_global_store_change(_this.id)')
+    const both_ended = [m2.count, m2.status, m2.progress, shown_for()]
+    Object.assign(listing, { runs: { r1: { item: 'm2', persona: 'p', started: T, status: 'Reading file z' } } }).watcher.marks = marks_then
+    a1('_on_global_store_change(_this.id)')
+    m2.running = true
+    Object.assign(m2, { status: 'independent step', progress: 0.74 })
+    delete listing.runs
+    listing.watcher.marks = ended_marks
+    a1('_on_global_store_change(_this.id)')
+    check('marks: a delivery that ends a listed run and the mark beside it leaves nothing of the run: no reference, no words in the app\'s record, no clearing put off; a writer that runs on keeps its words and its progress',
+      [beside_run, both_ended, [m2.count, m2.status, m2.progress]], [[2, 'Reading file y', ['m2']], [0, '', 0, []], [1, 'independent step', 0.74]])
+    m2.running = false
+    Object.assign(m2, { status: '', progress: 0 })
+    listing.watcher.marks = marks_then
+    a1('_on_global_store_change(_this.id)')
+    const words_at_stale = said.length
+    status._global_store._status.hosts = at(T - 4 * 60000)
+    a1("_on_global_store_change('status-id')")
+    const stale = [m2.count, n9.count, m2.status, n9.status, kept('Object.keys(_this.store._vault_acting)'), applied(), said.length - words_at_stale]
+    status._global_store._status.hosts = fresh
+    a1("_on_global_store_change('status-id')")
+    check('marks: a bridge that is not fresh shows none, the references and the words given back and the list empty, with the controller\'s word; fresh again, they are there again', [stale, m2.count, n9.count, n9.status],
+      [[0, 0, '', '', [], [], 1], 1, 1, words('writing')])
+    delete acting.store._bridge.watcher.marks
+    const words_before = said.length
+    a1('_on_global_store_change(_this.id)')
+    check('marks: a listing without them gives the rings back, says so, and the sparkle is the watcher\'s again', [m2.count, n9.count, said.length - words_before, spark.classes.has('answering'), spark.title], [0, 0, 1, false, shown.title])
+    acting.store._bridge.watcher.marks = [act('m2')]
+    a1('_on_global_store_change(_this.id)')
+    items['vault2-id'].name = '#vault_gone'
+    a1('_on_focus()')
+    check('marks: an item that is no longer the page\'s #vault gives its references back with its sparkle', [m2.count, parts('node').length, kept('Object.keys(_this.store._vault_acting)')], [0, 0, []])
+    items['vault2-id'].name = '#vault'
+    // the controller's end with marks standing: an update of the item's code, then its deletion
+    acting.store._bridge.watcher.marks = [act('m2'), act('n9')]
+    a1('_on_focus()')
+    const a2 = evaluation(2, 'vault2-id', acting, page_event)
+    const words_at_update = said.length
+    a2("_on_item_change('vault2-id', '#vault', '#vault', false, true, false)")
+    check('marks: a controller that replaces another (an update of the item\'s code) holds one reference for each mark, the earlier one\'s given back: the earlier one says so at its end, and when that hook returns the list is the marks again',
+      [m2.count, n9.count, kept('Object.keys(_this.store._vault_acting)'), said.length - words_at_update, applied().map(mark => mark.id)], [1, 1, [], 2, ['m2', 'n9']])
+    n9.running = true // a second holder of that item: a run of its own
+    const words_at_end = said.length
+    acting.tasks.sparkle._on_cancel() // the item is deleted: the app cancels its task, and no hook of the item runs again
+    const ended = [m2.count, n9.count, m2.status, n9.status, parts('node').length, JSON.parse(JSON.stringify(a2('Object.keys(_this.store._vault_acting)'))), said.length - words_at_end]
+    acting.tasks.sparkle._on_cancel()
+    check('marks: the end of a controller whose item was deleted gives every reference of a mark back, once, takes the words off and says so: another holder\'s reference stays',
+      [ended, m2.count, n9.count], [[0, 1, '', '', 0, [], 1], 0, 1])
+    n9.running = false
+    for (const seam of ['dispatchEvent', '__item']) delete win[seam]
+  }
   // the command's transport: one retry at the same document id, then said
   ;(async () => {
     // ---- slice 6: the controller over the same fake page, for the page's #vault (vault2-id):

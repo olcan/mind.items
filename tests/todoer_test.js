@@ -168,7 +168,9 @@ const picked =
     '_item_visible',
     '_item_preview',
     '_item_notify_step',
+    '_agent_marked',
     '_notify_item',
+    '_notify_unmarked',
     '_notify_items',
     '_on_item_change',
     '_state_key',
@@ -1324,6 +1326,143 @@ context.__todos.ni5 = make_item('ni5', '#todo stamped todo\nSecond line', 'h_ni5
 context._todoer._global_store._agent.wrote.ni5 = { by: 'claude', at: ITEM_NOW - 10, hash: 'h_ni5' }
 _on_global_store_change('todoer', true)
 check('item hook: stamped #todo with app label #todo notifies [item] stamped todo and second line', [notified.length - item_notified_before, notified[notified.length - 1].title, notified[notified.length - 1].options.body], [8, '[item] stamped todo', 'Second line'])
+// 12. an agent's mark on the item (the ring the #vault item puts on an item an agent is about to
+// act on; the vault's docs/mind_marks.md): an alert that is due waits while the item is in the
+// list of marks the #vault item's controller has applied, and comes ONCE, after the ring has
+// gone. COMPOSED: the #vault item's own code for the marks (vault.md: its reading of the
+// listing, its references on the items, its one application and its word on the window) beside
+// this item's hooks and the listener its welcome registers, in BOTH orders in which the app can
+// call the two items' hooks at one delivery (one turn: its microtasks run when the hooks have
+// returned). The sink records whether the item had its ring when an alert was shown
+{
+  const vault_code = fs.readFileSync(path.join(__dirname, '..', 'vault.md'), 'utf8').match(/```js:js_removed\n([\s\S]*?)\n```/)[1]
+  const vault_part = pattern => {
+    const found = vault_code.match(pattern)
+    if (!found) throw new Error(`vault.md: no ${pattern}`)
+    return found[0]
+  }
+  const vault_marks_code =
+    ['VAULT_FOLLOW_ID', 'VAULT_AGENT_MARKS', 'VAULT_MARK_WHAT', 'VAULT_MARK_NAME'].map(name => vault_part(new RegExp(`\\nconst ${name} = [^\\n]*\\n`))).join('') +
+    vault_part(/\nconst vault_agent_marks = [\s\S]*?\n\}\n/) +
+    ['vault_record', 'vault_markable', 'vault_mark_acting', 'vault_unmark_acting', 'vault_say', 'vault_apply_marks', 'vault_marks_applied'].map(name => vault_part(new RegExp(`\\nfunction ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}\\n`))).join('')
+  // the page's window: this item's welcome registers its listener there, and the #vault item's word arrives on it
+  const bus = new EventTarget()
+  const saved_window = { add: context.window.addEventListener, notifier: context.window._todoer_notifier }
+  context.window._todoer_notifier = false
+  context.window.addEventListener = (type, fn) => void (type == 'vault-agent-marks' && bus.addEventListener(type, fn))
+  context.window.dispatchEvent = event => bus.dispatchEvent(event)
+  // the page's microtasks, run at the end of a turn
+  const micro = []
+  context.queueMicrotask = fn => void micro.push(fn)
+  const turn = (...hooks) => { for (const hook of hooks) hook(); while (micro.length) micro.shift()() }
+  _start_notifier() // (a welcome: every stamp there is counts as seen)
+  context.window.addEventListener = saved_window.add
+  context.window.__item = id => context.__todos[id]?.record ?? null // the app's own lookup of an item's record, by its own id
+  const vault_ctx = vm.createContext({ _item: ref => context._item(ref), keys: Object.keys, entries: Object.entries, _: { escape: text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`) }, window: context.window, Event, console })
+  vm.runInContext(vault_marks_code, vault_ctx)
+  const acting = Object.create(null) // this tab's record of the references (the #vault item's store keeps it across its controllers)
+  const controller = () => (context.window._vault_sparkle = { item: 'vault-x', acts: [], acting }) // a controller, as far as the marks go
+  let [self, listing] = [controller(), null]
+  const apply = (to, code) => { vault_ctx.__self = to; vm.runInContext(`vault_apply_marks(__self, ${code})`, vault_ctx) }
+  const applied = watcher => { Object.assign(vault_ctx, { __watcher: (listing = watcher) }); apply(self, 'vault_agent_marks(__watcher)') }
+  const reapplied = () => apply(self, '__self.acts') // an item changed: the same list again
+  // an update of the #vault item's code, as its vault_sparkle_reconcile replaces a controller: the
+  // earlier one ends (no mark is its, and it says so), the next one looks at the same listing
+  const replaced = () => { apply(self, '[]'); self = controller(); applied(listing) }
+  // an item of the page with the app's running count, which the #vault item's references go to
+  const live = (id, text, hash, options) => {
+    const item = make_item(id, text, hash, options)
+    let count = 0
+    Object.defineProperty(item, 'running', { get: () => count > 0, set: on => void (count += on ? 1 : -1) })
+    const record = { get status() { return item.status }, get running() { return count }, runnable: null }
+    return Object.assign(item, { status: '', progress: 0, dependencies: [], rings: () => count, record })
+  }
+  const marked_base = notified.length
+  const alerts = () => notified.length - marked_base
+  const waits = () => [...(context._todoer.store.item_marked ?? [])]
+  const rung = [] // at each alert: the alerted item's running count then
+  const plain_push = notified.push
+  notified.push = function (note) { rung.push(context.__todos[String(note.options.tag).replace('todoer:', '')]?.rings?.() ?? context._item(String(note.options.tag).replace('todoer:', ''))?.rings?.() ?? null); return plain_push.call(this, note) }
+  const stamp = (id, hash, at) => (context._todoer._global_store._agent.wrote[id] = { by: 'claude', at, hash })
+  const mark = id => ({ id, name: 'claude', what: 'writing' })
+  // one delivery to both items, in the order given: the app calls the hooks of the items that listen in item order, in one turn
+  const both = (order, todoer_hook, vault_hook) => turn(...(order == 'todoer first' ? [todoer_hook, vault_hook] : [vault_hook, todoer_hook]))
+  for (const [n, order] of ['todoer first', 'vault first'].entries()) {
+    const [here, made] = [`mk${n}a`, `mk${n}b`]
+    // an item that is there, marked; its final text and stamp arrive; the #vault item's code is updated; then the listing without the mark
+    context.__todos[here] = live(here, '#marked\nFinal text.', 'h_' + here, { label: '#marked_' + n })
+    turn(() => applied({ marks: [mark(here)] }))
+    const before = [alerts(), context.__todos[here].rings()]
+    stamp(here, 'h_' + here, ITEM_NOW - 9)
+    turn(() => _on_global_store_change('todoer', true))
+    turn(() => _on_item_change(here, '#marked', '#marked', false, true, false))
+    turn(_scan_notify)
+    const held_alert = [alerts(), context._todoer.store.item_seen[here], waits()]
+    turn(replaced)
+    const updated = [alerts(), context.__todos[here].rings(), context._todoer.store.item_seen[here], waits()]
+    both(order, () => _on_global_store_change('vault-x', true), () => applied({ marks: [] }))
+    const ended = [alerts(), rung.at(-1), context.__todos[here].rings(), context._todoer.store.item_seen[here], waits()]
+    turn(() => _on_global_store_change('todoer', true))
+    turn(() => _on_item_change(here, '#marked', '#marked', false, true, false), reapplied)
+    turn(_scan_notify)
+    check(`item mark (${order}): the stamp of a marked item alerts nothing while its ring stands, at every trigger, is not seen, and waits; the delivery that ends the mark alerts ONCE, after the ring has gone; no trigger alerts again`,
+      [before, held_alert, ended, alerts()], [[2 * n, 1], [2 * n, undefined, [here]], [2 * n + 1, 0, 0, ITEM_NOW - 9, []], 2 * n + 1])
+    check(`item mark (${order}): an update of the #vault item's code while the mark stands (its controller ends and the next one shows the same marks, in one turn) alerts nothing: the ring is there, the stamp unseen and waiting`,
+      updated, [2 * n, 1, undefined, [here]])
+    // an item marked before it exists: the listing names its id, the stamp arrives, then the item, then the listing without the mark
+    turn(() => applied({ marks: [mark(made)] }))
+    stamp(made, 'h_' + made, ITEM_NOW - 8)
+    turn(() => _on_global_store_change('todoer', true))
+    context.__todos[made] = live(made, '#made\nFinal text.', 'h_' + made, { label: '#made_' + n })
+    both(order, () => _on_item_change(made, '#made', '', false, true, false), reapplied)
+    const arrived = [alerts(), context.__todos[made].rings(), waits()]
+    both(order, () => _on_global_store_change('vault-x', true), () => applied({ marks: [] }))
+    check(`item mark (${order}): an item marked before it exists alerts nothing through its arrival, where it takes its ring, and ONCE after the ring has gone`,
+      [arrived, alerts(), rung.at(-1), context.__todos[made].rings()], [[2 * n + 1, 1, [made]], 2 * n + 2, 0, 0])
+  }
+  // a bridge that is not fresh: the #vault item applies an empty list at its own look, with no delivery to this item
+  context.__todos.mk_stale = live('mk_stale', '#marked_stale\nFinal text.', 'h_stale', { label: '#marked_stale' })
+  turn(() => applied({ marks: [mark('mk_stale')] }))
+  stamp('mk_stale', 'h_stale', ITEM_NOW - 7)
+  turn(() => _on_global_store_change('todoer', true))
+  const stale_held = alerts()
+  turn(() => applied(null))
+  check('item mark: marks that the #vault item shows no longer (a bridge that is not fresh) hold nothing: its word alone brings the alert, after the ring', [stale_held, alerts(), rung.at(-1)], [4, 5, 0])
+  // an item this tab created: the list and the stamp name its saved id
+  context.__todos.tmpm = live('tmpm', '#marked_local\nFinal text.', 'h_local', { saved_id: 'savedm', label: '#marked_local' })
+  turn(() => applied({ marks: [mark('savedm')] }))
+  stamp('savedm', 'h_local', ITEM_NOW - 6)
+  turn(() => _on_item_change('tmpm', '#marked_local', '#marked_local', false, true, false))
+  const local_held = [alerts(), context.__todos.tmpm.rings(), waits()]
+  turn(() => applied({ marks: [] }))
+  check('item mark: a marked item this tab holds under a temporary id waits and alerts the same way', [local_held, alerts(), rung.at(-1), notified.at(-1).options.tag], [[5, 1, ['savedm']], 6, 0, 'todoer:savedm'])
+  // a stamp that waits and is in the map no longer (newer writes took its place there): it waits no more
+  context.__todos.mk_gone = live('mk_gone', '#marked_gone\nFinal text.', 'h_gone', { label: '#marked_gone' })
+  turn(() => applied({ marks: [mark('mk_gone')] }))
+  stamp('mk_gone', 'h_gone', ITEM_NOW - 5)
+  turn(() => _on_global_store_change('todoer', true))
+  const gone_held = waits()
+  delete context._todoer._global_store._agent.wrote.mk_gone
+  turn(() => applied({ marks: [] }))
+  check('item mark: a stamp that waited and is in the map no longer is forgotten at the next decision, with no alert', [gone_held, waits(), alerts()], [['mk_gone'], [], 6])
+  // no mark: an item that merely runs, while another item is marked, alerts at once; and so does every item on a page whose #vault item applies no marks
+  context.__todos.mk_runs = live('mk_runs', '#unmarked\nFinal text.', 'h_runs', { label: '#unmarked' })
+  context.__todos.mk_runs.running = true
+  turn(() => applied({ marks: [mark('mk0a')] }))
+  stamp('mk_runs', 'h_runs', ITEM_NOW - 5)
+  turn(() => _on_global_store_change('todoer', true))
+  const unmarked = [alerts(), notified.at(-1).title]
+  delete context.window._vault_sparkle
+  stamp('mk0a', 'h_mk0a', ITEM_NOW - 4)
+  turn(() => _on_global_store_change('todoer', true))
+  check('item mark: an item that carries no mark alerts at once, though it runs and another item is marked; so does a marked item on a page whose #vault item keeps no list', [unmarked, alerts()], [[7, '[item] #unmarked'], 8])
+  notified.push = plain_push
+  for (const k of ['mk0a', 'mk0b', 'mk1a', 'mk1b', 'mk_stale', 'tmpm', 'mk_gone', 'mk_runs']) delete context.__todos[k]
+  delete context._todoer.store.item_marked
+  for (const k of ['dispatchEvent', '__item']) delete context.window[k]
+  delete context.queueMicrotask
+  context.window._todoer_notifier = saved_window.notifier
+}
 for (const k of ['pre1', 'c1', 'c2', 'e1', 'e2', 'tmp9', 'm1', 'del1', 's_old', 's_fut', 'o1', 'off1', 'ni5']) delete context.__todos[k]
 ;[context._todoer.store.notify_seen, context._todoer.store.snooze_seen, context._todoer.store.reply_seen] = saved_seen_tables
 context.__items = saved_items_for_welcome
@@ -1375,7 +1514,7 @@ const A = window_of('tab-a', shared)
 const B = window_of('tab-b', shared)
 A.start()
 B.start()
-check('two windows: the listeners installed once each (focus, pointerdown, keydown, pagehide, the minute task)', [Object.keys(A.listeners).sort(), Object.keys(B.listeners).sort()], [['focus', 'keydown', 'notifier', 'pagehide', 'pointerdown'], ['focus', 'keydown', 'notifier', 'pagehide', 'pointerdown']])
+check('two windows: the listeners installed once each (focus, pointerdown, keydown, pagehide, the #vault item\'s word on its marks, the minute task)', [Object.keys(A.listeners).sort(), Object.keys(B.listeners).sort()], [['focus', 'keydown', 'notifier', 'pagehide', 'pointerdown', 'vault-agent-marks'], ['focus', 'keydown', 'notifier', 'pagehide', 'pointerdown', 'vault-agent-marks']])
 context.__now = 100_000
 A.listeners.focus()
 check('two windows: the focused window claims', JSON.parse(storage.get(NOTIFIER_KEY)).id, 'tab-a')
@@ -10308,6 +10447,7 @@ check('sideways: mostly up or down does not', [_sideways(0, HGRAB_RADIUS), _side
               '_notify_setting', '_notify_gate', '_state_key', '_checked_in', '_notify_todo', '_notify_show',
               '_notify_show_page', '_notify_result', '_notification_of', '_notify_reply', '_vault_replies',
               '_reply_raw', '_reply_line', '_item_writes', '_notify_items', '_notify_item', '_item_stamp', '_notify_line',
+              '_agent_marked', '_notify_unmarked',
             ]).join('\n')
           const root = new DomNode('html')
           const head = root.appendChild(new DomNode('head'))

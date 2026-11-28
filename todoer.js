@@ -33,7 +33,10 @@ const _todoer = _item('$id')
 //   agent's reply (`reply`), and when an agent creates or edits an item with the item tool (`item`,
 //   stamped into the todoer's own store; when a tab opens, it skips writes it already knows about,
 //   and a tab that opens from its cache can still notify you about a recent write that arrives
-//   afterward): one per device, from the window you used last, shown through the app's service
+//   afterward; for an item that carries an agent's mark, the ring the `#vault` item puts on an
+//   item an agent is about to act on, the notification waits until that ring has gone, so it
+//   never comes for an item that is still being written): one per device, from the window you
+//   used last, shown through the app's service
 //   worker so it outlives a page reload (falling back to a page notification when no worker with
 //   click relay is active), kept on screen until you click it (the click focuses the window that
 //   takes it — waiting if a window is reloading — or opens the app and selects the item or chat);
@@ -3958,10 +3961,31 @@ function _item_notify_step({ at, hash, prev, item_hash, now, setting, permission
   return _notify_gate({ setting, reason: 'item', permission })
 }
 
+// whether an agent's mark is on the item in this tab, or about to be (the vault's
+// docs/mind_marks.md): the ring an agent puts on an item it is about to act on, which the #vault
+// item shows from the bridge's listing. The owner's word on it: "no need to trigger notification
+// for an item until it is finalized and the running indicator is removed". An agent's final
+// write ends the mark and then stamps, but the two reach a tab through two stores, in either
+// order, and the app calls the two items' hooks in an order of its own. So the alert goes by
+// what the #vault item's controller has APPLIED: the list of marks it shows or is about to show
+// (vault.md, vault_apply_marks: `acts`, by saved id, an item that has not arrived on the page
+// yet among them). An alert that waits is decided again after the controller's word that its
+// list is another (_notify_unmarked). An item that merely runs carries no mark, and a page
+// whose #vault item shows no marks (an earlier one, none installed, a bridge that is not
+// fresh) has an empty list or none
+function _agent_marked(item) {
+  const acts = typeof window != 'undefined' ? window._vault_sparkle?.acts : null
+  return Array.isArray(acts) && acts.some(act => !!act && act.id === (item.saved_id ?? item.id))
+}
+
 // one entry in `_todoer._global_store._agent.wrote` compared with what this tab saw and holds:
 // 'pending' records nothing so a later item arrival, store delivery or minute scan decides again;
-// every other decision records `at` as seen by this tab; 'notify' pops an alert from the device's
-// elected window under `item`; returns the step
+// an alert that is due for an item an agent's mark is on (_agent_marked, asked only then) is
+// 'marked': nothing is recorded as seen either, and the id is noted as waiting for its mark's
+// end (`item_marked`, this tab's), which the #vault item's word decides again
+// (_notify_unmarked), as does every trigger of a pending one, and noted no longer once it is
+// decided otherwise, whatever the decision; every other decision records `at` as seen by this
+// tab; 'notify' pops an alert from the device's elected window under `item`; returns the step
 function _notify_item(id, item = null) {
   const seen = _todoer.store.item_seen
   if (!seen) return 'baseline'
@@ -3979,13 +4003,31 @@ function _notify_item(id, item = null) {
     setting: _todoer._global_store?.notify,
     permission: _notify_permission(),
   })
+  // (a stamp that newer writes pushed out of the map while it waited is among those)
+  const held = step == 'notify' && _agent_marked(item)
+  if (held) (_todoer.store.item_marked ??= new Set()).add(id)
+  else _todoer.store.item_marked?.delete(id)
   if (step == 'no stamp' || step == 'seen' || step == 'pending') return step
+  if (held) return 'marked'
   seen[id] = at
   if (step != 'notify') return step
   if (!_notifier_elected()) return 'another window'
   const { shown, body } = _item_preview(item)
   const facts = { reason: 'item', shown, label: null, parent: null, id: item.saved_id ?? item.id, body }
   return _notify_result(_notify_show(facts, () => _notify_click(item.id)))
+}
+
+// the alerts that wait for an agent's mark to end (_notify_item's 'marked'), decided again: the
+// #vault item's controller says so on the window each time the list it applied is another
+// (`vault-agent-marks`, heard since this tab's welcome: _start_notifier). The deciding waits for
+// the end of that turn (a microtask): an update of the #vault item's code ends its controller,
+// which says that it shows no mark, and makes the next, which shows the same marks again, all
+// in one turn; the list is read when the turn has settled. With none waiting nothing is looked
+// up
+function _notify_unmarked() {
+  const waits = _todoer.store.item_marked
+  if (!waits?.size) return
+  for (const id of [...waits]) _notify_item(id)
 }
 
 // every entry in `_todoer._global_store._agent.wrote` decided (the todoer's store hook and the
@@ -5446,6 +5488,7 @@ function _start_notifier() {
     document.addEventListener('pointerdown', () => void _claim_notifier(), { capture: true, passive: true })
     document.addEventListener('keydown', () => void _claim_notifier(), true)
     window.addEventListener('pagehide', () => void _release_notifier())
+    window.addEventListener('vault-agent-marks', () => void queueMicrotask(_notify_unmarked)) // an agent's marks were applied: the alerts that waited for one, once the turn has settled
     if (document.hasFocus()) _claim_notifier()
   }
   _start_windows()
